@@ -436,6 +436,56 @@ describe("EmailList keyboard navigation interactions", () => {
     });
   });
 
+  it("keeps the ranked order while refreshed scores change", async () => {
+    mocks.view = "inbox";
+    const inboxEmails = messages.map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
+    mocks.priorityRequest
+      .mockResolvedValueOnce({
+        scores: inboxEmails.map((email) => ({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          score: email.id === "first" ? 0.9 : email.id === "middle" ? 0.6 : 0.1,
+        })),
+      })
+      .mockResolvedValueOnce({
+        scores: [
+          {
+            emailId: "first",
+            accountEmail: "synthetic@example.test",
+            score: 0.1,
+          },
+        ],
+      });
+
+    const { rerender } = render(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject first"),
+    );
+
+    rerender(
+      <Harness
+        emails={inboxEmails.map((email) =>
+          email.id === "first" ? { ...email, subject: "Updated first" } : email,
+        )}
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+    await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Updated first"),
+    );
+
+    expect(rows()[0].textContent).toContain("Updated first");
+    expect(rows()[1].textContent).toContain("Subject middle");
+    expect(rows()[2].textContent).toContain("Subject last");
+  });
+
   it("does not roll back a newer priority vote when an older vote fails", async () => {
     mocks.view = "inbox";
     const inboxEmails = messages.map((email) => ({

@@ -86,9 +86,12 @@ describe("manage-email-rules chat action", () => {
       ownerEmail,
       expect.objectContaining({ domain: "mail", kind: "ai-filter" }),
     );
-    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
-      "rule-1",
-    ]);
+    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(
+      ownerEmail,
+      ["rule-1"],
+      { alreadyAuthorized: true },
+    );
+    expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       id: "rule-1",
       mode: "tag",
@@ -148,13 +151,7 @@ describe("manage-email-rules chat action", () => {
     });
   });
 
-  it("returns per-rule counts when the backfill has started", async () => {
-    mocks.readMailAiFilterBackfill.mockResolvedValue({
-      runId: "run-1",
-      status: "running",
-      perRule: [{ ruleId: "rule-1", name: "Newsletters", appliedCount: 2 }],
-    });
-
+  it("returns the queued start result without reading status again", async () => {
     const action = createManageEmailRulesAction(true);
     const result = await action.run({
       action: "create",
@@ -163,12 +160,16 @@ describe("manage-email-rules chat action", () => {
       actions: JSON.stringify([{ type: "label", labelName: "Newsletters" }]),
     });
 
+    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(
+      ownerEmail,
+      ["rule-1"],
+      { alreadyAuthorized: true },
+    );
+    expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      appliedCounts: [
-        { ruleId: "rule-1", name: "Newsletters", appliedCount: 2 },
-      ],
+      appliedCounts: null,
       backfillRunId: "run-1",
-      backfillStatus: "running",
+      backfillStatus: "queued",
     });
   });
 
@@ -205,9 +206,11 @@ describe("manage-email-rules chat action", () => {
         actions: [{ type: "archive" }],
       }),
     );
-    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
-      "rule-1",
-    ]);
+    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(
+      ownerEmail,
+      ["rule-1"],
+      { alreadyAuthorized: true },
+    );
     expect(result).toMatchObject({ mode: "archive", operation: "update" });
   });
 
@@ -236,13 +239,12 @@ describe("manage-email-rules chat action", () => {
       condition: "from the team about planning",
     });
 
-    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
-      "rule-1",
-    ]);
-    expect(mocks.readMailAiFilterBackfill).toHaveBeenCalledWith(
+    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(
       ownerEmail,
-      "run-1",
+      ["rule-1"],
+      { alreadyAuthorized: true },
     );
+    expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       operation: "update",
       backfillRunId: "run-1",

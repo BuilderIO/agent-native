@@ -71,6 +71,7 @@ const messages = {
       aiSetupArchiveExample: "GitHub, Vercel, Dependabot의 봇 및 CI 알림",
       aiSetupFilteredExample: "답장하지 않은 영업 메일과 채용 담당자 메시지",
       aiSetupSortingHeadline: "받은편지함을 정리하고 있어요",
+      aiSetupFindingRecentMail: "최근 메일을 찾는 중…",
       aiSetupSortingProgress:
         "최근 메일 정리 중: {{total}}개 중 {{processed}}개",
       aiSetupUndoing: "받은편지함 변경을 되돌리고 있어요…",
@@ -583,6 +584,9 @@ const messages = {
       askJevPrompt:
         "이 Mail 규칙을 다듬어 주세요: {{condition}}. 무엇을 바꾸고 싶은지 물어본 다음 업데이트해 주세요.",
       composerPlaceholder: "Jev에게 받은편지함 정리를 요청하세요…",
+      chatSuggestionFilter: "이런 메시지 필터링",
+      chatSuggestionPriority: "다음 발신자의 이메일 우선순위 지정…",
+      chatSuggestionArchive: "봇 알림 자동 보관",
       ruleBackfillStarting: "이 규칙을 최근 메일에 적용하고 있어요…",
       ruleBackfillProgress:
         "최근 메일에 적용 중: {{total}}개 중 {{processed}}개",

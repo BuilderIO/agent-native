@@ -76,6 +76,7 @@ const messages = {
       aiSetupFilteredExample:
         "Kalte Verkaufsakquise und Recruiter, denen ich noch nicht geantwortet habe",
       aiSetupSortingHeadline: "Dein Posteingang wird sortiert",
+      aiSetupFindingRecentMail: "Aktuelle E-Mails werden gesucht…",
       aiSetupSortingProgress:
         "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
       aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",
@@ -601,6 +602,9 @@ const messages = {
       askJevPrompt:
         "Hilf mir, diese Mail-Regel zu verfeinern: {{condition}}. Frag mich, was ich ändern möchte, und aktualisiere sie dann.",
       composerPlaceholder: "Bitte Jev, deinen Posteingang zu organisieren…",
+      chatSuggestionFilter: "Ähnliche Nachrichten herausfiltern",
+      chatSuggestionPriority: "E-Mails von … priorisieren",
+      chatSuggestionArchive: "Bot-Benachrichtigungen automatisch archivieren",
       ruleBackfillStarting: "Diese Regel wird auf aktuelle E-Mails angewendet…",
       ruleBackfillProgress:
         "Aktuelle E-Mails: {{processed}} von {{total}} bearbeitet",

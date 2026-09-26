@@ -72,6 +72,7 @@ const messages = {
       aiSetupFilteredExample:
         "अनचाहे बिक्री संदेश और वे रिक्रूटर जिन्हें मैंने जवाब नहीं दिया",
       aiSetupSortingHeadline: "आपका इनबॉक्स व्यवस्थित हो रहा है",
+      aiSetupFindingRecentMail: "हाल के ईमेल ढूँढे जा रहे हैं…",
       aiSetupSortingProgress:
         "हाल के मेल व्यवस्थित हो रहे हैं: {{total}} में से {{processed}}",
       aiSetupUndoing: "इनबॉक्स में किए बदलाव वापस हो रहे हैं…",
@@ -582,6 +583,9 @@ const messages = {
       askJevPrompt:
         "इस Mail नियम को बेहतर बनाने में मेरी मदद करें: {{condition}}। पूछें कि मैं क्या बदलना चाहता हूँ, फिर इसे अपडेट करें।",
       composerPlaceholder: "Jev से अपना इनबॉक्स व्यवस्थित करने को कहें…",
+      chatSuggestionFilter: "ऐसे संदेश फ़िल्टर करें",
+      chatSuggestionPriority: "इनसे आने वाले ईमेल को प्राथमिकता दें…",
+      chatSuggestionArchive: "बॉट सूचनाओं को अपने-आप संग्रहित करें",
       ruleBackfillStarting: "यह नियम हाल के मेल पर लागू हो रहा है…",
       ruleBackfillProgress:
         "हाल के मेल पर लागू हो रहा है: {{total}} में से {{processed}}",

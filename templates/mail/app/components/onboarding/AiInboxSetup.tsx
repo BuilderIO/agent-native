@@ -140,7 +140,6 @@ function SetupResults({
   onUndo,
   onReview,
   onTeach,
-  onDone,
 }: {
   status: AiFilterBackfillStatus | undefined;
   loading: boolean;
@@ -150,7 +149,6 @@ function SetupResults({
   onUndo: (undoToken: string) => Promise<void>;
   onReview: () => void;
   onTeach: () => void;
-  onDone: () => void;
 }) {
   const t = useT();
   const previews = useMemo(() => {
@@ -185,16 +183,18 @@ function SetupResults({
     }
     return [...byHref.values()];
   }, [status?.perRule, reviewDestinationsByRuleId]);
-  const percent =
-    status && status.totalThreads > 0
-      ? Math.min(100, (status.processedThreads / status.totalThreads) * 100)
-      : 0;
+  const total = status?.totalThreads ?? 0;
+  const processed = status?.processedThreads ?? 0;
+  const totalKnown = total > 0;
+  const percent = totalKnown ? Math.min(100, (processed / total) * 100) : null;
   const running =
     loading ||
     status?.status === "queued" ||
     status?.status === "running" ||
     status?.status === "undoing";
   const undone = status?.status === "undone";
+  const hasFailed =
+    status?.status === "failed" || (!status && !loading && hasRun && failed);
 
   return (
     <div className="space-y-5">
@@ -205,10 +205,12 @@ function SetupResults({
             <p className="text-sm font-medium">
               {status?.status === "undoing"
                 ? t("mail.sort.aiSetupUndoing")
-                : t("mail.sort.aiSetupSortingProgress", {
-                    processed: status?.processedThreads ?? 0,
-                    total: status?.totalThreads ?? 0,
-                  })}
+                : totalKnown
+                  ? t("mail.sort.aiSetupSortingProgress", {
+                      processed,
+                      total,
+                    })
+                  : t("mail.sort.aiSetupFindingRecentMail")}
             </p>
           </div>
           <Progress
@@ -219,7 +221,7 @@ function SetupResults({
           />
         </div>
       ) : null}
-      {status?.status === "failed" || failed ? (
+      {hasFailed ? (
         <p role="alert" className="text-sm text-destructive">
           {t("mail.sort.aiSetupSortingFailed")}
         </p>
@@ -310,11 +312,6 @@ function SetupResults({
           ))}
         </div>
       ) : null}
-      {!status && !loading && hasRun && failed ? (
-        <p role="alert" className="text-sm text-destructive">
-          {t("mail.sort.aiSetupSortingFailed")}
-        </p>
-      ) : null}
       {!status && !loading && !hasRun ? (
         <div className="rounded-xl border border-border/70 bg-muted/30 p-4 text-sm">
           <p className="font-medium">{t("mail.sort.aiSetupNoRules")}</p>
@@ -324,7 +321,13 @@ function SetupResults({
         <p className="text-xs text-muted-foreground">
           {t("mail.sort.aiSetupChatTip")}
         </p>
-        <Button type="button" variant="link" size="sm" onClick={onTeach}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-full"
+          onClick={onTeach}
+        >
           {t("mail.sort.aiSetupChatPrompt")}
         </Button>
       </div>
@@ -353,9 +356,6 @@ function SetupResults({
           ) : null}
         </div>
       ) : null}
-      <div className="flex justify-end">
-        <Button onClick={onDone}>{t("mail.sort.aiSetupDone")}</Button>
-      </div>
     </div>
   );
 }
@@ -797,12 +797,16 @@ export function AiInboxSetup({
                 });
                 void complete();
               }}
-              onDone={() => void complete()}
             />
           )}
-          <div className="mt-8 flex items-center justify-between">
+          <div
+            className={cn(
+              "mt-8 flex items-center",
+              step === 3 ? "justify-end" : "justify-between",
+            )}
+          >
             <div className="flex items-center gap-1">
-              {step > 0 && (
+              {step > 0 && step < 3 && (
                 <Button
                   variant="ghost"
                   onClick={() =>
@@ -825,24 +829,25 @@ export function AiInboxSetup({
                 </Button>
               ) : null}
             </div>
-            {step < 3 ? (
-              <Button
-                onClick={() => void saveStep()}
-                disabled={
-                  saving ||
+            <Button
+              onClick={() => (step === 3 ? void complete() : void saveStep())}
+              disabled={
+                step < 3 &&
+                (saving ||
                   customTagIncomplete ||
-                  (step === 2 && (!jevConfigured || rulesLoading))
-                }
-                aria-busy={saving || (step === 2 && rulesLoading)}
-              >
-                {saving || (step === 2 && rulesLoading) ? (
-                  <IconLoader2 className="size-4 animate-spin" />
-                ) : null}
-                {step === 2
+                  (step === 2 && (!jevConfigured || rulesLoading)))
+              }
+              aria-busy={saving || (step === 2 && rulesLoading)}
+            >
+              {saving || (step === 2 && rulesLoading) ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : null}
+              {step === 3
+                ? t("mail.sort.aiSetupDone")
+                : step === 2
                   ? t("mail.sort.aiSetupSortInbox")
                   : t("mail.sort.aiSetupContinue")}
-              </Button>
-            ) : null}
+            </Button>
           </div>
         </div>
       </DialogContent>

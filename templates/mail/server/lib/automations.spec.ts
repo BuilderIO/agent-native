@@ -286,6 +286,67 @@ describe("createAutomationRule AI tags", () => {
     expect(dbMock.calls.insertValues).toHaveLength(2);
   });
 
+  it("pins and unpins the Filtered view with its rule", async () => {
+    settingsMocks.values.set("mail-settings", { pinnedLabels: ["important"] });
+    dbMock.calls.rootRows = [];
+    const filteredRule = {
+      name: "AI filter: cold sales",
+      condition: "Cold sales messages from senders I have not replied to",
+      actions: [
+        { type: "label" as const, labelName: "agent-native-filtered" },
+        { type: "archive" as const },
+      ],
+      domain: "mail",
+      kind: "ai-filter" as const,
+    };
+
+    const created = await createAutomationRule(
+      "owner@example.test",
+      filteredRule,
+    );
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: ["important", "agent-native-filtered"],
+    });
+
+    await deleteAutomationRule("owner@example.test", created.id);
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: ["important"],
+    });
+  });
+
+  it("does not repin a manually hidden Filtered view when another tag is added", async () => {
+    settingsMocks.values.set("mail-settings", { pinnedLabels: [] });
+    dbMock.calls.rootRows.push({
+      id: "filtered-rule",
+      ownerEmail: "owner@example.test",
+      domain: "mail",
+      kind: "ai-filter",
+      name: "AI filter: cold sales",
+      condition: "Cold sales messages",
+      actions: JSON.stringify([
+        { type: "label", labelName: "agent-native-filtered" },
+        { type: "archive" },
+      ]),
+      enabled: 1,
+      createdAt: 1_700_000_000,
+      updatedAt: 1_700_000_000,
+    });
+
+    await createAutomationRule("owner@example.test", {
+      name: "AI tag: receipts",
+      condition: "Receipts",
+      actions: [{ type: "label", labelName: "Receipts" }],
+      domain: "mail",
+      kind: "ai-filter",
+    });
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: ["receipts"],
+    });
+  });
+
   it("keeps an existing hidden AI tag unpinned when rules are added or retagged to it", async () => {
     settingsMocks.values.set("mail-settings", { pinnedLabels: [] });
     dbMock.calls.rootRows.push({

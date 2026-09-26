@@ -73,6 +73,7 @@ const messages = {
       aiSetupFilteredExample:
         "رسائل المبيعات غير المرغوبة والمجندون الذين لم أرد عليهم",
       aiSetupSortingHeadline: "جارٍ تنظيم صندوق الوارد",
+      aiSetupFindingRecentMail: "جارٍ العثور على الرسائل الحديثة…",
       aiSetupSortingProgress:
         "جارٍ تنظيم البريد الحديث: {{processed}} من {{total}}",
       aiSetupUndoing: "جارٍ التراجع عن تغييرات صندوق الوارد…",
@@ -583,6 +584,9 @@ const messages = {
       askJevPrompt:
         "ساعدني في تحسين قاعدة Mail هذه: {{condition}}. اسألني عما أريد تغييره ثم حدّثها.",
       composerPlaceholder: "اطلب من Jev تنظيم صندوق الوارد…",
+      chatSuggestionFilter: "صفِّ الرسائل المشابهة لهذه",
+      chatSuggestionPriority: "أعطِ الأولوية لرسائل من…",
+      chatSuggestionArchive: "أرشف إشعارات الروبوتات تلقائيًا",
       ruleBackfillStarting: "جارٍ تطبيق هذه القاعدة على البريد الحديث…",
       ruleBackfillProgress:
         "جارٍ التطبيق على البريد الحديث: {{processed}} من {{total}}",

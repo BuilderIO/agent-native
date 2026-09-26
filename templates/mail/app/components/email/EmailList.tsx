@@ -708,6 +708,10 @@ export function EmailList({
   const [priorityScores, setPriorityScores] = useState(
     () => new Map(priorityScoreCache(queryClient)),
   );
+  const [priorityOrder, setPriorityOrder] = useState<{
+    ruleRevision: string;
+    keys: string[];
+  } | null>(null);
   const recordPriorityFeedback = useCallback(
     (email: EmailMessage, decision: "important" | "not-important") => {
       const key = aiPriorityEmailKey(email.accountEmail, email.id);
@@ -718,6 +722,7 @@ export function EmailList({
         inputKey: priorityEmailCacheKey(email, priorityRuleRevision),
         score,
       };
+      setPriorityOrder(null);
       rememberPriorityScore(cache, key, optimisticScore);
       setPriorityScores((current) => {
         const next = new Map(current);
@@ -758,6 +763,7 @@ export function EmailList({
           });
         })
         .catch(() => {
+          setPriorityOrder(null);
           setPriorityScores((current) => {
             if (current.get(key) !== optimisticScore) return current;
             const next = new Map(current);
@@ -898,6 +904,7 @@ export function EmailList({
   useEffect(() => {
     if (currentSortMode !== "priority") {
       priorityRequestGenerationRef.current += 1;
+      setPriorityOrder(null);
       previousSortModeRef.current = currentSortMode;
       return;
     }
@@ -906,11 +913,12 @@ export function EmailList({
       previousSortModeRef.current !== "priority"
     ) {
       priorityRequestKeyRef.current = "";
+      setPriorityOrder(null);
     }
     previousSortModeRef.current = currentSortMode;
     if (currentSortMode === "priority") void runPriority();
   }, [currentSortMode, isPriorityPending, runPriority]);
-  const threads = useMemo(
+  const rankedPriorityThreads = useMemo(
     () =>
       currentSortMode === "priority"
         ? [...chronologicalThreads].sort((a, b) => {
@@ -948,6 +956,63 @@ export function EmailList({
       priorityWindowIds,
     ],
   );
+  useEffect(() => {
+    if (
+      currentSortMode !== "priority" ||
+      priorityWindowEmails.length === 0 ||
+      !priorityWindowEmails.every((email) =>
+        cachedPriorityScores.has(
+          aiPriorityEmailKey(email.accountEmail, email.id),
+        ),
+      )
+    ) {
+      return;
+    }
+    if (
+      priorityOrder?.ruleRevision === priorityRuleRevision &&
+      priorityOrder.keys.length > 0
+    ) {
+      return;
+    }
+    setPriorityOrder({
+      ruleRevision: priorityRuleRevision,
+      keys: rankedPriorityThreads.map((thread) =>
+        aiPriorityEmailKey(
+          thread.latestMessage.accountEmail,
+          thread.latestMessage.id,
+        ),
+      ),
+    });
+  }, [
+    cachedPriorityScores,
+    currentSortMode,
+    priorityOrder,
+    priorityRuleRevision,
+    priorityWindowEmails,
+    rankedPriorityThreads,
+  ]);
+  const threads = useMemo(() => {
+    if (currentSortMode !== "priority") return chronologicalThreads;
+    if (!priorityOrder) return rankedPriorityThreads;
+    const order = new Map(priorityOrder.keys.map((key, index) => [key, index]));
+    return [...rankedPriorityThreads].sort((a, b) => {
+      const aIndex = order.get(
+        aiPriorityEmailKey(a.latestMessage.accountEmail, a.latestMessage.id),
+      );
+      const bIndex = order.get(
+        aiPriorityEmailKey(b.latestMessage.accountEmail, b.latestMessage.id),
+      );
+      if (aIndex !== undefined && bIndex !== undefined) return aIndex - bIndex;
+      if (aIndex !== undefined) return -1;
+      if (bIndex !== undefined) return 1;
+      return 0;
+    });
+  }, [
+    chronologicalThreads,
+    currentSortMode,
+    priorityOrder,
+    rankedPriorityThreads,
+  ]);
 
   const focusedIndex = threads.findIndex(
     (t) => t.latestMessage.id === focusedId,
@@ -2462,6 +2527,7 @@ export function EmailList({
 
   if (
     currentSortMode === "priority" &&
+    !priorityOrder &&
     priorityWindowEmails.length > cachedPriorityScores.size
   ) {
     return <MailLoadingState containerRef={containerRef} />;
@@ -2618,16 +2684,6 @@ export function EmailList({
                 <EmailListItem
                   email={thread.latestMessage}
                   labelNames={labelNames}
-                  importanceScore={
-                    currentSortMode === "priority"
-                      ? cachedPriorityScores.get(
-                          aiPriorityEmailKey(
-                            thread.latestMessage.accountEmail,
-                            thread.latestMessage.id,
-                          ),
-                        )
-                      : undefined
-                  }
                   thread={thread}
                   isSelected={thread.latestMessage.id === threadId}
                   isFocused={thread.latestMessage.id === focusedId}

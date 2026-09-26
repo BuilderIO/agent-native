@@ -69,6 +69,7 @@ const messages = {
       aiSetupArchiveExample: "GitHub、Vercel 和 Dependabot 的机器人与 CI 通知",
       aiSetupFilteredExample: "我尚未回复的陌生销售邮件和招聘信息",
       aiSetupSortingHeadline: "正在整理收件箱",
+      aiSetupFindingRecentMail: "正在查找近期邮件…",
       aiSetupSortingProgress:
         "正在整理近期邮件：{{total}} 封中的 {{processed}} 封",
       aiSetupUndoing: "正在撤销收件箱更改…",
@@ -566,6 +567,9 @@ const messages = {
       askJevPrompt:
         "帮我优化这条 Mail 规则：{{condition}}。先询问我想如何修改，再更新规则。",
       composerPlaceholder: "让 Jev 帮你整理收件箱…",
+      chatSuggestionFilter: "过滤类似这样的邮件",
+      chatSuggestionPriority: "优先处理来自…的邮件",
+      chatSuggestionArchive: "自动归档机器人通知",
       ruleBackfillStarting: "正在将此规则应用于近期邮件…",
       ruleBackfillProgress:
         "正在应用于近期邮件：{{total}} 封中的 {{processed}} 封",

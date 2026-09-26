@@ -265,6 +265,9 @@ describe("AiInboxSetup", () => {
         name: "mail.sort.aiSetupSortingHeadline",
       }),
     ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.thread.back" }),
+    ).toBeNull();
     expect(mocks.updateSettings).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalled();
 
@@ -370,6 +373,9 @@ describe("AiInboxSetup", () => {
     expect(
       screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
     ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.thread.back" }),
+    ).toBeNull();
     expect(
       screen.getByRole("button", { name: "mail.actions.undo" }),
     ).not.toBeNull();
@@ -764,5 +770,46 @@ describe("AiInboxSetup", () => {
 
     expect(await screen.findByText("mail.sort.aiSetupSortingFailed"));
     expect(screen.queryByText("mail.sort.aiSetupNoMatches")).toBeNull();
+  });
+
+  it("shows the backfill error once when its status query fails", async () => {
+    mocks.backfillStatus.isError = true;
+
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByText("mail.sort.aiSetupSortingFailed"),
+      ).toHaveLength(1),
+    );
+  });
+
+  it("shows an indeterminate finding state until the backfill total is known", async () => {
+    mocks.backfillStatus.isLoading = true;
+
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    expect(
+      await screen.findByText("mail.sort.aiSetupFindingRecentMail"),
+    ).not.toBeNull();
+    expect(screen.queryByText("Sorting recent mail: 0 of 0")).toBeNull();
   });
 });

@@ -76,6 +76,7 @@ const messages = {
       aiSetupFilteredExample:
         "Abordagens de vendas indesejadas e recrutadores a quem não respondi",
       aiSetupSortingHeadline: "Organizando sua caixa de entrada",
+      aiSetupFindingRecentMail: "Buscando e-mails recentes…",
       aiSetupSortingProgress:
         "Organizando e-mails recentes: {{processed}} de {{total}}",
       aiSetupUndoing: "Desfazendo alterações na caixa de entrada…",
@@ -594,6 +595,9 @@ const messages = {
       askJevPrompt:
         "Ajude a ajustar esta regra do Mail: {{condition}}. Pergunte o que quero mudar e depois atualize a regra.",
       composerPlaceholder: "Peça ao Jev para organizar sua caixa de entrada…",
+      chatSuggestionFilter: "Filtrar mensagens como esta",
+      chatSuggestionPriority: "Priorizar e-mails de…",
+      chatSuggestionArchive: "Arquivar notificações de bots automaticamente",
       ruleBackfillStarting: "Aplicando esta regra aos e-mails recentes…",
       ruleBackfillProgress:
         "Aplicando aos e-mails recentes: {{processed}} de {{total}}",

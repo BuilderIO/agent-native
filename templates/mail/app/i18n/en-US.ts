@@ -75,6 +75,7 @@ const messages = {
       aiSetupFilteredExample:
         "Cold sales outreach and recruiters I haven't replied to",
       aiSetupSortingHeadline: "Sorting your inbox",
+      aiSetupFindingRecentMail: "Finding recent mail…",
       aiSetupSortingProgress: "Sorting recent mail: {{processed}} of {{total}}",
       aiSetupUndoing: "Undoing inbox changes…",
       aiSetupSortingFailed:
@@ -585,6 +586,9 @@ const messages = {
       askJevPrompt:
         "Help me refine this Mail rule: {{condition}}. Ask what I want changed, then update it.",
       composerPlaceholder: "Ask Jev to organize your inbox…",
+      chatSuggestionFilter: "Filter out messages like this",
+      chatSuggestionPriority: "Prioritize emails from…",
+      chatSuggestionArchive: "Auto-archive bot notifications",
       ruleBackfillStarting: "Applying this rule to recent mail…",
       ruleBackfillProgress:
         "Applying to recent mail: {{processed}} of {{total}}",

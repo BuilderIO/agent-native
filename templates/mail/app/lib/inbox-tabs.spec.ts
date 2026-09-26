@@ -1,3 +1,4 @@
+import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import { ALL_TAB_ID, inboxTabHref } from "@shared/inbox-threads";
 import type { EmailMessage } from "@shared/types";
 import { describe, expect, it } from "vitest";
@@ -204,6 +205,14 @@ describe("resolveDefaultMailHref", () => {
         isGoogleConnected: true,
       }),
     ).toBe("/starred");
+
+    expect(
+      resolveDefaultMailHref({
+        showAllTab: false,
+        pinnedLabels: [AI_FILTER_LABEL],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/all?label=agent-native-filtered");
   });
 
   it("falls back to /inbox when combineInbox is enabled or tabs unpinned", () => {

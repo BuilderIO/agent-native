@@ -103,9 +103,10 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("mergeOptimisticInboxTabCounts(");
     expect(source).toContain("return inboxTabs.map((tab) => {");
     expect(source).toContain("href: inboxTabHref(tab.id)");
-    expect(source).toContain(
-      'tab.kind === "all" ? t("mail.views.all") : tab.name',
-    );
+    expect(source).toContain("aiTagDisplayNames.get(tab.id) ?? tab.name");
+    expect(source).toContain('t("mail.aiFilter.chatSuggestionFilter")');
+    expect(source).toContain('t("mail.aiFilter.chatSuggestionPriority")');
+    expect(source).toContain('t("mail.aiFilter.chatSuggestionArchive")');
     expect(source).toContain("allTabVisible={showAllTab}");
     expect(source).toContain('className={cn("relative shrink-0", tabsLoading');
     expect(source).not.toContain('"relative hidden sm:block"');

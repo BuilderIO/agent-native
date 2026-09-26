@@ -72,6 +72,7 @@ const messages = {
         "GitHub、Vercel、Dependabot のボット通知と CI 通知",
       aiSetupFilteredExample: "返信していない営業メールや採用担当者からの連絡",
       aiSetupSortingHeadline: "受信トレイを整理しています",
+      aiSetupFindingRecentMail: "最近のメールを検索しています…",
       aiSetupSortingProgress:
         "最近のメールを整理中：{{total}} 件中 {{processed}} 件",
       aiSetupUndoing: "受信トレイの変更を取り消しています…",
@@ -588,6 +589,9 @@ const messages = {
       askJevPrompt:
         "この Mail ルールを調整してください: {{condition}}。変更したい内容を質問してから更新してください。",
       composerPlaceholder: "Jev に受信トレイの整理を頼む…",
+      chatSuggestionFilter: "このようなメッセージをフィルタする",
+      chatSuggestionPriority: "次の差出人のメールを優先…",
+      chatSuggestionArchive: "ボット通知を自動でアーカイブ",
       ruleBackfillStarting: "このルールを最近のメールに適用しています…",
       ruleBackfillProgress:
         "最近のメールに適用中：{{total}} 件中 {{processed}} 件",

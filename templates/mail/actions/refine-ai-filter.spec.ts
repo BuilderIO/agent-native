@@ -89,6 +89,7 @@ describe("refine-ai-filter action", () => {
     expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(
       "owner@example.test",
       ["rule-1"],
+      { alreadyAuthorized: true },
     );
     expect(result).toMatchObject({
       id: "rule-1",

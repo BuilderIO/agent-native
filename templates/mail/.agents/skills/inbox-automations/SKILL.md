@@ -38,6 +38,13 @@ a duplicate. Update a rule with its `id`, revised `sentence`, and `mode` (and
 `tagName` for a tag). The inbox-tab cog lists AI tags first; unchecking a tag
 only hides its tab and never deletes its rule.
 
+For a direct request to add or change one rule, make one `manage-email-rules`
+create/update call and report its result. That path checks Jev access, saves the
+rule, and queues recent-mail application; do not call the backfill/status action
+or `trigger-automations` to finish the same request. A queued result is a
+successful save with work continuing in the background, not a reason to retry
+the rule mutation.
+
 For an AI rule that marks matching mail important, use the
 `agent-native-important` label without archiving. For unwanted mail, pair the
 `agent-native-filtered` label with archive; a plain archive request can use the

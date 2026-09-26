@@ -79,7 +79,9 @@ export default defineAction({
           }
         }
         ({ runId: backfillRunId, status: backfillStatus } =
-          await startMailAiFilterBackfill(ownerEmail, [updated.id]));
+          await startMailAiFilterBackfill(ownerEmail, [updated.id], {
+            alreadyAuthorized: true,
+          }));
       } catch {
         backfillStatus = "failed";
       }

@@ -339,9 +339,10 @@ function assertUniqueRuleIds(ruleIds?: string[]): void {
 export async function startMailAiFilterBackfill(
   ownerEmail: string,
   ruleIds?: string[],
+  options: { alreadyAuthorized?: boolean } = {},
 ): Promise<{ runId: string; status: "queued" }> {
   assertUniqueRuleIds(ruleIds);
-  await assertMailJevEnabled(ownerEmail);
+  if (!options.alreadyAuthorized) await assertMailJevEnabled(ownerEmail);
   const aiFilterState = await getAiFilterState(ownerEmail);
   if (!aiFilterState.enabled) {
     fail("Mail AI filtering is disabled. Enable it before applying rules.", {

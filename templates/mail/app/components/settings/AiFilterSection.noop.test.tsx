@@ -265,12 +265,54 @@ describe("AiFilterSection", () => {
     ).not.toBeNull();
   });
 
+  it("offers a Filtered rule in-row when there are no Filtered rules", () => {
+    renderSection();
+
+    expect(screen.getByText("mail.aiFilter.filteredMode")).not.toBeNull();
+    expect(screen.getByText("mail.aiFilter.manageSettings")).not.toBeNull();
+    const addButtons = screen.getAllByRole("button", {
+      name: "mail.aiFilter.newRule",
+    });
+    fireEvent.click(addButtons[addButtons.length - 1]!);
+
+    expect(
+      screen
+        .getByRole("button", { name: "mail.aiFilter.filteredMode" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("styles Filtered management as a row and shows rule sentences on two lines", () => {
+    const condition =
+      "Unsolicited promotional offers from senders I have never replied to";
+    mocks.rules = [
+      {
+        ...importantRule(),
+        id: "filtered-rule",
+        name: "AI spam",
+        condition,
+        actions: [
+          { type: "label", labelName: "agent-native-filtered" },
+          { type: "archive" },
+        ],
+      },
+    ];
+    renderSection();
+
+    const summary = screen
+      .getByText("mail.aiFilter.manageSettings")
+      .closest("summary");
+    expect(summary?.className).toContain("list-none");
+    expect(summary?.querySelector("svg")).not.toBeNull();
+    expect(screen.getByText(condition).className).toContain("line-clamp-2");
+  });
+
   it("creates a rule from one sentence and a selected mode", async () => {
     mocks.createRule.mockResolvedValue({ id: "filtered-rule" });
     renderSection();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.aiFilter.newRule" }),
+      screen.getAllByRole("button", { name: "mail.aiFilter.newRule" })[0]!,
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.aiFilter.filteredMode" }),

@@ -12,6 +12,7 @@ import {
   aiFilterRuleMode,
   normalizedAiFilterLabelId,
 } from "../../shared/ai-filter-rules.js";
+import { AI_FILTER_LABEL } from "../../shared/ai-filter.js";
 import type {
   AutomationAction,
   AutomationRule,
@@ -68,6 +69,7 @@ async function reconcileAiTagPins(
   ownerEmail: string,
   changedLabels: string[],
   newlyAddedLabels: string[] = [],
+  autoPinFilteredView = false,
 ): Promise<void> {
   const [rules, storedLabels, cachedLabels] = await Promise.all([
     db
@@ -99,6 +101,15 @@ async function reconcileAiTagPins(
     }
     return new Set([...aliases].map(normalizedAiFilterLabelId));
   };
+
+  const hasFilteredRule = (rules as any[]).some(
+    (rule) =>
+      rule.domain === "mail" &&
+      rule.kind === "ai-filter" &&
+      aiFilterRuleMode({
+        actions: JSON.parse(rule.actions) as AutomationAction[],
+      }) === "filtered",
+  );
 
   const canonicalId = (labelName: string): string => {
     const normalized = normalizedAiFilterLabelId(labelName);
@@ -132,6 +143,20 @@ async function reconcileAiTagPins(
         !pinned.some((id) => aliases.has(normalizedAiFilterLabelId(id)))
       ) {
         pinned.push(canonicalId(tags.get(normalized)!));
+      }
+    }
+    const filteredAliases = aliasesFor(AI_FILTER_LABEL);
+    if (hasFilteredRule && autoPinFilteredView) {
+      if (
+        !pinned.some((id) => filteredAliases.has(normalizedAiFilterLabelId(id)))
+      ) {
+        pinned.push(AI_FILTER_LABEL);
+      }
+    } else if (!hasFilteredRule) {
+      for (let index = pinned.length - 1; index >= 0; index -= 1) {
+        if (filteredAliases.has(normalizedAiFilterLabelId(pinned[index]))) {
+          pinned.splice(index, 1);
+        }
       }
     }
     return { ...settings, pinnedLabels: pinned } as unknown as Record<
@@ -290,11 +315,21 @@ export async function createAutomationRule(
   await db.insert(schema.automationRules).values(rule as any);
   const result = toApiRule(rule);
   const tagLabel = aiTagLabel(result.domain, result.kind, result.actions);
-  if (tagLabel) {
+  if (
+    tagLabel ||
+    (result.domain === "mail" &&
+      result.kind === "ai-filter" &&
+      aiFilterRuleMode(result) === "filtered")
+  ) {
     await reconcileAiTagPins(
       ownerEmail,
-      [tagLabel],
-      existingTagIds.has(normalizedAiFilterLabelId(tagLabel)) ? [] : [tagLabel],
+      tagLabel ? [tagLabel] : [],
+      tagLabel && !existingTagIds.has(normalizedAiFilterLabelId(tagLabel))
+        ? [tagLabel]
+        : [],
+      !tagLabel &&
+        result.domain === "mail" &&
+        aiFilterRuleMode(result) === "filtered",
     );
   }
   return result;
@@ -335,6 +370,9 @@ export async function updateAutomationRule(
     assertAiFilterActions(nextActions);
   }
   const existingActions = JSON.parse(existing.actions) as AutomationAction[];
+  const previousMode = aiFilterRuleMode({ actions: existingActions });
+  const nextMode =
+    nextIsMailAiFilter && aiFilterRuleMode({ actions: nextActions });
   const oldTagLabel = aiTagLabel(
     existing.domain,
     existing.kind,
@@ -382,13 +420,18 @@ export async function updateAutomationRule(
   if (!updated) throw new Error("Rule not found");
   const result = toApiRule(updated);
   const nextTag = aiTagLabel(result.domain, result.kind, result.actions);
-  if (tagChanged) {
+  if (
+    tagChanged ||
+    (existingIsMailAiFilter && previousMode === "filtered") ||
+    nextMode === "filtered"
+  ) {
     await reconcileAiTagPins(
       ownerEmail,
       [oldTagLabel, nextTag].filter((label): label is string => label !== null),
       nextTag && !existingTagIds.has(normalizedAiFilterLabelId(nextTag))
         ? [nextTag]
         : [],
+      previousMode !== "filtered" && nextMode === "filtered",
     );
   }
   return result;
@@ -409,7 +452,12 @@ export async function deleteAutomationRule(
     existing.kind,
     JSON.parse(existing.actions) as AutomationAction[],
   );
-  if (oldTag) await reconcileAiTagPins(ownerEmail, [oldTag]);
+  const oldMode = aiFilterRuleMode({
+    actions: JSON.parse(existing.actions) as AutomationAction[],
+  });
+  if (oldTag || (existing.kind === "ai-filter" && oldMode === "filtered")) {
+    await reconcileAiTagPins(ownerEmail, oldTag ? [oldTag] : []);
+  }
 }
 
 export async function consolidateAutomationRules(

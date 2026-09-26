@@ -97,7 +97,9 @@ async function startRecentBackfill(ownerEmail: string, rule: AutomationRule) {
   try {
     const { startMailAiFilterBackfill } =
       await import("../server/lib/ai-filter-backfill.js");
-    ({ runId } = await startMailAiFilterBackfill(ownerEmail, [rule.id]));
+    ({ runId } = await startMailAiFilterBackfill(ownerEmail, [rule.id], {
+      alreadyAuthorized: true,
+    }));
   } catch {
     return {
       appliedCounts: null,
@@ -107,32 +109,11 @@ async function startRecentBackfill(ownerEmail: string, rule: AutomationRule) {
     };
   }
 
-  try {
-    const { readMailAiFilterBackfill } =
-      await import("../server/lib/ai-filter-backfill.js");
-    const status = await readMailAiFilterBackfill(ownerEmail, runId);
-    return {
-      appliedCounts:
-        status.status === "queued"
-          ? null
-          : status.perRule.map(({ ruleId, name, appliedCount }) => ({
-              ruleId,
-              name,
-              appliedCount,
-            })),
-      backfillRunId: runId,
-      backfillStatus: status.status,
-      ...(status.error ? { backfillError: status.error } : {}),
-    };
-  } catch {
-    return {
-      appliedCounts: null,
-      backfillRunId: runId,
-      backfillStatus: "status-unavailable",
-      backfillError:
-        "The backfill was queued, but its progress could not be read.",
-    };
-  }
+  return {
+    appliedCounts: null,
+    backfillRunId: runId,
+    backfillStatus: "queued",
+  };
 }
 
 export const createManageEmailRulesAction = (agentTool: boolean) =>
