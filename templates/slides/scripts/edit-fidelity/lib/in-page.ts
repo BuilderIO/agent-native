@@ -604,6 +604,9 @@ export function installInPageHelpers(chromeSelector: string) {
         parent.firstElementChild === el &&
         own >= 1 &&
         own <= 3 &&
+        // A number label like "01" is text a double-click selects; only a
+        // glyph like "●" is a marker, as the editor itself treats it.
+        !/[\p{L}\p{N}]/u.test(el.textContent ?? "") &&
         renderedText(parent.textContent).length > own &&
         offsetOf(parent, 0) === offsetOf(el, 0)
       ) {
