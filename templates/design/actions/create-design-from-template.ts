@@ -300,6 +300,9 @@ export default defineAction({
       return templateCopyConflict();
     }
     if (newId && !targetDesignId) {
+      if (!retryKey) {
+        throw new Error("retryKey is required when newId is provided");
+      }
       const existing = await readRetryDesign(
         designId,
         ownerEmail,
@@ -447,6 +450,9 @@ export default defineAction({
         await db.transaction(persist);
       } catch (error) {
         if (!newId || !isUniqueViolation(error)) throw error;
+        if (!retryKey) {
+          throw new Error("retryKey is required when newId is provided");
+        }
         const existing = await readRetryDesign(
           designId,
           ownerEmail,
