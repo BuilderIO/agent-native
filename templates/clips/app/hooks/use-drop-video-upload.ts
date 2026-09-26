@@ -12,6 +12,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { fetchVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { MAX_UPLOAD_BYTES } from "@/lib/compress";
 import { defaultRecordingTitle } from "@/lib/recording-title";
 import { isMobileRecorderRuntime } from "@/lib/recording-visibility";
@@ -32,9 +33,12 @@ export interface DropUploadItem {
 }
 
 type QueuedDropUpload = {
+  key: string;
   file: File;
   scope: { spaceId?: string | null; folderId?: string | null };
 };
+
+export type VideoStorageGateIssue = "missing" | "unavailable";
 
 function defaultTitleFor(file: File): string {
   return file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle();
@@ -47,10 +51,13 @@ function defaultTitleFor(file: File): string {
  * bug-report/intake and re-encode paths (not applicable to a plain drop) and
  * never navigates away — the grid's own polling and the shared refresh
  * signal pick up the new "uploading" card as soon as the row exists. */
-export function useDropVideoUpload(scope: {
-  spaceId?: string | null;
-  folderId?: string | null;
-}) {
+export function useDropVideoUpload(
+  scope: {
+    spaceId?: string | null;
+    folderId?: string | null;
+  },
+  onStorageSetupRequired?: (issue: VideoStorageGateIssue) => void,
+) {
   const t = useT();
   const queryClient = useQueryClient();
   const [uploads, setUploads] = useState<DropUploadItem[]>([]);
@@ -69,12 +76,8 @@ export function useDropVideoUpload(scope: {
     async (
       file: File,
       scope: { spaceId?: string | null; folderId?: string | null },
+      key: string,
     ) => {
-      const key = `${file.name}-${file.size}-${Date.now()}-${Math.random()}`;
-      setUploads((prev) => [
-        ...prev,
-        { key, fileName: file.name, progress: 0 },
-      ]);
       const setProgress = (progress: number) => {
         setUploads((prev) =>
           prev.map((u) => (u.key === key ? { ...u, progress } : u)),
@@ -384,7 +387,7 @@ export function useDropVideoUpload(scope: {
     try {
       while (fileQueueRef.current.length > 0) {
         const item = fileQueueRef.current.shift();
-        if (item) await uploadOne(item.file, item.scope);
+        if (item) await uploadOne(item.file, item.scope, item.key);
       }
     } catch (error) {
       console.warn("[clips] dropped video upload queue failed", error);
@@ -402,12 +405,42 @@ export function useDropVideoUpload(scope: {
         spaceId: scope.spaceId,
         folderId: scope.folderId,
       };
-      fileQueueRef.current.push(
-        ...Array.from(files, (file) => ({ file, scope: uploadScope })),
-      );
-      void drainFileQueue();
+      const queuedFiles = Array.from(files, (file) => ({
+        key: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
+        file,
+        scope: uploadScope,
+      }));
+      if (queuedFiles.length === 0) return;
+      setUploads((prev) => [
+        ...prev,
+        ...queuedFiles.map(({ key, file }) => ({
+          key,
+          fileName: file.name,
+          progress: 0,
+        })),
+      ]);
+      const removePlaceholders = () => {
+        const keys = new Set(queuedFiles.map(({ key }) => key));
+        setUploads((prev) => prev.filter((upload) => !keys.has(upload.key)));
+      };
+      void fetchVideoStorageStatus()
+        .then((status) => {
+          if (!status.configured) {
+            removePlaceholders();
+            onStorageSetupRequired?.("missing");
+            toast.error(t("clipsFinalRaw.connectStorageToFinish"));
+            return;
+          }
+          fileQueueRef.current.push(...queuedFiles);
+          void drainFileQueue();
+        })
+        .catch(() => {
+          removePlaceholders();
+          onStorageSetupRequired?.("unavailable");
+          toast.error(t("meetingsRoute.calendarStatusUnavailable"));
+        });
     },
-    [drainFileQueue, scope.folderId, scope.spaceId],
+    [drainFileQueue, onStorageSetupRequired, scope.folderId, scope.spaceId, t],
   );
 
   return { uploads, uploadFiles };

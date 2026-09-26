@@ -183,6 +183,18 @@ export default {
     notFoundSignIn: "로그인",
     notFoundBackToDesigns: "디자인으로 돌아가기",
   },
+  onboarding: {
+    fileStorage: {
+      title: "파일 업로드를 위해 저장소 연결",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 연결을 확인하는 중…",
+      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+    },
+    common: { retry: "다시 시도" },
+  },
   chat: {
     emptyState: "만들 디자인을 설명하세요",
     suggestionLandingPage: "내 스타트업 랜딩 페이지 디자인",

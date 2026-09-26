@@ -994,6 +994,16 @@ const localFilesMessages = {
 };
 
 const enUS = {
+  close: "Close",
+  setup: {
+    checkingProvider: "Checking AI connection…",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Connect storage to upload files",
+      statusUnavailable: "File storage status is unavailable.",
+    },
+  },
   creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandContent: "Content",
@@ -1647,6 +1657,16 @@ export type PartialMessages = {
 
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
+    close: overrides.close ?? enUS.close,
+    setup: { ...enUS.setup, ...overrides.setup },
+    onboarding: {
+      ...enUS.onboarding,
+      ...overrides.onboarding,
+      fileStorage: {
+        ...enUS.onboarding.fileStorage,
+        ...overrides.onboarding?.fileStorage,
+      },
+    },
     root: { ...enUS.root, ...overrides.root },
     theme: { ...enUS.theme, ...overrides.theme },
     navigation: { ...enUS.navigation, ...overrides.navigation },
@@ -2223,8 +2243,15 @@ export function buildMessagesForLocale(
   for (const [group, groupOverrides] of Object.entries(
     bundle.exactEnglish,
   ) as Array<[string, Record<string, unknown> | undefined]>) {
-    const target = (messages as Record<string, Record<string, unknown>>)[group];
-    if (target && groupOverrides && typeof groupOverrides === "object") {
+    const targetValue = (messages as unknown as Record<string, unknown>)[group];
+    if (
+      targetValue &&
+      typeof targetValue === "object" &&
+      !Array.isArray(targetValue) &&
+      groupOverrides &&
+      typeof groupOverrides === "object"
+    ) {
+      const target = targetValue as Record<string, unknown>;
       for (const [key, value] of Object.entries(groupOverrides)) {
         const nestedTarget = target[key];
         if (

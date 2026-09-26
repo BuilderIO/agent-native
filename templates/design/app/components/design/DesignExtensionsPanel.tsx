@@ -1,3 +1,8 @@
+import {
+  BuilderSetupCard,
+  useAgentEngineConfigured,
+  type AgentEngineConfiguredState,
+} from "@agent-native/core/client/agent-chat";
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { EmbeddedExtension } from "@agent-native/core/client/extensions";
@@ -1438,6 +1443,8 @@ export function DesignExtensionsPanel({
 }: DesignExtensionsPanelProps) {
   const t = useT();
   const queryClient = useQueryClient();
+  const providerStatus = useAgentEngineConfigured();
+  const providerReady = providerStatus.state === "configured";
   const [createOpen, setCreateOpen] = useState(false);
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1467,7 +1474,14 @@ export function DesignExtensionsPanel({
     setOpenFirstParty((prev) => (prev === id ? null : id));
   };
 
+  const refreshProviderStatus = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, []);
+
   const submitCreatePrompt: CreateExtensionSubmitHandler = (text: string) => {
+    if (!providerReady) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     sendToDesignAgentChat({
@@ -1589,6 +1603,9 @@ export function DesignExtensionsPanel({
             open={createOpen}
             onOpenChange={setCreateOpen}
             onSubmit={submitCreatePrompt}
+            providerStatus={providerStatus.state}
+            onProviderConnected={refreshProviderStatus}
+            onRetryProvider={refreshProviderStatus}
           />
         ) : null}
       </div>
@@ -1760,17 +1777,24 @@ function CreateExtensionPopover({
   open,
   onOpenChange,
   onSubmit,
+  providerStatus,
+  onProviderConnected,
+  onRetryProvider,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: CreateExtensionSubmitHandler;
+  providerStatus: AgentEngineConfiguredState;
+  onProviderConnected: () => void;
+  onRetryProvider: () => void;
 }) {
   const t = useT();
   const [draft, setDraft] = useState("");
-  const canSubmit = draft.trim().length > 0;
+  const providerReady = providerStatus === "configured";
+  const canSubmit = providerReady && draft.trim().length > 0;
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canSubmit) return;
+    if (!providerReady || !canSubmit) return;
     onSubmit(draft);
     setDraft("");
   };
@@ -1789,31 +1813,61 @@ function CreateExtensionPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={8} className="w-80 p-3">
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <p className="px-0.5 text-sm font-semibold text-foreground">
-            {t("designEditor.extensionsPromptTitle")}
-          </p>
-          <Textarea
-            autoFocus
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder={t("designEditor.extensionsPlaceholder")}
-            className="min-h-24 resize-none border-border/80 bg-background/80 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
-          />
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => onOpenChange(false)}
+        <div className="space-y-3">
+          {providerReady ? null : providerStatus === "missing" ? (
+            <BuilderSetupCard
+              fullWidth
+              layout="sidebar"
+              onConnected={onProviderConnected}
+            />
+          ) : (
+            <div
+              className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+              role="status"
             >
-              Cancel
-            </Button>
-            <Button type="submit" size="sm" disabled={!canSubmit}>
-              Create
-            </Button>
-          </div>
-        </form>
+              <span>
+                {providerStatus === "unknown"
+                  ? t("agentChat.setup.checkingProvider")
+                  : t("agentChat.setup.providerStatusUnavailable")}
+              </span>
+              {providerStatus === "unavailable" ? (
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={onRetryProvider}
+                >
+                  {t("agentChat.common.retry")}
+                </button>
+              ) : null}
+            </div>
+          )}
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <p className="px-0.5 text-sm font-semibold text-foreground">
+              {t("designEditor.extensionsPromptTitle")}
+            </p>
+            <Textarea
+              autoFocus
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={t("designEditor.extensionsPlaceholder")}
+              disabled={!providerReady}
+              className="min-h-24 resize-none border-border/80 bg-background/80 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={!canSubmit}>
+                Create
+              </Button>
+            </div>
+          </form>
+        </div>
       </PopoverContent>
     </Popover>
   );

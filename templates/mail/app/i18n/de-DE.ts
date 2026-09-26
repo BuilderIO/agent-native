@@ -71,6 +71,29 @@ const messages = {
         "Reisebestätigungen und Reservierungen, die ich brauche",
       aiSetupTagFinance: "Finanzen",
       aiSetupPromptFinance: "Rechnungen und Kontoauszüge, die ich brauche",
+      aiSetupArchiveExample:
+        "Bot- und CI-Benachrichtigungen von GitHub, Vercel und Dependabot",
+      aiSetupFilteredExample:
+        "Kalte Verkaufsakquise und Recruiter, denen ich noch nicht geantwortet habe",
+      aiSetupSortingHeadline: "Dein Posteingang wird sortiert",
+      aiSetupSortingProgress:
+        "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
+      aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",
+      aiSetupSortingFailed:
+        "Dein Posteingang konnte nicht sortiert werden. Deine Regeln sind gespeichert; versuche es erneut.",
+      aiSetupUndoComplete:
+        "{{count}} Nachrichten wurden in den vorherigen Zustand versetzt.",
+      aiSetupRuleCount: "{{count}} Treffer",
+      aiSetupNoMatches:
+        "In den letzten 14 Tagen passten keine Nachrichten zu diesen Regeln.",
+      aiSetupChatTip:
+        "Du kannst Regeln jederzeit im Chat verfeinern oder ergänzen.",
+      aiSetupChatPrompt: "E-Mails von meiner Führungskraft priorisieren…",
+      aiSetupNoRules: "Es wurden keine Regeln ausgewählt.",
+      aiSetupPartialFailure:
+        "{{count}} Nachrichten konnten nicht aktualisiert werden.",
+      aiSetupSortInbox: "Posteingang sortieren",
+      aiSetupImportantExample: "Alles von meiner Führungskraft Priya…",
       priorityFeedbackLabel: "Feedback zur Wichtigkeit",
       priorityScoreHigh: "Hohe Wichtigkeit",
       priorityScoreMedium: "Mittlere Wichtigkeit",
@@ -547,6 +570,8 @@ const messages = {
         "Fügt das Label agent-native-filtered hinzu und archiviert die Unterhaltung. Du kannst dies jederzeit rückgängig machen.",
       learningNote:
         "Behält die Nachricht im Posteingang und bringt dem Filter bei, den Fehler nicht zu wiederholen.",
+      learningProgress:
+        "{{count}} von {{required}} Beispielen bestätigt. Aktuelle E-Mails werden geprüft, sobald alle {{required}} bestätigt sind.",
       rememberLabel: "Für zukünftige Nachrichten merken (optional)",
       correctLabel: "Was soll der Filter lernen? (optional)",
       rememberPlaceholder:
@@ -569,6 +594,26 @@ const messages = {
       spamMode: "Unerwünscht",
       tagMode: "Tag",
       aiTagsTitle: "KI-Tags",
+      filteredMode: "Gefiltert",
+      autoArchiveMode: "Automatisch archivieren",
+      manageSettings: "Verwalten",
+      askJev: "Jev fragen",
+      askJevPrompt:
+        "Hilf mir, diese Mail-Regel zu verfeinern: {{condition}}. Frag mich, was ich ändern möchte, und aktualisiere sie dann.",
+      composerPlaceholder: "Bitte Jev, deinen Posteingang zu organisieren…",
+      ruleBackfillStarting: "Diese Regel wird auf aktuelle E-Mails angewendet…",
+      ruleBackfillProgress:
+        "Aktuelle E-Mails: {{processed}} von {{total}} bearbeitet",
+      ruleBackfillMatches: "{{count}} aktuelle Nachrichten passen",
+      ruleBackfillNoMatches:
+        "Keine aktuellen Nachrichten passen zu dieser Regel.",
+      ruleBackfillFailed:
+        "Diese Regel konnte nicht auf aktuelle E-Mails angewendet werden.",
+      ruleBackfillPartialFailure:
+        "{{count}} Nachrichten konnten nicht aktualisiert werden.",
+      ruleBackfillUndoing: "Aktuelle E-Mails werden wiederhergestellt…",
+      ruleBackfillUndoComplete: "{{count}} Nachrichten wiederhergestellt",
+      ruleBackfillReview: "Treffer prüfen",
       importantMode: "Wichtig",
       notImportantMode: "Nicht wichtig",
       importantLabel: "KI-Wichtig",

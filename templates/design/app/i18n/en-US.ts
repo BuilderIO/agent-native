@@ -184,6 +184,18 @@ export default {
     notFoundSignIn: "Sign in",
     notFoundBackToDesigns: "Back to designs",
   },
+  onboarding: {
+    fileStorage: {
+      title: "Connect storage to upload files",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Checking AI connection…",
+      providerStatusUnavailable: "Couldn't check AI connection.",
+    },
+    common: { retry: "Retry" },
+  },
   chat: {
     emptyState: "Describe a design to create",
     suggestionLandingPage: "Design a landing page for my startup",

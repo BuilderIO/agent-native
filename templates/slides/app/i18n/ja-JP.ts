@@ -133,7 +133,7 @@ const messages = {
       "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
     imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
-      "スライドに画像をアップロードするには、エージェント作成欄のモデルメニューから Builder.io に接続してください。空のキャンバスに画像をドロップすると、プロバイダーなしでもエージェントに送信できます。",
+      "画像をアップロードするにはオブジェクトストレージを接続してください。Builder.io（無料）を接続するか、設定 → ファイルアップロードで独自の S3 互換ストレージキーを追加してください。",
     sentToAgent: "エージェントに送信しました",
     imageUploadGenericError: "この画像のアップロード中に問題が発生しました。",
     uploading: "アップロード中…",
@@ -654,6 +654,12 @@ const messages = {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
+    generationStalled: "5分間進捗がなかったため生成を一時停止しました",
+    generationStalledDescription:
+      "保存済みのスライドはそのまま残っています。チャットでこのデッキの続きを作成できます。",
+    continueInChat: "チャットで続ける",
+    continueGenerationPrompt:
+      "このデッキのスライド生成を続けてください。最初に現在のスライドと保存済みの生成コンテキストを確認してください。完成済みのスライドは残し、不足分だけ追加してください。",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
@@ -703,7 +709,7 @@ const messages = {
     tryAgain: "再試行",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
-      "スライドに画像をアップロードするには、エージェント作成欄のモデルメニューから Builder.io に接続してください。空のキャンバスに画像をドロップすると、プロバイダーなしでもエージェントに送信できます。",
+      "画像をアップロードするにはオブジェクトストレージを接続してください。Builder.io（無料）を接続するか、設定 → ファイルアップロードで独自の S3 互換ストレージキーを追加してください。",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
@@ -872,7 +878,7 @@ const messages = {
       starting: "開始中…",
       generate: "生成",
       connectionRequired:
-        "ホームの入力欄の上でBuilder.ioに接続してから再試行してください。",
+        "ホームの入力欄の上でAIプロバイダーに接続するか、自分のAIキーを追加してから再試行してください。",
       invalidPdf: "PDFファイルを選択してください。",
       notReady:
         "読み込み中または失敗したコンテキストと接続状況を確認して再試行してください。",
@@ -924,6 +930,10 @@ const messages = {
     loadFailedDescription:
       "保存済みのコンテンツはそのままです。接続を確認して再試行してください。",
     retry: "再試行",
+    fileStorageStatusUnavailable:
+      "オブジェクトストレージの状態を確認できませんでした。ファイルをアップロードする前に再試行してください。",
+    fileStorageSetupRequired:
+      "オブジェクトストレージが接続されていません。無料のBuilder.ioを接続するか、設定 → ファイルアップロードで独自のS3互換ストレージキーを追加してください。",
     decksTitle: "デッキ",
     deckLengthQuestion: "このデッキの長さはどれくらいにしますか？",
     deckLengthHeader: "デッキの長さ",

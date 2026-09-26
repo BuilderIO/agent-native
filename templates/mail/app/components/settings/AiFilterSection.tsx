@@ -1,187 +1,402 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   actionErrorMessage,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
-import { AI_FILTER_LABEL, AI_FILTER_RULE_NAME } from "@shared/ai-filter";
-import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
-import type { AutomationAction, AutomationRule } from "@shared/types";
+import { AI_FILTER_RULE_NAME } from "@shared/ai-filter";
+import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
+  aiFilterRuleActionsForMode,
+  aiFilterRuleLabelName,
+  aiFilterRuleMode,
+  normalizedAiFilterLabelId,
+  type AiFilterRuleMode,
+} from "@shared/ai-filter-rules";
+import type { AutomationRule } from "@shared/types";
+import {
+  IconDotsVertical,
   IconGripVertical,
-  IconInfoCircle,
   IconPlus,
-  IconTrash,
 } from "@tabler/icons-react";
 import type { DragEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import {
-  AiInboxSetup,
-  TAG_SUGGESTIONS,
-} from "@/components/onboarding/AiInboxSetup";
+import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
 import { AiRulePromptField } from "@/components/settings/AiRulePromptField";
 import {
   JevAvailabilityError,
   JevConnectionPrompt,
 } from "@/components/settings/JevConnectionPrompt";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useManageAiFilter, useAiFilter } from "@/hooks/use-ai-filter";
+  useAiFilter,
+  useManageAiFilterBackfill,
+  useManageAiFilter,
+  useRecentAiFilterBackfills,
+  latestAiFilterDecisions,
+} from "@/hooks/use-ai-filter";
 import {
   useAutomations,
-  useClearAiFilterRules,
-  useConsolidateAiFilterRules,
   useCreateAutomation,
   useDeleteAutomation,
-  useRestoreAiFilterRules,
   useUpdateAutomation,
 } from "@/hooks/use-automations";
 import { useLabels, useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { labelTabHref } from "@/lib/inbox-tabs";
 
-type RuleMode = "tag" | "important" | "archive" | "spam";
-type PromptMode = Exclude<RuleMode, "tag">;
+type RuleMode = AiFilterRuleMode;
 
-const PROMPT_MODES: PromptMode[] = ["important", "archive", "spam"];
+const RULE_MODES: RuleMode[] = ["important", "tag", "filtered", "archive"];
 const EMPTY_RULES: AutomationRule[] = [];
 
-const labelForRule = (rule: AutomationRule) => {
-  const action = rule.actions.find((item) => item.type === "label");
-  return action?.type === "label" ? action.labelName : "";
-};
-
-const normalizedLabelId = (labelName: string) =>
-  labelName.toLocaleLowerCase().replace(/_/g, " ");
-
-function ruleMode(rule: Pick<AutomationRule, "actions">): RuleMode {
-  if (
-    rule.actions.some(
-      (action) =>
-        action.type === "label" && action.labelName === AI_FILTER_LABEL,
-    )
-  ) {
-    return "spam";
-  }
-  if (rule.actions.some((action) => action.type === "archive"))
-    return "archive";
-  if (
-    rule.actions.some(
-      (action) =>
-        action.type === "label" && action.labelName === AI_IMPORTANT_LABEL,
-    )
-  ) {
-    return "important";
-  }
-  return "tag";
+function reviewHrefForRule(rule: AutomationRule): string | null {
+  const mode = aiFilterRuleMode(rule);
+  const labelName = aiFilterRuleLabelName(rule);
+  if (labelName) return labelTabHref(labelName);
+  return mode === "archive" ? "/archive" : null;
 }
 
-function actionsForMode(mode: PromptMode): AutomationAction[] {
-  if (mode === "important") {
-    return [{ type: "label", labelName: AI_IMPORTANT_LABEL }];
-  }
-  if (mode === "archive") return [{ type: "archive" }];
-  return [{ type: "label", labelName: AI_FILTER_LABEL }, { type: "archive" }];
+function ruleName(mode: RuleMode, condition: string) {
+  const prefix =
+    mode === "filtered" ? "spam" : mode === "archive" ? "archive" : mode;
+  return `AI ${prefix}: ${condition.slice(0, 72)}`;
 }
 
-function promptForRules(rules: AutomationRule[]) {
-  return rules
-    .map((rule) => rule.condition.trim())
-    .filter(Boolean)
-    .join("\n");
-}
-
-function AiTagRow({
+function RuleRow({
   rule,
-  expanded,
-  disabled,
-  onToggle,
+  mode,
+  editing,
+  editDisabled,
+  toggleDisabled,
+  onEdit,
   onSave,
+  onCancel,
+  onAskJev,
+  onToggle,
   onDelete,
+  onDragStart,
+  onDragOver,
   onDrop,
 }: {
   rule: AutomationRule;
-  expanded: boolean;
-  disabled: boolean;
-  onToggle: () => void;
-  onSave: (rule: AutomationRule, name: string, condition: string) => void;
-  onDelete: (rule: AutomationRule) => void;
-  onDrop: (event: DragEvent<HTMLDivElement>, ruleId: string) => void;
+  mode: RuleMode;
+  editing: boolean;
+  editDisabled: boolean;
+  toggleDisabled: boolean;
+  onEdit: () => void;
+  onSave: (condition: string, tagName: string) => void;
+  onCancel: () => void;
+  onAskJev: () => void;
+  onToggle: (enabled: boolean) => void;
+  onDelete: () => void;
+  onDragStart: (event: DragEvent<HTMLDivElement>) => void;
+  onDragOver: (event: DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
 }) {
   const t = useT();
-  const [name, setName] = useState(labelForRule(rule));
   const [condition, setCondition] = useState(rule.condition);
+  const [tagName, setTagName] = useState(aiFilterRuleLabelName(rule));
 
   useEffect(() => {
-    setName(labelForRule(rule));
     setCondition(rule.condition);
+    setTagName(aiFilterRuleLabelName(rule));
   }, [rule]);
-
-  const save = () => onSave(rule, name, condition);
 
   return (
     <div
-      draggable={!expanded && !disabled}
-      onDragStart={(event) => {
-        if (!disabled) event.dataTransfer.setData("text/plain", rule.id);
-      }}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => onDrop(event, rule.id)}
+      draggable={mode === "tag" && !editing && !editDisabled}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
       className="group border-b border-border/40 last:border-0"
     >
-      <div className="flex items-center gap-3 px-3 py-2.5">
-        <IconGripVertical className="size-4 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
-        <button
-          type="button"
-          className="grid min-w-0 flex-1 grid-cols-[110px_minmax(0,1fr)] items-center gap-3 text-left"
-          aria-expanded={expanded}
-          disabled={disabled}
-          onClick={onToggle}
-        >
-          <span className="truncate text-sm font-medium text-foreground">
-            {labelForRule(rule)}
-          </span>
-          <span className="truncate text-sm text-muted-foreground">
-            {rule.condition}
-          </span>
-        </button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={`size-7 text-muted-foreground hover:text-destructive ${disabled ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
-          aria-label={t("mail.aiFilter.deleteInstruction")}
-          onClick={() => onDelete(rule)}
-        >
-          <IconTrash className="size-3.5" />
-        </Button>
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        {mode === "tag" && (
+          <IconGripVertical className="size-4 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">
+            {mode === "tag" ? aiFilterRuleLabelName(rule) : rule.condition}
+          </p>
+          {mode === "tag" && (
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-xs text-muted-foreground">
+                {rule.condition}
+              </p>
+              {rule.actions.some((action) => action.type === "archive") && (
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                  {t("mail.aiFilter.autoArchiveMode")}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <Switch
+          checked={rule.enabled}
+          onCheckedChange={onToggle}
+          aria-label={t("mail.aiFilter.toggleInstruction", {
+            instruction: rule.condition,
+          })}
+          disabled={toggleDisabled}
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              aria-label={t("mail.toolbar.menu")}
+            >
+              <IconDotsVertical className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={onEdit} disabled={editDisabled}>
+              {t("settings.editRule")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onAskJev}>
+              {t("mail.aiFilter.askJev")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onDelete}>
+              {t("settings.deleteRule")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      {expanded && (
-        <div className="space-y-3 border-t border-border/40 bg-muted/20 p-3">
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            onBlur={save}
-            disabled={disabled}
-            aria-label={t("mail.aiFilter.tagNamePlaceholder")}
-            placeholder={t("mail.aiFilter.tagNamePlaceholder")}
-          />
+      {editing && (
+        <form
+          className="space-y-3 border-t border-border/40 bg-muted/20 p-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSave(condition, tagName);
+          }}
+        >
+          {mode === "tag" && (
+            <div className="space-y-1.5">
+              <label
+                htmlFor={`ai-filter-tag-${rule.id}`}
+                className="text-xs font-medium text-muted-foreground"
+              >
+                {t("mail.aiFilter.tagNamePlaceholder")}
+              </label>
+              <Input
+                id={`ai-filter-tag-${rule.id}`}
+                value={tagName}
+                onChange={(event) => setTagName(event.target.value)}
+                disabled={editDisabled}
+              />
+            </div>
+          )}
           <AiRulePromptField
             value={condition}
             onChange={setCondition}
-            onBlur={save}
-            disabled={disabled}
-            label={t("mail.aiFilter.tagPlaceholder")}
-            placeholder={t("mail.aiFilter.tagPlaceholder")}
+            disabled={editDisabled}
+            label={t("mail.aiFilter.instructionsTitle")}
+            placeholder={t("mail.aiFilter.instructionPlaceholder")}
+            className="min-h-20 resize-y"
           />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+              {t("settings.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={
+                editDisabled ||
+                !condition.trim() ||
+                (mode === "tag" && !tagName.trim())
+              }
+            >
+              {t("settings.save")}
+            </Button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function RuleBackfillStatus({
+  ruleId,
+  status,
+  loading,
+  starting,
+  failed,
+  undoing,
+  reviewHref,
+  onUndo,
+}: {
+  ruleId: string;
+  status: AiFilterBackfillStatus | undefined;
+  loading: boolean;
+  starting: boolean;
+  failed: boolean;
+  undoing: boolean;
+  reviewHref: string | null;
+  onUndo: (runId: string, undoToken: string) => void;
+}) {
+  const t = useT();
+  const working =
+    starting ||
+    loading ||
+    status?.status === "queued" ||
+    status?.status === "running" ||
+    status?.status === "undoing" ||
+    undoing;
+
+  if (!starting && !loading && !failed && !status && !undoing) return null;
+
+  if (working) {
+    const percent =
+      status && status.totalThreads > 0
+        ? Math.min(
+            100,
+            Math.round((status.processedThreads / status.totalThreads) * 100),
+          )
+        : 0;
+    const message =
+      undoing || status?.status === "undoing"
+        ? t("mail.aiFilter.ruleBackfillUndoing")
+        : starting || loading
+          ? t("mail.aiFilter.ruleBackfillStarting")
+          : t("mail.aiFilter.ruleBackfillProgress", {
+              processed: status?.processedThreads ?? 0,
+              total: status?.totalThreads ?? 0,
+            });
+
+    return (
+      <div className="space-y-1.5 border-t border-border/40 px-3 py-2.5">
+        <p role="status" className="text-xs text-muted-foreground">
+          {message}
+        </p>
+        <Progress
+          value={status?.totalThreads ? percent : 0}
+          max={100}
+          aria-label={message}
+          className="h-1"
+        />
+      </div>
+    );
+  }
+
+  if (failed || status?.status === "failed") {
+    return (
+      <div
+        role="alert"
+        className="flex items-center justify-between gap-2 border-t border-border/40 px-3 py-2.5"
+      >
+        <p className="text-xs text-destructive">
+          {t("mail.aiFilter.ruleBackfillFailed")}
+        </p>
+        {status?.undoToken && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7"
+            onClick={() => onUndo(status.runId, status.undoToken!)}
+            disabled={undoing}
+          >
+            {t("mail.actions.undo")}
+          </Button>
+        )}
+      </div>
+    );
+  }
+  if (!status) return null;
+  if (status.status === "undone") {
+    return (
+      <p className="border-t border-border/40 px-3 py-2.5 text-xs text-muted-foreground">
+        {t("mail.aiFilter.ruleBackfillUndoComplete", {
+          count: status.restoredThreads ?? 0,
+        })}
+      </p>
+    );
+  }
+
+  const ruleStatus = status.perRule.find((item) => item.ruleId === ruleId);
+  if (!ruleStatus) {
+    return status.failedThreads > 0 ? (
+      <p
+        role="alert"
+        className="border-t border-border/40 px-3 py-2.5 text-xs text-destructive"
+      >
+        {t("mail.aiFilter.ruleBackfillPartialFailure", {
+          count: status.failedThreads,
+        })}
+      </p>
+    ) : null;
+  }
+
+  return (
+    <div className="space-y-2 border-t border-border/40 px-3 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-medium text-foreground">
+          {ruleStatus.matchedCount > 0
+            ? t("mail.aiFilter.ruleBackfillMatches", {
+                count: ruleStatus.matchedCount,
+              })
+            : t("mail.aiFilter.ruleBackfillNoMatches")}
+        </p>
+        <div className="flex items-center gap-1">
+          {reviewHref && ruleStatus.matchedCount > 0 && (
+            <Button variant="ghost" size="sm" className="h-7" asChild>
+              <Link to={reviewHref}>
+                {t("mail.aiFilter.ruleBackfillReview")}
+              </Link>
+            </Button>
+          )}
+          {status.undoToken && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7"
+              onClick={() => onUndo(status.runId, status.undoToken!)}
+              disabled={undoing}
+            >
+              {t("mail.actions.undo")}
+            </Button>
+          )}
         </div>
+      </div>
+      {status.failedThreads > 0 && (
+        <p role="alert" className="text-xs text-destructive">
+          {t("mail.aiFilter.ruleBackfillPartialFailure", {
+            count: status.failedThreads,
+          })}
+        </p>
+      )}
+      {ruleStatus.previews.length > 0 && (
+        <ul className="divide-y divide-border/40">
+          {ruleStatus.previews.slice(0, 3).map((preview) => (
+            <li
+              key={preview.id}
+              className="min-w-0 py-1.5 first:pt-0 last:pb-0"
+            >
+              <p className="truncate text-xs text-foreground">
+                {preview.subject || t("mail.aiFilter.noSubject")}
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {preview.from || t("mail.aiFilter.unknownSender")}
+              </p>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -189,6 +404,7 @@ function AiTagRow({
 
 export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   const t = useT();
+  const navigate = useNavigate();
   const { data: state, isLoading: filterLoading } = useAiFilter();
   const automations = useAutomations();
   const rules = automations.data ?? EMPTY_RULES;
@@ -206,32 +422,27 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   );
   const jevConfigured =
     !jevAvailability.isError && jevAvailability.data?.configured === true;
-  const jevUnavailable =
-    !jevAvailability.isLoading &&
-    !jevAvailability.isError &&
-    jevAvailability.data?.configured === false;
   const updateSettings = useManageAiFilter();
+  const manageBackfill = useManageAiFilterBackfill();
   const updatePreferences = useUpdateSettings();
-  const clearAiFilterRules = useClearAiFilterRules();
-  const consolidateAiFilterRules = useConsolidateAiFilterRules();
-  const restoreAiFilterRules = useRestoreAiFilterRules();
   const createRule = useCreateAutomation();
   const updateRule = useUpdateAutomation();
   const deleteRule = useDeleteAutomation();
-  const [expandedTagId, setExpandedTagId] = useState<string | null>(null);
-  const [newTagOpen, setNewTagOpen] = useState(false);
-  const [newTagName, setNewTagName] = useState("");
-  const [newTagPrompt, setNewTagPrompt] = useState("");
-  const [savingNewTag, setSavingNewTag] = useState(false);
-  const [savingSuggestedTag, setSavingSuggestedTag] = useState<string | null>(
-    null,
-  );
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
+  const [newRuleOpen, setNewRuleOpen] = useState(false);
+  const [newRuleMode, setNewRuleMode] = useState<RuleMode>("important");
+  const [newRuleCondition, setNewRuleCondition] = useState("");
+  const [newRuleTagName, setNewRuleTagName] = useState("");
+  const [savingNewRule, setSavingNewRule] = useState(false);
+  const [thresholdDraft, setThresholdDraft] = useState("92");
   const [setupAgainOpen, setSetupAgainOpen] = useState(false);
-  const [promptDrafts, setPromptDrafts] = useState<Record<PromptMode, string>>({
-    important: "",
-    archive: "",
-    spam: "",
-  });
+  const [queueingBackfillRuleId, setQueueingBackfillRuleId] = useState<
+    string | null
+  >(null);
+  const [undoingBackfill, setUndoingBackfill] = useState(false);
+  const backfillRequestSequence = useRef(0);
+  const backfillToastRules = useRef(new Map<string, string>());
+  const recentBackfills = useRecentAiFilterBackfills();
 
   const instructions = useMemo(
     () =>
@@ -239,274 +450,297 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
         (rule) =>
           rule.domain === "mail" &&
           rule.kind === "ai-filter" &&
-          rule.name !== AI_FILTER_RULE_NAME,
+          rule.name !== AI_FILTER_RULE_NAME &&
+          aiFilterRuleMode(rule) !== null,
       ),
     [rules],
   );
   const labelIdForName = (name: string) =>
     labels.find(
-      (label) => label.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
-    )?.id ?? normalizedLabelId(name);
-  const promptRules = useMemo(
-    () =>
-      Object.fromEntries(
-        PROMPT_MODES.map((mode) => [
-          mode,
-          instructions.filter(
-            (rule) => rule.enabled && ruleMode(rule) === mode,
-          ),
-        ]),
-      ) as Record<PromptMode, AutomationRule[]>,
-    [instructions],
-  );
-  const tagRules = useMemo(() => {
+      (label) =>
+        normalizedAiFilterLabelId(label.name) ===
+        normalizedAiFilterLabelId(name),
+    )?.id ?? normalizedAiFilterLabelId(name);
+  const sortedRules = useMemo(() => {
     const pinned = settings?.pinnedLabels ?? [];
     const rank = (rule: AutomationRule) => {
-      const name = labelForRule(rule);
-      const labelId = labelIdForName(name);
-      const actionId = name;
+      if (aiFilterRuleMode(rule) !== "tag") return 0;
+      const name = aiFilterRuleLabelName(rule);
       const index = Math.min(
-        ...[labelId, actionId]
+        ...[name, labelIdForName(name)]
           .map((id) => pinned.indexOf(id))
           .filter((value) => value >= 0),
       );
       return Number.isFinite(index) ? index : pinned.length;
     };
-    return [...instructions]
-      .filter((rule) => ruleMode(rule) === "tag")
-      .sort((a, b) => rank(a) - rank(b));
+    return [...instructions].sort((a, b) => rank(a) - rank(b));
   }, [instructions, labels, settings?.pinnedLabels]);
+  const rulesByMode = useMemo(
+    () =>
+      Object.fromEntries(
+        RULE_MODES.map((mode) => [
+          mode,
+          sortedRules.filter((rule) => aiFilterRuleMode(rule) === mode),
+        ]),
+      ) as Record<RuleMode, AutomationRule[]>,
+    [sortedRules],
+  );
 
   useEffect(() => {
-    setPromptDrafts({
-      important: promptForRules(promptRules.important),
-      archive: promptForRules(promptRules.archive),
-      spam: promptForRules(promptRules.spam),
-    });
-  }, [promptRules]);
+    if (state) {
+      setThresholdDraft(String(Math.round(state.autoFilterThreshold * 100)));
+    }
+  }, [state?.autoFilterThreshold]);
 
-  const updateAiSettings = (enabled: boolean) => {
-    if (enabled && !jevConfigured) return;
+  const updateAiSettings = (
+    next:
+      | { enabled: boolean }
+      | { autoFilter: boolean }
+      | { autoFilterThreshold: number },
+  ) => {
     updateSettings.mutate(
-      { mode: "settings", settings: { enabled } },
+      { mode: "settings", settings: next },
       {
         onError: (error) =>
           toast.error(
-            error instanceof Error
-              ? error.message
-              : t("mail.aiFilter.settingsFailed"),
+            actionErrorMessage(error) ?? t("mail.aiFilter.settingsFailed"),
           ),
       },
     );
   };
 
-  const savePrompt = async (mode: PromptMode, clear = false) => {
-    const condition = clear ? "" : promptDrafts[mode].trim();
-    const existing = promptRules[mode];
-    if (condition === promptForRules(existing)) return;
-    if (!jevConfigured && condition) {
-      setPromptDrafts((drafts) => ({
-        ...drafts,
-        [mode]: promptForRules(existing),
-      }));
+  const saveThreshold = () => {
+    if (!state) return;
+    const percent = Number(thresholdDraft);
+    if (!Number.isInteger(percent) || percent < 50 || percent > 100) {
+      setThresholdDraft(String(Math.round(state.autoFilterThreshold * 100)));
       return;
     }
-    const actions = actionsForMode(mode);
-
-    try {
-      if (!condition) {
-        const { undoId } = await clearAiFilterRules.mutateAsync(
-          existing.map((rule) => rule.id),
-        );
-        toast(t("mail.aiFilter.promptRulesCleared"), {
-          action: {
-            label: t("mail.actions.undo"),
-            onClick: () => {
-              void restoreAiFilterRules
-                .mutateAsync(undoId)
-                .catch((error) =>
-                  toast.error(
-                    actionErrorMessage(error) ??
-                      t("mail.aiFilter.instructionFailed"),
-                  ),
-                );
-            },
+    const value = percent / 100;
+    if (value !== state.autoFilterThreshold) {
+      updateSettings.mutate(
+        { mode: "settings", settings: { autoFilterThreshold: value } },
+        {
+          onError: (error) => {
+            setThresholdDraft(
+              String(Math.round(state.autoFilterThreshold * 100)),
+            );
+            toast.error(
+              actionErrorMessage(error) ?? t("mail.aiFilter.settingsFailed"),
+            );
           },
-        });
-        return;
+        },
+      );
+    }
+  };
+
+  const modeLabel = (mode: RuleMode) => {
+    if (mode === "important") return t("mail.aiFilter.importantMode");
+    if (mode === "tag") return t("mail.aiFilter.aiTagsTitle");
+    if (mode === "filtered") return t("mail.aiFilter.filteredMode");
+    return t("mail.aiFilter.autoArchiveMode");
+  };
+
+  const askJevAboutRule = (rule: AutomationRule) => {
+    const mode = aiFilterRuleMode(rule);
+    if (!mode) return;
+    sendToAgentChat({
+      message: t("mail.aiFilter.askJevPrompt", {
+        condition: rule.condition,
+      }),
+      context: JSON.stringify({
+        ruleId: rule.id,
+        mode,
+        condition: rule.condition,
+      }),
+      submit: false,
+      openSidebar: true,
+    });
+  };
+
+  const queueRuleBackfill = async (ruleId: string) => {
+    const requestSequence = ++backfillRequestSequence.current;
+    setQueueingBackfillRuleId(ruleId);
+    try {
+      const result = await manageBackfill.mutateAsync({
+        operation: "start",
+        ruleIds: [ruleId],
+      });
+      if ("runId" in result)
+        backfillToastRules.current.set(result.runId, ruleId);
+      if (requestSequence === backfillRequestSequence.current) {
+        await recentBackfills.refetch();
       }
-      const name = `AI ${mode}: ${condition.slice(0, 72)}`;
-      const [first, ...duplicates] = existing;
-      if (first) {
-        const result = await consolidateAiFilterRules.mutateAsync({
-          id: first.id,
-          duplicateIds: duplicates.map((rule) => rule.id),
-          expectedRules: existing.map(({ id, name, condition, actions }) => ({
-            id,
-            name,
-            condition,
-            actions,
-          })),
-          name,
-          condition,
-          actions,
-        });
-        if (!result.saved) {
-          toast.error(t("mail.aiFilter.instructionFailed"));
-          setPromptDrafts((drafts) => ({
-            ...drafts,
-            [mode]: promptForRules(existing),
-          }));
+    } catch (error) {
+      toast.error(
+        actionErrorMessage(error) ?? t("mail.aiFilter.ruleBackfillFailed"),
+      );
+    } finally {
+      if (requestSequence === backfillRequestSequence.current) {
+        setQueueingBackfillRuleId(null);
+      }
+    }
+  };
+
+  const undoRuleBackfill = async (runId: string, undoToken: string) => {
+    if (undoingBackfill) return;
+    setUndoingBackfill(true);
+    try {
+      await manageBackfill.mutateAsync({
+        operation: "undo",
+        runId,
+        undoToken,
+      });
+      await recentBackfills.refetch();
+    } catch (error) {
+      toast.error(
+        actionErrorMessage(error) ?? t("mail.aiFilter.ruleBackfillFailed"),
+      );
+    } finally {
+      setUndoingBackfill(false);
+    }
+  };
+
+  useEffect(() => {
+    for (const run of recentBackfills.data ?? []) {
+      const ruleId = backfillToastRules.current.get(run.runId);
+      if (!ruleId || ["queued", "running", "undoing"].includes(run.status)) {
+        continue;
+      }
+      backfillToastRules.current.delete(run.runId);
+      const rule = instructions.find((item) => item.id === ruleId);
+      const progress = run.perRule.find((item) => item.ruleId === ruleId);
+      if (run.status === "failed" || !rule || !progress) {
+        if (run.status === "failed") {
+          toast.error(t("mail.aiFilter.ruleBackfillFailed"));
         }
-      } else {
-        await createRule.mutateAsync({
-          name,
-          condition,
-          actions,
-          kind: "ai-filter",
-          domain: "mail",
-        });
+        continue;
       }
+      if (run.status !== "completed") continue;
+
+      const matched = progress.matchedCount;
+      const reviewHref = matched > 0 ? reviewHrefForRule(rule) : null;
+      toast(
+        matched > 0
+          ? t("mail.aiFilter.ruleBackfillMatches", { count: matched })
+          : t("mail.aiFilter.ruleBackfillNoMatches"),
+        {
+          duration: 10_000,
+          ...(reviewHref
+            ? {
+                action: {
+                  label: t("mail.aiFilter.ruleBackfillReview"),
+                  onClick: () => void navigate(reviewHref),
+                },
+              }
+            : {}),
+          ...(run.undoToken
+            ? {
+                cancel: {
+                  label: t("mail.actions.undo"),
+                  onClick: () =>
+                    void undoRuleBackfill(run.runId, run.undoToken!),
+                },
+              }
+            : {}),
+        },
+      );
+    }
+  }, [instructions, navigate, recentBackfills.data, t]);
+
+  const saveNewRule = async () => {
+    if (!jevConfigured || savingNewRule) return;
+    const condition = newRuleCondition.trim();
+    const tagName = newRuleTagName.trim();
+    if (!condition || (newRuleMode === "tag" && !tagName)) return;
+    setSavingNewRule(true);
+    try {
+      const created = await createRule.mutateAsync({
+        name: ruleName(newRuleMode, condition),
+        condition,
+        actions: aiFilterRuleActionsForMode(newRuleMode, tagName),
+        kind: "ai-filter",
+        domain: "mail",
+      });
+      setNewRuleOpen(false);
+      setNewRuleCondition("");
+      setNewRuleTagName("");
+      toast(t("mail.aiFilter.ruleAdded"));
+      void queueRuleBackfill(created.id);
+      return created;
     } catch (error) {
       toast.error(
         actionErrorMessage(error) ?? t("mail.aiFilter.instructionFailed"),
       );
-      setPromptDrafts((drafts) => ({
-        ...drafts,
-        [mode]: promptForRules(existing),
-      }));
-    }
-  };
-
-  const pinLabel = async (labelName: string) => {
-    const current = settings?.pinnedLabels ?? [];
-    const labelId = labelIdForName(labelName);
-    if (current.includes(labelName) || current.includes(labelId)) return;
-    await updatePreferences.mutateAsync({
-      pinnedLabels: [...current, labelId],
-    });
-  };
-
-  const saveNewTag = async () => {
-    if (!jevConfigured) return;
-    const name = newTagName.trim();
-    const condition = newTagPrompt.trim();
-    if (!name || !condition || savingNewTag) return;
-    setSavingNewTag(true);
-    try {
-      await createRule.mutateAsync({
-        name: `AI tag: ${condition.slice(0, 72)}`,
-        condition,
-        actions: [{ type: "label", labelName: name }],
-        kind: "ai-filter",
-        domain: "mail",
-      });
-      await pinLabel(name);
-      setNewTagName("");
-      setNewTagPrompt("");
-      setNewTagOpen(false);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.aiFilter.instructionFailed"),
-      );
     } finally {
-      setSavingNewTag(false);
+      setSavingNewRule(false);
     }
   };
 
-  const saveSuggestedTag = async (nameKey: string, promptKey: string) => {
-    if (!jevConfigured || savingSuggestedTag) return;
-    const name = t(nameKey);
-    const condition = t(promptKey);
-    setSavingSuggestedTag(nameKey);
-    try {
-      await createRule.mutateAsync({
-        name: `AI tag: ${condition.slice(0, 72)}`,
-        condition,
-        actions: [{ type: "label", labelName: name }],
-        kind: "ai-filter",
-        domain: "mail",
-      });
-      await pinLabel(name);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.aiFilter.instructionFailed"),
-      );
-    } finally {
-      setSavingSuggestedTag(null);
-    }
-  };
-
-  const updateTag = async (
+  const saveRule = async (
     rule: AutomationRule,
-    nameDraft: string,
     conditionDraft: string,
+    tagNameDraft: string,
   ) => {
-    if (!jevConfigured) return;
-    const name = nameDraft.trim() || labelForRule(rule);
-    const condition = conditionDraft.trim() || rule.condition;
-    if (!name || !condition) return;
-    if (name === labelForRule(rule) && condition === rule.condition) return;
+    const mode = aiFilterRuleMode(rule);
+    if (!mode || !jevConfigured) return;
+    const condition = conditionDraft.trim();
+    const tagName = tagNameDraft.trim();
+    if (!condition || (mode === "tag" && !tagName)) return;
+    const oldTagName = aiFilterRuleLabelName(rule);
+    const changed =
+      condition !== rule.condition ||
+      (mode === "tag" && tagName !== oldTagName);
+    if (!changed) {
+      setEditingRuleId(null);
+      return;
+    }
     try {
       await updateRule.mutateAsync({
         id: rule.id,
-        name: `AI tag: ${condition.slice(0, 72)}`,
+        name: ruleName(mode, condition),
         condition,
-        actions: [{ type: "label", labelName: name }],
+        actions: aiFilterRuleActionsForMode(mode, tagName, rule.actions),
       });
-      if (name !== labelForRule(rule)) {
-        const oldIds = new Set([
-          labelForRule(rule),
-          normalizedLabelId(labelForRule(rule)),
-          labelIdForName(labelForRule(rule)),
-        ]);
-        const current = settings?.pinnedLabels ?? [];
-        const newId = labelIdForName(name);
-        const updated = current
-          .filter((id) => !oldIds.has(id))
-          .concat(current.includes(newId) ? [] : [newId]);
-        await updatePreferences.mutateAsync({ pinnedLabels: updated });
-      }
+      setEditingRuleId(null);
+      void queueRuleBackfill(rule.id);
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.aiFilter.instructionFailed"),
+        actionErrorMessage(error) ?? t("mail.aiFilter.instructionFailed"),
       );
     }
   };
 
-  const removeTag = async (rule: AutomationRule) => {
+  const toggleRule = (rule: AutomationRule, enabled: boolean) => {
+    updateRule.mutate(
+      { id: rule.id, enabled },
+      {
+        onSuccess: () => {
+          if (enabled) void queueRuleBackfill(rule.id);
+        },
+        onError: (error) =>
+          toast.error(
+            actionErrorMessage(error) ?? t("mail.aiFilter.instructionFailed"),
+          ),
+      },
+    );
+  };
+
+  const removeRule = async (rule: AutomationRule) => {
     try {
       await deleteRule.mutateAsync(rule.id);
-      const labelName = labelForRule(rule);
-      const oldIds = new Set([
-        labelName,
-        normalizedLabelId(labelName),
-        labelIdForName(labelName),
-      ]);
-      await updatePreferences.mutateAsync({
-        pinnedLabels: (settings?.pinnedLabels ?? []).filter(
-          (id) => !oldIds.has(id),
-        ),
-      });
-      setExpandedTagId(null);
+      setEditingRuleId((current) => (current === rule.id ? null : current));
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.aiFilter.instructionFailed"),
+        actionErrorMessage(error) ?? t("mail.aiFilter.instructionFailed"),
       );
     }
   };
 
   const reorderTags = async (draggedId: string, targetId: string) => {
     if (!jevConfigured || draggedId === targetId) return;
-    const orderedNames = tagRules.map((rule) => labelForRule(rule));
+    const tagRules = rulesByMode.tag;
+    const orderedNames = tagRules.map((rule) => aiFilterRuleLabelName(rule));
     const from = tagRules.findIndex((rule) => rule.id === draggedId);
     const to = tagRules.findIndex((rule) => rule.id === targetId);
     if (from < 0 || to < 0) return;
@@ -514,7 +748,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
     orderedNames.splice(to, 0, moved);
     const current = settings?.pinnedLabels ?? [];
     const tagIds = new Set(
-      tagRules.map((rule) => labelIdForName(labelForRule(rule))),
+      tagRules.map((rule) => labelIdForName(aiFilterRuleLabelName(rule))),
     );
     let nextIndex = 0;
     const reordered = current.map((id) =>
@@ -527,9 +761,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
       await updatePreferences.mutateAsync({ pinnedLabels: reordered });
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.aiFilter.settingsFailed"),
+        actionErrorMessage(error) ?? t("mail.aiFilter.settingsFailed"),
       );
     }
   };
@@ -537,7 +769,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   if (automations.isError && automations.data === undefined) {
     return (
       <div
-        className="flex max-w-[720px] items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
+        className="flex max-w-180 items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
         role="alert"
       >
         <span className="text-sm text-muted-foreground">
@@ -556,13 +788,15 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   }
 
   if (filterLoading || automations.isLoading || !state) {
-    return <Skeleton className="h-72 w-full max-w-[720px]" />;
+    return <Skeleton className="h-72 w-full max-w-180" />;
   }
+
+  const decisions = latestAiFilterDecisions(state).slice(0, 5);
 
   const enabledSwitch = (
     <Switch
       checked={state.enabled}
-      onCheckedChange={updateAiSettings}
+      onCheckedChange={(enabled) => updateAiSettings({ enabled })}
       aria-label={t("mail.aiFilter.toggle")}
       disabled={!jevConfigured && !state.enabled}
     />
@@ -570,7 +804,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <>
-      <div className="max-w-[720px] space-y-8 pb-10">
+      <div className="max-w-180 space-y-7 pb-10">
         {embedded ? (
           <SettingsGroup id="ai-filter-settings">
             <SettingsRow
@@ -581,7 +815,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
           </SettingsGroup>
         ) : (
           <div className="flex items-center justify-between border-b border-border/50 pb-4">
-            <h2 className="text-[16px] font-semibold text-foreground">
+            <h2 className="text-base font-semibold text-foreground">
               {t("mail.aiFilter.triageTitle")}
             </h2>
             {enabledSwitch}
@@ -601,185 +835,295 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
           />
         ) : null}
 
-        <section id="tags" className="space-y-2">
+        <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <h3 className="text-[13px] font-semibold text-foreground">
-                {t("mail.aiFilter.aiTagsTitle")}
-              </h3>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="text-muted-foreground"
-                    aria-label={t("mail.aiFilter.tagTabsHelp")}
-                  >
-                    <IconInfoCircle className="size-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t("mail.aiFilter.tagTabsHelp")}
-                </TooltipContent>
-              </Tooltip>
-            </div>
+            <h3 className="text-sm font-semibold text-foreground">
+              {t("mail.aiFilter.rulesTitle")}
+            </h3>
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs"
+              className="h-7"
               disabled={!jevConfigured}
-              onClick={() => {
-                setNewTagOpen(true);
-                setExpandedTagId("new");
-              }}
+              onClick={() => setNewRuleOpen((open) => !open)}
             >
               <IconPlus className="size-3.5" />
-              {t("mail.aiFilter.addTag")}
+              {t("mail.aiFilter.newRule")}
             </Button>
           </div>
 
-          {tagRules.length > 0 ? (
-            <div className="overflow-hidden rounded-lg border border-border/50">
-              {tagRules.map((rule) => (
-                <AiTagRow
-                  key={rule.id}
-                  rule={rule}
-                  expanded={expandedTagId === rule.id}
-                  disabled={!jevConfigured}
-                  onToggle={() =>
-                    setExpandedTagId((current) =>
-                      current === rule.id ? null : rule.id,
-                    )
-                  }
-                  onSave={(currentRule, name, condition) =>
-                    void updateTag(currentRule, name, condition)
-                  }
-                  onDelete={removeTag}
-                  onDrop={(event, targetId) => {
-                    event.preventDefault();
-                    if (!jevConfigured) return;
-                    void reorderTags(
-                      event.dataTransfer.getData("text/plain"),
-                      targetId,
-                    );
-                  }}
-                />
-              ))}
-              {newTagOpen && (
-                <div className="space-y-3 bg-muted/20 p-3">
+          {newRuleOpen && (
+            <form
+              className="space-y-3 rounded-lg border border-border/50 p-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveNewRule();
+              }}
+            >
+              <div
+                className="flex flex-wrap gap-1 rounded-lg border border-border/50 p-1"
+                role="group"
+                aria-label={t("mail.aiFilter.rulesTitle")}
+              >
+                {RULE_MODES.map((mode) => (
+                  <Button
+                    key={mode}
+                    type="button"
+                    size="sm"
+                    variant={newRuleMode === mode ? "secondary" : "ghost"}
+                    aria-pressed={newRuleMode === mode}
+                    disabled={!jevConfigured || savingNewRule}
+                    onClick={() => setNewRuleMode(mode)}
+                  >
+                    {modeLabel(mode)}
+                  </Button>
+                ))}
+              </div>
+              {newRuleMode === "tag" && (
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="new-ai-filter-tag"
+                    className="text-xs font-medium text-muted-foreground"
+                  >
+                    {t("mail.aiFilter.tagNamePlaceholder")}
+                  </label>
                   <Input
-                    autoFocus
-                    value={newTagName}
-                    onChange={(event) => setNewTagName(event.target.value)}
-                    onBlur={() => void saveNewTag()}
-                    disabled={!jevConfigured}
-                    aria-label={t("mail.aiFilter.tagNamePlaceholder")}
-                    placeholder={t("mail.aiFilter.tagNamePlaceholder")}
-                  />
-                  <AiRulePromptField
-                    value={newTagPrompt}
-                    onChange={setNewTagPrompt}
-                    onBlur={() => void saveNewTag()}
-                    disabled={!jevConfigured}
-                    label={t("mail.aiFilter.tagPlaceholder")}
-                    placeholder={t("mail.aiFilter.tagPlaceholder")}
+                    id="new-ai-filter-tag"
+                    value={newRuleTagName}
+                    onChange={(event) => setNewRuleTagName(event.target.value)}
+                    disabled={!jevConfigured || savingNewRule}
                   />
                 </div>
               )}
-            </div>
-          ) : newTagOpen ? (
-            <div className="space-y-3">
-              <Input
-                autoFocus
-                value={newTagName}
-                onChange={(event) => setNewTagName(event.target.value)}
-                onBlur={() => void saveNewTag()}
-                disabled={!jevConfigured}
-                aria-label={t("mail.aiFilter.tagNamePlaceholder")}
-                placeholder={t("mail.aiFilter.tagNamePlaceholder")}
-              />
               <AiRulePromptField
-                value={newTagPrompt}
-                onChange={setNewTagPrompt}
-                onBlur={() => void saveNewTag()}
-                disabled={!jevConfigured}
-                label={t("mail.aiFilter.tagPlaceholder")}
-                placeholder={t("mail.aiFilter.tagPlaceholder")}
+                value={newRuleCondition}
+                onChange={setNewRuleCondition}
+                disabled={!jevConfigured || savingNewRule}
+                label={t("mail.aiFilter.instructionsTitle")}
+                placeholder={t("mail.aiFilter.instructionPlaceholder")}
+                className="min-h-20 resize-y"
               />
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {TAG_SUGGESTIONS.slice(0, 3).map(([, nameKey, promptKey]) => (
+              <div className="flex justify-end gap-2">
                 <Button
-                  key={nameKey}
-                  variant="outline"
+                  type="button"
+                  variant="ghost"
                   size="sm"
-                  disabled={!jevConfigured || savingSuggestedTag !== null}
-                  onClick={() => void saveSuggestedTag(nameKey, promptKey)}
+                  onClick={() => setNewRuleOpen(false)}
+                  disabled={savingNewRule}
                 >
-                  <IconPlus className="size-3.5" />
-                  {t(nameKey)}
+                  {t("settings.cancel")}
                 </Button>
-              ))}
-            </div>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={
+                    !jevConfigured ||
+                    savingNewRule ||
+                    !newRuleCondition.trim() ||
+                    (newRuleMode === "tag" && !newRuleTagName.trim())
+                  }
+                >
+                  {t("mail.aiFilter.addInstruction")}
+                </Button>
+              </div>
+            </form>
           )}
+
+          {instructions.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {t("mail.aiFilter.noInstructions")}
+            </p>
+          )}
+
+          <div className="space-y-5">
+            {RULE_MODES.map((mode) => {
+              const modeRules = rulesByMode[mode];
+              if (mode !== "filtered" && modeRules.length === 0) return null;
+              return (
+                <section key={mode} className="space-y-2">
+                  <h4 className="text-sm font-semibold text-foreground">
+                    {modeLabel(mode)}
+                  </h4>
+                  {modeRules.length > 0 && (
+                    <div className="overflow-hidden rounded-lg border border-border/50">
+                      {modeRules.map((rule) => {
+                        const status = recentBackfills.data?.find((run) =>
+                          run.perRule.some(
+                            (progress) => progress.ruleId === rule.id,
+                          ),
+                        );
+                        return (
+                          <div key={rule.id} className="overflow-hidden">
+                            <RuleRow
+                              rule={rule}
+                              mode={mode}
+                              editing={editingRuleId === rule.id}
+                              editDisabled={!jevConfigured}
+                              toggleDisabled={!jevConfigured && !rule.enabled}
+                              onEdit={() => setEditingRuleId(rule.id)}
+                              onSave={(condition, tagName) =>
+                                void saveRule(rule, condition, tagName)
+                              }
+                              onCancel={() => setEditingRuleId(null)}
+                              onAskJev={() => askJevAboutRule(rule)}
+                              onToggle={(enabled) => toggleRule(rule, enabled)}
+                              onDelete={() => void removeRule(rule)}
+                              onDragStart={(event) =>
+                                event.dataTransfer.setData(
+                                  "text/plain",
+                                  rule.id,
+                                )
+                              }
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={(event) => {
+                                event.preventDefault();
+                                void reorderTags(
+                                  event.dataTransfer.getData("text/plain"),
+                                  rule.id,
+                                );
+                              }}
+                            />
+                            {(queueingBackfillRuleId === rule.id || status) && (
+                              <RuleBackfillStatus
+                                ruleId={rule.id}
+                                status={status}
+                                loading={!status && recentBackfills.isLoading}
+                                starting={queueingBackfillRuleId === rule.id}
+                                failed={!status && recentBackfills.isError}
+                                undoing={undoingBackfill}
+                                reviewHref={reviewHrefForRule(rule)}
+                                onUndo={(runId, undoToken) =>
+                                  void undoRuleBackfill(runId, undoToken)
+                                }
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {mode === "filtered" && (
+                    <details className="rounded-lg border border-border/50">
+                      <summary className="cursor-pointer px-3 py-2.5 text-sm font-medium text-foreground">
+                        {t("mail.aiFilter.manageSettings")}
+                      </summary>
+                      <div className="space-y-4 border-t border-border/40 p-3">
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-sm font-medium text-foreground">
+                            {t("mail.aiFilter.autoFilterTitle")}
+                          </span>
+                          <Switch
+                            checked={state.autoFilter}
+                            onCheckedChange={(autoFilter) =>
+                              updateAiSettings({ autoFilter })
+                            }
+                            aria-label={t("mail.aiFilter.autoFilterToggle")}
+                            disabled={!jevConfigured}
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <label
+                            htmlFor="ai-filter-auto-threshold"
+                            className="text-sm text-foreground"
+                          >
+                            {t("mail.aiFilter.thresholdLabel")}
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="ai-filter-auto-threshold"
+                              type="number"
+                              inputMode="numeric"
+                              min={50}
+                              max={100}
+                              step={1}
+                              value={thresholdDraft}
+                              onChange={(event) =>
+                                setThresholdDraft(event.target.value)
+                              }
+                              onBlur={saveThreshold}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.currentTarget.blur();
+                                }
+                              }}
+                              aria-label={t("mail.aiFilter.thresholdLabel")}
+                              className="w-20"
+                              disabled={!jevConfigured}
+                            />
+                            <span className="text-sm text-muted-foreground">
+                              %
+                            </span>
+                          </div>
+                        </div>
+                        <div className="space-y-2 border-t border-border/40 pt-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <h5 className="text-sm font-medium text-foreground">
+                              {t("mail.aiFilter.activityTitle")}
+                            </h5>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7"
+                              asChild
+                            >
+                              <Link to={labelTabHref(state.labelName)}>
+                                {t("mail.aiFilter.reviewLabel")}
+                              </Link>
+                            </Button>
+                          </div>
+                          {decisions.length > 0 ? (
+                            <ul className="divide-y divide-border/40">
+                              {decisions.map((decision) => (
+                                <li
+                                  key={decision.id}
+                                  className="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm text-foreground">
+                                      {decision.subject ||
+                                        t("mail.aiFilter.noSubject")}
+                                    </p>
+                                    <p className="truncate text-xs text-muted-foreground">
+                                      {decision.sender ||
+                                        t("mail.aiFilter.unknownSender")}
+                                    </p>
+                                    {decision.reason && (
+                                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                                        {decision.reason}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <span className="shrink-0 pt-0.5 text-xs text-muted-foreground">
+                                    {decision.disposition === "filtered"
+                                      ? t("mail.aiFilter.filterButton")
+                                      : decision.disposition === "kept"
+                                        ? t("mail.aiFilter.keepButton")
+                                        : t("mail.aiFilter.suggestionCount", {
+                                            count: 1,
+                                          })}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              {t("mail.aiFilter.noActivity")}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </details>
+                  )}
+                </section>
+              );
+            })}
+          </div>
         </section>
 
-        {PROMPT_MODES.map((mode) => (
-          <section
-            key={mode}
-            id={mode === "important" ? "importance-rules" : `${mode}-rules`}
-            className="space-y-2 scroll-mt-6"
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-[13px] font-semibold text-foreground">
-                {mode === "important"
-                  ? t("mail.aiFilter.importantMode")
-                  : mode === "archive"
-                    ? t("mail.aiFilter.skipInboxMode")
-                    : t("mail.aiFilter.spamMode")}
-              </h3>
-              {jevUnavailable && promptRules[mode].length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-muted-foreground hover:text-destructive"
-                  aria-label={t("mail.aiFilter.deleteInstruction")}
-                  onClick={() => void savePrompt(mode, true)}
-                >
-                  <IconTrash className="size-3.5" />
-                </Button>
-              )}
-            </div>
-            <AiRulePromptField
-              value={promptDrafts[mode]}
-              disabled={!jevConfigured}
-              onChange={(value) =>
-                setPromptDrafts((drafts) => ({ ...drafts, [mode]: value }))
-              }
-              onBlur={() => void savePrompt(mode)}
-              label={
-                mode === "important"
-                  ? t("mail.aiFilter.importantMode")
-                  : mode === "archive"
-                    ? t("mail.aiFilter.skipInboxMode")
-                    : t("mail.aiFilter.spamMode")
-              }
-              placeholder={
-                mode === "important"
-                  ? t("mail.aiFilter.importantPlaceholder")
-                  : mode === "archive"
-                    ? t("mail.aiFilter.archivePlaceholder")
-                    : t("mail.aiFilter.spamPlaceholder")
-              }
-              className="min-h-16 resize-y text-sm"
-            />
-          </section>
-        ))}
         {(googleStatus.data?.accounts.length ?? 0) > 0 && (
           <Button
             variant="ghost"
             size="sm"
-            className="px-2 text-xs text-muted-foreground"
             onClick={() => setSetupAgainOpen(true)}
           >
             {t("mail.sort.aiSetupRunAgain")}

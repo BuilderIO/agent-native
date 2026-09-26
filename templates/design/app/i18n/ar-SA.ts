@@ -181,6 +181,18 @@ export default {
     notFoundSignIn: "تسجيل الدخول",
     notFoundBackToDesigns: "العودة إلى التصاميم",
   },
+  onboarding: {
+    fileStorage: {
+      title: "اختر تخزين الملفات",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
+      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+    },
+    common: { retry: "إعادة المحاولة" },
+  },
   chat: {
     emptyState: "صف تصميمًا لإنشائه",
     suggestionLandingPage: "صمم صفحة هبوط لشركتي الناشئة",

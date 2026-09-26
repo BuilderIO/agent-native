@@ -1175,6 +1175,14 @@ const history = {
 };
 
 const overrides = {
+  close: "Schließen",
+  setup: { checkingProvider: "KI-Verbindung wird geprüft…" },
+  onboarding: {
+    fileStorage: {
+      title: "Speicher verbinden, um Dateien hochzuladen",
+      statusUnavailable: "Der Status des Dateispeichers ist nicht verfügbar.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,

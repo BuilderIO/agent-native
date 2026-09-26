@@ -160,13 +160,192 @@ describe("Mail Jev automation routing", () => {
       {} as never,
     );
 
-    expect(result.matches.get("email-1")).toEqual([
+    expect(
+      result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+    ).toEqual([
       expect.objectContaining({ ruleId: "rule-1", confidence: 0.91 }),
     ]);
     expect(mocks.requestJevThroughBuilder).toHaveBeenCalledWith(
       builderAuth,
       expect.objectContaining({ model: "jev-latest" }),
       { timeoutMs: 12_000 },
+    );
+  });
+
+  it("keeps AI-filter results distinct for matching IDs across accounts", async () => {
+    mocks.requestJevThroughBuilder.mockResolvedValue({
+      answers: {
+        q_0_0: { noul: 0.2 },
+        q_1_0: { noul: 0.91 },
+      },
+    });
+
+    const firstAccount = "first@example.test";
+    const secondAccount = "second@example.test";
+    const result = await previewAutomationRules(
+      [
+        { ...email, accountEmail: firstAccount },
+        { ...email, accountEmail: secondAccount },
+      ],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Work from the finance team",
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+      {} as never,
+    );
+
+    expect(result.matches.size).toBe(2);
+    expect(
+      result.matches.get(aiPriorityEmailKey(firstAccount, email.id)),
+    ).toEqual([]);
+    expect(
+      result.matches.get(aiPriorityEmailKey(secondAccount, email.id)),
+    ).toEqual([
+      expect.objectContaining({ ruleId: "rule-1", confidence: 0.91 }),
+    ]);
+  });
+
+  it("preserves a complete no-match classification", async () => {
+    mocks.requestJevThroughBuilder.mockResolvedValue({
+      answers: { q_0_0: { noul: 0.2 } },
+    });
+
+    const result = await previewAutomationRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Work from the finance team",
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+      {} as never,
+    );
+
+    expect(
+      result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+    ).toEqual([]);
+  });
+
+  it("fails when Jev omits a rule answer instead of treating it as no-match", async () => {
+    mocks.requestJevThroughBuilder.mockResolvedValue({ answers: {} });
+
+    await expect(
+      previewAutomationRules(
+        [email],
+        [
+          {
+            id: "rule-1",
+            name: "Important",
+            condition: "Work from the finance team",
+            actions: [],
+          },
+        ],
+        "owner@example.com",
+        { feedback: [] } as never,
+      ),
+    ).rejects.toThrow("TypeSafe Jev omitted one or more rule answers.");
+  });
+
+  it("fails when a model omits an email classification", async () => {
+    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+    });
+    mocks.resolveCredential.mockResolvedValue("test-anthropic-key");
+    mocks.resolveEngine.mockImplementation(async () => ({
+      defaultModel: "claude-sonnet-5",
+      configured: true,
+      stream: async function* () {
+        yield { type: "text-delta", text: "[]" };
+      },
+    }));
+
+    await expect(
+      previewAutomationRules(
+        [email],
+        [
+          {
+            id: "rule-1",
+            name: "Important",
+            condition: "Work from the finance team",
+            actions: [],
+          },
+        ],
+        "owner@example.com",
+        { feedback: [] } as never,
+      ),
+    ).rejects.toThrow("Model omitted one or more email classifications.");
+  });
+
+  it("bounds Anthropic rule results per response", async () => {
+    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+    });
+    mocks.resolveCredential.mockResolvedValue("test-anthropic-key");
+    const calls: Array<{ emailIds: string[]; ruleIds: string[] }> = [];
+    mocks.resolveEngine.mockImplementation(async () => ({
+      defaultModel: "claude-sonnet-5",
+      configured: true,
+      stream: async function* (input: {
+        messages: Array<{ content: Array<{ text: string }> }>;
+      }) {
+        const prompt = input.messages[0]!.content[0]!.text;
+        const emailIds = [...prompt.matchAll(/\(emailId: (.+)\) ---/g)].map(
+          ([, id]) => JSON.parse(id!),
+        );
+        const ruleIds = [...prompt.matchAll(/^\d+\. \[id: ([^\]]+)\]/gm)].map(
+          ([, id]) => id!,
+        );
+        calls.push({ emailIds, ruleIds });
+        yield {
+          type: "text-delta",
+          text: JSON.stringify(
+            emailIds.map((emailId) => ({
+              emailId,
+              matches: ruleIds.map((ruleId) => ({
+                ruleId,
+                match: false,
+                confidence: 0,
+              })),
+            })),
+          ),
+        };
+      },
+    }));
+
+    const emails = Array.from({ length: 10 }, (_, index) => ({
+      ...email,
+      id: `email-${index}`,
+      threadId: `thread-${index}`,
+    }));
+    const rules = Array.from({ length: 4 }, (_, index) => ({
+      id: `rule-${index}`,
+      name: `Rule ${index}`,
+      condition: `Condition ${index}`,
+      actions: [],
+    }));
+    const result = await previewAutomationRules(
+      emails,
+      rules,
+      "large-batch@example.test",
+      { feedback: [] } as never,
+    );
+
+    expect(
+      calls.map(({ emailIds, ruleIds }) => emailIds.length * ruleIds.length),
+    ).toEqual([32, 8]);
+    expect(result.matches.size).toBe(10);
+    expect([...result.matches.values()]).toEqual(
+      Array.from({ length: 10 }, () => []),
     );
   });
 
@@ -295,7 +474,9 @@ describe("Mail Jev automation routing", () => {
       {} as never,
     );
 
-    expect(result.matches.get("email-1")).toEqual([
+    expect(
+      result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+    ).toEqual([
       expect.objectContaining({ ruleId: "rule-1", confidence: 0.91 }),
     ]);
     expect(fetch).toHaveBeenCalledWith(

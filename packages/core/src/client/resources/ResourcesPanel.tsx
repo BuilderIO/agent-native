@@ -31,6 +31,12 @@ import { serializeFrontmatter } from "../../resources/metadata.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog.js";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -42,8 +48,10 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { PromptComposer } from "../composer/index.js";
+import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
+import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
 import { useUploadResource } from "../uploads/use-upload-resource.js";
 import { cn } from "../utils.js";
 import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
@@ -96,6 +104,18 @@ export function normalizeResourceFileName(name: string): string {
   if (!trimmed || trimmed.endsWith("/")) return "";
   const finalSegment = trimmed.split("/").pop() ?? "";
   return /\.[^/]+$/.test(finalSegment) ? trimmed : `${trimmed}.md`;
+}
+
+export function canUploadResourceFile(
+  mimeType: string,
+  fileStorageConfigured: boolean,
+): boolean {
+  const resolvedMimeType = mimeType || "application/octet-stream";
+  return (
+    fileStorageConfigured ||
+    resolvedMimeType.startsWith("text/") ||
+    resolvedMimeType === "application/json"
+  );
 }
 
 const EMPTY_RESOURCE_ACTION_LABELS: Record<ResourceView, string> = {
@@ -1245,6 +1265,7 @@ export function ResourcesPanel({
     string | null
   >(null);
   const [dragOver, setDragOver] = useState(false);
+  const [fileStorageSetupOpen, setFileStorageSetupOpen] = useState(false);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
     message: string;
@@ -1361,6 +1382,9 @@ export function ResourcesPanel({
     resourceFilter,
     hasMcpIntegrations,
   );
+  const fileUploadStatus = useFileUploadStatus(activeCreateMenuMode === "full");
+  const fileStorageConfigured =
+    fileUploadStatus.data?.configured === true && !fileUploadStatus.isError;
 
   // Virtual MCP server currently selected in the tree (or null for a real
   // resource / nothing). Resolved by scanning both trees' mcp folders for
@@ -1399,6 +1423,9 @@ export function ResourcesPanel({
     if (!requestedScope) return;
     setActiveScope(requestedScope);
   }, [requestedScope]);
+  useEffect(() => {
+    if (fileStorageConfigured) setFileStorageSetupOpen(false);
+  }, [fileStorageConfigured]);
   // Virtual MCP ids aren't in the resources store — skip the fetch so
   // useResource doesn't 404-flash.
   const resourceQuery = useResource(
@@ -1593,13 +1620,17 @@ export function ResourcesPanel({
     (files: FileList, targetScope: ResourceScope) => {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        if (!canUploadResourceFile(file.type, fileStorageConfigured)) {
+          setFileStorageSetupOpen(true);
+          continue;
+        }
         const formData = new FormData();
         formData.append("file", file);
         formData.append("shared", targetScope === "shared" ? "true" : "false");
         uploadResource.mutate(formData);
       }
     },
-    [uploadResource],
+    [fileStorageConfigured, uploadResource],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1745,6 +1776,38 @@ export function ResourcesPanel({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      <Dialog
+        open={fileStorageSetupOpen}
+        onOpenChange={setFileStorageSetupOpen}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="sr-only">
+              {t("onboarding.fileStorage.title")}
+            </DialogTitle>
+          </DialogHeader>
+          {fileUploadStatus.data?.configured === false &&
+          !fileUploadStatus.isError ? (
+            <FileStorageSetupCard />
+          ) : (
+            <div
+              role="status"
+              className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
+            >
+              <span>{t("onboarding.fileStorage.title")}</span>
+              {fileUploadStatus.isError ? (
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => void fileUploadStatus.refetch()}
+                >
+                  {t("agentChat.common.retry")}
+                </button>
+              ) : null}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       {/* Toolbar */}
       {isEditing ? (
         <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">

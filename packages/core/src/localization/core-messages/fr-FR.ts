@@ -117,11 +117,12 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "Connectez votre propre modèle d’IA",
   "onboarding.capability.fileStorage.keySummary":
     "Téléversement et stockage de fichiers",
-  "onboarding.fileStorage.title": "Choisir le stockage des fichiers",
+  "onboarding.fileStorage.title":
+    "Connecter un stockage pour envoyer des fichiers",
   "onboarding.fileStorage.description":
-    "Choisissez le stockage Builder géré ou vos propres clés pour un bucket compatible S3.",
-  "onboarding.fileStorage.custom":
-    "Utiliser des clés de stockage personnalisées",
+    "Connectez Builder.io (gratuit) ou configurez votre propre stockage d’objets compatible S3.",
+  "onboarding.fileStorage.reconnectBuilder": "Reconnecter Builder.io",
+  "onboarding.fileStorage.custom": "Ajouter vos propres clés de stockage",
   "onboarding.fileStorage.customDescription":
     "Configurez un bucket compatible S3 avec une URL publique stable.",
   "onboarding.capability.voiceInput.label": "Entrée vocale",
@@ -706,7 +707,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "Copier les informations de débogage",
   "recovery.copyFailed": "Échec de la copie",
   "recovery.credentialRejected":
-    "Les identifiants actuels de Builder.io ou du fournisseur de modèles ont été refusés. Reconnectez Builder.io, puis réessayez d’envoyer ce message.",
+    "Le fournisseur du modèle a refusé les identifiants enregistrés. Mettez à jour votre connexion Builder.io ou la clé du fournisseur, puis réessayez d’envoyer ce message.",
+  "codeRequired.builderAgentNotConnected":
+    "Les Builder Cloud Agents ne sont pas connectés. Connectez Builder.io dans les paramètres pour exécuter cette opération hébergée de modification du code. Les clés de fournisseur de modèle fonctionnent toujours pour le chat et les autres fonctions d’IA, mais elles n’autorisent pas le Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnostiquer et réessayer",
   "recovery.forkDescription":
     "Dupliquez cette conversation dans un fil de discussion distinct.",
@@ -768,6 +771,12 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "Connectez l’IA pour commencer à discuter...",
   "setup.connectToChat": "Connecter l’IA au chat",
   "setup.connectToStart": "Connectez l’IA pour commencer à discuter",
+  "setup.checkingProvider": "Vérification de la connexion à l’IA…",
+  "setup.providerStatusUnavailable":
+    "Impossible de vérifier la connexion à l’IA.",
+  "agentNativeClips.meetingAsk.placeholder": "Posez votre question",
+  "agentNativeClips.meetingAsk.ariaLabel":
+    "Posez une question sur cette réunion",
   "setup.connected": "Connecté",
   "setup.connectedOrganization": "Connecté — {{organization}}",
   "setup.connectedTo": "Connecté à {{organization}}",

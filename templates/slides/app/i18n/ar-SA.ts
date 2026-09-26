@@ -129,7 +129,7 @@ const messages = {
       "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
-      "وصّل Builder.io من قائمة النموذج في مؤلف الوكيل لتحميل الصور إلى الشرائح. لا يزال بإمكانك إفلات صورة على اللوحة الفارغة لإرسالها إلى الوكيل بدون مزود.",
+      "اربط تخزين الكائنات لتحميل الصور: اربط Builder.io (مجانًا) أو أضف مفاتيح التخزين المتوافقة مع S3 ضمن الإعدادات ← تحميل الملفات.",
     sentToAgent: "Enviado ao agente",
     imageUploadGenericError: "Algo deu errado ao enviar esta imagem.",
     uploading: "Enviando…",
@@ -665,6 +665,12 @@ const messages = {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
+    generationStalled: "تم إيقاف الإنشاء مؤقتًا بعد 5 دقائق دون تقدم",
+    generationStalledDescription:
+      "لا تزال الشرائح المحفوظة موجودة. يمكنك متابعة هذا العرض التقديمي في الدردشة.",
+    continueInChat: "المتابعة في الدردشة",
+    continueGenerationPrompt:
+      "تابع إنشاء الشرائح لهذا العرض التقديمي. افحص الشرائح الحالية وسياق الإنشاء المحفوظ أولًا. احتفظ بالشرائح المكتملة وأضف الشرائح الناقصة فقط.",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
     joinTeamDescription:
@@ -715,7 +721,7 @@ const messages = {
     tryAgain: "إعادة المحاولة",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
-      "وصّل Builder.io من قائمة النموذج في مؤلف الوكيل لتحميل الصور إلى الشرائح. لا يزال بإمكانك إفلات صورة على اللوحة الفارغة لإرسالها إلى الوكيل بدون مزود.",
+      "اربط تخزين الكائنات لتحميل الصور: اربط Builder.io (مجانًا) أو أضف مفاتيح التخزين المتوافقة مع S3 ضمن الإعدادات ← تحميل الملفات.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
@@ -881,7 +887,7 @@ const messages = {
       starting: "جارٍ البدء…",
       generate: "إنشاء",
       connectionRequired:
-        "اربط Builder.io أعلى حقل الصفحة الرئيسية ثم حاول مجددًا.",
+        "اربط موفر ذكاء اصطناعي أعلى حقل الصفحة الرئيسية أو أضف مفتاح الذكاء الاصطناعي الخاص بك، ثم حاول مجددًا.",
       invalidPdf: "اختر ملف PDF.",
       notReady: "راجع السياق المعلق أو المتعذر وحالة الاتصال ثم حاول مجددًا.",
       tooLong: "اجعل نص المصدر أقل من 20,000 حرف.",
@@ -931,6 +937,10 @@ const messages = {
     loadFailedDescription:
       "لا يزال المحتوى المحفوظ متاحًا. تحقق من الاتصال وأعد المحاولة.",
     retry: "إعادة المحاولة",
+    fileStorageStatusUnavailable:
+      "تعذر التحقق من حالة تخزين الكائنات. أعد المحاولة قبل رفع الملفات.",
+    fileStorageSetupRequired:
+      "لا يوجد تخزين كائنات متصل. اربط Builder.io مجانًا أو أضف مفاتيح تخزين متوافقة مع S3 من إعدادات ← تحميل الملفات.",
     decksTitle: "العروض",
     deckLengthQuestion: "ما طول هذا العرض؟",
     deckLengthHeader: "طول العرض",

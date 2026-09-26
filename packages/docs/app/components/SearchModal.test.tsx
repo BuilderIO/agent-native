@@ -10,12 +10,36 @@ import {
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { toggleThemeMock } = vi.hoisted(() => ({
+const state = vi.hoisted(() => ({
   toggleThemeMock: vi.fn(),
+  selectedEngine: "auto",
+  providerStatus: "configured" as
+    | "configured"
+    | "missing"
+    | "unknown"
+    | "unavailable",
+  modelOptions: [] as unknown[],
+  providerEnabled: [] as boolean[],
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  BuilderSetupCard: () => null,
+  chatModelSelectionStorageKey: (namespace?: string | null) =>
+    namespace
+      ? `agent-native:chat-models:selection:${namespace}`
+      : "agent-native:chat-models:selection",
   focusAgentChat: vi.fn(),
+  useAgentEngineConfigured: (enabled: boolean) => {
+    state.providerEnabled.push(enabled);
+    return { state: enabled ? state.providerStatus : "configured" };
+  },
+  useChatModels: (options: unknown) => {
+    state.modelOptions.push(options);
+    return { selectedEngine: state.selectedEngine };
+  },
+}));
+vi.mock("@agent-native/core/client/composer", () => ({
+  isLocalRuntimeEngine: (engine: string) => engine === "ollama",
 }));
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
@@ -49,12 +73,14 @@ vi.mock("@agent-native/core/client/navigation", () => ({
 }));
 
 vi.mock("./ThemeToggle", () => ({
-  useDocsTheme: () => ({ theme: "light", toggleTheme: toggleThemeMock }),
+  useDocsTheme: () => ({ theme: "light", toggleTheme: state.toggleThemeMock }),
 }));
 
 vi.mock("./docs-content", () => ({
   buildSearchIndexAsync: vi.fn(),
 }));
+
+import { submitToAgent } from "@agent-native/core/client/navigation";
 
 import { buildSearchIndexAsync } from "./docs-content";
 import { SearchModal } from "./SearchModal";
@@ -67,6 +93,10 @@ describe("SearchModal", () => {
   beforeEach(() => {
     consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     HTMLElement.prototype.scrollIntoView = vi.fn();
+    state.selectedEngine = "auto";
+    state.providerStatus = "configured";
+    state.modelOptions = [];
+    state.providerEnabled = [];
   });
 
   afterEach(() => {
@@ -144,10 +174,63 @@ describe("SearchModal", () => {
       fireEvent.click(themeAction);
       fireEvent.click(sidebarAction);
 
-      expect(toggleThemeMock).toHaveBeenCalledTimes(1);
+      expect(state.toggleThemeMock).toHaveBeenCalledTimes(1);
       expect(toggleSidebar).toHaveBeenCalledTimes(1);
     } finally {
       window.removeEventListener("agent-panel:toggle", toggleSidebar);
     }
+  });
+
+  it("uses the docs chat selection to allow a configured local model", async () => {
+    buildSearchIndexAsyncMock.mockResolvedValue([]);
+    state.selectedEngine = "ollama";
+    state.providerStatus = "missing";
+    const onClose = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <SearchModal open onClose={onClose} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "How do I configure chat?" },
+    });
+    const askButton = screen.getByRole("button", {
+      name: /Ask AI/,
+    });
+
+    expect((askButton as HTMLButtonElement).disabled).toBe(false);
+    expect(state.modelOptions).toContainEqual({
+      enabled: false,
+      storageKey: "agent-native:chat-models:selection:docs",
+    });
+    expect(state.providerEnabled).toContain(false);
+
+    fireEvent.click(askButton);
+
+    expect(vi.mocked(submitToAgent)).toHaveBeenCalledWith(
+      "How do I configure chat?",
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables Ask AI until an LLM provider is configured", () => {
+    buildSearchIndexAsyncMock.mockResolvedValue([]);
+    state.providerStatus = "missing";
+
+    render(
+      <MemoryRouter>
+        <SearchModal open onClose={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "How do I configure chat?" },
+    });
+    const askButton = screen.getByRole("button", { name: /Ask AI/ });
+    expect((askButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(askButton);
+    expect(vi.mocked(submitToAgent)).not.toHaveBeenCalled();
   });
 });

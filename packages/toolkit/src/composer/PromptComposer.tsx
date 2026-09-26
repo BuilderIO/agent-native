@@ -44,12 +44,14 @@ import { PastedTextChip } from "./PastedTextChip.js";
 import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 import {
   type EngineModelGroup,
+  type ComposerAgentEngineState,
   type AgentChatContextItem,
   type ReasoningEffort,
   useComposerRuntimeAdapters,
 } from "./runtime-adapters.js";
 import {
   DEFAULT_VOICE_DICTATION_ENABLED,
+  isLocalRuntimeEngine,
   TiptapComposer,
   type ComposerAgentOption,
   type ComposerSubmitIntent,
@@ -193,10 +195,7 @@ export interface PromptComposerProps {
   onAgentChange?: (agent: string) => void;
   /** Called when the shared model picker opens or closes. */
   onModelSelectorOpenChange?: (open: boolean) => void;
-  /**
-   * Enable server-backed model/provider status checks. Defaults off when the
-   * host supplies model state and callbacks, otherwise on.
-   */
+  /** Enable server-backed model/provider status checks. Defaults on, except for a selected local runtime. */
   modelStatusChecksEnabled?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
@@ -294,15 +293,40 @@ function formatInlineTextFile(name: string, text: string): string {
     .join("\n");
 }
 
+/** Chat stays closed until the provider check confirms it can run. */
+export function shouldGateComposerForEngine(
+  state: ComposerAgentEngineState,
+): boolean {
+  return state !== "configured";
+}
+
 /**
- * Show the attached setup treatment only for a confirmed-missing engine with
- * a setup component. Unresolved status does not mean a provider is missing.
+ * Show setup treatment only for a confirmed-missing engine with a setup
+ * component. Unresolved status uses the retry treatment instead.
  */
 export function shouldGateComposerForMissingEngine(input: {
   state: string;
   hasSetupComponent: boolean;
 }): boolean {
   return input.state === "missing" && input.hasSetupComponent;
+}
+
+export function shouldCheckModelStatus(input: {
+  enabled?: boolean;
+  selectedEngine?: string;
+}): boolean {
+  return input.enabled ?? !isLocalRuntimeEngine(input.selectedEngine);
+}
+
+export function resolveComposerModelStatusChecksEnabled(input: {
+  enabled?: boolean;
+  selectedEngine?: string;
+  defaultEngine?: string;
+}): boolean {
+  return shouldCheckModelStatus({
+    enabled: input.enabled,
+    selectedEngine: input.selectedEngine ?? input.defaultEngine,
+  });
 }
 
 export async function buildPromptComposerSubmission(options: {
@@ -602,6 +626,7 @@ function PromptComposerInner({
   composerRef,
 }: PromptComposerProps) {
   const adapters = useComposerRuntimeAdapters();
+  const t = adapters.translate!;
   const modelsAdapter = adapters.models!;
   const BuilderSetupCard = modelsAdapter.BuilderSetupCard;
   const BuilderSetupContent = modelsAdapter.BuilderSetupContent;
@@ -624,13 +649,12 @@ function PromptComposerInner({
   useEffect(() => {
     onAttachmentsChangeRef.current?.(attachmentFiles);
   }, [attachmentFiles]);
-  const hostManagedModels = Boolean(
-    availableModels && selectedModel && onModelChange,
-  );
-  const resolvedModelStatusChecksEnabled =
-    modelStatusChecksEnabled ?? !hostManagedModels;
+  const requestedModelStatusChecksEnabled = shouldCheckModelStatus({
+    enabled: modelStatusChecksEnabled,
+    selectedEngine,
+  });
   const models = modelsAdapter.useChatModels!({
-    enabled: showModelSelector && resolvedModelStatusChecksEnabled,
+    enabled: showModelSelector && requestedModelStatusChecksEnabled,
   });
   const composerModel = showModelSelector
     ? (selectedModel ?? models.selectedModel)
@@ -638,6 +662,12 @@ function PromptComposerInner({
   const composerEngine = showModelSelector
     ? (selectedEngine ?? models.selectedEngine)
     : undefined;
+  const resolvedModelStatusChecksEnabled =
+    resolveComposerModelStatusChecksEnabled({
+      enabled: modelStatusChecksEnabled,
+      selectedEngine,
+      defaultEngine: models.selectedEngine,
+    });
   const composerEffort = showModelSelector
     ? (selectedEffort ?? models.selectedEffort)
     : undefined;
@@ -668,7 +698,14 @@ function PromptComposerInner({
   const agentEngineConfigured = modelsAdapter.useAgentEngineConfigured!(
     resolvedModelStatusChecksEnabled,
   );
-  const missingApiKey = agentEngineConfigured.missing;
+  const engineState = resolvedModelStatusChecksEnabled
+    ? agentEngineConfigured.state
+    : "configured";
+  const missingApiKey =
+    resolvedModelStatusChecksEnabled && engineState === "missing";
+  const engineStatusUnresolved =
+    resolvedModelStatusChecksEnabled &&
+    (engineState === "unknown" || engineState === "unavailable");
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
@@ -682,30 +719,14 @@ function PromptComposerInner({
     }
   }, []);
   const useInlineMissingKeySetup = layoutVariant === "compact";
-  const gateComposer = shouldGateComposerForMissingEngine({
-    state: agentEngineConfigured.state,
-    hasSetupComponent: Boolean(
-      useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
-    ),
-  });
-  const ensureEngineReadyBeforeSubmit = useCallback(async () => {
-    if (agentEngineConfigured.state === "missing") {
-      bounceMissingKeySetup();
-      return false;
+  const gateComposer = shouldGateComposerForEngine(engineState);
+  const retryEngineStatus = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
-    if (agentEngineConfigured.state !== "unknown") return true;
-    const state = await modelsAdapter.fetchAgentEngineConfiguredState?.(true, {
-      timeoutMs: 5_000,
-    });
-    if (state === "missing") {
-      bounceMissingKeySetup();
-      return false;
-    }
-    return true;
-  }, [agentEngineConfigured.state, bounceMissingKeySetup, modelsAdapter]);
-
+  }, []);
   useEffect(() => {
-    if (!autoFocus || disabled) return;
+    if (!autoFocus || disabled || gateComposer) return;
     const id = window.setTimeout(() => {
       const target =
         typeof handleRef === "object" && handleRef && "current" in handleRef
@@ -714,7 +735,7 @@ function PromptComposerInner({
       target?.focus();
     }, 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, disabled, handleRef]);
+  }, [autoFocus, disabled, gateComposer, handleRef]);
 
   const handleSubmit = useCallback(
     async (
@@ -772,6 +793,27 @@ function PromptComposerInner({
           />
         </div>
       ) : null}
+      {engineStatusUnresolved ? (
+        <div
+          className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+          role="status"
+        >
+          <span>
+            {engineState === "unknown"
+              ? t("agentChat.setup.checkingProvider")
+              : t("agentChat.setup.providerStatusUnavailable")}
+          </span>
+          {engineState === "unavailable" ? (
+            <button
+              type="button"
+              className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={retryEngineStatus}
+            >
+              {t("agentChat.common.retry")}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <AgentComposerFrame
         className={cn(
           "text-start",
@@ -783,38 +825,56 @@ function PromptComposerInner({
         style={style}
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        onClick={disabled ? onDisabledClick : undefined}
+        onClick={
+          gateComposer
+            ? missingApiKey
+              ? bounceMissingKeySetup
+              : retryEngineStatus
+            : disabled && onDisabledClick
+              ? () => onDisabledClick()
+              : undefined
+        }
       >
         <PromptAttachmentStrip />
         <TiptapComposer
           contextItems={contextItems}
-          contextMenuItems={contextMenuItems}
+          contextMenuItems={gateComposer ? undefined : contextMenuItems}
           onRemoveContextItem={onRemoveContextItem}
           onInspectContextItem={onInspectContextItem}
           onRetryContextItem={onRetryContextItem}
           attachmentsEnabled={attachmentsEnabled}
           ariaLabel={ariaLabel}
           focusRef={handleRef}
-          disabled={disabled}
-          submissionDisabled={
-            submissionDisabled || agentEngineConfigured.state === "missing"
-          }
+          disabled={disabled || gateComposer}
+          submissionDisabled={submissionDisabled || gateComposer}
           submitting={submitting}
           willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
           documentAttachmentLimitLabel={documentAttachmentLimitLabel}
-          placeholder={placeholder}
+          placeholder={
+            gateComposer
+              ? engineStatusUnresolved
+                ? t("agentChat.setup.checkingProvider")
+                : t("agentChat.composer.connectAbove", {
+                    defaultValue: "Connect AI above to continue...",
+                  })
+              : placeholder
+          }
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
-          onBeforeSubmit={ensureEngineReadyBeforeSubmit}
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
-            plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
+            gateComposer
+              ? "hidden"
+              : (plusMenuMode ??
+                (attachmentsEnabled ? "upload-only" : "hidden"))
           }
           terminalModeControl={terminalModeControl}
           extensionTools={extensionTools}
-          attachButton={attachButton}
+          attachButton={
+            gateComposer || !attachmentsEnabled ? null : attachButton
+          }
           modeControl={modeControl}
           execMode={execMode}
           onExecModeChange={onExecModeChange}

@@ -170,22 +170,20 @@ export default function MailTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <div className="mx-6 sm:mx-10">
-              <div className="aspect-video overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-black">
-                <video
-                  ref={videoRef}
-                  src="/videos/mail-jev-story.mp4"
-                  poster="/videos/mail-jev-story-poster.jpg"
-                  aria-label={t("templateLanding.mail.heroDescription")}
-                  autoPlay={shouldAutoplay}
-                  muted={shouldMute}
-                  loop
-                  playsInline
-                  controls
-                  preload="metadata"
-                  className="block h-full w-full object-cover"
-                />
-              </div>
+            <div className="aspect-video overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-black">
+              <video
+                ref={videoRef}
+                src="/videos/mail-jev-story.mp4"
+                poster="/videos/mail-jev-story-poster.jpg"
+                aria-label={t("templateLanding.mail.heroDescription")}
+                autoPlay={shouldAutoplay}
+                muted={shouldMute}
+                loop
+                playsInline
+                controls
+                preload="metadata"
+                className="block h-full w-full object-cover"
+              />
             </div>
           }
         />
@@ -228,7 +226,7 @@ export default function MailTemplate() {
                     variant={useCase.variant}
                     className={
                       useCase.variant === "jev"
-                        ? "h-[380px] w-full max-w-[540px] lg:h-[480px] lg:max-w-none mm-jev-art"
+                        ? "h-[380px] w-full max-w-[540px] lg:h-[480px] lg:max-w-none"
                         : "h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
                     }
                     label={t(`templateLanding.mail.${useCase.titleKey}`)}
@@ -239,7 +237,11 @@ export default function MailTemplate() {
               return (
                 <div
                   key={useCase.id}
-                  className="grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 lg:grid-cols-[1fr_1.25fr]"
+                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 ${
+                    useCase.textLeft
+                      ? "lg:grid-cols-[0.9fr_1.4fr]"
+                      : "lg:grid-cols-[1.4fr_0.9fr]"
+                  }`}
                 >
                   {useCase.textLeft ? (
                     <>

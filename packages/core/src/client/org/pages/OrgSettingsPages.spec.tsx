@@ -93,6 +93,7 @@ vi.mock("../AuthenticationSection.js", () => ({
 
 vi.mock("../OrgGeneralSection.js", () => ({
   OrgIconControl: () => <span data-testid="org-icon" />,
+  OrgIconStorageNotice: () => null,
   WorkspaceUrlSettingsSection: () => <div id="workspace-url" />,
 }));
 

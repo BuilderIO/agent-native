@@ -125,7 +125,7 @@ const messages = {
       "Google Picker 需要 GOOGLE_PICKER_API_KEY 和 GOOGLE_PICKER_APP_ID。",
     imageUploadFailed: "圖片上傳失敗",
     imageUploadNeedsBuilder:
-      "請從代理編寫器的模型選單連接 Builder.io，以便將圖片上傳到投影片。即使沒有提供者，將圖片拖到空白畫布上仍可傳送給代理。",
+      "連接物件儲存以上傳圖片：連接 Builder.io（免費），或在「設定 → 檔案上傳」中新增自己的 S3 相容儲存金鑰。",
     sentToAgent: "已傳送給代理",
     imageUploadGenericError: "上傳這張圖片時發生問題。",
     uploading: "正在上傳…",
@@ -637,6 +637,12 @@ const messages = {
     lookingForDeck: "正在尋找此幻燈片",
     joinTeamToOpen: "加入團隊以開啟此幻燈片",
     deckUnavailable: "幻燈片不可用",
+    generationStalled: "5 分鐘沒有進度，已暫停生成",
+    generationStalledDescription:
+      "已儲存的投影片仍會保留。你可以在聊天中繼續這份簡報。",
+    continueInChat: "在聊天中繼續",
+    continueGenerationPrompt:
+      "繼續為這份簡報產生投影片。請先檢查現有投影片和已儲存的產生背景。保留已完成的投影片，只新增缺少的內容。",
     checkingSharedAccess: "正在檢查此簡報是否與你的帳戶共用。",
     joinTeamDescription:
       "此連結指向團隊簡報。加入上方顯示的團隊後，幻燈片會自動在此開啟。",
@@ -681,7 +687,7 @@ const messages = {
     tryAgain: "重試",
     imageUploadFailed: "圖片上傳失敗",
     imageUploadNeedsBuilder:
-      "請從代理編寫器的模型選單連接 Builder.io，以便將圖片上傳到投影片。即使沒有提供者，將圖片拖到空白畫布上仍可傳送給代理。",
+      "連接物件儲存以上傳圖片：連接 Builder.io（免費），或在「設定 → 檔案上傳」中新增自己的 S3 相容儲存金鑰。",
     imageAdded: "圖片已新增",
     imageUploadError: "上傳此圖片時出了點問題。",
     exportFailed: "匯出失敗",
@@ -836,7 +842,8 @@ const messages = {
       invalidUrl: "請輸入有效的 HTTP 或 HTTPS URL。",
       starting: "正在啟動…",
       generate: "產生",
-      connectionRequired: "請先在首頁輸入框上方連接 Builder.io，然後重試。",
+      connectionRequired:
+        "請在首頁提示框上方連接 AI 供應商，或新增自己的 AI 金鑰，然後重試。",
       invalidPdf: "請選擇 PDF 檔案。",
       notReady: "請檢查待載入或失敗的參考內容與連線狀態，然後重試。",
       tooLong: "來源文字請控制在 20,000 字元以內。",
@@ -885,6 +892,9 @@ const messages = {
     loadFailed: "無法載入內容",
     loadFailedDescription: "您儲存的內容仍然可用。請檢查連線並重試。",
     retry: "重試",
+    fileStorageStatusUnavailable: "無法檢查物件儲存狀態。請在上傳檔案前重試。",
+    fileStorageSetupRequired:
+      "尚未連接物件儲存空間。請免費連接 Builder.io，或前往設定 → 檔案上傳新增自己的 S3 相容儲存金鑰。",
     decksTitle: "幻燈片",
     deckLengthQuestion: "這份幻燈片需要多長？",
     deckLengthHeader: "幻燈片長度",

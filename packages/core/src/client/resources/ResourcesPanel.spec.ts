@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { isResourceRowReadOnly } from "./ResourceSettingsGroups.js";
 import {
   canEditOrganizationResources,
+  canUploadResourceFile,
   filterResourceTree,
   isOrganizationResourceOwner,
   hasAvailableMcpIntegrations,
@@ -125,6 +126,19 @@ describe("normalizeResourceFileName", () => {
     expect(normalizeResourceFileName("  notes.txt  ")).toBe("notes.txt");
     expect(normalizeResourceFileName("   ")).toBe("");
     expect(normalizeResourceFileName("notes/")).toBe("");
+  });
+});
+
+describe("canUploadResourceFile", () => {
+  it("keeps text and JSON resource uploads available without object storage", () => {
+    expect(canUploadResourceFile("text/markdown", false)).toBe(true);
+    expect(canUploadResourceFile("application/json", false)).toBe(true);
+  });
+
+  it("requires configured storage for binary files and unknown MIME types", () => {
+    expect(canUploadResourceFile("image/png", false)).toBe(false);
+    expect(canUploadResourceFile("", false)).toBe(false);
+    expect(canUploadResourceFile("image/png", true)).toBe(true);
   });
 });
 

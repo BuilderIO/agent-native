@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -39,10 +40,10 @@ import {
 } from "@/components/ui/select";
 import type { Deck } from "@/context/DeckContext";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
-import { isReferenceStorageReady } from "@/lib/prompt-file-uploads";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
@@ -135,6 +136,9 @@ export function NewDeckReferenceStep({
   promptSummary,
 }: NewDeckReferenceStepProps) {
   const t = useT();
+  const storageQuery = useSlideFileStorageStatus(open);
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
   const systemsEnabled = useDesignSystemWorkflows();
   const [chosenDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null
@@ -154,9 +158,6 @@ export function NewDeckReferenceStep({
   const [continuing, setContinuing] = useState(false);
   const [importingSource, setImportingSource] =
     useState<FileImportSource | null>(null);
-  const [fileStorageStatus, setFileStorageStatus] = useState<
-    "checking" | "available" | "unavailable" | "unknown"
-  >("checking");
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
@@ -192,24 +193,6 @@ export function NewDeckReferenceStep({
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setFileStorageStatus("checking");
-    void isReferenceStorageReady()
-      .then((configured) => {
-        if (!cancelled) {
-          setFileStorageStatus(configured ? "available" : "unavailable");
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setFileStorageStatus("unknown");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
-
-  useEffect(() => {
     if (!open || !designSystemAutoRef.current) return;
     setSelectedDesignSystemId(
       resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
@@ -233,6 +216,7 @@ export function NewDeckReferenceStep({
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0) return;
+    if (!fileStorageConfigured) return;
     setImportingSource(source);
     try {
       const imported = await onImport(files);
@@ -518,7 +502,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pptx"}
                   importingLabel={importingLabel}
-                  disabled={busy || fileStorageStatus !== "available"}
+                  disabled={busy || !fileStorageConfigured}
                   onChange={(event) => void handleImport(event, "pptx")}
                 />
                 <FileImportOption
@@ -529,7 +513,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pdf"}
                   importingLabel={importingLabel}
-                  disabled={busy || fileStorageStatus !== "available"}
+                  disabled={busy || !fileStorageConfigured}
                   onChange={(event) => void handleImport(event, "pdf")}
                 />
                 <FileImportOption
@@ -540,7 +524,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "docx"}
                   importingLabel={importingLabel}
-                  disabled={busy || fileStorageStatus !== "available"}
+                  disabled={busy || !fileStorageConfigured}
                   onChange={(event) => void handleImport(event, "docx")}
                 />
                 <ImportOption
@@ -572,16 +556,15 @@ export function NewDeckReferenceStep({
                   onClick={() => chooseSource("figma")}
                 />
               </div>
-              {fileStorageStatus === "unavailable" && (
-                <p className="mt-3 text-sm text-destructive" role="alert">
-                  {t("home.referenceFileStorageUnavailable")}
-                </p>
-              )}
-              {fileStorageStatus === "unknown" && (
-                <p className="mt-3 text-sm text-destructive" role="alert">
-                  {t("editorToolbar.importFailedDescription")}
-                </p>
-              )}
+              {!storageQuery.isLoading ? (
+                <div className="mt-3">
+                  <UploadStorageGate
+                    configured={fileStorageConfigured}
+                    unavailable={storageQuery.isError}
+                    onRetry={() => void storageQuery.refetch()}
+                  />
+                </div>
+              ) : null}
               {selectedSource && (
                 <Input
                   autoFocus

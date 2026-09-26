@@ -110,6 +110,7 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.title": "اختر تخزين الملفات",
   "onboarding.fileStorage.description":
     "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
+  "onboarding.fileStorage.reconnectBuilder": "أعد ربط Builder.io",
   "onboarding.fileStorage.custom": "استخدم مفاتيح تخزين مخصصة",
   "onboarding.fileStorage.customDescription":
     "اضبط حاوية متوافقة مع S3 باستخدام عنوان URL عام ثابت.",
@@ -1007,7 +1008,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "نسخ معلومات التصحيح",
   "recovery.copyFailed": "فشل النسخ",
   "recovery.credentialRejected":
-    "تم رفض بيانات اعتماد Builder.io أو مزوّد النموذج الحالية. أعد الاتصال بـ Builder.io، ثم أعد محاولة إرسال هذه الرسالة.",
+    "رفض مزوّد النموذج بيانات الاعتماد المحفوظة. حدّث اتصال Builder.io أو مفتاح المزوّد، ثم أعد محاولة إرسال هذه الرسالة.",
+  "codeRequired.builderAgentNotConnected":
+    "خدمة Builder Cloud Agents غير متصلة. اتصل بـ Builder.io من الإعدادات لتنفيذ عملية تغيير التعليمات البرمجية المستضافة هذه. تظل مفاتيح مزوّدي النماذج صالحة للدردشة وميزات الذكاء الاصطناعي الأخرى، لكنها لا تمنح صلاحية استخدام Builder Cloud Agent.",
   "recovery.diagnoseRetry": "تشخيص المشكلة وإعادة المحاولة",
   "recovery.forkDescription": "تفريع هذه المحادثة إلى سلسلة محادثة منفصلة.",
   "recovery.forkFailed": "تعذّر تفريع هذه المحادثة. جرّب بدء محادثة جديدة.",
@@ -1071,6 +1074,10 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "اتصل بالذكاء الاصطناعي لبدء المحادثة...",
   "setup.connectToChat": "اتصل بالذكاء الاصطناعي للمحادثة",
   "setup.connectToStart": "اتصل بالذكاء الاصطناعي لبدء المحادثة",
+  "setup.checkingProvider": "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
+  "setup.providerStatusUnavailable": "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+  "agentNativeClips.meetingAsk.placeholder": "اسأل أي شيء",
+  "agentNativeClips.meetingAsk.ariaLabel": "اسأل أي شيء عن هذا الاجتماع",
   "setup.connected": "متصل",
   "setup.connectedOrganization": "متصل — {{organization}}",
   "setup.connectedTo": "متصل بـ {{organization}}",

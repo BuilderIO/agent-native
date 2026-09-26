@@ -5263,8 +5263,8 @@ export function createCoreRoutesPlugin(
               if (!creds.privateKey || !creds.publicKey) {
                 setResponseStatus(event, 400);
                 return {
-                  error:
-                    "Builder not connected. Connect Builder (free tier available) in Setup to use background agent.",
+                  errorCode: "builder_agent_not_connected",
+                  error: "Builder Cloud Agents are not connected.",
                 };
               }
               const body = (await readBody(event)) as {
@@ -5666,24 +5666,19 @@ export function createCoreRoutesPlugin(
             const active = await getActiveFileUploadProviderForRequest();
             let builderConfigured = false;
             let builderUploadConfigured = false;
-            try {
-              const {
-                canAuthorizeBuilderApiRequest,
-                hasBuilderApiCredentialCustody,
-              } = await import("./builder-api-auth.js");
-              builderConfigured = await hasBuilderApiCredentialCustody();
-              builderUploadConfigured = await canAuthorizeBuilderApiRequest(
-                BUILDER_ASSETS_WRITE_SCOPE,
-              );
-            } catch {
-              builderConfigured = false;
-              builderUploadConfigured = false;
-            }
+            const {
+              canAuthorizeBuilderApiRequest,
+              hasBuilderApiCredentialCustody,
+            } = await import("./builder-api-auth.js");
+            builderConfigured = await hasBuilderApiCredentialCustody();
+            builderUploadConfigured = await canAuthorizeBuilderApiRequest(
+              BUILDER_ASSETS_WRITE_SCOPE,
+            );
 
             const providers = await Promise.all(
               listFileUploadProviders().map(async (p) => {
                 const scopedConfigured = p.isConfiguredForRequest
-                  ? await p.isConfiguredForRequest().catch(() => false)
+                  ? await p.isConfiguredForRequest()
                   : false;
                 return {
                   id: p.id,
@@ -5787,7 +5782,7 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 503);
           return {
             error:
-              "No file upload provider configured. Connect Builder.io (free tier available) in Settings → File uploads, or register a provider.",
+              "No object storage is connected. Connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
           };
         }),
       );

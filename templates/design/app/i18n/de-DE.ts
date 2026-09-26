@@ -185,6 +185,18 @@ export default {
     notFoundSignIn: "Anmelden",
     notFoundBackToDesigns: "Zurück zu Designs",
   },
+  onboarding: {
+    fileStorage: {
+      title: "Speicher verbinden, um Dateien hochzuladen",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "KI-Verbindung wird geprüft…",
+      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+    },
+    common: { retry: "Erneut versuchen" },
+  },
   chat: {
     emptyState: "Beschreibe ein Design, das erstellt werden soll",
     suggestionLandingPage: "Entwirf eine Landingpage für mein Startup",

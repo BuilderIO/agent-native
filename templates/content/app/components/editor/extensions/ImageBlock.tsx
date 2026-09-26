@@ -1,6 +1,7 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
@@ -31,6 +32,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -499,6 +501,9 @@ export function ImageBlock({
   getPos,
 }: NodeViewProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
@@ -783,7 +788,7 @@ export function ImageBlock({
   }
 
   function handleImageFileSelectionStart() {
-    if (!canMutateMediaNow()) return;
+    if (!canMutateMediaNow() || !fileStorageConfigured) return;
     if (isUploading) return;
     if (typeof getPos !== "function") return;
     const position = getPos();
@@ -921,15 +926,19 @@ export function ImageBlock({
 
         {sourceTab === "upload" ? (
           <div className="media-source-panel__body">
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              disabled={isUploading}
-              onClick={handleImageFileSelectionStart}
-            >
-              {t("editor.media.uploadFile")}
-            </Button>
+            {fileStorageConfigured ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={isUploading}
+                onClick={handleImageFileSelectionStart}
+              >
+                {t("editor.media.uploadFile")}
+              </Button>
+            ) : (
+              <FileStorageStatusGate status={fileUploadStatus} />
+            )}
           </div>
         ) : sourceTab === "assets" ? (
           <div className="media-source-panel__body">

@@ -816,6 +816,14 @@ describe("requestTranscript regeneration", () => {
     expect(mockTranscribeWithBuilder).toHaveBeenCalledWith(
       expect.objectContaining({ diarize: true }),
     );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_completed",
+      expect.objectContaining({
+        recording_attempt_id: "rec_empty",
+        output_id: "rec_empty",
+      }),
+      expect.anything(),
+    );
   });
 
   it("keeps a still-running transcription marked live instead of going stale", async () => {

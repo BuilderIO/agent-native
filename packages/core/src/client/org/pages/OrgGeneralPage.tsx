@@ -33,6 +33,7 @@ import {
 } from "../hooks.js";
 import {
   OrgIconControl,
+  OrgIconStorageNotice,
   WorkspaceUrlSettingsSection,
 } from "../OrgGeneralSection.js";
 import {
@@ -238,6 +239,7 @@ function OrgGeneralContent({ org }: { org: OrgInfo }) {
           label={t("agentChat.settingsOrg.general.name")}
           control={<OrgNameControl org={org} />}
         />
+        {isOwnerOrAdmin && <OrgIconStorageNotice />}
         {isOwnerOrAdmin && (
           <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
         )}

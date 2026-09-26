@@ -162,6 +162,7 @@ function renderMenu(overrides: Record<string, unknown> = {}) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ExportMenu
+        hasSlides
         deckId="deck-1"
         deckTitle="Quarterly Review"
         onDuplicate={vi.fn()}

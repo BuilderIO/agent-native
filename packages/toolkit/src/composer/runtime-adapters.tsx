@@ -25,6 +25,12 @@ export type ReasoningEffort =
   | "xhigh"
   | "max";
 
+export type ComposerAgentEngineState =
+  | "unknown"
+  | "unavailable"
+  | "missing"
+  | "configured";
+
 export interface EngineModelGroup {
   engine: string;
   label: string;
@@ -144,12 +150,12 @@ export interface ComposerRuntimeAdapters {
     useChatModels?: (options: { enabled: boolean }) => ComposerModelState;
     useAgentEngineConfigured?: (enabled: boolean) => {
       missing: boolean;
-      state: string;
+      state: ComposerAgentEngineState;
     };
     fetchAgentEngineConfiguredState?: (
       enabled: boolean,
       options: { timeoutMs: number },
-    ) => Promise<"missing" | "configured" | (string & {})>;
+    ) => Promise<ComposerAgentEngineState>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
     reasoning?: {
@@ -236,8 +242,11 @@ const fallbackModels = {
     onModelChange: () => {},
     onEffortChange: () => {},
   }),
-  useAgentEngineConfigured: () => ({ missing: false, state: "configured" }),
-  fetchAgentEngineConfiguredState: async () => "configured",
+  useAgentEngineConfigured: () => ({
+    missing: false,
+    state: "configured" as const,
+  }),
+  fetchAgentEngineConfiguredState: async () => "configured" as const,
 };
 const FragmentBoundary: ComponentType<{ children?: ReactNode }> = ({
   children,

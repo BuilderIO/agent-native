@@ -5,6 +5,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconArrowLeft,
@@ -24,6 +25,10 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
+import {
+  FileUploadStorageGate,
+  getFileUploadStorageState,
+} from "@/components/FileUploadStorageGate";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -458,6 +463,9 @@ function SkeletonPreview({ form }: { form: PresetFormState }) {
 
 export default function TemplateEditorRoute() {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageState = getFileUploadStorageState(fileUploadStatus);
+  const canUploadFiles = fileStorageState === "configured";
   const navigate = useNavigate();
   const { templateId = "" } = useParams();
   const { data: templateData, isLoading: templateLoading } = useActionQuery(
@@ -886,7 +894,13 @@ export default function TemplateEditorRoute() {
   }
 
   async function uploadReferenceImage(files: FileList | null, index: number) {
-    if (!files?.length || !libraryId || readOnly || referenceUploadPending) {
+    if (
+      !canUploadFiles ||
+      !files?.length ||
+      !libraryId ||
+      readOnly ||
+      referenceUploadPending
+    ) {
       return;
     }
     const entry = form?.presetReferences[index];
@@ -966,7 +980,8 @@ export default function TemplateEditorRoute() {
   ) {
     const pending =
       target === "mask" ? skeletonMaskUploadPending : skeletonUploadPending;
-    if (!files?.length || !libraryId || readOnly || pending) return;
+    if (!canUploadFiles || !files?.length || !libraryId || readOnly || pending)
+      return;
     const file = files[0];
     if (file.size > MAX_ASSET_UPLOAD_BATCH_BYTES) {
       toast.error(
@@ -1137,6 +1152,7 @@ export default function TemplateEditorRoute() {
       ? null
       : (form?.presetReferences[referenceUploadTargetIndex] ?? null);
   const referenceUploadDisabled =
+    !canUploadFiles ||
     readOnly ||
     pinningUnavailable ||
     referenceUploadTargetIndex == null ||
@@ -1185,12 +1201,7 @@ export default function TemplateEditorRoute() {
                   variant="outline"
                   size="sm"
                   className="gap-2"
-                  disabled={
-                    readOnly ||
-                    pinningUnavailable ||
-                    uploadPending ||
-                    entry.assetIds.length >= 4
-                  }
+                  disabled={referenceUploadDisabled}
                   onClick={() => referenceUploadInputRef.current?.click()}
                 >
                   {uploadPending ? (
@@ -1574,6 +1585,11 @@ export default function TemplateEditorRoute() {
         </Alert>
       ) : null}
 
+      <FileUploadStorageGate
+        state={fileStorageState}
+        onRetry={() => void fileUploadStatus.refetch()}
+      />
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section className="grid gap-5">
           <div className="grid gap-2">
@@ -1851,7 +1867,9 @@ export default function TemplateEditorRoute() {
                           "relative aspect-video overflow-hidden rounded-md border border-dashed border-border bg-muted text-left transition-colors hover:border-foreground/40 disabled:cursor-not-allowed disabled:opacity-70",
                           form.skeletonBackgroundPreviewUrl && "border-solid",
                         )}
-                        disabled={readOnly || skeletonUploadPending}
+                        disabled={
+                          !canUploadFiles || readOnly || skeletonUploadPending
+                        }
                         onClick={() => skeletonFileInputRef.current?.click()}
                       >
                         {form.skeletonBackgroundPreviewUrl ? (
@@ -1875,7 +1893,9 @@ export default function TemplateEditorRoute() {
                           type="file"
                           accept="image/*"
                           className="hidden"
-                          disabled={readOnly || skeletonUploadPending}
+                          disabled={
+                            !canUploadFiles || readOnly || skeletonUploadPending
+                          }
                           onChange={(event) =>
                             void uploadSkeletonImage(event.target.files)
                           }
@@ -1884,7 +1904,9 @@ export default function TemplateEditorRoute() {
                           type="button"
                           variant="outline"
                           className="w-full min-w-0 gap-2"
-                          disabled={readOnly || skeletonUploadPending}
+                          disabled={
+                            !canUploadFiles || readOnly || skeletonUploadPending
+                          }
                           onClick={() => skeletonFileInputRef.current?.click()}
                         >
                           {skeletonUploadPending ? (
@@ -1945,7 +1967,11 @@ export default function TemplateEditorRoute() {
                             "relative aspect-video overflow-hidden rounded-md border border-dashed border-border bg-muted text-left transition-colors hover:border-foreground/40 disabled:cursor-not-allowed disabled:opacity-70",
                             form.skeletonMaskPreviewUrl && "border-solid",
                           )}
-                          disabled={readOnly || skeletonMaskUploadPending}
+                          disabled={
+                            !canUploadFiles ||
+                            readOnly ||
+                            skeletonMaskUploadPending
+                          }
                           onClick={() =>
                             skeletonMaskFileInputRef.current?.click()
                           }
@@ -1971,7 +1997,11 @@ export default function TemplateEditorRoute() {
                             type="file"
                             accept="image/*"
                             className="hidden"
-                            disabled={readOnly || skeletonMaskUploadPending}
+                            disabled={
+                              !canUploadFiles ||
+                              readOnly ||
+                              skeletonMaskUploadPending
+                            }
                             onChange={(event) =>
                               void uploadSkeletonImage(
                                 event.target.files,
@@ -1983,7 +2013,11 @@ export default function TemplateEditorRoute() {
                             type="button"
                             variant="outline"
                             className="w-full min-w-0 gap-2"
-                            disabled={readOnly || skeletonMaskUploadPending}
+                            disabled={
+                              !canUploadFiles ||
+                              readOnly ||
+                              skeletonMaskUploadPending
+                            }
                             onClick={() =>
                               skeletonMaskFileInputRef.current?.click()
                             }

@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "Vérification de la connexion à l’IA…",
+      providerStatusUnavailable: "Impossible de vérifier la connexion à l’IA.",
+    },
+    common: { retry: "Réessayer" },
+  },
   timelineTrack: {
     helpOtherSide:
       "Cliquez d'abord sur cette section, puis faites glisser la ligne rouge vers la droite.",

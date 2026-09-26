@@ -26,8 +26,6 @@ const {
   referenceProps,
   signedIn,
   agentEngine,
-  builderConnect,
-  useBuilderConnectFlow,
   agentSubmit,
   callAction,
   contextOptions,
@@ -41,8 +39,6 @@ const {
   referenceProps: vi.fn(),
   signedIn: { value: true },
   agentEngine: { state: "configured", missing: false },
-  builderConnect: { connecting: false, error: null as string | null },
-  useBuilderConnectFlow: vi.fn(),
   agentSubmit: vi.fn(),
   callAction: vi.fn().mockResolvedValue(undefined),
   contextOptions: vi.fn(),
@@ -68,13 +64,14 @@ const translate = (key: string) =>
 
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent: vi.fn() }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  useAgentEngineConfigured: () => agentEngine,
-}));
-vi.mock("@agent-native/core/client/settings", () => ({
-  useBuilderConnectFlow,
-  BuilderConnectPopover: ({ children }: { children: ReactNode }) => (
-    <div data-testid="builder-connect-popover">{children}</div>
+  BuilderSetupCard: ({ onConnected }: { onConnected?: () => void }) => (
+    <div data-testid="ai-setup-card">
+      <h3>Connect AI</h3>
+      <button onClick={onConnected}>Connect Builder.io</button>
+      <a href="/settings/keys">Custom keys</a>
+    </div>
   ),
+  useAgentEngineConfigured: () => agentEngine,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
@@ -169,6 +166,22 @@ vi.mock("@/components/deck/DeckCard", () => ({
 vi.mock("@/components/editor/DeckEditorSkeleton", () => ({
   DeckEditorSkeleton: () => null,
 }));
+vi.mock("@/components/editor/ImportDeckButton", () => ({
+  ImportDeckButton: () => (
+    <div>
+      <button
+        onClick={(event) =>
+          event.currentTarget.parentElement
+            ?.querySelector<HTMLInputElement>("input")
+            ?.click()
+        }
+      >
+        home.importMenu.import
+      </button>
+      <input aria-label="editorToolbar.importFile" hidden />
+    </div>
+  ),
+}));
 vi.mock("@/components/editor/NewDeckReferenceStep", () => ({
   NewDeckReferenceStep: (props: unknown) => {
     referenceProps(props);
@@ -184,6 +197,7 @@ vi.mock("@/components/editor/PromptDialog", () => ({
         aria-label="Presentation prompt"
         value={props.initialText ?? ""}
         readOnly
+        disabled={props.disabled}
       />
     );
   },
@@ -234,10 +248,7 @@ beforeEach(() => {
   signedIn.value = true;
   agentEngine.state = "configured";
   agentEngine.missing = false;
-  builderConnect.connecting = false;
-  builderConnect.error = null;
   headerActions.current = null;
-  useBuilderConnectFlow.mockReturnValue(builderConnect);
   for (const name of ["localStorage", "sessionStorage"]) {
     const values = new Map<string, string>();
     vi.stubGlobal(name, {
@@ -358,6 +369,7 @@ describe("Slides prompt-led home", () => {
   });
 
   it("opens the file picker without a provider and preserves the mounted composer after cancel", async () => {
+    agentEngine.state = "missing";
     agentEngine.missing = true;
     renderHome();
     const prompt = await screen.findByRole("textbox", {
@@ -378,74 +390,91 @@ describe("Slides prompt-led home", () => {
     expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
       prompt,
     );
-    expect(promptProps.mock.lastCall![0].disabled).not.toBe(true);
+    expect(promptProps.mock.lastCall![0].disabled).toBe(true);
     expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
     expect(createDeck).not.toHaveBeenCalled();
   });
-  it("uses the separate Builder connection CTA and suppresses embedded provider UI only while missing", async () => {
+  it("shows Builder and custom-key setup while gating the composer until configured", async () => {
+    agentEngine.state = "missing";
     agentEngine.missing = true;
     const missing = renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
+    expect(screen.getByRole("heading", { name: "Connect AI" })).toBeTruthy();
     expect(
-      screen
-        .getByTestId("builder-connect-popover")
-        .contains(screen.getByRole("button", { name: "Connect Builder.io" })),
+      screen.getByRole("button", { name: "Connect Builder.io" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Custom keys" }).getAttribute("href"),
+    ).toBe("/settings/keys");
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
+      ).disabled,
     ).toBe(true);
-    expect(useBuilderConnectFlow).toHaveBeenLastCalledWith({
-      enabled: true,
-      provisionAccount: true,
-      trackingSource: "slides_home",
-    });
     expect(promptProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
+        disabled: true,
         submissionDisabled: true,
         showModelSelector: false,
         modelStatusChecksEnabled: false,
         onSkip: expect.any(Function),
       }),
     );
+    const attachments = {
+      commit: vi.fn(),
+      discard: vi.fn(),
+      attachments: [],
+    };
+    let submitResult: unknown;
+    await act(async () => {
+      submitResult = await promptProps.mock.lastCall![0].onSubmit(
+        "Build a presentation",
+        [],
+        attachments,
+      );
+    });
+    expect(submitResult).toBe("retain");
+    expect(agentSubmit).not.toHaveBeenCalled();
     missing.unmount();
+    agentEngine.state = "configured";
     agentEngine.missing = false;
     renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
-    expect(screen.queryByTestId("builder-connect-popover")).toBeNull();
+    expect(screen.queryByTestId("ai-setup-card")).toBeNull();
     expect(promptProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
+        disabled: false,
         submissionDisabled: false,
         showModelSelector: true,
-        modelStatusChecksEnabled: true,
+        modelStatusChecksEnabled: false,
       }),
     );
     expect(createDeck).not.toHaveBeenCalled();
   });
 
-  it("shows connection progress and preserves an actionable retry after a connection error", async () => {
-    agentEngine.missing = true;
-    builderConnect.connecting = true;
-    const connecting = renderHome();
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Connecting Builder.io…",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-    connecting.unmount();
-    builderConnect.connecting = false;
-    builderConnect.error = "Connection interrupted";
+  it("keeps the composer disabled until provider status is known and offers retry when unavailable", async () => {
+    agentEngine.state = "unknown";
     renderHome();
-    expect(screen.getByRole("alert").textContent).toBe(
-      "Connection interrupted",
+    expect(screen.getByRole("status").textContent).toContain(
+      "agentChat.setup.checkingProvider",
     );
     expect(
       (
-        screen.getByRole("button", {
-          name: "Connect Builder.io",
-        }) as HTMLButtonElement
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
       ).disabled,
-    ).toBe(false);
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    ).toBe(true);
+    cleanup();
+    agentEngine.state = "unavailable";
+    renderHome();
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-engine:configured-changed" }),
+    );
   });
 
   it("keeps the composer as the focal point without accessible work", async () => {

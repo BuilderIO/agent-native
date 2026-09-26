@@ -454,6 +454,7 @@ const messages = {
       requestAccess: "請求存取權限",
       requestAccessTitle: "請求存取此計畫",
       requestSent: "請求已傳送",
+      storageStatusUnavailable: "無法檢查檔案儲存空間。",
       retry: "重試",
       sendFeedback: "傳送意見回饋",
       feedbackPlaceholder: "描述此計畫錯誤出現前發生了什麼。",

@@ -683,6 +683,8 @@ const messages = {
       createAccount: "Benutzerkonto erstellen",
       signIn: "Einloggen",
       haveAccount: "Ich habe bereits ein Konto",
+      storageStatusUnavailable:
+        "Der Dateispeicher konnte nicht überprüft werden.",
       retry: "Versuchen Sie es erneut",
       sendFeedback: "Feedback senden",
       feedbackPlaceholder:

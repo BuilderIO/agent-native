@@ -659,6 +659,7 @@ const messages = {
       createAccount: "Create account",
       signIn: "Sign in",
       haveAccount: "I have an account",
+      storageStatusUnavailable: "Could not check file storage.",
       retry: "Retry",
       sendFeedback: "Send feedback",
       feedbackPlaceholder:
