@@ -66,9 +66,17 @@ provider path stays Open - do not report the auth fix as done.
 
 ## Fast-path contract
 
-`/ship-now` publishes the complete nonignored current-branch snapshot. Use
-`corepack pnpm ship:push` for every checkpoint; it excludes
-`learnings.md`, `bridge/**`, and `data/**`.
+`/ship-now` publishes one complete, coherent nonignored current-branch
+snapshot. Do not publish every checkpoint or split known review/CI fixes into
+separate pushes: each new head reruns checks. Use `corepack pnpm ship:push -m`
+with a subject naming the actual behavior changed (for example,
+`fix: deduplicate chat start checkpoints`); the helper refuses an omitted or
+generic subject. It excludes `learnings.md`, `bridge/**`, and `data/**`.
+
+Rebase or merge `origin/main` only if GitHub reports an actual `CONFLICTING`
+PR. Leave the fast path and use `/babysit-pr` to resolve it; for a shared
+branch, prefer a normal merge. Being behind or having pending checks is not a
+reason to update from main.
 
 The fast gate is local `pnpm prep:urgent`, or the narrowest successful recovery check
 for each failed prep lane. Once that gate and review resolution pass, admin
@@ -135,10 +143,11 @@ checkout, and update the existing PR rather than creating a second one.
    gate passes:
 
    ```bash
-   corepack pnpm ship:push
+   corepack pnpm ship:push -m "fix: deduplicate chat start checkpoints"
    ```
 
-   Verify the push landed on the current branch and update the existing ready
+   Replace the example subject with one that names this change. Verify the push
+   landed on the current branch and update the existing ready
    PR. Do not create a second PR. Recheck the PR's mergeability and current
    review comment reply coverage after the push.
 
@@ -196,7 +205,8 @@ checkout, and update the existing PR rather than creating a second one.
 
 - Never expose environment values, tokens, cookies, or private payloads in
   commits, PR text, logs, prompts, or status reports.
-- Publish all nonignored local paths through `corepack pnpm ship:push`.
+- Publish all nonignored local paths through `corepack pnpm ship:push -m
+  "<specific change>"`.
 - Never silently skip a review comment, CI failure, package release failure,
   or production deploy failure.
 - Never treat a Netlify lock as the production promotion mechanism or remove it
