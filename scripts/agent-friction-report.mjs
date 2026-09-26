@@ -1151,6 +1151,13 @@ const PATTERNS = [
     re: /\b(stop stopping|keep stopping|why (did|do) you stop|don'?t stop|still queued|should be doing everything now)\b/i,
   },
   {
+    key: "resource-cleanup",
+    label: "Had to ask agents to close spawned tabs or stop processes",
+    fixedBy:
+      "AGENTS.md + personal global resource-cleanup rule (2026-09-25)",
+    re: /\b(?:agents?|claude(?: code)?|codex)\b[^.!?\n]{0,200}\b(?:spawn(?:ed|ing)?|leave|leaving|left|orphan(?:ed|ing)?|fail(?:ed)? to close|don'?t close|didn'?t close|not closing|not stopping)\b[^.!?\n]{0,200}\b(?:tabs?|browsers?|processes|servers?|node(?:\.js)?|watchers?|repls?)\b|\b(?:tabs?|browsers?|processes|servers?|node(?:\.js)?|watchers?|repls?)\b[^.!?\n]{0,80}\b(?:left open|left running|not closed|not stopped|orphaned)\b/i,
+  },
+  {
     key: "ship-stopped-before-merge",
     label: "Had to demand authorized /ship continue through merge",
     fixedBy:

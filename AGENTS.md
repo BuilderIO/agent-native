@@ -43,6 +43,10 @@ contract.
 - Scale effort to the task. A small, well-specified change is a short read, the
   edit, and the existing checks — not a codebase survey, unrequested tests, or
   browser automation. Save deep exploration for ambiguous or cross-cutting work.
+- Before finishing, close every browser tab/window or app session you opened
+  (including Chrome and in-app browsers) and stop every process/server you
+  started, including Node workers/watchers, unless the user asked you to leave it
+  open. Only stop resources you own; report cleanup failures.
 - In task-owned worktrees, make needed safe branch changes without asking.
   Classify dirty paths first; preserve unrelated work and never move peer or
   platform branches. Shared checkouts need exact authorization. See
