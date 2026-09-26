@@ -68,6 +68,25 @@
   padding-block: 4px;
 }
 
+@container (max-width: 520px) {
+  .mm-jev-art .mm-agent {
+    display: none;
+  }
+
+  .mm-jev-art .mm-tab:not(.is-active),
+  .mm-jev-art .mm-tab-settings,
+  .mm-jev-art .mm-refresh-toggle,
+  .mm-jev-art .mm-compose,
+  .mm-jev-art .mm-account-stack,
+  .mm-jev-art .mm-topbar-spacer {
+    display: none;
+  }
+
+  .mm-jev-art .mm-tabs {
+    flex: 1;
+  }
+}
+
 .mail-product-art *,
 .mail-product-art *::before,
 .mail-product-art *::after {
