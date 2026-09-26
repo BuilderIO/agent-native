@@ -186,9 +186,9 @@ can change within minutes, so re-check before every actionable push.
    preserve it and wait for its owner instead of stashing, restoring, or
    forcing the merge. Do not merge `origin/main` again while the PR is
    `MERGEABLE` or `UNKNOWN`, or while checks are merely pending; a conflict-free
-   PR does not need another main sync. Rebase or merge from main only to
-   resolve a confirmed conflict. Because this branch is shared, prefer a
-   normal merge; never rebase if it would rewrite peer commits.
+   PR does not need another main sync. Merge from main only to resolve a
+   confirmed conflict. Because this branch is shared, use a normal merge;
+   never rebase.
 3. If `MERGEABLE` or `UNKNOWN`: proceed. (`mergeStateStatus: BLOCKED` with `mergeable: MERGEABLE` just means required checks are still pending/red — that is not a conflict; keep going.)
 
 ## Latest-feedback handoff

@@ -176,10 +176,9 @@ else
 fi
 ```
 
-The behind count is information, not a reason to update the branch. Rebase or
-merge freshly fetched `origin/main` only when GitHub reports the PR
-`CONFLICTING`; for a shared branch, prefer a normal merge. Pending checks, a
-behind count, or a timer never justify a main update.
+The behind count is information, not a reason to update the branch. Merge
+freshly fetched `origin/main` only when GitHub reports the PR `CONFLICTING`.
+Pending checks, a behind count, or a timer never justify a main update.
 
 If `git branch --show-current` is empty, inspect `git worktree list
 --porcelain` and existing `changes-*` refs. Do not create or switch to a
@@ -267,11 +266,9 @@ If a live PR is CONFLICTING, let babysit-pr recover it only after:
 - the local HEAD exactly matches the live PR headRefOid;
 - origin/main was freshly fetched.
 
-Use freshly fetched origin/main only to resolve the confirmed conflict; for a
-shared branch, prefer a normal merge. A rebase is allowed only to resolve that
-conflict. Resolve and test it, push, and restart the soak. Never update from
-main merely because the PR is behind, checks are pending, or mergeability is
-UNKNOWN.
+Merge freshly fetched `origin/main` only to resolve the confirmed conflict.
+Resolve and test it, push, and restart the soak. Never update from main merely
+because the PR is behind, checks are pending, or mergeability is UNKNOWN.
 
 ### Feedback handoff
 
