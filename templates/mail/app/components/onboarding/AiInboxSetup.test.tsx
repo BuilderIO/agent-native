@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     actions: ({ type: "label"; labelName: string } | { type: "archive" })[];
     enabled: boolean;
   }>,
+  rulesLoading: false,
   startBackfill: vi.fn(),
   updateSettings: vi.fn(),
   sendToAgentChat: vi.fn(),
@@ -104,7 +105,10 @@ vi.mock("@/components/ui/dialog", () => ({
 }));
 
 vi.mock("@/hooks/use-automations", () => ({
-  useAutomations: () => ({ data: mocks.automations, isLoading: false }),
+  useAutomations: () => ({
+    data: mocks.automations,
+    isLoading: mocks.rulesLoading,
+  }),
   useCreateAutomation: () => ({ mutateAsync: mocks.createRule }),
   useUpdateAutomation: () => ({ mutateAsync: mocks.updateRule }),
 }));
@@ -140,6 +144,7 @@ describe("AiInboxSetup", () => {
   beforeEach(() => {
     let id = 0;
     mocks.automations = [];
+    mocks.rulesLoading = false;
     mocks.updateRule.mockReset();
     mocks.createRule.mockImplementation(async (input) => ({
       id: `rule-${++id}`,
@@ -224,6 +229,36 @@ describe("AiInboxSetup", () => {
       }),
     );
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps setup results open while the rules query refreshes", async () => {
+    mocks.startBackfill.mockImplementation(async () => {
+      mocks.rulesLoading = true;
+      return { runId: "run-1", status: "queued" };
+    });
+
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", {
+          name: "mail.sort.aiSetupSortingHeadline",
+        }),
+      ).not.toBeNull(),
+    );
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    ).not.toBeNull();
   });
 
   it("does not backfill default tags after skipping the tag step", async () => {
