@@ -100,7 +100,7 @@ const KEY_FEATURES = [
     bodyKey: "feature5Body",
   },
   {
-    id: "scheduled-sends-and-snooze",
+    id: "ai-spam-filter",
     titleKey: "feature6Title",
     bodyKey: "feature6Body",
   },
@@ -127,7 +127,7 @@ export default function MailTemplate() {
 
   return (
     <div className="builder-brand-tokens">
-      {/* Hero — recreate the inbox, open thread, and contextual agent together. */}
+      {/* Lead with Jev's inbox cleanup story, then show the recreated app below. */}
       <div className={HERO_WRAPPER_CLASS}>
         <TemplateHero
           title={t("templateLanding.mail.heroTitle")}
@@ -165,11 +165,20 @@ export default function MailTemplate() {
           mediaOverlapsHeader
           media={
             <div className="mx-6 sm:mx-10">
-              <MailProductMock
-                variant="agent"
-                label={t("templateLanding.mail.s001")}
-                className="h-[420px] sm:h-[620px] lg:h-[760px]"
-              />
+              <div className="aspect-video overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-black">
+                <video
+                  src="/videos/mail-jev-story.mp4"
+                  poster="/videos/mail-jev-story-poster.jpg"
+                  aria-label={t("templateLanding.mail.heroDescription")}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  controls
+                  preload="metadata"
+                  className="block h-full w-full object-cover"
+                />
+              </div>
             </div>
           }
         />

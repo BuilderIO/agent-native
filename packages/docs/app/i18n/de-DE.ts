@@ -1775,19 +1775,19 @@ const deDE = {
       s001: "Screenshot der Vorlage Mail",
       // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "Verwalte deinen Posteingang mit deinem KI-Agenten",
+      heroTitle: "Übernimm mit Jev die Kontrolle über deinen Posteingang",
       heroDescription:
-        "Mail bringt Prioritätssortierung, kontextbezogene Beschriftungen, Thread-Zusammenfassungen und Hintergrundregeln in einen Gmail-Posteingang, der zuerst über die Tastatur bedient werden kann – mit einem Agenten, der den nächsten Schritt übernehmen kann.",
+        "Sag Jev in einfacher Sprache, was wichtig ist. Es hält menschliche GitHub-Kommentare sichtbar, rückt die Nachrichten deiner Führungskraft nach oben und räumt Bot-Benachrichtigungen weg – und lernt aus deinen Korrekturen.",
       heroCta: "Verwalte deinen Posteingang",
-      useCasesHeading: "Überlassen Sie Mail den ersten Durchgang",
+      useCasesHeading: "Ein intelligenterer Posteingang, unterstützt von Jev",
       useCasesBody:
-        "Zeigen Sie dringende Threads an, kennzeichnen Sie Nachrichten nach Bedeutung und halten Sie sich wiederholende Aufgaben im Posteingang in Bewegung, während Sie die Kontrolle behalten.",
-      useCase1Title: "Ein intelligenterer Posteingang, unterstützt von Jev",
+        "Lege eine Regel in natürlicher Sprache fest. Jev priorisiert wichtige Personen und Unterhaltungen, vergibt passende Labels und archiviert wiederkehrende Nachrichten automatisch.",
+      useCase1Title: "Menschen im Blick. Bots im Archiv.",
       useCase1Body:
         "Sag Jev, was wichtig ist: Behalte menschliche GitHub-Pull-Request-Kommentare in Product, archiviere Bot-Benachrichtigungen und verschiebe die Nachrichten deiner Führungskraft nach Important. Passe jede Regel per Prompt an und verbessere den Spamfilter mit deinem Feedback.",
-      useCase2Title: "Kennzeichnen Sie Nachrichten nach ihrer Bedeutung",
+      useCase2Title: "Jede E-Mail erhält ihr passendes Label",
       useCase2Body:
-        "Der Agent kann Beschriftungen aus dem Absender- und Konversationskontext anwenden, sodass Recherche-, Finanz- und Kundenthreads leicht zu finden sind.",
+        "Jev ordnet Unterhaltungen nach Bedeutung statt nur nach Stichwörtern ein, damit Kundennotizen, Belege und Recherche am richtigen Ort landen.",
       useCase3Title: "Automatisieren Sie die Routinearbeit",
       useCase3Body:
         "Legen Sie Regeln fest, um neue E-Mails im Hintergrund zu kennzeichnen oder zu archivieren, und überprüfen Sie dann den Ausführungsverlauf, wann immer Sie möchten.",
@@ -1809,9 +1809,9 @@ const deDE = {
       feature5Title: "Überprüfen Sie es vor dem Senden",
       feature5Body:
         "Lassen Sie den Agenten eine Antwort entwerfen oder überarbeiten, überprüfen und bearbeiten Sie sie dann, bevor sie Ihren Posteingang verlässt.",
-      feature6Title: "Suche nach mehreren Konten",
+      feature6Title: "Ein Spamfilter, der dazulernt",
       feature6Body:
-        "Durchsuchen Sie alle verbundenen Gmail-Konten und nutzen Sie dieselben Prioritäten, Labels und Agent-Tools an einem Ort.",
+        "Markiere eine gefilterte Nachricht als erwünscht oder melde unerwünschte E-Mails. Jev lernt aus jeder Korrektur und wendet sie auf ähnliche Nachrichten an.",
       finalCtaHeading: "Starte mit deiner nächsten E-Mail",
       finalCtaBody:
         "Öffne eine Unterhaltung und bitte deinen KI-Agenten um eine Zusammenfassung oder einen Antwortentwurf.",
