@@ -836,6 +836,11 @@ const messages = {
     chooseAnotherFile: "Elegir otro archivo",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Crea una presentación de producto",
+      roadmap: "Crea una hoja de ruta de producto",
+      explainer: "Explica un tema en una presentación",
+    },
     suggestedPrompts: "Indicaciones sugeridas",
     importMenu: {
       import: "Importar",
