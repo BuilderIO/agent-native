@@ -258,6 +258,7 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
+  const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
   // Public decks default to the read-only presentation URL so recipients do
   // not get sent through the editor's auth gate. Restricted decks keep the
@@ -284,6 +285,7 @@ export default function EditorToolbar({
   };
   const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
   const primaryShareLink = shareLinks[shareLinkOrder.primary];
+  const showShareLink = hasSlides || shareLinkOrder.primary === "editor";
 
   // Live save state for the toolbar indicator, so users always see whether
   // their work has committed (a lost-deck report motivated surfacing this).
@@ -308,7 +310,6 @@ export default function EditorToolbar({
   // That row rides on SlideEditor, which only mounts for a real slide, so an
   // empty deck must keep this fallback or it has no way to add one.
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
-  const hasSlides = deck.slides.length > 0;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<ExportMenuHandle>(null);
@@ -988,9 +989,9 @@ export default function EditorToolbar({
               inline
               hideExportDialog
               onExportStatusChange={setExportStatus}
+              hasSlides={hasSlides}
               deckId={deckId}
               deckTitle={deckTitle}
-              disabled={!hasSlides}
               onDuplicate={onDuplicateDeck ?? (() => {})}
               onExportPdf={onExportPdf ?? (() => {})}
               onExportPptx={onExportPptx ?? (() => {})}
@@ -1031,9 +1032,10 @@ export default function EditorToolbar({
               description: t("editorToolbar.commenterRoleDescription"),
             },
           }}
-          shareUrl={primaryShareLink.url}
+          shareUrl={showShareLink ? primaryShareLink.url : undefined}
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}
+          showShareLinks={showShareLink}
           shareTabs={
             creativeContextEnabled
               ? {

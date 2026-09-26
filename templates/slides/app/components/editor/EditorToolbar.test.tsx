@@ -80,7 +80,7 @@ vi.mock("@/lib/prompt-file-uploads", () => ({
 }));
 
 vi.mock("./ExportMenu", () => ({
-  ExportMenu: (props: { disabled?: boolean }) => {
+  ExportMenu: (props: { hasSlides?: boolean }) => {
     mocks.exportMenu(props);
     return null;
   },
@@ -99,8 +99,14 @@ vi.mock("next-themes", () => ({
 }));
 
 vi.mock("react-router", () => ({
-  Link: ({ children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    <a {...props}>{children}</a>
+  Link: ({
+    children,
+    to,
+    ...props
+  }: AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
   ),
 }));
 
@@ -127,6 +133,7 @@ type ShareButtonProps = {
   resourceTitle?: string;
   panelTitle?: string;
   shareUrl?: string;
+  showShareLinks?: boolean;
   secondaryShareUrl?: string;
   shareUrlLabel?: string;
   shareUrlDescription?: string;
@@ -154,7 +161,7 @@ const deck: Deck = {
   updatedAt: "2026-08-11T00:00:00.000Z",
   slides: [],
 };
-const deckWithSlide: Deck = {
+const deckWithSlides: Deck = {
   ...deck,
   slides: [
     {
@@ -253,7 +260,7 @@ describe("<EditorToolbar>", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={{ ...deck, slides: [slide] }}
+          deck={deckWithSlides}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
@@ -318,6 +325,51 @@ describe("<EditorToolbar>", () => {
     expect(onToggleLayers).toHaveBeenCalledOnce();
     expect(onChangeSlideTransition).toHaveBeenCalledWith("fade");
     expect(onShowHistory).toHaveBeenCalledOnce();
+  });
+
+  it("disables Present and omits export commands for an empty deck", () => {
+    const onPresent = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onExportGoogleSlides={vi.fn()}
+          onPresent={onPresent}
+        />
+      </TooltipProvider>,
+    );
+
+    const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
+      | (() => ReadonlyArray<{ id: string; run: () => void }>)
+      | undefined;
+    const commandIds = (source?.() ?? []).map((command) => command.id);
+    expect(commandIds).not.toEqual(
+      expect.arrayContaining([
+        "download-html",
+        "export-pdf",
+        "export-pptx",
+        "export-to-google-slides",
+      ]),
+    );
+
+    const presentButton = screen.getByRole("button", {
+      name: "editorToolbar.present",
+    });
+    expect(presentButton.hasAttribute("disabled")).toBe(true);
+    expect(presentButton.closest("a")).toBeNull();
+    fireEvent.click(presentButton);
+    expect(onPresent).not.toHaveBeenCalled();
   });
 
   it("does not register shape tools without an active slide", () => {
@@ -389,7 +441,7 @@ describe("<EditorToolbar>", () => {
     );
     await screen.findByRole("menu");
     expect(mocks.exportMenu.mock.calls.at(-1)?.[0]).toEqual(
-      expect.objectContaining({ disabled: true }),
+      expect.objectContaining({ hasSlides: false }),
     );
     const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
       | (() => ReadonlyArray<{ id: string }>)
@@ -546,13 +598,41 @@ describe("<EditorToolbar>", () => {
     },
   );
 
+  it("hides the presentation copy link for an empty public deck", () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={{ ...deck, visibility: "public" }}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+        />
+      </TooltipProvider>,
+    );
+
+    const shareButtonCalls = mocks.shareButton.mock.calls as unknown as Array<
+      [ShareButtonProps]
+    >;
+    const shareButtonProps = shareButtonCalls.at(-1)?.[0];
+
+    expect(shareButtonProps?.shareUrl).toBeUndefined();
+    expect(shareButtonProps?.showShareLinks).toBe(false);
+  });
+
   it("delegates Present so the editor can flush pending changes first", () => {
     const onPresent = vi.fn();
 
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={deckWithSlide}
+          deck={deckWithSlides}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
@@ -581,7 +661,7 @@ describe("<EditorToolbar>", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={deckWithSlide}
+          deck={deckWithSlides}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
@@ -626,7 +706,7 @@ describe("<EditorToolbar>", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={deckWithSlide}
+          deck={deckWithSlides}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
@@ -652,5 +732,30 @@ describe("<EditorToolbar>", () => {
     expect(onPresent).toHaveBeenCalledWith({
       preserveNativeNavigation: true,
     });
+  });
+
+  it("keeps native Present navigation when no owner is provided", () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deckWithSlides}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+        />
+      </TooltipProvider>,
+    );
+
+    const presentLink = screen.getByText("editorToolbar.present").closest("a");
+    expect(presentLink?.getAttribute("href")).toBe(
+      "/deck/deck-1/present?slide=1",
+    );
   });
 });

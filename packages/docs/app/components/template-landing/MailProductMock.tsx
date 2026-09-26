@@ -14,7 +14,6 @@ import {
   IconPlus,
   IconRefresh,
   IconSearch,
-  IconSparkles,
   IconSettings,
   IconStar,
   IconTrash,
@@ -332,11 +331,17 @@ export function MailProductMock({
   className = "",
 }: MailProductMockProps) {
   const agent = AGENT_STATES[variant];
-  const visibleThreads = variant === "jev" ? JEV_THREADS : THREADS;
+  const visibleThreads =
+    variant === "jev"
+      ? JEV_THREADS
+      : variant === "automations"
+        ? THREADS.filter((thread) => thread.label === "Newsletter")
+        : THREADS;
+  const focusedIndex = variant === "labels" ? 2 : 0;
 
   return (
     <div
-      className={"mail-product-art " + className}
+      className={"mail-product-art mm-focus-" + variant + " " + className}
       role="img"
       aria-label={label}
     >
@@ -347,9 +352,21 @@ export function MailProductMock({
               <IconMenu2 size={17} />
             </button>
             <nav className="mm-tabs">
-              <span className="mm-tab is-active">All 42</span>
+              <span
+                className={
+                  "mm-tab" + (variant === "automations" ? "" : " is-active")
+                }
+              >
+                All 42
+              </span>
               <span className="mm-tab">Important 5</span>
-              <span className="mm-tab">Automated 11</span>
+              <span
+                className={
+                  "mm-tab" + (variant === "automations" ? " is-active" : "")
+                }
+              >
+                Automated 11
+              </span>
               <span className="mm-tab">Product 6</span>
               <span className="mm-tab">Other</span>
             </nav>
@@ -402,31 +419,11 @@ export function MailProductMock({
           <div className="mm-body">
             <main className="mm-inbox">
               <div className="mm-thread-list">
-                {variant === "automations" ? (
-                  <div className="mm-automation-notice">
-                    <IconCheck size={15} />
-                    <span>Newsletter rule handled 4 messages today</span>
-                    <time>9:18 AM</time>
-                  </div>
-                ) : null}
-                {variant === "jev" ? (
-                  <div className="mm-jev-notice">
-                    <IconSparkles size={14} />
-                    <span>
-                      <strong>Jev</strong> archived 12 GitHub bot updates
-                    </span>
-                    <time>just now</time>
-                  </div>
-                ) : null}
                 {visibleThreads.map((thread, index) => (
                   <MailThreadRow
                     key={thread.sender}
                     thread={thread}
-                    focused={
-                      variant === "automations"
-                        ? index === 4
-                        : variant !== "empty" && index === 0
-                    }
+                    focused={variant !== "empty" && index === focusedIndex}
                     hovered={index === 1}
                     priority={
                       (variant === "priorities" && index < 2) ||
