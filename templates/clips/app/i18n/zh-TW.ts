@@ -1366,6 +1366,8 @@ const messages = {
     disconnected: "麥克風已中斷連線。",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "無法開啟 Builder.io。請允許此網站顯示快顯視窗，然後再試一次。",
     builderConnectError: "無法連線至 Builder.io。請再試一次或聯絡支援團隊。",
     builderTimeout: "5 分鐘內未收到 Builder 回應。請檢查快顯視窗並重試。",
     builderConnected: "Builder.io 已連線",

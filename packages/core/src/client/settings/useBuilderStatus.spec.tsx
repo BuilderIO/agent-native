@@ -801,6 +801,43 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("account-exists");
   });
 
+  it("keeps existing-account mode when a login attempt is blocked", async () => {
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        configured: false,
+        agentNativeProvisioningEnabled: true,
+        agentNativeProvisioningToken: provisioningToken,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+        connectError: {
+          message:
+            "A Builder account already exists for this email. Log in to connect it.",
+          code: "account_exists",
+          at: Date.now(),
+        },
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <BuilderConnectProbe provisionAccount startProvisionAccount={false} />,
+      );
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(container.textContent).toContain("account-exists");
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+
+    expect(container.textContent).toContain("account-exists");
+    expect(container.textContent).toContain("Allow popups and try again.");
+  });
+
   it("falls back to the cached signed URL when the click-time status refresh fails", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();

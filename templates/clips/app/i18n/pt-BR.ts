@@ -1458,6 +1458,8 @@ const messages = {
     disconnected: "Microfone desconectado.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Não foi possível abrir o Builder.io. Permita pop-ups para este site e tente novamente.",
     builderConnectError:
       "Não foi possível conectar ao Builder.io. Tente novamente ou entre em contato com o suporte.",
     builderTimeout:

@@ -1446,6 +1446,8 @@ const messages = {
     disconnected: "マイクが切断されました。",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Builder.io を開けませんでした。このサイトのポップアップを許可して、もう一度お試しください。",
     builderConnectError:
       "Builder.io に接続できませんでした。もう一度お試しいただくか、サポートにお問い合わせください。",
     builderTimeout:

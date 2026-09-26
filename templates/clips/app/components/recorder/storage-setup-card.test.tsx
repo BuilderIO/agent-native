@@ -176,7 +176,7 @@ describe("StorageSetupCard", () => {
       ...mocks.flow,
       statusResolved: true,
       agentNativeProvisioningEnabled: false,
-      error: "Couldn't open Builder. Allow popups and try again.",
+      error: "Couldn't save Builder credentials: test error.",
       start: mocks.start,
     });
 
@@ -188,6 +188,31 @@ describe("StorageSetupCard", () => {
     expect(container.textContent).not.toContain("Allow popups");
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
   });
+
+  it.each([true, false])(
+    "shows localized popup recovery guidance when provisioning is %s",
+    (agentNativeProvisioningEnabled) => {
+      mocks.useBuilderConnectFlow.mockReturnValue({
+        ...mocks.flow,
+        statusResolved: true,
+        agentNativeProvisioningEnabled,
+        error: "Couldn't open Builder. Allow popups and try again.",
+        start: mocks.start,
+      });
+
+      act(() => {
+        root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
+      });
+
+      expect(container.textContent).toContain(
+        "storageSetup.builderConnectPopupError",
+      );
+      expect(container.textContent).not.toContain(
+        "storageSetup.builderConnectError",
+      );
+      expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    },
+  );
 
   it("uses neutral progress copy while an existing account connects", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({

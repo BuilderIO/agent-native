@@ -175,6 +175,11 @@ export function StorageSetupCard({
     inlineConnect &&
     builderConnect.statusResolved &&
     builderConnect.agentNativeProvisioningEnabled;
+  const builderConnectErrorMessage = builderConnect.error
+    ? builderConnect.error.toLowerCase().includes("popup")
+      ? t("storageSetup.builderConnectPopupError")
+      : t("storageSetup.builderConnectError")
+    : null;
 
   const connectButton = (
     <button
@@ -286,7 +291,7 @@ export function StorageSetupCard({
             {connectButton}
             {builderConnect.error && (
               <p className="text-xs text-destructive" role="alert">
-                {t("storageSetup.builderConnectError")}
+                {builderConnectErrorMessage}
               </p>
             )}
             {!builderConnect.accountExists && (
@@ -337,7 +342,7 @@ export function StorageSetupCard({
             {connectButton}
             {builderConnect.error && (
               <p className="text-xs text-destructive" role="alert">
-                {t("storageSetup.builderConnectError")}
+                {builderConnectErrorMessage}
               </p>
             )}
             {!builderConnect.statusResolved &&

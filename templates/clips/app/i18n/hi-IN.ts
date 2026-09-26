@@ -1409,6 +1409,8 @@ const messages = {
     disconnected: "माइक्रोफ़ोन डिस्कनेक्ट हो गया।",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Builder.io नहीं खुल सका। इस साइट के लिए पॉप-अप की अनुमति दें और फिर कोशिश करें।",
     builderConnectError:
       "Builder.io से कनेक्ट नहीं हो सका। फिर से कोशिश करें या सहायता टीम से संपर्क करें।",
     builderTimeout:

@@ -1428,6 +1428,8 @@ const messages = {
     disconnected: "마이크 연결이 끊어졌습니다.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Builder.io를 열 수 없습니다. 이 사이트의 팝업을 허용한 후 다시 시도하세요.",
     builderConnectError:
       "Builder.io에 연결하지 못했습니다. 다시 시도하거나 지원팀에 문의해 주세요.",
     builderTimeout:
