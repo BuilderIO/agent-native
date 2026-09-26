@@ -14,6 +14,29 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+const contentRecentRecoveries = new WeakMap<
+  ReturnType<typeof useQueryClient>,
+  Map<string, Promise<void>>
+>();
+
+function recoverContentRecentScope(
+  queryClient: ReturnType<typeof useQueryClient>,
+  scopeKey: string,
+  refresh: () => Promise<void>,
+) {
+  let recoveries = contentRecentRecoveries.get(queryClient);
+  if (!recoveries) {
+    recoveries = new Map();
+    contentRecentRecoveries.set(queryClient, recoveries);
+  }
+  const recovery = recoveries.get(scopeKey);
+  if (recovery) return recovery;
+
+  const nextRecovery = Promise.resolve().then(refresh);
+  recoveries.set(scopeKey, nextRecovery);
+  return nextRecovery;
+}
+
 export function contentRecentQueryArgs(
   scopeKey: string | undefined,
   spaceId?: string,
@@ -56,7 +79,10 @@ export function useContentRecent(spaceId?: string) {
 
   useEffect(() => {
     if (!contextChanged) {
-      if (scopeKey) resyncedScopesRef.current.delete(scopeKey);
+      if (scopeKey) {
+        resyncedScopesRef.current.delete(scopeKey);
+        contentRecentRecoveries.get(queryClient)?.delete(scopeKey);
+      }
       return;
     }
     if (!scopeKey) return;
@@ -64,7 +90,7 @@ export function useContentRecent(spaceId?: string) {
 
     resyncedScopesRef.current.add(scopeKey);
     setRefreshingScopes((current) => new Set(current).add(scopeKey));
-    void (async () => {
+    void recoverContentRecentScope(queryClient, scopeKey, async () => {
       try {
         const refreshedOrg = await org.refetch({ cancelRefetch: false });
         if (refreshedOrg.isError) return;
@@ -80,15 +106,15 @@ export function useContentRecent(spaceId?: string) {
           "Could not refresh the Content Recent context after a scope mismatch.",
           error,
         );
-      } finally {
-        setRefreshingScopes((current) => {
-          if (!current.has(scopeKey)) return current;
-          const next = new Set(current);
-          next.delete(scopeKey);
-          return next;
-        });
       }
-    })();
+    }).finally(() => {
+      setRefreshingScopes((current) => {
+        if (!current.has(scopeKey)) return current;
+        const next = new Set(current);
+        next.delete(scopeKey);
+        return next;
+      });
+    });
   }, [
     args,
     contextChanged,
@@ -103,6 +129,7 @@ export function useContentRecent(spaceId?: string) {
     (...args: Parameters<typeof query.refetch>) => {
       if (contextChanged && scopeKey) {
         resyncedScopesRef.current.delete(scopeKey);
+        contentRecentRecoveries.get(queryClient)?.delete(scopeKey);
       }
       return query.refetch(...args);
     },

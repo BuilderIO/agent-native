@@ -276,11 +276,8 @@ describe("useContentRecent context recovery", () => {
       await flush();
     });
 
-    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(2);
+    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(1);
     expect(hookMocks.org.refetch).toHaveBeenNthCalledWith(1, {
-      cancelRefetch: false,
-    });
-    expect(hookMocks.org.refetch).toHaveBeenNthCalledWith(2, {
       cancelRefetch: false,
     });
     expect(
@@ -298,14 +295,8 @@ describe("useContentRecent context recovery", () => {
       scopeKey,
       spaceId: "space-1",
     };
-    expect(invalidate).toHaveBeenCalledTimes(2);
-    expect(invalidate).toHaveBeenNthCalledWith(
-      1,
-      { queryKey: ["action", "get-content-recent", args], exact: true },
-      { cancelRefetch: false },
-    );
-    expect(invalidate).toHaveBeenNthCalledWith(
-      2,
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith(
       { queryKey: ["action", "get-content-recent", args], exact: true },
       { cancelRefetch: false },
     );
