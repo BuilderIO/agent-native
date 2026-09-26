@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { expandAllLayers } from "./helpers";
+import { designFrame, expandAllLayers } from "./helpers";
 
 /**
  * Direct-manipulation contract: what you grab is what moves, and a drag tells
@@ -192,7 +192,7 @@ export async function scale(page: Page): Promise<number> {
   if (!card) throw new Error("no screen card");
   // Never assume the page size — the screen's own viewport is the truth.
   const inner = await page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .contentFrame()
     .locator("body")
@@ -201,11 +201,8 @@ export async function scale(page: Page): Promise<number> {
 }
 
 /** The rect the resize/rotate handles enclose. */
-export async function chromeBounds(page: Page) {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
+export async function chromeBounds(page: Page, screenId?: string) {
+  return designFrame(page, screenId)
     .locator("body")
     .evaluate(() => {
       const el = document.querySelector(
@@ -224,11 +221,11 @@ export async function chromeBounds(page: Page) {
 }
 
 /** Overlays the bridge paints inside the iframe, with a non-zero box. */
-export async function activeOverlays(page: Page): Promise<string[]> {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
+export async function activeOverlays(
+  page: Page,
+  screenId?: string,
+): Promise<string[]> {
+  return designFrame(page, screenId)
     .locator("body")
     .evaluate(() =>
       Array.from(document.querySelectorAll("[data-agent-native-edit-overlay]"))

@@ -313,6 +313,12 @@ test("a pen path drawn inside a frame paints where it was drawn and stays dragga
     }
     await page.keyboard.press("Enter");
     await page.waitForTimeout(2500);
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("Vector");
 
     const drawn = await vectors(page);
     expect(drawn).toHaveLength(1);
@@ -334,8 +340,6 @@ test("a pen path drawn inside a frame paints where it was drawn and stays dragga
       .locator("svg[data-an-primitive='path']")
       .first()
       .boundingBox())!;
-    await page.keyboard.press("v");
-    await page.waitForTimeout(400);
     const centerX = box.x + box.width / 2;
     const centerY = box.y + box.height / 2;
     await page.mouse.click(centerX, centerY);
@@ -530,11 +534,15 @@ test("Pen continues a selected open path in place and persists undo/redo", async
     const before = (await persistedVectors(request, designId))[0]!;
 
     await expect(
-      page.getByRole("button", { name: "Pen", exact: true }),
+      page.getByRole("button", { name: "Move", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
       page.locator('[role="treeitem"][aria-selected="true"]'),
     ).toContainText("Vector");
+    await page.keyboard.press("p");
+    await expect(
+      page.getByRole("button", { name: "Pen", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     const terminal = await terminalPenPoint(page);
     await page.mouse.click(terminal.x, terminal.y);
     await expect

@@ -8,12 +8,14 @@ import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getQuery,
+  createError,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
 import type { AvailabilityConfig } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
+import { getBookingUsernameOwner } from "./booking-usernames.js";
 
 function createDefaultAvailability(timezone: string): AvailabilityConfig {
   return {
@@ -66,6 +68,7 @@ export const getPublicAvailability = defineEventHandler(
   async (event: H3Event) => {
     const query = getQuery(event);
     const slug = typeof query.slug === "string" ? query.slug : "";
+    const username = typeof query.username === "string" ? query.username : "";
     if (slug) {
       const link = await getDb()
         .select({ ownerEmail: schema.bookingLinks.ownerEmail })
@@ -86,12 +89,40 @@ export const getPublicAvailability = defineEventHandler(
           ownerSettings?.timezone || "America/New_York",
         );
       }
+
+      if (username) {
+        const ownerEmail = await getBookingUsernameOwner(username);
+        if (!ownerEmail) {
+          throw createError({
+            statusCode: 404,
+            statusMessage: "Booking page not found",
+          });
+        }
+
+        const ownerConfig = (await getUserSetting(
+          ownerEmail,
+          "calendar-availability",
+        )) as unknown as AvailabilityConfig | null;
+        if (ownerConfig?.bookingPageSlug === slug) return ownerConfig;
+        if (!ownerConfig && slug === "book") {
+          const ownerSettings = (await getUserSetting(
+            ownerEmail,
+            "calendar-settings",
+          )) as { timezone?: string } | null;
+          return createDefaultAvailability(
+            ownerSettings?.timezone || "America/New_York",
+          );
+        }
+
+        throw createError({
+          statusCode: 404,
+          statusMessage: "Booking page not found",
+        });
+      }
     }
 
-    // Fall back to defaults — never read the unscoped `calendar-availability`
-    // setting. That key was historically dual-written by every user's update
-    // (see the matching fix in updateAvailability), which meant a brand-new
-    // user's public booking link advertised whoever last saved their hours.
+    // Username-scoped pages fail closed above; legacy links without a username
+    // still use defaults and never read the unscoped availability setting.
     return createDefaultAvailability("America/New_York");
   },
 );

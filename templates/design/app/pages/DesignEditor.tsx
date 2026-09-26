@@ -11697,7 +11697,10 @@ function DesignEditor() {
       if (!result) return;
       const resultNodeId = typeof result === "string" ? result : nodeId;
       handlePrimitiveCreated(activeFile.id, resultNodeId, {
-        nextTool: spec.tool === "pen" ? "pen" : undefined,
+        nextTool:
+          spec.tool === "pen" && spec.preserveActiveTool !== false
+            ? "pen"
+            : undefined,
         preserveActiveTool: spec.preserveActiveTool,
       });
       return resultNodeId;
@@ -29884,14 +29887,19 @@ function DesignEditor() {
                         onCreatePrimitive={handleSingleScreenCreatePrimitive}
                         onUpdatePenPath={
                           canEditDesign
-                            ? (nodeId, path) =>
-                                activeFile
+                            ? (nodeId, path, nextTool) => {
+                                const updated = activeFile
                                   ? handleUpdatePenPath(
                                       activeFile.id,
                                       nodeId,
                                       path,
                                     )
-                                  : false
+                                  : false;
+                                if (updated && nextTool) {
+                                  setActiveTool(nextTool);
+                                }
+                                return updated;
+                              }
                             : undefined
                         }
                         onDropFiles={

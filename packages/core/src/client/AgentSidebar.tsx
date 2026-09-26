@@ -524,7 +524,7 @@ export function AgentSidebar({
         onAgentChange?.(agent);
       }
     : onAgentChange;
-  const effectivePosition = position ?? (hostedHarnessUi ? "left" : "right");
+  const effectivePosition = position ?? "right";
   const effectiveDefaultOpen = defaultOpen ?? hostedHarnessUi;
   const effectiveShowTabBar = hostedHarnessUi || showTabBar;
   const effectiveAnimateDesktop = hostedHarnessUi ? false : animateDesktop;

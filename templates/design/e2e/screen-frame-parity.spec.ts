@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   appPath,
@@ -21,8 +21,13 @@ const STAMPED_BODY_HTML = `<!DOCTYPE html>
   </body>
 </html>`;
 
-const sectionTitle = (name: string) =>
-  `h3.design-sidebar-section-title:text-is("${name}")`;
+// PanelSection gives an empty section's title an inner "Add X" button that
+// renders the same text as the heading itself (see panel-primitives.tsx). A
+// plain `h3:text-is(...)` selector loses to that nested exact-text match, so
+// go through the accessible name instead — the h3 always carries
+// `aria-label={title}` regardless of whether it's empty or populated.
+const sectionTitle = (page: Page, name: string) =>
+  page.getByRole("heading", { name, exact: true, level: 3 });
 
 test("a screen and its document are one object", async ({ page }, testInfo) => {
   const designId = await readSeedDesignId();
@@ -59,10 +64,10 @@ test("a screen and its document are one object", async ({ page }, testInfo) => {
 
   // One inspector carries the box and the paint.
   await rows.first().click();
-  await expect(page.locator(sectionTitle("Position"))).toBeVisible();
-  await expect(page.locator(sectionTitle("Fill"))).toBeVisible();
-  await expect(page.locator(sectionTitle("Stroke"))).toBeVisible();
-  await expect(page.locator(sectionTitle("Effects"))).toBeVisible();
+  await expect(sectionTitle(page, "Position")).toBeVisible();
+  await expect(sectionTitle(page, "Fill")).toBeVisible();
+  await expect(sectionTitle(page, "Stroke")).toBeVisible();
+  await expect(sectionTitle(page, "Effects")).toBeVisible();
   await expect
     .poll(() =>
       page
