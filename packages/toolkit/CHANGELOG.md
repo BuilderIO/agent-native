@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.21.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 6ff4d47: Keep the shared agent chat composer visible above mobile keyboards.
+
 ## 0.21.2
 
 ### Patch Changes
@@ -883,12 +890,5 @@
 ### Patch Changes
 
 - 680b1eb: Scan TypeScript sources from `@agent-native/toolkit/styles.css` so dropdown and popover `z-[250]` utilities are generated in monorepo apps where `dist/` is gitignored.
-
-## 0.4.3
-
-### Patch Changes
-
-- 823d635: Add explicit `browser` and `development` export conditions so Vite 8 / Rolldown can resolve toolkit subpaths (including `./collab-ui`) in Fusion agent-native starter projects.
-- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
