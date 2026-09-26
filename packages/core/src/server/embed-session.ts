@@ -566,10 +566,9 @@ function embedTokenMatchesRequestAudience(
   event: H3Event,
   claims: EmbedSessionTokenClaims,
 ): boolean {
-  return (
-    !isFirstPartyAppRequest(event) ||
-    claims.audienceHost === requestHostname(event)
-  );
+  return claims.audienceHost === undefined
+    ? !isFirstPartyAppRequest(event)
+    : claims.audienceHost === requestHostname(event);
 }
 
 function referrerTargetPathname(event: H3Event): string | null {

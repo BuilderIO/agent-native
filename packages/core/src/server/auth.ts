@@ -2038,6 +2038,15 @@ async function performLogout(
   const candidates = [
     ...new Set(rawTokens.flatMap(sessionTokenLookupCandidates)),
   ];
+  let revocationFailed = false;
+  let auth: BetterAuthInstance | null = null;
+  try {
+    auth = await getAuth();
+  } catch (error) {
+    revocationFailed = true;
+    captureAuthError(error, { route: "logout" });
+  }
+
   try {
     const identities = new Set<string>();
     const addIdentity = (email: string | null | undefined) => {
@@ -2051,10 +2060,11 @@ async function performLogout(
         ?.email,
     );
     for (const token of candidates) {
-      addIdentity(
-        (await getSessionEmail(token)) ??
-          (await emailFromBetterAuthSessionToken(token)),
-      );
+      const legacyEmail = await getSessionEmail(token);
+      addIdentity(legacyEmail);
+      if (!legacyEmail && (auth || revocationFailed)) {
+        addIdentity(await emailFromBetterAuthSessionToken(token));
+      }
     }
     for (const email of identities) {
       await revokeEmbedSessionsForOwner(email);
@@ -2063,16 +2073,6 @@ async function performLogout(
     captureAuthError(error, { route: "logout" });
     setResponseStatus(event, 503);
     return { error: "Unable to revoke session" };
-  }
-
-  let revocationFailed = false;
-
-  let auth: BetterAuthInstance | null = null;
-  try {
-    auth = await getAuth();
-  } catch (error) {
-    revocationFailed = true;
-    captureAuthError(error, { route: "logout" });
   }
 
   for (const token of candidates) {

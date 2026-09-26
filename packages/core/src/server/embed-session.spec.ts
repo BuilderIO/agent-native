@@ -659,6 +659,46 @@ describe("requestMatchesEmbedTarget", () => {
     ).resolves.toBeNull();
   });
 
+  it("binds custom-host embed sessions to their audience while preserving legacy tokens", async () => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/inbox",
+      audienceHost: "app-a.example.com",
+      ttlSeconds: 60,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/inbox", {
+          host: "app-a.example.com",
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+        }),
+      ),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
+    const siblingRequest = fakeEvent("/inbox", {
+      host: "app-b.example.com",
+      cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(siblingRequest),
+    ).resolves.toBeNull();
+    expect(requestHasEmbedAuthMarker(siblingRequest)).toBe(false);
+
+    const legacyToken = signEmbedSessionToken({
+      ownerEmail: "legacy@example.com",
+      targetPath: "/inbox",
+      ttlSeconds: 60,
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/inbox", {
+          host: "app-b.example.com",
+          cookie: `${EMBED_SESSION_COOKIE}=${legacyToken}`,
+        }),
+      ),
+    ).resolves.toMatchObject({ email: "legacy@example.com" });
+  });
+
   it("keeps first-party embed session cookies host-only", () => {
     vi.stubEnv("APP_NAME", "calendar");
     process.env.APP_URL = "https://beta.calendar.agent-native.com";

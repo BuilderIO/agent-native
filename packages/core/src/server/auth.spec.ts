@@ -2121,6 +2121,51 @@ describe("server/auth", () => {
       );
     });
 
+    it("clears a stale cookie on BYOA apps without Better Auth tables", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn(async (query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        if (typeof sql === "string" && sql.includes('FROM "session"')) {
+          throw Object.assign(new Error('relation "session" does not exist'), {
+            code: "42P01",
+          });
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => null,
+        getBetterAuthSync: () => null,
+      }));
+
+      const { autoMountAuth, COOKIE_NAME } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, { getSession: async () => null });
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const event = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        { cookie: `${COOKIE_NAME}=stale-token` },
+      );
+
+      await expect(logoutHandler(event)).resolves.toEqual({ ok: true });
+      expect(event.res.headers.get("set-cookie") ?? "").toContain(
+        `${COOKIE_NAME}=; Max-Age=0`,
+      );
+    });
+
     it("reports an unavailable Better Auth instance during logout", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
