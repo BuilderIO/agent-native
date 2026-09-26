@@ -288,6 +288,39 @@ describe("useContentRecent context recovery", () => {
     expect(container.querySelector("output")?.textContent).toBe("error");
   });
 
+  it("reuses an in-flight recovery after the same scope reports an ordinary error", async () => {
+    let finishRefresh!: (result: { isError: boolean }) => void;
+    const pendingRefresh = new Promise<{ isError: boolean }>((resolve) => {
+      finishRefresh = resolve;
+    });
+    hookMocks.org.refetch.mockReset().mockImplementation(() => pendingRefresh);
+
+    await act(async () => {
+      root.render(app());
+      await flush();
+    });
+    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(1);
+
+    hookMocks.query.error = new Error("Temporary query failure");
+    await act(async () => {
+      root.render(app());
+      await flush();
+    });
+    expect(container.querySelector("output")?.textContent).toBe("error");
+
+    hookMocks.query.error = contextChangedError();
+    await act(async () => {
+      root.render(app());
+      await flush();
+    });
+    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishRefresh({ isError: true });
+      await flush();
+    });
+  });
+
   it("invalidates each space's own Recent query when both scopes recover", async () => {
     hookMocks.org.refetch.mockReset().mockResolvedValue({
       isError: false,

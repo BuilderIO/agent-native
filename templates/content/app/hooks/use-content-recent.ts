@@ -94,7 +94,6 @@ export function useContentRecent(spaceId?: string) {
     if (!contextChanged) {
       if (scopeKey) {
         resyncedScopesRef.current.delete(scopeKey);
-        contentRecentRecoveries.get(queryClient)?.delete(scopeKey);
       }
       return;
     }
