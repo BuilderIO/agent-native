@@ -18,6 +18,29 @@
   font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
+.mm-focus-labels .mm-agent {
+  display: none;
+}
+
+@container (max-width: 520px) {
+  .mm-focus-jev .mm-agent {
+    display: none;
+  }
+
+  .mm-focus-jev .mm-tab:not(.is-active),
+  .mm-focus-jev .mm-tab-settings,
+  .mm-focus-jev .mm-refresh-toggle,
+  .mm-focus-jev .mm-compose,
+  .mm-focus-jev .mm-account-stack,
+  .mm-focus-jev .mm-topbar-spacer {
+    display: none;
+  }
+
+  .mm-focus-jev .mm-tabs {
+    flex: 1;
+  }
+}
+
 .mail-product-art *,
 .mail-product-art *::before,
 .mail-product-art *::after {
@@ -595,6 +618,16 @@
   color: hsl(0 71% 76%);
 }
 
+.mm-label-chip--important {
+  background: hsl(42 76% 37% / 0.28);
+  color: hsl(42 91% 76%);
+}
+
+.mm-label-chip--product {
+  background: hsl(217 67% 38% / 0.31);
+  color: hsl(217 81% 77%);
+}
+
 .mm-subject-line {
   display: flex;
   min-width: 0;
@@ -670,31 +703,6 @@
 .mm-priority-mark {
   flex: none;
   color: hsl(42 82% 65%);
-}
-
-.mm-automation-notice {
-  display: flex;
-  min-height: 29px;
-  align-items: center;
-  gap: 5px;
-  border-bottom: 1px solid var(--mm-border);
-  background: hsl(151 45% 35% / 0.14);
-  padding: 0 8px;
-  color: hsl(151 51% 69%);
-  font-size: 7px;
-}
-
-.mm-automation-notice span {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mm-automation-notice time {
-  flex: none;
-  font-size: 6px;
 }
 
 @container (max-width: 710px) {

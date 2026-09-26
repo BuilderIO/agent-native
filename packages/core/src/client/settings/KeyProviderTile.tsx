@@ -27,6 +27,7 @@ export function shortProviderName(label: string): string {
 const PREFIX_LOGO_IDS: Array<[string, string]> = [
   ["OPENAI_", "openai"],
   ["ANTHROPIC_", "anthropic"],
+  ["JEV_", "typesafe"],
   ["OPENROUTER_", "openrouter"],
   ["GOOGLE_GENERATIVE_AI_", "google-gemini"],
   ["GOOGLE_", "google-workspace"],
@@ -80,13 +81,14 @@ export function KeyProviderTile({
     <button
       type="button"
       onClick={onClick}
-      className="rounded-md border border-border bg-background px-2 py-2.5 flex flex-col items-center gap-1.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex flex-col items-center gap-1.5 rounded-md text-[10px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <McpIntegrationLogo
         name={name}
         logoUrl={provider?.logoUrl ?? ""}
         integrationId={provider?.id}
-        className="size-9"
+        className="size-9 rounded-md border-0 bg-transparent"
+        imageClassName="size-full rounded-md object-cover"
       />
       <span className="w-full truncate text-center">{name}</span>
     </button>

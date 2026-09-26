@@ -262,6 +262,7 @@ function AppContent() {
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="slides"
+        chatStorageKey="slides"
       >
         <CommandMenu.Group heading={t("root.commandPresentations")}>
           {location.pathname !== "/templates" ? (

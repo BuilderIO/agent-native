@@ -564,7 +564,7 @@ function mountActionRoutesInternal(
         setResponseHeader(
           event,
           "Access-Control-Expose-Headers",
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After",
         );
 
         // Browser action calls are RPCs over the framework transport. The
@@ -1055,6 +1055,26 @@ function mountActionRoutesInternal(
               const status = isValidationError ? 400 : (explicitStatus ?? 500);
               setResponseStatus(event, status);
 
+              const errorDetails =
+                err?.details &&
+                typeof err.details === "object" &&
+                !Array.isArray(err.details)
+                  ? err.details
+                  : undefined;
+              const retryAfterSeconds = errorDetails?.retryAfterSeconds;
+              if (
+                status === 429 &&
+                typeof retryAfterSeconds === "number" &&
+                Number.isInteger(retryAfterSeconds) &&
+                retryAfterSeconds > 0
+              ) {
+                setResponseHeader(
+                  event,
+                  "Retry-After",
+                  String(Math.min(retryAfterSeconds, 300)),
+                );
+              }
+
               // Only echo the raw message for known-safe cases:
               //  - validation errors (deterministic, parameter-shape only)
               //  - action contract errors, which `fail()` also raises
@@ -1081,7 +1101,18 @@ function mountActionRoutesInternal(
                         ? {}
                         : { details: err.details }),
                     }
-                  : { error: msg };
+                  : {
+                      error: msg,
+                      ...(typeof err?.errorCode === "string"
+                        ? { errorCode: err.errorCode }
+                        : {}),
+                      ...(status === 429 &&
+                      typeof retryAfterSeconds === "number" &&
+                      Number.isInteger(retryAfterSeconds) &&
+                      retryAfterSeconds > 0
+                        ? { details: { retryAfterSeconds } }
+                        : {}),
+                    };
               }
               const requestId = getHttpRequestTelemetryId(event);
               const captureId = captureError(err, {

@@ -1,47 +1,21 @@
 import { defineBlock } from "@agent-native/core/blocks";
 import type { BlockReadProps } from "@agent-native/core/blocks";
-import { useEffect, useState } from "react";
+import { useRef } from "react";
 
+import { usePrefersReducedMotion } from "../use-prefers-reduced-motion";
 import { MediaFrame } from "./media-layout";
 import { videoSchema, videoMdx, type VideoData } from "./video.config";
 
 export type { VideoData };
 
-/**
- * Tracks `prefers-reduced-motion: reduce`. Starts `null` (unresolved — SSR
- * and the first client paint have no answer yet) and only resolves to
- * `true`/`false` once the `matchMedia` effect runs after mount. Autoplay must
- * treat `null` as "not yet safe to play": a reduced-motion browser can start
- * an `autoPlay` video the instant it's in the DOM, and removing the prop on a
- * later render does not reliably stop playback already in progress.
- */
-function usePrefersReducedMotion(): boolean | null {
-  const [reduced, setReduced] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) {
-      setReduced(false);
-      return;
-    }
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduced(query.matches);
-    const onChange = (event: MediaQueryListEvent) => setReduced(event.matches);
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
-
-  return reduced;
-}
-
 export function VideoBlock({ data, ctx }: BlockReadProps<VideoData>) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  // Autoplay only fires once the reduced-motion preference has actually
-  // resolved (not `null`) AND it came back `false`. Muted/playsInline are
-  // tied to that same resolved decision, not to the raw `autoplay` flag: a
-  // reduced-motion viewer who presses play themselves gets a normal,
-  // unmuted playback, not a silently-muted one.
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const { current, initial, autoplayStopped } =
+    usePrefersReducedMotion(videoRef);
+  // Autoplay only fires once the reduced-motion preference has resolved.
   const shouldAutoplay =
-    Boolean(data.autoplay) && prefersReducedMotion === false;
+    Boolean(data.autoplay) && current === false && !autoplayStopped;
+  const shouldMute = Boolean(data.autoplay) && initial !== true;
 
   return (
     <MediaFrame
@@ -54,13 +28,14 @@ export function VideoBlock({ data, ctx }: BlockReadProps<VideoData>) {
       media={
         // `<video>` has no native `alt`; `aria-label` is its text alternative.
         <video
+          ref={videoRef}
           src={data.src}
           aria-label={data.alt}
           controls
           preload="metadata"
           autoPlay={shouldAutoplay}
-          muted={shouldAutoplay}
-          playsInline={shouldAutoplay}
+          muted={shouldMute}
+          playsInline
           loop={Boolean(data.loop)}
         />
       }

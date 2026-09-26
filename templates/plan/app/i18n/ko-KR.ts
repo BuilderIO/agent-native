@@ -643,6 +643,7 @@ const messages = {
       createAccount: "创建账户",
       signIn: "登录",
       haveAccount: "我已有账户",
+      storageStatusUnavailable: "파일 저장소를 확인할 수 없습니다.",
       retry: "重试",
       sendFeedback: "피드백 보내기",
       feedbackPlaceholder:

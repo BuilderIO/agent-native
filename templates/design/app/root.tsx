@@ -41,6 +41,7 @@ import type { LinksFunction } from "react-router";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
 import {
   requestDesignHistoryOpen,
@@ -160,6 +161,7 @@ function DesignCommandMenu({
       onOpenChange={onOpenChange}
       changelog={changelog}
       changelogKey="design"
+      chatStorageKey={DESIGN_CHAT_STORAGE_KEY}
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
         {isDesignEditor ||

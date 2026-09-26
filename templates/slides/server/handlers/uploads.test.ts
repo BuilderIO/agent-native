@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockMkdir = vi.hoisted(() => vi.fn(async () => undefined));
 const mockWriteFile = vi.hoisted(() => vi.fn(async () => undefined));
 const mockIsHostedSlidesRuntime = vi.hoisted(() => vi.fn(() => false));
+const mockIsPrivateBlobConfiguredForRequest = vi.hoisted(() => vi.fn());
 const mockStoreUploadedReferenceBlob = vi.hoisted(() => vi.fn());
 const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
@@ -25,6 +26,11 @@ vi.mock("fs", () => ({
       writeFile: mockWriteFile,
     },
   },
+}));
+
+vi.mock("@agent-native/core/private-blob", () => ({
+  isPrivateBlobConfiguredForRequest: (...args: unknown[]) =>
+    mockIsPrivateBlobConfiguredForRequest(...args),
 }));
 
 vi.mock("../lib/tenant-files.js", () => ({
@@ -55,6 +61,7 @@ import {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
   MAX_SVG_REFERENCE_FILE_BYTES,
+  getUploadStorageStatus,
   maxReferenceFileBytes,
   saveUploadedReferenceFile,
   uploadFiles,
@@ -65,6 +72,8 @@ describe("Slides reference upload limits", () => {
     mockMkdir.mockClear();
     mockWriteFile.mockClear();
     mockIsHostedSlidesRuntime.mockReturnValue(false);
+    mockIsPrivateBlobConfiguredForRequest.mockReset();
+    mockIsPrivateBlobConfiguredForRequest.mockResolvedValue(false);
     mockStoreUploadedReferenceBlob.mockReset();
     mockReadMultipartFormData.mockReset();
     mockSetResponseStatus.mockReset();
@@ -83,6 +92,16 @@ describe("Slides reference upload limits", () => {
         context: { email?: string; orgId?: string },
       ) => callback(context),
     );
+  });
+
+  it("allows tenant-local reference storage outside hosted deployments", async () => {
+    const event = {} as any;
+
+    await expect(getUploadStorageStatus(event)).resolves.toEqual({
+      referenceStorageReady: true,
+    });
+
+    expect(mockIsPrivateBlobConfiguredForRequest).not.toHaveBeenCalled();
   });
 
   it("allows larger .fig files than ordinary references", () => {
@@ -297,9 +316,7 @@ describe("Slides reference upload limits", () => {
         data: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
       }),
     ).rejects.toMatchObject({
-      message: expect.stringContaining(
-        "Private file storage is not configured",
-      ),
+      message: expect.stringContaining("No object storage is connected"),
       statusCode: 503,
     });
     expect(mockWriteFile).not.toHaveBeenCalled();

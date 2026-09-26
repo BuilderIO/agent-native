@@ -13,6 +13,28 @@ const mockGetHumanReviewSummariesForThreads = vi.hoisted(() => vi.fn());
 const mockGetSuccessfulToolSpansForReview = vi.hoisted(() => vi.fn());
 const mockGetRecentReviewRunsForThreads = vi.hoisted(() => vi.fn());
 
+const reviewThreadKey = (orgId: string, threadId: string) =>
+  JSON.stringify([orgId, threadId]);
+
+function normalizeReviewMap(
+  value: Map<string, unknown>,
+  scopes: Array<{ orgId: string; threadId: string }>,
+) {
+  return new Map(
+    [...value].map(([key, entry]) => {
+      if (key.startsWith("[")) return [key, entry];
+      const scope = scopes.find((candidate) => candidate.threadId === key);
+      return [reviewThreadKey(scope?.orgId ?? "org-a", key), entry];
+    }),
+  );
+}
+
+function normalizeReviewRows<
+  T extends { orgId?: string; threadId?: string | null },
+>(rows: T[]) {
+  return rows.map((row) => ({ ...row, orgId: row.orgId ?? "org-a" }));
+}
+
 vi.mock("./store.js", () => ({
   MAX_REVIEW_TOOL_SPANS: 20,
   getOrgScopedThreadData: (...args: unknown[]) =>
@@ -20,20 +42,42 @@ vi.mock("./store.js", () => ({
   getOrgScopedThreadTitles: (...args: unknown[]) =>
     mockGetOrgScopedThreadTitles(...args),
   getOrgScopedReviewThreads: (...args: unknown[]) =>
-    mockGetOrgScopedReviewThreads(...args),
+    Promise.resolve(mockGetOrgScopedReviewThreads(...args)).then((value) =>
+      normalizeReviewMap(
+        value,
+        (args[0] as Array<{ orgId: string; threadId: string }>) ?? [],
+      ),
+    ),
   getHumanReviewSummaries: (...args: unknown[]) =>
     mockGetHumanReviewSummaries(...args),
   getHumanReviewSummariesForThreads: (...args: unknown[]) =>
-    mockGetHumanReviewSummariesForThreads(...args),
+    Promise.resolve(mockGetHumanReviewSummariesForThreads(...args)).then(
+      (value) =>
+        normalizeReviewMap(
+          value,
+          (args[0] as Array<{ orgId: string; threadId: string }>) ?? [],
+        ),
+    ),
   getSuccessfulToolSpansForReview: (...args: unknown[]) =>
     mockGetSuccessfulToolSpansForReview(...args),
   getRecentReviewRunsForThreads: (...args: unknown[]) =>
-    mockGetRecentReviewRunsForThreads(...args),
-  getTraceSummaries: (...args: unknown[]) => mockGetTraceSummaries(...args),
-  getTraceSummary: (...args: unknown[]) => mockGetTraceSummary(...args),
-  getFeedback: (...args: unknown[]) => mockGetFeedback(...args),
+    Promise.resolve(mockGetRecentReviewRunsForThreads(...args)).then(
+      normalizeReviewRows,
+    ),
+  getTraceSummaries: (...args: unknown[]) =>
+    Promise.resolve(mockGetTraceSummaries(...args)).then(normalizeReviewRows),
+  getTraceSummary: (...args: unknown[]) =>
+    Promise.resolve(mockGetTraceSummary(...args)).then((row) =>
+      row ? { ...row, orgId: row.orgId ?? "org-a" } : row,
+    ),
+  getFeedback: (...args: unknown[]) =>
+    Promise.resolve(mockGetFeedback(...args)).then((rows) =>
+      normalizeReviewRows(rows),
+    ),
   getInstructionUpdates: (...args: unknown[]) =>
-    mockGetInstructionUpdates(...args),
+    Promise.resolve(mockGetInstructionUpdates(...args)).then(
+      normalizeReviewRows,
+    ),
 }));
 
 vi.mock("../user-profile/store.js", () => ({
@@ -143,13 +187,13 @@ describe("listOutputReviews", () => {
       sinceMs: 0,
       limit: 40,
       orgId: "org-a",
-      threadIds: ["thread-1"],
+      threadScopes: [{ orgId: "org-a", threadId: "thread-1" }],
     });
     expect(mockGetInstructionUpdates).toHaveBeenCalledWith({
       sinceMs: 0,
       perThreadLimit: 1,
       orgId: "org-a",
-      threadIds: ["thread-1"],
+      threadScopes: [{ orgId: "org-a", threadId: "thread-1" }],
     });
   });
 
@@ -194,10 +238,9 @@ describe("listOutputReviews", () => {
       answer: "Created the weekly dashboard",
       runId: "run-1",
     });
-    expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith(
-      "org-a",
-      ["thread-1"],
-    );
+    expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith([
+      { orgId: "org-a", threadId: "thread-1" },
+    ]);
     expect(mockGetTraceSummaries).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org-a",
@@ -205,6 +248,68 @@ describe("listOutputReviews", () => {
         requireReviewContext: true,
       }),
     );
+  });
+
+  it("keeps same-named thread IDs isolated in the super-org rollup", async () => {
+    mockGetTraceSummaries.mockResolvedValueOnce([
+      {
+        runId: "run-a",
+        orgId: "org-a",
+        threadId: "shared-thread-id",
+        userId: "alice@example.com",
+        model: "model-a",
+        createdAt: 200,
+      },
+      {
+        runId: "run-b",
+        orgId: "org-b",
+        threadId: "shared-thread-id",
+        userId: "bob@example.com",
+        model: "model-b",
+        createdAt: 100,
+      },
+    ]);
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          reviewThreadKey("org-a", "shared-thread-id"),
+          {
+            ...scopedThread("{}"),
+            ownerEmail: "alice@example.com",
+            title: "Org A title",
+          },
+        ],
+        [
+          reviewThreadKey("org-b", "shared-thread-id"),
+          {
+            ...scopedThread("{}"),
+            ownerEmail: "bob@example.com",
+            title: "Org B title",
+          },
+        ],
+      ]),
+    );
+
+    const rows = await listOutputReviews({
+      sinceMs: 0,
+      limit: 10,
+      scope: { kind: "all", activeOrgId: "org-a" },
+    });
+
+    expect(rows).toMatchObject([
+      {
+        runId: "run-a",
+        orgId: "org-a",
+        readOnly: false,
+        threadTitle: "Org A title",
+      },
+      {
+        runId: "run-b",
+        orgId: "org-b",
+        readOnly: true,
+        threadTitle: "Org B title",
+      },
+    ]);
   });
 
   it("links Analytics analysis-scoped threads to their saved analysis", async () => {
@@ -267,10 +372,10 @@ describe("listOutputReviews", () => {
 
     expect(rows).toHaveLength(3);
     expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledTimes(1);
-    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith("org-a", [
-      { ownerEmail: "alice@example.com", threadId: "thread-1" },
-      { ownerEmail: "bob@example.com", threadId: "thread-2" },
-      { ownerEmail: "carol@example.com", threadId: "thread-3" },
+    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith([
+      { orgId: "org-a", ownerEmail: "alice@example.com", threadId: "thread-1" },
+      { orgId: "org-a", ownerEmail: "bob@example.com", threadId: "thread-2" },
+      { orgId: "org-a", ownerEmail: "carol@example.com", threadId: "thread-3" },
     ]);
   });
 
@@ -399,8 +504,8 @@ describe("listOutputReviews", () => {
       "org-a",
       20,
     );
-    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith("org-a", [
-      { ownerEmail: "alice@example.com", threadId: "thread-1" },
+    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith([
+      { orgId: "org-a", ownerEmail: "alice@example.com", threadId: "thread-1" },
     ]);
   });
 
@@ -989,8 +1094,8 @@ describe("listOutputReviews", () => {
     expect(mockGetTraceSummary).toHaveBeenCalledWith("run-1", {
       orgId: "org-a",
     });
-    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith("org-a", [
-      { ownerEmail: "alice@example.com", threadId: "thread-1" },
+    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith([
+      { orgId: "org-a", ownerEmail: "alice@example.com", threadId: "thread-1" },
     ]);
   });
 
@@ -1040,10 +1145,9 @@ describe("listOutputReviews", () => {
       },
       artifacts: [{ artifactId: "design-1" }],
     });
-    expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith(
-      "org-a",
-      ["thread-1"],
-    );
+    expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith([
+      { orgId: "org-a", threadId: "thread-1" },
+    ]);
   });
 
   it("returns an empty detail for a run without a thread and hides inaccessible runs", async () => {

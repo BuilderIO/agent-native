@@ -8,10 +8,13 @@ import type { FileUploadInput } from "../file-upload/index.js";
 import type { PrivateBlobProvider } from "./types.js";
 
 const deleteUploadedFileMock = vi.hoisted(() => vi.fn());
+const getActiveFileUploadProviderForRequestMock = vi.hoisted(() => vi.fn());
 const uploadFileMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../file-upload/index.js", () => ({
   deleteUploadedFile: deleteUploadedFileMock,
+  getActiveFileUploadProviderForRequest:
+    getActiveFileUploadProviderForRequestMock,
   uploadFile: uploadFileMock,
 }));
 
@@ -29,6 +32,8 @@ describe("private blob registry", () => {
       SECRETS_ENCRYPTION_KEY: "private-blob-test",
     };
     deleteUploadedFileMock.mockReset();
+    getActiveFileUploadProviderForRequestMock.mockReset();
+    getActiveFileUploadProviderForRequestMock.mockResolvedValue(null);
     uploadFileMock.mockReset();
     resetAppConfigForTests();
   });
@@ -36,6 +41,7 @@ describe("private blob registry", () => {
   afterEach(async () => {
     const registry = await import("./registry.js");
     resetAppConfigForTests();
+    registry.setPrivateBlobPublicUploadFallbackEnabled(true);
     for (const provider of registry.listPrivateBlobProviders()) {
       registry.unregisterPrivateBlobProvider(provider.id);
     }
@@ -298,6 +304,40 @@ describe("private blob registry", () => {
     await expect(
       registry.putPrivateBlob({ data: new Uint8Array([1]) }),
     ).resolves.toBe(handle);
+  });
+
+  it("reports private blob readiness through its configured write path", async () => {
+    const registry = await freshRegistry();
+    defineAppConfig({ privateBlob: { publicUploadFallback: true } });
+    getActiveFileUploadProviderForRequestMock.mockResolvedValue({ id: "s3" });
+
+    await expect(registry.isPrivateBlobConfiguredForRequest()).resolves.toBe(
+      true,
+    );
+
+    getActiveFileUploadProviderForRequestMock.mockResolvedValue(null);
+    await expect(registry.isPrivateBlobConfiguredForRequest()).resolves.toBe(
+      false,
+    );
+
+    defineAppConfig({ privateBlob: { publicUploadFallback: false } });
+    getActiveFileUploadProviderForRequestMock.mockResolvedValue({ id: "s3" });
+    await expect(registry.isPrivateBlobConfiguredForRequest()).resolves.toBe(
+      false,
+    );
+
+    const provider: PrivateBlobProvider = {
+      id: "private",
+      name: "Private",
+      isConfigured: () => true,
+      put: vi.fn(),
+      read: vi.fn(),
+      delete: vi.fn(),
+    };
+    registry.registerPrivateBlobProvider(provider);
+    await expect(registry.isPrivateBlobConfiguredForRequest()).resolves.toBe(
+      true,
+    );
   });
 
   it("fails loudly when the selected provider is unavailable", async () => {

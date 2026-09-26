@@ -91,6 +91,7 @@
     "guard:netlify-release-migrations": "tsx scripts/guard-netlify-release-migrations.ts",
     "guard:netlify-prebuilt-workflow": "tsx scripts/guard-netlify-prebuilt-workflow.ts",
     "guard:trusted-acceptance": "tsx scripts/guard-trusted-acceptance-workflow.ts",
+    "guard:design-e2e-workflow": "tsx scripts/guard-design-e2e-workflow.ts",
     "guard:content-product-conformance": "tsx scripts/validate-content-product-impact-workflow.ts",
     "guard:content-product-docs": "tsx scripts/validate-content-product-docs.ts",
     "test:content-product-docs": "tsx --test scripts/validate-content-product-docs.test.ts",

@@ -212,6 +212,7 @@ export {
 } from "../agent-chat-adapter.js";
 export {
   GuidedQuestionFlow,
+  GuidedQuestionProviderGate,
   useGuidedQuestionFlow,
   askUserQuestion,
   formatGuidedAnswerValue,

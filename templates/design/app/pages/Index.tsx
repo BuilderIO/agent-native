@@ -271,12 +271,15 @@ export default function Index() {
     refetch: refetchDesignSystems,
   } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
+  const agentEngineConfigured = agentEngine.state === "configured";
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
     if (agentEngine.missing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
-  const quickActionsEnabled =
-    agentEngine.state === "configured" && !agentEngine.missing;
+  const retryAgentEngineStatus = useCallback(() => {
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+  }, []);
+  const quickActionsEnabled = agentEngineConfigured && !agentEngine.missing;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
@@ -297,7 +300,6 @@ export default function Index() {
         label: prompt,
         prompt,
       }));
-
   /**
    * The picker showed a column of near-identical names ("Builder indexed
    * design system" three times over). Each system already carries its palette
@@ -654,6 +656,7 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
+      if (agentEngine.state !== "configured") return;
       // The rejection already surfaced its own toast in handleCreativeContextChange;
       // swallow it here so a flaky context save can't block generation, but
       // only after letting it settle instead of racing it.
@@ -847,6 +850,7 @@ export default function Index() {
       void navigate(`/design/${id}`);
     },
     [
+      agentEngine.state,
       createDesign,
       createFromTemplateMutation,
       createFusionAppMutation,
@@ -1099,19 +1103,34 @@ export default function Index() {
       <PromptHome
         title={t("home.designPromptTitle")}
         connection={
-          agentEngine.missing ? (
+          agentEngineConfigured ? null : agentEngine.missing ? (
             <BuilderSetupCard
               attached
               fullWidth
               layout="sidebar"
               bouncePulse={setupCardBouncePulse}
-              onConnected={() =>
-                window.dispatchEvent(
-                  new Event("agent-engine:configured-changed"),
-                )
-              }
+              onConnected={retryAgentEngineStatus}
             />
-          ) : null
+          ) : (
+            <div className="mb-2 flex items-center justify-center gap-3 text-sm text-muted-foreground">
+              <span role="status">
+                {t(
+                  agentEngine.state === "unknown"
+                    ? "agentChat.setup.checkingProvider"
+                    : "agentChat.setup.providerStatusUnavailable",
+                )}
+              </span>
+              {agentEngine.state === "unavailable" ? (
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={retryAgentEngineStatus}
+                >
+                  {t("agentChat.common.retry")}
+                </button>
+              ) : null}
+            </div>
+          )
         }
         composer={
           <div
@@ -1129,9 +1148,10 @@ export default function Index() {
               open
               onOpenChange={() => {}}
               composerRef={composerRef}
-              submissionDisabled={agentEngine.missing}
-              showModelSelector={!agentEngine.missing}
-              modelStatusChecksEnabled={!agentEngine.missing}
+              disabled={!agentEngineConfigured}
+              submissionDisabled={!agentEngineConfigured}
+              showModelSelector={agentEngineConfigured}
+              modelStatusChecksEnabled={false}
               title={t("home.newDesignLower")}
               draftScope="design:new:0"
               placeholder={

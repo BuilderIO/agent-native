@@ -128,7 +128,7 @@ const messages = {
       "Google Picker benötigt GOOGLE_PICKER_API_KEY und GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Bildupload fehlgeschlagen",
     imageUploadNeedsBuilder:
-      "Verbinde Builder.io im Modellmenü des Agent-Composers, um Bilder auf Folien hochzuladen. Wenn du ein Bild auf die leere Arbeitsfläche ziehst, kann es auch ohne Anbieter an den Agenten gesendet werden.",
+      "Verbinde einen Objektspeicher, um Bilder hochzuladen: Verbinde Builder.io (kostenlos) oder füge eigene S3-kompatible Speicherschlüssel unter Einstellungen → Datei-Uploads hinzu.",
     sentToAgent: "An Agent gesendet",
     imageUploadGenericError:
       "Beim Hochladen dieses Bildes ist etwas schiefgelaufen.",
@@ -661,6 +661,13 @@ const messages = {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
+    generationStalled:
+      "Die Generierung wurde nach 5 Minuten ohne Fortschritt pausiert",
+    generationStalledDescription:
+      "Deine gespeicherten Folien sind weiterhin vorhanden. Setze die Arbeit für dieses Deck im Chat fort.",
+    continueInChat: "Im Chat fortfahren",
+    continueGenerationPrompt:
+      "Setze die Foliengenerierung für dieses Deck fort. Prüfe zuerst die vorhandenen Folien und den gespeicherten Generierungskontext. Behalte fertige Folien bei und ergänze nur die fehlenden.",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
     joinTeamDescription:
@@ -713,7 +720,7 @@ const messages = {
     tryAgain: "Erneut versuchen",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
-      "Verbinde Builder.io im Modellmenü des Agent-Composers, um Bilder auf Folien hochzuladen. Wenn du ein Bild auf die leere Arbeitsfläche ziehst, kann es auch ohne Anbieter an den Agenten gesendet werden.",
+      "Verbinde einen Objektspeicher, um Bilder hochzuladen: Verbinde Builder.io (kostenlos) oder füge eigene S3-kompatible Speicherschlüssel unter Einstellungen → Datei-Uploads hinzu.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
@@ -882,7 +889,7 @@ const messages = {
       starting: "Wird gestartet…",
       generate: "Generieren",
       connectionRequired:
-        "Verbinde Builder.io über dem Startseiten-Prompt und versuche es erneut.",
+        "Verbinde oben über dem Startseiten-Prompt einen KI-Anbieter oder füge deinen eigenen KI-Schlüssel hinzu und versuche es erneut.",
       invalidPdf: "Wähle eine PDF-Datei.",
       notReady:
         "Prüfe ausstehenden oder fehlerhaften Kontext und die Verbindung und versuche es erneut.",
@@ -934,6 +941,10 @@ const messages = {
     loadFailedDescription:
       "Ihre gespeicherten Inhalte sind weiterhin verfügbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
     retry: "Erneut versuchen",
+    fileStorageStatusUnavailable:
+      "Der Objektspeicherstatus konnte nicht geprüft werden. Versuche es erneut, bevor du Dateien hochlädst.",
+    fileStorageSetupRequired:
+      "Es ist kein Objektspeicher verbunden. Verbinde Builder.io kostenlos oder füge unter Einstellungen → Datei-Uploads eigene S3-kompatible Speicherschlüssel hinzu.",
     decksTitle: "Decks",
     deckLengthQuestion: "Wie lang soll dieses Deck sein?",
     deckLengthHeader: "Decklänge",
@@ -965,6 +976,8 @@ const messages = {
     chooseReferences: "Referenzen auswählen",
     addDesignSystem: "+ Designsystem",
     importFrom: "Importieren von",
+    referenceFileStorageUnavailable:
+      "Der Dateispeicher ist nicht eingerichtet. Verbinde Builder.io oder einen anderen Dateianbieter, um Referenzdateien zu importieren.",
     attachedFiles: "Angehängt",
     imported: "Importiert",
     importedReferenceDeck: "Importiertes Referenz-Deck",

@@ -37,7 +37,7 @@ export function usePromptImport({
 }: {
   onImport?: PromptImportHandler;
   onSuccess?: () => void;
-  onError?: (message: string) => void;
+  onError?: (message: string, cause?: unknown) => void;
 }) {
   const t = useT();
   const [importingSource, setImportingSource] =
@@ -51,9 +51,9 @@ export function usePromptImport({
     setRetrySelection(undefined);
   }, []);
   const fail = useCallback(
-    (message: string) => {
+    (message: string, cause?: unknown) => {
       setError(message);
-      onError?.(message);
+      onError?.(message, cause);
       return false;
     },
     [onError],
@@ -97,6 +97,7 @@ export function usePromptImport({
         return fail(
           actionErrorMessage(cause) ??
             t("editorToolbar.importFailedDescription"),
+          cause,
         );
       } finally {
         busy.current = false;

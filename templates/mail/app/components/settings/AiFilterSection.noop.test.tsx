@@ -23,9 +23,12 @@ const mocks = vi.hoisted(() => ({
   includeExtraDuplicate: false,
   jevAvailabilityError: false,
   jevConfigured: true,
+  automationsError: false,
+  automationsHasData: true,
   triageEnabled: true,
   updateAiFilterSettings: vi.fn(),
   refetchJevAvailability: vi.fn(),
+  refetchAutomations: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -137,14 +140,19 @@ vi.mock("@/hooks/use-automations", () => ({
     const dataWithExtraDuplicate = [...data, extraDuplicate];
     const dataWithTag = [...data, tagRule];
     return () => ({
-      data: mocks.includeExtraDuplicate
-        ? dataWithExtraDuplicate
-        : mocks.includeDisabledImportant
-          ? dataWithDisabledImportant
-          : mocks.includeTagRule
-            ? dataWithTag
-            : data,
+      data: !mocks.automationsHasData
+        ? undefined
+        : mocks.includeExtraDuplicate
+          ? dataWithExtraDuplicate
+          : mocks.includeDisabledImportant
+            ? dataWithDisabledImportant
+            : mocks.includeTagRule
+              ? dataWithTag
+              : data,
       isLoading: false,
+      isError: mocks.automationsError,
+      isFetching: false,
+      refetch: mocks.refetchAutomations,
     });
   })(),
   useCreateAutomation: () => ({ mutateAsync: mocks.createRule }),
@@ -194,6 +202,8 @@ describe("AiFilterSection prompt blur saves", () => {
     mocks.includeExtraDuplicate = false;
     mocks.jevAvailabilityError = false;
     mocks.jevConfigured = true;
+    mocks.automationsError = false;
+    mocks.automationsHasData = true;
     mocks.triageEnabled = true;
     mocks.createRule.mockReset();
     mocks.manageRuleUndo.mockReset();
@@ -201,6 +211,7 @@ describe("AiFilterSection prompt blur saves", () => {
     mocks.deleteRule.mockReset();
     mocks.updateRule.mockReset();
     mocks.updateAiFilterSettings.mockReset();
+    mocks.refetchAutomations.mockReset();
   });
 
   it("does not mutate existing rules when a prompt blurs unchanged", async () => {
@@ -225,6 +236,39 @@ describe("AiFilterSection prompt blur saves", () => {
     expect(
       screen.queryByRole("button", { name: "mail.sort.aiSetupRunAgain" }),
     ).toBeNull();
+  });
+
+  it("shows a retry state when rules fail to load without cached data", () => {
+    mocks.automationsError = true;
+    mocks.automationsHasData = false;
+    render(<AiFilterSection />);
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "mail.aiFilter.automationRulesLoadFailed",
+    );
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.aiSetupRunAgain" }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+    expect(mocks.refetchAutomations).toHaveBeenCalledOnce();
+  });
+
+  it("keeps cached rules visible after a failed background refresh", async () => {
+    mocks.automationsError = true;
+    render(<AiFilterSection />);
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    await waitFor(() => {
+      expect(
+        (
+          screen.getByRole("textbox", {
+            name: "mail.aiFilter.importantMode",
+          }) as HTMLTextAreaElement
+        ).value,
+      ).toContain("Human comments on GitHub matter");
+    });
   });
 
   it("offers retry instead of Jev connection options when availability lookup fails", () => {
