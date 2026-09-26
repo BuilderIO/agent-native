@@ -356,6 +356,15 @@ export function StorageSetupCard({
                   {t("meetingDetail.retry")}
                 </button>
               )}
+            {builderConnect.connecting && (
+              <button
+                type="button"
+                className="self-start text-xs font-normal text-muted-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={builderConnect.cancel}
+              >
+                {t("common.cancel")}
+              </button>
+            )}
           </>
         )
       ) : (

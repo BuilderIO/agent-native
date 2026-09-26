@@ -69,6 +69,9 @@ there are no unpushed commits on any path and no dirty publishable paths; only
 `learnings.md`, `bridge/**`, and `data/**` may remain dirty. If any unpushed
 commit remains, keep the source branch checked out and report the commit hashes
 instead of rotating. This preserves commits excluded from `/ship:push`. Use the
+preserved-path exception only for this post-merge rotation; setup-time branch
+creation or switching still requires every dirty path to belong to this task.
+The excluded paths stay unchanged across rotation.
 immutable `ship_merge_head_oid` captured
 before the guarded merge (from the Codex watcher prompt or foreground task
 transcript, or the Claude `/goal` or foreground task transcript); never

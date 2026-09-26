@@ -80,6 +80,7 @@ describe("StorageSetupCard", () => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.start.mockReset();
+    mocks.flow.cancel.mockReset();
     mocks.useBuilderConnectFlow.mockReset().mockReturnValue({
       ...mocks.flow,
       start: mocks.start,
@@ -232,5 +233,28 @@ describe("StorageSetupCard", () => {
     expect(container.textContent).not.toContain(
       "agentChat.onboarding.builderCreateAndActivate",
     );
+  });
+
+  it("lets users cancel a fallback connection while it is connecting", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      ...mocks.flow,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: false,
+      connecting: true,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
+    });
+
+    const cancelButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "common.cancel",
+    );
+    expect(cancelButton).toBeDefined();
+
+    act(() => cancelButton?.click());
+
+    expect(mocks.flow.cancel).toHaveBeenCalledOnce();
   });
 });
