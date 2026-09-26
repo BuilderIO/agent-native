@@ -8718,6 +8718,7 @@ function SingleScreenCreationOverlay({
     null,
   );
   const penGestureRef = useRef<SingleScreenPenGestureState | null>(null);
+  const penOverlayRef = useRef<HTMLDivElement>(null);
   const [penPointer, setPenPointer] = useState<PenPoint | null>(null);
   const [penCloseHover, setPenCloseHover] = useState(false);
 
@@ -8763,8 +8764,15 @@ function SingleScreenCreationOverlay({
   }, []);
 
   const clearPenPath = useCallback(() => {
-    updatePenPath(null);
+    const gesture = penGestureRef.current;
     penGestureRef.current = null;
+    if (
+      gesture &&
+      penOverlayRef.current?.hasPointerCapture(gesture.pointerId)
+    ) {
+      penOverlayRef.current.releasePointerCapture(gesture.pointerId);
+    }
+    updatePenPath(null);
     setPenGesturePreview(null);
     setPenPointer(null);
     setPenCloseHover(false);
@@ -9251,6 +9259,7 @@ function SingleScreenCreationOverlay({
 
   return (
     <div
+      ref={penOverlayRef}
       data-design-canvas-creation-overlay
       data-creation-tool={tool}
       className={cn("absolute inset-0 z-20 pointer-events-auto", cursorClass)}

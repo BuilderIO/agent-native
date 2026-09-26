@@ -6376,6 +6376,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             "commit",
           );
         }
+        if (nextTool === "move") active?.onExit();
         onActiveToolChange?.(nextTool);
         return;
       }
