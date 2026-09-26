@@ -272,6 +272,7 @@ export interface FileCreationHistoryEntry {
   historyBatchId?: string;
   duplicateStack?: DuplicateStackHistoryChange;
   duplicateStackUndoSettled?: boolean;
+  duplicateStackUndoApplied?: boolean;
   /** Existing row to reuse when create-file succeeded but cleanup did not. */
   recoveryFileId?: string | null;
   /** IDs present before a create attempt that returned no id. */

@@ -337,6 +337,7 @@ export interface DuplicateScreenArgs {
   >["mutateAsync"];
   designDataJsonRef: RefObject<Record<string, unknown>>;
   duplicateRecoveryRef: RefObject<Map<string, DuplicateScreenRecoveryEntry>>;
+  displayedCanvasFrameGeometryById?: CanvasFrameGeometryById;
   files: DesignFile[];
   focusCreatedScreen: (
     screenId: string,
@@ -382,6 +383,7 @@ export function runDuplicateScreen(
     deleteFileAsync,
     designDataJsonRef,
     duplicateRecoveryRef,
+    displayedCanvasFrameGeometryById,
     files,
     focusCreatedScreen,
     id,
@@ -410,6 +412,10 @@ export function runDuplicateScreen(
   if (!id || !canEditDesign) return Promise.resolve(undefined);
   const source = files.find((file) => file.id === screenId);
   if (!source) return Promise.resolve(undefined);
+  const canvasFrameGeometryById = {
+    ...displayedCanvasFrameGeometryById,
+    ...request?.canvasFrameGeometryById,
+  };
   const pendingFilenames = pendingDuplicateFilenamesRef.current;
   const recoveries = duplicateRecoveryRef.current;
   const persistedGeometry = getCanvasFrameGeometry(designDataJsonRef.current);
@@ -429,7 +435,7 @@ export function runDuplicateScreen(
       [
         persistedGeometry[file.id],
         liveFrameGeometryRef.current[file.id],
-        request?.canvasFrameGeometryById?.[file.id],
+        canvasFrameGeometryById[file.id],
       ].some(isCompleteFrameGeometry)
     ) {
       pendingDuplicateGeometriesRef.current.delete(pendingFilename);
@@ -487,7 +493,7 @@ export function runDuplicateScreen(
   );
   const sourceGeometry =
     [
-      request?.canvasFrameGeometryById?.[screenId],
+      canvasFrameGeometryById[screenId],
       liveFrameGeometryRef.current[screenId],
       persistedGeometryAtStart[screenId],
     ].find(isCompleteFrameGeometry) ?? fallbackGeometry;
@@ -508,7 +514,7 @@ export function runDuplicateScreen(
   }
   const geometryAtStartBeforeCanvasSnapshot = { ...currentFrameGeometry };
   for (const [frameId, canvasGeometry] of Object.entries(
-    request?.canvasFrameGeometryById ?? {},
+    canvasFrameGeometryById,
   )) {
     if (isCompleteFrameGeometry(canvasGeometry)) {
       currentFrameGeometry[frameId] = {
@@ -756,7 +762,7 @@ export function runDuplicateScreen(
         }
       }
       for (const [frameId, canvasGeometry] of Object.entries(
-        request?.canvasFrameGeometryById ?? {},
+        canvasFrameGeometryById,
       )) {
         if (isCompleteFrameGeometry(canvasGeometry)) {
           latestGeometry[frameId] = rebaseDispatchedCanvasGeometry(

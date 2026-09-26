@@ -43,6 +43,40 @@ describe("file creation history batches", () => {
     expect(afterDelayed.stack).toEqual([first, delayed, intervening]);
   });
 
+  it("preserves redo when a late completion extends an earlier duplicate batch", () => {
+    const first = {
+      filename: "first-copy.html",
+      content: "",
+      fileType: "html",
+      historyBatchId: "duplicate-a",
+    };
+    const laterAction = {
+      filename: "later-copy.html",
+      content: "",
+      fileType: "html",
+      historyBatchId: "duplicate-b",
+    };
+    const delayed = {
+      filename: "second-copy.html",
+      content: "",
+      fileType: "html",
+      historyBatchId: "duplicate-a",
+    };
+    const undoStack: FileCreationHistoryEntry[] = [first];
+    const redoStack: FileCreationHistoryEntry[] = [laterAction];
+    const redoOrder = ["file-created"];
+    const insertion = insertFileCreationHistoryEntry(undoStack, delayed);
+
+    if (!insertion.continuesBatch) {
+      redoStack.length = 0;
+      redoOrder.length = 0;
+    }
+
+    expect(insertion.stack).toEqual([first, delayed]);
+    expect(redoStack).toEqual([laterAction]);
+    expect(redoOrder).toEqual(["file-created"]);
+  });
+
   it("undoes an interleaved multi-screen duplicate in one action", () => {
     const first = {
       filename: "first-copy.html",

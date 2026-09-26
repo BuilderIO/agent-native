@@ -891,6 +891,40 @@ describe("runDuplicateScreen", () => {
     );
   });
 
+  it("uses displayed frame geometry when choosing a duplicate slot", async () => {
+    const files = ["source", "occupied"].map((id) => ({
+      id,
+      filename: `${id}.html`,
+      fileType: "html",
+      content: `<main>${id}</main>`,
+      createdAt: "",
+      updatedAt: "",
+    }));
+    const persisted = {
+      source: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      occupied: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+    };
+    const displayed = {
+      source: { ...persisted.source, x: 1200, y: 400 },
+      occupied: { ...persisted.occupied, x: 1576, y: 400 },
+    };
+    const args = duplicateArgs({
+      files,
+      overviewScreens: files.map(({ id }) => ({ id })) as any,
+      designDataJsonRef: { current: { canvasFrames: persisted } },
+      liveFrameGeometryRef: { current: persisted },
+      displayedCanvasFrameGeometryById: displayed,
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+      "copy",
+      expect.objectContaining({ x: 1952, y: 400 }),
+      expect.any(Object),
+    );
+  });
+
   it("keeps Cmd+D directly above its source when frame z values have gaps", async () => {
     const files = [
       {
@@ -1918,7 +1952,7 @@ describe("duplicate stack history", () => {
       historyOrderRef,
       id: "design-1",
       liveFrameGeometryRef: ref({}),
-      onFileCreationUndoSettled: () => {
+      onFileHistoryMutationSettled: () => {
         for (const entry of pendingNewEntries.splice(0)) {
           const inserted = insertFileCreationHistoryEntry(
             fileCreationUndoStackRef.current,
@@ -1989,7 +2023,7 @@ describe("duplicate stack history", () => {
     settlements[3]!([a1, a2], []);
   });
 
-  it("keeps only failed members undoable after a partial batch delete", () => {
+  it("retries a partial batch undo without losing sequential stack deltas", () => {
     const first = {
       id: "copy-1",
       filename: "copy-1.html",
@@ -2008,7 +2042,7 @@ describe("duplicate stack history", () => {
       fileType: first.fileType,
       createdFileId: first.id,
       historyBatchId: "duplicate-1",
-      duplicateStack: { before: { peer: 0 }, after: { peer: 1 } },
+      duplicateStack: { before: { peer: 1 }, after: { peer: 2 } },
     };
     const secondEntry = {
       filename: second.filename,
@@ -2016,10 +2050,13 @@ describe("duplicate stack history", () => {
       fileType: second.fileType,
       createdFileId: second.id,
       historyBatchId: "duplicate-1",
-      duplicateStack: { before: { peer: 0 }, after: { peer: 1 } },
+      duplicateStack: {
+        before: { [first.id]: 2, peer: 2 },
+        after: { [first.id]: 3, peer: 3 },
+      },
     };
     const geometry = {
-      peer: { x: 752, y: 0, width: 320, height: 240, z: 1 },
+      peer: { x: 752, y: 0, width: 320, height: 240, z: 3 },
       [first.id]: { x: 0, y: 0, width: 320, height: 240, z: 2 },
       [second.id]: { x: 376, y: 0, width: 320, height: 240, z: 3 },
     };
@@ -2032,7 +2069,7 @@ describe("duplicate stack history", () => {
     const historyOrderRef = { current: ["file-created"] };
     const redoOrderRef = { current: [] as string[] };
     const fileHistoryMutationPendingRef = { current: false };
-    let settleDelete: ((deleted: any[], failed: any[]) => void) | undefined;
+    const settleDeletes: Array<(deleted: any[], failed: any[]) => void> = [];
     const args = {
       activeEditorDragRef: ref(false),
       activeFile: null,
@@ -2048,7 +2085,7 @@ describe("duplicate stack history", () => {
       pendingLiveNonStyleUndoStackRef: ref([]),
       pendingVisualStyleUndoStackRef: ref([]),
       performDeleteFiles: vi.fn((_files: any[], options: any) => {
-        settleDelete = options.onMutationSettled;
+        settleDeletes.push(options.onMutationSettled);
       }),
       redoOrderRef,
       syncUndoRedoState: vi.fn(),
@@ -2059,18 +2096,47 @@ describe("duplicate stack history", () => {
     };
 
     runUndo(args as any);
-    settleDelete?.([first], [second]);
+    settleDeletes[0]!([first], [second]);
 
-    expect(fileCreationUndoStackRef.current).toEqual([secondEntry]);
+    expect(fileCreationUndoStackRef.current).toEqual([
+      expect.objectContaining({ filename: secondEntry.filename }),
+    ]);
+    expect(fileCreationUndoStackRef.current[0]).not.toHaveProperty(
+      "historyBatchId",
+    );
     expect(fileCreationRedoStackRef.current).toEqual([
       { ...firstEntry, duplicateStackUndoSettled: true },
     ]);
     expect(historyOrderRef.current).toEqual(["file-created"]);
     expect(redoOrderRef.current).toEqual(["file-created"]);
     expect(writeFrameGeometrySnapshot).toHaveBeenLastCalledWith({
-      peer: { ...geometry.peer, z: 0 },
+      peer: geometry.peer,
       [second.id]: geometry[second.id],
     });
     expect(fileHistoryMutationPendingRef.current).toBe(false);
+
+    designDataJsonRef.current = {
+      canvasFrames: writeFrameGeometrySnapshot.mock.lastCall?.[0],
+    };
+    runUndo(args as any);
+    expect(settleDeletes).toHaveLength(2);
+    settleDeletes[1]!([second], []);
+
+    expect(writeFrameGeometrySnapshot).toHaveBeenLastCalledWith({
+      peer: { ...geometry.peer, z: 1 },
+    });
+    const { historyBatchId: _batchId, ...separateSecondEntry } = secondEntry;
+    expect(fileCreationRedoStackRef.current).toEqual([
+      {
+        ...firstEntry,
+        duplicateStackUndoSettled: true,
+        duplicateStackUndoApplied: true,
+      },
+      {
+        ...separateSecondEntry,
+        duplicateStackUndoSettled: true,
+        duplicateStackUndoApplied: true,
+      },
+    ]);
   });
 });

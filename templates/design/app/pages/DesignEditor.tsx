@@ -3705,6 +3705,7 @@ function DesignEditor() {
     [commitFileCreationHistoryEntry, id],
   );
   const flushPendingFileCreationHistoryEntries = useCallback(() => {
+    if (fileHistoryMutationPendingRef.current) return;
     const matching = pendingFileCreationHistoryEntriesRef.current.filter(
       (item) => item.designId === id,
     );
@@ -7448,13 +7449,6 @@ function DesignEditor() {
         duplicateStackSourceIds?: string[];
       },
     ) => {
-      const duplicateRequest = {
-        ...request,
-        canvasFrameGeometryById: {
-          ...displayedCanvasFrameGeometryById,
-          ...request?.canvasFrameGeometryById,
-        },
-      };
       return runDuplicateScreen(
         {
           canEditDesign,
@@ -7462,6 +7456,7 @@ function DesignEditor() {
           deleteFileAsync: deleteFileMutation.mutateAsync,
           designDataJsonRef,
           duplicateRecoveryRef,
+          displayedCanvasFrameGeometryById,
           files,
           focusCreatedScreen,
           id,
@@ -7478,7 +7473,7 @@ function DesignEditor() {
           writeFrameGeometrySnapshot,
         },
         screenId,
-        duplicateRequest,
+        request,
       );
     },
     [
@@ -18146,6 +18141,7 @@ function DesignEditor() {
           fileCreationUndoStackRef,
           fileDeletionUndoStackRef,
           fileHistoryMutationPendingRef,
+          onFileHistoryMutationSettled: flushPendingFileCreationHistoryEntries,
           clearPendingHistory: clearPendingHistoryDirections,
           files,
           geometryRedoStackRef,
@@ -18183,6 +18179,7 @@ function DesignEditor() {
       clearRedoStacks,
       clearPendingHistoryDirections,
       deleteFileMutation,
+      flushPendingFileCreationHistoryEntries,
       overviewSelectedScreenIds,
       queryClient,
       selectedElement,
@@ -18752,6 +18749,7 @@ function DesignEditor() {
         fileDeletionUndoStackRef,
         fileHistoryMutationPendingRef,
         clearPendingHistory: clearPendingHistoryDirections,
+        onFileHistoryMutationSettled: flushPendingFileCreationHistoryEntries,
         files,
         filesRef: historyFilesRef,
         geometryRedoStackRef,
@@ -18768,7 +18766,6 @@ function DesignEditor() {
         localContentRedoStackRef,
         localContentUndoStackRef,
         markPendingLocalFileContent,
-        onFileCreationUndoSettled: flushPendingFileCreationHistoryEntries,
         optimisticallyInsertCreatedFile,
         pendingLiveNonStyleEditsRef,
         pendingLiveNonStyleRedoStackRef,
@@ -18891,6 +18888,7 @@ function DesignEditor() {
         localContentRedoStackRef,
         localContentUndoStackRef,
         markPendingLocalFileContent,
+        onFileHistoryMutationSettled: flushPendingFileCreationHistoryEntries,
         optimisticallyInsertCreatedFile,
         overviewScreens,
         pendingLiveNonStyleEditsRef,
@@ -18963,6 +18961,7 @@ function DesignEditor() {
       isSynced,
       liveScreenSnapshotsById,
       markPendingLocalFileContent,
+      flushPendingFileCreationHistoryEntries,
       optimisticallyInsertCreatedFile,
       overviewScreens.length,
       performDeleteFiles,

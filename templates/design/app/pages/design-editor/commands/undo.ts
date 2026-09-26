@@ -428,7 +428,7 @@ export interface UndoArgs {
   designDataJsonRef: RefObject<Record<string, unknown>>;
   fileCreationRedoStackRef: RefObject<FileCreationHistoryEntry[]>;
   fileCreationUndoStackRef: RefObject<FileCreationHistoryEntry[]>;
-  onFileCreationUndoSettled?: () => void;
+  onFileHistoryMutationSettled?: () => void;
   fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
@@ -589,7 +589,7 @@ export function runUndo({
   localContentRedoStackRef,
   localContentUndoStackRef,
   markPendingLocalFileContent,
-  onFileCreationUndoSettled,
+  onFileHistoryMutationSettled,
   pendingLiveNonStyleEditsRef,
   pendingLiveNonStyleRedoStackRef,
   pendingLiveNonStyleUndoStackRef,
@@ -1408,7 +1408,6 @@ export function runUndo({
       deletedFiles: DesignFile[],
       persistWhenNoStackChange = false,
     ) => {
-      const settledBatchIds = new Set<string>();
       const settledEntrySet = new Set(settledEntries);
       fileCreationRedoStackRef.current = fileCreationRedoStackRef.current.map(
         (item) =>
@@ -1419,14 +1418,12 @@ export function runUndo({
       const settledDuplicateEntries = fileCreationRedoStackRef.current.filter(
         (item) => item.duplicateStack && item.duplicateStackUndoSettled,
       );
-      const duplicateStackChanges = settledDuplicateEntries.flatMap((item) => {
-        if (!item.duplicateStack) return [];
-        if (item.historyBatchId) {
-          if (settledBatchIds.has(item.historyBatchId)) return [];
-          settledBatchIds.add(item.historyBatchId);
-        }
-        return [item.duplicateStack];
-      });
+      const unappliedDuplicateEntries = settledDuplicateEntries.filter(
+        (item) => !item.duplicateStackUndoApplied,
+      );
+      const duplicateStackChanges = unappliedDuplicateEntries.flatMap((item) =>
+        item.duplicateStack ? [item.duplicateStack] : [],
+      );
       if (duplicateStackChanges.length === 0 && !persistWhenNoStackChange)
         return;
 
@@ -1474,7 +1471,7 @@ export function runUndo({
       }
       const restored = applyDuplicateStackHistoryChanges(
         currentGeometry,
-        survivingDuplicateStackChanges,
+        survivingDuplicateStackChanges.reverse(),
         "undo",
       );
       if (restored.staleFrameIds.length > 0) {
@@ -1483,9 +1480,19 @@ export function runUndo({
           restored.staleFrameIds,
         );
         toast.info(t("designEditor.toasts.undoSkippedConcurrentEdit"));
+        writeFrameGeometrySnapshot(currentGeometry);
         return;
       }
       writeFrameGeometrySnapshot(restored.geometryById);
+      const appliedFilenames = new Set(
+        unappliedDuplicateEntries.map((item) => item.filename),
+      );
+      fileCreationRedoStackRef.current = fileCreationRedoStackRef.current.map(
+        (item) =>
+          appliedFilenames.has(item.filename)
+            ? { ...item, duplicateStackUndoApplied: true }
+            : item,
+      );
     };
     // skipFileCreationRedoPrune: the entry was just pushed onto the redo
     // stack above for this exact filename — without this flag
@@ -1531,15 +1538,20 @@ export function runUndo({
               batchStart,
               currentUndoStack.length,
             );
+            const retryEntries =
+              deletedFiles.length > 0
+                ? failedEntries.map((item) => {
+                    const { historyBatchId: _batchId, ...separateEntry } = item;
+                    return separateEntry;
+                  })
+                : failedEntries;
             const restoredUndoStack = [
               ...currentUndoStack.slice(0, insertionIndex),
-              ...failedEntries,
+              ...retryEntries,
               ...currentUndoStack.slice(insertionIndex),
             ].slice(-MAX_DESIGN_UNDO_STACK);
             fileCreationUndoStackRef.current = restoredUndoStack;
-            if (
-              failedEntries.some((item) => restoredUndoStack.includes(item))
-            ) {
+            if (retryEntries.some((item) => restoredUndoStack.includes(item))) {
               historyOrderRef.current.splice(
                 Math.min(historyOrderIndex, historyOrderRef.current.length),
                 0,
@@ -1561,13 +1573,13 @@ export function runUndo({
                 true,
               );
             fileHistoryMutationPendingRef.current = false;
-            onFileCreationUndoSettled?.();
+            onFileHistoryMutationSettled?.();
             syncUndoRedoState();
             return;
           }
           reconcileDuplicateStackUndo(entries, deletedFiles);
           fileHistoryMutationPendingRef.current = false;
-          onFileCreationUndoSettled?.();
+          onFileHistoryMutationSettled?.();
           syncUndoRedoState();
         },
       },
@@ -1923,6 +1935,7 @@ export function runUndo({
         );
       } finally {
         fileHistoryMutationPendingRef.current = false;
+        onFileHistoryMutationSettled?.();
         syncUndoRedoState();
       }
     })();

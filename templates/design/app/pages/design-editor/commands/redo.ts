@@ -54,6 +54,7 @@ import type {
   ContentHistoryChange,
   ContentHistoryEntry,
   ContentHistorySelectionAfterMap,
+  DuplicateStackHistoryChange,
   FileCreationHistoryEntry,
   FileDeletionHistoryEntry,
   FileDeletionHistorySnapshot,
@@ -63,6 +64,7 @@ import type {
 } from "@/pages/design-editor/history";
 import {
   applyDuplicateStackHistoryChange,
+  applyDuplicateStackHistoryChanges,
   MAX_DESIGN_UNDO_STACK,
   applyGeometryHistoryDiff,
   filterFileDeletionHistoryEntry,
@@ -206,6 +208,7 @@ export interface RedoArgs {
   fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
+  onFileHistoryMutationSettled?: () => void;
   clearPendingHistory?: () => void;
   files: DesignFile[];
   filesRef?: RefObject<DesignFile[]>;
@@ -430,6 +433,7 @@ export function runRedo({
   fileDeletionRedoStackRef,
   fileDeletionUndoStackRef,
   fileHistoryMutationPendingRef,
+  onFileHistoryMutationSettled,
   clearPendingHistory,
   files,
   filesRef,
@@ -1437,6 +1441,8 @@ export function runRedo({
       string | null | undefined
     >();
     const recreatedFileIds: string[] = [];
+    const appliedDuplicateStackChanges: DuplicateStackHistoryChange[] = [];
+    const reusedRecoveryEntries = new Set<FileCreationHistoryEntry>();
     const handleFailure = async (error: unknown) => {
       let errorMessage =
         error instanceof Error
@@ -1444,10 +1450,12 @@ export function runRedo({
           : t("designEditor.toasts.screenDuplicateError");
       const rollbackFileIds = new Set(
         entries.flatMap((item) =>
-          item.recoveryFileId ? [item.recoveryFileId] : [],
+          item.recoveryFileId && !reusedRecoveryEntries.has(item)
+            ? [item.recoveryFileId]
+            : [],
         ),
       );
-      let rollbackFailed = false;
+      let rollbackFailed = reusedRecoveryEntries.size > 0;
       for (const [item, createdFileId] of createdFileIds) {
         rollbackFileIds.add(createdFileId);
         try {
@@ -1456,7 +1464,6 @@ export function runRedo({
             allowLockedLayers: true,
           } as any);
         } catch (cleanupError) {
-          rollbackFailed = true;
           const cleanupMessage =
             cleanupError instanceof Error
               ? cleanupError.message
@@ -1469,34 +1476,30 @@ export function runRedo({
           });
           retryRecoveryFileIds.set(
             item,
-            present === true ? createdFileId : null,
+            present === true
+              ? createdFileId
+              : present === false
+                ? null
+                : undefined,
           );
-          if (present !== true) rollbackFileIds.delete(createdFileId);
+          if (present === true || present === undefined) {
+            rollbackFailed = true;
+            rollbackFileIds.delete(createdFileId);
+          }
         }
       }
-      for (const rollbackFileId of rollbackFileIds) {
-        const nextGeometry = currentFrameGeometry(
-          designDataJsonRef.current,
-          liveFrameGeometryRef.current,
-        );
-        delete nextGeometry[rollbackFileId];
-        writeFrameGeometrySnapshot(nextGeometry);
-      }
-      const duplicateStack = entries.find(
-        (item) => item.duplicateStack,
-      )?.duplicateStack;
-      if (duplicateStack && !rollbackFailed) {
-        const currentGeometry = currentFrameGeometry(
-          designDataJsonRef.current,
-          liveFrameGeometryRef.current,
-        );
-        const restored = applyDuplicateStackHistoryChange(
-          currentGeometry,
-          duplicateStack,
+      let rollbackGeometry = currentFrameGeometry(
+        designDataJsonRef.current,
+        liveFrameGeometryRef.current,
+      );
+      if (appliedDuplicateStackChanges.length > 0 && !rollbackFailed) {
+        const restored = applyDuplicateStackHistoryChanges(
+          rollbackGeometry,
+          appliedDuplicateStackChanges.slice().reverse(),
           "undo",
         );
         if (restored.staleFrameIds.length === 0) {
-          writeFrameGeometrySnapshot(restored.geometryById);
+          rollbackGeometry = restored.geometryById;
         } else {
           console.debug(
             "[design] skipping stale duplicate stack rollback; frames changed since capture:",
@@ -1504,6 +1507,10 @@ export function runRedo({
           );
         }
       }
+      for (const rollbackFileId of rollbackFileIds) {
+        delete rollbackGeometry[rollbackFileId];
+      }
+      writeFrameGeometrySnapshot(rollbackGeometry);
       for (const item of attemptedEntries) {
         if (
           !retryRecoveryFileIds.has(item) &&
@@ -1524,6 +1531,7 @@ export function runRedo({
       const retryEntries = entries.map((item) => {
         const retryEntry = { ...item };
         delete retryEntry.duplicateStackUndoSettled;
+        delete retryEntry.duplicateStackUndoApplied;
         if (retryRecoveryFileIds.has(item)) {
           retryEntry.recoveryFileId = retryRecoveryFileIds.get(item);
           retryEntry.recoveryKnownFileIds = [...knownFileIds];
@@ -1541,6 +1549,7 @@ export function runRedo({
         "file-created",
       ];
       fileHistoryMutationPendingRef.current = false;
+      onFileHistoryMutationSettled?.();
       syncUndoRedoState();
       await queryClient.invalidateQueries({
         queryKey: ["action", "get-design"],
@@ -1577,6 +1586,7 @@ export function runRedo({
         if (present === true) {
           rawResult = { id: recoveryFileId };
           reusedRecovery = true;
+          reusedRecoveryEntries.add(item);
         } else if (present === false) {
           retryRecoveryFileIds.set(item, undefined);
           rawResult = await createFile(item);
@@ -1712,6 +1722,9 @@ export function runRedo({
           dataOperations,
         );
         designDataJsonRef.current = nextData;
+        if (duplicateStack && appliedStack.staleFrameIds.length === 0) {
+          appliedDuplicateStackChanges.push(duplicateStack);
+        }
         queryClient.setQueryData(
           ["action", "get-design", { id }],
           (old: any) => {
@@ -1770,8 +1783,11 @@ export function runRedo({
             recreatedFileIdRemap,
           );
           if (nextId) remapped = { ...remapped, createdFileId: nextId };
-          const { duplicateStackUndoSettled: _settled, ...committedEntry } =
-            remapped;
+          const {
+            duplicateStackUndoSettled: _settled,
+            duplicateStackUndoApplied: _applied,
+            ...committedEntry
+          } = remapped;
           delete committedEntry.recoveryFileId;
           delete committedEntry.recoveryKnownFileIds;
           return committedEntry;
@@ -1793,6 +1809,7 @@ export function runRedo({
           setOverviewSelectedScreenIds(recreatedFileIds);
         }
         fileHistoryMutationPendingRef.current = false;
+        onFileHistoryMutationSettled?.();
         syncUndoRedoState();
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
