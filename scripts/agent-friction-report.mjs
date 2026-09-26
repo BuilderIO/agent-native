@@ -152,7 +152,7 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
 // ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
   [
-    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming|hypothetically|for\s+example|in\s+a\s+hypothetical)\b)[^.!?\n]{0,80}?\b(?:codex|agents?|sessions?|threads?|i|we|this\s+task|the\s+task)\b[^.!?\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,50}\bleases?\b[^.!?\n]{0,40}\b(?:so|then|and then|therefore)\b\s+(?:would\s+)?(?:just\s+)?(?:(?:it|they|i|we|the\s+(?:session|task|thread|agent)|(?:session|task|thread|agent|codex))\s+)?stop\w*(?:\s+working)?\b(?=\s*(?:[.!?]|$))`,
+    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)(?![^.!?\n]{0,80}\b(?:hypothet\w*|examples?|illustrat\w*)\b)[^.!?\n]{0,80}?\b(?:codex|agents?|sessions?|threads?|i|we|this\s+task|the\s+task)\b[^.!?\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,50}\bleases?\b[^.!?\n]{0,40}\b(?:so|then|and then|therefore)\b\s+(?:would\s+)?(?:just\s+)?(?:(?:it|they|i|we|the\s+(?:session|task|thread|agent)|(?:session|task|thread|agent|codex))\s+)?stop\w*(?:\s+working)?\b(?=\s*(?:[.!?]|$))`,
     String.raw`\bi\s+(?:(?:had|have) to\s+)?(?:tell|told|asked|reminded)\s+(?:at\s+)?(?:the\s+)?(?:threads?|sessions?|agents?)\s+(?:to\s+)?finish(?:ing)?\s+shipping\s+and\s+(?:to\s+)?(?:ignore|bypass)\s+(?:the\s+)?leases?(?:\s+stuff)?\b`,
   ].join("|"),
   "i",
@@ -720,6 +720,14 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [
     false,
     "Hypothetically, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "As a hypothetical example, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "Consider this hypothetical: Codex couldn't renew the PR lease, so it stopped working.",
   ],
   [
     false,
