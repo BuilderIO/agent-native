@@ -465,6 +465,11 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
           { timeout: 10_000 },
         )
         .toBe(2);
+      // The duplicate Card is a fresh insertion and its own children start
+      // collapsed — the expandAllLayers above only expanded what existed
+      // BEFORE ⌘D, so the duplicate's own title row never rendered without
+      // a second pass.
+      await expandAllLayers(page);
 
       const titleRows = layerTree(page).locator(
         '[data-layer-row-button] span[title="Sunrise Cafe"]',
@@ -496,9 +501,20 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
         ),
       ).toHaveCount(1);
 
-      const html = await fileContent(page, designId, "index.html");
+      // The rename's save is debounced — the layers panel already shows the
+      // new name, but a single unpolled read here can catch the persisted
+      // source before that save lands.
+      let html = "";
+      await expect
+        .poll(
+          async () => {
+            html = await fileContent(page, designId, "index.html");
+            return html.includes('data-agent-native-layer-name="Green Bowl"');
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(true);
       expect(html).toContain('data-agent-native-layer-name="Sunrise Cafe"');
-      expect(html).toContain('data-agent-native-layer-name="Green Bowl"');
     } finally {
       await deleteDesign(request, designId);
     }

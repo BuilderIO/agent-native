@@ -57,7 +57,12 @@ async function screenCheckpoint(
   const shell = page.locator(
     `[data-screen-shell][data-frame-id="${screenId}"]`,
   );
-  await shell.locator("[data-frame-title]").click();
+  // [data-frame-title] is a flex-1 span whose hit box can stretch well past
+  // its short visible text (e.g. "Screen 2") toward frame center — where a
+  // selected screen's always-visible "Interact" button (data-frame-full-view,
+  // MultiScreenCanvas.tsx) sits. A default center click lands on that empty
+  // stretch and hits the button instead, so click inside the actual glyphs.
+  await shell.locator("[data-frame-title]").click({ position: { x: 4, y: 4 } });
   const width = page.getByRole("textbox", {
     name: /^W(?: size in pixels)?$/,
   });
@@ -273,10 +278,22 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
     await layout
       .getByRole("textbox", { name: "Gap", exact: true })
       .press("Enter");
-    await layout.getByRole("textbox", { name: /Left.*Right/ }).fill("12");
-    await layout.getByRole("textbox", { name: /Left.*Right/ }).press("Enter");
-    await layout.getByRole("textbox", { name: /Top.*Bottom/ }).fill("12");
-    await layout.getByRole("textbox", { name: /Top.*Bottom/ }).press("Enter");
+    // Exact match: PR #5824 added a "Left margin / Right margin" row to the
+    // same Auto layout section, and the old /Left.*Right/ regex matched it
+    // too (both share the literal substring), so a loose match here resolves
+    // to two textboxes instead of the padding row alone.
+    const horizontalPadding = layout.getByRole("textbox", {
+      name: "Left / Right",
+      exact: true,
+    });
+    await horizontalPadding.fill("12");
+    await horizontalPadding.press("Enter");
+    const verticalPadding = layout.getByRole("textbox", {
+      name: "Top / Bottom",
+      exact: true,
+    });
+    await verticalPadding.fill("12");
+    await verticalPadding.press("Enter");
     await expect(page.locator('[data-flow-value="vertical"]')).toBeVisible();
     await expect
       .poll(async () => {

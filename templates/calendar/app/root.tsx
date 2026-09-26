@@ -187,17 +187,17 @@ function ThemeToggleItem() {
 }
 
 /**
- * Public booking routes (/book/*, /meet/*, /booking/manage/*) must SSR real
- * content for first-visit signed-out users and crawlers. These paths bypass
- * ClientOnly so entry.server.tsx can stream the actual route markup rather than
- * a bare spinner. Auth/private routes are unaffected.
+ * Public booking routes must SSR real content for first-visit signed-out users
+ * and crawlers. These paths bypass ClientOnly so entry.server.tsx can stream
+ * the actual route markup rather than a bare spinner. Auth/private routes are
+ * unaffected.
  */
 function isPublicBookingPath(pathname: string): boolean {
   const p = pathname.replace(/\/+$/, "") || "/";
   return (
-    p.startsWith("/book/") ||
-    p.startsWith("/meet/") ||
-    p.startsWith("/booking/manage/")
+    /^\/book\/[^/]+(?:\/[^/]+)?$/.test(p) ||
+    /^\/meet\/[^/]+\/[^/]+$/.test(p) ||
+    /^\/booking\/manage\/[^/]+$/.test(p)
   );
 }
 

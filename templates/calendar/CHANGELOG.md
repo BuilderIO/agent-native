@@ -9,6 +9,13 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Add Jev invitation rules for auto-accept, auto-decline, and auto-hide with automation status.
 
+### Fixed
+
+- Booking link previews now show their image in browser-based link preview tools
+- Calendar feeds with the same URL keep their own names and colors.
+- Calendar invitation rules surface expired connections and undo safely without duplicate RSVP updates
+- Restore locally hidden events from activity after disconnecting an account
+
 ## 2026-09-24
 
 ### Fixed

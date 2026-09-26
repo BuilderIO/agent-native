@@ -22,16 +22,34 @@ const FIXTURE = `<!doctype html><html><body style="margin:0;min-height:900px;bac
   </section>
 </body></html>`;
 
+// Scoped to [data-screen-iframe-id] like node() (drag-and-drop.shared.ts): a
+// live board surface can mount ahead of the screen iframe around a drag, and
+// an unscoped .first() can then resolve to that board document instead.
 function body(page: Page): Locator {
   return page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .contentFrame()
     .locator("body");
 }
 
+// Editor-chrome overlays (insertion guide, selection handles, etc.) mount on
+// a host appended to <html>, not <body> (editor-chrome.bridge.ts's
+// ensureEditorChromeHost, since 8330dc0873 made the chrome host survive
+// hydration/body replacement) — a body()-scoped locator can never match one.
+// Scoped to [data-screen-iframe-id] like node() (drag-and-drop.shared.ts):
+// a live board surface mounts ahead of screen iframes once a drag starts, so
+// the unscoped selector's .first() can resolve to the board iframe mid-drag,
+// which paints no insertion guide at all.
+function frameRoot(page: Page) {
+  return page
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
+    .first()
+    .contentFrame();
+}
+
 async function guide(page: Page) {
-  return body(page)
+  return frameRoot(page)
     .locator("[data-agent-native-insertion-guide]")
     .evaluateAll(
       (els) =>
