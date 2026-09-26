@@ -34,9 +34,9 @@ Read the relevant skill before deeper work in that area.
 | `read-composer-source` | Read bounded Design, Slides, or Figma references |
 | `create-design-from-template` | Copy a template into a new design; screens keep their `createdFromTemplate` locks |
 | `get-design-snapshot` / `get-design-template` | Inspect a copied design's current files, or the original template |
-| `open-visual-edit` | Open a running localhost app as live URL-backed iframe screens without a Design login |
-| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set snapshot opt-in; only a signed-in editor can enable it |
-| `add-localhost-screens` / `update-screen-source` | Add route/state screens or switch one selected screen between live URL and static HTML |
+| `open-visual-edit` | Open a localhost app as live iframe screens without Design login |
+| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set snapshot opt-in; signed-in editors can enable it |
+| `add-localhost-screens` / `update-screen-source` | Add routes/states or switch a screen between live URL and static HTML |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames on the canvas |
 | `edit-design` | Adapt an existing or copied design/screen in place |
 | `apply-visual-edit` | Make deterministic layer edits; `booleanSubtract` creates an editable mask from supported selected sibling shapes |
@@ -69,8 +69,8 @@ Read the relevant skill before deeper work in that area.
   solid fills. The first layer in source order supplies the result paint; the original
   operands remain editable under the Subtract layer. Other shapes, custom
   markup, non-solid paints, and non-sibling selections are not converted.
-- Design source modes are `inline`, `localhost`, and `fusion` — see
-  `full-app-build`. Public `/design/:id` links are read-only; public
+- Source modes are `inline`, `localhost`, and `fusion`; see `full-app-build`.
+  Public `/design/:id` links are read-only; public
   `/visual-edit/:id` links allow DOM-only localhost edits, signed in or out.
   Source writes remain editor-gated. The design-scoped
   `capability:visual-edit` scopes localhost handoff actions, not an account
