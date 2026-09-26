@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   headerActions: null as unknown,
   priorityRequest: vi.fn(),
   priorityFeedback: vi.fn(),
+  automations: [] as unknown[],
   queryClient: {
     getQueryData: vi.fn(),
     setQueryData: vi.fn(),
@@ -143,7 +144,7 @@ vi.mock("@/hooks/use-ai-priority-feedback", () => ({
 }));
 
 vi.mock("@/hooks/use-automations", () => ({
-  useAutomations: () => ({ data: [], isFetching: false }),
+  useAutomations: () => ({ data: mocks.automations, isFetching: false }),
 }));
 
 vi.mock("@/hooks/use-emails", () => {
@@ -334,6 +335,7 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
     mocks.view = "all";
     mocks.headerActions = null;
+    mocks.automations = [];
     mocks.queryClient = {
       getQueryData: vi.fn(),
       setQueryData: vi.fn(),
@@ -438,6 +440,160 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(mocks.priorityRequest).toHaveBeenLastCalledWith({
       emails: [expect.objectContaining({ id: "last" })],
     });
+  });
+
+  it("ranks a newly scored message that enters the priority window", async () => {
+    mocks.view = "inbox";
+    mocks.virtualWindowSize = 3;
+    const baseEmails = Array.from(
+      { length: AI_PRIORITY_MAX_EMAILS + 1 },
+      (_, index) => ({
+        ...messages[index % messages.length],
+        id: `email-${index}`,
+        threadId: `thread-email-${index}`,
+        subject: `Subject email-${index}`,
+        date: new Date(Date.UTC(2026, 0, 20 - index)).toISOString(),
+        labelIds: ["inbox"],
+      }),
+    );
+    const newlyEligibleEmail = {
+      ...baseEmails[baseEmails.length - 1]!,
+      subject: "Subject newly-eligible",
+    };
+    mocks.priorityRequest
+      .mockImplementationOnce(
+        async ({
+          emails,
+        }: {
+          emails: Array<{ id: string; accountEmail: string }>;
+        }) => ({
+          scores: emails.map(({ id, accountEmail }) => ({
+            emailId: id,
+            accountEmail,
+            score: id === "email-0" ? 0.9 : 0.5,
+          })),
+        }),
+      )
+      .mockImplementationOnce(
+        async ({
+          emails,
+        }: {
+          emails: Array<{ id: string; accountEmail: string }>;
+        }) => ({
+          scores: emails.map(({ id, accountEmail }) => ({
+            emailId: id,
+            accountEmail,
+            score: id === `email-${AI_PRIORITY_MAX_EMAILS}` ? 0.99 : 0.4,
+          })),
+        }),
+      );
+
+    const { rerender } = render(
+      <Harness emails={baseEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject email-0"),
+    );
+
+    rerender(
+      <Harness
+        emails={[
+          ...baseEmails.slice(0, AI_PRIORITY_MAX_EMAILS - 1),
+          newlyEligibleEmail,
+        ]}
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject newly-eligible"),
+    );
+    expect(mocks.priorityRequest).toHaveBeenLastCalledWith({
+      emails: [
+        expect.objectContaining({ id: `email-${AI_PRIORITY_MAX_EMAILS}` }),
+      ],
+    });
+  });
+
+  it("ignores a frozen priority order while updated rules are rescored", async () => {
+    mocks.view = "inbox";
+    const inboxEmails = messages.map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
+    const importantRule = (condition: string, updatedAt: string) => ({
+      id: "important-rule",
+      domain: "mail",
+      kind: "ai-filter",
+      name: "AI important",
+      condition,
+      actions: [{ type: "label", labelName: "agent-native-important" }],
+      enabled: true,
+      updatedAt,
+    });
+    let resolveUpdatedScores!: (result: {
+      scores: Array<{
+        emailId: string;
+        accountEmail: string;
+        score: number;
+      }>;
+    }) => void;
+    mocks.automations = [importantRule("Prioritize the team", "1")];
+    mocks.priorityRequest
+      .mockResolvedValueOnce({
+        scores: inboxEmails.map((email) => ({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          score: email.id === "middle" ? 0.9 : 0.3,
+        })),
+      })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveUpdatedScores = resolve;
+        }),
+      );
+
+    const { rerender } = render(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject middle"),
+    );
+
+    mocks.automations = [importantRule("Prioritize the team and clients", "2")];
+    rerender(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(2));
+    expect(rows()[0].textContent).toContain("Subject first");
+
+    await act(async () => {
+      resolveUpdatedScores({
+        scores: [
+          {
+            emailId: "first",
+            accountEmail: "synthetic@example.test",
+            score: 0.7,
+          },
+          {
+            emailId: "middle",
+            accountEmail: "synthetic@example.test",
+            score: 0.4,
+          },
+          {
+            emailId: "last",
+            accountEmail: "synthetic@example.test",
+            score: 0.1,
+          },
+        ],
+      });
+    });
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject first"),
+    );
+    expect(rows()[1].textContent).toContain("Subject middle");
+    expect(rows()[2].textContent).toContain("Subject last");
   });
 
   it("keeps the ranked order while refreshed scores change", async () => {

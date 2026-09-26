@@ -31,6 +31,6 @@ describe("mailLabelDisplayName", () => {
     expect(thread).toContain("mailLabelDisplayName(");
     expect(thread).not.toContain("{labelId}</span>");
     expect(globalCss).toContain("text-overflow: ellipsis;");
-    expect(globalCss).toContain("max-width: 120px;");
+    expect(globalCss).toContain("max-width: 160px;");
   });
 });

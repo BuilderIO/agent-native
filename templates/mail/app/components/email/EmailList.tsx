@@ -980,12 +980,21 @@ export function EmailList({
     }
     setPriorityOrder({
       ruleRevision: priorityRuleRevision,
-      keys: rankedPriorityThreads.map((thread) =>
-        aiPriorityEmailKey(
-          thread.latestMessage.accountEmail,
-          thread.latestMessage.id,
+      keys: rankedPriorityThreads
+        .filter((thread) =>
+          priorityWindowIds.has(
+            aiPriorityEmailKey(
+              thread.latestMessage.accountEmail,
+              thread.latestMessage.id,
+            ),
+          ),
+        )
+        .map((thread) =>
+          aiPriorityEmailKey(
+            thread.latestMessage.accountEmail,
+            thread.latestMessage.id,
+          ),
         ),
-      ),
       priorityKeys: [...priorityWindowIds],
       scores: Object.fromEntries(cachedPriorityScores),
     });
@@ -1030,11 +1039,15 @@ export function EmailList({
     priorityRuleRevision,
     priorityWindowEmails,
   ]);
+  const activePriorityOrder =
+    priorityOrder?.ruleRevision === priorityRuleRevision ? priorityOrder : null;
   const threads = useMemo(() => {
     if (currentSortMode !== "priority") return chronologicalThreads;
-    if (!priorityOrder) return rankedPriorityThreads;
-    const order = new Map(priorityOrder.keys.map((key, index) => [key, index]));
-    const frozenPriorityKeys = new Set(priorityOrder.priorityKeys);
+    if (!activePriorityOrder) return rankedPriorityThreads;
+    const order = new Map(
+      activePriorityOrder.keys.map((key, index) => [key, index]),
+    );
+    const frozenPriorityKeys = new Set(activePriorityOrder.priorityKeys);
     return [...rankedPriorityThreads].sort((a, b) => {
       const aKey = aiPriorityEmailKey(
         a.latestMessage.accountEmail,
@@ -1058,10 +1071,12 @@ export function EmailList({
       if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
       if (aIsPriority) {
         const scoreDifference =
-          (priorityOrder.scores[bKey] ??
+          (activePriorityOrder.scores[bKey] ??
             cachedPriorityScores.get(bKey) ??
             0.5) -
-          (priorityOrder.scores[aKey] ?? cachedPriorityScores.get(aKey) ?? 0.5);
+          (activePriorityOrder.scores[aKey] ??
+            cachedPriorityScores.get(aKey) ??
+            0.5);
         if (scoreDifference !== 0) return scoreDifference;
       }
       const chronologicalDifference =
@@ -1075,7 +1090,7 @@ export function EmailList({
     chronologicalIndexes,
     chronologicalThreads,
     currentSortMode,
-    priorityOrder,
+    activePriorityOrder,
     priorityWindowIds,
     rankedPriorityThreads,
   ]);

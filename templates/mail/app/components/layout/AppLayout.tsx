@@ -622,9 +622,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return [...tags.values()];
   }, [automations, labels]);
   const aiTagDisplayNames = useMemo(
-    () =>
-      new Map(aiTags.map((tag) => [tag.id, labelAliases[tag.id] || tag.name])),
-    [aiTags, labelAliases],
+    () => new Map(aiTags.map((tag) => [tag.id, tag.name])),
+    [aiTags],
   );
   const hasFilteredRule = automations.some(
     (rule) =>
@@ -2926,7 +2925,7 @@ function TabSettingsPopover({
                 <CheckboxRow
                   key={tag.id}
                   checked={pinnedLabels.includes(tag.id)}
-                  label={labelAliases[tag.id] || tag.name}
+                  label={tag.name}
                   color={labels.find((label) => label.id === tag.id)?.color}
                   onToggle={() => onToggle(tag.id)}
                 />
