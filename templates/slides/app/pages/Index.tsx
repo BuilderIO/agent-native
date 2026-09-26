@@ -455,7 +455,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     "generate-home-suggestions",
     {},
     {
-      enabled: quickActionsEnabled,
+      enabled: active && quickActionsEnabled,
       retry: false,
       staleTime: 5 * 60 * 1000,
     },
@@ -1523,74 +1523,81 @@ export default function Index({ active = true }: { active?: boolean }) {
       const file = uploaded[0];
       if (!file) throw new Error("The selected file could not be uploaded.");
 
-      if (selection.kind === "pptx") {
-        const imported = (await callAction("import-pptx", {
-          filePath: file.path,
-          designSystemId: initialDesignSystemId,
-        })) as {
-          id?: unknown;
-          imported?: unknown;
-          slideCount?: unknown;
-        };
-        if (
-          typeof imported.id !== "string" ||
-          !imported.id ||
-          imported.imported !== true ||
-          typeof imported.slideCount !== "number" ||
-          imported.slideCount < 1
-        ) {
-          throw new Error("The PowerPoint presentation did not create a deck.");
-        }
-        await reloadDecks();
-        void navigate(`/deck/${imported.id}`, { flushSync: true });
-        return true;
-      }
-
-      let deck: ReturnType<typeof createDeck> | undefined;
-      flushSync(() => {
-        deck = createDeck(undefined, {
-          noDefaultSlides: true,
-          designSystemId: initialDesignSystemId,
-        });
-      });
-      if (!deck) throw new Error("The PDF deck could not be created.");
-
-      const persisted = await ensureDeckPersisted(deck.id);
-      if (!persisted.persisted) {
-        deleteDeck(deck.id);
-        throw new Error(
-          describeDeckPersistenceFailure(
-            persisted,
-            "The PDF deck could not be saved.",
-          ),
-        );
-      }
-
       try {
-        const imported = (await callAction("import-file", {
-          filePath: file.path,
-          format: "pdf",
-          deckId: deck.id,
-          importIntoDeck: true,
-        })) as {
-          imported?: unknown;
-          deckId?: unknown;
-          pageCount?: unknown;
-        };
-        if (
-          imported.imported !== true ||
-          imported.deckId !== deck.id ||
-          typeof imported.pageCount !== "number" ||
-          imported.pageCount < 1
-        ) {
-          throw new Error("The PDF could not be imported into the new deck.");
+        if (selection.kind === "pptx") {
+          const imported = (await callAction("import-pptx", {
+            filePath: file.path,
+            designSystemId: initialDesignSystemId,
+          })) as {
+            id?: unknown;
+            imported?: unknown;
+            slideCount?: unknown;
+          };
+          if (
+            typeof imported.id !== "string" ||
+            !imported.id ||
+            imported.imported !== true ||
+            typeof imported.slideCount !== "number" ||
+            imported.slideCount < 1
+          ) {
+            throw new Error(
+              "The PowerPoint presentation did not create a deck.",
+            );
+          }
+          await reloadDecks();
+          void navigate(`/deck/${imported.id}`, { flushSync: true });
+          return true;
         }
-        await reloadDecks();
-        void navigate(`/deck/${deck.id}`, { flushSync: true });
-        return true;
-      } catch (error) {
-        deleteDeck(deck.id);
-        throw error;
+
+        let deck: ReturnType<typeof createDeck> | undefined;
+        flushSync(() => {
+          deck = createDeck(undefined, {
+            noDefaultSlides: true,
+            designSystemId: initialDesignSystemId,
+          });
+        });
+        if (!deck) throw new Error("The PDF deck could not be created.");
+
+        const persisted = await ensureDeckPersisted(deck.id);
+        if (!persisted.persisted) {
+          deleteDeck(deck.id);
+          throw new Error(
+            describeDeckPersistenceFailure(
+              persisted,
+              "The PDF deck could not be saved.",
+            ),
+          );
+        }
+
+        try {
+          const imported = (await callAction("import-file", {
+            filePath: file.path,
+            format: "pdf",
+            deckId: deck.id,
+            importIntoDeck: true,
+          })) as {
+            imported?: unknown;
+            deckId?: unknown;
+            pageCount?: unknown;
+          };
+          if (
+            imported.imported !== true ||
+            imported.deckId !== deck.id ||
+            typeof imported.pageCount !== "number" ||
+            imported.pageCount < 1
+          ) {
+            throw new Error("The PDF could not be imported into the new deck.");
+          }
+          await reloadDecks();
+          void navigate(`/deck/${deck.id}`, { flushSync: true });
+          return true;
+        } catch (error) {
+          deleteDeck(deck.id);
+          throw error;
+        }
+      } finally {
+        const module = await import("@/lib/prompt-file-uploads");
+        await module.cleanupUploadedPromptFiles(uploaded);
       }
     },
     [
@@ -1683,12 +1690,15 @@ export default function Index({ active = true }: { active?: boolean }) {
       const pending = pendingDeck;
       if (!pending) return null;
       setReferenceImporting(true);
+      let uploadedFiles: UploadedFile[] = [];
+      let retainedUploadedFiles = false;
       try {
         const uploaded = await uploadPromptFiles(
           files,
           t("home.referenceFileStorageUnavailable"),
           t("home.importMenu.networkFailed"),
         );
+        uploadedFiles = uploaded;
         const pptxReference = uploaded.find((file) =>
           file.originalName.toLowerCase().endsWith(".pptx"),
         );
@@ -1813,6 +1823,7 @@ export default function Index({ active = true }: { active?: boolean }) {
               }
             : current,
         );
+        retainedUploadedFiles = true;
         if (importedReference) {
           await reloadDecks();
           setSelectedReferenceDeckId(importedReference.id);
@@ -1820,6 +1831,9 @@ export default function Index({ active = true }: { active?: boolean }) {
         return importedReference;
       } catch (error) {
         const uploadModule = await import("@/lib/prompt-file-uploads");
+        if (!retainedUploadedFiles && uploadedFiles.length > 0) {
+          await uploadModule.cleanupUploadedPromptFiles(uploadedFiles);
+        }
         const isStorageUnavailable =
           error instanceof Error &&
           "code" in error &&
@@ -1829,13 +1843,15 @@ export default function Index({ active = true }: { active?: boolean }) {
             ? t("home.importMenu.notStarted")
             : uploadModule.isPromptUploadNetworkError(error)
               ? t("home.importMenu.networkFailed")
-              : uploadModule.isPromptUploadStorageStatusError(error)
-                ? t("editorToolbar.importFailedDescription")
-                : isStorageUnavailable && error instanceof Error
-                  ? error.message
-                  : error instanceof Error
+              : uploadModule.isPromptUploadLimitError(error)
+                ? t("home.importMenu.uploadLimitExceeded")
+                : uploadModule.isPromptUploadStorageStatusError(error)
+                  ? t("editorToolbar.importFailedDescription")
+                  : isStorageUnavailable && error instanceof Error
                     ? error.message
-                    : t("editorToolbar.importFailedDescription"),
+                    : error instanceof Error
+                      ? error.message
+                      : t("editorToolbar.importFailedDescription"),
         });
         return null;
       } finally {
@@ -2186,7 +2202,7 @@ export default function Index({ active = true }: { active?: boolean }) {
                 presentation="inline"
                 context={composerContext}
                 controllerRef={homeComposerRef}
-                disabled={!agentEngineConfigured}
+                disabled={!active || !agentEngineConfigured}
                 submissionDisabled={!agentEngineConfigured}
                 showModelSelector={agentEngineConfigured}
                 modelStatusChecksEnabled={false}

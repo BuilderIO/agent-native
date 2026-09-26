@@ -847,6 +847,8 @@ const messages = {
         "La solicitud de importación agotó el tiempo de espera o perdió la conexión. Comprueba la conexión e inténtalo de nuevo.",
       notStarted:
         "Completa el inicio de sesión requerido y vuelve a intentar la importación.",
+      uploadLimitExceeded:
+        "La carga supera un límite permitido. Reduce el tamaño del archivo o elige menos archivos y vuelve a intentarlo.",
     },
     importDeck: "Importar presentación",
     context: {

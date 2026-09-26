@@ -839,6 +839,8 @@ const messages = {
       networkFailed:
         "A solicitação de importação expirou ou perdeu a conexão de rede. Verifique sua conexão e tente novamente.",
       notStarted: "Conclua o login necessário e tente importar novamente.",
+      uploadLimitExceeded:
+        "O envio excede um limite permitido. Reduza o tamanho do arquivo ou escolha menos arquivos e tente novamente.",
     },
     importDeck: "Importar apresentação",
     context: {

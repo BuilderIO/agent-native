@@ -8,6 +8,7 @@ import { TooltipProvider } from "../ui/tooltip.js";
 import {
   ComposerContextMenu,
   getComposerContextMenuEntries,
+  type ComposerContextPickerConfig,
   type ComposerContextMenuItem,
   type ComposerContextPageControls,
 } from "./ComposerContextMenu.js";
@@ -168,6 +169,35 @@ describe("connected composer menus", () => {
     ).not.toBeNull();
     expect(row("Documents").getAttribute("aria-expanded")).toBe("true");
     expect(row("Meeting notes").getAttribute("role")).toBe("menuitem");
+  });
+  it("closes a context picker when its composer becomes disabled", async () => {
+    const onDismiss = vi.fn();
+    const picker = {
+      presentation: {
+        type: "dialog" as const,
+        mode: "multiple" as const,
+        onAttach: vi.fn(),
+      },
+      searchPlaceholder: "Search sources",
+      scopeKey: "account",
+      load: async () => ({ items: [], hasMore: false }),
+    } satisfies ComposerContextPickerConfig;
+    const entries: ComposerContextMenuItem[] = [
+      { id: "source", label: "Source", picker, onDismiss },
+    ];
+    await render(entries);
+    await open();
+    await click("Add context");
+    await click("Source");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+
+    await render(entries, { disabled: true });
+
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(onDismiss).toHaveBeenCalledOnce();
   });
   it("filters root and category search without flattening the hierarchy", async () => {
     const select = vi.fn();

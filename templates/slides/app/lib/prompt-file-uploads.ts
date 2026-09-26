@@ -39,6 +39,14 @@ export function isPromptUploadAuthRequiredError(error: unknown): boolean {
   );
 }
 
+export function isPromptUploadLimitError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "reference_storage_limit_exceeded"
+  );
+}
+
 export function isPromptUploadStorageStatusError(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -160,23 +168,74 @@ async function readUploadJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
   } catch (error) {
-    throw new Error(`Upload returned invalid JSON (${response.status})`, {
-      cause: error,
-    });
+    throw promptUploadContractError(error);
   }
 }
 
-function extractErrorMessage(data: unknown): string | null {
+function promptUploadContractError(cause?: unknown): Error {
+  return Object.assign(
+    new Error(
+      "Reference file upload returned an invalid response",
+      cause === undefined ? undefined : { cause },
+    ),
+    { code: "reference_storage_contract_failed" },
+  );
+}
+
+function isUploadedFile(value: unknown): value is UploadedFile {
+  if (!value || typeof value !== "object") return false;
+  const file = value as Record<string, unknown>;
+  return (
+    typeof file.path === "string" &&
+    file.path.length > 0 &&
+    typeof file.originalName === "string" &&
+    file.originalName.length > 0 &&
+    typeof file.filename === "string" &&
+    file.filename.length > 0 &&
+    typeof file.type === "string" &&
+    typeof file.size === "number" &&
+    Number.isFinite(file.size) &&
+    file.size >= 0 &&
+    (file.url === undefined || typeof file.url === "string") &&
+    (file.dataUrl === undefined || typeof file.dataUrl === "string")
+  );
+}
+
+async function parseUploadedFiles(
+  data: unknown,
+  expectedCount: number,
+): Promise<UploadedFile[]> {
+  const records = Array.isArray(data) ? data : [data];
+  const uploaded = records.filter(isUploadedFile);
   if (
-    data &&
-    typeof data === "object" &&
-    "error" in data &&
-    typeof (data as { error: unknown }).error === "string" &&
-    (data as { error: string }).error.trim()
+    !Array.isArray(data) ||
+    uploaded.length !== records.length ||
+    uploaded.length !== expectedCount
   ) {
-    return (data as { error: string }).error;
+    const completed = records.flatMap((record) =>
+      record &&
+      typeof record === "object" &&
+      typeof (record as { path?: unknown }).path === "string" &&
+      (record as { path: string }).path
+        ? [{ path: (record as { path: string }).path }]
+        : [],
+    );
+    await cleanupUploadedPromptFiles(completed);
+    throw promptUploadContractError();
   }
-  return null;
+  return uploaded;
+}
+
+export function promptUploadHttpError(status: number): Error {
+  return Object.assign(new Error("Reference file upload failed"), {
+    code:
+      status === 401 || status === 403
+        ? "reference_storage_auth_required"
+        : status === 413
+          ? "reference_storage_limit_exceeded"
+          : "reference_storage_http_failed",
+    status,
+  });
 }
 
 async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
@@ -187,20 +246,13 @@ async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
     body: formData,
     credentials: "include",
   });
+  if (!response.ok) throw promptUploadHttpError(response.status);
   const data = await readUploadJson(response);
-  if (!response.ok) {
-    throw new Error(
-      extractErrorMessage(data) || `Upload failed (${response.status})`,
-    );
-  }
-  if (!Array.isArray(data)) {
-    throw new Error("Upload failed: invalid response");
-  }
-  return data as UploadedFile[];
+  return parseUploadedFiles(data, files.length);
 }
 
 export async function deleteUploadedPromptFile(
-  file: UploadedFile,
+  file: Pick<UploadedFile, "path">,
 ): Promise<void> {
   const response = await fetch(`${appBasePath()}/api/uploads`, {
     method: "DELETE",
@@ -213,13 +265,15 @@ export async function deleteUploadedPromptFile(
   }
 }
 
-async function cleanupUploadedPromptFiles(files: UploadedFile[]) {
+export async function cleanupUploadedPromptFiles(
+  files: Pick<UploadedFile, "path">[],
+) {
   const results = await Promise.allSettled(
     files.map((file) => deleteUploadedPromptFile(file)),
   );
   results.forEach((result) => {
     if (result.status === "rejected") {
-      console.error("Eager upload cleanup failed", result.reason);
+      console.error("Uploaded file cleanup failed", result.reason);
     }
   });
 }
@@ -238,13 +292,8 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
       }),
     },
   );
+  if (!startResponse.ok) throw promptUploadHttpError(startResponse.status);
   const startData = await readUploadJson(startResponse);
-  if (!startResponse.ok) {
-    throw new Error(
-      extractErrorMessage(startData) ||
-        `Upload failed (${startResponse.status})`,
-    );
-  }
   if (
     startData &&
     typeof startData === "object" &&
@@ -259,7 +308,7 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
       ? (startData as { sessionId?: unknown }).sessionId
       : undefined;
   if (typeof sessionId !== "string" || !sessionId) {
-    throw new Error("Upload failed: session ID missing");
+    throw promptUploadContractError();
   }
 
   const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE_BYTES));
@@ -278,22 +327,21 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
         body: file.slice(start, end),
       },
     );
+    if (!chunkResponse.ok) throw promptUploadHttpError(chunkResponse.status);
     const chunkData = await readUploadJson(chunkResponse);
-    if (!chunkResponse.ok) {
-      throw new Error(
-        extractErrorMessage(chunkData) ||
-          `Upload failed (${chunkResponse.status})`,
-      );
-    }
     if (isFinal) {
-      const result = Array.isArray(chunkData)
-        ? (chunkData[0] as UploadedFile)
-        : undefined;
-      if (!result) throw new Error("Upload failed: no file returned");
+      const [result] = await parseUploadedFiles(chunkData, 1);
       return result;
     }
+    if (
+      !chunkData ||
+      typeof chunkData !== "object" ||
+      (chunkData as { ok?: unknown }).ok !== true
+    ) {
+      throw promptUploadContractError();
+    }
   }
-  throw new Error("Upload failed: no final chunk response");
+  throw promptUploadContractError();
 }
 
 export async function uploadPromptFiles(
@@ -343,30 +391,24 @@ export async function uploadPromptFiles(
       ...smallResult.value,
       ...successfulLargeUploads,
     ]);
-    const failedFile = files[largeIndices[failedLargeIndex]]?.name ?? "upload";
     const failure = largeResults[failedLargeIndex];
-    const message =
-      failure?.status === "rejected" && failure.reason instanceof Error
-        ? failure.reason.message
-        : String(
-            failure?.status === "rejected" ? failure.reason : "Upload failed",
-          );
-    const error = new Error(`File "${failedFile}": ${message}`, {
-      cause: failure?.status === "rejected" ? failure.reason : undefined,
-    });
-    if (
-      failure?.status === "rejected" &&
-      isPromptUploadNetworkError(failure.reason)
-    ) {
+    const cause = failure?.status === "rejected" ? failure.reason : undefined;
+    if (isPromptUploadNetworkError(cause)) {
+      const error = new Error("Reference file upload failed", { cause });
       Object.assign(error, { code: "reference_upload_network_failed" });
+      throw error;
     }
-    throw error;
+    if (
+      isPromptUploadAuthRequiredError(cause) ||
+      isPromptUploadLimitError(cause) ||
+      isPromptUploadStorageStatusError(cause)
+    ) {
+      throw cause;
+    }
+    throw promptUploadHttpError(500);
   }
   const smallUploads = smallResult.value;
   const largeUploads = successfulLargeUploads;
-  if (smallUploads.length !== smallIndices.length) {
-    throw new Error("Upload failed: response file count did not match request");
-  }
   const uploads = new Array<UploadedFile>(files.length);
   smallIndices.forEach((fileIndex, resultIndex) => {
     uploads[fileIndex] = smallUploads[resultIndex];

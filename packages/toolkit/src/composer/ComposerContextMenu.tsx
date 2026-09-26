@@ -306,18 +306,38 @@ export function ComposerContextMenu({
       reportError(cause);
     }
   }, [reportError]);
-  const updatePath = (next: string[]) => {
+  const updatePath = useCallback((next: string[]) => {
     pathRef.current = next;
     setPath(next);
-  };
-  const changeOpen = (next: boolean) => {
-    setOpen(next);
-    if (!next) {
-      dismissPage();
-      updatePath([]);
-      setContextOpen(false);
+  }, []);
+  const changeOpen = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      if (!next) {
+        dismissPage();
+        updatePath([]);
+        setContextOpen(false);
+      }
+    },
+    [dismissPage, updatePath],
+  );
+  useEffect(() => {
+    if (!disabled) return;
+    pendingDialog.current = null;
+    if (open) {
+      restoreFocusOnClose.current = false;
+      changeOpen(false);
     }
-  };
+    const closingDialog = dialogRef.current;
+    if (!closingDialog) return;
+    dialogRef.current = null;
+    setDialog(null);
+    try {
+      findAction(itemsRef.current, closingDialog.id)?.onDismiss?.();
+    } catch (cause) {
+      reportError(cause);
+    }
+  }, [disabled, open, changeOpen, reportError]);
   const selectAction = (action: ComposerContextMenuAction) => {
     setError(null);
     try {

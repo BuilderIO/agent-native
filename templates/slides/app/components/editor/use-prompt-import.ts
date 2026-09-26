@@ -5,6 +5,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
   isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
   isPromptUploadNetworkError,
   isPromptUploadStorageStatusError,
 } from "@/lib/prompt-file-uploads";
@@ -99,6 +100,9 @@ export function usePromptImport({
         onSuccess?.();
         return true;
       } catch (cause) {
+        if (isPromptUploadLimitError(cause)) {
+          return fail(t("home.importMenu.uploadLimitExceeded"), cause);
+        }
         const actionMessage = actionErrorMessage(cause);
         if (actionMessage) return fail(actionMessage, cause);
         if (

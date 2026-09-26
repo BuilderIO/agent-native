@@ -822,6 +822,8 @@ const messages = {
       networkFailed:
         "The import request timed out or lost its network connection. Check your connection and retry.",
       notStarted: "Complete any required sign-in, then retry the import.",
+      uploadLimitExceeded:
+        "The upload exceeds a supported limit. Reduce the file size or choose fewer files, then retry.",
     },
     importDeck: "Import Deck",
     context: {

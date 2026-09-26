@@ -817,6 +817,8 @@ const messages = {
       networkFailed:
         "가져오기가 시간 초과되었거나 네트워크 연결이 끊겼습니다. 연결을 확인한 후 다시 시도하세요.",
       notStarted: "필요한 로그인을 완료한 후 가져오기를 다시 시도하세요.",
+      uploadLimitExceeded:
+        "업로드가 허용된 한도를 초과했습니다. 파일 크기를 줄이거나 더 적은 파일을 선택한 다음 다시 시도하세요.",
     },
     importDeck: "덱 가져오기",
     context: {

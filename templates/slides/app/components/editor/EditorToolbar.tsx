@@ -1,9 +1,5 @@
 import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
-import {
-  agentNativePath,
-  appBasePath,
-  appPath,
-} from "@agent-native/core/client/api-path";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
@@ -84,6 +80,15 @@ import { DeckBackupError } from "@/lib/deck-backup";
 import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
+import {
+  cleanupUploadedPromptFiles,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
+  uploadPromptFiles,
+  type UploadedFile,
+} from "@/lib/prompt-file-uploads";
 import { parseUploadResponse } from "@/lib/upload-response";
 
 import {
@@ -363,6 +368,7 @@ export default function EditorToolbar({
       return;
     }
     setImporting(true);
+    let uploadedFiles: UploadedFile[] = [];
     toast(t("editorToolbar.importingFile"), {
       description: t("editorToolbar.readingFile", { fileName: file.name }),
     });
@@ -379,27 +385,12 @@ export default function EditorToolbar({
         return;
       }
 
-      const formData = new FormData();
-      formData.append("file", file);
-      const uploadRes = await fetch(`${appBasePath()}/api/uploads`, {
-        method: "POST",
-        body: formData,
-      });
-      // R83 — guard the parse: a failed upload can come back as a non-JSON
-      // body (upstream proxy/platform error page, plaintext "Internal
-      // Error", etc.). Parsing before the ok check used to throw a raw
-      // "Unexpected token ... is not valid JSON" SyntaxError into this
-      // toast instead of the clean message below.
-      const uploadData = await parseUploadResponse(
-        uploadRes,
-        t("editorToolbar.uploadFailed"),
+      uploadedFiles = await uploadPromptFiles(
+        [file],
+        t("home.referenceFileStorageUnavailable"),
       );
-      if (!uploadRes.ok) {
-        throw new Error(uploadData?.error || t("editorToolbar.uploadFailed"));
-      }
-      const uploaded = Array.isArray(uploadData) ? uploadData[0] : uploadData;
-      const filePath = uploaded?.path || uploaded?.url;
-      if (!filePath) throw new Error(t("editorToolbar.uploadMissingPath"));
+      const uploaded = uploadedFiles[0];
+      if (!uploaded) throw new Error(t("editorToolbar.uploadMissingPath"));
 
       const importRes = await fetch(
         agentNativePath("/_agent-native/actions/import-file"),
@@ -407,14 +398,13 @@ export default function EditorToolbar({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            filePath,
+            filePath: uploaded.path,
             deckId,
             format: "auto",
             importIntoDeck: true,
           }),
         },
       );
-      // R83 — same parse guard as the upload response above.
       const importData = await parseUploadResponse(
         importRes,
         t("editorToolbar.importFailed"),
@@ -442,11 +432,20 @@ export default function EditorToolbar({
           ? t("home.fileStorageSetupRequired")
           : err instanceof DeckBackupError
             ? t("editorToolbar.invalidBackup")
-            : err instanceof Error
-              ? err.message
-              : t("editorToolbar.importFailedDescription"),
+            : isPromptUploadAuthRequiredError(err)
+              ? t("home.importMenu.notStarted")
+              : isPromptUploadNetworkError(err)
+                ? t("home.importMenu.networkFailed")
+                : isPromptUploadLimitError(err)
+                  ? t("home.importMenu.uploadLimitExceeded")
+                  : isPromptUploadStorageStatusError(err)
+                    ? t("editorToolbar.importFailedDescription")
+                    : err instanceof Error
+                      ? err.message
+                      : t("editorToolbar.importFailedDescription"),
       });
     } finally {
+      await cleanupUploadedPromptFiles(uploadedFiles);
       setImporting(false);
       e.target.value = "";
     }

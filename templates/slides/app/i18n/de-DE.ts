@@ -843,6 +843,8 @@ const messages = {
       networkFailed:
         "Der Import ist abgelaufen oder die Netzwerkverbindung wurde unterbrochen. Überprüfe deine Verbindung und versuche es erneut.",
       notStarted: "Melde dich bei Bedarf an und versuche den Import erneut.",
+      uploadLimitExceeded:
+        "Der Upload überschreitet ein zulässiges Limit. Verringere die Dateigröße oder wähle weniger Dateien aus und versuche es erneut.",
     },
     importDeck: "Präsentation importieren",
     context: {

@@ -795,6 +795,8 @@ const messages = {
       invalidFile: "請選擇 PDF 或 PPTX 檔案。",
       networkFailed: "匯入要求逾時或網路連線中斷。請檢查網路連線後再試一次。",
       notStarted: "完成必要的登入後，請重試匯入。",
+      uploadLimitExceeded:
+        "上傳內容超出允許的限制。請縮小檔案或減少檔案數量後重試。",
     },
     importDeck: "匯入簡報",
     context: {

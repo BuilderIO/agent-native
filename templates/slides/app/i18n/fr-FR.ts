@@ -849,6 +849,8 @@ const messages = {
       networkFailed:
         "La demande d’importation a expiré ou la connexion réseau a été interrompue. Vérifiez votre connexion et réessayez.",
       notStarted: "Connectez-vous si nécessaire, puis réessayez l’importation.",
+      uploadLimitExceeded:
+        "Le téléversement dépasse une limite autorisée. Réduisez la taille du fichier ou choisissez moins de fichiers, puis réessayez.",
     },
     importDeck: "Importer une présentation",
     context: {

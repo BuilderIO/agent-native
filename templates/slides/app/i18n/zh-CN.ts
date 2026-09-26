@@ -800,6 +800,8 @@ const messages = {
       invalidFile: "请选择 PDF 或 PPTX 文件。",
       networkFailed: "导入请求超时或网络连接中断。请检查网络连接后重试。",
       notStarted: "完成所需的登录后，请重试导入。",
+      uploadLimitExceeded:
+        "上传内容超出允许的限制。请缩小文件或减少文件数量后重试。",
     },
     importDeck: "导入演示文稿",
     context: {

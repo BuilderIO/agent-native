@@ -67,4 +67,22 @@ describe("generate-home-suggestions", () => {
       "works in marketing",
     );
   });
+
+  it("parses a valid JSON array wrapped in model prose", async () => {
+    mocks.completeText.mockResolvedValue({
+      text: `Here are three ideas:\n${JSON.stringify(suggestions)}\nLet me know what you think.`,
+    });
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).resolves.toEqual({ suggestions });
+  });
+
+  it("keeps rejecting invalid JSON instead of hiding a model failure", async () => {
+    mocks.completeText.mockResolvedValue({ text: "not a JSON array" });
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).rejects.toThrow("Home suggestions returned invalid JSON.");
+  });
 });

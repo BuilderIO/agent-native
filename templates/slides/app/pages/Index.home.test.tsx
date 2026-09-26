@@ -15,9 +15,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type PromptPopover from "@/components/editor/PromptDialog";
 
 const systemFlag = vi.hoisted(() => ({ enabled: true, query: vi.fn() }));
+const suggestionQuery = vi.hoisted(() => ({
+  enabled: undefined as boolean | undefined,
+}));
 const toastError = vi.hoisted(() => vi.fn());
+const homeImport = vi.hoisted(() => ({ current: null as unknown }));
 const promptUploads = vi.hoisted(() => ({
   uploadPromptFiles: vi.fn(),
+  cleanupUploadedPromptFiles: vi.fn(),
   isPromptUploadNetworkError: vi.fn(
     (error: unknown) =>
       error instanceof TypeError ||
@@ -30,6 +35,12 @@ const promptUploads = vi.hoisted(() => ({
       error instanceof Error &&
       "code" in error &&
       error.code === "reference_storage_auth_required",
+  ),
+  isPromptUploadLimitError: vi.fn(
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "reference_storage_limit_exceeded",
   ),
   isPromptUploadStorageStatusError: vi.fn(
     (error: unknown) =>
@@ -109,22 +120,30 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
-  useActionQuery: (name: string) =>
-    name === "generate-home-suggestions"
-      ? {
-          data: {
-            suggestions: [
-              {
-                id: "suggestion-1",
-                label: "Build a pitch",
-                prompt: "Create a pitch deck for a new product.",
-              },
-            ],
-          },
-          isLoading: false,
-          isError: false,
-        }
-      : { data: undefined, isLoading: false },
+  actionErrorMessage: (error: Error) => error.message,
+  useActionQuery: (
+    name: string,
+    _args: unknown,
+    options?: { enabled?: boolean },
+  ) => {
+    if (name === "generate-home-suggestions") {
+      suggestionQuery.enabled = options?.enabled;
+      return {
+        data: {
+          suggestions: [
+            {
+              id: "suggestion-1",
+              label: "Build a pitch",
+              prompt: "Create a pitch deck for a new product.",
+            },
+          ],
+        },
+        isLoading: false,
+        isError: false,
+      };
+    }
+    return { data: undefined, isLoading: false };
+  },
   getBrowserTabId: () => "home-test",
   deleteClientAppState: vi.fn().mockResolvedValue(undefined),
   useSession: () => ({
@@ -220,20 +239,23 @@ vi.mock("@/components/editor/DeckEditorSkeleton", () => ({
   DeckEditorSkeleton: () => null,
 }));
 vi.mock("@/components/editor/ImportDeckButton", () => ({
-  ImportDeckButton: () => (
-    <div>
-      <button
-        onClick={(event) =>
-          event.currentTarget.parentElement
-            ?.querySelector<HTMLInputElement>("input")
-            ?.click()
-        }
-      >
-        home.importMenu.import
-      </button>
-      <input aria-label="editorToolbar.importFile" hidden />
-    </div>
-  ),
+  ImportDeckButton: ({ controller }: { controller: unknown }) => {
+    homeImport.current = controller;
+    return (
+      <div>
+        <button
+          onClick={(event) =>
+            event.currentTarget.parentElement
+              ?.querySelector<HTMLInputElement>("input")
+              ?.click()
+          }
+        >
+          home.importMenu.import
+        </button>
+        <input aria-label="editorToolbar.importFile" hidden />
+      </div>
+    );
+  },
 }));
 vi.mock("@/components/editor/NewDeckReferenceStep", () => ({
   NewDeckReferenceStep: (props: unknown) => {
@@ -309,6 +331,8 @@ function renderHome(
 beforeEach(() => {
   vi.clearAllMocks();
   systemFlag.enabled = true;
+  suggestionQuery.enabled = undefined;
+  homeImport.current = null;
   createDeck.mockReset();
   signedIn.value = true;
   agentEngine.state = "configured";
@@ -316,6 +340,7 @@ beforeEach(() => {
   headerActions.current = null;
   pageTitle.current = null;
   promptUploads.uploadPromptFiles.mockReset();
+  promptUploads.cleanupUploadedPromptFiles.mockReset();
   for (const name of ["localStorage", "sessionStorage"]) {
     const values = new Map<string, string>();
     vi.stubGlobal(name, {
@@ -710,6 +735,19 @@ describe("Slides prompt-led home", () => {
     expect(createDeck).not.toHaveBeenCalled();
   });
 
+  it("pauses home suggestions while the retained Home route is inactive", async () => {
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    expect(suggestionQuery.enabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0].disabled).toBe(true),
+    );
+    await waitFor(() => expect(suggestionQuery.enabled).toBe(false));
+  });
+
   it("hides home suggestions until the provider status is confirmed", async () => {
     agentEngine.state = "missing";
     agentEngine.missing = true;
@@ -784,6 +822,63 @@ describe("Slides prompt-led home", () => {
     expect(toastError).toHaveBeenCalledWith("Upload failed", {
       description: "Something went wrong importing this file.",
     });
+  });
+
+  it("cleans uploaded files when importing the reference deck fails", async () => {
+    const uploaded = {
+      path: "/uploads/reference.pptx",
+      originalName: "reference.pptx",
+      filename: "reference.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 4,
+    };
+    promptUploads.uploadPromptFiles.mockResolvedValue([uploaded]);
+    callAction.mockRejectedValueOnce(new Error("Import failed"));
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit("Outline", [], {
+        commit: vi.fn(),
+        discard: vi.fn(),
+        attachments: [],
+      });
+    });
+    await act(async () => {
+      await referenceProps.mock.lastCall![0].onImport([
+        new File(["pptx"], "reference.pptx"),
+      ]);
+    });
+
+    expect(promptUploads.cleanupUploadedPromptFiles).toHaveBeenCalledWith([
+      uploaded,
+    ]);
+  });
+
+  it("cleans a direct-import upload when the PPTX import action fails", async () => {
+    const uploaded = {
+      path: "/uploads/direct.pptx",
+      originalName: "direct.pptx",
+      filename: "direct.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 4,
+    };
+    promptUploads.uploadPromptFiles.mockResolvedValue([uploaded]);
+    callAction.mockRejectedValueOnce(new Error("Import failed"));
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await (
+        homeImport.current as {
+          importFile: (file: File, scope: "pptx") => Promise<boolean>;
+        }
+      ).importFile(new File(["pptx"], "direct.pptx"), "pptx");
+    });
+
+    expect(promptUploads.cleanupUploadedPromptFiles).toHaveBeenCalledWith([
+      uploaded,
+    ]);
   });
 
   it("reopens after sign-in cancellation and preserves the auth draft and model", async () => {

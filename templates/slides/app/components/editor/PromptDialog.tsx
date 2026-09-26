@@ -31,6 +31,7 @@ import { createSlidesPromptAttachmentAdapter } from "@/lib/prompt-attachment-ada
 import {
   deleteUploadedPromptFile,
   isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
   isPromptUploadNetworkError,
   isPromptUploadStorageStatusError,
   uploadPromptFiles,
@@ -398,11 +399,13 @@ export default function PromptPopover({
               ? t("home.importMenu.networkFailed")
               : isPromptUploadAuthRequiredError(error)
                 ? t("home.importMenu.notStarted")
-                : isPromptUploadStorageStatusError(error)
-                  ? t("editorToolbar.importFailedDescription")
-                  : error instanceof Error
-                    ? error.message
-                    : t("raw.uploadAttachedFailed"),
+                : isPromptUploadLimitError(error)
+                  ? t("home.importMenu.uploadLimitExceeded")
+                  : isPromptUploadStorageStatusError(error)
+                    ? t("editorToolbar.importFailedDescription")
+                    : error instanceof Error
+                      ? error.message
+                      : t("raw.uploadAttachedFailed"),
         });
       });
     },
@@ -521,11 +524,13 @@ export default function PromptPopover({
               ? t("home.importMenu.networkFailed")
               : isPromptUploadAuthRequiredError(error)
                 ? t("home.importMenu.notStarted")
-                : isPromptUploadStorageStatusError(error)
-                  ? t("editorToolbar.importFailedDescription")
-                  : error instanceof Error
-                    ? error.message
-                    : t("raw.uploadAttachedFailed"),
+                : isPromptUploadLimitError(error)
+                  ? t("home.importMenu.uploadLimitExceeded")
+                  : isPromptUploadStorageStatusError(error)
+                    ? t("editorToolbar.importFailedDescription")
+                    : error instanceof Error
+                      ? error.message
+                      : t("raw.uploadAttachedFailed"),
         });
         throw error;
       }

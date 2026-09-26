@@ -108,7 +108,7 @@ export function useSlidesComposerContext({
   useEffect(() => {
     if (edited.current) return;
     try {
-      const stored = localStorage.getItem(storageKey);
+      const stored = window.localStorage.getItem(storageKey);
       setSelection(
         stored
           ? slidesComposerContextSchema.parse(JSON.parse(stored))
@@ -140,8 +140,9 @@ export function useSlidesComposerContext({
   ]);
 
   useEffect(() => {
+    if (!active) return;
     const currentVersion = ++version.current;
-    let active = true;
+    let isActive = true;
     setItems([
       ...(selection.designSystemId
         ? [
@@ -165,12 +166,12 @@ export function useSlidesComposerContext({
       t("home.context.emptySource"),
       t("home.context.figmaReadFailed"),
     ).then((resolved) => {
-      if (active && currentVersion === version.current) setItems(resolved);
+      if (isActive && currentVersion === version.current) setItems(resolved);
     });
     return () => {
-      active = false;
+      isActive = false;
     };
-  }, [selection, identity, t]);
+  }, [active, selection, identity, t]);
 
   const save = (next: SlidesComposerContext) => {
     if (!slidesComposerContextSchema.safeParse(next).success) {
@@ -185,7 +186,7 @@ export function useSlidesComposerContext({
     setSelection(persisted);
     setError(undefined);
     try {
-      localStorage.setItem(storageKey, JSON.stringify(persisted));
+      window.localStorage.setItem(storageKey, JSON.stringify(persisted));
     } catch {
       setError(t("home.context.saveFailed"));
       return false;
@@ -437,7 +438,7 @@ export function useSlidesComposerContext({
   return {
     props: {
       contextItems,
-      contextMenuItems,
+      contextMenuItems: active ? contextMenuItems : [],
       onRemoveContextItem: remove,
       onRetryContextItem: () => setSelection((current) => ({ ...current })),
       onInspectContextItem: setInspectedKey,

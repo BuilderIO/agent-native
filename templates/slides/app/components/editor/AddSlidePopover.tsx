@@ -24,6 +24,7 @@ import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   deleteUploadedPromptFile,
   isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
   isPromptUploadNetworkError,
   isPromptUploadStorageStatusError,
   uploadPromptFiles,
@@ -206,11 +207,13 @@ export function AddSlidePopover({
                   ? t("home.importMenu.networkFailed")
                   : isPromptUploadAuthRequiredError(error)
                     ? t("home.importMenu.notStarted")
-                    : isPromptUploadStorageStatusError(error)
-                      ? t("editorToolbar.importFailedDescription")
-                      : error instanceof Error
-                        ? error.message
-                        : t("editorSidebar.uploadAttachedFileFailed"),
+                    : isPromptUploadLimitError(error)
+                      ? t("home.importMenu.uploadLimitExceeded")
+                      : isPromptUploadStorageStatusError(error)
+                        ? t("editorToolbar.importFailedDescription")
+                        : error instanceof Error
+                          ? error.message
+                          : t("editorSidebar.uploadAttachedFileFailed"),
             });
             return;
           }
@@ -311,11 +314,13 @@ export function AddSlidePopover({
               ? t("home.importMenu.networkFailed")
               : isPromptUploadAuthRequiredError(error)
                 ? t("home.importMenu.notStarted")
-                : isPromptUploadStorageStatusError(error)
-                  ? t("editorToolbar.importFailedDescription")
-                  : error instanceof Error
-                    ? error.message
-                    : t("editorSidebar.uploadAttachedFileFailed"),
+                : isPromptUploadLimitError(error)
+                  ? t("home.importMenu.uploadLimitExceeded")
+                  : isPromptUploadStorageStatusError(error)
+                    ? t("editorToolbar.importFailedDescription")
+                    : error instanceof Error
+                      ? error.message
+                      : t("editorSidebar.uploadAttachedFileFailed"),
         });
       });
     },

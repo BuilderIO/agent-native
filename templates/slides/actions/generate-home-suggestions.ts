@@ -47,9 +47,13 @@ function parseSuggestions(text: string) {
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "");
+  const start = unwrapped.indexOf("[");
+  const end = unwrapped.lastIndexOf("]");
+  const json =
+    start >= 0 && end > start ? unwrapped.slice(start, end + 1) : unwrapped;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(unwrapped);
+    parsed = JSON.parse(json);
   } catch {
     throw new Error("Home suggestions returned invalid JSON.");
   }

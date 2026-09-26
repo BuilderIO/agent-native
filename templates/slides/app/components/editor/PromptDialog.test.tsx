@@ -230,6 +230,7 @@ import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   addInlineImageFallbacks,
   isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
   isPromptUploadNetworkError,
   isPromptUploadStorageStatusError,
   isReferenceStorageReady,
@@ -525,6 +526,223 @@ describe("uploadPromptFiles", () => {
     );
   });
 
+  it("rejects malformed successful upload records and cleans their paths", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (input.toString().includes("/api/uploads/status")) {
+          return new Response(JSON.stringify({ referenceStorageReady: true }), {
+            status: 200,
+          });
+        }
+        if (init?.method === "DELETE")
+          return new Response(null, { status: 204 });
+        return new Response(
+          JSON.stringify([{ path: "uploads/malformed.pdf" }]),
+          {
+            status: 200,
+          },
+        );
+      },
+    );
+    stubReadyStorageUpload(fetchMock);
+
+    await expect(
+      uploadPromptFiles([new File(["pdf"], "reference.pdf")]),
+    ).rejects.toMatchObject({
+      code: "reference_storage_contract_failed",
+      message: "Reference file upload returned an invalid response",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/uploads"),
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ path: "uploads/malformed.pdf" }),
+      }),
+    );
+  });
+
+  it("cleans returned uploads when multipart response counts do not match", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (input.toString().includes("/api/uploads/status")) {
+          return new Response(JSON.stringify({ referenceStorageReady: true }), {
+            status: 200,
+          });
+        }
+        if (init?.method === "DELETE")
+          return new Response(null, { status: 204 });
+        return new Response(
+          JSON.stringify([
+            {
+              path: "uploads/first.pdf",
+              originalName: "first.pdf",
+              filename: "first.pdf",
+              type: "application/pdf",
+              size: 3,
+            },
+          ]),
+          { status: 200 },
+        );
+      },
+    );
+    stubReadyStorageUpload(fetchMock);
+
+    await expect(
+      uploadPromptFiles([
+        new File(["one"], "first.pdf"),
+        new File(["two"], "second.pdf"),
+      ]),
+    ).rejects.toMatchObject({ code: "reference_storage_contract_failed" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/uploads"),
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ path: "uploads/first.pdf" }),
+      }),
+    );
+  });
+
+  it.each([
+    ["multipart upload", 401],
+    ["multipart upload", 403],
+    ["chunked upload start", 401],
+    ["chunked upload start", 403],
+    ["chunk upload", 401],
+    ["chunk upload", 403],
+  ])(
+    "classifies %s HTTP %i without exposing response details",
+    async (stage, status) => {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url.includes("/api/uploads/status")) {
+          return new Response(JSON.stringify({ referenceStorageReady: true }), {
+            status: 200,
+          });
+        }
+        if (
+          stage === "chunk upload" &&
+          url.includes("/api/uploads-chunked/start")
+        ) {
+          return new Response(JSON.stringify({ sessionId: "upload-session" }), {
+            status: 200,
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            error: "private storage credentials were rejected",
+          }),
+          { status },
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const files =
+        stage === "multipart upload"
+          ? [new File(["pdf"], "reference.pdf")]
+          : [new File([new Uint8Array(4 * 1024 * 1024 + 1)], "reference.pptx")];
+
+      const error = await uploadPromptFiles(files).catch((cause) => cause);
+
+      expect(error).toMatchObject({
+        code: "reference_storage_auth_required",
+        message: "Reference file upload failed",
+      });
+      expect(error.message).not.toContain("private storage credentials");
+      expect(isPromptUploadAuthRequiredError(error)).toBe(true);
+    },
+  );
+
+  it("hides storage diagnostics from chunk upload failures", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("/api/uploads/status")) {
+        return new Response(JSON.stringify({ referenceStorageReady: true }), {
+          status: 200,
+        });
+      }
+      if (url.includes("/api/uploads-chunked/start")) {
+        return new Response(JSON.stringify({ sessionId: "upload-session" }), {
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({ error: "private storage credentials leaked here" }),
+        { status: 503 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await uploadPromptFiles([
+      new File([new Uint8Array(4 * 1024 * 1024 + 1)], "reference.pptx"),
+    ]).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "reference_storage_http_failed",
+      message: "Reference file upload failed",
+    });
+    expect(error.message).not.toContain("private storage credentials");
+    expect(isPromptUploadStorageStatusError(error)).toBe(true);
+  });
+
+  it("classifies HTTP 413 without exposing the response body", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString().includes("/api/uploads/status")) {
+        return new Response(JSON.stringify({ referenceStorageReady: true }), {
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({ error: "private provider details" }),
+        {
+          status: 413,
+        },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await uploadPromptFilesImpl(
+      [promptFile],
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "reference_storage_limit_exceeded",
+      message: "Reference file upload failed",
+      status: 413,
+    });
+    expect(error.message).not.toContain("private provider details");
+    expect(isPromptUploadLimitError(error)).toBe(true);
+  });
+
+  it("preserves HTTP 413 from chunked upload start", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString().includes("/api/uploads/status")) {
+        return new Response(JSON.stringify({ referenceStorageReady: true }), {
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({ error: "private provider details" }),
+        {
+          status: 413,
+        },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = new File([new Uint8Array(4 * 1024 * 1024 + 1)], "large.pdf");
+    const error = await uploadPromptFilesImpl(
+      [file],
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "reference_storage_limit_exceeded",
+      message: "Reference file upload failed",
+      status: 413,
+    });
+    expect(isPromptUploadLimitError(error)).toBe(true);
+  });
+
   it("blocks eager attachments when reference storage is unavailable", async () => {
     const uploadFetch = vi.fn();
     const fetchMock = vi.fn(async (input: string | URL) => {
@@ -597,6 +815,8 @@ describe("uploadPromptFiles", () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = input.toString();
+        if (init?.method === "DELETE")
+          return new Response(null, { status: 204 });
         if (url.includes("/api/uploads-chunked/start")) {
           return new Response(JSON.stringify({ uploadMode: "multipart" }), {
             status: 200,

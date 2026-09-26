@@ -18,6 +18,12 @@ const mocks = vi.hoisted(() => ({
   exportMenu: vi.fn(),
   registerEditorCommands: vi.fn(),
   creativeContextLabEnabled: { value: true },
+  uploadPromptFiles: vi.fn(),
+  cleanupUploadedPromptFiles: vi.fn(),
+  isPromptUploadAuthRequiredError: vi.fn(() => false),
+  isPromptUploadLimitError: vi.fn(() => false),
+  isPromptUploadNetworkError: vi.fn(() => false),
+  isPromptUploadStorageStatusError: vi.fn(() => false),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -62,6 +68,15 @@ vi.mock("@/lib/utils", () => ({
       .flat(Infinity)
       .filter((value) => typeof value === "string" && value.length > 0)
       .join(" "),
+}));
+
+vi.mock("@/lib/prompt-file-uploads", () => ({
+  uploadPromptFiles: mocks.uploadPromptFiles,
+  cleanupUploadedPromptFiles: mocks.cleanupUploadedPromptFiles,
+  isPromptUploadAuthRequiredError: mocks.isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError: mocks.isPromptUploadLimitError,
+  isPromptUploadNetworkError: mocks.isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError: mocks.isPromptUploadStorageStatusError,
 }));
 
 vi.mock("./ExportMenu", () => ({
@@ -162,6 +177,63 @@ afterEach(() => {
 });
 
 describe("<EditorToolbar>", () => {
+  it.each([
+    [200, { slideCount: 2 }],
+    [500, { error: "Import failed" }],
+  ])(
+    "cleans up uploaded import files after action status %i",
+    async (status, body) => {
+      const uploaded = {
+        path: "uploads/import.pdf",
+        originalName: "import.pdf",
+        filename: "import.pdf",
+        type: "application/pdf",
+        size: 3,
+      };
+      const file = new File(["pdf"], "import.pdf", { type: "application/pdf" });
+      mocks.uploadPromptFiles.mockResolvedValue([uploaded]);
+      mocks.cleanupUploadedPromptFiles.mockResolvedValue(undefined);
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(new Response(JSON.stringify(body), { status })),
+      );
+      render(
+        <TooltipProvider>
+          <EditorToolbar
+            deck={deck}
+            deckId="deck-1"
+            deckTitle="Test deck"
+            onTitleChange={vi.fn()}
+            currentSlideIndex={0}
+            sidebarOpen={true}
+            onToggleSidebar={vi.fn()}
+            onGenerateImage={vi.fn()}
+            onOpenAssetLibrary={vi.fn()}
+            onShowHistory={vi.fn()}
+            historyButtonRef={createRef<HTMLButtonElement>()}
+          />
+        </TooltipProvider>,
+      );
+      const input = document.querySelector<HTMLInputElement>(
+        'input[type="file"][accept=".pptx,.docx,.pdf"]',
+      )!;
+
+      fireEvent.change(input, { target: { files: [file] } });
+
+      await waitFor(() =>
+        expect(mocks.cleanupUploadedPromptFiles).toHaveBeenCalledWith([
+          uploaded,
+        ]),
+      );
+      expect(mocks.uploadPromptFiles).toHaveBeenCalledWith(
+        [file],
+        "home.referenceFileStorageUnavailable",
+      );
+    },
+  );
+
   it("registers the editor actions in the Cmd+K palette", () => {
     const onAddEmptySlide = vi.fn();
     const onToggleTextBoxMode = vi.fn();
