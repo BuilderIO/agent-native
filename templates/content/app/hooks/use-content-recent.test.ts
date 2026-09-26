@@ -74,7 +74,6 @@ describe("useContentRecent context recovery", () => {
   let container: HTMLDivElement;
   let root: Root;
   let queryClient: QueryClient;
-  let orgRefetch: ReturnType<typeof vi.fn>;
   let activeSpaceId: string;
   const scopeKey = JSON.stringify(["user@example.test", "org-1", "space-1"]);
 
@@ -84,15 +83,15 @@ describe("useContentRecent context recovery", () => {
     });
   }
 
-  function Probe() {
-    const recent = useContentRecent(activeSpaceId);
+  function Probe({ spaceId }: { spaceId: string }) {
+    const recent = useContentRecent(spaceId);
     const [, rerender] = useState(0);
     return React.createElement(
       React.Fragment,
       null,
       React.createElement(
         "output",
-        { "data-testid": "recent-state" },
+        { "data-testid": "recent-state", "data-space-id": spaceId },
         recent.isError
           ? "error"
           : recent.isLoading
@@ -114,11 +113,17 @@ describe("useContentRecent context recovery", () => {
     );
   }
 
-  function app() {
+  function app(spaces = [activeSpaceId]) {
     return React.createElement(
       QueryClientProvider,
       { client: queryClient },
-      React.createElement(Probe),
+      React.createElement(
+        React.Fragment,
+        null,
+        ...spaces.map((spaceId, index) =>
+          React.createElement(Probe, { key: index, spaceId }),
+        ),
+      ),
     );
   }
 
@@ -135,8 +140,8 @@ describe("useContentRecent context recovery", () => {
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    orgRefetch = vi
-      .fn()
+    hookMocks.org.refetch
+      .mockReset()
       .mockResolvedValueOnce({ isError: true })
       .mockResolvedValueOnce({ isError: false })
       .mockResolvedValueOnce({ isError: false });
@@ -147,7 +152,6 @@ describe("useContentRecent context recovery", () => {
     hookMocks.org.isLoading = false;
     hookMocks.org.isFetching = false;
     hookMocks.org.isError = false;
-    hookMocks.org.refetch = orgRefetch;
     hookMocks.query.data = undefined;
     hookMocks.query.error = contextChangedError();
     hookMocks.query.isError = true;
@@ -174,7 +178,7 @@ describe("useContentRecent context recovery", () => {
       await flush();
     });
 
-    expect(orgRefetch).toHaveBeenCalledTimes(1);
+    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(1);
     expect(container.querySelector("output")?.textContent).toBe("error");
 
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
@@ -185,7 +189,7 @@ describe("useContentRecent context recovery", () => {
       await flush();
     });
 
-    expect(orgRefetch).toHaveBeenCalledTimes(2);
+    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(2);
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: [
         "action",
@@ -217,7 +221,7 @@ describe("useContentRecent context recovery", () => {
       root.render(app());
       await flush();
     });
-    expect(orgRefetch).toHaveBeenCalledTimes(3);
+    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(3);
   });
 
   it("keeps an in-flight recovery guard when another scope has an ordinary error", async () => {
@@ -225,14 +229,13 @@ describe("useContentRecent context recovery", () => {
     const pendingRefresh = new Promise<{ isError: boolean }>((resolve) => {
       finishRefresh = resolve;
     });
-    orgRefetch = vi.fn(() => pendingRefresh);
-    hookMocks.org.refetch = orgRefetch;
+    hookMocks.org.refetch.mockReset().mockImplementation(() => pendingRefresh);
 
     await act(async () => {
       root.render(app());
       await flush();
     });
-    expect(orgRefetch).toHaveBeenCalledTimes(1);
+    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(1);
 
     activeSpaceId = "space-2";
     hookMocks.query.error = new Error("Other scope failed");
@@ -247,12 +250,46 @@ describe("useContentRecent context recovery", () => {
       root.render(app());
       await flush();
     });
-    expect(orgRefetch).toHaveBeenCalledTimes(1);
+    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       finishRefresh({ isError: true });
       await flush();
     });
     expect(container.querySelector("output")?.textContent).toBe("error");
+  });
+
+  it("keeps overlapping scopes loading while shared org refresh is in flight", async () => {
+    let finishRefresh!: (result: { isError: boolean }) => void;
+    const pendingRefresh = new Promise<{ isError: boolean }>((resolve) => {
+      finishRefresh = resolve;
+    });
+    hookMocks.org.refetch.mockReset().mockImplementation(() => pendingRefresh);
+
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    await act(async () => {
+      root.render(app(["space-1", "space-2"]));
+      await flush();
+    });
+
+    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(2);
+    expect(hookMocks.org.refetch).toHaveBeenNthCalledWith(1, {
+      cancelRefetch: false,
+    });
+    expect(hookMocks.org.refetch).toHaveBeenNthCalledWith(2, {
+      cancelRefetch: false,
+    });
+    expect(
+      Array.from(container.querySelectorAll("output")).map(
+        (output) => output.textContent,
+      ),
+    ).toEqual(["loading", "loading"]);
+
+    await act(async () => {
+      finishRefresh({ isError: false });
+      await flush();
+    });
+
+    expect(invalidate).toHaveBeenCalledTimes(2);
   });
 });

@@ -48,7 +48,9 @@ export function useContentRecent(spaceId?: string) {
     enabled: Boolean(scopeKey) && !org.isFetching,
     placeholderData: undefined,
   });
-  const [refreshingScope, setRefreshingScope] = useState<string | null>(null);
+  const [refreshingScopes, setRefreshingScopes] = useState<Set<string>>(
+    () => new Set(),
+  );
   const resyncedScopesRef = useRef(new Set<string>());
   const contextChanged = isContentRecentContextChanged(query.error);
 
@@ -61,10 +63,10 @@ export function useContentRecent(spaceId?: string) {
     if (resyncedScopesRef.current.has(scopeKey)) return;
 
     resyncedScopesRef.current.add(scopeKey);
-    setRefreshingScope(scopeKey);
+    setRefreshingScopes((current) => new Set(current).add(scopeKey));
     void (async () => {
       try {
-        const refreshedOrg = await org.refetch();
+        const refreshedOrg = await org.refetch({ cancelRefetch: false });
         if (refreshedOrg.isError) return;
         await queryClient.invalidateQueries({
           queryKey: ["action", "get-content-recent", args],
@@ -76,9 +78,12 @@ export function useContentRecent(spaceId?: string) {
           error,
         );
       } finally {
-        setRefreshingScope((current) =>
-          current === scopeKey ? null : current,
-        );
+        setRefreshingScopes((current) => {
+          if (!current.has(scopeKey)) return current;
+          const next = new Set(current);
+          next.delete(scopeKey);
+          return next;
+        });
       }
     })();
   }, [
@@ -103,8 +108,8 @@ export function useContentRecent(spaceId?: string) {
 
   const recoveringContext =
     contextChanged &&
-    (refreshingScope === scopeKey ||
-      !scopeKey ||
+    (!scopeKey ||
+      refreshingScopes.has(scopeKey) ||
       !resyncedScopesRef.current.has(scopeKey));
   return {
     ...query,
