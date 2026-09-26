@@ -71,6 +71,7 @@ describe("Analytics review artifact preview rendering", () => {
 
     expect(mocks.sqlChartProps).toMatchObject({
       loadData: false,
+      showLoadingWhenDisabled: false,
       dashboardId: "dashboard-1",
       panel: { source: "ga4" },
     });

@@ -1267,6 +1267,7 @@ interface SqlChartProps {
   resolvedSql?: string;
   className?: string;
   loadData?: boolean;
+  showLoadingWhenDisabled?: boolean;
   timeRange?: number;
   reportScreenshot?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
@@ -1281,6 +1282,7 @@ export function SqlChart({
   panel,
   resolvedSql,
   loadData = true,
+  showLoadingWhenDisabled = true,
   timeRange,
   reportScreenshot = false,
   onExportCsvChange,
@@ -1407,7 +1409,7 @@ export function SqlChart({
       : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  if (isLoading || isFetching) {
+  if (isLoading || isFetching || (!loadData && showLoadingWhenDisabled)) {
     return <SqlChartLoadingSkeleton panel={panel} />;
   }
 

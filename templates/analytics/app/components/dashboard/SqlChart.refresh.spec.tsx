@@ -158,7 +158,12 @@ describe("SqlChart refresh feedback", () => {
 
     await act(async () => {
       root.render(
-        <SqlChart panel={panel} dashboardId="dashboard-1" loadData={false} />,
+        <SqlChart
+          panel={panel}
+          dashboardId="dashboard-1"
+          loadData={false}
+          showLoadingWhenDisabled={false}
+        />,
       );
     });
 
@@ -187,7 +192,13 @@ describe("SqlChart refresh feedback", () => {
     mocks.query.data = { rows: [] };
 
     await act(async () => {
-      root.render(<SqlChart panel={panel} loadData={false} />);
+      root.render(
+        <SqlChart
+          panel={panel}
+          loadData={false}
+          showLoadingWhenDisabled={false}
+        />,
+      );
     });
 
     expect(mocks.queryEnabled).toBe(false);
@@ -310,7 +321,12 @@ describe("SqlChart refresh feedback", () => {
 
     await act(async () => {
       root.render(
-        <SqlChart panel={panel} dashboardId="dashboard-1" loadData={false} />,
+        <SqlChart
+          panel={panel}
+          dashboardId="dashboard-1"
+          loadData={false}
+          showLoadingWhenDisabled={false}
+        />,
       );
     });
 
@@ -320,6 +336,28 @@ describe("SqlChart refresh feedback", () => {
     );
     expect(container.querySelector("button")).toBeNull();
     expect(mocks.query.refetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the skeleton while a normal dashboard chart is offscreen", async () => {
+    const panel = {
+      id: "signups",
+      title: "Signups",
+      sql: "SELECT 42 AS value",
+      source: "first-party" as const,
+      chartType: "metric" as const,
+      width: 1,
+    };
+    mocks.query.data = { rows: [] };
+
+    await act(async () => {
+      root.render(<SqlChart panel={panel} loadData={false} />);
+    });
+
+    expect(mocks.queryEnabled).toBe(false);
+    expect(
+      container.querySelector('[data-dashboard-report-loading="true"]'),
+    ).not.toBeNull();
+    expect(container.textContent).not.toContain("common.noData");
   });
 
   it("hides abort implementation details and keeps error text word-wrapped", async () => {
