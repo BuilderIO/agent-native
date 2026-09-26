@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
@@ -14,10 +16,15 @@ const state = vi.hoisted(() => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getMethod: () => "POST",
-  readMultipartFormData: vi.fn(async () => [
-    { name: "provider", data: Buffer.from(state.provider) },
-    { name: "audio", data: Buffer.from([1, 2, 3]), type: "audio/webm" },
-  ]),
+  readMultipartFormData: vi.fn(async (event: any) => {
+    // Node's IncomingMessage emits `close` as soon as its body is fully
+    // read, while the client is still waiting for the response.
+    event?.node?.req?.emit?.("close");
+    return [
+      { name: "provider", data: Buffer.from(state.provider) },
+      { name: "audio", data: Buffer.from([1, 2, 3]), type: "audio/webm" },
+    ];
+  }),
   setResponseStatus: (_event: unknown, status: number) => {
     state.status = status;
   },
@@ -74,11 +81,11 @@ vi.mock("../transcription/builder-transcription.js", () => ({
 
 const { createTranscribeVoiceHandler } = await import("./transcribe-voice.js");
 
-async function post() {
+async function post(event: unknown = { node: {} }) {
   const handler = createTranscribeVoiceHandler() as unknown as (
     event: unknown,
   ) => Promise<{ text?: string; error?: string }>;
-  return handler({ node: {} });
+  return handler(event);
 }
 
 describe("transcribe-voice Builder provider gate", () => {
@@ -339,5 +346,64 @@ describe("transcribe-voice organization Voice input choice", () => {
     expect(state.status).toBe(503);
     expect(result.error).toContain("voice input provider");
     expect(transcribeWithBuilder).not.toHaveBeenCalled();
+  });
+});
+
+describe("transcribe-voice client disconnect signal", () => {
+  beforeEach(() => {
+    state.status = 0;
+    state.provider = "gemini";
+    state.secrets = { GOOGLE_GENERATIVE_AI_API_KEY: "test-gemini-key" };
+  });
+
+  afterEach(() => {
+    state.secrets = {};
+    vi.unstubAllGlobals();
+  });
+
+  function stubGeminiFetch(onFetch?: () => void) {
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        onFetch?.();
+        signals.push(init.signal as AbortSignal);
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: "hello" }] } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+    return signals;
+  }
+
+  it("keeps the provider call alive after the request body has been read", async () => {
+    const signals = stubGeminiFetch();
+    const client = new AbortController();
+
+    await expect(
+      post({
+        node: { req: new EventEmitter() },
+        req: { signal: client.signal },
+      }),
+    ).resolves.toEqual({ text: "hello" });
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBe(false);
+  });
+
+  it("aborts the provider call when the client disconnects", async () => {
+    const client = new AbortController();
+    const signals = stubGeminiFetch(() => client.abort());
+
+    await post({
+      node: { req: new EventEmitter() },
+      req: { signal: client.signal },
+    });
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBe(true);
   });
 });

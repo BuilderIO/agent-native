@@ -90,21 +90,16 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GE
  * (e.g. the desktop client's own 8s ceiling firing before a provider call's
  * longer timeout). Without this, an abandoned client connection leaves the
  * server-side provider fetch running for its full timeout, burning provider
- * quota/cost on a response nobody will read. `req.on("close", ...)` fires on
- * abnormal/early disconnect in Node's http server; a stray fire after normal
- * completion is a harmless no-op since the response has already been sent.
- * Returns undefined if the underlying Node request isn't available (e.g. a
- * non-Node adapter), so callers fall back to their existing timeout-only
- * signal.
+ * quota/cost on a response nobody will read. Never listen for the Node
+ * IncomingMessage's own `close`: it fires as soon as the body is fully read,
+ * which would abort every provider call made after `readMultipartFormData`.
+ * The web request's signal (srvx derives it from the response's `close`
+ * without `writableEnded`) only fires on a real disconnect. Returns undefined
+ * when the runtime exposes no request signal, so callers fall back to their
+ * existing timeout-only signal.
  */
 function clientDisconnectSignal(event: H3Event): AbortSignal | undefined {
-  const req = event.node?.req as
-    | (NodeJS.EventEmitter & { on?: (...args: any[]) => void })
-    | undefined;
-  if (!req?.on) return undefined;
-  const controller = new AbortController();
-  req.on("close", () => controller.abort());
-  return controller.signal;
+  return event.req?.signal;
 }
 
 /** Combine a provider call's own timeout signal with the request's optional
