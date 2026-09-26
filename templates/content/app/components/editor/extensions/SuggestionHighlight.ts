@@ -9,11 +9,6 @@ import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import DiffMatchPatch, {
-  DIFF_DELETE,
-  DIFF_EQUAL,
-  DIFF_INSERT,
-} from "diff-match-patch";
 
 /**
  * A pure, in-place presentation of a persisted suggestion. This never creates
@@ -190,46 +185,6 @@ function deletionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   };
 }
 
-function operationRangeUnchanged(
-  presentation: SuggestionPresentationContext,
-  content: string,
-) {
-  const diffs = new DiffMatchPatch().diff_main(
-    presentation.source,
-    content,
-    true,
-  );
-  let sourceOffset = 0;
-  let contentOffset = 0;
-  for (const [kind, text] of diffs) {
-    if (kind === DIFF_EQUAL) {
-      const sourceEnd = sourceOffset + text.length;
-      const contentEnd = contentOffset + text.length;
-      if (presentation.from < presentation.to) {
-        if (presentation.from >= sourceOffset && presentation.to <= sourceEnd)
-          return true;
-      } else if (
-        (presentation.from > sourceOffset && presentation.from < sourceEnd) ||
-        (presentation.from === 0 &&
-          sourceOffset === 0 &&
-          contentOffset === 0) ||
-        (presentation.from === presentation.source.length &&
-          sourceEnd === presentation.source.length &&
-          contentEnd === content.length)
-      ) {
-        return true;
-      }
-      sourceOffset = sourceEnd;
-      contentOffset = contentEnd;
-    } else if (kind === DIFF_DELETE) {
-      sourceOffset += text.length;
-    } else if (kind === DIFF_INSERT) {
-      contentOffset += text.length;
-    }
-  }
-  return false;
-}
-
 function insertionAtOperationAnchor(
   doc: ProseMirrorNode,
   from: number,
@@ -244,63 +199,29 @@ function insertionAtOperationAnchor(
 }
 
 function settledAtOperation(
-  content: string,
+  doc: ProseMirrorNode,
   spec: SuggestionHighlightSpec,
-): boolean {
-  const before = spec.settlingBeforePresentation;
+) {
   const presentation = spec.insertedPresentation;
-  const source = presentation?.source ?? spec.settlingAfterSource;
-  if (!before || !presentation || source === undefined) return false;
-  const { from, to } = presentation;
-  if (
-    from < 0 ||
-    to < from ||
-    to > source.length ||
-    before.from < 0 ||
-    before.to < before.from ||
-    before.to > before.source.length
-  )
-    return false;
-
-  // The persisted after-source locates the operation. Its nearby unchanged
-  // text distinguishes this occurrence from identical text elsewhere.
-  const left = source.slice(Math.max(0, from - 32), from);
-  const right = source.slice(to, Math.min(source.length, to + 32));
-  const localResult = source.slice(from, to);
-  const needle = left + localResult + right;
-  if (!needle) return false;
-  const first = content.indexOf(needle);
-  if (first !== -1 && content.indexOf(needle, first + 1) !== -1) return false;
-  const exactAtOperation = first !== -1 && (from !== 0 || first === 0);
-  if (!exactAtOperation && !operationRangeUnchanged(presentation, content))
-    return false;
-
-  const originalLeft = before.source.slice(
-    Math.max(0, before.from - 32),
-    before.from,
+  if (!presentation) return false;
+  if (spec.kind === "insert" || spec.kind === "replace")
+    return insertionAtOperationAnchor(doc, spec.from, spec.insertedText);
+  if (spec.kind !== "delete") return false;
+  const right = presentation.source.slice(
+    presentation.from,
+    presentation.from + 32,
   );
-  const originalRight = before.source.slice(
-    before.to,
-    Math.min(before.source.length, before.to + 32),
+  if (right)
+    return doc.textBetween(spec.from, spec.from + right.length) === right;
+  const left = presentation.source.slice(
+    Math.max(0, presentation.from - 32),
+    presentation.from,
   );
-  const original =
-    originalLeft + before.source.slice(before.from, before.to) + originalRight;
-  if (original === needle) return false;
-  if (original) {
-    let oldAt = content.indexOf(original);
-    while (oldAt !== -1) {
-      const oldIsAcceptedPrefix = content.startsWith(needle, oldAt);
-      const oldIsAcceptedSuffix =
-        spec.kind === "insert" &&
-        left.length === 0 &&
-        first !== -1 &&
-        oldAt === first + localResult.length;
-      if (!oldIsAcceptedPrefix && !oldIsAcceptedSuffix) return false;
-      oldAt = content.indexOf(original, oldAt + 1);
-    }
-  }
-  if (operationRangeUnchanged(before, content)) return false;
-  return true;
+  return Boolean(
+    left &&
+    spec.from >= left.length &&
+    doc.textBetween(spec.from - left.length, spec.from) === left,
+  );
 }
 
 function buildDecorations(
@@ -318,12 +239,10 @@ function buildDecorations(
     if (
       spec.settling &&
       settledContent !== null &&
-      ((spec.kind === "insert"
-        ? (spec.insertedPresentation !== undefined &&
-            canonicalizeNfm(settledContent) ===
-              canonicalizeNfm(spec.insertedPresentation.source)) ||
-          insertionAtOperationAnchor(doc, spec.from, spec.insertedText)
-        : settledAtOperation(settledContent, spec)) ||
+      ((spec.insertedPresentation !== undefined &&
+        canonicalizeNfm(settledContent) ===
+          canonicalizeNfm(spec.insertedPresentation.source)) ||
+        settledAtOperation(doc, spec) ||
         (spec.settlingReadbackContent !== null &&
           spec.settlingReadbackContent !== undefined &&
           canonicalizeNfm(settledContent) ===

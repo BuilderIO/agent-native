@@ -223,6 +223,51 @@ describe("SuggestionHighlight", () => {
     ).toHaveLength(0);
   });
 
+  it("settles an insertion with peer text at the same boundary", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "same-boundary",
+      kind: "insert",
+      from: 1,
+      to: 1,
+      insertedText: "X",
+      settling: true,
+      settlingBeforePresentation: { source: "target", from: 0, to: 0 },
+      insertedPresentation: { source: "Xtarget", from: 0, to: 1 },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("XYtarget"), [spec]))!
+        .decorations.find(),
+    ).toHaveLength(0);
+  });
+
+  it("does not settle a replacement from identical text elsewhere", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "replaced-elsewhere",
+      kind: "replace",
+      from: 1,
+      to: 4,
+      insertedText: "New",
+      settling: true,
+      settlingBeforePresentation: { source: "Old tail", from: 0, to: 3 },
+      insertedPresentation: { source: "New tail", from: 0, to: 3 },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Peer tail and New tail"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(
+          setSpecs(state("Peer tail and New tail"), [
+            { ...spec, from: 15, to: 18 },
+          ]),
+        )!
+        .decorations.find(),
+    ).toHaveLength(0);
+  });
+
   it("keeps deletions quiet at rest and readable on hover, focus, or selection", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",
