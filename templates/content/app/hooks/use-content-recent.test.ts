@@ -3,8 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { describe, expect, it } from "vitest";
-import { afterEach, beforeEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   contentRecentQueryArgs,
@@ -76,6 +75,7 @@ describe("useContentRecent context recovery", () => {
   let root: Root;
   let queryClient: QueryClient;
   let orgRefetch: ReturnType<typeof vi.fn>;
+  let activeSpaceId: string;
   const scopeKey = JSON.stringify(["user@example.test", "org-1", "space-1"]);
 
   function contextChangedError() {
@@ -85,7 +85,7 @@ describe("useContentRecent context recovery", () => {
   }
 
   function Probe() {
-    const recent = useContentRecent("space-1");
+    const recent = useContentRecent(activeSpaceId);
     const [, rerender] = useState(0);
     return React.createElement(
       React.Fragment,
@@ -128,6 +128,7 @@ describe("useContentRecent context recovery", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    activeSpaceId = "space-1";
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -217,5 +218,41 @@ describe("useContentRecent context recovery", () => {
       await flush();
     });
     expect(orgRefetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps an in-flight recovery guard when another scope has an ordinary error", async () => {
+    let finishRefresh!: (result: { isError: boolean }) => void;
+    const pendingRefresh = new Promise<{ isError: boolean }>((resolve) => {
+      finishRefresh = resolve;
+    });
+    orgRefetch = vi.fn(() => pendingRefresh);
+    hookMocks.org.refetch = orgRefetch;
+
+    await act(async () => {
+      root.render(app());
+      await flush();
+    });
+    expect(orgRefetch).toHaveBeenCalledTimes(1);
+
+    activeSpaceId = "space-2";
+    hookMocks.query.error = new Error("Other scope failed");
+    await act(async () => {
+      root.render(app());
+      await flush();
+    });
+
+    activeSpaceId = "space-1";
+    hookMocks.query.error = contextChangedError();
+    await act(async () => {
+      root.render(app());
+      await flush();
+    });
+    expect(orgRefetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishRefresh({ isError: true });
+      await flush();
+    });
+    expect(container.querySelector("output")?.textContent).toBe("error");
   });
 });

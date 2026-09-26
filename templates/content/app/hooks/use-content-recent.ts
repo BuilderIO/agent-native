@@ -49,18 +49,18 @@ export function useContentRecent(spaceId?: string) {
     placeholderData: undefined,
   });
   const [refreshingScope, setRefreshingScope] = useState<string | null>(null);
-  const resyncedScopeRef = useRef<string | null>(null);
+  const resyncedScopesRef = useRef(new Set<string>());
   const contextChanged = isContentRecentContextChanged(query.error);
 
   useEffect(() => {
     if (!contextChanged) {
-      resyncedScopeRef.current = null;
+      if (scopeKey) resyncedScopesRef.current.delete(scopeKey);
       return;
     }
     if (!scopeKey) return;
-    if (resyncedScopeRef.current === scopeKey) return;
+    if (resyncedScopesRef.current.has(scopeKey)) return;
 
-    resyncedScopeRef.current = scopeKey;
+    resyncedScopesRef.current.add(scopeKey);
     setRefreshingScope(scopeKey);
     void (async () => {
       try {
@@ -93,15 +93,19 @@ export function useContentRecent(spaceId?: string) {
 
   const refetch = useCallback(
     (...args: Parameters<typeof query.refetch>) => {
-      if (contextChanged) resyncedScopeRef.current = null;
+      if (contextChanged && scopeKey) {
+        resyncedScopesRef.current.delete(scopeKey);
+      }
       return query.refetch(...args);
     },
-    [contextChanged, query.refetch],
+    [contextChanged, query.refetch, scopeKey],
   );
 
   const recoveringContext =
     contextChanged &&
-    (refreshingScope === scopeKey || resyncedScopeRef.current !== scopeKey);
+    (refreshingScope === scopeKey ||
+      !scopeKey ||
+      !resyncedScopesRef.current.has(scopeKey));
   return {
     ...query,
     refetch,
