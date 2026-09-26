@@ -511,6 +511,42 @@ describe("isWorkspaceAppAccessAllowed", () => {
     expect(mocks.execute).toHaveBeenCalledOnce();
   });
 
+  it("uses the local ACL when a mounted app has only a generated root gateway", async () => {
+    vi.stubEnv("APP_URL", "https://community.example.test/account-expert");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://community.example.test",
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    resetAppConfigForTests();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.execute.mockResolvedValueOnce({
+      rows: [
+        {
+          owner_email: "owner@example.com",
+          org_id: "org-1",
+          visibility: "private",
+        },
+      ],
+    });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.execute).toHaveBeenCalledOnce();
+  });
+
   it("rejects an invalid workspace manifest instead of guessing its directory", async () => {
     vi.stubEnv("APP_URL", "https://community.example.test");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "{ invalid json");

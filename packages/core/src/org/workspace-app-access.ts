@@ -131,12 +131,21 @@ function configuredWorkspaceDirectory(): string | null {
       const directoryUrl = new URL(value);
       const appUrl = new URL(config.app.url);
       const normalizedPath = (path: string) => path.replace(/\/+$/, "") || "/";
-      // A same-host Dispatch registry may be mounted at /dispatch.
-      return (
+      const isAppUrl =
         directoryUrl.origin === appUrl.origin &&
         normalizedPath(directoryUrl.pathname) ===
-          normalizedPath(appUrl.pathname)
-      );
+          normalizedPath(appUrl.pathname);
+      const gatewayUrl = workspace.gatewayUrl
+        ? new URL(workspace.gatewayUrl)
+        : null;
+      const isGeneratedRootGateway =
+        gatewayUrl?.origin === directoryUrl.origin &&
+        normalizedPath(gatewayUrl.pathname) === "/" &&
+        normalizedPath(directoryUrl.pathname) === "/" &&
+        directoryUrl.origin === appUrl.origin &&
+        normalizedPath(appUrl.pathname) !== "/";
+      // A same-host Dispatch registry may be mounted at /dispatch; the generated root gateway is not one.
+      return isAppUrl || isGeneratedRootGateway;
     } catch {
       // coercion-ok: an invalid URL cannot prove it is this app's fallback.
       return false;
