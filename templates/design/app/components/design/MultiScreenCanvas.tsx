@@ -5599,6 +5599,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.stopImmediatePropagation();
         return;
       }
+      if (activePenPathRef.current) return;
       // No in-flight drag to cancel: Escape while in vector edit mode exits
       // the mode entirely (matches Figma), rather than being a no-op.
       if (vectorEdit) {
@@ -6309,7 +6310,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const lastPersisted = persistedEntries[persistedEntries.length - 1];
     // Do not call onPrimitiveCreated for board objects (sentinel frameId).
     if (lastPersisted && lastPersisted.frameId !== "__board__") {
-      onPrimitiveCreated?.(lastPersisted.frameId, lastPersisted.nodeId);
+      onPrimitiveCreated?.(lastPersisted.frameId, lastPersisted.nodeId, {
+        preserveActiveTool: true,
+      });
     }
   }, [
     onCreatePrimitive,

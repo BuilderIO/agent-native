@@ -8801,7 +8801,6 @@ function SingleScreenCreationOverlay({
           options?.preserveActiveTool === false ? "move" : undefined,
         );
         if (!updated) {
-          continuationPenPathRef.current = null;
           updatePenPath(committed);
           setPenGesturePreview(null);
           return;
@@ -8816,18 +8815,32 @@ function SingleScreenCreationOverlay({
           return;
         }
         clearPenPath();
-        const nodeId = onCreatePrimitive({
-          tool: "pen",
-          points: committed.nodes.map((node) => node.point),
-          penPath: committed,
-          fromClick: false,
-          preserveActiveTool: options?.preserveActiveTool,
-          nextTool: options?.nextTool,
-        });
+        const restoreDraft = () => {
+          updatePenPath(committed);
+          setPenGesturePreview(null);
+          setPenPointer(null);
+          setPenCloseHover(false);
+        };
+        let nodeId: string | void;
+        try {
+          nodeId = onCreatePrimitive({
+            tool: "pen",
+            points: committed.nodes.map((node) => node.point),
+            penPath: committed,
+            fromClick: false,
+            preserveActiveTool: options?.preserveActiveTool,
+            nextTool: options?.nextTool,
+          });
+        } catch (error) {
+          restoreDraft();
+          throw error;
+        }
+        if (typeof nodeId !== "string") {
+          restoreDraft();
+          return;
+        }
         continuationPenPathRef.current =
-          typeof nodeId === "string" &&
-          !committed.closed &&
-          options?.continueAfterCommit
+          !committed.closed && options?.continueAfterCommit
             ? { nodeId, path: committed }
             : null;
         return;

@@ -181,4 +181,24 @@ describe("DesignCanvas Pen path completion", () => {
       }),
     );
   });
+
+  it("keeps a Pen draft when creation is rejected so Enter can retry", async () => {
+    const onCreatePrimitive = vi
+      .fn()
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce("created-path");
+    const { click, pressKey } = await renderPenCanvas(onCreatePrimitive);
+
+    await click(1, 120, 120);
+    await click(2, 180, 180);
+    await pressKey("Enter");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+
+    await pressKey("Enter");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(onCreatePrimitive).toHaveBeenCalledTimes(2);
+  });
 });
