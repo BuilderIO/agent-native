@@ -783,6 +783,8 @@ const messages = {
     changelogEmpty: "暂无更新。",
     changelogCommentSignup:
       "没有评论时，侧边栏会简要说明 Clips 的价值，并提供清晰的注册入口。",
+    changelogShareLink:
+      "已登录用户在不可用、过期或私有的分享链接中选择“返回主页”时，现在会进入资料库，而不是公开营销页面。",
     viewAllUpdates: "查看所有更新",
     expand: "展开",
     collapse: "收起",

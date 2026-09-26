@@ -851,6 +851,8 @@ const messages = {
     changelogEmpty: "Noch keine Updates.",
     changelogCommentSignup:
       "Die leere Kommentar-Seitenleiste erklärt kurz, warum sich Clips lohnt, und bietet einen klaren Weg zur Registrierung.",
+    changelogShareLink:
+      "Angemeldete Nutzer mit einem nicht verfügbaren, abgelaufenen oder privaten Freigabelink gelangen bei „Zur Startseite“ jetzt zu ihrer Bibliothek statt zur öffentlichen Marketingseite.",
     viewAllUpdates: "Alle Updates anzeigen",
     expand: "Erweitern",
     collapse: "Einklappen",
