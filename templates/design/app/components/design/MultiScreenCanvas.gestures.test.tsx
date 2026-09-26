@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { createCornerNode } from "@shared/pen-path";
+import { createCornerNode, serializePenNodes } from "@shared/pen-path";
 import { act, type ReactNode, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -52,7 +52,11 @@ function ToolHarness({
 
 type PenHarnessProps = Pick<
   MultiScreenCanvasProps,
-  "onCreatePrimitive" | "onPrimitiveCreated" | "vectorEdit"
+  | "onCreatePrimitive"
+  | "onPrimitiveCreated"
+  | "onUpdatePenPath"
+  | "selectedPenPathNodeId"
+  | "vectorEdit"
 > & { screens?: MultiScreenCanvasProps["screens"] };
 
 function PenHarness({
@@ -379,6 +383,68 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       "pen",
     );
     expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+  });
+
+  it("retries a rejected overview continuation update against the same vector", async () => {
+    const onUpdatePenPath = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const onCreatePrimitive = vi.fn(() => "duplicate-vector");
+    const surface = await renderPenHarness({
+      onCreatePrimitive,
+      onUpdatePenPath,
+      selectedPenPathNodeId: "vector-a",
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-a"]',
+    );
+    expect(iframe).not.toBeNull();
+    Object.defineProperties(iframe!, {
+      clientWidth: { value: 320 },
+      clientHeight: { value: 640 },
+      getBoundingClientRect: {
+        value: () => ({
+          x: 48,
+          y: 48,
+          top: 48,
+          right: 368,
+          bottom: 688,
+          left: 48,
+          width: 320,
+          height: 640,
+          toJSON: () => ({}),
+        }),
+      },
+    });
+    const frameDocument = iframe!.contentDocument;
+    expect(frameDocument).not.toBeNull();
+    frameDocument!.body.innerHTML = `<svg viewBox="0 0 400 400" data-agent-native-node-id="vector-a" data-an-pen-nodes='${serializePenNodes({ closed: false, nodes: [createCornerNode({ x: 100, y: 100 }), createCornerNode({ x: 200, y: 100 })] })}'><path d="M 100 100 L 200 100" /></svg>`;
+    const svg = frameDocument!.querySelector("svg");
+    expect(svg).not.toBeNull();
+    Object.defineProperty(svg!, "getScreenCTM", {
+      value: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+    });
+
+    await clickPenAnchor(surface, 248, 148);
+    await clickPenAnchor(surface, 288, 188);
+    await pressKey("Enter");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).not.toBeNull();
+
+    await pressKey("Enter");
+
+    expect(onUpdatePenPath).toHaveBeenCalledTimes(2);
+    expect(
+      onUpdatePenPath.mock.calls.map(([screenId, nodeId]) => [
+        screenId,
+        nodeId,
+      ]),
+    ).toEqual([
+      ["screen-a", "vector-a"],
+      ["screen-a", "vector-a"],
+    ]);
+    expect(onCreatePrimitive).not.toHaveBeenCalled();
   });
 
   it("Escape finishes a board path open and Enter selects Move", async () => {
