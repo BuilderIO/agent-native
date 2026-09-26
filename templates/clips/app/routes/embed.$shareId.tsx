@@ -299,6 +299,7 @@ export default function EmbedRoute() {
 
   if (isImageRecording(recording)) {
     return (
+      // guard:allow-raw-color — standalone embeds match the black player backdrop
       <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black">
         {/* Through the same gated route as the share page, so the password
             and expiry cover the picture, not just this page. */}
