@@ -42,6 +42,7 @@ import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
+import { isPrivateBlobStorageConfigured } from "@/lib/prompt-file-uploads";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
@@ -153,6 +154,9 @@ export function NewDeckReferenceStep({
   const [continuing, setContinuing] = useState(false);
   const [importingSource, setImportingSource] =
     useState<FileImportSource | null>(null);
+  const [fileStorageStatus, setFileStorageStatus] = useState<
+    "checking" | "available" | "unavailable" | "unknown"
+  >("checking");
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
@@ -185,6 +189,24 @@ export function NewDeckReferenceStep({
     setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setFileStorageStatus("checking");
+    void isPrivateBlobStorageConfigured()
+      .then((configured) => {
+        if (!cancelled) {
+          setFileStorageStatus(configured ? "available" : "unavailable");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFileStorageStatus("unknown");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -496,7 +518,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pptx"}
                   importingLabel={importingLabel}
-                  disabled={busy}
+                  disabled={busy || fileStorageStatus !== "available"}
                   onChange={(event) => void handleImport(event, "pptx")}
                 />
                 <FileImportOption
@@ -507,7 +529,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pdf"}
                   importingLabel={importingLabel}
-                  disabled={busy}
+                  disabled={busy || fileStorageStatus !== "available"}
                   onChange={(event) => void handleImport(event, "pdf")}
                 />
                 <FileImportOption
@@ -518,7 +540,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "docx"}
                   importingLabel={importingLabel}
-                  disabled={busy}
+                  disabled={busy || fileStorageStatus !== "available"}
                   onChange={(event) => void handleImport(event, "docx")}
                 />
                 <ImportOption
@@ -550,6 +572,16 @@ export function NewDeckReferenceStep({
                   onClick={() => chooseSource("figma")}
                 />
               </div>
+              {fileStorageStatus === "unavailable" && (
+                <p className="mt-3 text-sm text-destructive" role="alert">
+                  {t("home.referenceFileStorageUnavailable")}
+                </p>
+              )}
+              {fileStorageStatus === "unknown" && (
+                <p className="mt-3 text-sm text-destructive" role="alert">
+                  {t("editorToolbar.importFailedDescription")}
+                </p>
+              )}
               {selectedSource && (
                 <Input
                   autoFocus

@@ -78,6 +78,7 @@ import {
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
 } from "../file-upload/index.js";
+import { isPrivateBlobConfiguredForRequest } from "../private-blob/index.js";
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
 import { registerLabs } from "../labs/registry.js";
@@ -5156,6 +5157,7 @@ export function createCoreRoutesPlugin(
 
             return {
               configured,
+              privateBlobConfigured: await isPrivateBlobConfiguredForRequest(),
               activeProvider,
               providers,
               builderConfigured,

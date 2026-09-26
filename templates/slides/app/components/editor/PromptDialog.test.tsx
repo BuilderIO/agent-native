@@ -194,6 +194,7 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   addInlineImageFallbacks,
+  isPrivateBlobStorageConfigured,
   uploadPromptFiles,
 } from "@/lib/prompt-file-uploads";
 
@@ -364,6 +365,22 @@ describe("uploadPromptFiles", () => {
     cleanup();
     vi.unstubAllGlobals();
     ensureEmbedAuthFetchInterceptor.mockClear();
+  });
+
+  it("reads private blob readiness from the shared file storage status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ privateBlobConfigured: false }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(isPrivateBlobStorageConfigured()).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/_agent-native/file-upload/status"),
+      { credentials: "include" },
+    );
+    expect(ensureEmbedAuthFetchInterceptor).toHaveBeenCalledOnce();
   });
 
   it("rejects more than 20 files before starting uploads", async () => {

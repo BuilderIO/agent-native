@@ -911,6 +911,8 @@ const messages = {
     chooseReferences: "選擇參考資料",
     addDesignSystem: "+ 設計系統",
     importFrom: "匯入來源",
+    referenceFileStorageUnavailable:
+      "尚未設定檔案儲存空間。請連結 Builder.io 或其他檔案提供者，以匯入參考檔案。",
     attachedFiles: "已附加檔案",
     imported: "已匯入",
     importedReferenceDeck: "已匯入的參考投影片",

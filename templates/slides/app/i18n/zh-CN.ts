@@ -916,6 +916,8 @@ const messages = {
     chooseReferences: "选择参考资料",
     addDesignSystem: "+ 设计系统",
     importFrom: "导入自",
+    referenceFileStorageUnavailable:
+      "尚未配置文件存储。请连接 Builder.io 或其他文件提供商，以导入参考文件。",
     attachedFiles: "已附加文件",
     imported: "已导入",
     importedReferenceDeck: "已导入的参考幻灯片",

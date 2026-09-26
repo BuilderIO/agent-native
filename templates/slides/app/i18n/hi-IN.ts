@@ -934,6 +934,8 @@ const messages = {
     chooseReferences: "संदर्भ चुनें",
     addDesignSystem: "+ डिज़ाइन सिस्टम",
     importFrom: "इससे आयात करें",
+    referenceFileStorageUnavailable:
+      "फ़ाइल स्टोरेज कॉन्फ़िगर नहीं है। संदर्भ फ़ाइलें इंपोर्ट करने के लिए Builder.io या किसी अन्य फ़ाइल प्रदाता को कनेक्ट करें।",
     attachedFiles: "अटैच किया गया",
     imported: "इंपोर्ट किया गया",
     importedReferenceDeck: "इंपोर्ट किया गया रेफरेंस डेक",

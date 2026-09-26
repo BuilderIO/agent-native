@@ -938,6 +938,8 @@ const messages = {
     chooseReferences: "참조 선택",
     addDesignSystem: "+ 디자인 시스템",
     importFrom: "가져오기",
+    referenceFileStorageUnavailable:
+      "파일 저장소가 설정되지 않았습니다. 참조 파일을 가져오려면 Builder.io 또는 다른 파일 제공업체를 연결하세요.",
     attachedFiles: "첨부 파일",
     imported: "가져옴",
     importedReferenceDeck: "가져온 참고 덱",
