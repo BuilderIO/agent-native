@@ -124,6 +124,9 @@ describe("meeting pill chat eligibility", () => {
     await act(async () => expandButton?.click());
 
     const chatProps = mocks.assistantChats.mock.calls.map(([props]) => props);
+    const activeComposerProps = chatProps.filter(
+      (props) => props.isActiveComposer === true,
+    );
     expect(chatProps.some((props) => props.isActiveComposer === true)).toBe(
       true,
     );
@@ -134,8 +137,7 @@ describe("meeting pill chat eligibility", () => {
       chatProps.every((props) => props.providerStatusChecksEnabled === false),
     ).toBe(true);
     expect(
-      chatProps.filter((props) => props.isActiveComposer === true).at(-1)
-        ?.composerDisabled,
+      activeComposerProps[activeComposerProps.length - 1]?.composerDisabled,
     ).toBe(true);
     expect(
       host.querySelectorAll(".pill-ask-provider-actions button"),
