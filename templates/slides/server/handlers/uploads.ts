@@ -240,7 +240,7 @@ export async function saveUploadedReferenceFile(args: {
     if (!reference) {
       throw Object.assign(
         new Error(
-          "Private file storage is not configured. Connect Builder.io (free tier available) or another file provider before uploading reference files in a hosted Slides deployment.",
+          "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads before uploading reference files.",
         ),
         { statusCode: 503 },
       );

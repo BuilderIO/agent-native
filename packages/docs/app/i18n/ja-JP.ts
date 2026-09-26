@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const jaJP = {
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 接続を確認しています…",
+      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+    },
+    common: { retry: "再試行" },
+  },
   language: {
     label: "言語",
     system: "システム",

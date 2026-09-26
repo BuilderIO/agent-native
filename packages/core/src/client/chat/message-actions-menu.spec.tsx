@@ -15,9 +15,13 @@ const harness = vi.hoisted(() => ({
   getActiveRun: vi.fn(),
 }));
 
-vi.mock("@assistant-ui/react", () => ({
-  useMessageRuntime: () => ({ getState: () => harness.message }),
-}));
+vi.mock("@assistant-ui/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@assistant-ui/react")>();
+  return {
+    ...actual,
+    useMessageRuntime: () => ({ getState: () => harness.message }),
+  };
+});
 
 vi.mock("../clipboard.js", () => ({
   writeClipboardText: harness.writeClipboardText,

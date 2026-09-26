@@ -1163,6 +1163,15 @@ const history = {
 };
 
 const overrides = {
+  close: "Fechar",
+  setup: { checkingProvider: "Verificando a conexão com a IA…" },
+  onboarding: {
+    fileStorage: {
+      title: "Conecte o armazenamento para enviar arquivos",
+      statusUnavailable:
+        "O status do armazenamento de arquivos está indisponível.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,

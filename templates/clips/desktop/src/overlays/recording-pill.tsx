@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowUp,
   IconCheck,
@@ -14,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { PhysicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { LiveWaveform } from "../components/live-waveform";
@@ -83,6 +85,7 @@ interface PillContext {
 const pillDemoMode = import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
 export function MeetingPill() {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);
   /** Demo harness only: the meter reads capture events in the real app. */
@@ -102,6 +105,10 @@ export function MeetingPill() {
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
   const [ask, setAsk] = useState("");
+  const [providerStatus, setProviderStatus] = useState<
+    "unknown" | "configured" | "missing" | "unavailable"
+  >(pillDemoMode ? "configured" : "unknown");
+  const providerStatusAbortRef = useRef<AbortController | null>(null);
   // Inline ask conversation (the Wispr interaction): a sheet rises from the
   // composer with the running exchange — user questions as chat bubbles,
   // streamed answers, and contextual suggestion chips. In Tauri the answers
@@ -131,6 +138,56 @@ export function MeetingPill() {
   const [askChips, setAskChips] = useState<
     Array<{ label: string; ask: string }>
   >([]);
+
+  const checkProviderStatus = useCallback(async () => {
+    if (pillDemoMode) {
+      setProviderStatus("configured");
+      return;
+    }
+    providerStatusAbortRef.current?.abort();
+    const controller = new AbortController();
+    providerStatusAbortRef.current = controller;
+    setProviderStatus("unknown");
+    try {
+      const response = await fetch(
+        `${loadStoredServerUrl()}/_agent-native/agent-engine/status`,
+        { credentials: "include", signal: controller.signal },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = (await response.json()) as { configured?: unknown };
+      if (typeof body.configured !== "boolean") {
+        throw new Error("Provider status response was incomplete");
+      }
+      if (!controller.signal.aborted) {
+        setProviderStatus(body.configured ? "configured" : "missing");
+      }
+    } catch {
+      if (!controller.signal.aborted) setProviderStatus("unavailable");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (ctx.mode !== "meeting" || !ctx.meetingId) {
+      setProviderStatus("configured");
+      return;
+    }
+    void checkProviderStatus();
+    return () => providerStatusAbortRef.current?.abort();
+  }, [checkProviderStatus, ctx.meetingId, ctx.mode]);
+
+  useEffect(() => {
+    if (
+      pillDemoMode ||
+      ctx.mode !== "meeting" ||
+      !ctx.meetingId ||
+      (providerStatus !== "missing" && providerStatus !== "unavailable")
+    ) {
+      return;
+    }
+    const onFocus = () => void checkProviderStatus();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [checkProviderStatus, ctx.meetingId, ctx.mode, providerStatus]);
 
   /** The last ~2 minutes of transcript, capped, most recent last — inlined
    * into the ask scaffold so simple questions need no tool round trip and
@@ -779,7 +836,13 @@ export function MeetingPill() {
 
   const submitAsk = (question: string) => {
     const mid = activeMeetingIdRef.current;
-    if (!question || !mid) return;
+    if (
+      !question ||
+      !mid ||
+      (!pillDemoMode && providerStatus !== "configured")
+    ) {
+      return;
+    }
     refreshAskChips();
     if (pillDemoMode) {
       if (askStreamRef.current) clearInterval(askStreamRef.current);
@@ -941,7 +1004,9 @@ export function MeetingPill() {
   const handleAskSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const question = ask.trim();
-    if (!question) return;
+    if (!question || (!pillDemoMode && providerStatus !== "configured")) {
+      return;
+    }
     setAsk("");
     submitAsk(question);
   };
@@ -951,7 +1016,7 @@ export function MeetingPill() {
    * should meet Wednesday at 7" should surface a booking chip. Static
    * fallbacks cover failures and the first seconds of a meeting. */
   const refreshAskChips = () => {
-    if (pillDemoMode) return;
+    if (pillDemoMode || providerStatus !== "configured") return;
     const mid = activeMeetingIdRef.current;
     if (!mid) return;
     const now = Date.now();
@@ -1465,6 +1530,7 @@ export function MeetingPill() {
                     size="sm"
                     data-no-drag
                     className="h-7 shrink-0 rounded-full px-3 text-xs font-normal"
+                    disabled={!pillDemoMode && providerStatus !== "configured"}
                     onClick={() => submitAsk(chip.ask)}
                   >
                     {chip.label}
@@ -1474,29 +1540,94 @@ export function MeetingPill() {
             </div>
           ) : null}
           {ctx.mode === "meeting" ? (
-            <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
-              <div className="pill-ask-field" data-no-drag>
-                <input
+            <>
+              {!pillDemoMode && providerStatus !== "configured" ? (
+                <div
+                  className="pill-ask-provider-status"
                   data-no-drag
-                  className="pill-ask-input"
-                  value={ask}
-                  onChange={(e) => setAsk(e.target.value)}
-                  placeholder="Ask anything"
-                  aria-label="Ask anything about this meeting"
-                  disabled={!ctx.meetingId}
-                />
-                <button
-                  type="submit"
-                  data-no-drag
-                  className="pill-ask-send"
-                  disabled={!ask.trim() || !ctx.meetingId}
-                  aria-label="Ask"
-                  title="Ask"
+                  role="status"
                 >
-                  <IconArrowUp size={13} />
-                </button>
-              </div>
-            </form>
+                  <span>
+                    {providerStatus === "unknown"
+                      ? t("agentChat.setup.checkingProvider")
+                      : providerStatus === "unavailable"
+                        ? t("agentChat.setup.providerStatusUnavailable")
+                        : t("agentChat.setup.connectToStart")}
+                  </span>
+                  {providerStatus === "missing" ? (
+                    <div className="pill-ask-provider-actions">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void openExternal(
+                            new URL(
+                              "/settings/agent",
+                              loadStoredServerUrl(),
+                            ).toString(),
+                          )
+                        }
+                      >
+                        {t("agentChat.setup.connectBuilder")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void openExternal(
+                            new URL(
+                              "/settings/keys",
+                              loadStoredServerUrl(),
+                            ).toString(),
+                          )
+                        }
+                      >
+                        {t("agentChat.setup.addOwnKeys")}
+                      </button>
+                    </div>
+                  ) : providerStatus === "unavailable" ? (
+                    <button
+                      type="button"
+                      onClick={() => void checkProviderStatus()}
+                    >
+                      {t("agentChat.common.retry")}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
+                <div className="pill-ask-field" data-no-drag>
+                  <input
+                    data-no-drag
+                    className="pill-ask-input"
+                    value={ask}
+                    onChange={(e) => setAsk(e.target.value)}
+                    placeholder={
+                      providerStatus === "configured"
+                        ? t("agentNativeClips.meetingAsk.placeholder")
+                        : t("agentChat.setup.connectToChat")
+                    }
+                    aria-label={t("agentNativeClips.meetingAsk.ariaLabel")}
+                    disabled={
+                      !ctx.meetingId ||
+                      (!pillDemoMode && providerStatus !== "configured")
+                    }
+                  />
+                  <button
+                    type="submit"
+                    data-no-drag
+                    className="pill-ask-send"
+                    disabled={
+                      !ask.trim() ||
+                      !ctx.meetingId ||
+                      (!pillDemoMode && providerStatus !== "configured")
+                    }
+                    aria-label={t("agentNativeClips.meetingAsk.ariaLabel")}
+                    title={t("agentNativeClips.meetingAsk.ariaLabel")}
+                  >
+                    <IconArrowUp size={13} />
+                  </button>
+                </div>
+              </form>
+            </>
           ) : null}
         </div>
       </div>

@@ -3,26 +3,27 @@ vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => true,
 }));
 const isReferenceStorageReadyMock = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/prompt-file-uploads", () => ({
-  isPromptUploadAuthRequiredError: (error: unknown) =>
-    error instanceof Error &&
-    "code" in error &&
-    error.code === "reference_storage_auth_required",
-  isPromptUploadNetworkError: (error: unknown) =>
-    error instanceof TypeError ||
-    (error instanceof Error && error.name === "AbortError"),
+vi.mock("@/lib/prompt-file-uploads", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/prompt-file-uploads")>()),
   isReferenceStorageReady: isReferenceStorageReadyMock,
 }));
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
   cleanup,
   fireEvent,
-  render,
+  render as renderWithoutQueryClient,
   screen,
 } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Deck } from "@/context/DeckContext";
+import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
+
+vi.mock("@agent-native/core/client/setup-connections", () => ({
+  FileStorageSetupCard: () => <div data-testid="file-storage-setup-card" />,
+}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { title?: string }) => {
@@ -37,14 +38,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "home.googleSlidesImportLabel": "Slides",
         "home.googleSlidesReferenceTitle": "Google Slides",
         "home.referenceImportSuccess": "Imported successfully",
-        "home.referenceFileStorageUnavailable":
-          "File storage is not configured. Connect Builder.io or another file provider to import reference files.",
         "home.importMenu.networkFailed":
           "The import request timed out or lost its network connection. Check your connection and retry.",
         "home.importMenu.notStarted":
           "Complete any required sign-in, then retry the import.",
-        "editorToolbar.importFailedDescription":
-          "Something went wrong importing this file.",
+        "home.fileStorageStatusUnavailable":
+          "Couldn't check object storage. Retry before uploading files.",
         "home.none": "None",
         "home.continue": "Continue",
         "home.continueToGenerate": "Continue to generate",
@@ -84,8 +83,21 @@ import {
   type ImportedReference,
 } from "./NewDeckReferenceStep";
 
+function render(ui: ReactNode, configured: boolean | null = true) {
+  const queryClient = new QueryClient();
+  if (configured !== null) {
+    queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, { configured });
+  }
+  return renderWithoutQueryClient(ui, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  });
+}
+
 async function renderStep(
   overrides: Partial<React.ComponentProps<typeof NewDeckReferenceStep>> = {},
+  storageConfigured: boolean | null = true,
 ) {
   const onSelect = vi.fn();
   const onImport =
@@ -121,7 +133,7 @@ async function renderStep(
     searchDecksLabel: "Search decks",
     ...overrides,
   };
-  const view = render(<NewDeckReferenceStep {...props} />);
+  const view = render(<NewDeckReferenceStep {...props} />, storageConfigured);
   await act(async () => {
     await Promise.resolve();
   });
@@ -141,11 +153,10 @@ async function renderStep(
 }
 
 describe("<NewDeckReferenceStep>", () => {
-  beforeEach(() => {
-    isReferenceStorageReadyMock.mockResolvedValue(true);
+  afterEach(() => {
+    cleanup();
+    isReferenceStorageReadyMock.mockReset();
   });
-
-  afterEach(() => cleanup());
 
   it("confirms a PPTX import and keeps it selected until generation continues", async () => {
     const imported: ImportedReference = {
@@ -197,7 +208,7 @@ describe("<NewDeckReferenceStep>", () => {
     isReferenceStorageReadyMock.mockRejectedValue(
       new TypeError("Failed to fetch"),
     );
-    await renderStep();
+    await renderStep({}, null);
 
     expect((await screen.findByRole("alert")).textContent).toBe(
       "The import request timed out or lost its network connection. Check your connection and retry.",
@@ -215,17 +226,17 @@ describe("<NewDeckReferenceStep>", () => {
       Object.assign(new Error("Storage status request failed (503)"), {
         code: "reference_storage_http_failed",
       }),
-      "Something went wrong importing this file.",
+      "Couldn't check object storage. Retry before uploading files.",
     ],
     [
       Object.assign(new Error("Storage status response is invalid"), {
         code: "reference_storage_contract_failed",
       }),
-      "Something went wrong importing this file.",
+      "Couldn't check object storage. Retry before uploading files.",
     ],
   ])("maps storage check failures to safe guidance", async (error, message) => {
     isReferenceStorageReadyMock.mockRejectedValue(error);
-    await renderStep();
+    await renderStep({}, null);
 
     expect((await screen.findByRole("alert")).textContent).toBe(message);
     expect(
@@ -262,17 +273,23 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Reference PDF");
   });
 
-  it("blocks file imports and explains when private storage is unavailable", async () => {
-    isReferenceStorageReadyMock.mockResolvedValue(false);
-    const { onImport } = await renderStep();
+  it("blocks file imports and shows storage setup when storage is unavailable", async () => {
+    const { onImport } = await renderStep({}, false);
 
-    expect(document.querySelector('input[accept=".pdf"]')).toHaveProperty(
-      "disabled",
-      true,
-    );
-    expect(screen.getByRole("alert").textContent).toContain(
-      "File storage is not configured",
-    );
+    const input = document.querySelector('input[accept=".pdf"]')!;
+    expect(input).toHaveProperty("disabled", true);
+    expect(screen.getByTestId("file-storage-setup-card")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.change(input, {
+        target: {
+          files: [
+            new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+          ],
+        },
+      });
+    });
+
     expect(onImport).not.toHaveBeenCalled();
   });
 

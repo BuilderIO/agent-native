@@ -241,6 +241,7 @@ function FormsCommandMenu({
       onOpenChange={onOpenChange}
       changelog={changelog}
       changelogKey="forms"
+      chatStorageKey="forms"
     >
       <CommandMenu.Group heading={t("root.commandForms")}>
         {formId && !isResponsesRoute ? (

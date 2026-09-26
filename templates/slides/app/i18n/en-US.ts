@@ -126,7 +126,7 @@ const messages = {
       "Google Picker needs GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect Builder.io (free tier available) from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
+      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     sentToAgent: "Sent to agent",
     imageUploadGenericError: "Something went wrong uploading this image.",
     uploading: "Uploading…",
@@ -650,6 +650,12 @@ const messages = {
     lookingForDeck: "Looking for this deck",
     joinTeamToOpen: "Join your team to open this deck",
     deckUnavailable: "Deck unavailable",
+    generationStalled: "Generation paused after 5 minutes without progress",
+    generationStalledDescription:
+      "Your saved slides are still here. Continue from this deck in chat.",
+    continueInChat: "Continue in chat",
+    continueGenerationPrompt:
+      "Continue generating slides for this deck. Check its current slides and saved generation context first. Keep completed slides and add only the missing slides.",
     checkingSharedAccess:
       "Checking whether this presentation is shared with your account.",
     joinTeamDescription:
@@ -698,7 +704,7 @@ const messages = {
     tryAgain: "Try again",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect Builder.io (free tier available) from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
+      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     imageAdded: "Image added",
     imageUploadError: "Something went wrong uploading this image.",
     exportFailed: "Export failed",
@@ -865,7 +871,7 @@ const messages = {
       starting: "Starting…",
       generate: "Generate",
       connectionRequired:
-        "Connect Builder.io above the home prompt, then try again.",
+        "Connect an AI provider above the home prompt or add your own AI key, then try again.",
       invalidPdf: "Choose a PDF file.",
       notReady:
         "Review the prompt's loading or failed context and connection status, then try again.",
@@ -917,6 +923,10 @@ const messages = {
     loadFailedDescription:
       "Your saved content is still available. Check the connection and try again.",
     retry: "Retry",
+    fileStorageStatusUnavailable:
+      "Couldn't check object storage. Retry before uploading files.",
+    fileStorageSetupRequired:
+      "No object storage is connected. Connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     decksTitle: "Decks",
     deckLengthQuestion: "How long should this deck be?",
     deckLengthHeader: "Deck length",

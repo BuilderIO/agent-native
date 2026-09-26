@@ -122,7 +122,7 @@ const messages = {
       "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
     imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
-      "请从代理编写器的模型菜单连接 Builder.io，以便将图片上传到幻灯片。即使没有提供方，把图片拖到空白画布上仍可发送给代理。",
+      "连接对象存储以上传图片：连接 Builder.io（免费），或在“设置 → 文件上传”中添加你自己的 S3 兼容存储密钥。",
     sentToAgent: "エージェントに送信しました",
     imageUploadGenericError: "この画像のアップロード中に問題が発生しました。",
     uploading: "アップロード中…",
@@ -638,6 +638,12 @@ const messages = {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
+    generationStalled: "5 分钟没有进展，已暂停生成",
+    generationStalledDescription:
+      "已保存的幻灯片仍然保留。你可以在聊天中继续此演示文稿。",
+    continueInChat: "在聊天中继续",
+    continueGenerationPrompt:
+      "继续为此演示文稿生成幻灯片。请先检查现有幻灯片和已保存的生成上下文。保留已完成的幻灯片，只添加缺少的内容。",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
@@ -683,7 +689,7 @@ const messages = {
     tryAgain: "重试",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
-      "请从代理编写器的模型菜单连接 Builder.io，以便将图片上传到幻灯片。即使没有提供方，把图片拖到空白画布上仍可发送给代理。",
+      "连接对象存储以上传图片：连接 Builder.io（免费），或在“设置 → 文件上传”中添加你自己的 S3 兼容存储密钥。",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
@@ -840,7 +846,8 @@ const messages = {
       invalidUrl: "请输入有效的 HTTP 或 HTTPS URL。",
       starting: "正在启动…",
       generate: "生成",
-      connectionRequired: "请先在主页输入框上方连接 Builder.io，然后重试。",
+      connectionRequired:
+        "请在主页提示框上方连接 AI 提供商，或添加自己的 AI 密钥，然后重试。",
       invalidPdf: "请选择 PDF 文件。",
       notReady: "请检查待加载或失败的上下文以及连接状态，然后重试。",
       tooLong: "来源文本请控制在 20,000 字符以内。",
@@ -889,6 +896,9 @@ const messages = {
     loadFailed: "无法加载内容",
     loadFailedDescription: "您保存的内容仍然可用。请检查连接并重试。",
     retry: "重试",
+    fileStorageStatusUnavailable: "无法检查对象存储状态。请在上传文件前重试。",
+    fileStorageSetupRequired:
+      "尚未连接对象存储。请免费连接 Builder.io，或前往设置 → 文件上传添加自己的 S3 兼容存储密钥。",
     decksTitle: "幻灯片",
     deckLengthQuestion: "这份幻灯片需要多长？",
     deckLengthHeader: "幻灯片长度",

@@ -3,6 +3,12 @@ import { useT } from "@agent-native/core/client/i18n";
 import { getOversizedDocumentAttachmentError } from "@agent-native/toolkit/composer/TiptapComposer";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import {
+  isPromptUploadAuthRequiredError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
+} from "@/lib/prompt-file-uploads";
+
 import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
 export type PromptImportSource = "pdf" | "pptx" | "google-slides";
 export type PromptImportSelection =
@@ -36,7 +42,7 @@ export function usePromptImport({
 }: {
   onImport?: PromptImportHandler;
   onSuccess?: () => void;
-  onError?: (message: string) => void;
+  onError?: (message: string, cause?: unknown) => void;
 }) {
   const t = useT();
   const [importingSource, setImportingSource] =
@@ -50,9 +56,9 @@ export function usePromptImport({
     setRetrySelection(undefined);
   }, []);
   const fail = useCallback(
-    (message: string) => {
+    (message: string, cause?: unknown) => {
       setError(message);
-      onError?.(message);
+      onError?.(message, cause);
       return false;
     },
     [onError],
@@ -94,35 +100,24 @@ export function usePromptImport({
         return true;
       } catch (cause) {
         const actionMessage = actionErrorMessage(cause);
-        if (actionMessage) return fail(actionMessage);
+        if (actionMessage) return fail(actionMessage, cause);
         if (
           cause instanceof Error &&
           "code" in cause &&
           cause.code === "reference_storage_unavailable"
         ) {
-          return fail(cause.message);
+          return fail(cause.message, cause);
         }
-        if (
-          cause instanceof Error &&
-          "code" in cause &&
-          cause.code === "reference_upload_network_failed"
-        ) {
-          return fail(t("home.importMenu.networkFailed"));
+        if (isPromptUploadNetworkError(cause)) {
+          return fail(t("home.importMenu.networkFailed"), cause);
         }
-        if (
-          cause instanceof Error &&
-          "code" in cause &&
-          cause.code === "reference_storage_status_failed"
-        ) {
-          return fail(t("home.importMenu.networkFailed"));
+        if (isPromptUploadAuthRequiredError(cause)) {
+          return fail(t("home.importMenu.notStarted"), cause);
         }
-        if (
-          cause instanceof TypeError ||
-          (cause instanceof Error && cause.name === "AbortError")
-        ) {
-          return fail(t("home.importMenu.networkFailed"));
+        if (isPromptUploadStorageStatusError(cause)) {
+          return fail(t("home.fileStorageStatusUnavailable"), cause);
         }
-        return fail(t("editorToolbar.importFailedDescription"));
+        return fail(t("editorToolbar.importFailedDescription"), cause);
       } finally {
         busy.current = false;
         setImportingSource(null);

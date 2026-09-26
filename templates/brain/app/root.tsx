@@ -158,6 +158,7 @@ function AppContent() {
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="brain"
+        chatStorageKey="brain"
       >
         <CommandMenu.Group heading={t("root.commandNavigate")}>
           <CommandMenu.Item onSelect={() => navigate("/home")}>

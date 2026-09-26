@@ -348,9 +348,7 @@ describe("Slides reference upload limits", () => {
         data: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
       }),
     ).rejects.toMatchObject({
-      message: expect.stringContaining(
-        "Private file storage is not configured",
-      ),
+      message: expect.stringContaining("No object storage is connected"),
       statusCode: 503,
     });
     expect(mockWriteFile).not.toHaveBeenCalled();

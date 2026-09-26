@@ -127,7 +127,7 @@ const messages = {
       "Google Picker necesita GOOGLE_PICKER_API_KEY y GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Error al subir la imagen",
     imageUploadNeedsBuilder:
-      "Conecta Builder.io desde el menú de modelos del compositor del agente para subir imágenes a las diapositivas. Soltar una imagen en el lienzo vacío aún puede enviarla al agente sin proveedor.",
+      "Conecta un almacenamiento de objetos para subir imágenes: conecta Builder.io (gratis) o añade tus propias claves de almacenamiento compatibles con S3 en Configuración → Cargas de archivos.",
     sentToAgent: "Enviado al agente",
     imageUploadGenericError: "Algo salió mal al subir esta imagen.",
     uploading: "Subiendo…",
@@ -665,6 +665,12 @@ const messages = {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
+    generationStalled: "La generación se pausó tras 5 minutos sin avances",
+    generationStalledDescription:
+      "Tus diapositivas guardadas siguen aquí. Continúa desde este deck en el chat.",
+    continueInChat: "Continuar en el chat",
+    continueGenerationPrompt:
+      "Continúa generando las diapositivas de este deck. Primero revisa sus diapositivas actuales y el contexto de generación guardado. Conserva las diapositivas completadas y añade solo las que faltan.",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
     joinTeamDescription:
@@ -715,7 +721,7 @@ const messages = {
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
-      "Conecta Builder.io desde el menú de modelos del compositor del agente para subir imágenes a las diapositivas. Soltar una imagen en el lienzo vacío aún puede enviarla al agente sin proveedor.",
+      "Conecta un almacenamiento de objetos para subir imágenes: conecta Builder.io (gratis) o añade tus propias claves de almacenamiento compatibles con S3 en Configuración → Cargas de archivos.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
@@ -891,7 +897,7 @@ const messages = {
       starting: "Iniciando…",
       generate: "Generar",
       connectionRequired:
-        "Conecta Builder.io encima del mensaje de inicio y vuelve a intentarlo.",
+        "Conecta un proveedor de IA encima del cuadro de inicio o añade tu propia clave de IA y vuelve a intentarlo.",
       invalidPdf: "Elige un archivo PDF.",
       notReady:
         "Revisa el contexto pendiente o fallido y la conexión antes de reintentar.",
@@ -943,6 +949,10 @@ const messages = {
     loadFailedDescription:
       "El contenido guardado sigue disponible. Comprueba la conexión e inténtalo de nuevo.",
     retry: "Reintentar",
+    fileStorageStatusUnavailable:
+      "No se pudo comprobar el almacenamiento de objetos. Vuelve a intentarlo antes de subir archivos.",
+    fileStorageSetupRequired:
+      "No hay almacenamiento de objetos conectado. Conecta Builder.io gratis o añade tus propias claves de almacenamiento compatibles con S3 en Ajustes → Carga de archivos.",
     decksTitle: "Decks",
     deckLengthQuestion: "¿Qué longitud debe tener este deck?",
     deckLengthHeader: "Longitud del deck",
