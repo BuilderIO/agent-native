@@ -30,7 +30,7 @@ export interface BetaSite {
  * it is not meaningfully exercisable from CI. They still get the full
  * unauthenticated sweep — which is where their reported breakage lives.
  */
-const GOOGLE_ONLY_APPS = new Set(["mail", "calendar"]);
+const GOOGLE_ONLY_APPS = new Set(["calendar", "factory", "mail"]);
 
 /**
  * Apps that carry an agent chat surface worth spending model tokens on. Kept
