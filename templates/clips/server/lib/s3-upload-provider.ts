@@ -132,30 +132,49 @@ async function fetchWithTimeout(
 
     const reader = response.body.getReader();
     let idleTimeout: ReturnType<typeof setTimeout> | undefined;
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    let bodySettled = false;
     const clearIdleTimeout = () => {
       if (idleTimeout) {
         clearTimeout(idleTimeout);
         idleTimeout = undefined;
       }
     };
+    const timeOutBody = () => {
+      if (bodySettled) return;
+      const timeoutError = createTimeoutError();
+      bodySettled = true;
+      clearIdleTimeout();
+      controller.abort(timeoutError);
+      bodyController?.error(timeoutError);
+    };
+    const resetIdleTimeout = () => {
+      clearIdleTimeout();
+      idleTimeout = setTimeout(timeOutBody, timeoutMs);
+    };
     const body = new ReadableStream<Uint8Array>(
       {
+        start(streamController) {
+          bodyController = streamController;
+          resetIdleTimeout();
+        },
         async pull(streamController) {
           try {
             if (controller.signal.aborted) throw controller.signal.reason;
-            idleTimeout = setTimeout(
-              () => controller.abort(createTimeoutError()),
-              timeoutMs,
-            );
             const { done, value } = await reader.read();
-            clearIdleTimeout();
+            if (bodySettled) return;
             if (controller.signal.aborted) throw controller.signal.reason;
             if (done) {
+              bodySettled = true;
+              clearIdleTimeout();
               streamController.close();
             } else {
               streamController.enqueue(value);
+              resetIdleTimeout();
             }
           } catch (error) {
+            if (bodySettled) return;
+            bodySettled = true;
             clearIdleTimeout();
             streamController.error(
               controller.signal.aborted ? controller.signal.reason : error,
@@ -163,6 +182,7 @@ async function fetchWithTimeout(
           }
         },
         async cancel(reason) {
+          bodySettled = true;
           clearIdleTimeout();
           await reader.cancel(reason);
         },
@@ -193,12 +213,23 @@ async function fetchWithTimeout(
 function trustedDeploymentS3Origin(endpoint: string): string | undefined {
   const configuredEndpoint = readS3EnvSecret("S3_ENDPOINT", "R2_ENDPOINT");
   if (!configuredEndpoint) return undefined;
-  try {
-    const origin = new URL(endpoint).origin;
-    return new URL(configuredEndpoint).origin === origin ? origin : undefined;
-  } catch {
+  if (!URL.canParse(endpoint) || !URL.canParse(configuredEndpoint)) {
     return undefined;
   }
+  const endpointUrl = new URL(endpoint);
+  const configuredUrl = new URL(configuredEndpoint);
+  const normalizePath = (path: string) => path.replace(/\/+$/, "") || "/";
+  if (
+    endpointUrl.origin !== configuredUrl.origin ||
+    normalizePath(endpointUrl.pathname) !==
+      normalizePath(configuredUrl.pathname) ||
+    endpointUrl.search !== configuredUrl.search ||
+    endpointUrl.username !== configuredUrl.username ||
+    endpointUrl.password !== configuredUrl.password
+  ) {
+    return undefined;
+  }
+  return endpointUrl.origin;
 }
 
 function buildS3Config(values: {

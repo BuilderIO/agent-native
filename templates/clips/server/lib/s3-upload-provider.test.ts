@@ -289,6 +289,38 @@ describe("s3FileUploadProvider", () => {
     );
   });
 
+  it("rejects workspace private endpoints outside the deployment endpoint path", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    process.env.S3_ENDPOINT = "http://10.0.0.12:9000/minio/";
+    const workspaceValues: Record<string, string> = {
+      S3_BUCKET: "workspace-bucket",
+      S3_ACCESS_KEY_ID: "workspace-access",
+      S3_SECRET_ACCESS_KEY: "workspace-secret",
+      S3_ENDPOINT: "http://10.0.0.12:9000/other-service",
+      S3_REGION: "us-east-1",
+    };
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: Record<string, string>) => {
+        if (scope !== "workspace" || scopeId !== "org-1") return null;
+        return workspaceValues[key] ? { value: workspaceValues[key] } : null;
+      },
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchS3OrganizationLogoByLegacyUrl(
+        "https://old-storage.example/clips/logo-abc123/1722720000000-abcd1234.png",
+        "org-1",
+      ),
+    ).rejects.toThrow(
+      "SSRF blocked: refusing to fetch private/internal S3 endpoint",
+    );
+
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("fails loudly when a recognized legacy logo URL has no current storage config", async () => {
     mockResolveSecret.mockResolvedValue(null);
 
@@ -518,11 +550,11 @@ describe("s3FileUploadProvider", () => {
     mockResolveSecret.mockImplementation(async (key: string) => {
       return values[key] ?? null;
     });
-    let requestSignal: AbortSignal | null = null;
+    const requestSignals: AbortSignal[] = [];
     mockSsrfSafeFetch.mockImplementation(
       async (_url: string, init: RequestInit) => {
         const signal = init.signal as AbortSignal;
-        requestSignal = signal;
+        requestSignals.push(signal);
         return new Response(
           new ReadableStream<Uint8Array>({
             start(streamController) {
@@ -543,12 +575,12 @@ describe("s3FileUploadProvider", () => {
     );
 
     expect(response?.status).toBe(200);
-    expect(requestSignal?.aborted).toBe(false);
+    expect(requestSignals[0]?.aborted).toBe(false);
     await expect(response!.arrayBuffer()).rejects.toMatchObject({
       name: "TimeoutError",
       message: expect.stringContaining("S3 request timed out after 25ms"),
     });
-    expect(requestSignal?.aborted).toBe(true);
+    expect(requestSignals[0]?.aborted).toBe(true);
   });
 
   it("lets progressing S3 playback streams outlast the idle timeout", async () => {
@@ -561,10 +593,10 @@ describe("s3FileUploadProvider", () => {
     mockResolveSecret.mockImplementation(async (key: string) => {
       return values[key] ?? null;
     });
-    let requestSignal: AbortSignal | null = null;
+    const requestSignals: AbortSignal[] = [];
     mockSsrfSafeFetch.mockImplementation(
       async (_url: string, init: RequestInit) => {
-        requestSignal = init.signal as AbortSignal;
+        requestSignals.push(init.signal as AbortSignal);
         let chunk = 0;
         return new Response(
           new ReadableStream<Uint8Array>({
@@ -591,7 +623,55 @@ describe("s3FileUploadProvider", () => {
       new Uint8Array([0, 1, 2]).buffer,
     );
     expect(Date.now() - startedAt).toBeGreaterThan(25);
-    expect(requestSignal?.aborted).toBe(false);
+    expect(requestSignals[0]?.aborted).toBe(false);
+  });
+
+  it("aborts an S3 response body when playback stops pulling chunks", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const requestSignals: AbortSignal[] = [];
+    mockSsrfSafeFetch.mockImplementation(
+      async (_url: string, init: RequestInit) => {
+        const signal = init.signal as AbortSignal;
+        requestSignals.push(signal);
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(streamController) {
+              streamController.enqueue(new Uint8Array([1]));
+              signal.addEventListener(
+                "abort",
+                () => streamController.error(signal.reason),
+                { once: true },
+              );
+            },
+          }),
+        );
+      },
+    );
+
+    const response = await fetchS3ObjectByUrl(
+      "https://s3.example.com/clips-bucket/clips/recording/video.webm",
+      { recordingId: "recording", timeoutMs: 25 },
+    );
+    const reader = response!.body!.getReader();
+
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: new Uint8Array([1]),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(requestSignals[0]?.aborted).toBe(true);
+    await expect(reader.read()).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
   });
 
   it("does not expose multipart staging objects through signed reads", async () => {
