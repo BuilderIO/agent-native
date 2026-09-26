@@ -21,13 +21,14 @@ import {
 } from "./create-deck-generation";
 
 describe("describeUploadedFilesForAgent", () => {
-  it("prevents the agent from guessing a file path without attachments", () => {
+  it("uses supplied source context and blocks guessed file paths without uploads", () => {
     const context = describeUploadedFilesForAgent([], "deck-id");
 
-    expect(context).toContain("No files are attached to this run");
-    expect(context).toContain("do not invent a file path");
+    expect(context).toContain("No uploaded files are attached to this run");
+    expect(context).toContain("Use source text already present");
+    expect(context).toContain("Never invent a local file path");
     expect(context).toContain(
-      "ask the user to upload it or paste its contents",
+      "ask the user to upload the file or paste its contents",
     );
   });
 });

@@ -16,7 +16,10 @@ import { toast } from "sonner";
 
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
-import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation";
+import {
+  NO_UPLOADED_FILES_CONTEXT,
+  WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+} from "@/lib/create-deck-generation";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   deleteUploadedPromptFile,
@@ -46,10 +49,7 @@ function describeUploadedFilesForAgent(
   deckId: string,
 ): string {
   if (files.length === 0) {
-    return [
-      "",
-      "No files are attached to this run. If the request refers to a document or file, do not guess a path or call a file import action; ask the user to upload it or paste its contents.",
-    ].join("\n");
+    return ["", NO_UPLOADED_FILES_CONTEXT].join("\n");
   }
   const fileList = files
     .map(

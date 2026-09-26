@@ -26,6 +26,9 @@ import { TAB_ID } from "@/lib/tab-id";
 export const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
   "When the user asks to use or match a website's styling or branding and provides a URL, call `import-from-url` for each URL before generating. Treat the returned design.md-style visual system as the source of truth for colors, typography, spacing, components, and imagery. If no URL is provided, ask for one instead of guessing the site's style from its name.";
 
+export const NO_UPLOADED_FILES_CONTEXT =
+  "No uploaded files are attached to this run. Use source text already present in the user message or supplied reference context. For a supplied URL, follow its dedicated import instructions. Never invent a local file path or call `import-file` for an unattached file. If the referenced content is not present or retrievable from a supplied reference, ask the user to upload the file or paste its contents.";
+
 interface DesignSystemGenerationContextResult {
   agentContext?: string;
 }
@@ -150,10 +153,7 @@ export function describeUploadedFilesForAgent(
   importedSourceDeck: ImportedSourceDeck | null = null,
 ): string {
   if (files.length === 0) {
-    return [
-      "",
-      "No files are attached to this run. If the request refers to a document or file, do not invent a file path or call a file import action; ask the user to upload it or paste its contents.",
-    ].join("\n");
+    return ["", NO_UPLOADED_FILES_CONTEXT].join("\n");
   }
   const hasDocumentReferences = files.some((file) =>
     referenceDocumentFormat(file),
