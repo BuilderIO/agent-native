@@ -29,6 +29,11 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
+import {
+  listRegisteredSecrets,
+  type SecretSource,
+  type SecretStatus,
+} from "../secrets.js";
 import { cn } from "../utils.js";
 import { KeyProviderTile } from "./KeyProviderTile.js";
 import { NewKeyMenu, normalizeKeyName } from "./NewKeyMenu.js";
@@ -52,9 +57,6 @@ const Button = React.forwardRef<
 ));
 Button.displayName = "SecretsPrimitiveButton";
 
-/** Where a stored value's effective source is, as reported by the server. */
-type SecretSource = "personal" | "workspace" | "vault";
-
 const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
   vault: "secrets.sourceVault",
   workspace: "secrets.sourceWorkspace",
@@ -63,38 +65,8 @@ const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
 const OUTLINE_LINK_CLASSNAME =
   "inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground";
 
-interface SecretStatus {
-  key: string;
-  label: string;
-  description?: string;
-  docsUrl?: string;
-  scope: "user" | "workspace" | "org";
-  kind: "api-key" | "oauth";
-  required: boolean;
-  /**
-   * "set" = a value is in effect; "unset" = not configured; "invalid" = the
-   * validator rejected the stored value; "unknown" = the credential store
-   * could not be read.
-   */
-  status: "set" | "unset" | "invalid" | "unknown";
-  /** Where the effective value comes from — only present when status === "set". */
-  source?: SecretSource;
-  /**
-   * True when the effective value is the row this UI writes for the
-   * registered scope, so Rotate/Remove apply. False when a Vault or
-   * workspace value is in use instead.
-   */
-  managedHere?: boolean;
-  /** A shared value this row overrides; removing the row falls back to it. */
-  overrides?: "vault" | "workspace";
-  last4?: string;
-  updatedAt?: number;
-  oauthProvider?: string;
-  oauthConnectUrl?: string;
-  error?: string;
-}
-
 const ENDPOINT = agentNativePath("/_agent-native/secrets");
+const SECRETS_REQUEST_TIMEOUT_MS = 15_000;
 
 function notifySecretsChanged() {
   if (typeof window === "undefined") return;
@@ -111,6 +83,7 @@ export interface SecretsSectionProps {
 }
 
 export function SecretsSection({ focusKey }: SecretsSectionProps) {
+  const t = useT();
   const [secrets, setSecrets] = useState<SecretStatus[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -126,25 +99,45 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(ENDPOINT)
-      .then(async (r) => {
-        if (!r.ok) {
-          throw new Error(`Failed to load secrets (${r.status})`);
-        }
-        return (await r.json()) as SecretStatus[];
-      })
+    const controller =
+      typeof AbortController === "undefined" ? null : new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const request = listRegisteredSecrets({
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error("Secrets request timed out after 15 seconds"));
+        controller?.abort();
+      }, SECRETS_REQUEST_TIMEOUT_MS);
+    });
+    void Promise.race([request, timeout])
       .then((data) => {
         if (!cancelled) setSecrets(data);
       })
       .catch((err) => {
-        if (!cancelled) setError(err?.message ?? "Failed to load");
+        if (!cancelled) {
+          console.error("Failed to load registered secrets", err);
+          setError(err?.message ?? "Failed to load");
+        }
+      })
+      .finally(() => {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        controller?.abort();
       });
     return () => {
       cancelled = true;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      controller?.abort();
     };
   }, [reloadToken]);
 
   const reload = useCallback(() => setReloadToken((t) => t + 1), []);
+  const retry = useCallback(() => {
+    setError(null);
+    setSecrets(null);
+    setReloadToken((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     if (focusKey) {
@@ -155,9 +148,15 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 
   if (error) {
     return (
-      <p className="text-[10px] text-red-500">
-        Failed to load secrets: {error}
-      </p>
+      <div
+        className="flex items-center gap-2 text-xs text-destructive"
+        role="alert"
+      >
+        <span>{t("agentChat.common.chunkLoadFailed")}</span>
+        <Button type="button" onClick={retry}>
+          {t("agentChat.common.retry")}
+        </Button>
+      </div>
     );
   }
   if (secrets === null) {
