@@ -2790,7 +2790,7 @@ export default function SlideEditor({
 
   /** Enter edit mode on a smart block (text leaf or smart group) */
   const enterInlineEdit = useCallback(
-    (block: HTMLElement) => {
+    (block: HTMLElement, caretPoint?: { x: number; y: number }) => {
       const slideContent = getSlideContent();
       if (!slideContent || !slideContent.contains(block)) return;
       // A bullet is edited as part of its list: the list is the edit root, so
@@ -2836,9 +2836,11 @@ export default function SlideEditor({
           : { slideId: slide.id, content: entryContent };
       const slideId = slide.id;
       // The element itself becomes editable: no copy, overlay, or restyle, so
-      // entering edit changes nothing on the slide. The caret stays where the
-      // user's click or double-click already put the native selection.
+      // entering edit changes nothing on the slide. Double-click prevents the
+      // browser's selection default, so select the clicked word here.
       const text = startInPlaceTextSession(el, {
+        caretPoint,
+        selectWord: !!caretPoint,
         onInput: () => {
           if (textSessionRef.current?.text !== text) return;
           // A list toggle or its undo can retag the edited element.
@@ -8624,7 +8626,7 @@ export default function SlideEditor({
 
       e.preventDefault();
       e.stopPropagation();
-      enterInlineEdit(block);
+      enterInlineEdit(block, { x: e.clientX, y: e.clientY });
     },
     [showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
   );
