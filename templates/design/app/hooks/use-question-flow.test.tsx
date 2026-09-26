@@ -23,7 +23,10 @@ const agentChatMocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/agent-chat", () => agentChatMocks);
 
-import { useQuestionFlow } from "./use-question-flow";
+import {
+  buildGenerationBriefContext,
+  useQuestionFlow,
+} from "./use-question-flow";
 
 let latestHook: ReturnType<typeof useQuestionFlow> | null = null;
 
@@ -91,6 +94,32 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
       handleSubmit: vi.fn(),
       handleSkip: vi.fn(),
     });
+  });
+
+  it("keeps the frozen source snapshot alongside the original prompt and uploaded brief", () => {
+    const context = buildGenerationBriefContext(
+      {
+        prompt: "Original request",
+        uploadedFileContext: "Uploaded brief",
+        contextItems: Object.freeze([
+          Object.freeze({
+            key: "reference",
+            title: "Reference",
+            context: "Frozen source content",
+          }),
+          Object.freeze({
+            key: "design-home-template",
+            title: "Template",
+            context: "",
+          }),
+        ]),
+      },
+      "",
+    );
+
+    expect(context).toContain("Original request");
+    expect(context).toContain("Uploaded brief");
+    expect(context).toContain("Frozen source content");
   });
 
   it("always requests newTab so the returned tabId matches the thread that actually receives the message, even with no prior continuation tab", async () => {

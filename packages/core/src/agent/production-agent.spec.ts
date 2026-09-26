@@ -27,6 +27,7 @@ import {
   getRequestRunContext,
   runWithRequestContext,
 } from "../server/request-context.js";
+import * as settingsStore from "../settings/store.js";
 import { warnAgent } from "./action-warnings.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import type {
@@ -75,6 +76,7 @@ import {
   markBackgroundContinuationChunkTerminal,
   resolveAgentModelSelection,
   resolveAgentOwnerEmail,
+  resolveOwnerEngineApiKey,
   resolveBackgroundDispatchOutcome,
   resolveFinalResponseGuardRequestText,
   resolvePresendWithCap,
@@ -135,6 +137,28 @@ describe("runCompletionCallbackWithDatabaseRetry", () => {
 
     expect(callback).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledWith(250);
+  });
+});
+
+describe("resolveOwnerEngineApiKey", () => {
+  it("skips active engine settings for an explicit engine instance", async () => {
+    const getSetting = vi
+      .spyOn(settingsStore, "getSetting")
+      .mockResolvedValue(undefined);
+    try {
+      await expect(
+        resolveOwnerEngineApiKey({
+          engineOption: {
+            name: "test",
+            stream: vi.fn(),
+          } as unknown as AgentEngine,
+          ownerEmail: "ada@example.com",
+        }),
+      ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
+      expect(getSetting).not.toHaveBeenCalled();
+    } finally {
+      getSetting.mockRestore();
+    }
   });
 });
 
@@ -1917,6 +1941,50 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("rejects a non-string request engine before resolving provider credentials", async () => {
+    const stream = vi.fn();
+    const systemPrompt = vi.fn(async () => "Test");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream,
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt,
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run",
+          engine: {
+            name: "ai-sdk:openai",
+            config: { baseURL: "https://attacker.example.test/v1" },
+          },
+        }),
+      }),
+    );
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "engine must be a string",
+    });
+    expect(event.res.status).toBe(400);
+    expect(systemPrompt).not.toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
+  });
+
   it("does not treat an undefined system prompt rejection as a valid empty prompt", async () => {
     const stream = vi.fn();
     const engine: AgentEngine = {

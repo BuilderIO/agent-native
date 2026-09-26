@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesignSystemSetup } from "./DesignSystemSetup";
 
 const mocks = vi.hoisted(() => ({
+  systemsEnabled: true,
   tierLimit: null as Record<string, unknown> | null,
   uploadFigma: vi.fn(),
   pollDecode: vi.fn(),
@@ -16,6 +17,9 @@ vi.mock("./builder-design-system-upload", () => ({
   pollDecodeJobStatus: mocks.pollDecode,
 }));
 
+vi.mock("@/hooks/use-design-system-workflows", () => ({
+  useDesignSystemWorkflows: () => mocks.systemsEnabled,
+}));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (action: string) => {
     if (action === "get-design-system-tier-limit") {
@@ -52,9 +56,36 @@ vi.mock("@agent-native/core/client/navigation", () => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  mocks.systemsEnabled = true;
 });
 
 describe("Slides DesignSystemSetup tier-limit gating", () => {
+  it("keeps new setup unmounted while loading/off and allows the enabled transition", () => {
+    mocks.tierLimit = null;
+    mocks.systemsEnabled = false;
+    const view = render(
+      <DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />,
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    mocks.systemsEnabled = true;
+    view.rerender(
+      <DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />,
+    );
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+  it("keeps an existing saved system editable while disabled", () => {
+    mocks.systemsEnabled = false;
+    render(
+      <DesignSystemSetup
+        open
+        editingId="saved"
+        onClose={() => {}}
+        onComplete={() => {}}
+      />,
+    );
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.queryByText("designSystemSetup.sourceFigma")).toBeNull();
+  });
   it("shows an at-cap upgrade notice instead of the create form when at the tier cap", () => {
     mocks.tierLimit = {
       status: "ok",

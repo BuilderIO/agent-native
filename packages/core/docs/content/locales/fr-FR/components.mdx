@@ -109,6 +109,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## Accueil avec prompt et bibliothèques de modèles {#prompt-home}
+
+`PromptHome`, `PromptHomeLibrary`, `TemplateLibraryGrid` et `TemplateLibraryCard` sont exportés depuis `@agent-native/toolkit/app-shell`. Ils partagent les espacements, un compositeur centré de 700 px et une bibliothèque responsive sur quatre colonnes. La coque de l’application conserve le repère main. Les applications fournissent les données réelles, les libellés traduits, les aperçus, les actions et les liens.
+
+`PromptHome` accepte `title`, `composer`, les options `mobileToolbar`, `connection`, `quickActions` et le contenu de bibliothèque `children`. `PromptHomeLibrary` reçoit la valeur contrôlée `value` (`templates` ou `recent`), `onValueChange`, `labels`, `showRecent`, `templates` et éventuellement `recent`, `browseAll`, `recentActions`. Sans éléments récents, les modèles apparaissent sans faux onglet. L’application fournit un vrai lien pour `browseAll`. L’emplacement sémantique `Tabs.headerActions` garde les actions actives à côté des onglets.
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid` accepte des `items` typés avec `id`, `title`, éventuellement une `description` stockée et `disabled`, ainsi que `renderPreview`. Il gère `selectedId`, `pendingId`, `disabled`, `loading`, `error`, `onRetry`, l’option `empty` et les `labels` fournis pour le chargement, la liste vide et la nouvelle tentative. Il faut choisir `onSelect(item, element)` ou `renderLink(item, children)`, jamais les deux. L’image et sa légende partagent une seule cible d’activation. `renderActions` reste hors de la cible d’activation, sur la même ligne que le titre et la description facultative. Les cartes partagent des dimensions fixes d’aperçu et de légende ; l’activation directe utilise ou copie le modèle, tandis que l’aperçu reste uniquement dans le menu de la légende. Les éléments chargés restent visibles après une erreur d’actualisation. `TemplateLibraryCard` propose le même comportement pour un `item`, avec `preview` et les options `actions`, `selected`, `pending`, `disabled`.
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+`TemplatePreviewDialog`, exporté depuis le même point d’entrée, utilise le `Dialog` sémantique avec `size="viewport"` par défaut ou `size="large"`. Il reçoit les valeurs contrôlées `open`, `onOpenChange`, `title` et les `children` rendus par l’application ; l’en-tête ne contient aucune action d’utilisation. Les `thumbnails` facultatives contiennent `{ id, title, preview, disabled? }` et nécessitent `selectedId` et `onSelectedIdChange`. La bande devient horizontale sur les écrans étroits et prend en charge les flèches, Home et End.
+
+La taille `viewport` crée une fenêtre modale centrée avec des marges : 90dvh de haut, au plus 96rem de large, avec des marges latérales de 1rem sur mobile et de 1.5rem sur les écrans plus larges. La bordure, l’arrondi, l’ombre et l’arrière-plan standards sont conservés. Sur les appareils compatibles, les menus de légende apparaissent au survol de la carte ou au focus clavier ; ils restent visibles sur les appareils tactiles, sans modifier l’espace réservé.
+
+Fournissez les `labels` traduits (`close`, `loading`, `empty`, `retry`, `thumbnails`) ainsi que, facultativement, `loading`, `error`, `empty` et `onRetry` pour des états de disponibilité exclusifs. `initialFocusRef` et `restoreFocusRef` contrôlent le focus. Ouvrez la visionneuse depuis le menu de légende après sa fermeture ; les lectures, l’annulation, l’autorisation et le rendu isolé sûr restent gérés par l’application.
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Les styles Toolkit incluent la géométrie partagée. `@agent-native/toolkit/app-shell/prompt-home.css` exporte la feuille de styles dédiée. L’unité d’éjection existante `toolkit/app-shell` comprend la mise en page et cette feuille. Le chargement, l’autorisation, l’importation et l’état du compositeur restent gérés par l’application.
+
 ## Agent et chat UI {#agent-chat-ui}
 
 | API                                  | Chemin d'importation                          | À utiliser quand                                                                                                           |
@@ -207,6 +285,147 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 Utilisez `TiptapComposer` uniquement si vous câblez déjà des primitives d'interface utilisateur de l'assistant
 vous-même. Il s'agit du champ, pas de l'intégralité du temps d'exécution du chat.
+
+### Contexte préparé dans le compositeur {#composer-context}
+
+`PromptComposer` et `TiptapComposer` acceptent `submissionDisabled` pour bloquer l’envoi tout en permettant de préparer le brouillon, les fichiers et le contexte. L’absence de configuration du fournisseur bloque l’envoi, pas la préparation. `disabled` désactive toujours tout le compositeur.
+
+`PromptComposer`, `TiptapComposer` et `AgentKitComposer` acceptent `contextItems` et `contextMenuItems`. Les applications gèrent la lecture des sources et les libellés localisés.
+
+Chaque `AgentChatContextItem` contient `key`, `title` et `context`. Le champ facultatif `status` vaut `ready`, `pending` ou `error`. `statusMessage` explique les échecs. `onRemoveContextItem`, `onInspectContextItem` et `onRetryContextItem` reçoivent la clé. `removable: false` masque la suppression. Les éléments en attente ou en échec bloquent l’envoi sauf si `blocksSubmission: false` les rend explicitement informatifs.
+
+L’hôte peut préparer un contexte déjà autorisé et recevoir un instantané figé lors de l’envoi :
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+Les sources de contexte déclarent `picker` sur un `ComposerContextMenuItem`. `ComposerContextMenu` gère des sous-menus en cascade shadcn/Radix connectés, pas des panneaux de remplacement : la racine propose le téléversement de fichiers, puis Ajouter du contexte → catégories de l’hôte → sélecteurs de sources. Ajouter du contexte est masqué si l’hôte ne fournit aucune entrée. Les flèches et Échap parcourent la hiérarchie. Dans un sélecteur de lien, Retour ramène uniquement des résultats à la saisie du lien dans le même sous-menu. Le sélecteur partagé gère la recherche, les lignes, les états de chargement, de liste vide et d’erreur, les nouvelles tentatives, la pagination et la saisie de liens. Les applications fournissent des données autorisées et des callbacks de sélection, pas leur propre JSX de sélection.
+
+La configuration du sélecteur accepte :
+
+- `searchPlaceholder` et éventuellement `emptyMessage` comme textes traduits de l’application. `selectedIds` marque les lignes sélectionnées. Les éléments ont `id`, `title` et éventuellement `disabled` et `url`.
+- Soit des `items` locaux avec `loading`, `error` et `onRetry()` facultatifs, soit un chargeur distant `load(request)`. Ces modes ne peuvent pas être combinés.
+- `load(request)` reçoit `search`, `page` commençant à un, éventuellement `cursor` et `url`, ainsi qu’un `AbortSignal`. Il renvoie `{ items, hasMore?, nextCursor? }`. Les échecs doivent rejeter la promesse plutôt que renvoyer un résultat vide.
+- `onSelect(item, request)` prépare la source et peut être asynchrone. Renvoyer `false` garde le sélecteur ouvert. Une exception affiche une erreur avec une nouvelle tentative. Le `clearSelection` facultatif fournit un `label` traduit et un callback `onSelect()`.
+- Le `link` facultatif fournit des textes traduits pour `placeholder` et `submitLabel`. `validate(url)` peut renvoyer un message d’erreur. Le formulaire partagé gère la saisie du lien et la navigation.
+- `scopeKey` réinitialise tout l’état du sélecteur lorsque l’identité ou le périmètre d’accès change. `refreshKey` invalide la requête courante lorsqu’un jeton de source/version change, sans réinitialiser l’URL. Une nouvelle recherche revient à la première page. Les applications actualisent les jetons quand l’agent modifie les données sources.
+
+Une application peut déclarer des choix déjà autorisés. Ici, `labels` contient les textes traduits et `stageReference` actualise le contexte préparé de l’hôte :
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+Pour une source consultable par recherche ou par lien, l’application fournit un chargeur authentifié. `loadAuthorizedReferences` respecte le contrat requête/résultat ci-dessus, conserve les contrôles d’accès et transmet le signal d’annulation à sa fonction cliente :
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
+      link: {
+        label: labels.referenceUrl,
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+`presentation` vaut `"submenu"` par défaut. Avec `{ type: "dialog", mode: "multiple", onAttach }`, une entrée de menu ordinaire ouvre un dialogue partagé dont le titre reprend son libellé. `link.label` nomme le champ URL. Continuer valide une URL HTTP(S) sans identifiants avant de charger les résultats. Une saisie vide ou invalide n’appelle jamais le fournisseur. `link.validate()` peut appliquer des règles propres au fournisseur. Les boutons du dialogue utilisent les libellés partagés traduits, pas `link.submitLabel`.
+
+`presentation.onAttach(items, request)` reçoit un seul lot figé des éléments nouvellement cochés. Ce mode exclut `onSelect`. Les choix sont conservés pendant la recherche et la pagination. Les `selectedIds` sont cochés, désactivés et exclus du lot. Les identifiants doivent distinguer les différents fichiers sources. Renvoyer `false` garde le dialogue ouvert. Un rejet affiche une erreur permettant de réessayer. L’annulation ou un changement de `scopeKey` interrompt le travail en cours et ignore les réponses tardives. La réouverture réinitialise l’URL. Les hôtes doivent respecter `request.signal` avant de valider les changements des callbacks asynchrones. `footerAction` et `clearSelection` restent des contrôles de sous-menu.
+
+`{ type: "dialog", mode: "url" }` propose directement Joindre, sans charger de liste de résultats. `onSelect(item, request)` reçoit `{ id: url, title: url, url }` et `request.url` :
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`readComposerWebsiteSource(url, extractCallback)` de `@agent-native/core/server` crée les références de sites web via l’extracteur existant de l’hôte, protégé contre les SSRF. `composerSourceRequestSchema` de `@agent-native/core/shared` accepte `source: "website"` uniquement avec `operation: "read"` et une `url` HTTP(S) sans identifiants de 2 048 caractères maximum. La fonction renvoie `{ id, title, url, context }` avec un identifiant stable issu du hachage de l’URL et au plus 20 000 caractères de contexte. L’état d’extraction, les avertissements, la provenance du rendu et tout marqueur `[truncated]` restent dans le texte du contexte. Une extraction partielle reste explicite. Une extraction échouée ou l’absence de `designMd` exploitable produit un échec typé. L’autorisation relève toujours de l’[action](/docs/actions-overview) de l’hôte.
+
+Les entrées de sélection ne définissent pas aussi `render` ou `onSelect` au niveau de l’entrée. Les catégories utilisent `children`. La racine et chaque catégorie conservent un champ de recherche en en-tête. Les catégories peuvent fournir un `searchPlaceholder` traduit ; sinon elles utilisent le texte partagé de recherche de contexte. `picker.searchPlaceholder` décrit le champ de recherche de la liste des sources. La déclaration n’accorde aucun accès aux sources. Le sélecteur partagé ignore les réponses de chargement remplacées par des requêtes plus récentes.
+
+Le `footerAction` facultatif reste sous les résultats, même pendant le chargement, une erreur ou une liste vide. Il accepte un `label` traduit, éventuellement `icon` et `disabled`, et soit `onSelect()`, soit `renderLink(children)`. Utilisez un callback pour une fenêtre modale ou un autre parcours avec état : `false` garde le menu ouvert, `true` ou `void` le ferme, et un rejet affiche une erreur avec une nouvelle tentative. Pour une navigation simple, `renderLink` renvoie un vrai `Link` React Router ou un lien HTML ; le menu partagé fournit la ligne via `asChild`, en conservant son `href` et les comportements de navigation du navigateur. Branchez des parcours existants et autorisés, pas des actions factices.
+
+Transmettre `addAttachment` à `ComposerContextMenu` place l’action standard de téléversement en premier et conserve le callback de fichiers de l’hôte.
+
+`PromptComposer` et `AgentKitComposer` acceptent `attachmentAdapter`, du type public `AttachmentAdapter` de `@assistant-ui/react`. Cet adaptateur fournit les règles de l’hôte pour les fichiers acceptés, la taille et la préparation ; omettez-le pour conserver les adaptateurs par défaut. Le compositeur partagé garde la responsabilité du contrôle de téléversement, du sélecteur de fichiers, du sélecteur de contexte et des pastilles de pièces jointes. Ne remplacez pas ces contrôles pour personnaliser la préparation des fichiers.
+
+`inlineTextAttachments` vaut `true` par défaut sur `PromptComposer` et `AgentKitComposer`. Passez-le à `false` lorsque l’hôte extrait déjà les fichiers texte ordinaires : le compositeur transmet les fichiers originaux à l’hôte sans lire et ajouter leur contenu au prompt. Les pièces jointes synthétiques de texte collé restent intégrées au texte du prompt. Cette option ne change ni les fichiers acceptés ni les contrôles partagés.
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+L’instantané distingue `undefined` d’un tableau vide explicite. Il refuse plus de 32 éléments ou 64 Kio de données UTF-8 sérialisées, sans troncature. `AgentKitComposer.beforeSend(submission)` est attendu avant l’envoi ou la mise en file et reçoit le contexte, les références, les pièces jointes téléversées et les options figés. Un rejet conserve le brouillon. Le contexte figure dans le texte et les métadonnées.
+
+`composerRef.current.submitWithText(text)` utilise le même parcours avec les fichiers et le modèle actuels sans remplacer d’abord le texte de l’éditeur. Il renvoie `true` après acceptation ou `false` en cas de blocage ou de rejet. Sélectionner du contexte ne donne aucun droit d’accès. Les actions authentifiées doivent vérifier à nouveau l’accès aux sources.
 
 ## Rendu des conversations {#conversation}
 

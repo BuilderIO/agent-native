@@ -1,6 +1,9 @@
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+
 import enUSMessages from "@/i18n/en-US";
 
 import DesignEditorRoute from "../pages/DesignEditor";
+import { designResourceMeta, loadPublicDesignMeta } from "./public-design-meta";
 
 /**
  * The skill's local editor has its own route so a capability can authorize this
@@ -10,6 +13,13 @@ export default function LocalVisualEditRoute() {
   return <DesignEditorRoute />;
 }
 
-export function meta() {
-  return [{ title: enUSMessages.routeTitles.designEditor }];
+export function loader({ params, request }: LoaderFunctionArgs) {
+  return loadPublicDesignMeta(params.id, request.url);
 }
+
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) =>
+  designResourceMeta(
+    loaderData,
+    enUSMessages.routeTitles.designEditor,
+    "Explore this shared design in Agent-Native Design.",
+  );

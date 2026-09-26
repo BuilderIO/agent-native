@@ -107,6 +107,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## プロンプトホームとテンプレートライブラリ {#prompt-home}
+
+`PromptHome`、`PromptHomeLibrary`、`TemplateLibraryGrid`、`TemplateLibraryCard` は `@agent-native/toolkit/app-shell` から公開されます。余白、中央配置の幅 700px のコンポーザー、レスポンシブな 4 列ライブラリを共有します。main ランドマークはアプリシェルが管理します。実データ、翻訳済みラベル、プレビュー、操作、ルーティングはアプリが提供します。
+
+`PromptHome` は `title`、`composer`、任意の `mobileToolbar`、`connection`、`quickActions`、ライブラリ用の `children` を受け取ります。`PromptHomeLibrary` は制御された `value`（`templates` または `recent`）、`onValueChange`、`labels`、`showRecent`、`templates` と、任意の `recent`、`browseAll`、`recentActions` を受け取ります。最近の項目がなければ、不要なタブを作らずテンプレートを表示します。`browseAll` はアプリが提供する実際のリンクです。セマンティックな `Tabs.headerActions` スロットが操作をタブの横に配置します。
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid` は `id`、`title`、任意の保存済み `description` と `disabled` を持つ型付き `items`、および `renderPreview` を受け取ります。`selectedId`、`pendingId`、`disabled`、`loading`、`error`、`onRetry`、任意の `empty` と、読み込み・空状態・再試行用の `labels` に対応します。`onSelect(item, element)` または `renderLink(item, children)` のどちらかを指定します。画像とキャプションは一つの操作対象になります。`renderActions` は操作対象の外側で、タイトルと任意の説明の右側に同じ行で表示されます。カードのプレビューとキャプションの寸法は共通です。直接操作するとテンプレートを使用またはコピーし、プレビューはキャプションのメニューからのみ開きます。更新に失敗しても読み込み済みの項目は残ります。`TemplateLibraryCard` は単一の `item` に同じ動作を提供し、`preview` と任意の `actions`、`selected`、`pending`、`disabled` を受け取ります。
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+同じエントリーポイントからエクスポートされる `TemplatePreviewDialog` は、セマンティックな `Dialog` を既定の `size="viewport"` または `size="large"` で使用します。制御された `open`、`onOpenChange`、`title` と、アプリが描画する `children` を受け取り、ヘッダーに使用アクションはありません。任意の `thumbnails` は `{ id, title, preview, disabled? }` を含み、`selectedId` と `onSelectedIdChange` が必要です。狭い画面ではレールが横向きになり、矢印キー、Home、End に対応します。
+
+`viewport` は余白を残して中央に表示するモーダルです。高さは 90dvh、最大幅は 96rem で、左右の余白はモバイルで 1rem、広い画面で 1.5rem です。標準のダイアログの枠線、角丸、影、背景を維持します。ホバー対応端末ではカードのホバー時またはキーボードフォーカス時にキャプションメニューが表示され、タッチ端末では常時表示されます。確保する領域は変わりません。
+
+排他的な準備状態には、翻訳済みの `labels`（`close`、`loading`、`empty`、`retry`、`thumbnails`）と、任意の `loading`、`error`、`empty`、`onRetry` を渡します。`initialFocusRef` と `restoreFocusRef` がフォーカスを制御します。キャプションメニューの終了処理後にビューアーを開きます。読み取り、キャンセル、認可、安全な分離描画はアプリが管理します。
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Toolkit のスタイルに共有の寸法が含まれます。`@agent-native/toolkit/app-shell/prompt-home.css` は専用スタイルシートの公開パスです。既存の `toolkit/app-shell` イジェクション単位にはレイアウトとスタイルシートが含まれます。データ読み込み、認可、インポート、コンポーザーの状態はアプリが管理します。
+
 ## エージェントとチャット UI {#agent-chat-ui}
 
 | API                                  | インポートパス                                    | 次の場合に使用します                                                                                          |
@@ -204,6 +282,147 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 すでにアシスタント UI プリミティブを配線している場合にのみ、`TiptapComposer` を使用してください
 あなた自身。これはフィールドであり、チャット ランタイム全体ではありません。
+
+### コンポーザーに準備するコンテキスト {#composer-context}
+
+`PromptComposer` と `TiptapComposer` の `submissionDisabled` は送信だけを無効にし、下書き・ファイル・コンテキストの準備は許可します。プロバイダーが未設定でも準備は可能です。`disabled` は引き続きコンポーザー全体を無効にします。
+
+`PromptComposer`、`TiptapComposer`、`AgentKitComposer` は `contextItems` と `contextMenuItems` を受け取ります。ソースの読み取りとメニューの翻訳はアプリが管理します。
+
+各 `AgentChatContextItem` は `key`、`title`、`context` を持ちます。任意の `status` は `ready`、`pending`、`error` です。`statusMessage` は失敗理由を示します。`onRemoveContextItem`、`onInspectContextItem`、`onRetryContextItem` は項目のキーを受け取ります。`removable: false` は削除を非表示にします。保留中または失敗した項目は、`blocksSubmission: false` で参考情報として明示しない限り送信を阻止します。
+
+ホストはアクセス確認済みのコンテキストを準備し、送信時に不変のスナップショットを受け取れます。
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+コンテキストソースは `ComposerContextMenuItem` の `picker` に登録します。`ComposerContextMenu` は画面を差し替えるパネルではなく、shadcn/Radix の連結したカスケードサブメニューを管理します。ルートにはファイルのアップロード、その後にコンテキストを追加 → ホストのカテゴリ → ソースのピッカーが並びます。ホストの項目がなければコンテキストを追加は表示しません。矢印キーと Escape でメニュー階層を移動します。リンク用ピッカー内の戻る操作は、同じサブメニュー内で結果からリンク入力に戻るためだけに使います。共有ピッカーが検索、一覧の行、読み込み・空・エラー状態、再試行、ページ切り替え、リンク入力を管理します。アプリは独自のピッカー JSX ではなく、アクセス確認済みデータと選択コールバックを提供します。
+
+ピッカー設定は次を受け取ります。
+
+- アプリの翻訳済み文言として `searchPlaceholder` と任意の `emptyMessage`。`selectedIds` は選択済みの行を示します。項目は `id`、`title`、任意の `disabled` と `url` を持ちます。
+- ローカルの `items` と任意の `loading`、`error`、`onRetry()`、またはリモートの `load(request)`。両方のモードは併用できません。
+- `load(request)` は `search`、1 始まりの `page`、任意の `cursor` と `url`、`AbortSignal` を受け取ります。戻り値は `{ items, hasMore?, nextCursor? }` です。失敗時は空の結果ではなく Promise を拒否します。
+- `onSelect(item, request)` はソースを準備し、非同期でも実行できます。`false` を返すとピッカーを開いたままにします。例外を投げるとエラーと再試行操作を表示します。任意の `clearSelection` は翻訳済みの `label` と `onSelect()` コールバックを提供します。
+- 任意の `link` は翻訳済みの `placeholder` と `submitLabel` を提供します。`validate(url)` はエラー文字列を返せます。共有フォームがリンク入力と移動を管理します。
+- `scopeKey` は識別情報やアクセス範囲が変わるとピッカーの全状態をリセットします。`refreshKey` はソースやバージョンのトークンが変わると URL をリセットせず現在のクエリを無効化します。検索を変更すると 1 ページ目に戻ります。エージェントの書き込みでソースデータが変わった場合、アプリが更新済みトークンを渡します。
+
+アプリはアクセス確認済みの選択肢を登録できます。ここでは `labels` が翻訳済み文言を持ち、`stageReference` がホストの準備済みコンテキストを更新します。
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+検索やリンクを使うソースには、アプリが認証済みのローダーを提供します。`loadAuthorizedReferences` は上記の要求・結果契約に従い、アクセス検証を維持し、中止シグナルをクライアントヘルパーに渡します。
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
+      link: {
+        label: labels.referenceUrl,
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+`presentation` の既定値は `"submenu"` です。`{ type: "dialog", mode: "multiple", onAttach }` を指定すると、通常のメニュー項目から共有ダイアログが開き、項目のラベルがタイトルになります。`link.label` は URL 入力欄のラベルです。「続行」は結果を読み込む前に、認証情報を含まない HTTP(S) URL を検証します。空欄や無効な入力ではプロバイダーを呼び出しません。`link.validate()` でプロバイダー固有の規則を適用できます。ダイアログのボタンは `link.submitLabel` ではなく、共有の翻訳済みラベルを使います。
+
+`presentation.onAttach(items, request)` は、新しくチェックした項目を凍結した単一のバッチとして受け取ります。このモードでは `onSelect` を指定できません。検索やページ移動でも選択は維持されます。`selectedIds` はチェック済みで無効になり、バッチから除外されます。ID は異なるソースファイルを区別する必要があります。`false` を返すとダイアログは開いたままになります。拒否時には再試行可能なエラーが表示されます。キャンセルや `scopeKey` の変更は処理を中止し、遅れて返る結果を無視します。再度開くと URL はリセットされます。ホストは非同期コールバックの変更を確定する前に `request.signal` を確認する必要があります。`footerAction` と `clearSelection` は引き続きサブメニュー用の操作です。
+
+`{ type: "dialog", mode: "url" }` は結果一覧を読み込まず、直接「添付」を実行します。`onSelect(item, request)` は `{ id: url, title: url, url }` と `request.url` を受け取ります。
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`@agent-native/core/server` の `readComposerWebsiteSource(url, extractCallback)` は、ホスト既存の SSRF 対策済み抽出処理からウェブサイト参照を作ります。`@agent-native/core/shared` の `composerSourceRequestSchema` は、`source: "website"` に対して `operation: "read"` と、認証情報を含まない最大 2,048 文字の HTTP(S) `url` のみを受け付けます。ヘルパーは安定した URL ハッシュ ID と最大 20,000 文字のコンテキストを含む `{ id, title, url, context }` を返します。抽出ステータス、警告、レンダリングの来歴、`[truncated]` マーカーはコンテキスト内に保持されます。部分的な抽出も明示されます。抽出に失敗した場合や利用可能な `designMd` がない場合は、型付きの失敗を送出します。認可は引き続きホストの[アクション](/docs/actions-overview)が担当します。
+
+ピッカー項目には `render` や項目レベルの `onSelect` を併記しません。カテゴリは `children` を使います。ルートと各カテゴリはヘッダーに検索欄を備えます。カテゴリに翻訳済みの `searchPlaceholder` を指定できます。省略した場合は共有のコンテキスト検索プレースホルダーを使います。ソース一覧の検索欄には `picker.searchPlaceholder` を使います。登録はソースへのアクセス権を付与しません。共有ピッカーは新しい要求で置き換えられた読み込み応答を無視します。
+
+任意の `footerAction` は読み込み中、エラー時、一覧が空の場合も結果の下に残ります。翻訳済みの `label`、任意の `icon` と `disabled`、そして `onSelect()` または `renderLink(children)` を指定します。モーダルなどの状態を持つ操作にはコールバックを使います。`false` はメニューを開いたままにし、`true` または `void` は閉じ、拒否された Promise はエラーと再試行を表示します。単純なページ移動には、`renderLink` から実際の React Router の `Link` または HTML リンクを返します。共有メニューが `asChild` で行を提供し、`href` とブラウザ本来の移動操作を維持します。仮の操作ではなく、既存の認可されたフローにつなげてください。
+
+`ComposerContextMenu` に `addAttachment` を渡すと、標準のアップロード操作が先頭に表示され、ホストのファイル処理コールバックが維持されます。
+
+`PromptComposer` と `AgentKitComposer` は、`@assistant-ui/react` の公開型 `AttachmentAdapter` を使う `attachmentAdapter` を受け付けます。このアダプターでホストの受付ファイル形式、サイズ検証、添付準備の方針を提供します。省略すると標準アダプターを維持します。アップロード操作、ファイル選択、コンテキスト選択、添付チップは引き続き共有コンポーザーが管理します。ファイル準備のカスタマイズのためにこれらの操作部品を置き換えないでください。
+
+`PromptComposer` と `AgentKitComposer` の `inlineTextAttachments` は標準で `true` です。ホストが通常のテキストファイルをすでに抽出している場合は `false` にします。コンポーザーは内容を読み込んでプロンプトに追加せず、元のファイルをホストに渡します。貼り付けたテキストから生成された添付は、引き続きプロンプトのテキストになります。この設定は受付ファイル形式や共有操作部品を変更しません。
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+スナップショットは `undefined` と明示的な空配列を区別します。32 項目またはシリアライズした UTF-8 データ 64 KiB を超えると、切り詰めずに拒否します。送信またはキュー登録前に `AgentKitComposer.beforeSend(submission)` を待機し、不変のコンテキスト、参照、アップロード済み添付、実行オプションを渡します。拒否時は下書きを保持します。コンテキストは本文とメタデータに含まれます。
+
+`composerRef.current.submitWithText(text)` はエディターを先に置き換えず、現在のファイルとモデル設定で同じ送信経路を使います。受理後は `true`、阻止または拒否時は `false` を返します。コンテキストの選択はアクセス権の付与ではありません。アプリの認証済みアクションでソースへのアクセスを再確認する必要があります。
 
 ## 会話のレンダリング {#conversation}
 

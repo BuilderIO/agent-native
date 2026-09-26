@@ -13,10 +13,10 @@
  *
  * | Case                     | First run | Now     |
  * | ------------------------ | --------- | ------- |
- * | preset-social-square     | 48.364%   | 0.105%  |
- * | preset-display-ad        | 47.032%   | 0.366%  |
- * | preset-one-pager         | 48.450%   | 0.759%  |
- * | preset-landing-page      | 49.341%   | 0.478%  |
+ * | preset-social-square     | 48.364%   | 1.612%  |
+ * | preset-display-ad        | 47.032%   | 9.364%  |
+ * | preset-one-pager         | 48.450%   | 0.480%  |
+ * | preset-landing-page      | 49.341%   | 5.224%  |
  * | effects-transforms       | 41.941%   | 1.897%  |
  * | media-cards              | 22.472%   | 2.180%  |
  * | typography               |  4.161%   | 3.709%  |

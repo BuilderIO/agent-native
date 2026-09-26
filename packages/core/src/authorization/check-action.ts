@@ -5,7 +5,11 @@ import {
   getRegisteredAppRoles,
   resolveAppRole,
 } from "../org/app-roles.js";
-import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
+import {
+  isWorkspaceAppAccessAllowed,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
+} from "../org/workspace-app-access.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
 import { registerActionAccessChecker } from "./action-access-runtime.js";
@@ -126,6 +130,11 @@ export async function checkAction(
       email: identity.userEmail,
       orgId: identity.orgId,
     });
+    if (appAllowed === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+      throw Object.assign(new Error(WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE), {
+        statusCode: 503,
+      });
+    }
     if (!appAllowed) {
       return {
         allowed: false,

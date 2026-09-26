@@ -1,3 +1,4 @@
+import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
 import { createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,7 +39,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => conditions,
   eq: (column: unknown, value: unknown) => ({ column, value }),
+  isNull: (column: unknown) => ({ column, value: null }),
 }));
 
 vi.mock("../../server/db", () => ({
@@ -50,6 +53,7 @@ vi.mock("../../server/db", () => ({
       content: "content_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
+      trashedAt: "trashed_at_col",
     },
   },
 }));
@@ -160,6 +164,55 @@ describe("public document route", () => {
     });
   });
 
+  it("uses document-aware social images only for public documents", () => {
+    const publicMeta =
+      meta({
+        loaderData: {
+          document: {
+            id: "doc-1",
+            title: "Launch notes",
+            content: "## Summary\n\n- Ship it",
+            visibility: "public",
+          },
+          agentAccessToken: null,
+          basePath: "/content",
+          origin: "https://content.example.test",
+        },
+      } as never) ?? [];
+    const imageDescriptor = publicMeta.find(
+      (item): item is { property: string; content: string } =>
+        "property" in item && "content" in item && item.property === "og:image",
+    );
+    if (!imageDescriptor) throw new Error("Public document image is missing");
+    const image = new URL(imageDescriptor.content);
+
+    expect(image.pathname).toBe("/content/_agent-native/og-image.png");
+    expect(image.searchParams.get("title")).toBe("Launch notes");
+    expect(image.searchParams.get("accentText")).toContain("Ship it");
+
+    const privateMeta =
+      meta({
+        loaderData: {
+          document: null,
+          agentAccessToken: null,
+          basePath: "/content",
+          origin: "https://content.example.test",
+          unavailable: {
+            reason: "private",
+            id: "doc-1",
+            basePath: "/content",
+          },
+        },
+      } as never) ?? [];
+
+    expect(
+      privateMeta.some(
+        (item) => "property" in item && item.property === "og:image",
+      ),
+    ).toBe(false);
+    expect(JSON.stringify(privateMeta)).not.toContain("Launch notes");
+  });
+
   it("serves a public document without private loader headers", async () => {
     resultQueue.current = [documentRows("public")];
 
@@ -175,10 +228,13 @@ describe("public document route", () => {
       origin: "https://content.example.test",
     });
     expect((result as any).type).not.toBe("DataWithResponseInit");
-    expect(where).toHaveBeenCalledWith({ column: "id_col", value: "doc-1" });
+    expect(where).toHaveBeenCalledWith([
+      { column: "id_col", value: "doc-1" },
+      { column: "trashed_at_col", value: null },
+    ]);
   });
 
-  it("marks tokenized document pages private and no-store", async () => {
+  it("uses a query-specific cache key for token-authorized document pages", async () => {
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     resultQueue.current = [documentRows("private")];
 
@@ -192,6 +248,7 @@ describe("public document route", () => {
     expect(result.init.headers).toEqual({
       "Cache-Control": "private, max-age=0, no-store",
       "Referrer-Policy": "no-referrer",
+      [SSR_QUERY_CACHE_KEY_HEADER]: "query",
     });
     expect(result.data).toMatchObject({
       document: { id: "doc-1", title: "Launch notes" },
@@ -199,5 +256,15 @@ describe("public document route", () => {
       basePath: "",
       origin: "https://content.example.test",
     });
+  });
+
+  it("does not load trashed documents for public previews", async () => {
+    resultQueue.current = [[]];
+
+    await expect(loader(requestFor())).rejects.toMatchObject({ status: 404 });
+    expect(where).toHaveBeenCalledWith([
+      { column: "id_col", value: "doc-1" },
+      { column: "trashed_at_col", value: null },
+    ]);
   });
 });

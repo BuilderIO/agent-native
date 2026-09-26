@@ -166,6 +166,7 @@ type SharePageMetaRecording = {
   brandLogoUrl: string | null;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
+  updatedAt: string;
   visibility: "private" | "org" | "public";
   status: "uploading" | "processing" | "ready" | "failed";
   hasPassword: boolean;
@@ -205,9 +206,10 @@ function emptyLoaderData(
 function shareLoaderData(
   payload: SharePageLoaderData,
   privateAgentAccess = false,
+  varyByQuery = false,
 ) {
   if (!privateAgentAccess) return payload;
-  return privateShareLoaderData(payload);
+  return privateShareLoaderData(payload, 200, varyByQuery);
 }
 
 export function headers({ loaderHeaders }: HeadersArgs) {
@@ -262,6 +264,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       description: schema.recordings.description,
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      updatedAt: schema.recordings.updatedAt,
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
       ownerEmail: schema.recordings.ownerEmail,
@@ -333,6 +336,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       ? null
       : resolvePlayerThumbnailUrl(rec, { appPath }),
     animatedThumbnailUrl: null,
+    updatedAt: rec.updatedAt,
     visibility: rec.visibility,
     status: rec.status,
     hasPassword: Boolean(rec.password),
@@ -359,6 +363,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         : null,
     },
     hasAgentAccessToken,
+    tokenGrantsAgentAccess,
   );
 }
 

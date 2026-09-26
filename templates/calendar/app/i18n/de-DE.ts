@@ -533,6 +533,8 @@ export default {
     confirmation: "Bestätigung",
     confirmationSent:
       "Alles erledigt! Eine Bestätigung wurde an deine E-Mail gesendet.",
+    meetingDetailsPending:
+      "Dein Termin ist reserviert. Der Host meldet sich mit den Meetingdetails.",
     confirmed: "Bestätigt",
     confirmedCount: "Bestätigt ({{count}})",
     confirming: "Wird bestätigt",

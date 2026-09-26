@@ -19,6 +19,70 @@
 
 @source "./**/*.{ts,tsx}";
 
+.slides-home-header {
+  container-type: inline-size;
+}
+
+.slides-home-toolbar {
+  display: grid;
+  height: auto;
+  min-height: 3rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 43.75rem) minmax(0, 1fr);
+  padding: 0 1rem;
+}
+
+@media (min-width: 64rem) {
+  .slides-home-toolbar {
+    padding-inline: 1.5rem;
+  }
+}
+
+@container (max-width: 72rem) {
+  .slides-home-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 3rem 3rem;
+    row-gap: 0;
+  }
+
+  .slides-home-search {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: center;
+  }
+}
+
+.deck-template-preview-frame {
+  width: 960px;
+  height: 540px;
+  transform: scale(var(--deck-template-scale, 0.25));
+  transform-origin: top left;
+  border: 0;
+  pointer-events: none;
+}
+
+.deck-template-stage {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.deck-template-stage-canvas {
+  width: var(--deck-template-stage-width, 100%);
+  height: var(--deck-template-stage-height, 100%);
+}
+
+.slides-home-prompt-composer-area.agent-composer-area--hero {
+  padding: 0;
+}
+
+[data-slides-home-composer] {
+  --agent-kit-composer-min-height: 9rem;
+  --agent-kit-composer-editor-min-height: 5.125rem;
+}
+
 /* Keep the editable agent prompt readable even if the generated text utility
    is missing or loses a cascade tie during the hosted build. */
 .agent-composer-root [data-agent-composer-slot="editor-input"] {

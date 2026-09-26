@@ -4,7 +4,10 @@ import {
   listOAuthAccountsByOwner,
   deleteOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
-import { createZoomProvider } from "@agent-native/scheduling/server/providers";
+import {
+  createZoomProvider,
+  ZoomProviderError,
+} from "@agent-native/scheduling/server/providers";
 /**
  * Zoom integration for the calendar template.
  *
@@ -162,11 +165,12 @@ export async function disconnectZoom(ownerEmail: string) {
 
 /**
  * Create a Zoom meeting for a new booking. Picks the first Zoom account
- * owned by the host. `not_started` means no provider request was made.
+ * owned by the host. `not_started` means the meeting creation request was not sent.
  */
 export type ZoomMeetingResult =
   | { status: "created"; meetingUrl: string; meetingId: string }
-  | { status: "not_started" };
+  | { status: "not_started" }
+  | { status: "rejected" };
 
 export async function createZoomMeeting(opts: {
   hostEmail: string;
@@ -177,15 +181,30 @@ export async function createZoomMeeting(opts: {
   timezone: string;
   attendees?: Array<{ email: string; name?: string }>;
 }): Promise<ZoomMeetingResult> {
-  const accounts = await listOAuthAccountsByOwner(PROVIDER, opts.hostEmail);
+  let accounts: Awaited<ReturnType<typeof listOAuthAccountsByOwner>>;
+  try {
+    accounts = await listOAuthAccountsByOwner(PROVIDER, opts.hostEmail);
+  } catch (error) {
+    console.error("Zoom meeting could not be prepared before creation:", error);
+    return { status: "not_started" };
+  }
   if (accounts.length === 0) return { status: "not_started" };
   const creds = getZoomCreds();
   if (!creds) return { status: "not_started" };
 
+  const credentialId = accounts[0].accountId;
+  let accessToken: string;
+  try {
+    accessToken = await resolveAccessToken(credentialId);
+  } catch (error) {
+    console.error("Zoom meeting could not be prepared before creation:", error);
+    return { status: "not_started" };
+  }
+
   const provider = createZoomProvider({
     clientId: creds.clientId,
     clientSecret: creds.clientSecret,
-    getAccessToken: (credentialId) => resolveAccessToken(credentialId),
+    getAccessToken: async () => accessToken,
     updateTokens: async (credentialId, tokens) => {
       const existing = (await getOAuthTokens(PROVIDER, credentialId)) ?? {};
       await saveOAuthTokens(PROVIDER, credentialId, {
@@ -197,22 +216,34 @@ export async function createZoomMeeting(opts: {
     },
   });
 
-  const credentialId = accounts[0].accountId;
-  const result = await provider.createMeeting({
-    credentialId,
-    booking: {
-      uid: nanoid(),
-      title: opts.title,
-      description: opts.description ?? "",
-      startTime: opts.startTime,
-      endTime: opts.endTime,
-      timezone: opts.timezone,
-      hostEmail: opts.hostEmail,
-      attendees: opts.attendees ?? [],
-      iCalUid: nanoid(),
-      iCalSequence: 0,
-    } as any,
-  });
+  let result: Awaited<ReturnType<typeof provider.createMeeting>>;
+  try {
+    result = await provider.createMeeting({
+      credentialId,
+      booking: {
+        uid: nanoid(),
+        title: opts.title,
+        description: opts.description ?? "",
+        startTime: opts.startTime,
+        endTime: opts.endTime,
+        timezone: opts.timezone,
+        hostEmail: opts.hostEmail,
+        attendees: opts.attendees ?? [],
+        iCalUid: nanoid(),
+        iCalSequence: 0,
+      } as any,
+    });
+  } catch (error) {
+    if (
+      error instanceof ZoomProviderError &&
+      error.statusCode >= 400 &&
+      error.statusCode < 500 &&
+      error.statusCode !== 408
+    ) {
+      return { status: "rejected" };
+    }
+    throw error;
+  }
   return {
     status: "created",
     meetingUrl: result.meetingUrl,

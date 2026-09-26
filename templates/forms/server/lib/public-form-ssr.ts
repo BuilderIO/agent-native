@@ -484,6 +484,8 @@ function renderFormPage(
 <meta property="og:title" content="${escapeHtml(form.title)}">
 <meta property="og:description" content="${escapeHtml(metaDescription)}">
 <meta property="og:type" content="website">
+<meta name="twitter:title" content="${escapeHtml(form.title)}">
+<meta name="twitter:description" content="${escapeHtml(metaDescription)}">
 <meta property="og:image" content="${escapeHtml(ogImageUrl)}">
 <meta property="og:image:secure_url" content="${escapeHtml(ogImageUrl)}">
 <meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">

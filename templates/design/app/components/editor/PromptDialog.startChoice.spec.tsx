@@ -16,7 +16,7 @@ describe("New Design start choice", () => {
   it("presents the two starts as side-by-side cards, AI accented", () => {
     const choice = source.slice(
       source.indexOf("{showStartChoice ? ("),
-      source.indexOf('cn("px-2 pb-2"'),
+      source.indexOf('cn(!inline && "px-2 pb-2"'),
     );
     expect(choice).toContain("grid grid-cols-2");
     expect(choice).toContain("startWithAiHint");
@@ -37,9 +37,11 @@ describe("New Design start choice", () => {
     // Composer, template/design-system row and attachment chips all belong to
     // the AI path; leaving them under the two options is the old popover with
     // a header bolted on.
-    expect(source).toContain('cn("px-2 pb-2", showStartChoice && "hidden")');
+    expect(source).toContain(
+      'cn(!inline && "px-2 pb-2", showStartChoice && "hidden")',
+    );
     const templateRow = source.slice(
-      source.indexOf("{!showStartChoice &&"),
+      source.indexOf("{!inline &&"),
       source.indexOf("grid-cols-[minmax(0,1fr)_2.25rem]"),
     );
     expect(templateRow).toContain("onTemplateChange");
@@ -47,7 +49,10 @@ describe("New Design start choice", () => {
   });
 
   it("drops the corner link when the choice is offered", () => {
-    expect(source).toContain("{onSkip && !offerStartChoice && (");
+    expect(source).toContain(
+      "{onSkip && skipLabel && !inline && !offerStartChoice && (",
+    );
+    expect(source).not.toContain('t("promptDialog.skipPrompt")');
   });
 
   it("returns to the choice when the popover is reopened", () => {
@@ -63,7 +68,7 @@ describe("New Design start choice", () => {
     expect(blank).toContain("onOpenChange(false);");
     const submit = source.slice(
       source.indexOf("const handleSubmit = "),
-      source.indexOf("const handleAssetsPickerReady"),
+      source.indexOf("const hasLiveVirtualAnchor"),
     );
     expect(submit).toContain("onOpenChange(false);");
     // …and comes back if the work fails, so the typed prompt is not lost.

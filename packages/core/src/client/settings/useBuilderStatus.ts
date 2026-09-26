@@ -1075,7 +1075,7 @@ export function useBuilderConnectFlow(
       };
       setConnecting(true);
       setError(null);
-      setAccountExists(false);
+      if (provisionAccountForStart) setAccountExists(false);
 
       // Open SYNCHRONOUSLY inside the caller's click handler — any await
       // before window.open lets the user-gesture token expire, which causes

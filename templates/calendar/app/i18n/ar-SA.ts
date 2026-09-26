@@ -522,6 +522,7 @@ export default {
     confirmBooking: "تأكيد الحجز",
     confirmation: "التأكيد",
     confirmationSent: "كل شيء جاهز! تم إرسال تأكيد إلى بريدك الإلكتروني.",
+    meetingDetailsPending: "تم حجز موعدك. سيتابع المضيف معك بتفاصيل الاجتماع.",
     confirmed: "مؤكد",
     confirmedCount: "مؤكدة ({{count}})",
     confirming: "جارٍ التأكيد",

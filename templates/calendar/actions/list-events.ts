@@ -496,6 +496,7 @@ async function listLocalBookingEvents(
       eventTitle: schema.bookings.eventTitle,
       notes: schema.bookings.notes,
       meetingLink: schema.bookings.meetingLink,
+      meetingLinkPending: schema.bookings.meetingLinkPending,
       googleEventId: schema.bookings.googleEventId,
       status: schema.bookings.status,
       createdAt: schema.bookings.createdAt,
@@ -531,6 +532,8 @@ async function listLocalBookingEvents(
       source: "local",
       googleEventId: booking.googleEventId ?? undefined,
       meetingLink: booking.meetingLink ?? undefined,
+      meetingLinkPending:
+        booking.meetingLinkPending && !booking.meetingLink ? true : undefined,
       color: link?.color ?? undefined,
       status: booking.status,
       attendees: [{ email: booking.email, displayName: booking.name }],
@@ -786,6 +789,19 @@ export async function listCalendarEvents(
     googleResult.errors.length === 0 &&
     (!args.calendarSourceKeys?.length ||
       googleEvents.some((event) => event.calendarPrimary === true));
+  const pendingMeetingGoogleEventIds = new Set(
+    rawBookingEvents
+      .filter((event) => event.meetingLinkPending && event.googleEventId)
+      .map((event) => event.googleEventId!),
+  );
+  const reconciledGoogleEvents = googleEvents.map((event) =>
+    event.googleEventId &&
+    event.calendarPrimary !== false &&
+    !event.overlayEmail &&
+    pendingMeetingGoogleEventIds.has(event.googleEventId)
+      ? { ...event, meetingLinkPending: true }
+      : event,
+  );
   const bookingEvents = rawBookingEvents.filter((event) =>
     shouldShowLocalBookingEvent({
       event,
@@ -794,7 +810,7 @@ export async function listCalendarEvents(
     }),
   );
 
-  let events = [...googleEvents, ...icalEvents, ...bookingEvents];
+  let events = [...reconciledGoogleEvents, ...icalEvents, ...bookingEvents];
   if (args.query) {
     events = events.filter((event) =>
       calendarEventMatchesQuery(event, args.query!),

@@ -482,6 +482,7 @@ export default {
     confirmBooking: "確認預訂",
     confirmation: "確認",
     confirmationSent: "你已完成！確認郵件已傳送到你的信箱。",
+    meetingDetailsPending: "您的時段已保留。主持人會再提供會議詳細資訊。",
     confirmed: "已確認",
     confirmedCount: "已確認（{{count}}）",
     confirming: "確認中",
