@@ -8,14 +8,20 @@ import DesignSystems from "./DesignSystems";
 import DesignSystemSetup from "./DesignSystemSetup";
 
 const mocks = vi.hoisted(() => ({
+  systemsEnabled: true,
+  queries: vi.fn(),
   navigate: vi.fn(),
   queryClient: { setQueryData: vi.fn(), invalidateQueries: vi.fn() },
   tierLimit: null as Record<string, unknown> | null,
   uploadAndIndexFigmaFiles: vi.fn(),
 }));
 
+vi.mock("@/hooks/use-design-system-workflows", () => ({
+  useDesignSystemWorkflows: () => mocks.systemsEnabled,
+}));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (action: string) => {
+    mocks.queries(action);
     if (action === "get-design-system-tier-limit") {
       return { data: mocks.tierLimit };
     }
@@ -104,6 +110,7 @@ beforeEach(() => {
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
   mocks.tierLimit = null;
+  mocks.systemsEnabled = true;
   mocks.uploadAndIndexFigmaFiles.mockReset();
   container = document.createElement("div");
   document.body.append(container);
@@ -116,6 +123,14 @@ afterEach(async () => {
 });
 
 describe("DesignSystems list page tier-limit gating", () => {
+  it("hides creation links while leaving the saved systems route available", async () => {
+    mocks.systemsEnabled = false;
+    await act(async () => root.render(<DesignSystems />));
+    expect(
+      container.querySelector('a[href="/design-systems/setup"]'),
+    ).toBeNull();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
   it("blocks the create link and shows upgrade messaging at the tier cap", async () => {
     mocks.tierLimit = {
       status: "ok",
@@ -152,6 +167,19 @@ describe("DesignSystems list page tier-limit gating", () => {
 });
 
 describe("DesignSystemSetup tier-limit gating", () => {
+  it("does not redirect or mount setup queries while loading/off, and opens when enabled", async () => {
+    mocks.systemsEnabled = false;
+    await act(async () => root.render(<DesignSystemSetup />));
+    expect(container.querySelector('a[href="/design-systems"]')).not.toBeNull();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(mocks.queries).not.toHaveBeenCalled();
+    mocks.systemsEnabled = true;
+    await act(async () => root.render(<DesignSystemSetup />));
+    expect(container.textContent).toContain("designSystemSetup.title");
+    expect(mocks.queries).toHaveBeenCalledWith("get-design-system-tier-limit");
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
   it("blocks the setup form entirely and shows upgrade messaging at the tier cap", async () => {
     mocks.tierLimit = {
       status: "ok",

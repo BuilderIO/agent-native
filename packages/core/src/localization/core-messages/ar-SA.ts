@@ -1,6 +1,25 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "عنوان URL",
+  "composer.contextInvalidUrl": "أدخل عنوان URL صالحًا يبدأ بـ HTTP أو HTTPS.",
+  "composer.contextAttach": "إرفاق",
+  "composer.menu.search": "بحث…",
+  "composer.contextPrevious": "السابق",
+  "composer.contextNext": "التالي",
+  "composer.contextLoadFailed": "تعذّر تحميل السياق.",
+  "composer.contextLinkRequired": "أدخل رابطًا.",
+  "composer.submitFailed": "تعذّر الإرسال. حاول مجددًا.",
+  "composer.addContext": "إضافة سياق",
+  "composer.contextActionFailed": "تعذّرت إضافة السياق.",
+  "composer.contextBack": "رجوع",
+  "composer.searchContext": "البحث في السياق…",
+  "composer.noContextResults": "لا يوجد سياق مطابق.",
+  "composer.contextPending": "السياق قيد الانتظار",
+  "composer.contextError": "فشل السياق",
+  "composer.retryContext": "إعادة محاولة سياق {{name}}",
+  "composer.contextLimitExceeded":
+    "السياق كبير جدًا. أزل عنصرًا أو أرفق تحديدًا أصغر.",
   "activity.reasoning": "الاستدلال",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",
@@ -857,6 +876,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "البريد الإلكتروني الجديد",
   "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
   "usage.builderCredits": "أرصدة Builder",
+  "usage.inviteFriends": "ادعُ الأصدقاء",
+  "usage.inviteCredits":
+    "احصل على {{amount}} من أرصدة Builder عندما يشترك صديق.",
+  "usage.copyInviteLink": "نسخ رابط الدعوة",
+  "usage.inviteLinkCopied": "تم نسخ رابط الدعوة",
   "usage.creditBalance": "رصيد مساحة العمل",
   "usage.monthlyPlan": "الخطة الشهرية",
   "usage.dailyFreeLimit": "الحد اليومي المجاني",

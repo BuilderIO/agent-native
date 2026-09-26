@@ -109,9 +109,13 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
 
   const agentPanel = page.locator("[data-design-agent-panel]");
   await expect(agentPanel).toBeVisible();
-  await expect(
-    agentPanel.getByRole("button", { name: "New chat", exact: true }),
-  ).toBeVisible();
+  // An untitled conversation tab also renders "New chat" as its placeholder
+  // label (MultiTabAssistantChat falls back to that name until a real title
+  // lands), so a name-only lookup for the header's compose button matches
+  // the tab too. Scope to the real <button> tag: the tab is a
+  // `<div role="button">`, so this selector alone disambiguates them.
+  const newChatButton = agentPanel.locator('button[aria-label="New chat"]');
+  await expect(newChatButton).toBeVisible();
   await expect(
     agentPanel.getByRole("button", {
       name: "Agent panel options",
@@ -134,9 +138,7 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
     agentPanel.getByRole("button", { name: "Collapse sidebar", exact: true }),
   ).toBeVisible();
 
-  await agentPanel
-    .getByRole("button", { name: "New chat", exact: true })
-    .click();
+  await newChatButton.click();
   const conversationTabs = agentPanel.locator('[role="button"].agent-tab');
   await expect(conversationTabs).toHaveCount(2);
   expect(
@@ -623,10 +625,16 @@ test("left sidebar switches between all screens and focused screens", async ({
   await homeScreen.click();
   await expect(homeScreen).toHaveAttribute("aria-current", "page");
   await expect(allScreens).not.toHaveAttribute("aria-current", "page");
-  // Leaving the board is the switch under test. The focused preview's width is
-  // the screen's own device width, so pinning a pixel floor here asserts the
-  // seed's frame geometry instead — 320 once the overview persists one.
-  await expect(screenCards).toHaveCount(0, { timeout: 10_000 });
+  // Leaving the board is the switch under test. Only two views exist now
+  // (mode-change.ts's "enter-single-interact" routing, in place since
+  // 74c9585d72): picking a screen from the list lands in the responsive
+  // Interact view, which still renders the focused screen through
+  // MultiScreenCanvas (so its [data-screen-card] stays in the DOM) with
+  // [data-screen-interact-mode="true"] on the owning shell — the marker
+  // this test used to look for as "no card at all" no longer exists.
+  await expect(
+    page.locator('[data-screen-shell][data-screen-interact-mode="true"]'),
+  ).toHaveCount(1, { timeout: 10_000 });
   await expect(
     page.locator("iframe[data-design-preview-iframe]"),
   ).toBeVisible();

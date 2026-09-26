@@ -1,5 +1,6 @@
 import { isActionContractError } from "@agent-native/core";
 import {
+  cdnSafeOriginStatus,
   FeatureNotConfiguredError,
   getSession,
   indexBuilderDesignSystem,
@@ -8,6 +9,7 @@ import {
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
 import { upsertBuilderProxyDesignSystem } from "../lib/builder-design-system-proxy.js";
+import { assertDesignSystemWorkflowsEnabled } from "../lib/design-system-workflows.js";
 
 /**
  * Finalizes Builder DSI indexing from upload tokens produced by the
@@ -49,6 +51,7 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
     return await runWithRequestContext(
       { userEmail: session.email, orgId: session.orgId },
       async () => {
+        await assertDesignSystemWorkflowsEnabled();
         const result = await indexBuilderDesignSystem({ sources, projectName });
         const proxy = await upsertBuilderProxyDesignSystem({
           result,
@@ -75,14 +78,14 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
     // Forward structured failures (e.g. tier-limit 402s) instead of a
     // generic 502, so the client can recover the upgrade link.
     if (isActionContractError(err)) {
-      setResponseStatus(event, err.statusCode);
+      setResponseStatus(event, cdnSafeOriginStatus(err.statusCode));
       return {
         error: err.message,
         errorCode: err.errorCode,
         details: err.details,
       };
     }
-    setResponseStatus(event, 502);
+    setResponseStatus(event, cdnSafeOriginStatus(502));
     return {
       error:
         err instanceof Error

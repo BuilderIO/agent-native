@@ -3,6 +3,19 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-25
+
+### Improved
+
+- Tune inbox priorities with Jev, label messages clearly, and teach importance with feedback.
+
+### Fixed
+
+- Editing importance rules preserves disabled instructions and recovers from duplicate-rule deletion failures
+- Handle astral Unicode letters in autocomplete word boundaries
+- Keep existing AI filter rules intact when saving a prompt
+- Keep inbox tab counts consistent when switching tabs
+
 ## 2026-09-24
 
 ### Improved

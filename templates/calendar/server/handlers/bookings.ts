@@ -61,6 +61,7 @@ import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { eventBlocksAvailability } from "../lib/calendar-availability.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { createZoomMeeting } from "../lib/zoom.js";
+import { getBookingUsernameOwner } from "./booking-usernames.js";
 
 async function requireRequestContext<T>(
   event: H3Event,
@@ -598,10 +599,12 @@ function unavailableAvailabilityResponse(event: H3Event) {
 
 async function resolveAvailabilityContext({
   slug,
+  username,
   draft,
   db = getDb(),
 }: {
   slug: string;
+  username?: string;
   draft?: BookingAvailabilityDraft;
   db?: ConflictDb;
 }): Promise<AvailabilityContext> {
@@ -634,26 +637,42 @@ async function resolveAvailabilityContext({
     });
   }
   const config = configRaw as unknown as AvailabilityConfig | null;
-  const ownerEmail = bookingLink?.ownerEmail;
+  const usernameOwnerEmail =
+    !bookingLink && username && !draft
+      ? await getBookingUsernameOwner(username)
+      : null;
+  const candidateOwnerEmail = bookingLink?.ownerEmail || usernameOwnerEmail;
+  const [candidateOwnerConfigRaw, candidateOwnerSettingsRaw] =
+    candidateOwnerEmail
+      ? await Promise.all([
+          getUserSetting(candidateOwnerEmail, "calendar-availability"),
+          getUserSetting(candidateOwnerEmail, "calendar-settings"),
+        ])
+      : [null, null];
+  const candidateOwnerConfig =
+    candidateOwnerConfigRaw as AvailabilityConfig | null;
+  const usernameSlugMatches =
+    !usernameOwnerEmail ||
+    candidateOwnerConfig?.bookingPageSlug === slug ||
+    (!candidateOwnerConfig && slug === "book");
+  const ownerEmail =
+    bookingLink?.ownerEmail ||
+    (usernameSlugMatches ? usernameOwnerEmail || undefined : undefined);
   const overrides = bookingLink
     ? resolveBookingLinkAvailabilityOverrides({ bookingLink, draft })
     : undefined;
   const hostEmails = overrides?.hostEmails ?? (ownerEmail ? [ownerEmail] : []);
-  const [ownerConfigRaw, ownerSettingsRaw, conflictSlugs] = await Promise.all([
-    ownerEmail
-      ? getUserSetting(ownerEmail, "calendar-availability")
-      : Promise.resolve(null),
-    ownerEmail
-      ? getUserSetting(ownerEmail, "calendar-settings")
-      : Promise.resolve(null),
-    ownerEmail
-      ? getBookingLinkSlugsForOwners(hostEmails, db)
-      : slug
-        ? Promise.resolve([slug])
-        : Promise.resolve([]),
-  ]);
-  const ownerConfig = ownerConfigRaw as unknown as AvailabilityConfig | null;
-  const ownerSettings = ownerSettingsRaw as { timezone?: string } | null;
+  const ownerConfig = ownerEmail ? candidateOwnerConfig : null;
+  const ownerSettings = ownerEmail
+    ? (candidateOwnerSettingsRaw as { timezone?: string } | null)
+    : null;
+  const conflictSlugs = ownerEmail
+    ? await getBookingLinkSlugsForOwners(hostEmails, db).then((slugs) =>
+        Array.from(new Set([slug, ...slugs])),
+      )
+    : slug
+      ? [slug]
+      : [];
   const eligibleHosts = await getEligibleHostAvailability(
     ownerEmail,
     hostEmails,
@@ -666,7 +685,9 @@ async function resolveAvailabilityContext({
         ? createDefaultAvailability(
             ownerSettings?.timezone || "America/New_York",
           )
-        : config),
+        : username
+          ? null
+          : config),
     ownerEmail,
     hostEmails,
     eligibleHosts,
@@ -1475,6 +1496,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     let meetingLink: string | undefined;
     let googleEventId: string | undefined;
     let calendarAccountId: string | undefined;
+    let meetingLinkPending = false;
 
     // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
@@ -1499,7 +1521,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           endTime: requestedRange.end.toISOString(),
           timezone: bookingTimeZone,
         });
-        if (zoomResult.status === "not_started") {
+        if (
+          zoomResult.status === "not_started" ||
+          zoomResult.status === "rejected"
+        ) {
           await getDb()
             .update(schema.bookings)
             .set({ status: "cancelled" })
@@ -1518,9 +1543,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         );
         // Zoom may have created the meeting even if its response was lost or
         // unreadable, so keep the booking to reserve the slot and prevent a
-        // retry from silently creating a duplicate meeting.
-        setResponseStatus(event, 502);
-        return { error: "Failed to create booking" };
+        // retry from silently creating a duplicate meeting. Finish the
+        // independent calendar write before returning the provider error.
+        meetingLinkPending = true;
       }
     }
 
@@ -1603,12 +1628,14 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
 
     // Persist provider details created after the initial booking insert.
-    if (meetingLink || googleEventId) {
+    meetingLinkPending = meetingLinkPending && !meetingLink;
+    if (meetingLink || googleEventId || meetingLinkPending) {
       const providerUpdates: {
         meetingLink?: string;
         googleEventId?: string;
         calendarAccountId?: string;
-      } = {};
+        meetingLinkPending: boolean;
+      } = { meetingLinkPending };
       if (meetingLink) providerUpdates.meetingLink = meetingLink;
       if (googleEventId) providerUpdates.googleEventId = googleEventId;
       if (googleEventId && calendarAccountId) {
@@ -1634,6 +1661,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       fieldResponses:
         Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
       meetingLink,
+      ...(meetingLinkPending ? { meetingLinkPending: true } : {}),
       googleEventId,
       cancelToken,
       status: "confirmed",
@@ -1700,6 +1728,7 @@ async function getAvailableSlotsForQuery(
   const to = parseDateOnly(query.to);
   const hasRangeQuery = query.from !== undefined || query.to !== undefined;
   const slug = typeof query.slug === "string" ? query.slug : "";
+  const username = typeof query.username === "string" ? query.username : "";
 
   if (hasRangeQuery) {
     if (!from || !to) {
@@ -1724,7 +1753,7 @@ async function getAvailableSlotsForQuery(
     return { error: "date query parameter is required" };
   }
 
-  const context = await resolveAvailabilityContext({ slug, draft });
+  const context = await resolveAvailabilityContext({ slug, username, draft });
   if (!context.effectiveConfig) {
     return hasRangeQuery ? { dates: [] } : { slots: [] };
   }
@@ -1960,6 +1989,7 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
       end: booking.end,
       slug: booking.slug,
       meetingLink: booking.meetingLink,
+      meetingLinkPending: booking.meetingLinkPending,
       status: booking.status,
     };
   } catch (error: any) {
@@ -2045,6 +2075,8 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,
+    meetingLinkPending:
+      row.meetingLinkPending && !row.meetingLink ? true : undefined,
     googleEventId: row.googleEventId ?? undefined,
     status: row.status,
     createdAt: row.createdAt,

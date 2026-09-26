@@ -1202,13 +1202,20 @@ const protectedLocalizedDocsIdentifiers = [
 ];
 
 const corruptedLocalizedDocsIdentifierPatterns = [
-  /Prompt(?!Composer)[\p{L}]+r/u,
+  /(?<![\p{L}\p{N}_])Prompt(?!Composer)[\p{L}]+r(?![\p{L}\p{N}_])/u,
   /Agent(?!ComposerFrame)[\p{L}]+rFrame/u,
   /Tiptap(?!Composer)[\p{L}]+r/u,
   /buildPrompt(?!ComposerSubmission)[\p{L}]+rSubmission/u,
   /encode(?!ComposerDraft)[\p{L}]+Draft/u,
   /Nachricht\/send/u,
 ];
+
+export function findCorruptedLocalizedDocsIdentifiers(text: string): string[] {
+  return corruptedLocalizedDocsIdentifierPatterns.flatMap((pattern) => {
+    const match = text.match(pattern);
+    return match ? [match[0]] : [];
+  });
+}
 
 type LocalizedDocsCoverageArgs = {
   sourceSlugs: Iterable<string>;
@@ -1365,11 +1372,11 @@ function checkLocalizedDocsProtectedIdentifiers(): string[] {
         );
       }
 
-      for (const pattern of corruptedLocalizedDocsIdentifierPatterns) {
-        const match = localizedText.match(pattern);
-        if (!match) continue;
+      for (const identifier of findCorruptedLocalizedDocsIdentifiers(
+        localizedText,
+      )) {
         errors.push(
-          `${rel}: likely translated/corrupted code identifier "${match[0]}" must be restored to the English API identifier`,
+          `${rel}: likely translated/corrupted code identifier "${identifier}" must be restored to the English API identifier`,
         );
       }
     }

@@ -22,8 +22,6 @@ import {
 
 const primaryActionClassName =
   "inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer";
-const secondaryActionClassName =
-  "inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-4 text-sm font-medium text-foreground shadow-sm hover:bg-accent";
 
 const errorCopy: Record<
   LocaleCode,
@@ -35,7 +33,6 @@ const errorCopy: Record<
     notFoundDetails: string;
     statusTitle: (status: number) => string;
     goHome: string;
-    reload: string;
     sendFeedback: string;
     feedbackPlaceholder: string;
     openGitHubIssue: string;
@@ -49,7 +46,6 @@ const errorCopy: Record<
     notFoundDetails: "We couldn't find this page.",
     statusTitle: (status) => `${status} Error`,
     goHome: "Go home",
-    reload: "Reload",
     sendFeedback: "Send feedback",
     feedbackPlaceholder: "Describe what happened before this error appeared.",
     openGitHubIssue: "Open GitHub issue",
@@ -62,7 +58,6 @@ const errorCopy: Record<
     notFoundDetails: "我们找不到这个页面。",
     statusTitle: (status) => `${status} 错误`,
     goHome: "回到首页",
-    reload: "重新加载",
     sendFeedback: "发送反馈",
     feedbackPlaceholder: "描述此错误出现前发生了什么。",
     openGitHubIssue: "打开 GitHub issue",
@@ -75,7 +70,6 @@ const errorCopy: Record<
     notFoundDetails: "找不到這個頁面。",
     statusTitle: (status) => `${status} 錯誤`,
     goHome: "回首頁",
-    reload: "重新載入",
     sendFeedback: "傳送意見回饋",
     feedbackPlaceholder: "描述此錯誤出現前發生了什麼。",
     openGitHubIssue: "開啟 GitHub issue",
@@ -88,7 +82,6 @@ const errorCopy: Record<
     notFoundDetails: "No pudimos encontrar esta página.",
     statusTitle: (status) => `Error ${status}`,
     goHome: "Ir al inicio",
-    reload: "Recargar",
     sendFeedback: "Enviar comentarios",
     feedbackPlaceholder:
       "Describe qué pasó antes de que apareciera este error.",
@@ -102,7 +95,6 @@ const errorCopy: Record<
     notFoundDetails: "Nous n'avons pas trouvé cette page.",
     statusTitle: (status) => `Erreur ${status}`,
     goHome: "Accueil",
-    reload: "Recharger",
     sendFeedback: "Envoyer un retour",
     feedbackPlaceholder: "Décrivez ce qui s'est passé avant cette erreur.",
     openGitHubIssue: "Ouvrir une issue GitHub",
@@ -115,7 +107,6 @@ const errorCopy: Record<
     notFoundDetails: "Wir konnten diese Seite nicht finden.",
     statusTitle: (status) => `Fehler ${status}`,
     goHome: "Zur Startseite",
-    reload: "Neu laden",
     sendFeedback: "Feedback senden",
     feedbackPlaceholder: "Beschreiben Sie, was vor diesem Fehler passiert ist.",
     openGitHubIssue: "GitHub-Issue öffnen",
@@ -128,7 +119,6 @@ const errorCopy: Record<
     notFoundDetails: "このページは見つかりませんでした。",
     statusTitle: (status) => `${status} エラー`,
     goHome: "ホームへ",
-    reload: "再読み込み",
     sendFeedback: "フィードバックを送信",
     feedbackPlaceholder: "このエラーの直前に起きたことを説明してください。",
     openGitHubIssue: "GitHub issue を開く",
@@ -141,7 +131,6 @@ const errorCopy: Record<
     notFoundDetails: "이 페이지를 찾을 수 없습니다.",
     statusTitle: (status) => `${status} 오류`,
     goHome: "홈으로 이동",
-    reload: "새로고침",
     sendFeedback: "피드백 보내기",
     feedbackPlaceholder:
       "이 오류가 나타나기 전에 무슨 일이 있었는지 적어 주세요.",
@@ -155,7 +144,6 @@ const errorCopy: Record<
     notFoundDetails: "Não encontramos esta página.",
     statusTitle: (status) => `Erro ${status}`,
     goHome: "Ir para início",
-    reload: "Recarregar",
     sendFeedback: "Enviar feedback",
     feedbackPlaceholder: "Descreva o que aconteceu antes deste erro aparecer.",
     openGitHubIssue: "Abrir issue no GitHub",
@@ -168,7 +156,6 @@ const errorCopy: Record<
     notFoundDetails: "हमें यह पेज नहीं मिला।",
     statusTitle: (status) => `${status} त्रुटि`,
     goHome: "होम पर जाएं",
-    reload: "रीलोड करें",
     sendFeedback: "फ़ीडबैक भेजें",
     feedbackPlaceholder: "इस त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",
     openGitHubIssue: "GitHub issue खोलें",
@@ -181,7 +168,6 @@ const errorCopy: Record<
     notFoundDetails: "تعذر العثور على هذه الصفحة.",
     statusTitle: (status) => `خطأ ${status}`,
     goHome: "العودة للرئيسية",
-    reload: "إعادة التحميل",
     sendFeedback: "إرسال الملاحظات",
     feedbackPlaceholder: "صف ما حدث قبل ظهور هذا الخطأ.",
     openGitHubIssue: "فتح مشكلة في GitHub",
@@ -339,32 +325,23 @@ function ErrorScreen({ error }: { error: unknown }) {
         )}
         <h1 className="mt-3 text-2xl font-semibold">{title}</h1>
         <p className="mt-2 text-muted-foreground text-sm">{details}</p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
+        <div className="mt-6 flex flex-col items-center gap-2">
           <a href={appPath("/")} className={primaryActionClassName}>
             {copy.goHome}
           </a>
           {!isNotFound && (
-            <>
-              <button
-                type="button"
-                onClick={() => window.location.reload()}
-                className={secondaryActionClassName}
-              >
-                {copy.reload}
-              </button>
-              <ErrorReportActions
-                appName="Agent-Native"
-                title={title}
-                details={details}
-                status={status}
-                issueTitle={`Error screen: ${title}`}
-                feedbackLabel={copy.sendFeedback}
-                feedbackPlaceholder={copy.feedbackPlaceholder}
-                githubLabel={copy.openGitHubIssue}
-                feedbackClassName="h-9"
-                githubClassName="h-9"
-              />
-            </>
+            <ErrorReportActions
+              appName="Agent-Native"
+              title={title}
+              details={details}
+              status={status}
+              issueTitle={`Error screen: ${title}`}
+              feedbackLabel={copy.sendFeedback}
+              feedbackPlaceholder={copy.feedbackPlaceholder}
+              githubLabel={copy.openGitHubIssue}
+              feedbackClassName="h-9"
+              githubClassName="h-9"
+            />
           )}
         </div>
         {stack && (

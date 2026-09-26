@@ -43,12 +43,13 @@ contract.
 - Scale effort to the task. A small, well-specified change is a short read, the
   edit, and the existing checks — not a codebase survey, unrequested tests, or
   browser automation. Save deep exploration for ambiguous or cross-cutting work.
-- Stay on the current git branch. Never create, switch, delete, reset, rebase,
-  stash, or otherwise move branches unless the user explicitly asks for that exact
-  branch operation in the current task.
+- In task-owned worktrees, make needed safe branch changes without asking.
+  Classify dirty paths first; preserve unrelated work and never move peer or
+  platform branches. Shared checkouts need exact authorization. See
+  `new-branch`.
 - Never add `Co-Authored-By` or other agent attribution to commits.
-- PRs use the current branch unless the user explicitly requests a new branch.
-  PRs are ready for review by default, not drafts, unless requested.
+- PRs use the current suitable branch and are ready for review by default, not
+  drafts, unless requested.
 - Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
   sole automatic beta publisher. It builds in GitHub Actions and uploads
   prebuilt artifacts to the independent Netlify beta sites at
@@ -156,10 +157,10 @@ could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
 for a check that inspected nothing; that is the flagship rule above, violated
 inside the thing that enforces it.
 
-Shared checkout edits are visible through Git. Re-read existing changes before
-editing them, and use `corepack pnpm ship:push` when the user authorizes a
-branch-wide checkpoint. Read `concurrent-agents` before working in a shared
-checkout.
+Shared edits are visible in Git; read `concurrent-agents`. Batch fixes; publish
+snapshots with `corepack pnpm ship:push -m "<change>"` to
+avoid CI churn. Update from `origin/main` only for GitHub `CONFLICTING` PRs;
+merge shared branches.
 
 **One hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
 `.claude/settings.json`): denies a write when another live session holds the
@@ -190,7 +191,7 @@ was supposed to close it.
   the guidance. Rewriting a rule that has already failed twice is how this repo
   grew four copies of "push your work" across two skills while the worktree
   stayed unpushed. Replace it with a mechanism, or with one command the agent
-  runs instead of remembering a procedure — `pnpm ship:push` is what that
+  runs instead of remembering a procedure — `pnpm ship:push -m` is what that
   looks like.
 - Delete the prose the mechanism replaces, in the same change.
 

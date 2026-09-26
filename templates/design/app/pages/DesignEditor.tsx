@@ -465,6 +465,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -480,6 +481,7 @@ import {
 } from "@/components/visual-editor/DrawOverlay";
 import { NodeRewriteProposal as NodeRewriteProposalPanel } from "@/components/visual-editor/NodeRewriteProposal";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import {
@@ -758,6 +760,7 @@ import {
   createVisualEditSnapshotPublicationState,
   runClearVisualEditSnapshotPublications,
   runInvalidateVisualEditSnapshotPublication,
+  runReserveVisualEditSnapshotInOrder,
   runScheduleVisualEditSnapshotPublication,
   type VisualEditSnapshotPublicationState,
 } from "./design-editor/commands/publish-visual-edit-snapshot";
@@ -990,6 +993,7 @@ import {
   mergeAuthoredAndLiveRect,
   type ReflowCandidate,
 } from "./design-editor/layout-operations";
+import { reconcileLiveCollaborationOverride } from "./design-editor/live-collaboration-override";
 import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
 import {
   hasMinimalInspectorSelection,
@@ -3869,6 +3873,7 @@ function DesignEditor() {
         model: pending.model,
         engine: pending.engine,
         effort: pending.effort,
+        contextItems: pending.contextItems,
         designSystemId: pending.designSystemId,
         attempt: pending.attempt ?? 1,
         source: pending.source,
@@ -4001,6 +4006,7 @@ function DesignEditor() {
         model: pending?.model,
         engine: pending?.engine,
         effort: pending?.effort,
+        contextItems: pending?.contextItems,
         runTabId,
         attempt: pending?.attempt ?? 1,
         startedAt: Date.now(),
@@ -4030,6 +4036,7 @@ function DesignEditor() {
       prompt: pending.prompt,
       designSystemId: pending.designSystemId,
       images: imageAttachmentsFromUploadedFiles(files),
+      contextItems: pending.contextItems,
       uploadedFileContext: formatUploadedFileContext(files),
     };
   }, [id]);
@@ -4137,6 +4144,7 @@ function DesignEditor() {
     error: designQueryError,
     isError: designQueryFailed,
     isLoading: designLoading,
+    dataUpdatedAt: designDataUpdatedAt,
     refetch: refetchDesign,
   } = useActionQuery<DesignData | string>(
     "get-design",
@@ -4252,6 +4260,86 @@ function DesignEditor() {
   const canEditDesign = !visualEditAccessLost
     ? canShareDesign || designAccessRole === "editor"
     : false;
+  const visualEditSnapshotPublicationStateRef =
+    useRef<VisualEditSnapshotPublicationState | null>(null);
+  if (!visualEditSnapshotPublicationStateRef.current) {
+    visualEditSnapshotPublicationStateRef.current =
+      createVisualEditSnapshotPublicationState();
+  }
+  const visualEditSnapshotPublicationState =
+    visualEditSnapshotPublicationStateRef.current;
+  const [liveCollaborationOverride, setLiveCollaborationOverride] = useState<{
+    enabled: boolean;
+    observedDataUpdatedAt: number;
+  } | null>(null);
+  const [liveCollaborationSaving, setLiveCollaborationSaving] = useState(false);
+  const liveCollaborationEnabled =
+    liveCollaborationOverride?.enabled ??
+    design?.liveCollaborationEnabled === true;
+  useEffect(() => setLiveCollaborationOverride(null), [id]);
+  useEffect(() => {
+    setLiveCollaborationOverride((override) =>
+      reconcileLiveCollaborationOverride(
+        override,
+        design?.liveCollaborationEnabled,
+        designDataUpdatedAt,
+      ),
+    );
+  }, [design?.liveCollaborationEnabled, designDataUpdatedAt]);
+  const handleLiveCollaborationChange = useCallback(
+    async (enabled: boolean) => {
+      if (!id || !isSignedIn || !canEditDesign || liveCollaborationSaving)
+        return;
+      setLiveCollaborationSaving(true);
+      try {
+        const result = await callAction<{
+          designId: string;
+          enabled: boolean;
+        }>("update-visual-edit-collaboration", { designId: id, enabled });
+        setLiveCollaborationOverride({
+          enabled: result.enabled,
+          observedDataUpdatedAt: designDataUpdatedAt,
+        });
+        if (result.enabled) {
+          setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
+        } else {
+          runClearVisualEditSnapshotPublications(
+            visualEditSnapshotPublicationState,
+          );
+        }
+        try {
+          const refreshed = await refetchDesign();
+          if (
+            refreshed.isSuccess &&
+            isDesignData(refreshed.data) &&
+            typeof refreshed.data.liveCollaborationEnabled === "boolean"
+          ) {
+            setLiveCollaborationOverride(null);
+          }
+        } catch {
+          // coercion-ok: the mutation is committed; a later query reconciles this visible value.
+          // Keep the successful mutation value visible until a later query confirms it.
+        }
+      } catch (error) {
+        toast.error(
+          actionErrorMessage(error) ??
+            t("designEditor.liveCollaboration.enableError"),
+        );
+      } finally {
+        setLiveCollaborationSaving(false);
+      }
+    },
+    [
+      canEditDesign,
+      id,
+      isSignedIn,
+      liveCollaborationSaving,
+      designDataUpdatedAt,
+      refetchDesign,
+      t,
+      visualEditSnapshotPublicationState,
+    ],
+  );
   // `/visual-edit/:id` edits shared Localhost screens in the browser DOM.
   // Viewer/commenter changes remain pending handoffs; source writes still
   // require `canEditDesign`.
@@ -4978,11 +5066,12 @@ function DesignEditor() {
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
   // ── Share URL, prompt popovers, title editing ──────────────────────────────
+  const systemsEnabled = useDesignSystemWorkflows();
   const {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
-  } = useDesignSystems(isSignedIn && showPrompt);
+  } = useDesignSystems(isSignedIn && showPrompt && systemsEnabled);
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -5059,6 +5148,7 @@ function DesignEditor() {
   );
   const resolvePromptDesignSystemId = useCallback(() => {
     if (design?.designSystemId) return design.designSystemId;
+    if (!systemsEnabled) return null;
     if (
       defaultSystem &&
       isDesignSystemUsableForGeneration(defaultSystem.data)
@@ -5070,10 +5160,11 @@ function DesignEditor() {
         isDesignSystemUsableForGeneration(system.data),
       )?.id ?? null
     );
-  }, [defaultSystem, design?.designSystemId, designSystems]);
+  }, [defaultSystem, design?.designSystemId, designSystems, systemsEnabled]);
 
-  const selectedPromptDesignSystemId =
-    promptDesignSystemId === undefined
+  const selectedPromptDesignSystemId = !systemsEnabled
+    ? (design?.designSystemId ?? null)
+    : promptDesignSystemId === undefined
       ? designSystemsLoading
         ? undefined
         : resolvePromptDesignSystemId()
@@ -5374,14 +5465,6 @@ function DesignEditor() {
   const [liveScreenSnapshotsById, setLiveScreenSnapshotsById] = useState<
     Record<string, LiveScreenSnapshot>
   >({});
-  const visualEditSnapshotPublicationStateRef =
-    useRef<VisualEditSnapshotPublicationState | null>(null);
-  if (!visualEditSnapshotPublicationStateRef.current) {
-    visualEditSnapshotPublicationStateRef.current =
-      createVisualEditSnapshotPublicationState();
-  }
-  const visualEditSnapshotPublicationState =
-    visualEditSnapshotPublicationStateRef.current;
   const scheduleVisualEditSnapshotRef = useRef(
     (_screenId: string, _html: string, _reservationToken?: string) => {},
   );
@@ -5750,17 +5833,23 @@ function DesignEditor() {
       if (!id || !fileId) {
         return Promise.reject(new Error("Missing visual edit snapshot target"));
       }
-      return callAction<{ reservationToken: string }>(
-        "reserve-visual-edit-snapshot",
-        { designId: id, fileId },
+      return runReserveVisualEditSnapshotInOrder(
+        visualEditSnapshotPublicationState,
+        id,
+        fileId,
+        () =>
+          callAction<{ reservationToken: string }>(
+            "reserve-visual-edit-snapshot",
+            { designId: id, fileId },
+          ),
       );
     },
-    [id],
+    [id, visualEditSnapshotPublicationState],
   );
   const scheduleVisualEditSnapshotPublication = useCallback(
     (screenId: string, html: string, reservationToken?: string) => {
       runScheduleVisualEditSnapshotPublication({
-        canPublish: canEditDesign,
+        canPublish: canEditDesign && liveCollaborationEnabled,
         designId: id,
         fileId: screenId,
         html,
@@ -5783,7 +5872,13 @@ function DesignEditor() {
         state: visualEditSnapshotPublicationState,
       });
     },
-    [canEditDesign, id, t, visualEditSnapshotPublicationState],
+    [
+      canEditDesign,
+      id,
+      liveCollaborationEnabled,
+      t,
+      visualEditSnapshotPublicationState,
+    ],
   );
   scheduleVisualEditSnapshotRef.current = scheduleVisualEditSnapshotPublication;
   useEffect(
@@ -8814,7 +8909,8 @@ function DesignEditor() {
       if (
         screen &&
         resolveOverviewScreenSourceType(screen, designSourceTypeRef.current) ===
-          "localhost"
+          "localhost" &&
+        snapshot.reservationToken
       ) {
         scheduleVisualEditSnapshotRef.current(
           screenId,
@@ -11608,7 +11704,10 @@ function DesignEditor() {
       if (!result) return;
       const resultNodeId = typeof result === "string" ? result : nodeId;
       handlePrimitiveCreated(activeFile.id, resultNodeId, {
-        nextTool: spec.tool === "pen" ? "pen" : undefined,
+        nextTool:
+          spec.tool === "pen" && spec.preserveActiveTool !== false
+            ? "pen"
+            : undefined,
         preserveActiveTool: spec.preserveActiveTool,
       });
       return resultNodeId;
@@ -21567,6 +21666,53 @@ function DesignEditor() {
         label: "Send to agent" /* i18n-ignore share tab label */,
         content: shareSendToTab,
       },
+      ...(hasLocalhostScreens &&
+      sessionResolved &&
+      (!isSignedIn || canEditDesign)
+        ? [
+            {
+              value: "live-collaboration",
+              label: t("designEditor.liveCollaboration.title"),
+              content: isSignedIn ? (
+                <div className="flex items-center justify-between gap-4 py-1">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">
+                      {t("designEditor.liveCollaboration.title")}
+                    </div>
+                    {liveCollaborationSaving ? (
+                      <p className="text-xs text-muted-foreground">
+                        {t("designEditor.liveCollaboration.saving")}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Switch
+                        checked={liveCollaborationEnabled}
+                        disabled={liveCollaborationSaving}
+                        aria-label={t("designEditor.liveCollaboration.title")}
+                        onCheckedChange={(enabled) =>
+                          void handleLiveCollaborationChange(enabled)
+                        }
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("designEditor.liveCollaboration.description")}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              ) : (
+                <div className="flex justify-end py-1">
+                  <Button asChild size="sm">
+                    <a href={signInToShareHref}>
+                      {t("designEditor.signUpToShareLiveCanvas")}
+                    </a>
+                  </Button>
+                </div>
+              ),
+            },
+          ]
+        : []),
       ...(creativeContextEnabled
         ? [
             {
@@ -26131,6 +26277,7 @@ function DesignEditor() {
           onReserveVisualEditSnapshot={
             !screenSnapshotOnly &&
             canEditDesign &&
+            liveCollaborationEnabled &&
             id &&
             screenSourceType === "localhost"
               ? reserveVisualEditSnapshot
@@ -29701,6 +29848,7 @@ function DesignEditor() {
                         onReserveVisualEditSnapshot={
                           !activeScreenSnapshotOnly &&
                           canEditDesign &&
+                          liveCollaborationEnabled &&
                           id &&
                           activeCanvasSourceType === "localhost"
                             ? reserveVisualEditSnapshot
@@ -29746,14 +29894,19 @@ function DesignEditor() {
                         onCreatePrimitive={handleSingleScreenCreatePrimitive}
                         onUpdatePenPath={
                           canEditDesign
-                            ? (nodeId, path) =>
-                                activeFile
+                            ? (nodeId, path, nextTool) => {
+                                const updated = activeFile
                                   ? handleUpdatePenPath(
                                       activeFile.id,
                                       nodeId,
                                       path,
                                     )
-                                  : false
+                                  : false;
+                                if (updated && nextTool) {
+                                  setActiveTool(nextTool);
+                                }
+                                return updated;
+                              }
                             : undefined
                         }
                         onDropFiles={

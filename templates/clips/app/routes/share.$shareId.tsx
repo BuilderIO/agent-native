@@ -138,6 +138,10 @@ import {
   isLoomRecordingSource,
 } from "../../shared/loom";
 import {
+  organizationLogoRoutePath,
+  usesOrganizationLogoRoute,
+} from "../../shared/organization-logo.js";
+import {
   CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
   CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
 } from "../../shared/recording-link";
@@ -162,6 +166,7 @@ type SharePageMetaRecording = {
   brandLogoUrl: string | null;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
+  updatedAt: string;
   visibility: "private" | "org" | "public";
   status: "uploading" | "processing" | "ready" | "failed";
   hasPassword: boolean;
@@ -201,9 +206,10 @@ function emptyLoaderData(
 function shareLoaderData(
   payload: SharePageLoaderData,
   privateAgentAccess = false,
+  varyByQuery = false,
 ) {
   if (!privateAgentAccess) return payload;
-  return privateShareLoaderData(payload);
+  return privateShareLoaderData(payload, 200, varyByQuery);
 }
 
 export function headers({ loaderHeaders }: HeadersArgs) {
@@ -258,6 +264,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       description: schema.recordings.description,
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      updatedAt: schema.recordings.updatedAt,
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
       ownerEmail: schema.recordings.ownerEmail,
@@ -313,17 +320,23 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         )
         .limit(1)
     : [];
+  const storedBrandLogoUrl = organizationSettings?.brandLogoUrl?.trim();
 
   const recording: SharePageMetaRecording = {
     id: rec.id,
     title: rec.title,
     description: rec.description,
     ownerInitial: rec.ownerEmail.trim().charAt(0).toUpperCase() || "C",
-    brandLogoUrl: organizationSettings?.brandLogoUrl?.trim() || null,
+    brandLogoUrl: storedBrandLogoUrl
+      ? usesOrganizationLogoRoute(storedBrandLogoUrl) && rec.organizationId
+        ? `${appBasePath()}${organizationLogoRoutePath(rec.organizationId)}`
+        : storedBrandLogoUrl
+      : null,
     thumbnailUrl: rec.password
       ? null
       : resolvePlayerThumbnailUrl(rec, { appPath }),
     animatedThumbnailUrl: null,
+    updatedAt: rec.updatedAt,
     visibility: rec.visibility,
     status: rec.status,
     hasPassword: Boolean(rec.password),
@@ -350,6 +363,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         : null,
     },
     hasAgentAccessToken,
+    tokenGrantsAgentAccess,
   );
 }
 
@@ -2053,37 +2067,19 @@ function PublicCommentsEmptyState({
   const t = useT();
 
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col justify-center gap-5 overflow-y-auto px-5 py-6">
+    <div className="mx-auto flex min-h-0 w-full max-w-sm flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-5 py-5 text-center">
       <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
         <IconDeviceDesktop aria-hidden="true" className="size-5" />
       </div>
       <h2 className="text-base font-semibold tracking-tight">
         {t("sharePage.commentSignupTitle")}
       </h2>
-      <ul className="space-y-3 text-sm leading-5 text-muted-foreground">
-        <li className="flex items-start gap-3">
-          <span
-            aria-hidden="true"
-            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
-          />
-          <span>{t("sharePage.commentSignupContext")}</span>
-        </li>
-        <li className="flex items-start gap-3">
-          <span
-            aria-hidden="true"
-            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
-          />
-          <span>{t("sharePage.commentSignupFeedback")}</span>
-        </li>
-        <li className="flex items-start gap-3">
-          <span
-            aria-hidden="true"
-            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
-          />
-          <span>{t("sharePage.commentSignupDebug")}</span>
-        </li>
-      </ul>
-      <div className="space-y-3">
+      <p className="max-w-xs text-sm leading-5 text-muted-foreground">
+        {t("sharePage.commentSignupContext")} ·{" "}
+        {t("sharePage.commentSignupFeedback")} ·{" "}
+        {t("sharePage.commentSignupDebug")}
+      </p>
+      <div className="w-full space-y-2">
         <Button type="button" className="w-full" onClick={onSignUp}>
           {t("signInPrompt.createAccount")}
         </Button>

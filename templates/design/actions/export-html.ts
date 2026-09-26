@@ -35,7 +35,11 @@ export default defineAction({
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
 
-    const html = buildStandaloneHtml({ title: row.title, files: exportFiles });
+    const html = buildStandaloneHtml({
+      title: row.title,
+      files: exportFiles,
+      screenLayout: "stacked",
+    });
 
     const filename = exportFilename(row.title, "html");
     const saveResult = await trySaveExportFile(filename, html);

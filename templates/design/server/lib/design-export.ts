@@ -74,6 +74,119 @@ function extractRenderableHtml(content: string): string {
   return content;
 }
 
+function appendToBody(html: string, bodyContent: string): string {
+  const closeBody = html.lastIndexOf("</body>");
+  return closeBody === -1
+    ? `${html}\n${bodyContent}`
+    : `${html.slice(0, closeBody)}${bodyContent}\n${html.slice(closeBody)}`;
+}
+
+function injectExportCss(html: string, combinedCss: string): string {
+  if (
+    !combinedCss.trim() ||
+    /<style[^>]*data-agent-native-export\b/i.test(html)
+  ) {
+    return html;
+  }
+  const styleBlock = `<style data-agent-native-export>
+${combinedCss}
+</style>`;
+  const closeHead = html.lastIndexOf("</head>");
+  return closeHead === -1
+    ? `${styleBlock}\n${html}`
+    : `${html.slice(0, closeHead)}${styleBlock}\n${html.slice(closeHead)}`;
+}
+
+function standaloneScreenDocument(args: {
+  title: string;
+  content: string;
+  combinedCss: string;
+}): string {
+  const { title, content, combinedCss } = args;
+  if (/<!doctype html|<html[\s>]/i.test(content)) {
+    return ensureGroupRuntime(
+      injectHiddenLayerExportStyle(injectExportCss(content, combinedCss)),
+    );
+  }
+  const bodyContent = extractRenderableHtml(content);
+
+  return ensureGroupRuntime(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(title)}</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script
+    defer
+    src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
+  ></script>
+  <style data-agent-native-export>
+    ${combinedCss}
+  </style>
+  ${hiddenLayerExportStyleTag()}
+</head>
+<body>
+  ${bodyContent}
+</body>
+</html>`);
+}
+
+function buildStackedScreenHtml(args: {
+  title: string;
+  screens: DesignExportFile[];
+  jsxFiles: DesignExportFile[];
+  combinedCss: string;
+}): string {
+  const { title, screens, jsxFiles, combinedCss } = args;
+  const jsxBody = jsxFiles
+    .map((file) => extractRenderableHtml(file.content ?? ""))
+    .filter(Boolean)
+    .join("\n\n");
+  const screenFrames = screens
+    .map((screen, index) => {
+      const content = screen.content ?? "";
+      const screenContent =
+        index === 0 && jsxBody ? appendToBody(content, jsxBody) : content;
+      const document = standaloneScreenDocument({
+        title: screen.filename,
+        content: screenContent,
+        combinedCss,
+      });
+      return `<iframe
+  data-agent-native-export-screen
+  title="${escapeHtml(screen.filename)}"
+  srcdoc="${escapeHtml(document)}"
+></iframe>`;
+    })
+    .join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    html, body { margin: 0; min-height: 100%; }
+    [data-agent-native-export-screens] { display: block; }
+    [data-agent-native-export-screen] {
+      display: block;
+      width: 100%;
+      height: 100vh;
+      border: 0;
+      margin: 0 0 24px;
+    }
+  </style>
+</head>
+<body>
+  <main data-agent-native-export-screens>
+    ${screenFrames}
+  </main>
+</body>
+</html>`;
+}
+
 export function safeExportBaseName(title: string | null | undefined): string {
   const safe = (title || "design")
     .replace(/[^a-zA-Z0-9_-]/g, "-")
@@ -92,8 +205,13 @@ export function exportFilename(
 export function buildStandaloneHtml(args: {
   title: string;
   files: DesignExportFile[];
+  /**
+   * Stack multiple HTML screens in isolated viewports for the Design app's
+   * HTML download.
+   */
+  screenLayout?: "merged" | "stacked";
 }): string {
-  const { title, files } = args;
+  const { title, files, screenLayout = "merged" } = args;
   const cssFiles = files.filter((f) => f.fileType === "css");
   const htmlFiles = files.filter((f) => f.fileType === "html");
   const jsxFiles = files.filter((f) => f.fileType === "jsx");
@@ -103,6 +221,18 @@ export function buildStandaloneHtml(args: {
     .map((f) => f.content ?? "")
     .join("\n\n")
     .replace(/<\/style/gi, "<\\/style");
+
+  if (screenLayout === "stacked" && htmlFiles.length > 1) {
+    const screens = indexHtml
+      ? [indexHtml, ...htmlFiles.filter((file) => file !== indexHtml)]
+      : htmlFiles;
+    return buildStackedScreenHtml({
+      title,
+      screens,
+      jsxFiles,
+      combinedCss,
+    });
+  }
 
   if (
     indexHtml?.content &&
@@ -128,18 +258,7 @@ export function buildStandaloneHtml(args: {
 
     // Idempotency: if a prior export already injected this CSS block, skip
     // re-injection so repeated exports don't duplicate the style tag.
-    if (
-      combinedCss.trim() &&
-      !/<style[^>]*data-agent-native-export\b/i.test(html)
-    ) {
-      const styleBlock = `<style data-agent-native-export>\n${combinedCss}\n</style>`;
-      const closeHead = html.lastIndexOf("</head>");
-      if (closeHead !== -1) {
-        html = `${html.slice(0, closeHead)}${styleBlock}\n${html.slice(closeHead)}`;
-      } else {
-        html = `${styleBlock}\n${html}`;
-      }
-    }
+    html = injectExportCss(html, combinedCss);
 
     return ensureGroupRuntime(injectHiddenLayerExportStyle(html));
   }

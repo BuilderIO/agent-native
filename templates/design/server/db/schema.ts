@@ -20,6 +20,9 @@ export const designs = table("designs", {
   dataOperationRevisions: text("data_operation_revisions")
     .notNull()
     .default("{}"),
+  liveCollaborationEnabled: boolean("live_collaboration_enabled")
+    .notNull()
+    .default(false),
   projectType: text("project_type").notNull().default("prototype"),
   designSystemId: text("design_system_id"),
   createdAt: text("created_at").default(now()),

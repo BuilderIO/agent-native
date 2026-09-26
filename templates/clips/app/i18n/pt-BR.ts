@@ -835,6 +835,10 @@ const messages = {
     uploadWorkspaceSaveFailed: "Não foi possível atualizar o espaço ativo",
     whatsNew: "Novidades",
     changelogEmpty: "Ainda não há atualizações.",
+    changelogCommentSignup:
+      "A barra lateral de comentários vazia explica rapidamente por que experimentar o Clips e oferece um caminho claro para se cadastrar.",
+    changelogShareLink:
+      "Agora, ao escolher “Ir para o início” em um link compartilhado indisponível, expirado ou privado, quem estiver conectado será levado à biblioteca em vez da página pública de marketing.",
     viewAllUpdates: "Ver todas as atualizações",
     expand: "Expandir",
     collapse: "Recolher",
@@ -1443,11 +1447,23 @@ const messages = {
     disconnected: "Microfone desconectado.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Não foi possível abrir o Builder.io. Se este app estiver incorporado em um chat, abra-o em uma aba do navegador; caso contrário, permita pop-ups para este site e tente novamente.",
+    builderConnectError:
+      "Não foi possível conectar ao Builder.io. Tente novamente ou entre em contato com o suporte.",
+    checkingBuilderConnection: "Verificando a conexão com o Builder…",
     builderTimeout:
       "Não houve resposta do Builder em 5 minutos. Verifique o pop-up e tente novamente.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Aguardando Builder...",
     connectBuilder: "Usar Builder.io",
+    createBuilderAccount: "Criar conta do Builder.io",
+    signInWithBuilderAccount: "Entrar com uma conta do Builder.io",
+    builderConsentPrefix:
+      "Ao criar uma conta Builder.io, você concorda com nossos",
+    builderTerms: "Termos de Serviço",
+    builderConsentAnd: "e",
+    builderPrivacy: "Política de Privacidade",
     free: "Grátis",
     configureS3: "configurar armazenamento compatível com S3",
     whyPrompt: "Por que estou vendo isso?",

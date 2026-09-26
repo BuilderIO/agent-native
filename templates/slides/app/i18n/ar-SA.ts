@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "إجراءات القالب {{title}}",
+    previewAction: "معاينة",
+    title: "القوالب",
+    browseAll: "استعراض الكل",
+    searchPlaceholder: "البحث عن القوالب…",
+    loading: "جارٍ تحميل القوالب",
+    empty: "لا توجد قوالب تطابق بحثك.",
+    loadFailed: "تعذّر تحميل القوالب.",
+    preview: "معاينة القالب",
+    useTemplate: "استخدام القالب",
+    opening: "جارٍ فتح القالب…",
+    createFailed: "تعذّر إنشاء عرض تقديمي من هذا القالب.",
+    previous: "السابق",
+    next: "التالي",
+    slidePosition: "الشريحة {{current}} من {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["ar-SA"],
   root: {
     commandPresentations: "العروض التقديمية",
@@ -692,14 +709,14 @@ const messages = {
     accessApprovalSignIn: "تسجيل الدخول",
     accessApprovalLoading: "جارٍ منح الوصول...",
     backToDecks: "العودة إلى العروض",
-    tryAgain: "Intentar de nuevo",
+    tryAgain: "إعادة المحاولة",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
       "وصّل Builder.io من قائمة النموذج في مؤلف الوكيل لتحميل الصور إلى الشرائح. لا يزال بإمكانك إفلات صورة على اللوحة الفارغة لإرسالها إلى الوكيل بدون مزود.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
-    deckHasNoSlides: "El deck no tiene diapositivas.",
+    deckHasNoSlides: "لا توجد شرائح في هذا العرض التقديمي.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
     layoutOverflowWarning: "يتجاوز التخطيط المساحة",
@@ -806,6 +823,107 @@ const messages = {
     chooseAnotherFile: "اختيار ملف آخر",
   },
   home: {
+    suggestedPrompts: "الاقتراحات المقترحة",
+    importMenu: {
+      import: "استيراد",
+      options: "خيارات الاستيراد",
+      invalidPdf: "اختر ملف PDF.",
+      invalidPptx: "اختر ملف PPTX.",
+      invalidFile: "اختر ملف PDF أو PPTX.",
+      notStarted: "أكمل تسجيل الدخول المطلوب، ثم أعد محاولة الاستيراد.",
+    },
+    importDeck: "استيراد عرض",
+    context: {
+      websiteReference: "إرفاق موقع ويب",
+      websiteUrlLabel: "عنوان URL لموقع الويب",
+      websiteUrl: "الصق عنوان URL لموقع ويب",
+      figmaUrlLabel: "رابط Figma",
+      invalidFigmaUrl: "أدخل عنوان URL صالحًا لإطار أو ملف على figma.com.",
+      createSystem: "إنشاء نظام تصميم",
+      noSystems:
+        "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",
+      searchSystems: "البحث في أنظمة التصميم…",
+      searchFrames: "البحث في إطارات Figma…",
+      searchDesigns: "البحث في التصاميم…",
+      searchPresentations: "البحث في العروض التقديمية…",
+      menu: {
+        system: "استخدام نظام تصميم",
+        figma: "إرفاق Figma",
+        design: "الاستعانة بتصميم",
+        deck: "الاستعانة بعرض تقديمي",
+        searchDesign: "البحث في التصميم…",
+      },
+      loadFailed: "تعذر تحميل هذا المرجع. حاول مجددًا.",
+      saveFailed: "تعذر حفظ اختيار السياق.",
+      system: "أنظمة التصميم",
+      figmaUrl: "ألصق رابط Figma",
+      browse: "تصفح الإطارات",
+      empty: "لم يتم العثور على مراجع.",
+      previous: "السابق",
+      next: "التالي",
+      title: "السياق",
+      remove: "إزالة المرجع",
+      deck: "العروض التقديمية",
+      design: "مراجع التصميم",
+      figma: "إطارات Figma",
+      notReady:
+        "السياق قيد التحميل أو غير متاح. أعد المحاولة أو أزله قبل الإرسال.",
+      emptySource: "لم يُرجع هذا المصدر سياقًا قابلًا للاستخدام.",
+      tooMany: "اختر حتى 20 مرجعًا.",
+      search: "البحث عن مراجع",
+      designCategory: "التصميم",
+    },
+    quickStart: {
+      invalidUrl: "أدخل رابط HTTP أو HTTPS صالحًا.",
+      starting: "جارٍ البدء…",
+      generate: "إنشاء",
+      connectionRequired:
+        "اربط Builder.io أعلى حقل الصفحة الرئيسية ثم حاول مجددًا.",
+      invalidPdf: "اختر ملف PDF.",
+      notReady: "راجع السياق المعلق أو المتعذر وحالة الاتصال ثم حاول مجددًا.",
+      tooLong: "اجعل نص المصدر أقل من 20,000 حرف.",
+      trends: {
+        label: "إنشاء عرض عن أحدث اتجاهات القطاع",
+        field: "القطاع أو الموضوع",
+        prompt:
+          "ابحث عن أحدث اتجاهات الموضوع المقدم وأنشئ عرضًا بمصادر حديثة. تحقق من المعلومات قبل الإنشاء.",
+      },
+      notes: {
+        label: "تحويل ملاحظات الاجتماع إلى عرض",
+        field: "ملاحظات الاجتماع",
+        prompt:
+          "حوّل ملاحظات الاجتماع المقدمة إلى عرض يتناول النقاط الرئيسية والقرارات والخطوات التالية. استخدم الملاحظات كمادة مصدرية.",
+      },
+      pdf: {
+        label: "تلخيص أهم الأفكار في ملف PDF",
+        field: "ملف PDF",
+        prompt:
+          "اقرأ ملف PDF المرفق وأنشئ عرضًا يلخص أهم أفكاره. أبلغ عن المحتوى غير المقروء بدلًا من التخمين.",
+      },
+      website: {
+        label: "إنشاء عرض من موقع شركتي",
+        field: "رابط موقع الشركة",
+        prompt:
+          "اقرأ موقع الشركة المقدم وأنشئ عرضًا عن الشركة. أبلغ عن تعذر الوصول بدلًا من اختلاق الحقائق.",
+      },
+    },
+    connectBuilderIo: "ربط Builder.io",
+    connectingBuilder: "جارٍ ربط Builder.io…",
+    recent: "الأخيرة",
+    starters: {
+      pitch: {
+        label: "عرض تقديمي لفكرة",
+        prompt: "أنشئ عرضًا تقديميًا لفكرة حول ",
+      },
+      update: {
+        label: "تحديث المشروع",
+        prompt: "أنشئ تحديثًا يتناول التقدم والنتائج والخطوات التالية لمشروع ",
+      },
+      lesson: {
+        label: "شرح موضوع",
+        prompt: "أنشئ عرضًا تقديميًا يشرح ",
+      },
+    },
     loadFailed: "تعذر تحميل المحتوى",
     loadFailedDescription:
       "لا يزال المحتوى المحفوظ متاحًا. تحقق من الاتصال وأعد المحاولة.",
@@ -836,7 +954,7 @@ const messages = {
     newDeckPromptTitle: "عرض تقديمي جديد",
     newDeckPlaceholder: "صِف العرض التقديمي الذي تريد إنشاءه...",
     skipPrompt: "تخطي المطالبة",
-    firstDeckPromptTitle: "ما نوع العرض التقديمي الذي تريد أن ننشئه؟",
+    firstDeckPromptTitle: "لننشئ عرضك التقديمي الأول",
     firstDeckSkip: "تخطي",
     chooseReferences: "اختر المراجع",
     addDesignSystem: "+ نظام تصميم",

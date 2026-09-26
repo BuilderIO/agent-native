@@ -9,6 +9,13 @@ const clipboardMock = vi.hoisted(() => ({
   writeClipboardText: vi.fn(),
 }));
 
+const referralInfoQueryMock = vi.hoisted(() => ({ data: null as unknown }));
+
+vi.mock("../use-action.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../use-action.js")>();
+  return { ...actual, useActionQuery: () => referralInfoQueryMock };
+});
+
 const agentEngineKeyMock = vi.hoisted(() => ({
   saveAgentEngineApiKey: vi.fn(),
   saveAgentEngineProviderSettings: vi.fn(),
@@ -82,6 +89,11 @@ vi.mock("../i18n.js", () => ({
         "agentChat.common.details": "Details",
         "agentChat.common.dismiss": "Dismiss",
         "agentChat.common.copied": "Copied",
+        "agentChat.usage.inviteFriends": "Invite friends",
+        "agentChat.usage.inviteCredits":
+          "Earn {{amount}} Builder credits when a friend subscribes.",
+        "agentChat.usage.copyInviteLink": "Copy invite link",
+        "agentChat.usage.inviteLinkCopied": "Invite link copied",
         "agentChat.recovery.copyDebug": "Copy debug info",
         "agentChat.recovery.copyFailed": "Copy failed",
         "agentChat.recovery.credentialRejected":
@@ -173,6 +185,7 @@ describe("run recovery surfaces", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     clipboardMock.writeClipboardText.mockReset();
+    referralInfoQueryMock.data = null;
     agentEngineKeyMock.saveAgentEngineApiKey.mockReset();
     agentEngineKeyMock.saveAgentEngineProviderSettings.mockReset();
     agentEngineKeyMock.setAgentEngineProvider.mockReset();
@@ -190,6 +203,119 @@ describe("run recovery surfaces", () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     window.history.replaceState(null, "", "/");
+  });
+
+  it("offers the Builder subscription link for credit limits only", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "You've reached your AI credits limit.",
+              errorCode: "credits-limit-daily",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const upgradeLink = container.querySelector<HTMLAnchorElement>(
+      'a[href^="https://builder.io/account/subscription"]',
+    );
+    expect(container.textContent).toContain(
+      "You've reached your AI credits limit.",
+    );
+    expect(container.textContent).not.toMatch(/error/i);
+    expect(container.firstElementChild?.className).toContain("bg-card");
+    expect(container.firstElementChild?.className).not.toContain("amber");
+    expect(upgradeLink?.textContent).toContain("Add credits in Builder");
+    expect(upgradeLink?.target).toBe("_blank");
+    expect(new URL(upgradeLink!.href).searchParams.get("utm_content")).toBe(
+      "chat_credit_limit",
+    );
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The provider is busy.",
+              errorCode: "provider_rate_limited",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    expect(
+      container.querySelector(
+        'a[href^="https://builder.io/account/subscription"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("offers the eligible Builder referral link from the credit-limit card", async () => {
+    const inviteUrl = `https://builder.io/signup?fus_ref=${"a".repeat(32)}`;
+    referralInfoQueryMock.data = {
+      eligible: true,
+      inviteUrl,
+      creditsPerReferral: 200,
+      completedReferrals: 1,
+      pendingReferrals: 0,
+      creditsEarned: 200,
+    };
+    clipboardMock.writeClipboardText.mockResolvedValue(true);
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "You've reached your AI credits limit.",
+              errorCode: "credits-limit-monthly",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Earn 200 Builder credits when a friend subscribes.",
+    );
+    const copyButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Copy invite link"]',
+    );
+    expect(copyButton?.textContent).toContain("Copy invite link");
+
+    await act(async () => {
+      copyButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(clipboardMock.writeClipboardText).toHaveBeenCalledWith(inviteUrl);
+    expect(
+      container.querySelector('button[aria-label="Invite link copied"]'),
+    ).not.toBeNull();
   });
 
   it("loads Builder connect UI only when a setup surface is reached", async () => {

@@ -1,4 +1,8 @@
 export {
+  readComposerWebsiteSource,
+  type ComposerWebsiteExtraction,
+} from "./composer-website-source.js";
+export {
   defineAppConfig,
   getAppConfig,
   resetAppConfigForTests,
@@ -344,7 +348,9 @@ export {
   createAgentNativeOgImageHandler,
   renderAgentNativeOgImagePng,
   renderAgentNativeOgImageSvg,
+  stageOgImageResponseHeaders,
   type AgentNativeOgImageInput,
+  type AgentNativeOgImagePresentation,
 } from "./social-og-image.js";
 export { AGENT_NATIVE_OG_BACKGROUND_DATA_URL } from "./og-background-data.js";
 export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
@@ -630,8 +636,10 @@ export {
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
+  resolveSecretDetailed,
   BuilderCredentialLookupError,
   type BuilderCredentialsDetailed,
+  type ResolvedSecretDetail,
 } from "./credential-provider.js";
 export {
   BUILDER_PUBLISH_MCP_RESOURCE,
@@ -694,6 +702,7 @@ export {
   type BuilderDesignSystemSourceKind,
 } from "./builder-design-systems.js";
 export {
+  cdnSafeOriginStatus,
   createBuilderProject,
   ensureBuilderProject,
   findBuilderProjectForRepo,

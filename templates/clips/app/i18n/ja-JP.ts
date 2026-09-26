@@ -833,6 +833,10 @@ const messages = {
       "アクティブなワークスペースを更新できませんでした",
     whatsNew: "最新情報",
     changelogEmpty: "まだ更新はありません。",
+    changelogCommentSignup:
+      "コメントがないときのサイドバーでClipsを試すメリットを簡潔に伝え、登録への分かりやすい導線を用意しました。",
+    changelogShareLink:
+      "ログイン中のユーザーが利用不可・期限切れ・非公開の共有リンクで「ホームに戻る」を選ぶと、公開マーケティングページではなくライブラリに移動するようになりました。",
     viewAllUpdates: "すべての更新を見る",
     expand: "展開",
     collapse: "折りたたむ",
@@ -1432,11 +1436,22 @@ const messages = {
     disconnected: "マイクが切断されました。",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合は、ブラウザーのタブで開いてください。それ以外の場合は、このサイトのポップアップを許可して再試行してください。",
+    builderConnectError:
+      "Builder.io に接続できませんでした。もう一度お試しいただくか、サポートにお問い合わせください。",
+    checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:
       "5分以内に Builder から応答がありませんでした。ポップアップを確認してもう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
     connectBuilder: "Builder.io を使用",
+    createBuilderAccount: "Builder.io アカウントを作成",
+    signInWithBuilderAccount: "Builder.io アカウントでサインイン",
+    builderConsentPrefix: "Builder.io アカウントを作成すると、当社の",
+    builderTerms: "利用規約",
+    builderConsentAnd: "および",
+    builderPrivacy: "プライバシーポリシー",
     free: "無料",
     configureS3: "S3 互換ストレージを設定",
     whyPrompt: "なぜこれが表示されていますか？",

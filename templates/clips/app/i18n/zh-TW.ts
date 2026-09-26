@@ -781,6 +781,10 @@ const messages = {
     uploadWorkspaceSaveFailed: "無法更新目前工作區",
     whatsNew: "最新變化",
     changelogEmpty: "暫無更新。",
+    changelogCommentSignup:
+      "沒有留言時，側邊欄會簡要說明 Clips 的價值，並提供清楚的註冊入口。",
+    changelogShareLink:
+      "已登入的使用者在無法使用、已過期或私人分享連結中選擇「返回首頁」時，現在會前往媒體庫，而不是公開行銷頁面。",
     viewAllUpdates: "檢視所有更新",
     expand: "展開",
     collapse: "收起",
@@ -1352,10 +1356,20 @@ const messages = {
     disconnected: "麥克風已中斷連線。",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "無法開啟 Builder.io。如果此應用程式嵌入在聊天中，請在瀏覽器分頁中開啟；否則請允許此網站顯示快顯視窗後再試一次。",
+    builderConnectError: "無法連線至 Builder.io。請再試一次或聯絡支援團隊。",
+    checkingBuilderConnection: "正在檢查 Builder 連線…",
     builderTimeout: "5 分鐘內未收到 Builder 回應。請檢查快顯視窗並重試。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
     connectBuilder: "使用 Builder.io",
+    createBuilderAccount: "建立 Builder.io 帳戶",
+    signInWithBuilderAccount: "使用 Builder.io 帳戶登入",
+    builderConsentPrefix: "建立 Builder.io 帳戶即表示您同意我們的",
+    builderTerms: "服務條款",
+    builderConsentAnd: "和",
+    builderPrivacy: "隱私權政策",
     free: "免費",
     configureS3: "設定 S3 相容儲存",
     whyPrompt: "為什麼我會看到這個？",

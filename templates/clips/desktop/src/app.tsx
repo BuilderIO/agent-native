@@ -101,7 +101,11 @@ import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { stopAllMicMeters } from "./hooks/useMicMeter";
 import { useSystemAccessRows } from "./hooks/useSystemAccessRows";
 import { useWhisperSettings } from "./hooks/useWhisperSettings";
-import { desktopRecoveryCopy, desktopRecordingFailureCopy } from "./i18n/en-US";
+import {
+  desktopAuthCopy,
+  desktopRecoveryCopy,
+  desktopRecordingFailureCopy,
+} from "./i18n/en-US";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import { shouldKeepBubbleSession } from "./lib/bubble-session";
 import {
@@ -5484,7 +5488,7 @@ function Header({
   );
 }
 
-function SignInForm({
+export function SignInForm({
   serverUrl,
   onSignedIn,
   onUseBrowser,
@@ -5504,10 +5508,13 @@ function SignInForm({
   const [authMode, setAuthMode] = useState<"magic-link" | "password">(
     "magic-link",
   );
+  const [twoFactorPending, setTwoFactorPending] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const emailRef = useRef<HTMLInputElement | null>(null);
   const passwordRef = useRef<HTMLInputElement | null>(null);
+  const twoFactorCodeRef = useRef<HTMLInputElement | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
     email?: string;
     password?: string;
@@ -5515,6 +5522,9 @@ function SignInForm({
   useEffect(() => {
     if (!magicLinkSentEmail) emailRef.current?.focus();
   }, [magicLinkSentEmail]);
+  useEffect(() => {
+    if (twoFactorPending) twoFactorCodeRef.current?.focus();
+  }, [twoFactorPending]);
 
   /**
    * The framework exposes a first-class local-dev sign-in that creates or
@@ -5612,7 +5622,7 @@ function SignInForm({
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       nextFieldErrors.email = "Enter an email like you@example.com";
     }
-    if (authMode === "password" && !password) {
+    if (authMode === "password" && !twoFactorPending && !password) {
       nextFieldErrors.password = "Enter a password";
     }
     setFieldErrors(nextFieldErrors);
@@ -5620,11 +5630,61 @@ function SignInForm({
       (nextFieldErrors.email ? emailRef : passwordRef).current?.focus();
       return;
     }
+    if (twoFactorPending && !/^\d{6,8}$/.test(twoFactorCode)) {
+      setError(desktopAuthCopy.codeRequired);
+      twoFactorCodeRef.current?.focus();
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
       if (authMode === "magic-link") {
         await onMagicLink(email.trim());
+        return;
+      }
+      if (twoFactorPending) {
+        const res = await fetch(
+          `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/two-factor/verify`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: trimmedEmail,
+              password,
+              code: twoFactorCode,
+            }),
+            credentials: "include",
+          },
+        );
+        const raw = await res.text();
+        let json: { error?: string; ok?: boolean; token?: string } | null =
+          null;
+        try {
+          json = raw
+            ? (JSON.parse(raw) as {
+                error?: string;
+                ok?: boolean;
+                token?: string;
+              })
+            : null;
+        } catch {
+          if (res.ok) throw new Error(desktopAuthCopy.verificationFailed);
+        }
+        if (!res.ok) {
+          throw new Error(
+            json?.error ||
+              raw.slice(0, 200) ||
+              `Couldn't verify the code (${res.status})`,
+          );
+        }
+        if (json?.ok !== true || typeof json.token !== "string") {
+          throw new Error(desktopAuthCopy.verificationFailed);
+        }
+        saveDesktopAuthToken(serverUrl, json.token);
+        setPassword("");
+        setTwoFactorCode("");
+        setTwoFactorPending(false);
+        await onSignedIn();
         return;
       }
       // Post to the framework's Better Auth-backed email/password endpoint.
@@ -5642,12 +5702,18 @@ function SignInForm({
       );
       const json = (await res.json().catch(() => null)) as {
         error?: string;
+        twoFactorRedirect?: boolean;
         token?: string;
       } | null;
       if (!res.ok) {
         throw new Error(
           json?.error || "Couldn't sign you in. Check your email and password.",
         );
+      }
+      if (json?.twoFactorRedirect === true) {
+        setTwoFactorPending(true);
+        setTwoFactorCode("");
+        return;
       }
       if (json?.token) saveDesktopAuthToken(serverUrl, json.token);
       await onSignedIn();
@@ -5681,104 +5747,162 @@ function SignInForm({
   return (
     <form className="signin" onSubmit={onSubmit} noValidate>
       <PillLogo className="signin-mark" />
-      <div className="signin-title">Welcome to Clips</div>
-      <div className="signin-subtitle">
-        Record your screen, camera, and mic. Share a link the moment you stop.
+      <div className="signin-title">
+        {twoFactorPending
+          ? desktopAuthCopy.verificationTitle
+          : "Welcome to Clips"}
       </div>
-      <button
-        type="button"
-        className="signin-google"
-        onClick={onUseBrowser}
-        title="Comes back to Clips to finish sign-in"
-      >
-        <GoogleIcon />
-        Sign in with Google
-      </button>
-      <div className="signin-divider">
-        <span>or</span>
-      </div>
+      {!twoFactorPending ? (
+        <>
+          <div className="signin-subtitle">
+            Record your screen, camera, and mic. Share a link the moment you
+            stop.
+          </div>
+          <button
+            type="button"
+            className="signin-google"
+            onClick={onUseBrowser}
+            title="Comes back to Clips to finish sign-in"
+          >
+            <GoogleIcon />
+            Sign in with Google
+          </button>
+          <div className="signin-divider">
+            <span>or</span>
+          </div>
+        </>
+      ) : null}
       <div data-tw-surface className="grid w-full gap-2">
-        <Input
-          ref={emailRef}
-          type="email"
-          autoComplete="email"
-          placeholder="you@example.com"
-          className="h-9 text-sm"
-          value={email}
-          aria-invalid={fieldErrors.email ? true : undefined}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            setError(null);
-            setFieldErrors((current) => ({ ...current, email: undefined }));
-          }}
-        />
-        {fieldErrors.email ? (
-          <p className="text-xs text-destructive">{fieldErrors.email}</p>
-        ) : null}
-        {authMode === "password" ? (
+        {twoFactorPending ? (
+          <Input
+            ref={twoFactorCodeRef}
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            aria-label={desktopAuthCopy.codePlaceholder}
+            placeholder={desktopAuthCopy.codePlaceholder}
+            className="h-9 text-sm"
+            value={twoFactorCode}
+            onChange={(e) => {
+              setTwoFactorCode(e.target.value.replace(/\D/g, "").slice(0, 8));
+              setError(null);
+            }}
+          />
+        ) : (
           <>
             <Input
-              ref={passwordRef}
-              type="password"
-              autoComplete="current-password"
-              placeholder="Password"
+              ref={emailRef}
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
               className="h-9 text-sm"
-              value={password}
-              aria-invalid={fieldErrors.password ? true : undefined}
+              value={email}
+              aria-invalid={fieldErrors.email ? true : undefined}
               onChange={(e) => {
-                setPassword(e.target.value);
+                setEmail(e.target.value);
                 setError(null);
                 setFieldErrors((current) => ({
                   ...current,
-                  password: undefined,
+                  email: undefined,
                 }));
               }}
             />
-            {fieldErrors.password ? (
-              <p className="text-xs text-destructive">{fieldErrors.password}</p>
+            {fieldErrors.email ? (
+              <p className="text-xs text-destructive">{fieldErrors.email}</p>
+            ) : null}
+            {authMode === "password" ? (
+              <>
+                <Input
+                  ref={passwordRef}
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="Password"
+                  className="h-9 text-sm"
+                  value={password}
+                  aria-invalid={fieldErrors.password ? true : undefined}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setError(null);
+                    setFieldErrors((current) => ({
+                      ...current,
+                      password: undefined,
+                    }));
+                  }}
+                />
+                {fieldErrors.password ? (
+                  <p className="text-xs text-destructive">
+                    {fieldErrors.password}
+                  </p>
+                ) : null}
+              </>
             ) : null}
           </>
-        ) : null}
+        )}
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
       <button
         type="submit"
         className="primary start"
         disabled={
-          submitting || !email || (authMode === "password" && !password)
+          submitting ||
+          !email ||
+          (authMode === "password" && !password) ||
+          (twoFactorPending && !twoFactorCode)
         }
       >
         {submitting
-          ? authMode === "magic-link"
-            ? "Sending…"
-            : "Signing in…"
-          : authMode === "magic-link"
-            ? "Continue"
-            : "Sign in"}
+          ? twoFactorPending
+            ? desktopAuthCopy.verifyingCode
+            : authMode === "magic-link"
+              ? "Sending…"
+              : "Signing in…"
+          : twoFactorPending
+            ? desktopAuthCopy.verifyCode
+            : authMode === "magic-link"
+              ? "Continue"
+              : "Sign in"}
       </button>
-      <button
-        type="button"
-        className="signin-alt signin-mode-link"
-        onClick={() => {
-          setError(null);
-          setAuthMode((current) =>
-            current === "magic-link" ? "password" : "magic-link",
-          );
-        }}
-      >
-        {authMode === "magic-link"
-          ? "Use a password instead"
-          : "Use a sign-in link instead"}
-      </button>
-      {devSignInAvailable ? (
+      {twoFactorPending ? (
         <button
           type="button"
           className="signin-alt signin-mode-link"
-          onClick={signInAsLocalDev}
-          disabled={submitting}
+          onClick={() => {
+            setError(null);
+            setTwoFactorPending(false);
+            setTwoFactorCode("");
+            setPassword("");
+          }}
         >
-          Continue as the dev account
+          {desktopAuthCopy.backToSignIn}
         </button>
+      ) : null}
+      {!twoFactorPending ? (
+        <>
+          <button
+            type="button"
+            className="signin-alt signin-mode-link"
+            onClick={() => {
+              setError(null);
+              setAuthMode((current) =>
+                current === "magic-link" ? "password" : "magic-link",
+              );
+            }}
+          >
+            {authMode === "magic-link"
+              ? "Use a password instead"
+              : "Use a sign-in link instead"}
+          </button>
+          {devSignInAvailable ? (
+            <button
+              type="button"
+              className="signin-alt signin-mode-link"
+              onClick={signInAsLocalDev}
+              disabled={submitting}
+            >
+              Continue as the dev account
+            </button>
+          ) : null}
+        </>
       ) : null}
     </form>
   );

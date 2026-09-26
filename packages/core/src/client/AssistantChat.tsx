@@ -219,10 +219,7 @@ import {
   useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
-import {
-  isCreditsLimitErrorCode,
-  isProviderAuthenticationError,
-} from "./error-format.js";
+import { isProviderAuthenticationError } from "./error-format.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -4032,6 +4029,10 @@ const AssistantChatInner = forwardRef<
           : getActiveRun()?.runId === runId
             ? (getActiveRun()?.turnId ?? undefined)
             : undefined;
+      const reconnectEventIdentity = {
+        runId,
+        ...(logicalTurnId ? { turnId: logicalTurnId } : {}),
+      };
       if (reconnectRunIdRef.current === runId) return true;
       // SINGLE-READER OWNERSHIP: never start a second reader while the
       // adapter's own stream is live (or mid auto-continuation) for this
@@ -4120,7 +4121,11 @@ const AssistantChatInner = forwardRef<
       setReconnectContent([]);
       window.dispatchEvent(
         new CustomEvent("agentNative.chatRunning", {
-          detail: { isRunning: true, tabId: tabId || threadId },
+          detail: {
+            isRunning: true,
+            tabId: tabId || threadId,
+            ...reconnectEventIdentity,
+          },
         }),
       );
 
@@ -4486,7 +4491,11 @@ const AssistantChatInner = forwardRef<
             });
             window.dispatchEvent(
               new CustomEvent("agentNative.chatRunning", {
-                detail: { isRunning: false, tabId: tabId || threadId },
+                detail: {
+                  isRunning: false,
+                  tabId: tabId || threadId,
+                  ...reconnectEventIdentity,
+                },
               }),
             );
             return;
@@ -4525,6 +4534,7 @@ const AssistantChatInner = forwardRef<
                 isRunning: false,
                 tabId: tabId || threadId,
                 reason: "failed",
+                ...reconnectEventIdentity,
               },
             }),
           );
@@ -4568,7 +4578,11 @@ const AssistantChatInner = forwardRef<
           }
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
-              detail: { isRunning: false, tabId: tabId || threadId },
+              detail: {
+                isRunning: false,
+                tabId: tabId || threadId,
+                ...reconnectEventIdentity,
+              },
             }),
           );
         }
@@ -6707,7 +6721,6 @@ const AssistantChatInner = forwardRef<
     !authError;
   const shouldShowRunError =
     !!visibleRunError &&
-    !isCreditsLimitErrorCode(visibleRunError.errorCode) &&
     !showRunningInUI &&
     !forceStopped &&
     visibleRunErrorKey !== dismissedRunErrorKey &&

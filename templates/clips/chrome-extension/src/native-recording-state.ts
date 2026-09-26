@@ -14,6 +14,16 @@ export type OffscreenRecordingState = {
   preparedSessionId?: string;
 };
 
+const finalizingSessions = new Set<string>();
+
+export function claimRecordingFinalization(
+  sessionId: string,
+): (() => void) | null {
+  if (finalizingSessions.has(sessionId)) return null;
+  finalizingSessions.add(sessionId);
+  return () => finalizingSessions.delete(sessionId);
+}
+
 export function hasLiveOffscreenSession(
   sessionId: string,
   state: OffscreenRecordingState,
@@ -32,6 +42,13 @@ export function shouldReconcilePersistedRecording(
   // offer the existing discard/re-upload path.
   if (status === "error" || status === "complete") return false;
   return !hasLiveOffscreenSession(sessionId, state);
+}
+
+export function shouldClearTerminalSavingOverlay(
+  phase: string,
+  status: NativeRecordingStateStatus,
+): boolean {
+  return phase === "saving" && (status === "error" || status === "complete");
 }
 
 export function restartUploadResetBody(mimeType: string): {

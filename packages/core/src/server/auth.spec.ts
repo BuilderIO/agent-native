@@ -91,8 +91,10 @@ describe("server/auth", () => {
     process.env = originalEnv;
     vi.doUnmock("./better-auth-instance.js");
     vi.doUnmock("../db/client.js");
+    vi.doUnmock("./legacy-auth-migration.js");
     vi.doUnmock("../org/context.js");
     vi.doUnmock("../org/auth-policy.js");
+    vi.doUnmock("../org/workspace-app-access.js");
     vi.doUnmock("./embed-session.js");
     vi.doUnmock("./email.js");
     vi.doUnmock("./sentry.js");
@@ -1800,8 +1802,8 @@ describe("server/auth", () => {
     it("revokes the Better Auth session row directly so logout can't be resurrected by the legacy-cookie fallback", async () => {
       // Reproduces the reported bug: a token whose legacy `sessions` row was
       // never written (the magic-link `addSession` mirror is best-effort —
-      // see `persistMagicLinkLegacySession`) resolves ONLY through Better
-      // Auth's own `"session"` table via `emailFromBetterAuthSessionToken`.
+      // see `persistMagicLinkLegacySession`) resolves through Better Auth's
+      // own `"session"` table via `emailFromBetterAuthSessionToken`.
       // `auth.api.signOut()` can't revoke it because it looks for Better
       // Auth's own session cookie, which the browser never held — only the
       // framework's `an_session` cookie carrying the same token value. If
@@ -1809,10 +1811,14 @@ describe("server/auth", () => {
       // and `getSession()` resurrects the "logged out" user on the very next
       // request.
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("COOKIE_DOMAIN", ".example.com");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
-      const liveBetterAuthTokens = new Set(["ba_session_token"]);
+      const liveBetterAuthTokens = new Set([
+        "ba_session_token",
+        "ba_cookie_token",
+      ]);
       const mockExecute = vi.fn().mockImplementation((query: any) => {
         const sql = typeof query === "string" ? query : query.sql;
         const args = typeof query === "string" ? undefined : query.args;
@@ -1840,13 +1846,36 @@ describe("server/auth", () => {
         ...(await importOriginal<object>()),
         getBetterAuth: async () => ({
           api: {
+            getSession: vi.fn(async ({ headers }: { headers: Headers }) => {
+              const token = headers
+                .get("cookie")
+                ?.match(
+                  /(?:^|;\s*)(?:__Secure-)?[\w.-]*session_token=([^;]+)/,
+                )?.[1];
+              return token && liveBetterAuthTokens.has(token)
+                ? {
+                    user: {
+                      id: "ba-user",
+                      email: "designer@example.com",
+                    },
+                    session: { token },
+                  }
+                : null;
+            }),
             signOut: vi.fn(async () => ({ headers: new Headers() })),
           },
         }),
         getBetterAuthSync: () => null,
       }));
+      vi.doMock("./legacy-auth-migration.js", () => ({
+        resolveCanonicalUserForLegacySession: vi.fn(async () => null),
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
 
-      const { autoMountAuth, getSession } = await import("./auth.js");
+      const { autoMountAuth, BETTER_AUTH_COOKIE_PREFIX, getSession } =
+        await import("./auth.js");
       const app = createMockApp();
       await autoMountAuth(app);
 
@@ -1856,7 +1885,14 @@ describe("server/auth", () => {
       const logoutEvent = createJsonPostEvent(
         "/_agent-native/auth/logout",
         {},
-        { cookie: "an_session=ba_session_token" },
+        {
+          "x-forwarded-proto": "https",
+          cookie: [
+            "an_session=ba_session_token",
+            `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token=ba_cookie_token`,
+            `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_data=stale-cache`,
+          ].join("; "),
+        },
       );
 
       const sessionBeforeLogout = createMockEvent({
@@ -1866,16 +1902,58 @@ describe("server/auth", () => {
         email: "designer@example.com",
         token: "ba_session_token",
       });
+      const sessionBeforeLogoutWithBetterAuthCookie = createMockEvent({
+        headers: {
+          cookie: `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token=ba_cookie_token`,
+        },
+      });
+      expect(
+        await getSession(sessionBeforeLogoutWithBetterAuthCookie),
+      ).toMatchObject({
+        email: "designer@example.com",
+        token: "ba_cookie_token",
+      });
 
       await logoutHandler(logoutEvent);
 
-      expect(liveBetterAuthTokens.has("ba_session_token")).toBe(false);
+      expect(liveBetterAuthTokens.size).toBe(0);
+
+      const cookieClears = logoutEvent.res.headers.getSetCookie();
+      const betterAuthCookieNames = [
+        "session_token",
+        "session_data",
+        "dont_remember",
+      ].flatMap((suffix) => {
+        const name = `${BETTER_AUTH_COOKIE_PREFIX}.${suffix}`;
+        return [name, `__Secure-${name}`];
+      });
+      const cookieScopes = [
+        "Path=/; Secure; Partitioned; SameSite=None",
+        "Path=/; Secure; SameSite=None",
+        "Domain=.example.com; Path=/; Secure; Partitioned; SameSite=None",
+        "Domain=.example.com; Path=/; Secure; SameSite=None",
+      ];
+      expect(cookieClears).toEqual(
+        expect.arrayContaining([
+          ...betterAuthCookieNames.flatMap((name) =>
+            cookieScopes.map((scope) => `${name}=; Max-Age=0; ${scope}`),
+          ),
+        ]),
+      );
 
       const sessionAfterLogout = createMockEvent({
         headers: { cookie: "an_session=ba_session_token" },
       });
       expect(await getSession(sessionAfterLogout)).toBeNull();
-    });
+      const sessionAfterLogoutWithBetterAuthCookie = createMockEvent({
+        headers: {
+          cookie: `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token=ba_cookie_token`,
+        },
+      });
+      expect(
+        await getSession(sessionAfterLogoutWithBetterAuthCookie),
+      ).toBeNull();
+    }, 15_000);
 
     it("reports a failed Better Auth session revoke during logout instead of swallowing it", async () => {
       vi.stubEnv("NODE_ENV", "production");
@@ -1895,17 +1973,19 @@ describe("server/auth", () => {
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
+      const signOut = vi.fn(async () => ({ headers: new Headers() }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
         getBetterAuth: async () => ({
-          api: { signOut: vi.fn(async () => ({ headers: new Headers() })) },
+          api: { signOut },
         }),
         getBetterAuthSync: () => null,
       }));
       const captureAuthError = vi.fn();
       vi.doMock("./sentry.js", () => ({ captureAuthError }));
 
-      const { autoMountAuth } = await import("./auth.js");
+      const { autoMountAuth, BETTER_AUTH_COOKIE_PREFIX } =
+        await import("./auth.js");
       const app = createMockApp();
       await autoMountAuth(app);
 
@@ -1915,17 +1995,88 @@ describe("server/auth", () => {
       const logoutEvent = createJsonPostEvent(
         "/_agent-native/auth/logout",
         {},
-        { cookie: "an_session=ba_session_token" },
+        {
+          cookie: [
+            "an_session=ba_session_token",
+            `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token=ba_cookie_token`,
+          ].join("; "),
+        },
       );
 
-      // Logout still reports success — this only asserts the failure is
-      // tracked, not that it changes the response contract.
-      await expect(logoutHandler(logoutEvent)).resolves.toEqual({ ok: true });
+      await expect(logoutHandler(logoutEvent)).resolves.toEqual({
+        error: "Unable to revoke session",
+      });
+      expect(logoutEvent.res.status).toBe(503);
+      expect(signOut).not.toHaveBeenCalled();
+      expect(
+        logoutEvent.res.headers
+          .getSetCookie()
+          .some((cookie) =>
+            /^(?:an_session|__Secure-an\.session_token)=;/.test(cookie),
+          ),
+      ).toBe(false);
 
       expect(captureAuthError).toHaveBeenCalledWith(
         expect.objectContaining({ message: "connection reset" }),
         { route: "logout" },
       );
+    });
+
+    it("reports an unavailable Better Auth instance during logout", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const authError = new Error("auth store unavailable");
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => {
+          throw authError;
+        },
+        getBetterAuthSync: () => null,
+      }));
+      const captureAuthError = vi.fn();
+      vi.doMock("./sentry.js", () => ({ captureAuthError }));
+
+      const { autoMountAuth, BETTER_AUTH_COOKIE_PREFIX } =
+        await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const logoutEvent = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        {
+          cookie: [
+            "an_session=ba_session_token",
+            `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token=ba_cookie_token`,
+          ].join("; "),
+        },
+      );
+
+      await expect(logoutHandler(logoutEvent)).resolves.toEqual({
+        error: "Unable to revoke session",
+      });
+      expect(logoutEvent.res.status).toBe(503);
+      expect(
+        logoutEvent.res.headers
+          .getSetCookie()
+          .some((cookie) =>
+            /^(?:an_session|__Secure-an\.session_token)=;/.test(cookie),
+          ),
+      ).toBe(false);
+      expect(captureAuthError).toHaveBeenCalledWith(authError, {
+        route: "logout",
+      });
     });
 
     it("mounts generic Google OAuth routes by default when credentials are configured", async () => {
@@ -2754,6 +2905,33 @@ describe("server/auth", () => {
         createMockEvent({ path: "/portal/_agent-native/actions/list" }),
       );
       expect(actionResult).toEqual({ error: "Unauthorized" });
+    });
+
+    it("returns 503 when workspace app access cannot be checked", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+      vi.doMock("../org/workspace-app-access.js", () => ({
+        isWorkspaceAppAccessAllowed: vi.fn(async () => "unavailable"),
+        WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+        WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+          "Workspace app access is temporarily unavailable.",
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => ({ email: "member@example.com" }),
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const event = createMockEvent({ path: "/api/private" });
+
+      await expect(guard(event)).resolves.toEqual({
+        error: "Workspace app access is temporarily unavailable.",
+      });
+      expect(event.res.status).toBe(503);
     });
 
     it("allows standalone Dispatch APIs for organization members", async () => {
@@ -4862,6 +5040,168 @@ describe("server/auth", () => {
       expect(event.res.headers.get("set-cookie")).toContain(
         "agent-native-first-run=1",
       );
+    });
+
+    it.each(["tauri://localhost", "http://localhost:1420"])(
+      "completes Clips desktop two-factor sign-in from %s without browser cookies",
+      async (origin) => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+
+        const signInEmail = vi.fn(async () => {
+          const headers = new Headers();
+          headers.append(
+            "set-cookie",
+            "better-auth.two_factor=challenge-cookie; Path=/; HttpOnly",
+          );
+          headers.append(
+            "set-cookie",
+            "better-auth.session_token=must-not-forward; Path=/; HttpOnly",
+          );
+          return { headers, response: { twoFactorRedirect: true } };
+        });
+        const verifyTOTP = vi.fn(async () => ({
+          headers: new Headers(),
+          response: {
+            token: "desktop-two-factor-token",
+            user: { email: "user@example.com" },
+          },
+        }));
+        vi.doMock("./better-auth-instance.js", () => ({
+          getBetterAuth: vi.fn(async () => ({
+            handler: vi.fn(async () => new Response("{}")),
+            api: {
+              getSession: vi.fn(async () => null),
+              signInEmail,
+              signUpEmail: vi.fn(),
+              signOut: vi.fn(),
+              verifyTOTP,
+            },
+          })),
+          getBetterAuthSync: vi.fn(() => undefined),
+        }));
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+          isLocalDatabase: () => true,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+
+        const { autoMountAuth } = await import("./auth.js");
+        const app = createMockApp();
+        await autoMountAuth(app);
+
+        const verifyHandler = app.use.mock.calls.find(
+          (call: any[]) => call[0] === "/_agent-native/auth/two-factor/verify",
+        )?.[1];
+        expect(verifyHandler).toBeTypeOf("function");
+
+        const event = createJsonPostEvent(
+          "/_agent-native/auth/two-factor/verify",
+          {
+            email: "USER@EXAMPLE.COM",
+            password: "secret-password",
+            code: "123456",
+          },
+          { origin, "x-request-source": "clips-desktop" },
+          origin,
+        );
+
+        await expect(verifyHandler(event)).resolves.toEqual({
+          ok: true,
+          token: "desktop-two-factor-token",
+          email: "user@example.com",
+        });
+        expect(signInEmail).toHaveBeenCalledWith({
+          body: { email: "user@example.com", password: "secret-password" },
+          headers: expect.any(Headers),
+          returnHeaders: true,
+        });
+        expect(verifyTOTP).toHaveBeenCalledOnce();
+        const verifyHeaders = verifyTOTP.mock.calls[0]?.[0]?.headers as Headers;
+        expect(verifyHeaders.get("cookie")).toBe(
+          "better-auth.two_factor=challenge-cookie",
+        );
+        expect(event.res.headers.get("set-cookie")).not.toContain(
+          "better-auth.two_factor=challenge-cookie",
+        );
+      },
+    );
+
+    it("recreates the desktop challenge after an invalid code so the user can retry", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signInEmail = vi.fn(async () => {
+        const headers = new Headers();
+        headers.append(
+          "set-cookie",
+          "better-auth.two_factor=challenge-cookie; Path=/; HttpOnly",
+        );
+        return { headers, response: { twoFactorRedirect: true } };
+      });
+      const verifyTOTP = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Invalid TOTP code"))
+        .mockResolvedValueOnce({
+          headers: new Headers(),
+          response: {
+            token: "desktop-two-factor-token",
+            user: { email: "user@example.com" },
+          },
+        });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail,
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+            verifyTOTP,
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const verifyHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/two-factor/verify",
+      )?.[1];
+      expect(verifyHandler).toBeTypeOf("function");
+
+      const request = (code: string) =>
+        createJsonPostEvent(
+          "/_agent-native/auth/two-factor/verify",
+          { email: "user@example.com", password: "secret-password", code },
+          {
+            origin: "http://localhost:1420",
+            "x-request-source": "clips-desktop",
+          },
+          "http://localhost:1420",
+        );
+      const invalidEvent = request("000000");
+      const invalidResult = await verifyHandler(invalidEvent);
+      expect(invalidEvent.res.status).toBe(400);
+      expect(invalidResult).toHaveProperty("error");
+
+      const retryEvent = request("123456");
+      await expect(verifyHandler(retryEvent)).resolves.toEqual({
+        ok: true,
+        token: "desktop-two-factor-token",
+        email: "user@example.com",
+      });
+      expect(signInEmail).toHaveBeenCalledTimes(2);
+      expect(verifyTOTP).toHaveBeenCalledTimes(2);
     });
 
     it("rejects register emails that Better Auth would reject before signup", async () => {

@@ -781,6 +781,10 @@ const messages = {
     uploadWorkspaceSaveFailed: "无法更新当前工作区",
     whatsNew: "最新变化",
     changelogEmpty: "暂无更新。",
+    changelogCommentSignup:
+      "没有评论时，侧边栏会简要说明 Clips 的价值，并提供清晰的注册入口。",
+    changelogShareLink:
+      "已登录用户在不可用、过期或私有的分享链接中选择“返回主页”时，现在会进入资料库，而不是公开营销页面。",
     viewAllUpdates: "查看所有更新",
     expand: "展开",
     collapse: "收起",
@@ -1352,10 +1356,20 @@ const messages = {
     disconnected: "麦克风已断开连接。",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "无法打开 Builder.io。如果此应用嵌入在聊天中，请在浏览器标签页中打开；否则请允许此网站显示弹出窗口，然后重试。",
+    builderConnectError: "无法连接到 Builder.io。请重试或联系支持团队。",
+    checkingBuilderConnection: "正在检查 Builder 连接…",
     builderTimeout: "5 分钟内未收到 Builder 响应。请检查弹出窗口并重试。",
     builderConnected: "Builder.io 已连接",
     waitingForBuilder: "正在等待 Builder...",
     connectBuilder: "使用 Builder.io",
+    createBuilderAccount: "创建 Builder.io 账户",
+    signInWithBuilderAccount: "使用 Builder.io 账户登录",
+    builderConsentPrefix: "创建 Builder.io 账户即表示您同意我们的",
+    builderTerms: "服务条款",
+    builderConsentAnd: "和",
+    builderPrivacy: "隐私政策",
     free: "免费",
     configureS3: "配置 S3 兼容存储",
     whyPrompt: "为什么会看到这个？",

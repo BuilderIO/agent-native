@@ -13,8 +13,12 @@ import {
   createOnboardingPlugin,
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
+import { registerPrivateBlobProvider } from "@agent-native/core/private-blob";
 
-import { s3FileUploadProvider } from "../lib/s3-upload-provider.js";
+import {
+  clipsOrganizationLogoPrivateBlobProvider,
+  s3FileUploadProvider,
+} from "../lib/s3-upload-provider.js";
 import { hasRequestVideoStorage } from "../lib/video-storage.js";
 
 const basePlugin = createOnboardingPlugin();
@@ -25,6 +29,7 @@ export default async (nitroApp: any): Promise<void> => {
 
   // Register S3-compatible file upload provider.
   registerFileUploadProvider(s3FileUploadProvider);
+  registerPrivateBlobProvider(clipsOrganizationLogoPrivateBlobProvider);
 
   // Add the required "Video storage" onboarding step.
   registerOnboardingStep({

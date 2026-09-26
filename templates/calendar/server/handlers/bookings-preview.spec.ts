@@ -5,9 +5,14 @@ const mocks = vi.hoisted(() => ({
   createZoomMeeting: vi.fn(),
   getDb: vi.fn(),
   getFreeBusy: vi.fn(),
+  getRouterParam: vi.fn(),
   getSession: vi.fn(),
   getSetting: vi.fn(),
   getUserSetting: vi.fn(),
+  getDefaultAccountSelection: vi.fn(),
+  createGoogleEvent: vi.fn(),
+  sendBookingConfirmationEmails: vi.fn(),
+  dbUpdates: [] as Array<Record<string, unknown>>,
   isConnected: vi.fn(),
   listEvents: vi.fn(),
   insertedBookings: [] as Array<Record<string, unknown>>,
@@ -50,6 +55,8 @@ vi.mock("h3", async () => {
     ...actual,
     defineEventHandler: (handler: unknown) => handler,
     getQuery: (event: { query: Record<string, unknown> }) => event.query,
+    getRequestURL: () => new URL("https://calendar.example.com/book"),
+    getRouterParam: mocks.getRouterParam,
     setResponseStatus: mocks.setResponseStatus,
   };
 });
@@ -64,11 +71,17 @@ vi.mock("../db/index.js", async () => {
 });
 
 vi.mock("../lib/google-calendar.js", () => ({
+  createEvent: mocks.createGoogleEvent,
   deleteEvent: vi.fn(),
-  getDefaultAccountSelection: vi.fn(),
+  getDefaultAccountSelection: mocks.getDefaultAccountSelection,
   getFreeBusy: mocks.getFreeBusy,
   isConnected: mocks.isConnected,
   listEvents: mocks.listEvents,
+}));
+
+vi.mock("../lib/booking-emails.js", () => ({
+  sendBookingCancellationEmails: vi.fn(),
+  sendBookingConfirmationEmails: mocks.sendBookingConfirmationEmails,
 }));
 
 vi.mock("../lib/zoom.js", () => ({
@@ -76,7 +89,11 @@ vi.mock("../lib/zoom.js", () => ({
 }));
 
 import { schema } from "../db/index.js";
-import { createBooking, getAvailableSlots } from "./bookings.js";
+import {
+  createBooking,
+  getAvailableSlots,
+  getBookingByToken,
+} from "./bookings.js";
 
 const availability = {
   timezone: "UTC",
@@ -110,6 +127,7 @@ function createDb() {
   const update = vi.fn(() => ({
     set: vi.fn((values: Record<string, unknown>) => ({
       where: vi.fn(async () => {
+        mocks.dbUpdates.push(values);
         if (values.status === "cancelled") {
           const booking = [...mocks.insertedBookings]
             .reverse()
@@ -160,6 +178,7 @@ describe("draft booking availability previews", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.insertedBookings.length = 0;
+    mocks.dbUpdates.length = 0;
     bookingLink.conferencing = undefined;
     // Slot generation drops anything before `Date.now()`, so the Monday this
     // asserts on has to stay in the future or every slot vanishes.
@@ -183,6 +202,10 @@ describe("draft booking availability previews", () => {
       start: "2026-08-17T09:00:00.000Z",
     });
     mocks.isConnected.mockResolvedValue(true);
+    mocks.getDefaultAccountSelection.mockResolvedValue({
+      accountEmail: "owner@example.com",
+    });
+    mocks.createGoogleEvent.mockResolvedValue({ id: "google-event-id" });
     mocks.getFreeBusy.mockResolvedValue({
       calendars: {
         "owner@example.com": { busy: [] },
@@ -192,6 +215,7 @@ describe("draft booking availability previews", () => {
     });
     mocks.listEvents.mockResolvedValue({ events: [], errors: [] });
     mocks.verifyCaptcha.mockResolvedValue({ success: true });
+    mocks.getRouterParam.mockReturnValue("cancel-token");
   });
 
   afterEach(() => {
@@ -235,6 +259,46 @@ describe("draft booking availability previews", () => {
     );
   });
 
+  it("uses the matching username owner's timezone for public slot queries", async () => {
+    mocks.getUserSetting.mockImplementation(async (_email, key) =>
+      key === "calendar-availability"
+        ? { ...availability, timezone: "America/Los_Angeles" }
+        : null,
+    );
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn(async () =>
+            table === schema.bookingUsernames
+              ? [{ ownerEmail: "owner@example.com" }]
+              : [],
+          ),
+        })),
+      })),
+    });
+
+    const response = await (getAvailableSlots as any)({
+      query: {
+        date: "2026-08-17",
+        duration: "30",
+        slug: "book",
+        username: "owner",
+      },
+    });
+
+    expect(response.slots[0]).toMatchObject({
+      start: "2026-08-17T16:00:00.000Z",
+      end: "2026-08-17T16:30:00.000Z",
+    });
+    expect(mocks.getFreeBusy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      ["owner@example.com"],
+      "owner@example.com",
+      "America/Los_Angeles",
+    );
+  });
+
   it("returns an unavailable response when the saved link owner is disconnected", async () => {
     mocks.isConnected.mockResolvedValue(false);
 
@@ -273,7 +337,7 @@ describe("draft booking availability previews", () => {
     expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 503);
   });
 
-  it("keeps the booking reserved when Zoom creation has an ambiguous failure", async () => {
+  it("confirms a reserved booking when Zoom creation has an ambiguous failure", async () => {
     bookingLink.conferencing = JSON.stringify({ type: "zoom" });
     bookingLink.hosts = JSON.stringify([]);
     mocks.createZoomMeeting.mockRejectedValueOnce(
@@ -283,11 +347,35 @@ describe("draft booking availability previews", () => {
 
     const response = await (createBooking as any)(event);
 
-    expect(response).toEqual({ error: "Failed to create booking" });
-    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 502);
+    expect(response).toEqual(
+      expect.objectContaining({
+        status: "confirmed",
+        meetingLinkPending: true,
+      }),
+    );
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 201);
     expect(mocks.insertedBookings).toHaveLength(1);
     expect(mocks.insertedBookings[0]).toEqual(
       expect.objectContaining({ status: "confirmed" }),
+    );
+    expect(mocks.createGoogleEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.any(String) }),
+      expect.objectContaining({
+        account: { accountEmail: "owner@example.com" },
+      }),
+    );
+    expect(mocks.dbUpdates).toContainEqual(
+      expect.objectContaining({
+        googleEventId: "google-event-id",
+        calendarAccountId: "owner@example.com",
+        meetingLinkPending: true,
+      }),
+    );
+    expect(mocks.sendBookingConfirmationEmails).toHaveBeenCalledWith(
+      expect.objectContaining({
+        booking: expect.objectContaining({ meetingLinkPending: true }),
+        manageUrl: expect.stringContaining("/booking/manage/"),
+      }),
     );
 
     const retryResponse = await (createBooking as any)({});
@@ -304,7 +392,11 @@ describe("draft booking availability previews", () => {
     bookingLink.hosts = JSON.stringify([]);
     mocks.createZoomMeeting
       .mockResolvedValueOnce({ status: "not_started" })
-      .mockRejectedValueOnce(new Error("ambiguous Zoom failure"));
+      .mockResolvedValueOnce({
+        status: "created",
+        meetingUrl: "https://zoom.us/j/meeting-id",
+        meetingId: "meeting-id",
+      });
     const event = {};
 
     const response = await (createBooking as any)(event);
@@ -318,11 +410,86 @@ describe("draft booking availability previews", () => {
 
     const retryResponse = await (createBooking as any)({});
 
-    expect(retryResponse).toEqual({ error: "Failed to create booking" });
+    expect(retryResponse).toEqual(
+      expect.objectContaining({
+        meetingLink: "https://zoom.us/j/meeting-id",
+        status: "confirmed",
+      }),
+    );
+    expect(mocks.dbUpdates).toContainEqual(
+      expect.objectContaining({
+        meetingLink: "https://zoom.us/j/meeting-id",
+        meetingLinkPending: false,
+      }),
+    );
     expect(mocks.createZoomMeeting).toHaveBeenCalledTimes(2);
     expect(mocks.insertedBookings).toHaveLength(2);
     expect(mocks.insertedBookings[1]).toEqual(
       expect.objectContaining({ status: "confirmed" }),
     );
+  });
+
+  it("releases the slot when Zoom definitively rejects the meeting", async () => {
+    bookingLink.conferencing = JSON.stringify({ type: "zoom" });
+    bookingLink.hosts = JSON.stringify([]);
+    mocks.createZoomMeeting
+      .mockResolvedValueOnce({ status: "rejected" })
+      .mockResolvedValueOnce({
+        status: "created",
+        meetingUrl: "https://zoom.us/j/meeting-id",
+        meetingId: "meeting-id",
+      });
+    const event = {};
+
+    const rejectedResponse = await (createBooking as any)(event);
+
+    expect(rejectedResponse).toEqual({ error: "Failed to create booking" });
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 503);
+    expect(mocks.insertedBookings[0]).toEqual(
+      expect.objectContaining({ status: "cancelled" }),
+    );
+
+    const retryResponse = await (createBooking as any)({});
+
+    expect(retryResponse).toEqual(
+      expect.objectContaining({
+        meetingLink: "https://zoom.us/j/meeting-id",
+        status: "confirmed",
+      }),
+    );
+    expect(mocks.insertedBookings).toHaveLength(2);
+  });
+
+  it("returns the persisted pending meeting state to the guest manage page", async () => {
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [
+            {
+              id: "booking-1",
+              name: "Guest",
+              email: "guest@example.com",
+              start: "2026-08-17T09:00:00.000Z",
+              end: "2026-08-17T09:30:00.000Z",
+              slug: "saved-meeting",
+              eventTitle: "Meeting",
+              notes: null,
+              fieldResponses: null,
+              meetingLink: null,
+              meetingLinkPending: true,
+              googleEventId: null,
+              cancelToken: "cancel-token",
+              status: "confirmed",
+              createdAt: "2026-08-10T12:00:00.000Z",
+            },
+          ]),
+        })),
+      })),
+    });
+
+    await expect((getBookingByToken as any)({})).resolves.toMatchObject({
+      meetingLinkPending: true,
+      status: "confirmed",
+    });
   });
 });

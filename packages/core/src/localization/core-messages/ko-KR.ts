@@ -1,6 +1,25 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl": "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
+  "composer.contextAttach": "첨부",
+  "composer.menu.search": "검색…",
+  "composer.contextPrevious": "이전",
+  "composer.contextNext": "다음",
+  "composer.contextLoadFailed": "컨텍스트를 불러올 수 없습니다.",
+  "composer.contextLinkRequired": "링크를 입력하세요.",
+  "composer.submitFailed": "제출하지 못했습니다. 다시 시도하세요.",
+  "composer.addContext": "컨텍스트 추가",
+  "composer.contextActionFailed": "컨텍스트를 추가하지 못했습니다.",
+  "composer.contextBack": "뒤로",
+  "composer.searchContext": "컨텍스트 검색…",
+  "composer.noContextResults": "일치하는 컨텍스트가 없습니다.",
+  "composer.contextPending": "컨텍스트 대기 중",
+  "composer.contextError": "컨텍스트 실패",
+  "composer.retryContext": "{{name}} 컨텍스트 다시 시도",
+  "composer.contextLimitExceeded":
+    "컨텍스트가 너무 큽니다. 항목을 제거하거나 더 작은 선택 항목을 첨부하세요.",
   "activity.reasoning": "추론",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
@@ -828,6 +847,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "새 이메일",
   "settings.emailNewPlaceholder": "새 이메일 입력",
   "usage.builderCredits": "Builder 크레딧",
+  "usage.inviteFriends": "친구 초대",
+  "usage.inviteCredits":
+    "친구가 구독하면 Builder 크레딧 {{amount}}개를 받을 수 있습니다.",
+  "usage.copyInviteLink": "초대 링크 복사",
+  "usage.inviteLinkCopied": "초대 링크를 복사했습니다",
   "usage.creditBalance": "워크스페이스 잔액",
   "usage.monthlyPlan": "월간 플랜",
   "usage.dailyFreeLimit": "무료 일일 한도",

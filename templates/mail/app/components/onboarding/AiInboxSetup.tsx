@@ -1,11 +1,17 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
 import type { AutomationAction } from "@shared/types";
-import { useMemo, useState } from "react";
+import { IconCheck } from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { AiRulePromptField } from "@/components/settings/AiRulePromptField";
+import {
+  JevAvailabilityError,
+  JevConnectionPrompt,
+} from "@/components/settings/JevConnectionPrompt";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -35,7 +41,7 @@ export const TAG_SUGGESTIONS = [
   ["finance", "mail.sort.aiSetupTagFinance", "mail.sort.aiSetupPromptFinance"],
 ] as const;
 
-type SetupStep = 0 | 1 | 2;
+type SetupStep = -1 | 0 | 1 | 2;
 
 export function AiInboxSetup({
   forceOpen = false,
@@ -49,11 +55,26 @@ export function AiInboxSetup({
   const { data: rules = [], isLoading: rulesLoading } = useAutomations();
   const { data: labels = [] } = useLabels();
   const googleStatus = useGoogleAuthStatus();
+  const connected = (googleStatus.data?.accounts.length ?? 0) > 0;
+  const jevAvailability = useActionQuery(
+    "get-jev-availability",
+    {},
+    {
+      enabled: connected,
+      staleTime: 0,
+      // request-storm-allow: the shared status query revalidates API-key setup when its settings tab returns.
+      refetchOnWindowFocus: true,
+    },
+  );
+  const jevAvailabilityResolved =
+    !jevAvailability.isError && jevAvailability.data != null;
+  const jevConfigured =
+    jevAvailabilityResolved && jevAvailability.data?.configured === true;
   const createRuleMutation = useCreateAutomation();
   const updateSettings = useUpdateSettings();
   const [step, setStep] = useState<SetupStep>(0);
   const [selectedTags, setSelectedTags] = useState(
-    () => new Set<string>(TAG_SUGGESTIONS.map(([id]) => id)),
+    () => new Set<string>(["receipts", "github"]),
   );
   const [customTagSelected, setCustomTagSelected] = useState(false);
   const [customTagName, setCustomTagName] = useState("");
@@ -61,13 +82,11 @@ export function AiInboxSetup({
   const [importantPrompt, setImportantPrompt] = useState(() =>
     t("mail.sort.aiSetupImportantPrompt"),
   );
-  const [archivePrompt, setArchivePrompt] = useState(() =>
-    t("mail.aiFilter.archivePlaceholder"),
-  );
-  const [spamPrompt, setSpamPrompt] = useState(() =>
-    t("mail.aiFilter.spamPlaceholder"),
-  );
+  const [archivePrompt, setArchivePrompt] = useState("");
+  const [spamPrompt, setSpamPrompt] = useState("");
   const [saving, setSaving] = useState(false);
+  const [jevStepRequired, setJevStepRequired] = useState(false);
+  const previousForceOpen = useRef(forceOpen);
 
   const aiRules = useMemo(
     () =>
@@ -76,13 +95,29 @@ export function AiInboxSetup({
       ),
     [rules],
   );
-  const connected = (googleStatus.data?.accounts.length ?? 0) > 0;
   const visible =
     connected &&
     !googleStatus.isLoading &&
     !rulesLoading &&
+    !jevAvailability.isLoading &&
     (forceOpen ||
       (settings?.aiSetupCompleted !== true && aiRules.length === 0));
+
+  useEffect(() => {
+    const wasForceOpen = previousForceOpen.current;
+    if (!forceOpen) previousForceOpen.current = false;
+    if (!visible || !jevAvailabilityResolved) return;
+    previousForceOpen.current = forceOpen;
+    if (forceOpen && !wasForceOpen) {
+      setJevStepRequired(!jevConfigured);
+      setStep(jevConfigured ? 0 : -1);
+    } else if (!jevConfigured) {
+      setJevStepRequired(true);
+      setStep(-1);
+    } else if (step === -1) {
+      setStep(0);
+    }
+  }, [forceOpen, jevAvailabilityResolved, jevConfigured, step, visible]);
 
   const complete = async () => {
     try {
@@ -115,6 +150,7 @@ export function AiInboxSetup({
   };
 
   const saveStep = async () => {
+    if (step < 0 || !jevConfigured) return;
     setSaving(true);
     try {
       if (step === 0) {
@@ -176,6 +212,15 @@ export function AiInboxSetup({
   };
 
   const skip = async () => {
+    if (step < 0) {
+      await complete();
+      return;
+    }
+    if (!jevAvailabilityResolved) return;
+    if (!jevConfigured) {
+      await complete();
+      return;
+    }
     if (step < 2) {
       setStep((current) => (current + 1) as SetupStep);
       return;
@@ -184,11 +229,17 @@ export function AiInboxSetup({
   };
 
   const headline =
-    step === 0
-      ? t("mail.sort.aiSetupTagsHeadline")
-      : step === 1
-        ? t("mail.sort.aiSetupImportantHeadline")
-        : t("mail.sort.aiSetupSkipInboxHeadline");
+    step === -1
+      ? jevAvailability.isError
+        ? t("mail.aiFilter.jevAvailabilityFailed")
+        : t("mail.aiFilter.connectJev")
+      : step === 0
+        ? t("mail.sort.aiSetupTagsHeadline")
+        : step === 1
+          ? t("mail.sort.aiSetupImportantHeadline")
+          : t("mail.sort.aiSetupSkipInboxHeadline");
+  const stepCount = jevStepRequired ? 4 : 3;
+  const progressIndex = step < 0 ? 0 : step + (jevStepRequired ? 1 : 0);
   const customTagIncomplete =
     step === 0 &&
     customTagSelected &&
@@ -213,16 +264,39 @@ export function AiInboxSetup({
           </DialogHeader>
           <div
             className="mb-8 flex items-center gap-2"
-            aria-label={`${step + 1}/3`}
+            aria-label={`${progressIndex + 1}/${stepCount}`}
           >
-            {[0, 1, 2].map((index) => (
-              <span
-                key={index}
-                className={`h-1 flex-1 rounded-full ${index <= step ? "bg-primary" : "bg-muted"}`}
-              />
-            ))}
+            {Array.from({ length: stepCount }, (_, index) => index).map(
+              (index) => (
+                <span
+                  key={index}
+                  className={`h-1 flex-1 rounded-full ${index <= progressIndex ? "bg-primary" : "bg-muted"}`}
+                />
+              ),
+            )}
           </div>
-          {step === 0 ? (
+          {step >= 0 && jevAvailability.isError ? (
+            <div className="mb-5">
+              <JevAvailabilityError
+                onRetry={() => void jevAvailability.refetch()}
+                retrying={jevAvailability.isFetching}
+              />
+            </div>
+          ) : null}
+          {step === -1 ? (
+            jevAvailability.isError ? (
+              <JevAvailabilityError
+                onRetry={() => void jevAvailability.refetch()}
+                retrying={jevAvailability.isFetching}
+                showMessage={false}
+              />
+            ) : (
+              <JevConnectionPrompt
+                showHeading={false}
+                onConnected={() => void jevAvailability.refetch()}
+              />
+            )
+          ) : step === 0 ? (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 {TAG_SUGGESTIONS.map(([id, nameKey]) => {
@@ -240,8 +314,9 @@ export function AiInboxSetup({
                           return next;
                         })
                       }
-                      className={`rounded-full border px-4 py-2 text-sm transition-colors ${selected ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm transition-colors ${selected ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
                     >
+                      {selected ? <IconCheck className="size-3.5" /> : null}
                       {t(nameKey)}
                     </button>
                   );
@@ -250,8 +325,11 @@ export function AiInboxSetup({
                   type="button"
                   aria-pressed={customTagSelected}
                   onClick={() => setCustomTagSelected((selected) => !selected)}
-                  className={`rounded-full border px-4 py-2 text-sm transition-colors ${customTagSelected ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm transition-colors ${customTagSelected ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
                 >
+                  {customTagSelected ? (
+                    <IconCheck className="size-3.5" />
+                  ) : null}
                   {t("mail.sort.aiSetupCustomTag")}
                 </button>
               </div>
@@ -287,6 +365,7 @@ export function AiInboxSetup({
                   value={archivePrompt}
                   onChange={setArchivePrompt}
                   label={t("mail.sort.aiSetupArchiveLabel")}
+                  placeholder={t("mail.aiFilter.archivePlaceholder")}
                   className="min-h-28 resize-none text-sm font-normal"
                 />
               </label>
@@ -296,6 +375,7 @@ export function AiInboxSetup({
                   value={spamPrompt}
                   onChange={setSpamPrompt}
                   label={t("mail.sort.aiSetupSpamLabel")}
+                  placeholder={t("mail.aiFilter.spamPlaceholder")}
                   className="min-h-28 resize-none text-sm font-normal"
                 />
               </label>
@@ -317,19 +397,21 @@ export function AiInboxSetup({
               <Button
                 variant="ghost"
                 onClick={() => void skip()}
-                disabled={saving}
+                disabled={saving || (step >= 0 && !jevAvailabilityResolved)}
               >
                 {t("mail.sort.aiSetupSkip")}
               </Button>
             </div>
-            <Button
-              onClick={() => void saveStep()}
-              disabled={saving || customTagIncomplete}
-            >
-              {step === 2
-                ? t("mail.sort.aiSetupDone")
-                : t("mail.sort.aiSetupContinue")}
-            </Button>
+            {step >= 0 && (
+              <Button
+                onClick={() => void saveStep()}
+                disabled={saving || !jevConfigured || customTagIncomplete}
+              >
+                {step === 2
+                  ? t("mail.sort.aiSetupDone")
+                  : t("mail.sort.aiSetupContinue")}
+              </Button>
+            )}
           </div>
         </div>
       </DialogContent>

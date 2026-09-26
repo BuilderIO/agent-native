@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.21.1",
+  "version": "0.21.3",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -47,6 +47,7 @@
       "import": "./dist/app-shell/*.js",
       "default": "./dist/app-shell/*.js"
     },
+    "./app-shell/prompt-home.css": "./dist/app-shell/prompt-home.css",
     "./agentkit": {
       "types": "./dist/agentkit.d.ts",
       "browser": "./dist/agentkit.js",

@@ -1,4 +1,6 @@
 import { DefaultSpinner } from "@agent-native/core/client/ui";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
+import { buildResourceSocialMeta } from "@agent-native/core/shared";
 
 import { APP_TITLE } from "@/lib/app-config";
 import { planDocumentTitle } from "@/lib/plan-document-title";
@@ -8,11 +10,13 @@ import { fetchPublicPlanMeta } from "../../server/lib/plan-meta.server";
 import { buildPlanMetaDescription } from "../../shared/plan-meta-format";
 import type { Route } from ".react-router/types/app/routes/+types/recaps.$id";
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ params, request }: Route.LoaderArgs) {
   const id = params.id;
-  if (!id) return { planMeta: null };
+  const origin = new URL(request.url).origin;
+  const basePath = getConfiguredAppBasePath();
+  if (!id) return { planMeta: null, origin, basePath };
   const planMeta = await fetchPublicPlanMeta(id);
-  return { planMeta };
+  return { planMeta, origin, basePath };
 }
 
 export const meta: Route.MetaFunction = ({ loaderData }) => {
@@ -31,10 +35,12 @@ export const meta: Route.MetaFunction = ({ loaderData }) => {
   const description = buildPlanMetaDescription(planMeta.brief);
   return [
     { title },
-    { name: "description", content: description },
-    { property: "og:title", content: title },
-    { property: "og:description", content: description },
-    { property: "og:type", content: "article" },
+    ...buildResourceSocialMeta({
+      title,
+      description,
+      origin: loaderData.origin,
+      basePath: loaderData.basePath,
+    }),
   ];
 };
 

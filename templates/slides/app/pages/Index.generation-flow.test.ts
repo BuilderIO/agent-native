@@ -21,20 +21,17 @@ const flow = source.slice(
 );
 
 describe("new deck generation flow", () => {
-  it("defers the home prompt until open and prefetches on intent", () => {
+  it("loads the inline home composer with chunk recovery", () => {
     expect(source).toContain(
       'const loadPromptPopover = () => import("@/components/editor/PromptDialog")',
     );
     expect(source).toContain(
       "const LazyPromptPopover = lazy(loadPromptPopover)",
     );
-    expect(source).toContain(
-      "(showNewDeckPrompt || hasOpenedNewDeckPrompt) &&",
-    );
-    expect(source).toContain("onPointerEnter={preloadPromptPopover}");
-    expect(source).toContain("onFocus={preloadPromptPopover}");
+    expect(source).toContain('presentation="inline"');
+    expect(source).toContain("data-slides-home-composer");
     expect(source).toContain(".then(clearInitialPromptFromUrl)");
-    expect(source).toContain("onClose={closeNewDeckPromptFallback}");
+    expect(source).toContain("window.location.reload()");
     expect(source).toContain("<LazyChunkErrorBoundary");
   });
 
@@ -245,7 +242,7 @@ describe("new deck generation flow", () => {
   });
 
   it("preserves the composer model selection through the reference step", () => {
-    expect(source).toContain("options?: PromptComposerSubmitOptions");
+    expect(source).toContain("options?: SlidesPromptSubmitOptions");
     expect(source).toContain("modelSelection: options");
     expect(flow).toContain("...modelSelection");
   });
@@ -273,8 +270,11 @@ describe("new deck generation flow", () => {
     expect(directImportFlow).toContain('callAction("import-pptx"');
     expect(directImportFlow).toContain('callAction("import-file"');
     expect(directImportFlow).toContain("navigate(`/deck/${imported.id}`");
-    expect(source).toContain("onImport={handleDirectImport}");
-    expect(source).toContain('importFromLabel={t("home.importFrom")}');
+    expect(source).toContain(
+      "usePromptImport({ onImport: handleDirectImport })",
+    );
+    expect(source).toContain("<ImportDeckButton controller={deckImport}");
+    expect(source).not.toContain("<ImportDeckDialog");
   });
 
   it("turns an imported PPTX into a reusable reference deck", () => {

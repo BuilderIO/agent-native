@@ -1,6 +1,25 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL-Adresse",
+  "composer.contextInvalidUrl": "Gib eine gültige HTTP- oder HTTPS-URL ein.",
+  "composer.contextAttach": "Anhängen",
+  "composer.menu.search": "Suchen…",
+  "composer.contextPrevious": "Zurück",
+  "composer.contextNext": "Weiter",
+  "composer.contextLoadFailed": "Kontext konnte nicht geladen werden.",
+  "composer.contextLinkRequired": "Gib einen Link ein.",
+  "composer.submitFailed": "Senden fehlgeschlagen. Versuche es erneut.",
+  "composer.addContext": "Kontext hinzufügen",
+  "composer.contextActionFailed": "Kontext konnte nicht hinzugefügt werden.",
+  "composer.contextBack": "Zurück",
+  "composer.searchContext": "Kontext suchen…",
+  "composer.noContextResults": "Kein passender Kontext.",
+  "composer.contextPending": "Kontext wird geladen",
+  "composer.contextError": "Kontext fehlgeschlagen",
+  "composer.retryContext": "Kontext {{name}} erneut laden",
+  "composer.contextLimitExceeded":
+    "Der Kontext ist zu groß. Entferne ein Element oder füge eine kleinere Auswahl hinzu.",
   "activity.reasoning": "Überlegung",
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":
@@ -881,6 +900,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Neue E-Mail-Adresse",
   "settings.emailNewPlaceholder": "Neue E-Mail-Adresse eingeben",
   "usage.builderCredits": "Builder-Credits",
+  "usage.inviteFriends": "Freunde einladen",
+  "usage.inviteCredits":
+    "Erhalte {{amount}} Builder-Credits, wenn sich ein Freund anmeldet.",
+  "usage.copyInviteLink": "Einladungslink kopieren",
+  "usage.inviteLinkCopied": "Einladungslink kopiert",
   "usage.creditBalance": "Workspace-Guthaben",
   "usage.monthlyPlan": "Monatsplan",
   "usage.dailyFreeLimit": "Tägliches Gratislimit",

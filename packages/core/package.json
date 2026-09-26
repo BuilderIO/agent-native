@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.189.0",
+  "version": "0.191.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -28,6 +28,7 @@
     "tsconfig.base.json",
     "src/eject",
     "src/integrations/eject",
+    "src/assets/fonts/LICENSE_*",
     "!src/**/*.spec.ts",
     "!src/**/*.spec.tsx",
     "!src/**/*.test.ts",
@@ -358,6 +359,7 @@
     "./usage/actions/manage-usage-alert": "./dist/usage/actions/manage-usage-alert.js",
     "./usage/actions/get-usage-metrics": "./dist/usage/actions/get-usage-metrics.js",
     "./usage/actions/get-builder-credit-usage": "./dist/usage/actions/get-builder-credit-usage.js",
+    "./usage/actions/get-builder-referral-info": "./dist/usage/actions/get-builder-referral-info.js",
     "./connections": "./dist/connections/index.js",
     "./connections/runtime": "./dist/connections/runtime.js",
     "./provider-api": "./dist/provider-api/index.js",
