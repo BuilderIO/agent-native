@@ -9165,9 +9165,11 @@ function SingleScreenCreationOverlay({
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
+      const continuesExistingPath =
+        event.key === "Enter" && continuationPenPathRef.current !== null;
       finishPenPath(path, {
-        preserveActiveTool: true,
-        continueAfterCommit: event.key === "Enter",
+        preserveActiveTool: event.key === "Escape" || continuesExistingPath,
+        continueAfterCommit: continuesExistingPath,
       });
     };
 

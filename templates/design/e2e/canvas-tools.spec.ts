@@ -2950,7 +2950,7 @@ test("pen escape cancels the in-progress path and enter commits vector art", asy
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
   await page.keyboard.press("Escape");
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
-  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
+  expect(await vectorPrimitiveSummaries(page, "index.html")).toHaveLength(0);
 
   await page.mouse.click(
     cardBox.x + cardBox.width * 0.36,
@@ -3098,7 +3098,10 @@ test.fixme("focused-screen pen authors Bezier paths and undoes active segments",
   );
   await page.keyboard.press("Enter");
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
-  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
+  await expect(toolButton(page, "Move")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await expect(selectedLayerRow(page)).toContainText("Vector");
   await waitForVectorPrimitive(page, "index.html", /\bC\b/);
 });

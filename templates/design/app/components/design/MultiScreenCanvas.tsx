@@ -6328,7 +6328,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const finishPenPath = useCallback(
     (
       path = activePenPathRef.current,
-      options?: { continueAfterCommit?: boolean },
+      options?: {
+        continueAfterCommit?: boolean;
+        nextTool?: "move" | "pen";
+      },
     ) => {
       // Clear before committing: the commit flushes React synchronously, and
       // an effect it wakes can re-enter here and commit the same path twice.
@@ -6373,6 +6376,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         strokeWidth: toolProps?.strokeWidth,
       });
       const continuation = continuationPenPathRef.current;
+      let nextTool: "move" | "pen" = "pen";
       if (continuation) {
         const persisted = persistDraftPrimitive(draft, continuation.frameId, {
           updateNodeId: continuation.nodeId,
@@ -6389,8 +6393,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             : { ...continuation, path: clonePenPath(path) };
       } else {
         const persisted = commitDraftPrimitive(draft, undefined, {
-          nextTool: "pen",
+          nextTool: options?.nextTool ?? "pen",
         });
+        if (persisted) nextTool = options?.nextTool ?? "pen";
         continuationPenPathRef.current =
           persisted && !path.closed && options?.continueAfterCommit
             ? {
@@ -6400,12 +6405,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               }
             : null;
       }
-      // Keep the Pen tool armed after Enter/Escape/closing a path, matching
-      // Figma. The parent selection callback also receives nextTool="pen",
-      // but board primitives intentionally bypass that generic callback and
-      // asynchronous selection reconciliation can otherwise paint Move for a
-      // frame. Drive the controlled tool explicitly at the commit boundary.
-      onActiveToolChange?.("pen");
+      onActiveToolChange?.(nextTool);
     },
     [
       clearActivePenPath,
@@ -10460,7 +10460,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        finishPenPath(path, { continueAfterCommit: true });
+        const continuesExistingPath = continuationPenPathRef.current !== null;
+        finishPenPath(path, {
+          continueAfterCommit: continuesExistingPath,
+          nextTool: continuesExistingPath ? "pen" : "move",
+        });
         return;
       }
 
