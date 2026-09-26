@@ -67,6 +67,7 @@ import {
   parseSpaceIds,
   type RecordingVisibility,
 } from "../../lib/recordings.js";
+import { viewerScreenshotEditsJson } from "../../lib/screenshot-edits.js";
 import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
 import { verifySharePassword } from "../../lib/share-password.js";
 import { hydrateCommentAuthorNames } from "../../lib/user-identities.js";
@@ -197,37 +198,6 @@ function addProtectedMediaTokenFallback(
 ): string | null {
   if (!videoUrl || !token || !isLocalVideoRoute(videoUrl)) return videoUrl;
   return appendQueryParam(videoUrl, "t", token);
-}
-
-/**
- * `editsJson` with a screenshot's editing record removed.
- *
- * The page needs the video editor's entries (trims and so on) to play a clip,
- * but a screenshot's marks are already burned into the image it is served, so
- * the mark list is of no use to a viewer — and `redactions` carries the
- * position and size of every area that was hidden. That says where a secret
- * was and how long it was, which is not something a share link should hand
- * out just because the picture itself is safe.
- */
-function publicEditsJson(recording: {
-  kind?: string | null;
-  editsJson: string;
-}): string {
-  if (!isImageRecording(recording)) return recording.editsJson;
-  try {
-    const parsed = JSON.parse(recording.editsJson || "{}") as Record<
-      string,
-      unknown
-    >;
-    delete parsed.redactions;
-    delete parsed.annotations;
-    // Where pending redaction boxes sit says where the secret is.
-    delete parsed.overlays;
-    delete parsed.crop;
-    return JSON.stringify(parsed);
-  } catch {
-    return "{}";
-  }
 }
 
 export default defineEventHandler(async (event) => {
@@ -545,7 +515,9 @@ export default defineEventHandler(async (event) => {
       animatedThumbnailUrl: playbackAnimatedThumbnailUrl,
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
-      editsJson: publicEditsJson(rec),
+      editsJson: isImageRecording(rec)
+        ? viewerScreenshotEditsJson(rec.editsJson)
+        : rec.editsJson,
       videoUrl: playbackVideoUrl,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,

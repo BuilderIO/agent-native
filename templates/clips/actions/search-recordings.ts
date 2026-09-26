@@ -8,6 +8,7 @@ import {
   agentRecordingAccessFilter,
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
+import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 const SNIPPET_RADIUS = 80;
@@ -126,6 +127,8 @@ export default defineAction({
         title: schema.recordings.title,
         description: schema.recordings.description,
         thumbnailUrl: schema.recordings.thumbnailUrl,
+        kind: schema.recordings.kind,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -158,6 +161,8 @@ export default defineAction({
         title: schema.recordings.title,
         description: schema.recordings.description,
         thumbnailUrl: schema.recordings.thumbnailUrl,
+        kind: schema.recordings.kind,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -192,6 +197,8 @@ export default defineAction({
         title: schema.recordings.title,
         description: schema.recordings.description,
         thumbnailUrl: schema.recordings.thumbnailUrl,
+        kind: schema.recordings.kind,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -225,7 +232,7 @@ export default defineAction({
       id: r.id,
       title: r.title,
       description: r.description,
-      thumbnailUrl: r.thumbnailUrl,
+      thumbnailUrl: listingThumbnailUrl(r),
       durationMs: r.durationMs,
       ownerEmail: r.ownerEmail,
       visibility: r.visibility,
@@ -236,7 +243,7 @@ export default defineAction({
       id: r.id,
       title: r.title,
       description: r.description,
-      thumbnailUrl: r.thumbnailUrl,
+      thumbnailUrl: listingThumbnailUrl(r),
       durationMs: r.durationMs,
       ownerEmail: r.ownerEmail,
       visibility: r.visibility,
@@ -264,6 +271,7 @@ export default defineAction({
     for (const r of recMatches) {
       merged.set(r.id, {
         ...r,
+        thumbnailUrl: listingThumbnailUrl(r),
         matchType: "title-description",
         snippet: buildSnippet(r.description, args.query),
         matchMs: null,

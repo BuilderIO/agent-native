@@ -17,6 +17,7 @@ vi.mock("@agent-native/core/server", () => ({
 import {
   deleteRecordingMediaObjects,
   deleteStoredMediaUrl,
+  recordingMediaUrls,
 } from "./recording-media-cleanup";
 
 describe("recording-media-cleanup", () => {
@@ -160,5 +161,23 @@ describe("recording-media-cleanup", () => {
         .mockResolvedValueOnce(respond(200));
       await expect(deleteStoredMediaUrl(url)).resolves.toBe(false);
     });
+  });
+
+  it("includes a screenshot's leftover files, so permanent delete removes them", () => {
+    // Nothing else points at them; a row deleted without them leaves the
+    // unredacted original in storage for good.
+    expect(
+      recordingMediaUrls({
+        imageUrl: "https://store.example/burned.png",
+        editsJson: JSON.stringify({
+          unreclaimedUrls: ["https://store.example/copy.png"],
+          burnInProgress: { staleUrls: ["https://store.example/original.png"] },
+        }),
+      }),
+    ).toEqual([
+      "https://store.example/burned.png",
+      "https://store.example/original.png",
+      "https://store.example/copy.png",
+    ]);
   });
 });

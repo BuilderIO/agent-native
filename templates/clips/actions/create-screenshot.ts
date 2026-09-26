@@ -33,7 +33,10 @@ import {
 } from "../server/lib/recordings.js";
 import { STORAGE_SETUP_REQUIRED_REASON } from "../server/lib/video-storage.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
-import { decodeScreenshotDataUrl } from "./lib/screenshot-image.js";
+import {
+  decodeScreenshotDataUrl,
+  MAX_SCREENSHOT_BYTES,
+} from "./lib/screenshot-image.js";
 
 export { MAX_SCREENSHOT_BYTES } from "./lib/screenshot-image.js";
 
@@ -94,6 +97,9 @@ export default defineAction({
   // UI-only: the pixels come from the browser's screen picker, which an agent
   // has no way to drive. Still callable from the frontend over HTTP.
   agentTool: false,
+  // Base64 one picture, capped before the body is read and parsed rather than
+  // after, plus room for the marks.
+  maxBodyBytes: Math.ceil((1 * 4 * MAX_SCREENSHOT_BYTES) / 3) + 1024 * 1024,
   schema: createScreenshotSchema,
   run: async (args, actionContext) => {
     const { bytes, mimeType } = decodeScreenshotDataUrl(

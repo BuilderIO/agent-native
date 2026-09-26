@@ -325,4 +325,66 @@ describe("save-screenshot-edits", () => {
       expect(options.filename).toMatch(/^shot-1\./);
     }
   });
+
+  it("keeps a copy it could not delete listed, and the burn deletes it", async () => {
+    // That copy was flattened before anything later redacted was covered, so
+    // it can hold the very content the burn is about to destroy.
+    mocks.deleteStoredMediaUrl.mockResolvedValueOnce(false);
+    await run({ annotations: [] });
+    const listed = JSON.parse(String(mocks.existing!.editsJson));
+    expect(listed.unreclaimedUrls).toEqual([
+      "https://store.example/flattened.png",
+    ]);
+
+    mocks.deleteStoredMediaUrl.mockClear();
+    mocks.deleteStoredMediaUrl.mockResolvedValue(true);
+    await run({
+      mediaRevision: String(mocks.existing!.mediaUpdatedAt),
+      baseDataUrl: PNG,
+      redactions: [{ x: 1, y: 1, width: 50, height: 50 }],
+    });
+    expect(mocks.deleteStoredMediaUrl).toHaveBeenCalledWith(
+      "https://store.example/flattened.png",
+    );
+    const after = JSON.parse(String(mocks.existing!.editsJson));
+    expect(after.unreclaimedUrls).toBeUndefined();
+    expect(after.burnInProgress).toBeUndefined();
+  });
+
+  it("lists what it is deleting before it deletes it", async () => {
+    // A crash between the write and the delete must not leave an untracked
+    // copy behind.
+    let listedDuringDelete: unknown;
+    mocks.deleteStoredMediaUrl.mockImplementation(async () => {
+      listedDuringDelete = JSON.parse(
+        String(mocks.existing!.editsJson),
+      ).unreclaimedUrls;
+      return true;
+    });
+    await run({ annotations: [] });
+    expect(listedDuringDelete).toEqual(["https://store.example/flattened.png"]);
+    expect(
+      JSON.parse(String(mocks.existing!.editsJson)).unreclaimedUrls,
+    ).toBeUndefined();
+  });
+
+  it("refuses to save over edits it cannot read", async () => {
+    // The editor was given no marks for them; saving would erase them.
+    mocks.existing!.editsJson = "{not json";
+    await expect(run({ annotations: [] })).rejects.toThrow(/could not be read/);
+    expect(mocks.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("says a retry from the still-open editor finished the earlier burn", async () => {
+    mocks.existing!.editsJson = JSON.stringify({
+      burnInProgress: { staleUrls: ["https://store.example/leftover.png"] },
+    });
+    mocks.existing!.mediaUpdatedAt = "rev-2";
+    await expect(run({ annotations: [] })).rejects.toThrow(
+      /earlier redaction on this screenshot has now finished/,
+    );
+    expect(
+      JSON.parse(String(mocks.existing!.editsJson)).burnInProgress,
+    ).toBeUndefined();
+  });
 });

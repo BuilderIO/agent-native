@@ -392,6 +392,41 @@ describe("get-recording-player-data view count", () => {
     expect(result.recording.uploadGenerationId).toBeUndefined();
   });
 
+  it("keeps a mid-burn screenshot's leftover file URLs from viewers", async () => {
+    // The marker lists the unredacted original until it is deleted; handing
+    // it out would get round the hold the media routes enforce.
+    mockShareLimit.mockResolvedValue([{ id: "share-1" }]);
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "rec-1",
+        kind: "image",
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        imageUrl: "https://cdn.example.com/burned.png",
+        editsJson: JSON.stringify({
+          burnInProgress: {
+            staleUrls: ["https://cdn.example.com/original.png"],
+          },
+        }),
+      },
+    });
+    mockPlayerQuery.build = () => {
+      const query: Record<string, unknown> = {};
+      query.from = () => query;
+      query.where = () => query;
+      query.orderBy = async () => [];
+      query.limit = async () => [];
+      query.then = (resolve: (rows: unknown[]) => unknown) => resolve([]);
+      return query;
+    };
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(JSON.stringify(result)).not.toContain("original.png");
+  });
+
   it("reports zero views without failing the player payload", async () => {
     const result = await action.run({ recordingId: "rec-1" });
 

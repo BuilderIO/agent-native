@@ -1,3 +1,5 @@
+import { isImageRecording } from "../../shared/recording-kind.js";
+
 export type PlayerThumbnailRecording = {
   id: string;
   thumbnailUrl?: string | null;
@@ -48,4 +50,17 @@ export function resolvePlayerThumbnailUrl(
   }
   if (options.appPath) resolved = options.appPath(resolved);
   return resolved;
+}
+
+/**
+ * The thumbnail a listing hands back. A screenshot's thumbnail is the whole
+ * picture, so it goes through the route that checks password, expiry and the
+ * redaction hold, never as the raw storage URL.
+ */
+export function listingThumbnailUrl(
+  recording: PlayerThumbnailRecording & { kind?: string | null },
+): string | null {
+  return isImageRecording(recording)
+    ? resolvePlayerThumbnailUrl(recording)
+    : (recording.thumbnailUrl ?? null);
 }

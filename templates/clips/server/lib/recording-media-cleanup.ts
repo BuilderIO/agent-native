@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/server";
 
 import { deleteS3ObjectByUrl } from "./s3-upload-provider.js";
+import { screenshotLeftoverUrls } from "./screenshot-edits.js";
 
 interface RecordingMediaUrls {
   id?: string;
@@ -14,6 +15,8 @@ interface RecordingMediaUrls {
   /** A screenshot's served picture and its unmarked base. */
   imageUrl?: string | null;
   baseImageUrl?: string | null;
+  /** Lists a screenshot's replaced files that are still to be deleted. */
+  editsJson?: string | null;
 }
 
 export interface RecordingMediaCleanupResult {
@@ -35,6 +38,9 @@ export function recordingMediaUrls(recording: RecordingMediaUrls): string[] {
     recording.filmstripUrl,
     recording.imageUrl,
     recording.baseImageUrl,
+    // Nothing else points at these, so if the row goes without them they
+    // stay in storage for good — and they are the unredacted originals.
+    ...screenshotLeftoverUrls(recording.editsJson),
   ];
   return [...new Set(urls.filter((url): url is string => Boolean(url)))];
 }
