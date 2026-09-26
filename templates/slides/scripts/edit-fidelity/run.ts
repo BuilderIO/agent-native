@@ -1053,13 +1053,6 @@ async function runScenario(
     // them. It, or a tracked write still in flight, may land well after the
     // page reopens.
     const unloadWrites = await takeKeepaliveWrites(page);
-    if (unloadWrites) {
-      await waitFor(
-        async () => (await getSlideContent(page, deckId, slideId)) !== saved,
-        15_000,
-        300,
-      );
-    }
     const reloaded =
       unloadWrites || inFlight.size
         ? await settleSaved(page, deckId, slideId, () => inFlight.size)
