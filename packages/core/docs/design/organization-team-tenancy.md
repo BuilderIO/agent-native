@@ -109,6 +109,8 @@ Only the recorded owner can explicitly grant viewer access, one conversation at 
 
 The grant gives all current team members, including leads, read access to that conversation. It does not grant continuation, management, or access to other conversations. Only the recorded owner can revoke the team grant. Team membership and active-team selection alone never share a conversation.
 
+Public share tokens are not available for a conversation bound to a team. Reject new token creation and refuse redemption of any existing token whenever the conversation is bound, including after membership loss or team deletion; the public route must not expose its transcript or linked runs. An unbound conversation shared with a team keeps its existing public-link behavior; the team share alone does not bind it.
+
 ```mermaid
 flowchart TD
   R["Read conversation or linked run"] --> B{"Conversation bound to a team?"}
@@ -125,7 +127,7 @@ Add a chat-thread-specific policy at the action boundary for team grants and rev
 
 At grant time, validate the marked team, its match to the conversation's organization, and the owner's current organization and team membership. On every direct read and list, check the viewer's current organization and team membership. Offer all current team members, including leads, one list of explicitly shared conversations and their linked runs. This list discovers authorized shares; it does not grant access. A private conversation does not appear merely because it is bound to the team. Generic group principals alone cannot provide this list: chat group grants are not currently enabled, and chat list filtering does not yet admit group shares.
 
-Linked runs inherit their conversation's read access; V1 does not share runs separately. Before returning run metadata or events through reads, lists, streams (including reconnect and replay), or background responses, resolve the linked conversation and apply its current read rules: organization and team membership where applicable, plus owner or share access. Deny access if the conversation is missing or inaccessible; cached results and background paths cannot bypass this check. Keep the general permission recheck rules in `durable-agent-runs.md`, but define caller access to runs here through the linked conversation.
+Linked runs inherit their conversation's read access; V1 does not share runs separately. On each new read, list, stream connection (including reconnect and replay), or background response request, resolve the linked conversation and apply its current read rules: organization and team membership where applicable, plus owner or share access. Deny the request if the conversation is missing or inaccessible; cached results and background paths cannot bypass this check. An already-open run stream is authorized when it connects, not continuously: it can continue delivering events after access is lost until it disconnects. A reconnect must check access again. Keep the general run transport rules in `durable-agent-runs.md`, but define caller access to runs here through the linked conversation.
 
 If the recorded owner leaves the team recorded on the conversation, they cannot read, continue, or manage it until they rejoin. Current members can still read it if the owner shared it with the team, but they cannot continue or manage it for the owner. V1 does not make a lead a successor or transfer ownership automatically. Removing someone from the organization remains a separate flow; any deliberate successor must belong to the team recorded on the conversation. A conversation started without a team keeps its personal-owner rules even if its team share is revoked.
 
@@ -162,7 +164,8 @@ Before offering V1, prove these boundaries:
 - Only the selected team's context loads alongside organization and personal context for a new conversation. Personal, team, and organization instructions and skills have a deterministic order. Switching teams never changes an existing conversation's bound context.
 - A former member, including the owner, cannot read or continue a bound conversation. Unshared work stays private.
 - Only the recorded owner can grant or revoke a chat team share, only for an allowed team, and only as `viewer`. Reject `commenter`, `editor`, and `admin` grants, and reject callers relying only on resource-admin authority.
-- Run reads, lists, streams (including reconnect and replay), and background responses expose no metadata or events after the caller loses access to the linked conversation, including after membership changes or team deletion.
+- Bound conversations cannot issue public share tokens, and tokens issued before binding cannot expose their transcript or linked runs after binding, membership loss, or team deletion.
+- New run reads, lists, stream connections (including reconnect and replay), and background response requests deny access after the caller loses access to the linked conversation, including after membership changes or team deletion. An already-open stream is not required to stop before it disconnects.
 - Deletion makes bound context and conversations inaccessible without deleting unrelated resources.
 
 Test changes to group and organization membership against cached and listed access as well as direct access. A failed or incomplete team-context lookup must not look like empty context or successful authorization.
