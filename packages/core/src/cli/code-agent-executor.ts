@@ -679,6 +679,11 @@ async function executeClaudeCliRun(options: {
   });
 
   let mcpConfigDir: string | undefined;
+  const removeMcpConfig = () => {
+    if (!mcpConfigDir) return;
+    fs.rmSync(mcpConfigDir, { recursive: true, force: true });
+    mcpConfigDir = undefined;
+  };
   try {
     // Deliver the same host-scoped servers the Codex path receives (see
     // executeCodexCliRun), through a private file rather than argv because
@@ -724,6 +729,9 @@ async function executeClaudeCliRun(options: {
         if (streamToolOutputToStdout) options.stdout?.write(text);
       },
     });
+    // The CLI has exited; drop the credential-bearing config before any
+    // queued or steering follow-up starts its own run.
+    removeMcpConfig();
     const finalMessage =
       readClaudeParticipantResultText(result.events) ??
       (assistantText.join("\n\n").trim() || "Claude Code run completed.");
@@ -847,9 +855,7 @@ async function executeClaudeCliRun(options: {
       },
     });
   } finally {
-    if (mcpConfigDir) {
-      fs.rmSync(mcpConfigDir, { recursive: true, force: true });
-    }
+    removeMcpConfig();
   }
 }
 

@@ -172,7 +172,7 @@ describe("code-agent MCP config", () => {
           "sales/prod": {
             type: "http",
             url: "https://slash.example/mcp",
-            headers: { Authorization: "Bearer slash-token" },
+            headers: { Authorization: "Bearer placeholder-token" },
           },
         },
       }),
