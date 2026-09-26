@@ -21,9 +21,10 @@ ask before changing branches unless the user gave the exact operation.
 Platform-assigned Builder.io and Fusion branches stay in place; never touch
 another checkout or move a branch used by another worktree.
 
-Steve's explicit request to open a PR or run `/ship` from a detached,
-task-owned worktree authorizes the needed task branch from fresh `origin/main`;
-do not ask again in this or a later session.
+Steve's standing instruction applies across tasks and sessions: needed, safe
+branch creation or switching inside a task-owned worktree needs no repeated
+permission. It never authorizes moving a branch used by another worktree or
+platform, branch changes in a shared checkout, or destructive branch operations.
 
 If the current branch is already suitable, keep using it. When a detached
 task-owned worktree needs a branch to ship, create one without pausing for
