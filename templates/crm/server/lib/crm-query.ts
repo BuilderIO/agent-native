@@ -50,7 +50,7 @@ import {
 import { getDb, schema } from "../db/index.js";
 
 const MAX_RECORD_LIMIT = 100;
-const MAX_SCOPE_VALIDATIONS = 20;
+const MAX_CONCURRENT_SCOPE_CHECKS = 20;
 
 /** A filter the caller must fix before retrying — surfaces as HTTP 422. */
 export class CrmFilterError extends Error {
@@ -1259,24 +1259,21 @@ export async function recordsInCurrentScope<
       ]),
     ).values(),
   );
-  // Every scope on the page is checked; silently skipping the rest would drop
-  // valid rows while the cursor moves past them.
-  if (targets.length > MAX_SCOPE_VALIDATIONS) {
-    throw new Error(
-      `CRM page spans ${targets.length} access scopes; at most ${MAX_SCOPE_VALIDATIONS} can be verified per page. Narrow the query or lower the limit.`,
+  // Every scope on the page is checked, in batches that bound concurrent
+  // provider calls; skipping or refusing the rest would drop valid rows.
+  const currentScopes = new Map<string, CrmAccessScope | null>();
+  for (let i = 0; i < targets.length; i += MAX_CONCURRENT_SCOPE_CHECKS) {
+    const batch = targets.slice(i, i + MAX_CONCURRENT_SCOPE_CHECKS);
+    const scopes = await Promise.all(
+      batch.map((target) => resolveScope(target)),
+    );
+    batch.forEach((target, index) =>
+      currentScopes.set(
+        `${target.connectionId}:${target.objectType}`,
+        scopes[index],
+      ),
     );
   }
-  const currentScopes = new Map(
-    await Promise.all(
-      targets.map(
-        async (target) =>
-          [
-            `${target.connectionId}:${target.objectType}`,
-            await resolveScope(target),
-          ] as const,
-      ),
-    ),
-  );
   return rows.filter((row) => {
     const current = currentScopes.get(`${row.connectionId}:${row.objectType}`);
     return Boolean(

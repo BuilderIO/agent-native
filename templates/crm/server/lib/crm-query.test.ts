@@ -886,10 +886,14 @@ describe("recordsInCurrentScope", () => {
     ).rejects.toThrow(/provider timed out/);
   });
 
-  it("refuses a page with more scopes than it can verify", async () => {
-    const rows = Array.from({ length: 21 }, (_, index) => row(`type_${index}`));
-    await expect(
-      query.recordsInCurrentScope(rows, async () => SCOPE),
-    ).rejects.toThrow(/21 access scopes/);
+  it("verifies every scope on a page that spans more than one batch", async () => {
+    const rows = Array.from({ length: 45 }, (_, index) => row(`type_${index}`));
+    const checked: string[] = [];
+    const visible = await query.recordsInCurrentScope(rows, async (target) => {
+      checked.push(target.objectType);
+      return target.objectType === "type_44" ? null : SCOPE;
+    });
+    expect(checked).toHaveLength(45);
+    expect(visible).toHaveLength(44);
   });
 });
