@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -172,8 +173,8 @@ export function StorageSetupCard({
     builderConnect.accountExists || hasBuilderOAuthCredential(builderConnect);
   const provisionAccount =
     !hasBuilderAccount &&
-    (builderConnect.agentNativeProvisioningEnabled ||
-      !builderConnect.statusResolved);
+    builderConnect.statusResolved &&
+    builderConnect.agentNativeProvisioningEnabled;
   const builderConnecting = builderConnect.connecting;
   const actionConnecting = connecting || builderConnecting;
 
@@ -267,6 +268,18 @@ export function StorageSetupCard({
           </button>
         )}
       </div>
+      {builderConnecting && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-testid="storage-setup-builder-cancel"
+          className="self-end text-xs font-normal text-muted-foreground"
+          onClick={builderConnect.cancel}
+        >
+          {t("common.cancel")}
+        </Button>
+      )}
 
       {provisionAccount && (
         <p className="text-center text-xs leading-5 text-muted-foreground">

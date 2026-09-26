@@ -1340,7 +1340,9 @@ export function useBuilderConnectFlow(
         signal,
         connectAttemptIdRef.current ?? undefined,
       );
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || connectStartedAtRef.current !== started) {
+        return;
+      }
       const orgName = s?.orgName ?? null;
       if (s) {
         if (statusUnavailableRef.current) {

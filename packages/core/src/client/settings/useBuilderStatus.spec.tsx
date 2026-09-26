@@ -91,6 +91,9 @@ function BuilderConnectProbe({
         {flow.statusResolved ? "resolved" : "unresolved"}{" "}
         {flow.accountExists ? "account-exists" : "no-account-exists"}
       </output>
+      <output data-testid="credential-source">
+        {flow.credentialSource ?? "none"}
+      </output>
       <output>{flow.error ?? ""}</output>
     </div>
   );
@@ -992,6 +995,87 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("configured connecting resolved");
     expect(onConnected).not.toHaveBeenCalled();
+  });
+
+  it("ignores a late deployment-status poll after OAuth confirmation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const deploymentManagedStatus = {
+      ...connectedBuilderStatus,
+      envManaged: true,
+      credentialSource: "env",
+    };
+    const oauthStatus = {
+      ...connectedBuilderStatus,
+      envManaged: true,
+      credentialSource: "user",
+    };
+    let requestCount = 0;
+    let resolveLatePoll: (response: Response) => void = () => {};
+    vi.mocked(fetch).mockImplementation(() => {
+      requestCount += 1;
+      if (requestCount === 3) {
+        return new Promise<Response>((resolve) => {
+          resolveLatePoll = resolve;
+        });
+      }
+      return Promise.resolve(
+        jsonResponse(requestCount >= 4 ? oauthStatus : deploymentManagedStatus),
+      );
+    });
+    const onConnected = vi.fn();
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe onConnected={onConnected} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(requestCount).toBe(3);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(
+      container.querySelector('[data-testid="credential-source"]')?.textContent,
+    ).toBe("user");
+    expect(onConnected).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveLatePoll(jsonResponse(deploymentManagedStatus));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="credential-source"]')?.textContent,
+    ).toBe("user");
+    expect(onConnected).toHaveBeenCalledOnce();
   });
 
   it("does not probe Builder status when disabled", async () => {

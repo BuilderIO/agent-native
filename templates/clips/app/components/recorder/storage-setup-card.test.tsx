@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
+  cancel: vi.fn(),
   useBuilderConnectFlow: vi.fn(),
 }));
 
@@ -62,8 +63,10 @@ describe("StorageSetupCard", () => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.start.mockReset();
+    mocks.cancel.mockReset();
     mocks.useBuilderConnectFlow.mockReset().mockReturnValue({
       start: mocks.start,
+      cancel: mocks.cancel,
       configured: false,
       envManaged: false,
       accountExists: false,
@@ -113,6 +116,38 @@ describe("StorageSetupCard", () => {
     expect(mocks.start).toHaveBeenNthCalledWith(2, {
       provisionAccount: false,
     });
+  });
+
+  it("does not offer account provisioning before its capability is known", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      configured: false,
+      accountExists: false,
+      connecting: false,
+      agentNativeProvisioningEnabled: false,
+      statusResolved: false,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(container.textContent).toContain("storageSetup.connectBuilder");
+    expect(container.textContent).not.toContain(
+      "storageSetup.createBuilderAccount",
+    );
+    expect(
+      container.querySelector('[data-testid="storage-setup-builder-sign-in"]'),
+    ).toBeNull();
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-primary"]',
+        )
+        ?.click();
+    });
+    expect(mocks.start).toHaveBeenCalledWith({ provisionAccount: false });
   });
 
   it("uses sign-in as the primary action when account provisioning found an existing account", () => {
@@ -176,6 +211,7 @@ describe("StorageSetupCard", () => {
   it("disables both Builder actions while OAuth is connecting", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
       start: mocks.start,
+      cancel: mocks.cancel,
       configured: false,
       envManaged: false,
       accountExists: false,
@@ -194,6 +230,14 @@ describe("StorageSetupCard", () => {
     expect(buttons).toHaveLength(2);
     expect([...buttons].every((button) => button.disabled)).toBe(true);
     expect(mocks.start).not.toHaveBeenCalled();
+
+    const cancelButton = container.querySelector<HTMLButtonElement>(
+      '[data-testid="storage-setup-builder-cancel"]',
+    );
+    expect(cancelButton).not.toBeNull();
+    expect(cancelButton?.disabled).toBe(false);
+    act(() => cancelButton?.click());
+    expect(mocks.cancel).toHaveBeenCalledOnce();
   });
 
   it("surfaces the timeout after repeated failed status responses", async () => {
