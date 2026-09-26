@@ -1661,6 +1661,7 @@ const zhCN = {
       heroDescription:
         "用日常语言告诉 Jev 哪些邮件重要。它会保留真人撰写的 GitHub 评论，将经理的邮件置顶，清理机器人通知，并根据你的纠正持续学习。",
       heroCta: "管理你的收件箱",
+      mobileArchiveToast: "已归档 1,167 条机器人通知 · 保留 4 条 PR 评论",
       useCasesHeading: "由 Jev 驱动的智能收件箱",
       useCasesBody:
         "用日常语言设置规则。Jev 会优先处理重要联系人和对话，应用合适的标签，并在重复邮件到达时自动归档。",

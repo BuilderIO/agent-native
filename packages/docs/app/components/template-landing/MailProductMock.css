@@ -837,7 +837,7 @@
     display: block;
     position: absolute;
     bottom: 8px;
-    left: 8px;
+    inset-inline-start: 8px;
     max-width: calc(100% - 16px);
     border: 1px solid var(--mm-border);
     border-radius: 8px;

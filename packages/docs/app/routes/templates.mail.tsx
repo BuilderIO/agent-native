@@ -237,6 +237,9 @@ export default function MailTemplate() {
                         : "h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
                     }
                     label={t(`templateLanding.mail.${useCase.titleKey}`)}
+                    mobileArchiveToast={t(
+                      "templateLanding.mail.mobileArchiveToast",
+                    )}
                   />
                 </div>
               );

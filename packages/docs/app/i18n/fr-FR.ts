@@ -1788,6 +1788,8 @@ const frFR = {
       heroDescription:
         "Dites à Jev ce qui compte en langage naturel. Il garde visibles les commentaires GitHub rédigés par des personnes, met en avant les messages de votre responsable et écarte les notifications des bots, puis apprend de vos corrections.",
       heroCta: "Gérez votre boîte de réception",
+      mobileArchiveToast:
+        "1 167 notifications de bots archivées · 4 commentaires de PR conservés",
       useCasesHeading:
         "Une boîte de réception plus intelligente, propulsée par Jev",
       useCasesBody:
