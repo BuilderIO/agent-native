@@ -897,7 +897,6 @@ const messages = {
     fileStorageSetupRequired:
       "尚未连接对象存储。请免费连接 Builder.io，或前往设置 → 文件上传添加自己的 S3 兼容存储密钥。",
     decksTitle: "幻灯片",
-    newDeck: "新建幻灯片",
     deckLengthQuestion: "这份幻灯片需要多长？",
     deckLengthHeader: "幻灯片长度",
     deckLengthShort: "短（3–5 张）",
@@ -926,6 +925,8 @@ const messages = {
     chooseReferences: "选择参考资料",
     addDesignSystem: "+ 设计系统",
     importFrom: "导入自",
+    referenceFileStorageUnavailable:
+      "尚未配置文件存储。请连接 Builder.io 或其他文件提供商，以导入参考文件。",
     attachedFiles: "已附加文件",
     imported: "已导入",
     importedReferenceDeck: "已导入的参考幻灯片",

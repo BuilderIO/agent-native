@@ -17531,6 +17531,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         };
       }
     }
+    if (
+      pointerOutsideCurrentParent &&
+      (!pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement) &&
+      dropContainerForTarget(target) === currentParent
+    ) {
+      target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
+    }
     var container = dropContainerForTarget(target);
 
     // Figma Ignore auto layout: Control-drag into an auto-layout frame keeps
@@ -17541,7 +17550,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       container !== document.body &&
       isAutoLayoutElement(container)
     ) {
-      return {
+      target = {
         anchor: container,
         placement: "inside",
         axis: parentFlowAxis(container),
@@ -17558,11 +17567,47 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container === document.documentElement ||
         target?.anchor === document.body)
     ) {
-      return {
+      target = {
         anchor: currentParent,
         placement: "after",
         axis: "y",
         dropMode: "absolute-container",
+      };
+    }
+
+    // Leaving a frame for its parent's empty area stacks the layer immediately
+    // above the frame being exited. A hit on a sibling is an explicit slot
+    // and keeps that sibling as its insertion anchor.
+    var exitedContainer = el.parentElement;
+    var receivingContainer = exitedContainer && exitedContainer.parentElement;
+    var targetContainer = dropContainerForTarget(target);
+    if (
+      !ignoreTargetAutoLayout &&
+      target &&
+      exitedContainer &&
+      receivingContainer &&
+      isContainerDropTarget(exitedContainer) &&
+      targetContainer === receivingContainer &&
+      (pointHit === receivingContainer ||
+        !pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement)
+    ) {
+      target = {
+        ...target,
+        anchor: exitedContainer,
+        placement: "after",
+        axis: parentFlowAxis(receivingContainer),
+        persistenceAnchor: exitedContainer,
+        persistencePlacement: "after",
+        gridCell: undefined,
+        gridPlacement: undefined,
+        gridDisplacement: undefined,
+        gridDisplacementPlacements: undefined,
+        gridDisplacementPrevStyles: undefined,
+        guideRect: undefined,
+        guideMode: undefined,
+        guidePlacement: undefined,
       };
     }
 

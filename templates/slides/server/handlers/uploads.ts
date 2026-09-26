@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 
+import { isPrivateBlobConfiguredForRequest } from "@agent-native/core/private-blob";
 import {
   defineEventHandler,
   readBody,
@@ -80,6 +81,27 @@ export function maxReferenceFileBytes(
     ? MAX_FIG_REFERENCE_FILE_BYTES
     : MAX_REFERENCE_FILE_BYTES;
 }
+
+export const getUploadStorageStatus = defineEventHandler(async (event) => {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  if (!auth.context.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  return withSlidesRequestContext(
+    event,
+    async () => ({
+      referenceStorageReady:
+        !isHostedSlidesRuntime() || (await isPrivateBlobConfiguredForRequest()),
+    }),
+    auth.context,
+  );
+});
 
 function formatMaxFileSize(bytes: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`;

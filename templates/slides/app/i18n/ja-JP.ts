@@ -931,7 +931,6 @@ const messages = {
     fileStorageSetupRequired:
       "オブジェクトストレージが接続されていません。無料のBuilder.ioを接続するか、設定 → ファイルアップロードで独自のS3互換ストレージキーを追加してください。",
     decksTitle: "デッキ",
-    newDeck: "新しいデッキ",
     deckLengthQuestion: "このデッキの長さはどれくらいにしますか？",
     deckLengthHeader: "デッキの長さ",
     deckLengthShort: "短め（3〜5 枚）",
@@ -961,6 +960,8 @@ const messages = {
     chooseReferences: "参照を選択",
     addDesignSystem: "+ デザインシステム",
     importFrom: "インポート元",
+    referenceFileStorageUnavailable:
+      "ファイルストレージが設定されていません。参照ファイルをインポートするには、Builder.io または別のファイルプロバイダーを接続してください。",
     attachedFiles: "添付ファイル",
     imported: "インポート済み",
     importedReferenceDeck: "インポートした参考デッキ",

@@ -939,7 +939,6 @@ const messages = {
     fileStorageSetupRequired:
       "لا يوجد تخزين كائنات متصل. اربط Builder.io مجانًا أو أضف مفاتيح تخزين متوافقة مع S3 من إعدادات ← تحميل الملفات.",
     decksTitle: "العروض",
-    newDeck: "عرض جديد",
     deckLengthQuestion: "ما طول هذا العرض؟",
     deckLengthHeader: "طول العرض",
     deckLengthShort: "قصير (3–5 شرائح)",
@@ -969,6 +968,8 @@ const messages = {
     chooseReferences: "اختر المراجع",
     addDesignSystem: "+ نظام تصميم",
     importFrom: "استيراد من",
+    referenceFileStorageUnavailable:
+      "لم يتم إعداد تخزين الملفات. اربط Builder.io أو موفر ملفات آخر لاستيراد الملفات المرجعية.",
     attachedFiles: "المرفقات",
     imported: "تم الاستيراد",
     importedReferenceDeck: "عرض مرجعي مستورد",

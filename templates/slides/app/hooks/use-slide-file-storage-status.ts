@@ -1,10 +1,10 @@
-import { fetchFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
+import { isReferenceStorageReady } from "@/lib/prompt-file-uploads";
+
 export interface SlideFileStorageStatus {
   configured: boolean;
-  builderReauthorizationRequired?: boolean;
 }
 
 export const SLIDE_FILE_STORAGE_STATUS_KEY = [
@@ -13,18 +13,7 @@ export const SLIDE_FILE_STORAGE_STATUS_KEY = [
 ] as const;
 
 export async function fetchSlideFileStorageStatus(): Promise<SlideFileStorageStatus> {
-  const result = await fetchFileUploadStatus<Partial<SlideFileStorageStatus>>();
-  if (result.state !== "available") {
-    throw new Error("File storage status is unavailable");
-  }
-  if (typeof result.value?.configured !== "boolean") {
-    throw new Error("File storage status response is invalid");
-  }
-  return {
-    configured: result.value.configured,
-    builderReauthorizationRequired:
-      result.value.builderReauthorizationRequired === true,
-  };
+  return { configured: await isReferenceStorageReady() };
 }
 
 export function useSlideFileStorageStatus(enabled = true) {

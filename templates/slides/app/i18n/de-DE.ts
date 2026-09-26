@@ -946,7 +946,6 @@ const messages = {
     fileStorageSetupRequired:
       "Es ist kein Objektspeicher verbunden. Verbinde Builder.io kostenlos oder füge unter Einstellungen → Datei-Uploads eigene S3-kompatible Speicherschlüssel hinzu.",
     decksTitle: "Decks",
-    newDeck: "Neues Deck",
     deckLengthQuestion: "Wie lang soll dieses Deck sein?",
     deckLengthHeader: "Decklänge",
     deckLengthShort: "Kurz (3–5 Folien)",
@@ -977,6 +976,8 @@ const messages = {
     chooseReferences: "Referenzen auswählen",
     addDesignSystem: "+ Designsystem",
     importFrom: "Importieren von",
+    referenceFileStorageUnavailable:
+      "Der Dateispeicher ist nicht eingerichtet. Verbinde Builder.io oder einen anderen Dateianbieter, um Referenzdateien zu importieren.",
     attachedFiles: "Angehängt",
     imported: "Importiert",
     importedReferenceDeck: "Importiertes Referenz-Deck",

@@ -915,7 +915,6 @@ const messages = {
     fileStorageSetupRequired:
       "कोई ऑब्जेक्ट स्टोरेज कनेक्ट नहीं है। मुफ़्त Builder.io कनेक्ट करें या सेटिंग्स → फ़ाइल अपलोड में अपनी S3-संगत स्टोरेज कुंजियाँ जोड़ें।",
     decksTitle: "डेक",
-    newDeck: "नया डेक",
     deckLengthQuestion: "यह डेक कितना लंबा होना चाहिए?",
     deckLengthHeader: "डेक लंबाई",
     deckLengthShort: "छोटा (3–5 स्लाइड)",
@@ -945,6 +944,8 @@ const messages = {
     chooseReferences: "संदर्भ चुनें",
     addDesignSystem: "+ डिज़ाइन सिस्टम",
     importFrom: "इससे आयात करें",
+    referenceFileStorageUnavailable:
+      "फ़ाइल स्टोरेज कॉन्फ़िगर नहीं है। संदर्भ फ़ाइलें इंपोर्ट करने के लिए Builder.io या किसी अन्य फ़ाइल प्रदाता को कनेक्ट करें।",
     attachedFiles: "अटैच किया गया",
     imported: "इंपोर्ट किया गया",
     importedReferenceDeck: "इंपोर्ट किया गया रेफरेंस डेक",

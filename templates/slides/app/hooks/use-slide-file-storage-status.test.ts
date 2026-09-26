@@ -1,41 +1,37 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const fetchStatus = vi.hoisted(() => vi.fn());
+const isReferenceStorageReady = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client/uploads", () => ({
-  fetchFileUploadStatus: fetchStatus,
+vi.mock("@/lib/prompt-file-uploads", () => ({
+  isReferenceStorageReady,
 }));
 
 import { fetchSlideFileStorageStatus } from "./use-slide-file-storage-status";
 
-afterEach(() => fetchStatus.mockReset());
+afterEach(() => isReferenceStorageReady.mockReset());
 
 describe("fetchSlideFileStorageStatus", () => {
   it("preserves an unavailable probe as an error", async () => {
-    fetchStatus.mockResolvedValue({ state: "unavailable", status: 503 });
+    isReferenceStorageReady.mockRejectedValue(new Error("status unavailable"));
 
     await expect(fetchSlideFileStorageStatus()).rejects.toThrow(
-      "File storage status is unavailable",
+      "status unavailable",
     );
   });
 
   it("returns an authoritative missing state", async () => {
-    fetchStatus.mockResolvedValue({
-      state: "available",
-      value: { configured: false },
-    });
+    isReferenceStorageReady.mockResolvedValue(false);
 
     await expect(fetchSlideFileStorageStatus()).resolves.toEqual({
       configured: false,
-      builderReauthorizationRequired: false,
     });
   });
 
-  it("rejects a malformed status response", async () => {
-    fetchStatus.mockResolvedValue({ state: "available", value: {} });
+  it("preserves ready local Slides storage", async () => {
+    isReferenceStorageReady.mockResolvedValue(true);
 
-    await expect(fetchSlideFileStorageStatus()).rejects.toThrow(
-      "File storage status response is invalid",
-    );
+    await expect(fetchSlideFileStorageStatus()).resolves.toEqual({
+      configured: true,
+    });
   });
 });
