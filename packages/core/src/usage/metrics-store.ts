@@ -439,70 +439,102 @@ function messageTimestamp(message: Record<string, unknown>): number | null {
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-function promptForTurn(
-  threadData: unknown,
-  taskId: string | null,
-  usageCreatedAt: number,
-): { prompt: string; messageId: string | null } | null {
+type ThreadPrompt = { prompt: string; messageId: string | null };
+
+type ThreadPromptIndex = {
+  promptsByTurn: Map<string, ThreadPrompt>;
+  timestampedPrompts: Array<{
+    timestamp: number;
+    index: number;
+    prompt: ThreadPrompt | null;
+  }>;
+  soleUntimestampedPrompt: ThreadPrompt | null;
+};
+
+function indexThreadPrompts(threadData: unknown): ThreadPromptIndex | null {
   const parsed = parseJson(threadData);
   const messages = parsed?.messages;
   if (!Array.isArray(messages)) return null;
 
-  const promptAt = (index: number) => {
-    for (let i = index; i >= 0; i -= 1) {
-      const message = messageRecord(messages[i]);
-      if (!message) continue;
-      const role = typeof message.role === "string" ? message.role : "";
-      if (role !== "user" && role !== "human") continue;
+  const promptsByTurn = new Map<string, ThreadPrompt>();
+  const timestampedPrompts: ThreadPromptIndex["timestampedPrompts"] = [];
+  let latestUserPrompt: ThreadPrompt | null = null;
+  let userMessageCount = 0;
+  let soleUserTimestamp: number | null = null;
+  let soleUntimestampedPrompt: ThreadPrompt | null = null;
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messageRecord(messages[i]);
+    if (!message) continue;
+    if (message.role === "user" || message.role === "human") {
+      userMessageCount += 1;
       const text = promptText(message.content);
-      if (!text) return null;
-      const id = typeof message.id === "string" ? message.id : null;
-      return {
-        prompt: text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text,
-        messageId: id,
-      };
+      latestUserPrompt = text
+        ? {
+            prompt:
+              text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text,
+            messageId: typeof message.id === "string" ? message.id : null,
+          }
+        : null;
+      const timestamp = messageTimestamp(message);
+      if (timestamp !== null) {
+        timestampedPrompts.push({
+          timestamp,
+          index: i,
+          prompt: latestUserPrompt,
+        });
+      }
+      if (userMessageCount === 1) {
+        soleUserTimestamp = timestamp;
+        soleUntimestampedPrompt = latestUserPrompt;
+      } else {
+        soleUserTimestamp = null;
+        soleUntimestampedPrompt = null;
+      }
+      continue;
     }
-    return null;
-  };
-
-  if (taskId) {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const message = messageRecord(messages[i]);
-      if (message?.role === "assistant" && messageTurnId(message) === taskId) {
-        const prompt = promptAt(i - 1);
-        if (prompt) return prompt;
+    if (message.role === "assistant") {
+      const turnId = messageTurnId(message);
+      if (turnId && latestUserPrompt) {
+        promptsByTurn.set(turnId, latestUserPrompt);
       }
     }
   }
+  timestampedPrompts.sort(
+    (a, b) => a.timestamp - b.timestamp || a.index - b.index,
+  );
+  return {
+    promptsByTurn,
+    timestampedPrompts,
+    soleUntimestampedPrompt:
+      userMessageCount === 1 && soleUserTimestamp === null
+        ? soleUntimestampedPrompt
+        : null,
+  };
+}
 
-  let latest: {
-    timestamp: number;
-    match: ReturnType<typeof promptAt>;
-  } | null = null;
-  let userMessageCount = 0;
-  let onlyUserMessageIndex = -1;
-  for (let i = 0; i < messages.length; i += 1) {
-    const message = messageRecord(messages[i]);
-    if (!message || (message.role !== "user" && message.role !== "human")) {
-      continue;
-    }
-    userMessageCount += 1;
-    onlyUserMessageIndex = i;
-    const timestamp = messageTimestamp(message);
-    if (timestamp === null || timestamp > usageCreatedAt) continue;
-    const match = promptAt(i);
-    if (!latest || timestamp >= latest.timestamp) {
-      latest = { timestamp, match };
+function promptForTurn(
+  index: ThreadPromptIndex,
+  taskId: string | null,
+  usageCreatedAt: number,
+): ThreadPrompt | null {
+  if (taskId) {
+    const prompt = index.promptsByTurn.get(taskId);
+    if (prompt) return prompt;
+  }
+
+  let low = 0;
+  let high = index.timestampedPrompts.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (index.timestampedPrompts[middle]!.timestamp <= usageCreatedAt) {
+      low = middle + 1;
+    } else {
+      high = middle;
     }
   }
-  if (latest) return latest.match;
-  if (userMessageCount === 1) {
-    const message = messageRecord(messages[onlyUserMessageIndex]);
-    if (message && messageTimestamp(message) === null) {
-      return promptAt(onlyUserMessageIndex);
-    }
-  }
-  return null;
+  return low > 0
+    ? (index.timestampedPrompts[low - 1]?.prompt ?? null)
+    : index.soleUntimestampedPrompt;
 }
 
 async function hydrateRecentPrompts(
@@ -535,23 +567,34 @@ async function hydrateRecentPrompts(
 
   const recent: UsageRecentMetric[] = [];
   const seenTurns = new Set<string>();
+  const promptIndexes = new Map<string, ThreadPromptIndex | null>();
   for (const row of rows) {
     const threadId = nullableStringField(row, "thread_id");
-    const thread = threadId ? threads.get(threadId) : undefined;
     const taskId = nullableStringField(row, "task_id");
-    const prompt = thread
-      ? promptForTurn(
-          thread.thread_data,
+    const taskTurnKey =
+      threadId && taskId ? JSON.stringify([threadId, taskId]) : null;
+    if (taskTurnKey && seenTurns.has(taskTurnKey)) continue;
+
+    const thread = threadId ? threads.get(threadId) : undefined;
+    let prompt: ThreadPrompt | null = null;
+    if (threadId && thread) {
+      if (!promptIndexes.has(threadId)) {
+        promptIndexes.set(threadId, indexThreadPrompts(thread.thread_data));
+      }
+      const promptIndex = promptIndexes.get(threadId);
+      if (promptIndex) {
+        prompt = promptForTurn(
+          promptIndex,
           taskId,
           numberField(row, "created_at"),
-        )
-      : null;
+        );
+      }
+    }
     const turnKey =
-      threadId && taskId
-        ? JSON.stringify([threadId, taskId])
-        : threadId && prompt?.messageId
-          ? JSON.stringify([threadId, prompt.messageId])
-          : null;
+      taskTurnKey ??
+      (threadId && prompt?.messageId
+        ? JSON.stringify([threadId, prompt.messageId])
+        : null);
     if (turnKey && seenTurns.has(turnKey)) continue;
     if (turnKey) seenTurns.add(turnKey);
     recent.push({
