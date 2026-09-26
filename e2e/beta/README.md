@@ -73,6 +73,15 @@ journey, or Design editor regression. The `design` project drives the real
 beta editor and covers layered fill ordering plus multi-selected text style,
 undo, and reload persistence.
 
+The `journeys` project includes `specs/apps/settings-navigation.spec.ts`: in
+Analytics, Brain, Clips, Design, Dispatch, and Slides it opens Settings from
+the account menu, with ⌘, and with ⌘K › Settings, and follows three legacy
+Settings links. Each check reads the account's `settings-redesign` flag and
+holds the page to that state (new pages with the flag on, today's routes with
+it off), and records the state it saw as an annotation. An unreadable flag
+fails the test rather than reading as off. Analytics' ⌘K check is marked
+`test.fail` until its own command palette gains the Settings command.
+
 `advisory` reports real findings that do not stop a user — beta being
 indexable, third-party pixels that reject beta hosts, beta sharing a database
 with production. It never fails the job. If something there starts blocking
