@@ -155,16 +155,47 @@ export function nextScreenshotEdits(
   return edits as unknown as ReturnType<typeof parseEdits>;
 }
 
-function withBurnMarker(editsJson: string | null, staleUrls: string[]) {
+/**
+ * What a burn finishes with once its files are gone: its edits and title.
+ * Carried in the marker so a later save can finish an interrupted burn as it
+ * would have finished, rather than leave marks and crop out of step with the
+ * burned picture.
+ */
+interface BurnResult {
+  editsJson: string;
+  title: string;
+}
+
+function withBurnMarker(
+  editsJson: string | null,
+  staleUrls: string[],
+  result: BurnResult,
+) {
   const edits = parseEdits(editsJson) as unknown as Record<string, unknown>;
-  edits[BURN_IN_PROGRESS_KEY] = { staleUrls };
+  edits[BURN_IN_PROGRESS_KEY] = { staleUrls, result };
   return serializeEdits(edits as unknown as ReturnType<typeof parseEdits>);
 }
 
-function withoutBurnMarker(editsJson: string | null) {
+/** The row's edits and title once an interrupted burn is finished. */
+function finishedBurn(editsJson: string | null, title: string): BurnResult {
   const edits = parseEdits(editsJson) as unknown as Record<string, unknown>;
+  const marker = edits[BURN_IN_PROGRESS_KEY] as
+    | { result?: Partial<BurnResult> }
+    | undefined;
+  const result = marker?.result;
+  if (
+    typeof result?.editsJson === "string" &&
+    typeof result.title === "string"
+  ) {
+    return { editsJson: result.editsJson, title: result.title };
+  }
   delete edits[BURN_IN_PROGRESS_KEY];
-  return serializeEdits(edits as unknown as ReturnType<typeof parseEdits>);
+  return {
+    editsJson: serializeEdits(
+      edits as unknown as ReturnType<typeof parseEdits>,
+    ),
+    title,
+  };
 }
 
 /** Deletes each URL; returns the ones that are still in storage. */
@@ -220,22 +251,25 @@ export default defineAction({
     if (leftover) {
       const left = await deleteAll(args.recordingId, leftover);
       if (left.length) throw new Error(ORIGINAL_NOT_DELETED);
+      const finished = finishedBurn(existing.editsJson, existing.title);
       const cleared = await db
         .update(schema.recordings)
-        .set({ editsJson: withoutBurnMarker(existing.editsJson) })
+        .set({ ...finished, updatedAt: new Date().toISOString() })
         .where(
           and(
             eq(schema.recordings.id, args.recordingId),
             eq(schema.recordings.editsJson, existing.editsJson ?? ""),
           ),
         )
-        .returning({ editsJson: schema.recordings.editsJson });
+        .returning({ id: schema.recordings.id });
       if (!cleared.length) {
         throw new Error(
           "This screenshot is still finishing a redaction. Reload it and try again.",
         );
       }
-      existing.editsJson = cleared[0].editsJson;
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      existing.editsJson = finished.editsJson;
+      existing.title = finished.title;
     }
 
     // The CAS below only compares against the row as read here, which a
@@ -356,8 +390,12 @@ export default defineAction({
     // writes its marker instead of its edits: the hold has to be on before
     // the original is deleted, and must not lift until it is gone. The edits
     // wait for the second write below, the way the video burn does it.
+    const burnResult: BurnResult = {
+      editsJson: serializeEdits(edits),
+      title: redactedTitle(existing.title) ?? existing.title,
+    };
     const heldEditsJson = burning
-      ? withBurnMarker(existing.editsJson, staleUrls)
+      ? withBurnMarker(existing.editsJson, staleUrls, burnResult)
       : null;
     const updated = await db
       .update(schema.recordings)
@@ -404,7 +442,9 @@ export default defineAction({
       // the next save's retry does not trip over files already gone.
       await db
         .update(schema.recordings)
-        .set({ editsJson: withBurnMarker(existing.editsJson, left) })
+        .set({
+          editsJson: withBurnMarker(existing.editsJson, left, burnResult),
+        })
         .where(
           and(
             eq(schema.recordings.id, args.recordingId),
@@ -421,11 +461,7 @@ export default defineAction({
       // save is refused while the marker is on, so the row is as written.
       const released = await db
         .update(schema.recordings)
-        .set({
-          editsJson: serializeEdits(edits),
-          title: redactedTitle(existing.title) ?? existing.title,
-          updatedAt: now,
-        })
+        .set({ ...burnResult, updatedAt: now })
         .where(
           and(
             eq(schema.recordings.id, args.recordingId),

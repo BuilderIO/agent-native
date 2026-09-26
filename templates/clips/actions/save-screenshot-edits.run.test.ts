@@ -149,9 +149,9 @@ describe("save-screenshot-edits", () => {
     expect(mocks.updates).toHaveLength(2);
     expect(mocks.updates.some((u) => "title" in u)).toBe(false);
     // Narrowed to the file still in storage, for the next save to retry.
-    expect(marker(mocks.updates[1])).toEqual({
-      staleUrls: ["https://store.example/original.png"],
-    });
+    expect(marker(mocks.updates[1]).staleUrls).toEqual([
+      "https://store.example/original.png",
+    ]);
     expect(isHeldForRedaction(String(mocks.updates[1].editsJson), null)).toBe(
       true,
     );
@@ -210,6 +210,34 @@ describe("save-screenshot-edits", () => {
     expect(marker(mocks.updates.at(-1)!)).toBeUndefined();
   });
 
+  it("finishes an interrupted burn with the edits and title it was saving", async () => {
+    // Clearing only the marker would leave the marks, crop and "(Redacted)"
+    // title of the interrupted burn out of step with its burned picture.
+    mocks.deleteStoredMediaUrl.mockImplementation(
+      async (url: string) => !url.endsWith("original.png"),
+    );
+    await expect(
+      run({
+        baseDataUrl: PNG,
+        crop: { x: 0, y: 0, width: 500, height: 400 },
+        redactions: [{ x: 1, y: 1, width: 50, height: 50 }],
+      }),
+    ).rejects.toThrow(/unredacted original could not be deleted/);
+    mocks.existing!.editsJson = mocks.updates.at(-1)!.editsJson;
+    mocks.existing!.mediaUpdatedAt = "rev-2";
+    mocks.updates = [];
+    mocks.deleteStoredMediaUrl.mockResolvedValue(true);
+
+    await run({ mediaRevision: "rev-2", annotations: [] });
+    expect(mocks.updates[0].title).toBe("(Redacted) Checkout");
+    const finished = JSON.parse(String(mocks.updates[0].editsJson));
+    expect(finished.burnInProgress).toBeUndefined();
+    expect(finished.crop).toEqual({ x: 0, y: 0, width: 500, height: 400 });
+    expect(finished.redactions).toEqual([
+      { x: 1, y: 1, width: 50, height: 50 },
+    ]);
+  });
+
   it("lifts the hold on a burn only after the original is deleted", async () => {
     mocks.existing!.editsJson = JSON.stringify({
       overlays: [pending(0.05, 0.05)],
@@ -224,12 +252,10 @@ describe("save-screenshot-edits", () => {
       redactions: [{ x: 1, y: 1, width: 50, height: 50 }],
     });
     expect(mocks.updates).toHaveLength(2);
-    expect(marker(mocks.updates[0])).toEqual({
-      staleUrls: [
-        "https://store.example/flattened.png",
-        "https://store.example/original.png",
-      ],
-    });
+    expect(marker(mocks.updates[0]).staleUrls).toEqual([
+      "https://store.example/flattened.png",
+      "https://store.example/original.png",
+    ]);
     expect(JSON.parse(String(mocks.updates[1].editsJson)).overlays).toEqual([]);
     expect(marker(mocks.updates[1])).toBeUndefined();
     expect(mocks.updates[1].title).toBe("(Redacted) Checkout");
