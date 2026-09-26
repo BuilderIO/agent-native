@@ -341,6 +341,15 @@ CREATE INDEX IF NOT EXISTS mail_ai_filter_backfills_status_updated_idx
 CREATE INDEX IF NOT EXISTS mail_ai_filter_backfills_expires_idx
   ON mail_ai_filter_backfills(expires_at);`,
     },
+    {
+      version: 30,
+      name: "mail-ai-filter-backfill-rule-set",
+      sql: `ALTER TABLE mail_ai_filter_backfills
+  ADD COLUMN IF NOT EXISTS rule_set_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS mail_ai_filter_backfills_owner_rule_set_active_idx
+  ON mail_ai_filter_backfills(owner_email, rule_set_key)
+  WHERE rule_set_key IS NOT NULL AND status IN ('queued', 'running', 'undoing');`,
+    },
   ],
   { table: "mail_migrations" },
 );

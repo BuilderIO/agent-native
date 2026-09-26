@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const AI_FILTER_BACKFILL_MAX_THREADS = 200;
 export const AI_FILTER_BACKFILL_WINDOW_DAYS = 14;
+export const AI_FILTER_BACKFILL_MAX_RULES = 32;
 
 export const aiFilterBackfillPreviewSchema = z.object({
   id: z.string().min(1).max(256),
@@ -47,7 +48,11 @@ export const manageAiFilterBackfillInputSchema = z.discriminatedUnion(
   [
     z.object({
       operation: z.literal("start"),
-      ruleIds: z.array(z.string().min(1).max(64)).min(1).max(32).optional(),
+      ruleIds: z
+        .array(z.string().min(1).max(64))
+        .min(1)
+        .max(AI_FILTER_BACKFILL_MAX_RULES)
+        .optional(),
     }),
     z.object({
       operation: z.literal("status"),

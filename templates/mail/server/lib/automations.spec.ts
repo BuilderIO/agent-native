@@ -285,6 +285,32 @@ describe("createAutomationRule AI tags", () => {
     expect(dbMock.calls.insertValues).toHaveLength(2);
   });
 
+  it.each([
+    [[{ type: "label", labelName: "agent-native-filtered" }]],
+    [
+      [
+        { type: "label", labelName: "Receipts" },
+        { type: "label", labelName: "Orders" },
+      ],
+    ],
+    [[{ type: "label", labelName: "agent_native_important" }]],
+  ])("rejects noncanonical AI-filter actions: %j", async (actions) => {
+    await expect(
+      createAutomationRule("owner@example.test", {
+        name: "AI rule",
+        condition: "Mail that needs processing",
+        actions: actions as any,
+        domain: "mail",
+        kind: "ai-filter",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_ai_filter_actions",
+      statusCode: 400,
+    });
+
+    expect(dbMock.calls.insertValues).toHaveLength(0);
+  });
+
   it("unpins a deleted AI tag by its cached Gmail label id", async () => {
     dbMock.calls.rootRows = [
       {
@@ -450,6 +476,35 @@ describe("consolidateAutomationRules", () => {
     expect(dbMock.calls.rootUpdateValues[0]).toMatchObject({
       condition: "Changed prompt",
     });
+  });
+
+  it("allows an explicit edit from a mixed tag/archive rule to archive-only", async () => {
+    const mixedActions = [
+      { type: "label", labelName: "Receipts" },
+      { type: "archive" },
+    ];
+    dbMock.calls.rootRows[0].actions = JSON.stringify(mixedActions);
+
+    await updateAutomationRule("owner@example.test", "keep", {
+      actions: [{ type: "archive" }],
+    });
+
+    expect(dbMock.calls.rootUpdateValues[0]).toMatchObject({
+      actions: JSON.stringify([{ type: "archive" }]),
+    });
+  });
+
+  it("rejects noncanonical AI-filter actions on update", async () => {
+    await expect(
+      updateAutomationRule("owner@example.test", "keep", {
+        actions: [{ type: "label", labelName: "agent-native-filtered" }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_ai_filter_actions",
+      statusCode: 400,
+    });
+
+    expect(dbMock.calls.rootUpdateWhere).toHaveLength(0);
   });
 
   it("requires Jev before consolidating AI-filter rules", async () => {

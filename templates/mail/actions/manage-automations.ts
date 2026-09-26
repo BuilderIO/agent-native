@@ -1,14 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
-import { AI_FILTER_LABEL } from "../shared/ai-filter.js";
-import { AI_IMPORTANT_LABEL } from "../shared/ai-priority.js";
+import { z } from "zod";
+
 import {
+  aiFilterRuleActionsForMode,
   aiFilterRuleLabelName,
   aiFilterRuleMode,
   type AiFilterRuleMode,
 } from "../shared/ai-filter-rules.js";
-import { z } from "zod";
-
 import { automationActionSchema } from "../shared/automation-schema.js";
 import type { AutomationAction, AutomationRule } from "../shared/types.js";
 
@@ -32,25 +31,19 @@ function isAiFilterRule(actions: AutomationAction[]): boolean {
 
 type AgentRuleMode = "tag" | "important" | "filter" | "archive";
 
-function actionsForMode(
+function actionsForAgentMode(
   mode: AgentRuleMode,
   tagName?: string,
+  existingActions: readonly AutomationAction[] = [],
 ): AutomationAction[] {
-  if (mode === "important") {
-    return [{ type: "label", labelName: AI_IMPORTANT_LABEL }];
+  if (mode === "tag" && !tagName?.trim()) {
+    throw new Error("--tagName is required for tag mode");
   }
-  if (mode === "filter") {
-    return [{ type: "label", labelName: AI_FILTER_LABEL }, { type: "archive" }];
-  }
-  if (mode === "archive") return [{ type: "archive" }];
-  if (!tagName?.trim()) throw new Error("--tagName is required for tag mode");
-  const actions: AutomationAction[] = [
-    { type: "label", labelName: tagName.trim() },
-  ];
-  if (aiFilterRuleMode({ actions }) !== "tag") {
-    throw new Error("Choose a custom label name for tag mode");
-  }
-  return actions;
+  return aiFilterRuleActionsForMode(
+    mode === "filter" ? "filtered" : mode,
+    tagName,
+    existingActions,
+  );
 }
 
 function ruleNameForMode(mode: AgentRuleMode, sentence: string): string {
@@ -82,9 +75,11 @@ function ruleResult(
 ) {
   return {
     id: rule?.id,
+    name: rule?.name,
     mode: agentModeForRule(rule),
     operation,
     sentence: rule?.condition ?? "",
+    actions: rule?.actions,
     ...(rule?.kind === "ai-filter" && aiFilterRuleMode(rule) === "tag"
       ? { tagName: aiFilterRuleLabelName(rule) }
       : {}),
@@ -214,7 +209,7 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
           if (args.mode) {
             if (!condition)
               throw new Error("--sentence is required for a rule");
-            actions = actionsForMode(args.mode, args.tagName);
+            actions = actionsForAgentMode(args.mode, args.tagName);
             name ??= ruleNameForMode(args.mode, condition);
           } else {
             if (!name || !condition || !args.actions) {
@@ -262,7 +257,11 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
               args.tagName ??
               (existing ? aiFilterRuleLabelName(existing) : undefined);
             patch.condition = sentence;
-            patch.actions = actionsForMode(args.mode, tagName);
+            patch.actions = actionsForAgentMode(
+              args.mode,
+              tagName,
+              existing?.actions,
+            );
             patch.name ??= ruleNameForMode(args.mode, sentence);
             if (existing?.domain === "mail") patch.kind = "ai-filter";
           } else if (args.condition !== undefined) {

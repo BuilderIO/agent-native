@@ -21,14 +21,14 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useAccountFilter } from "@/hooks/use-account-filter";
-import { useAutomations } from "@/hooks/use-automations";
-import { useLabels } from "@/hooks/use-emails";
 import {
   useAiFilterBackfillStatus,
   useManageAiFilter,
   useManageAiFilterBackfill,
   useRefineAiFilter,
 } from "@/hooks/use-ai-filter";
+import { useAutomations } from "@/hooks/use-automations";
+import { useLabels } from "@/hooks/use-emails";
 import { labelTabHref } from "@/lib/inbox-tabs";
 import { cn, truncate } from "@/lib/utils";
 

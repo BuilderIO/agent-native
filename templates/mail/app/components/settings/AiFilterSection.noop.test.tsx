@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { AutomationAction } from "@shared/types";
 import {
   cleanup,
   fireEvent,
@@ -7,7 +8,6 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { AutomationAction } from "@shared/types";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -125,12 +125,13 @@ vi.mock("@/hooks/use-google-auth", () => ({
   useGoogleAuthStatus: () => ({ data: { accounts: mocks.accounts } }),
 }));
 
-import { AiFilterSection } from "./AiFilterSection";
 import {
   aiFilterRuleLabelName,
   aiFilterRuleMode,
   normalizedAiFilterLabelId,
 } from "@shared/ai-filter-rules";
+
+import { AiFilterSection } from "./AiFilterSection";
 
 const importantRule = () => ({
   id: "important-rule",
@@ -195,6 +196,19 @@ describe("AiFilterSection", () => {
         ruleWith([{ type: "label", labelName: "agent-native-important" }]),
       ),
     ).toBe("important");
+    expect(
+      aiFilterRuleMode(
+        ruleWith([{ type: "label", labelName: "agent_native_important" }]),
+      ),
+    ).toBeNull();
+    expect(
+      aiFilterRuleMode(
+        ruleWith([
+          { type: "label", labelName: "Receipts" },
+          { type: "archive" },
+        ]),
+      ),
+    ).toBe("tag");
     expect(aiFilterRuleMode(ruleWith([{ type: "archive" }]))).toBe("archive");
     expect(
       aiFilterRuleLabelName(
@@ -328,6 +342,48 @@ describe("AiFilterSection", () => {
     );
   });
 
+  it("keeps auto-archive when editing a tag rule", async () => {
+    mocks.rules = [
+      {
+        ...importantRule(),
+        id: "tag-archive-rule",
+        name: "AI archive: receipts",
+        condition: "Receipts and order confirmations",
+        actions: [
+          { type: "label", labelName: "Receipts" },
+          { type: "archive" },
+        ],
+      },
+    ];
+    renderSection();
+
+    expect(screen.getByText("mail.aiFilter.autoArchiveMode")).not.toBeNull();
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "mail.toolbar.menu" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "settings.editRule" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "mail.aiFilter.instructionsTitle" }),
+      { target: { value: "Receipts from online orders" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "settings.save" }));
+
+    await waitFor(() => {
+      expect(mocks.updateRuleAsync).toHaveBeenCalledWith({
+        id: "tag-archive-rule",
+        name: "AI tag: Receipts from online orders",
+        condition: "Receipts from online orders",
+        actions: [
+          { type: "label", labelName: "Receipts" },
+          { type: "archive" },
+        ],
+      });
+    });
+  });
+
   it("stages a localized rule refinement prompt in the agent sidebar", async () => {
     mocks.rules = [importantRule()];
     renderSection();
@@ -447,7 +503,7 @@ describe("AiFilterSection", () => {
           name: "mail.aiFilter.ruleBackfillReview",
         }) as HTMLAnchorElement
       ).getAttribute("href"),
-    ).toBe("/inbox?label=agent-native-important");
+    ).toBe("/all?label=agent-native-important");
 
     fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
     await waitFor(() => {
@@ -458,6 +514,44 @@ describe("AiFilterSection", () => {
       });
     });
     expect(mocks.refetchBackfill).toHaveBeenCalled();
+  });
+
+  it("keeps Undo available after a partially failed backfill", async () => {
+    mocks.rules = [importantRule()];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 10,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 1,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      undoToken: "undo-token",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.ruleBackfillFailed"),
+    ).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
+
+    await waitFor(() => {
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "undo",
+        runId: "backfill-run",
+        undoToken: "undo-token",
+      });
+    });
   });
 
   it("shows a result toast with Review and Undo after the backfill completes", async () => {
@@ -504,6 +598,48 @@ describe("AiFilterSection", () => {
         }),
       );
     });
+  });
+
+  it("routes archived label matches through the all-mail label tab", async () => {
+    mocks.rules = [
+      {
+        ...importantRule(),
+        id: "archive-rule",
+        name: "AI archive: receipts",
+        actions: [
+          { type: "label", labelName: "Receipts" },
+          { type: "archive" },
+        ],
+      },
+    ];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "completed",
+      totalThreads: 1,
+      processedThreads: 1,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "archive-rule",
+          name: "AI archive: receipts",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+    };
+    renderSection();
+
+    expect(
+      (
+        await screen.findByRole("link", {
+          name: "mail.aiFilter.ruleBackfillReview",
+        })
+      ).getAttribute("href"),
+    ).toBe("/all?label=Receipts");
   });
 
   it("does not offer Review when a backfill has no matching mail", async () => {
@@ -592,7 +728,7 @@ describe("AiFilterSection", () => {
           name: "mail.aiFilter.reviewLabel",
         }) as HTMLAnchorElement
       ).getAttribute("href"),
-    ).toBe("/inbox?label=agent-native-filtered");
+    ).toBe("/all?label=agent-native-filtered");
   });
 
   it("allows turning triage off when Jev is unavailable", () => {

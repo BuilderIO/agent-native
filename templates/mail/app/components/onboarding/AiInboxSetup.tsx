@@ -1,12 +1,15 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
+import {
+  aiFilterRuleLabelName,
+  aiFilterRuleMode,
+  type AiFilterRuleMode,
+} from "@shared/ai-filter-rules";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
-import type { AutomationAction } from "@shared/types";
-import { getLabelStyle } from "@/lib/label-colors";
-import { cn } from "@/lib/utils";
+import type { AutomationAction, AutomationRule } from "@shared/types";
 import {
   IconArchive,
   IconCheck,
@@ -31,14 +34,20 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { useAutomations, useCreateAutomation } from "@/hooks/use-automations";
 import {
   useAiFilterBackfillStatus,
   useManageAiFilterBackfill,
 } from "@/hooks/use-ai-filter";
+import {
+  useAutomations,
+  useCreateAutomation,
+  useUpdateAutomation,
+} from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { labelTabHref } from "@/lib/inbox-tabs";
+import { getLabelStyle } from "@/lib/label-colors";
+import { cn } from "@/lib/utils";
 
 export const TAG_SUGGESTIONS = [
   [
@@ -58,6 +67,25 @@ export const TAG_SUGGESTIONS = [
 ] as const;
 
 type SetupStep = 0 | 1 | 2 | 3;
+
+type ReviewDestination = {
+  href: string;
+  labelName: string;
+  mode: AiFilterRuleMode;
+};
+
+function reviewDestinationForRule(
+  rule: Pick<AutomationRule, "actions">,
+): ReviewDestination | null {
+  const mode = aiFilterRuleMode(rule);
+  if (!mode) return null;
+  const labelName = aiFilterRuleLabelName(rule);
+  return {
+    href: labelName ? labelTabHref(labelName) : "/archive",
+    labelName,
+    mode,
+  };
+}
 
 function SetupRuleRow({
   icon,
@@ -108,6 +136,7 @@ function SetupResults({
   loading,
   hasRun,
   failed,
+  reviewDestinationsByRuleId,
   onUndo,
   onReview,
   onTeach,
@@ -117,6 +146,7 @@ function SetupResults({
   loading: boolean;
   hasRun: boolean;
   failed: boolean;
+  reviewDestinationsByRuleId: Record<string, ReviewDestination>;
   onUndo: (undoToken: string) => Promise<void>;
   onReview: () => void;
   onTeach: () => void;
@@ -146,6 +176,15 @@ function SetupResults({
     }
     return [...byId.values()].slice(0, 5);
   }, [status?.perRule]);
+  const reviewDestinations = useMemo(() => {
+    const byHref = new Map<string, ReviewDestination>();
+    for (const rule of status?.perRule ?? []) {
+      if (rule.matchedCount === 0) continue;
+      const destination = reviewDestinationsByRuleId[rule.ruleId];
+      if (destination) byHref.set(destination.href, destination);
+    }
+    return [...byHref.values()];
+  }, [status?.perRule, reviewDestinationsByRuleId]);
   const percent =
     status && status.totalThreads > 0
       ? Math.min(100, (status.processedThreads / status.totalThreads) * 100)
@@ -303,13 +342,19 @@ function SetupResults({
       </div>
       {status && !running && !undone ? (
         <div className="flex flex-wrap gap-2">
-          {status.matchedThreads > 0 ? (
-            <Button asChild variant="outline" onClick={onReview}>
-              <a href={labelTabHref(AI_FILTER_LABEL)}>
-                {t("mail.aiFilter.reviewLabel")}
+          {reviewDestinations.map(({ href, labelName, mode }) => (
+            <Button key={href} asChild variant="outline" onClick={onReview}>
+              <a href={href}>
+                {mode === "filtered"
+                  ? t("mail.aiFilter.filteredMode")
+                  : mode === "important"
+                    ? t("mail.aiFilter.importantMode")
+                    : mode === "archive"
+                      ? t("mail.aiFilter.autoArchiveMode")
+                      : labelName}
               </a>
             </Button>
-          ) : null}
+          ))}
           {status.undoToken ? (
             <Button
               variant="ghost"
@@ -354,8 +399,12 @@ export function AiInboxSetup({
   const jevConfigured =
     jevAvailabilityResolved && jevAvailability.data?.configured === true;
   const createRuleMutation = useCreateAutomation();
+  const updateRuleMutation = useUpdateAutomation();
   const updateSettings = useUpdateSettings();
   const [step, setStep] = useState<SetupStep>(0);
+  const [backfillReviewDestinations, setBackfillReviewDestinations] = useState<
+    Record<string, ReviewDestination>
+  >({});
   const [selectedTags, setSelectedTags] = useState(
     () => new Set<string>(["receipts", "github"]),
   );
@@ -405,6 +454,7 @@ export function AiInboxSetup({
     if (forceOpen && !wasForceOpen) {
       setStep(0);
       setBackfillRunId(null);
+      setBackfillReviewDestinations({});
     }
   }, [forceOpen, visible]);
 
@@ -425,7 +475,11 @@ export function AiInboxSetup({
         rule.condition.trim() === trimmed &&
         JSON.stringify(rule.actions) === JSON.stringify(actions),
     );
-    if (existing) return existing;
+    if (existing) {
+      return existing.enabled
+        ? existing
+        : updateRuleMutation.mutateAsync({ id: existing.id, enabled: true });
+    }
     return createRuleMutation.mutateAsync({
       name: trimmed.slice(0, 72),
       condition: trimmed,
@@ -445,13 +499,20 @@ export function AiInboxSetup({
     setSaving(true);
     try {
       const ruleIds: string[] = [];
+      const reviewDestinationsByRuleId: Record<string, ReviewDestination> = {};
+      const includeRule = (rule: AutomationRule | null) => {
+        if (!rule) return;
+        ruleIds.push(rule.id);
+        const destination = reviewDestinationForRule(rule);
+        if (destination) reviewDestinationsByRuleId[rule.id] = destination;
+      };
       for (const [id, nameKey, promptKey] of TAG_SUGGESTIONS) {
         if (!selectedTags.has(id)) continue;
         const labelName = t(nameKey);
         const rule = await saveRule(t(promptKey), [
           { type: "label", labelName },
         ]);
-        if (rule) ruleIds.push(rule.id);
+        includeRule(rule);
       }
 
       if (customTagSelected && customTagName.trim() && customTagPrompt.trim()) {
@@ -459,25 +520,25 @@ export function AiInboxSetup({
         const rule = await saveRule(customTagPrompt, [
           { type: "label", labelName },
         ]);
-        if (rule) ruleIds.push(rule.id);
+        includeRule(rule);
       }
 
       if (importantPrompt.trim()) {
         const rule = await saveRule(importantPrompt, [
           { type: "label", labelName: AI_IMPORTANT_LABEL },
         ]);
-        if (rule) ruleIds.push(rule.id);
+        includeRule(rule);
       }
       if (archiveEnabled && archivePrompt.trim()) {
         const rule = await saveRule(archivePrompt, [{ type: "archive" }]);
-        if (rule) ruleIds.push(rule.id);
+        includeRule(rule);
       }
       if (spamEnabled && spamPrompt.trim()) {
         const rule = await saveRule(spamPrompt, [
           { type: "label", labelName: AI_FILTER_LABEL },
           { type: "archive" },
         ]);
-        if (rule) ruleIds.push(rule.id);
+        includeRule(rule);
       }
       if (customCleanupPrompt.trim()) {
         const actions =
@@ -488,7 +549,7 @@ export function AiInboxSetup({
                 { type: "archive" } as const,
               ];
         const rule = await saveRule(customCleanupPrompt, actions);
-        if (rule) ruleIds.push(rule.id);
+        includeRule(rule);
       }
 
       if (ruleIds.length > 0) {
@@ -497,6 +558,7 @@ export function AiInboxSetup({
           ruleIds: [...new Set(ruleIds)],
         });
         setBackfillRunId(result.runId);
+        setBackfillReviewDestinations(reviewDestinationsByRuleId);
       }
       setStep(3);
       try {
@@ -515,8 +577,8 @@ export function AiInboxSetup({
     }
   };
 
-  const skip = async () => {
-    await complete();
+  const skip = () => {
+    setStep((current) => (current + 1) as SetupStep);
   };
 
   const headline =
@@ -710,6 +772,7 @@ export function AiInboxSetup({
           ) : (
             <SetupResults
               status={backfillStatus.data}
+              reviewDestinationsByRuleId={backfillReviewDestinations}
               loading={
                 startBackfill.isPending ||
                 (backfillRunId !== null &&
@@ -756,7 +819,7 @@ export function AiInboxSetup({
                 <Button
                   variant="ghost"
                   onClick={() => void skip()}
-                  disabled={saving || !jevAvailabilityResolved}
+                  disabled={saving}
                 >
                   {t("mail.sort.aiSetupSkip")}
                 </Button>

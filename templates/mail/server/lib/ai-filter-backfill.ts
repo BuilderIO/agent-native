@@ -3,6 +3,14 @@ import { and, asc, desc, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
+  AI_FILTER_BACKFILL_MAX_RULES,
+  AI_FILTER_BACKFILL_MAX_THREADS,
+  AI_FILTER_BACKFILL_WINDOW_DAYS,
+  type AiFilterBackfillPreview,
+  type AiFilterBackfillRuleProgress,
+  type AiFilterBackfillStatus,
+} from "../../shared/ai-filter-backfill.js";
+import {
   AI_FILTER_LABEL,
   AI_FILTER_MIN_LEARNED_EXAMPLES,
   AI_FILTER_RULE_NAME,
@@ -12,24 +20,18 @@ import {
   type AiFilterState,
   createDefaultAiFilterState,
 } from "../../shared/ai-filter.js";
-import {
-  AI_FILTER_BACKFILL_MAX_THREADS,
-  AI_FILTER_BACKFILL_WINDOW_DAYS,
-  type AiFilterBackfillPreview,
-  type AiFilterBackfillRuleProgress,
-  type AiFilterBackfillStatus,
-} from "../../shared/ai-filter-backfill.js";
 import { AI_IMPORTANT_LABEL } from "../../shared/ai-priority.js";
+import { automationActionSchema } from "../../shared/automation-schema.js";
 import { mailLabelsInclude } from "../../shared/gmail-labels.js";
 import type { AutomationAction, EmailMessage } from "../../shared/types.js";
 import { db, schema } from "../db/index.js";
 import { getAiFilterState, recordAiFilterDecisions } from "./ai-filter.js";
+import { buildLabelCache, ensureGmailLabel } from "./automation-actions.js";
 import {
   evaluateAiFilterBackfillRules,
   type RuleMatch,
 } from "./automation-engine.js";
 import { assertMailJevEnabled, listAutomationRules } from "./automations.js";
-import { buildLabelCache, ensureGmailLabel } from "./automation-actions.js";
 import {
   gmailBatchGetThreads,
   gmailGetThread,
@@ -44,11 +46,11 @@ import {
   withLocalEmailMutationLock,
   writeLocalEmails,
 } from "./local-email-store.js";
-import { automationActionSchema } from "../../shared/automation-schema.js";
 
 const RUN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const UNDO_LIFETIME_MS = 7 * 24 * 60 * 60 * 1_000;
 const CLAIM_LIFETIME_MS = 5 * 60 * 1_000;
+const CLAIM_HEARTBEAT_MS = CLAIM_LIFETIME_MS / 3;
 const THREADS_PER_TICK = 10;
 const MAX_RUNS_PER_TICK = 2;
 const METADATA_HEADERS = ["From", "To", "Subject", "Date"];
@@ -83,7 +85,9 @@ type BackfillAiFilterSettings = Pick<
 type UndoMessageSnapshot = {
   id: string;
   labels: Record<string, boolean>;
+  afterLabels?: Record<string, boolean>;
   archived?: boolean;
+  afterArchived?: boolean;
 };
 
 type UndoThreadSnapshot = {
@@ -119,6 +123,90 @@ type BackfillState = {
 
 type BackfillRow = typeof schema.aiFilterBackfills.$inferSelect;
 type BackfillStatus = AiFilterBackfillStatus["status"];
+const ACTIVE_BACKFILL_STATUSES = ["queued", "running", "undoing"] as const;
+
+export function planConditionalUndo(
+  before: Record<string, boolean>,
+  after: Record<string, boolean> | undefined,
+  current: Record<string, boolean>,
+): { changes: Record<string, boolean>; conflicts: string[] } {
+  const changes: Record<string, boolean> = {};
+  const conflicts: string[] = [];
+  for (const [field, value] of Object.entries(before)) {
+    if (
+      !after ||
+      !Object.prototype.hasOwnProperty.call(after, field) ||
+      !Object.prototype.hasOwnProperty.call(current, field) ||
+      current[field] !== after[field]
+    ) {
+      conflicts.push(field);
+    } else {
+      changes[field] = value;
+    }
+  }
+  return { changes, conflicts };
+}
+
+export function originalSnapshotValue<T>(saved: T | undefined, current: T): T {
+  return saved ?? current;
+}
+
+export function missingSnapshotMessageIds(
+  savedIds: string[],
+  currentIds: ReadonlySet<string>,
+): string[] {
+  return savedIds.filter((id) => !currentIds.has(id));
+}
+
+export function canonicalAiFilterBackfillRuleSetKey(ruleIds: string[]): string {
+  return JSON.stringify([...ruleIds].sort());
+}
+
+async function findActiveBackfill(
+  ownerEmail: string,
+  ruleSetKey: string,
+): Promise<BackfillRow | undefined> {
+  const [matching] = await db
+    .select()
+    .from(schema.aiFilterBackfills)
+    .where(
+      and(
+        eq(schema.aiFilterBackfills.ownerEmail, ownerEmail),
+        eq(schema.aiFilterBackfills.ruleSetKey, ruleSetKey),
+        gt(schema.aiFilterBackfills.expiresAt, Date.now()),
+        inArray(schema.aiFilterBackfills.status, ACTIVE_BACKFILL_STATUSES),
+      ),
+    )
+    .orderBy(desc(schema.aiFilterBackfills.updatedAt))
+    .limit(1);
+  if (matching) return matching;
+
+  const legacyRows = await db
+    .select()
+    .from(schema.aiFilterBackfills)
+    .where(
+      and(
+        eq(schema.aiFilterBackfills.ownerEmail, ownerEmail),
+        isNull(schema.aiFilterBackfills.ruleSetKey),
+        gt(schema.aiFilterBackfills.expiresAt, Date.now()),
+        inArray(schema.aiFilterBackfills.status, ACTIVE_BACKFILL_STATUSES),
+      ),
+    );
+  return legacyRows.find((row: BackfillRow) =>
+    row.stateJson
+      ? canonicalAiFilterBackfillRuleSetKey(
+          parseState(row.stateJson).rules.map((rule) => rule.id),
+        ) === ruleSetKey
+      : false,
+  );
+}
+
+function rejectActiveBackfill(): never {
+  fail("A Mail AI-filter backfill for these rules is already active.", {
+    errorCode: "ai_filter_backfill_active",
+    statusCode: 409,
+  });
+}
 
 function emptyState(
   rules: AiFilterPreviewRule[],
@@ -246,6 +334,15 @@ export async function startMailAiFilterBackfill(
     (rule) =>
       rule.domain === "mail" && rule.kind === "ai-filter" && rule.enabled,
   );
+  if (ruleIds === undefined && rules.length > AI_FILTER_BACKFILL_MAX_RULES) {
+    fail(
+      `Mail AI backfills can apply at most ${AI_FILTER_BACKFILL_MAX_RULES} enabled rules at once.`,
+      {
+        errorCode: "too_many_ai_filter_rules",
+        statusCode: 400,
+      },
+    );
+  }
   const requestedIds = ruleIds ?? rules.map((rule) => rule.id);
   const requestedSet = new Set(requestedIds);
   const selected = rules.filter((rule) => requestedSet.has(rule.id));
@@ -297,6 +394,12 @@ export async function startMailAiFilterBackfill(
     return { rule, actions: parsed.data };
   });
 
+  const ruleSetKey = canonicalAiFilterBackfillRuleSetKey(
+    validatedRules.map(({ rule }) => rule.id),
+  );
+  const active = await findActiveBackfill(ownerEmail, ruleSetKey);
+  if (active) rejectActiveBackfill();
+
   const id = nanoid(16);
   const undoToken = nanoid(32);
   const now = Date.now();
@@ -317,19 +420,32 @@ export async function startMailAiFilterBackfill(
       feedback: aiFilterState.feedback.slice(-20),
     },
   );
-  await db.insert(schema.aiFilterBackfills).values({
-    id,
-    ownerEmail,
-    status: "queued",
-    stateJson: JSON.stringify(state),
-    undoToken,
-    undoExpiresAt: now + UNDO_LIFETIME_MS,
-    expiresAt: now + RUN_LIFETIME_MS,
-    claimId: null,
-    claimedAt: null,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const [inserted] = await db
+    .insert(schema.aiFilterBackfills)
+    .values({
+      id,
+      ownerEmail,
+      ruleSetKey,
+      status: "queued",
+      stateJson: JSON.stringify(state),
+      undoToken,
+      undoExpiresAt: now + UNDO_LIFETIME_MS,
+      expiresAt: now + RUN_LIFETIME_MS,
+      claimId: null,
+      claimedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing()
+    .returning({ id: schema.aiFilterBackfills.id });
+  if (!inserted) {
+    const raced = await findActiveBackfill(ownerEmail, ruleSetKey);
+    if (raced) rejectActiveBackfill();
+    fail("Could not start the Mail AI backfill. Try again.", {
+      errorCode: "ai_filter_backfill_start_conflict",
+      statusCode: 409,
+    });
+  }
   return { runId: id, status: "queued" };
 }
 
@@ -695,6 +811,47 @@ function normalizeLocalLabel(label: string): string {
   return label.trim().toLowerCase().replace(/_/g, " ");
 }
 
+type CurrentBackfillRule = {
+  id: string;
+  enabled: boolean;
+  domain: string;
+  kind?: string;
+  updatedAt: string;
+};
+
+export function isCurrentAiFilterBackfillRule(
+  ruleId: string,
+  updatedAt: string | undefined,
+  rules: CurrentBackfillRule[],
+): boolean {
+  const current = rules.find((rule) => rule.id === ruleId);
+  return !!(
+    current &&
+    current.enabled &&
+    current.domain === "mail" &&
+    current.kind === "ai-filter" &&
+    current.updatedAt === updatedAt
+  );
+}
+
+async function assertCurrentAiFilterBackfillRule(
+  ownerEmail: string,
+  ruleId: string,
+  updatedAt: string | undefined,
+): Promise<void> {
+  if (
+    !isCurrentAiFilterBackfillRule(
+      ruleId,
+      updatedAt,
+      await listAutomationRules(ownerEmail),
+    )
+  ) {
+    throw new Error(
+      "An AI-filter rule changed during this backfill. Start a new run to apply the current rule.",
+    );
+  }
+}
+
 async function localLabelId(ownerEmail: string, name: string): Promise<string> {
   const stored = await (
     await import("@agent-native/core/settings")
@@ -772,7 +929,7 @@ function localSnapshotForActions(
         labels[labelId] = (email.labelIds ?? []).includes(labelId);
     }
     const archived = touchesArchive
-      ? (current.archived ?? email.isArchived)
+      ? originalSnapshotValue(current.archived, email.isArchived)
       : current.archived;
     byId.set(email.id, {
       ...current,
@@ -785,6 +942,34 @@ function localSnapshotForActions(
     threadId: candidate.threadId,
     local: true,
     messages: [...byId.values()],
+  };
+}
+
+function captureLocalPostApplyState(
+  snapshot: UndoThreadSnapshot,
+  emails: EmailMessage[],
+): UndoThreadSnapshot {
+  const emailsById = new Map(emails.map((email) => [email.id, email]));
+  return {
+    ...snapshot,
+    messages: snapshot.messages.map((saved) => {
+      const email = emailsById.get(saved.id);
+      if (!email)
+        throw new Error("The local conversation changed during the backfill.");
+      const afterLabels = { ...saved.afterLabels };
+      for (const label of Object.keys(saved.labels)) {
+        if (!Object.prototype.hasOwnProperty.call(afterLabels, label)) {
+          afterLabels[label] = (email.labelIds ?? []).includes(label);
+        }
+      }
+      return {
+        ...saved,
+        afterLabels,
+        ...(saved.archived !== undefined && saved.afterArchived === undefined
+          ? { afterArchived: email.isArchived }
+          : {}),
+      };
+    }),
   };
 }
 
@@ -808,8 +993,19 @@ async function applyLocalActions(
     );
     if (thread.length === 0)
       throw new Error("The local conversation no longer exists.");
-    const touchedLabelIds = [...labelIdByName.values()];
     const touchesArchive = actions.some((action) => action.type === "archive");
+    const touchedLabelIds = [
+      ...labelIdByName.values(),
+      ...(touchesArchive
+        ? [
+            ...new Set(
+              thread
+                .flatMap((email) => email.labelIds ?? [])
+                .filter((label) => normalizeLocalLabel(label) === "inbox"),
+            ),
+          ]
+        : []),
+    ];
     snapshot = localSnapshotForActions(
       candidate,
       emails,
@@ -841,6 +1037,7 @@ async function applyLocalActions(
       };
     });
     await writeLocalEmails(ownerEmail, updated);
+    snapshot = captureLocalPostApplyState(snapshot, updated);
     preview = localPreview(candidate, updated);
   });
   return { snapshot: snapshot!, preview: preview! };
@@ -917,7 +1114,14 @@ async function snapshotGmailThread(
       ...prior,
       id,
       labels,
-      ...(touchesArchive ? { archived: !current.has("INBOX") } : {}),
+      ...(touchesArchive
+        ? {
+            archived: originalSnapshotValue(
+              prior.archived,
+              !current.has("INBOX"),
+            ),
+          }
+        : {}),
     };
   });
   return {
@@ -929,6 +1133,33 @@ async function snapshotGmailThread(
       messages: snapshots,
     },
     thread,
+  };
+}
+
+function captureGmailPostApplyState(
+  snapshot: UndoThreadSnapshot,
+  thread: any,
+): UndoThreadSnapshot {
+  const messagesById = new Map<string, any>(
+    (Array.isArray(thread.messages) ? thread.messages : []).map(
+      (message: any) => [String(message.id ?? ""), message],
+    ),
+  );
+  return {
+    ...snapshot,
+    messages: snapshot.messages.map((saved) => {
+      const message = messagesById.get(saved.id);
+      if (!message)
+        throw new Error("A Gmail message changed during the backfill.");
+      const labels = new Set<string>(message.labelIds ?? []);
+      const afterLabels = { ...saved.afterLabels };
+      for (const label of Object.keys(saved.labels)) {
+        if (!Object.prototype.hasOwnProperty.call(afterLabels, label)) {
+          afterLabels[label] = labels.has(label);
+        }
+      }
+      return { ...saved, afterLabels };
+    }),
   };
 }
 
@@ -985,7 +1216,7 @@ async function applyGmailActions(
     METADATA_HEADERS,
   );
   return {
-    snapshot: before.snapshot,
+    snapshot: captureGmailPostApplyState(before.snapshot, after),
     preview: gmailThreadPreview(candidate, after, labelCache),
   };
 }
@@ -1022,6 +1253,25 @@ async function saveRunState(
   return !!updated;
 }
 
+export async function checkpointAppliedBackfillMutation(
+  id: string,
+  claimId: string,
+  state: object,
+): Promise<boolean> {
+  const [updated] = await db
+    .update(schema.aiFilterBackfills)
+    .set({ stateJson: JSON.stringify(state), updatedAt: Date.now() })
+    .where(
+      and(
+        eq(schema.aiFilterBackfills.id, id),
+        eq(schema.aiFilterBackfills.claimId, claimId),
+        inArray(schema.aiFilterBackfills.status, ["running", "undoing"]),
+      ),
+    )
+    .returning({ status: schema.aiFilterBackfills.status });
+  return updated?.status === "running";
+}
+
 function matchedForCandidate(
   candidate: BackfillCandidate,
   state: BackfillState,
@@ -1047,6 +1297,21 @@ function shouldApply(
   return match.confidence >= aiFilterState.suggestionThreshold
     ? "apply"
     : "ignore";
+}
+
+async function readCurrentDisposition(
+  ownerEmail: string,
+  match: StoredMatch,
+  rule: AiFilterPreviewRule,
+): Promise<"apply" | "suggest" | "ignore"> {
+  const settings = {
+    ...createDefaultAiFilterState(),
+    ...(await getAiFilterState(ownerEmail)),
+  };
+  if (!settings.enabled) {
+    throw new Error("Mail AI filtering was disabled during this run.");
+  }
+  return shouldApply(match, rule, settings);
 }
 
 export function pendingUndoSnapshots<T extends { key: string }>(
@@ -1110,20 +1375,9 @@ async function processRunningBatch(
   await assertMailJevEnabled(ownerEmail);
   if (!(await getAiFilterState(ownerEmail)).enabled)
     throw new Error("Mail AI filtering was disabled during this run.");
-  const aiFilterState = {
-    ...createDefaultAiFilterState(),
-    ...state.aiFilterSettings,
-  };
   const currentRules = await listAutomationRules(ownerEmail);
   for (const [ruleId, updatedAt] of Object.entries(state.ruleUpdatedAt)) {
-    const current = currentRules.find((rule) => rule.id === ruleId);
-    if (
-      !current ||
-      !current.enabled ||
-      current.domain !== "mail" ||
-      current.kind !== "ai-filter" ||
-      current.updatedAt !== updatedAt
-    ) {
+    if (!isCurrentAiFilterBackfillRule(ruleId, updatedAt, currentRules)) {
       throw new Error(
         "An AI-filter rule changed during this backfill. Start a new run to apply the current rule.",
       );
@@ -1180,7 +1434,7 @@ async function processRunningBatch(
         throw new Error("The captured AI-filter rules are incomplete.");
       const key = resultKey(candidate, rule.id);
       if (state.processedIds.includes(key)) continue;
-      const disposition = shouldApply(match, rule, aiFilterState);
+      const disposition = await readCurrentDisposition(ownerEmail, match, rule);
       if (!state.seenMatchIds.includes(key)) {
         state.seenMatchIds.push(key);
         progress.matchedCount += 1;
@@ -1200,8 +1454,33 @@ async function processRunningBatch(
         preview: AiFilterBackfillPreview;
       };
       const persistSnapshot = async (snapshot: UndoThreadSnapshot) => {
+        const latestDisposition = await readCurrentDisposition(
+          ownerEmail,
+          match,
+          rule,
+        );
+        if (latestDisposition !== disposition) {
+          throw new Error(
+            "Mail AI-filter settings changed during this backfill. Start a new run to apply the current settings.",
+          );
+        }
+        await assertCurrentAiFilterBackfillRule(
+          ownerEmail,
+          rule.id,
+          state.ruleUpdatedAt[rule.id],
+        );
+        const hadSnapshot = Object.prototype.hasOwnProperty.call(
+          state.snapshots,
+          candidate.key,
+        );
+        const previousSnapshot = state.snapshots[candidate.key];
         state.snapshots[candidate.key] = snapshot;
-        return saveRunState(row.id, claimId, state, "running");
+        const saved = await saveRunState(row.id, claimId, state, "running");
+        if (!saved) {
+          if (hadSnapshot) state.snapshots[candidate.key] = previousSnapshot!;
+          else delete state.snapshots[candidate.key];
+        }
+        return saved;
       };
       try {
         const client = candidate.accountEmail
@@ -1268,7 +1547,9 @@ async function processRunningBatch(
           createdAt: Date.now(),
         });
       }
-      if (!(await saveRunState(row.id, claimId, state, "running"))) return;
+      if (!(await checkpointAppliedBackfillMutation(row.id, claimId, state))) {
+        return;
+      }
     }
     if (!candidateFailed) {
       state.processedThreads += 1;
@@ -1289,6 +1570,7 @@ async function restoreLocalSnapshot(
   ownerEmail: string,
   snapshot: UndoThreadSnapshot,
 ): Promise<void> {
+  const conflicts: string[] = [];
   await withLocalEmailMutationLock(ownerEmail, async () => {
     const emails = await readLocalEmails(ownerEmail);
     const snapshots = new Map(
@@ -1297,27 +1579,75 @@ async function restoreLocalSnapshot(
     const messagesInThread = emails.filter(
       (email) => (email.threadId || email.id) === snapshot.threadId,
     );
-    if (messagesInThread.length !== snapshot.messages.length) {
+    const currentMessageIds = new Set(
+      messagesInThread.map((email) => email.id),
+    );
+    if (
+      missingSnapshotMessageIds(
+        snapshot.messages.map((message) => message.id),
+        currentMessageIds,
+      ).length > 0
+    ) {
       throw new Error(
-        "The local conversation changed; exact undo could not be verified.",
+        "The local conversation changed after the backfill; no fields were undone.",
       );
     }
+    let changed = false;
     const updated = emails.map((email) => {
       const saved = snapshots.get(email.id);
       if (!saved) return email;
       const labels = new Set(email.labelIds ?? []);
-      for (const [label, hadLabel] of Object.entries(saved.labels)) {
+      const currentLabels = Object.fromEntries(
+        Object.keys(saved.labels).map((label) => [label, labels.has(label)]),
+      );
+      const labelUndo = planConditionalUndo(
+        saved.labels,
+        saved.afterLabels,
+        currentLabels,
+      );
+      const afterLabels = { ...saved.afterLabels };
+      for (const [label, hadLabel] of Object.entries(labelUndo.changes)) {
         if (hadLabel) labels.add(label);
         else labels.delete(label);
+        afterLabels[label] = hadLabel;
+        changed ||= labels.has(label) !== currentLabels[label];
       }
+      conflicts.push(...labelUndo.conflicts);
+
+      let isArchived = email.isArchived;
+      let afterArchived = saved.afterArchived;
+      if (saved.archived !== undefined) {
+        const archiveUndo = planConditionalUndo(
+          { archived: saved.archived },
+          saved.afterArchived === undefined
+            ? undefined
+            : { archived: saved.afterArchived },
+          { archived: email.isArchived },
+        );
+        if (
+          Object.prototype.hasOwnProperty.call(archiveUndo.changes, "archived")
+        ) {
+          isArchived = archiveUndo.changes.archived;
+          afterArchived = isArchived;
+          changed ||= isArchived !== email.isArchived;
+        }
+        conflicts.push(...archiveUndo.conflicts);
+      }
+      saved.afterLabels = afterLabels;
+      if (afterArchived !== undefined) saved.afterArchived = afterArchived;
       return {
         ...email,
-        ...(saved.archived !== undefined ? { isArchived: saved.archived } : {}),
+        isArchived,
         labelIds: [...labels],
       };
     });
-    await writeLocalEmails(ownerEmail, updated);
+    if (changed) await writeLocalEmails(ownerEmail, updated);
   });
+  if (conflicts.length > 0) {
+    throw new Error(
+      `Mailbox fields changed after the backfill and were left unchanged (${conflicts.length} conflicts).`,
+    );
+  }
 }
 
 async function restoreGmailSnapshot(
@@ -1348,22 +1678,39 @@ async function restoreGmailSnapshot(
   );
   if (snapshot.messages.some((saved) => !currentById.has(saved.id))) {
     throw new Error(
-      "A Gmail message changed or disappeared; exact undo could not be verified.",
+      "A Gmail message changed after the backfill; no fields were undone.",
     );
   }
   const beforeLabels = new Set(gmailLabelIds(messages));
+  const conflicts: string[] = [];
   for (const saved of snapshot.messages) {
     const message = currentById.get(saved.id) as any;
     const currentLabels = new Set<string>(message.labelIds ?? []);
-    const add = Object.entries(saved.labels)
-      .filter(([label, hadLabel]) => hadLabel && !currentLabels.has(label))
+    const current = Object.fromEntries(
+      Object.keys(saved.labels).map((label) => [
+        label,
+        currentLabels.has(label),
+      ]),
+    );
+    const labelUndo = planConditionalUndo(
+      saved.labels,
+      saved.afterLabels,
+      current,
+    );
+    const add = Object.entries(labelUndo.changes)
+      .filter(([label, shouldHave]) => shouldHave && !currentLabels.has(label))
       .map(([label]) => label);
-    const remove = Object.entries(saved.labels)
-      .filter(([label, hadLabel]) => !hadLabel && currentLabels.has(label))
+    const remove = Object.entries(labelUndo.changes)
+      .filter(([label, shouldHave]) => !shouldHave && currentLabels.has(label))
       .map(([label]) => label);
     if (add.length || remove.length) {
       await gmailModifyMessage(client.accessToken, saved.id, add, remove);
     }
+    saved.afterLabels = {
+      ...saved.afterLabels,
+      ...labelUndo.changes,
+    };
+    conflicts.push(...labelUndo.conflicts);
   }
   const after = await gmailGetThread(
     client.accessToken,
@@ -1376,6 +1723,11 @@ async function restoreGmailSnapshot(
     add: [...afterLabels].filter((label) => !beforeLabels.has(label)),
     remove: [...beforeLabels].filter((label) => !afterLabels.has(label)),
   });
+  if (conflicts.length > 0) {
+    throw new Error(
+      `Mailbox fields changed after the backfill and were left unchanged (${conflicts.length} conflicts).`,
+    );
+  }
 }
 
 async function processUndoBatch(
@@ -1400,7 +1752,10 @@ async function processUndoBatch(
     } catch (error) {
       if (!state.undoFailedKeys.includes(snapshot.key))
         state.undoFailedKeys.push(snapshot.key);
-      state.error = safeError(error);
+      const message = safeError(error);
+      state.error = state.error
+        ? `${state.error}; ${message}`.slice(0, 500)
+        : message;
     }
   }
   state.restoredThreads = state.undoProcessedIds.length;
@@ -1445,6 +1800,25 @@ async function claimRun(row: BackfillRow): Promise<string | null> {
   return claimed ? claimId : null;
 }
 
+function startClaimHeartbeat(id: string, claimId: string): () => void {
+  const heartbeat = setInterval(() => {
+    void db
+      .update(schema.aiFilterBackfills)
+      .set({ claimedAt: Date.now() })
+      .where(
+        and(
+          eq(schema.aiFilterBackfills.id, id),
+          eq(schema.aiFilterBackfills.claimId, claimId),
+          inArray(schema.aiFilterBackfills.status, ["running", "undoing"]),
+        ),
+      )
+      .then(undefined, (error: unknown) => {
+        console.error("[mail-ai-backfill] failed to renew run claim", error);
+      });
+  }, CLAIM_HEARTBEAT_MS);
+  return () => clearInterval(heartbeat);
+}
+
 export async function processMailAiFilterBackfills(
   ownerEmail?: string,
 ): Promise<void> {
@@ -1471,6 +1845,7 @@ export async function processMailAiFilterBackfills(
     const claimId = await claimRun(row);
     if (!claimId) continue;
     processed += 1;
+    const stopClaimHeartbeat = startClaimHeartbeat(row.id, claimId);
     let state: BackfillState | undefined;
     try {
       state = parseState(row.stateJson);
@@ -1539,6 +1914,7 @@ export async function processMailAiFilterBackfills(
         );
       }
     } finally {
+      stopClaimHeartbeat();
       await db
         .update(schema.aiFilterBackfills)
         .set({ claimId: null, claimedAt: null, updatedAt: Date.now() })

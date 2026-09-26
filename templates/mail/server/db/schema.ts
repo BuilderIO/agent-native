@@ -2,8 +2,10 @@ import {
   bigint,
   index,
   integer,
+  sql,
   table,
   text,
+  uniqueIndex,
 } from "@agent-native/core/db/schema";
 
 /**
@@ -87,6 +89,7 @@ export const aiFilterBackfills = table(
   {
     id: text("id").primaryKey(),
     ownerEmail: text("owner_email").notNull(),
+    ruleSetKey: text("rule_set_key"),
     status: text("status", {
       enum: ["queued", "running", "completed", "failed", "undoing", "undone"],
     }).notNull(),
@@ -109,6 +112,11 @@ export const aiFilterBackfills = table(
       t.updatedAt,
     ),
     index("mail_ai_filter_backfills_expires_idx").on(t.expiresAt),
+    uniqueIndex("mail_ai_filter_backfills_owner_rule_set_active_idx")
+      .on(t.ownerEmail, t.ruleSetKey)
+      .where(
+        sql`${t.ruleSetKey} IS NOT NULL AND ${t.status} IN ('queued', 'running', 'undoing')`,
+      ),
   ],
 );
 

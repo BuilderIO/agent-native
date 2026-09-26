@@ -11,6 +11,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createRule: vi.fn(),
+  updateRule: vi.fn(),
+  automations: [] as Array<{
+    id: string;
+    domain: "mail";
+    kind: "ai-filter";
+    condition: string;
+    actions: ({ type: "label"; labelName: string } | { type: "archive" })[];
+    enabled: boolean;
+  }>,
   startBackfill: vi.fn(),
   updateSettings: vi.fn(),
   sendToAgentChat: vi.fn(),
@@ -95,8 +104,9 @@ vi.mock("@/components/ui/dialog", () => ({
 }));
 
 vi.mock("@/hooks/use-automations", () => ({
-  useAutomations: () => ({ data: [], isLoading: false }),
+  useAutomations: () => ({ data: mocks.automations, isLoading: false }),
   useCreateAutomation: () => ({ mutateAsync: mocks.createRule }),
+  useUpdateAutomation: () => ({ mutateAsync: mocks.updateRule }),
 }));
 
 vi.mock("@/hooks/use-ai-filter", () => ({
@@ -122,11 +132,15 @@ vi.mock("@/hooks/use-google-auth", () => ({
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
 
+import { labelTabHref } from "@/lib/inbox-tabs";
+
 import { AiInboxSetup } from "./AiInboxSetup";
 
 describe("AiInboxSetup", () => {
   beforeEach(() => {
     let id = 0;
+    mocks.automations = [];
+    mocks.updateRule.mockReset();
     mocks.createRule.mockImplementation(async (input) => ({
       id: `rule-${++id}`,
       ...input,
@@ -171,14 +185,95 @@ describe("AiInboxSetup", () => {
     );
   });
 
+  it("advances through setup before completing from the final step", async () => {
+    const onOpenChange = vi.fn();
+    mocks.jevAvailability.data = undefined;
+    mocks.jevAvailability.isError = true;
+
+    render(<AiInboxSetup forceOpen onOpenChange={onOpenChange} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+    expect(screen.getByRole("progressbar", { name: "2/4" })).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+    expect(screen.getByRole("progressbar", { name: "3/4" })).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+    expect(screen.getByRole("progressbar", { name: "4/4" })).not.toBeNull();
+    expect(
+      screen.getByRole("heading", {
+        name: "mail.sort.aiSetupSortingHeadline",
+      }),
+    ).not.toBeNull();
+    expect(mocks.updateSettings).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.updateSettings).toHaveBeenCalledWith({
+        aiSetupCompleted: true,
+      }),
+    );
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("enables a matching disabled rule before including it in the backfill", async () => {
+    const disabledRule = {
+      id: "disabled-receipts",
+      domain: "mail" as const,
+      kind: "ai-filter" as const,
+      condition: "mail.sort.aiSetupPromptReceipts",
+      actions: [
+        {
+          type: "label" as const,
+          labelName: "mail.sort.aiSetupTagReceipts",
+        },
+      ],
+      enabled: false,
+    };
+    mocks.automations = [disabledRule];
+    mocks.updateRule.mockResolvedValue({ ...disabledRule, enabled: true });
+
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.updateRule).toHaveBeenCalledWith({
+        id: "disabled-receipts",
+        enabled: true,
+      });
+      expect(mocks.startBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["disabled-receipts", "rule-1", "rule-2", "rule-3"],
+      });
+    });
+  });
+
   it("applies the chosen rules to recent mail and shows real results with Review and Undo", async () => {
     mocks.backfillStatus.data = {
       runId: "run-1",
       status: "completed",
       totalThreads: 12,
       processedThreads: 12,
-      matchedThreads: 3,
-      appliedThreads: 3,
+      matchedThreads: 4,
+      appliedThreads: 4,
       failedThreads: 0,
       perRule: [
         {
@@ -198,14 +293,46 @@ describe("AiInboxSetup", () => {
           ],
         },
         {
-          ruleId: "rule-2",
-          name: "Skip bot notifications",
+          ruleId: "rule-3",
+          name: "Important",
           matchedCount: 1,
           appliedCount: 1,
           suggestedCount: 0,
           previews: [
             {
               id: "thread-2",
+              from: "Manager <manager@example.test>",
+              subject: "Needs a reply",
+              labels: [AI_IMPORTANT_LABEL],
+              archived: false,
+            },
+          ],
+        },
+        {
+          ruleId: "rule-4",
+          name: "Archive newsletters",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [
+            {
+              id: "thread-3",
+              from: "News <newsletter@example.test>",
+              subject: "Weekly news",
+              labels: [],
+              archived: true,
+            },
+          ],
+        },
+        {
+          ruleId: "rule-5",
+          name: "Skip bot notifications",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [
+            {
+              id: "thread-4",
               from: "GitHub <notifications@github.example.test>",
               subject: "Build complete",
               labels: [AI_FILTER_LABEL],
@@ -252,9 +379,24 @@ describe("AiInboxSetup", () => {
     expect(screen.getAllByText("Receipts").length).toBeGreaterThan(1);
     expect(
       screen
-        .getByRole("link", { name: "mail.aiFilter.reviewLabel" })
+        .getByRole("link", { name: "mail.sort.aiSetupTagReceipts" })
         .getAttribute("href"),
-    ).toBe(`/all?label=${encodeURIComponent(AI_FILTER_LABEL)}`);
+    ).toBe(labelTabHref("mail.sort.aiSetupTagReceipts"));
+    expect(
+      screen
+        .getByRole("link", { name: "mail.aiFilter.importantMode" })
+        .getAttribute("href"),
+    ).toBe(labelTabHref(AI_IMPORTANT_LABEL));
+    expect(
+      screen
+        .getByRole("link", { name: "mail.aiFilter.autoArchiveMode" })
+        .getAttribute("href"),
+    ).toBe("/archive");
+    expect(
+      screen
+        .getByRole("link", { name: "mail.aiFilter.filteredMode" })
+        .getAttribute("href"),
+    ).toBe(labelTabHref(AI_FILTER_LABEL));
     expect(
       screen.getByRole("button", { name: "mail.actions.undo" }),
     ).not.toBeNull();

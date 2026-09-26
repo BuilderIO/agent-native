@@ -1,11 +1,86 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canonicalAiFilterBackfillRuleSetKey,
   hasLocalInboxMessage,
+  isCurrentAiFilterBackfillRule,
   latestGmailInboxMessage,
   latestLocalInboxMessage,
+  missingSnapshotMessageIds,
+  originalSnapshotValue,
+  planConditionalUndo,
   pendingUndoSnapshots,
 } from "./ai-filter-backfill.js";
+
+describe("backfill undo state", () => {
+  it("only restores fields that still equal the post-apply value", () => {
+    expect(
+      planConditionalUndo(
+        { important: false, inbox: true },
+        { important: true, inbox: false },
+        { important: true, inbox: true },
+      ),
+    ).toEqual({
+      changes: { important: false },
+      conflicts: ["inbox"],
+    });
+  });
+
+  it("treats legacy snapshots without post-apply values as conflicts", () => {
+    expect(
+      planConditionalUndo({ label: false }, undefined, { label: true }),
+    ).toEqual({ changes: {}, conflicts: ["label"] });
+  });
+
+  it("canonicalizes a rule set independent of request order", () => {
+    expect(canonicalAiFilterBackfillRuleSetKey(["rule-b", "rule-a"])).toBe(
+      '["rule-a","rule-b"]',
+    );
+  });
+
+  it("keeps the first archive state when later rules also archive", () => {
+    expect(originalSnapshotValue(false, true)).toBe(false);
+  });
+
+  it("allows newer local replies while requiring every saved message", () => {
+    expect(
+      missingSnapshotMessageIds(
+        ["saved-incoming"],
+        new Set(["saved-incoming", "new-reply"]),
+      ),
+    ).toEqual([]);
+    expect(
+      missingSnapshotMessageIds(["saved-incoming"], new Set(["new-reply"])),
+    ).toEqual(["saved-incoming"]);
+  });
+
+  it("requires each matched rule to remain enabled at its captured version", () => {
+    const currentRules = [
+      {
+        id: "rule-a",
+        enabled: true,
+        domain: "mail",
+        kind: "ai-filter",
+        updatedAt: "v1",
+      },
+    ];
+
+    expect(isCurrentAiFilterBackfillRule("rule-a", "v1", currentRules)).toBe(
+      true,
+    );
+    expect(isCurrentAiFilterBackfillRule("rule-a", "v2", currentRules)).toBe(
+      false,
+    );
+    expect(isCurrentAiFilterBackfillRule("missing", "v1", currentRules)).toBe(
+      false,
+    );
+    expect(
+      isCurrentAiFilterBackfillRule("rule-a", "v1", [
+        { ...currentRules[0], enabled: false },
+      ]),
+    ).toBe(false);
+  });
+});
 
 describe("pendingUndoSnapshots", () => {
   it("does not mistake matched inbox threads for restored snapshots", () => {

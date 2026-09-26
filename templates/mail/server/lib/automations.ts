@@ -12,7 +12,6 @@ import {
   aiFilterRuleMode,
   normalizedAiFilterLabelId,
 } from "../../shared/ai-filter-rules.js";
-import { normalizeMailSettings } from "./mail-settings.js";
 import type {
   AutomationAction,
   AutomationRule,
@@ -22,6 +21,7 @@ import { db, schema } from "../db/index.js";
 import { buildLabelCache, ensureGmailLabel } from "./automation-actions.js";
 import { getClientsWithErrors } from "./google-auth.js";
 import { readCachedLabels } from "./inbox-store.js";
+import { normalizeMailSettings } from "./mail-settings.js";
 
 function aiTagLabel(
   domain: string,
@@ -156,16 +156,16 @@ async function ensureAiTagLabelExists(
 }
 
 function assertAiFilterActions(actions: AutomationAction[]): void {
-  if (
-    actions.some(
-      (action) => action.type !== "label" && action.type !== "archive",
-    )
-  ) {
-    fail("AI filter rules can only add a label or archive a conversation.", {
-      errorCode: "invalid_ai_filter_actions",
-      statusCode: 400,
-    });
+  if (!aiFilterRuleMode({ actions })) {
+    failInvalidAiFilterActions();
   }
+}
+
+function failInvalidAiFilterActions(): never {
+  fail("AI filter rules can only add a label or archive a conversation.", {
+    errorCode: "invalid_ai_filter_actions",
+    statusCode: 400,
+  });
 }
 
 export async function assertMailJevEnabled(ownerEmail: string): Promise<void> {
@@ -289,13 +289,14 @@ export async function updateAutomationRule(
   }
   const nextActions =
     patch.actions ?? (JSON.parse(existing.actions) as AutomationAction[]);
-  if (nextIsMailAiFilter && patch.actions !== undefined) {
+  if (nextIsMailAiFilter && !disableOnly) {
     assertAiFilterActions(nextActions);
   }
+  const existingActions = JSON.parse(existing.actions) as AutomationAction[];
   const oldTagLabel = aiTagLabel(
     existing.domain,
     existing.kind,
-    JSON.parse(existing.actions) as AutomationAction[],
+    existingActions,
   );
   const nextTagLabel = aiTagLabel(nextDomain, nextKind, nextActions);
   if (nextTagLabel && nextTagLabel !== oldTagLabel) {
@@ -374,6 +375,7 @@ export async function consolidateAutomationRules(
   },
 ): Promise<boolean> {
   await assertMailJevEnabled(ownerEmail);
+  assertAiFilterActions(input.actions);
   const ids = [input.id, ...input.duplicateIds];
   if (new Set(ids).size !== ids.length) return false;
 

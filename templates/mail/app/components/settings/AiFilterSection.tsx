@@ -1,13 +1,19 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   actionErrorMessage,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, AI_FILTER_RULE_NAME } from "@shared/ai-filter";
-import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
-import type { AutomationAction, AutomationRule } from "@shared/types";
+import {
+  aiFilterRuleActionsForMode,
+  aiFilterRuleLabelName,
+  aiFilterRuleMode,
+  normalizedAiFilterLabelId,
+  type AiFilterRuleMode,
+} from "@shared/ai-filter-rules";
+import type { AutomationRule } from "@shared/types";
 import {
   IconDotsVertical,
   IconGripVertical,
@@ -49,40 +55,17 @@ import {
 } from "@/hooks/use-automations";
 import { useLabels, useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import {
-  aiFilterRuleLabelName,
-  aiFilterRuleMode,
-  normalizedAiFilterLabelId,
-  type AiFilterRuleMode,
-} from "@shared/ai-filter-rules";
+import { labelTabHref } from "@/lib/inbox-tabs";
 
 type RuleMode = AiFilterRuleMode;
 
 const RULE_MODES: RuleMode[] = ["important", "tag", "filtered", "archive"];
 const EMPTY_RULES: AutomationRule[] = [];
 
-function actionsForMode(mode: RuleMode, tagName: string): AutomationAction[] {
-  if (mode === "important") {
-    return [{ type: "label", labelName: AI_IMPORTANT_LABEL }];
-  }
-  if (mode === "tag") return [{ type: "label", labelName: tagName }];
-  if (mode === "filtered") {
-    return [{ type: "label", labelName: AI_FILTER_LABEL }, { type: "archive" }];
-  }
-  return [{ type: "archive" }];
-}
-
 function reviewHrefForRule(rule: AutomationRule): string | null {
   const mode = aiFilterRuleMode(rule);
-  if (mode === "filtered") {
-    return `/inbox?label=${encodeURIComponent(AI_FILTER_LABEL)}`;
-  }
-  if (mode === "important") {
-    return `/inbox?label=${encodeURIComponent(AI_IMPORTANT_LABEL)}`;
-  }
-  if (mode === "tag") {
-    return `/inbox?label=${encodeURIComponent(aiFilterRuleLabelName(rule))}`;
-  }
+  const labelName = aiFilterRuleLabelName(rule);
+  if (labelName) return labelTabHref(labelName);
   return mode === "archive" ? "/archive" : null;
 }
 
@@ -149,9 +132,16 @@ function RuleRow({
             {mode === "tag" ? aiFilterRuleLabelName(rule) : rule.condition}
           </p>
           {mode === "tag" && (
-            <p className="truncate text-xs text-muted-foreground">
-              {rule.condition}
-            </p>
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-xs text-muted-foreground">
+                {rule.condition}
+              </p>
+              {rule.actions.some((action) => action.type === "archive") && (
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {t("mail.aiFilter.autoArchiveMode")}
+                </span>
+              )}
+            </div>
           )}
         </div>
         <Switch
@@ -312,12 +302,25 @@ function RuleBackfillStatus({
 
   if (failed || status?.status === "failed") {
     return (
-      <p
+      <div
         role="alert"
-        className="border-t border-border/40 px-3 py-2.5 text-xs text-destructive"
+        className="flex items-center justify-between gap-2 border-t border-border/40 px-3 py-2.5"
       >
-        {t("mail.aiFilter.ruleBackfillFailed")}
-      </p>
+        <p className="text-xs text-destructive">
+          {t("mail.aiFilter.ruleBackfillFailed")}
+        </p>
+        {status?.undoToken && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => onUndo(status.runId, status.undoToken!)}
+            disabled={undoing}
+          >
+            {t("mail.actions.undo")}
+          </Button>
+        )}
+      </div>
     );
   }
   if (!status) return null;
@@ -665,7 +668,7 @@ export function AiFilterSection() {
       const created = await createRule.mutateAsync({
         name: ruleName(newRuleMode, condition),
         condition,
-        actions: actionsForMode(newRuleMode, tagName),
+        actions: aiFilterRuleActionsForMode(newRuleMode, tagName),
         kind: "ai-filter",
         domain: "mail",
       });
@@ -707,7 +710,7 @@ export function AiFilterSection() {
         id: rule.id,
         name: ruleName(mode, condition),
         condition,
-        actions: actionsForMode(mode, tagName),
+        actions: aiFilterRuleActionsForMode(mode, tagName, rule.actions),
       });
       setEditingRuleId(null);
       void queueRuleBackfill(rule.id);
@@ -1059,9 +1062,7 @@ export function AiFilterSection() {
                               className="h-7 px-2 text-xs"
                               asChild
                             >
-                              <Link
-                                to={`/inbox?label=${encodeURIComponent(state.labelName)}`}
-                              >
+                              <Link to={labelTabHref(state.labelName)}>
                                 {t("mail.aiFilter.reviewLabel")}
                               </Link>
                             </Button>

@@ -102,6 +102,52 @@ describe("manage-email-rules chat action", () => {
     });
   });
 
+  it("lists rule names and action effects with their mode classification", async () => {
+    mocks.listAutomationRules.mockResolvedValue([
+      {
+        id: "legacy-rule",
+        domain: "mail",
+        kind: "automation",
+        name: "Star my manager",
+        condition: "from my manager",
+        actions: [{ type: "star" }],
+        enabled: true,
+      },
+      {
+        id: "ai-rule",
+        domain: "mail",
+        kind: "ai-filter",
+        name: "AI tag: receipts",
+        condition: "Receipts from online shops",
+        actions: [{ type: "label", labelName: "Receipts" }],
+        enabled: false,
+      },
+    ]);
+
+    const result = await createManageEmailRulesAction(true).run({
+      action: "list",
+    });
+
+    expect(result).toMatchObject({
+      mode: "list",
+      rules: [
+        {
+          id: "legacy-rule",
+          name: "Star my manager",
+          mode: "automation",
+          actions: [{ type: "star" }],
+        },
+        {
+          id: "ai-rule",
+          name: "AI tag: receipts",
+          mode: "tag",
+          tagName: "Receipts",
+          actions: [{ type: "label", labelName: "Receipts" }],
+        },
+      ],
+    });
+  });
+
   it("returns per-rule counts when the backfill has started", async () => {
     mocks.readMailAiFilterBackfill.mockResolvedValue({
       runId: "run-1",
@@ -294,7 +340,10 @@ describe("manage-email-rules chat action", () => {
         kind: "ai-filter",
         name: "AI tag: Receipts",
         condition: "Receipts from shops",
-        actions: [{ type: "label", labelName: "Receipts" }],
+        actions: [
+          { type: "label", labelName: "Receipts" },
+          { type: "archive" },
+        ],
         enabled: true,
       },
     ]);
@@ -304,7 +353,7 @@ describe("manage-email-rules chat action", () => {
       kind: "ai-filter",
       name: "AI tag: Receipts from online shops",
       condition: "Receipts from online shops",
-      actions: [{ type: "label", labelName: "Receipts" }],
+      actions: [{ type: "label", labelName: "Receipts" }, { type: "archive" }],
       enabled: true,
     });
 
@@ -323,7 +372,10 @@ describe("manage-email-rules chat action", () => {
         kind: "ai-filter",
         name: "AI tag: Receipts from online shops",
         condition: "Receipts from online shops",
-        actions: [{ type: "label", labelName: "Receipts" }],
+        actions: [
+          { type: "label", labelName: "Receipts" },
+          { type: "archive" },
+        ],
       }),
     );
     expect(result).toMatchObject({ mode: "tag", tagName: "Receipts" });

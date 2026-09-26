@@ -18,6 +18,11 @@ import {
   FeedbackButton,
 } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  aiFilterRuleLabelName,
+  aiFilterRuleMode,
+  normalizedAiFilterLabelId,
+} from "@shared/ai-filter-rules";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels";
 import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
 import type { Label, SavedMailFilter } from "@shared/types";
@@ -75,6 +80,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
+import { useAutomations } from "@/hooks/use-automations";
 import {
   applyDraftSaveResult,
   DRAFT_DELETE_FAILED_EVENT,
@@ -94,7 +100,6 @@ import {
   EMPTY_LABELS,
   LABELS_QUERY_KEY,
 } from "@/hooks/use-emails";
-import { useAutomations } from "@/hooks/use-automations";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -122,11 +127,6 @@ import {
   resolveDefaultMailHref,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import {
-  aiFilterRuleLabelName,
-  aiFilterRuleMode,
-  normalizedAiFilterLabelId,
-} from "@shared/ai-filter-rules";
 import { cn } from "@/lib/utils";
 import { isKnownMailView } from "@/routes/$view";
 

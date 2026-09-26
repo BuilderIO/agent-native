@@ -48,7 +48,7 @@ vi.mock("@/hooks/use-account-filter", () => ({
 
 vi.mock("@/hooks/use-emails", () => ({
   useLabels: () => ({
-    data: [{ id: "agent-native-filtered", name: "Agent Native Filtered" }],
+    data: [{ id: "agent-native-filtered", name: "Agent-Native Filtered" }],
   }),
 }));
 
@@ -228,7 +228,7 @@ describe("AiFilterDialog", () => {
     expect(screen.getByText("A recent match")).toBeTruthy();
     expect(screen.getByText("A second recent match")).toBeTruthy();
     expect(screen.getByText("A third recent match")).toBeTruthy();
-    expect(screen.getAllByText("agent native fil…")).toHaveLength(2);
+    expect(screen.getAllByText("agent-native fil…")).toHaveLength(2);
     expect(
       screen
         .getByRole("link", { name: "mail.aiFilter.reviewLabel" })

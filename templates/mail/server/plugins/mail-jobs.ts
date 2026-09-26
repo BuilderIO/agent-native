@@ -3,11 +3,11 @@ import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 import { startIntervalJob } from "@agent-native/core/server/interval-job";
 import { z } from "zod";
 
-import { purgeExpiredMailAiFilterRuleUndoSnapshots } from "../lib/ai-filter-rule-undo.js";
 import {
   processMailAiFilterBackfills,
   purgeExpiredMailAiFilterBackfills,
 } from "../lib/ai-filter-backfill.js";
+import { purgeExpiredMailAiFilterRuleUndoSnapshots } from "../lib/ai-filter-rule-undo.js";
 import { processAutomations } from "../lib/automation-engine.js";
 import { getClientForAccount, startWatch } from "../lib/google-auth.js";
 import {

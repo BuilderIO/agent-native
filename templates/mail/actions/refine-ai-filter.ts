@@ -1,18 +1,18 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
+import { aiFilterRuleMode } from "@shared/ai-filter-rules.js";
 import {
   aiFilterPreviewCorrectionSchema,
   aiFilterPreviewRuleSchema,
 } from "@shared/ai-filter.js";
-import { aiFilterRuleMode } from "@shared/ai-filter-rules.js";
 import { z } from "zod";
 
+import { startMailAiFilterBackfill } from "../server/lib/ai-filter-backfill.js";
 import { rewriteAutomationRuleCondition } from "../server/lib/automation-engine.js";
 import {
   listAutomationRules,
   updateAutomationRule,
 } from "../server/lib/automations.js";
-import { startMailAiFilterBackfill } from "../server/lib/ai-filter-backfill.js";
 
 export default defineAction({
   description:
