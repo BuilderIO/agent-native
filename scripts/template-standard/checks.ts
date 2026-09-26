@@ -29,7 +29,6 @@ function readIfExists(path: string): string | undefined {
   return existsSync(path) ? readFileSync(path, "utf-8") : undefined;
 }
 
-
 export function checkByteSyncedFiles(templates: string[]): Violation[] {
   const violations: Violation[] = [];
   for (const surface of BYTE_SYNCED_FILES) {
@@ -58,7 +57,6 @@ export function checkByteSyncedFiles(templates: string[]): Violation[] {
   }
   return violations;
 }
-
 
 export function packageScriptViolationMessage(
   template: string,
@@ -284,7 +282,6 @@ export function checkVitePortMatch(
   return violations;
 }
 
-
 export function computeMajorityValue(values: string[]): string | undefined {
   if (values.length === 0) return undefined;
   const counts = new Map<string, number>();
@@ -354,7 +351,6 @@ export function checkDependencyBands(templates: string[]): Violation[] {
 
   return violations;
 }
-
 
 export function runAllChecks(
   templates: string[],

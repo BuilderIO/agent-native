@@ -56,7 +56,6 @@ export function templatePath(template: string, ...segments: string[]): string {
   return join(templateDir(template), ...segments);
 }
 
-
 export const CANONICAL_LEARNINGS_DEFAULTS = join(
   MODULE_DIR,
   "assets",
@@ -87,7 +86,6 @@ export const BYTE_SYNCED_FILES = [
   },
 ] as const;
 
-
 export const REQUIRED_PACKAGE_SCRIPTS: Record<string, RegExp> = {
   dev: /(?:^|\s)agent-native dev(?:\s|$)/,
   build: /(?:^|\s)agent-native build(?:\s|$)/,
@@ -107,7 +105,6 @@ export const TEMPLATE_PLACEHOLDER_PATTERN = /\{\{[A-Z][A-Z0-9_]*\}\}/;
 
 export const VITE_CONFIG_REL = "vite.config.ts";
 export const VITE_PORT_PATTERN = /port:\s*(\d+)/;
-
 
 export const AGENT_NATIVE_WORKSPACE_RANGE = "workspace:*";
 export const VERSION_BAND_PACKAGES = [

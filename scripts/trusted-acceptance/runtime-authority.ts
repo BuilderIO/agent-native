@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 
-
 export type FetchLike = (
   input: string,
   init?: RequestInit,

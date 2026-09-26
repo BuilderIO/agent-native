@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 
 import { parse } from "yaml";
 
-
 const workflowPath = ".github/workflows/beta-e2e.yml";
 const scheduledWorkflowPath = ".github/workflows/beta-e2e-scheduled.yml";
 const fleetPath = "e2e/beta/lib/fleet.ts";

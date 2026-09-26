@@ -114,7 +114,6 @@ function auditTemplate(slug) {
   return { slug, total: actions.length, uiDead, clusters };
 }
 
-
 const requested = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const all = discoverTemplates();
 const targets =

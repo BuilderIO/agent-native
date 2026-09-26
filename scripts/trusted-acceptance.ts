@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 
-
 export type AcceptancePaths = {
   health: string;
   oauthMetadata: string;

@@ -83,7 +83,6 @@ const SKIP_DIRS = new Set([
 
 const OPT_OUT_PRAGMA = /\/\/\s*guard:allow-action-twin\b/;
 
-
 const VERB_GROUPS = [
   ["list", new Set(["list", "get", "fetch", "read"])],
   ["create", new Set(["create", "add", "post", "make"])],
@@ -141,7 +140,6 @@ function verbsEquivalent(a, b) {
   return false;
 }
 
-
 function singularize(word) {
   if (word.endsWith("ies") && word.length > 4) return word.slice(0, -3) + "y";
   if (word.endsWith("ses") && word.length > 4) return word.slice(0, -2);
@@ -156,7 +154,6 @@ function nounsMatch(aTokens, bTokens) {
   );
 }
 
-
 function parseActionName(name) {
   const tokens = name
     .toLowerCase()
@@ -168,7 +165,6 @@ function parseActionName(name) {
   if (!verbsEquivalent(verb, verb) && !OPERATION_VERBS.has(verb)) return null;
   return { verb, nouns: nouns.map(singularize) };
 }
-
 
 function parseRoutePath(relPath) {
   const parts = relPath.replace(/\\/g, "/").split("/");
@@ -227,14 +223,12 @@ function parseRoutePath(relPath) {
   return { verb, nouns: combinedNouns, httpMethod };
 }
 
-
 function isOverlap(actionName, routeParsed) {
   const ap = parseActionName(actionName);
   if (!ap) return false;
   if (!verbsEquivalent(ap.verb, routeParsed.verb)) return false;
   return nounsMatch(ap.nouns, routeParsed.nouns);
 }
-
 
 const ALLOWLIST = new Set([
   "analytics:ga4/report.post.ts:ga4-report",
@@ -253,7 +247,6 @@ const ALLOWLIST = new Set([
   "mail:emails/send.post.ts:send-email",
   "mail:hubspot/contact.get.ts:get-hubspot-contact",
 ]);
-
 
 const APP_DATA_SIGNALS = [
   /\bgetDb\s*\(/,
@@ -378,7 +371,6 @@ function classifyCrudRoute(effectiveSrc, relPath, publicApiPaths) {
   return "reads or writes the app database and returns JSON";
 }
 
-
 async function collectTs(dir) {
   let entries;
   try {
@@ -398,7 +390,6 @@ async function collectTs(dir) {
   }
   return files;
 }
-
 
 async function main() {
   const templatesDir = path.join(REPO_ROOT, "templates");

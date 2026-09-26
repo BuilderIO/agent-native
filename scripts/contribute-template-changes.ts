@@ -272,7 +272,6 @@ export function diffTrees(baselineDir: string, appDir: string): Candidate[] {
   return out.sort((a, b) => a.rel.localeCompare(b.rel));
 }
 
-
 interface Options {
   app: string;
   template?: string;

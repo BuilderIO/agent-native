@@ -249,8 +249,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
     full,
     nonDocsPaths,
     checks: docsOnly
-      ?
-        (Object.fromEntries(
+      ? (Object.fromEntries(
           CHECK_NAMES.map((name) => [name, name === "lint"]),
         ) as CheckSelection)
       : buildChecks(changedPaths, full),
