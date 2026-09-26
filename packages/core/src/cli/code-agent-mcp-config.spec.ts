@@ -164,6 +164,50 @@ describe("code-agent MCP config", () => {
     expect(claudeMcpConfig(null, {})).toBeNull();
   });
 
+  it("rejects server ids that normalize to the same key", () => {
+    const environment = {
+      MCP_SERVERS: JSON.stringify({
+        servers: {
+          "sales.prod": { type: "http", url: "https://dot.example/mcp" },
+          "sales/prod": {
+            type: "http",
+            url: "https://slash.example/mcp",
+            headers: { Authorization: "Bearer slash-token" },
+          },
+        },
+      }),
+    } as NodeJS.ProcessEnv;
+    const collision =
+      'MCP server IDs "sales.prod" and "sales/prod" both map to "sales_prod"';
+
+    expect(() => claudeMcpConfig(null, environment)).toThrow(collision);
+    expect(() => codexMcpConfigArgs(null, environment)).toThrow(collision);
+  });
+
+  it("keeps distinct normalized keys for both code-agent paths", () => {
+    const environment = {
+      MCP_SERVERS: JSON.stringify({
+        servers: {
+          "sales.prod": { type: "http", url: "https://dot.example/mcp" },
+          "sales-prod": { type: "http", url: "https://dash.example/mcp" },
+        },
+      }),
+    } as NodeJS.ProcessEnv;
+
+    expect(claudeMcpConfig(null, environment)).toEqual({
+      mcpServers: {
+        sales_prod: { type: "http", url: "https://dot.example/mcp" },
+        "sales-prod": { type: "http", url: "https://dash.example/mcp" },
+      },
+    });
+    expect(codexMcpConfigArgs(null, environment)).toEqual([
+      "-c",
+      'mcp_servers.sales_prod.url="https://dot.example/mcp"',
+      "-c",
+      'mcp_servers.sales-prod.url="https://dash.example/mcp"',
+    ]);
+  });
+
   it("resolves a desktop server collision consistently", () => {
     const environment = {
       MCP_SERVERS: JSON.stringify({

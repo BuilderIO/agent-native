@@ -201,9 +201,19 @@ function codeAgentHttpMcpServers(
       mergeCodeAgentMcpConfig(config, environment),
       environment,
     )?.servers ?? {};
-  return Object.entries(servers).flatMap(([serverId, server]) =>
-    server.type === "http" && server.url
-      ? [[codexConfigKey(serverId), { url: server.url, headers: server.headers }]]
-      : [],
-  );
+  // Both CLIs need a sanitized key, and a lossy key would let one server (and
+  // its credential headers) silently replace another. Reject that instead.
+  const idsByKey = new Map<string, string>();
+  return Object.entries(servers).flatMap(([serverId, server]) => {
+    if (server.type !== "http" || !server.url) return [];
+    const key = codexConfigKey(serverId);
+    const existing = idsByKey.get(key);
+    if (existing !== undefined) {
+      throw new Error(
+        `MCP server IDs "${existing}" and "${serverId}" both map to "${key}". Rename one of them.`,
+      );
+    }
+    idsByKey.set(key, serverId);
+    return [[key, { url: server.url, headers: server.headers }]];
+  });
 }
