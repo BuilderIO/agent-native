@@ -441,13 +441,10 @@ const messages = {
     agentEmptyTitle: "Rejoignez la conversation",
     agentEmptyDescription:
       "Créez un compte Clips gratuit pour commenter, réagir et poser des questions sur ce clip.",
-    commentSignupTitle: "Donnez tout le contexte à votre agent IA",
-    commentSignupContext:
-      "Partagez la transcription et les images horodatées dans un seul lien",
-    commentSignupFeedback:
-      "Transformez les retours enregistrés en prochaines étapes concrètes",
-    commentSignupDebug:
-      "Capturez les erreurs de console et les requêtes échouées",
+    commentSignupTitle:
+      "Des enregistrements d’écran que votre agent IA peut voir et entendre",
+    commentSignupDescription:
+      "Clips est un enregistreur d’écran gratuit et open source pour partager des bugs, des retours et des démonstrations pas à pas avec des agents IA.",
     agentEmptySignInPrompt: "Vous avez déjà un compte ?",
     signUp: "S’inscrire",
     ownerInsights: "Insights du propriétaire",
@@ -850,6 +847,8 @@ const messages = {
     changelogEmpty: "Aucune mise à jour pour le moment.",
     changelogCommentSignup:
       "Le panneau de commentaires vide explique brièvement pourquoi essayer Clips et propose un moyen simple de s’inscrire.",
+    changelogCommentsEmptyState:
+      "L’état vide des commentaires explique désormais comment les enregistrements d’écran aident les agents IA.",
     changelogShareLink:
       "Les utilisateurs connectés qui ouvrent un lien de partage indisponible, expiré ou privé accèdent désormais à leur bibliothèque en choisissant « Retour à l’accueil », au lieu de la page marketing publique.",
     viewAllUpdates: "Voir toutes les mises à jour",

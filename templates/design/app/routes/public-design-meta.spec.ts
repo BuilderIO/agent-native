@@ -48,10 +48,10 @@ vi.mock("../../server/db", () => ({
 }));
 
 import {
-  designResourceMeta,
   loadPublicDesignMeta,
   publicDesignMetaLoaderData,
-} from "./public-design-meta";
+} from "../../server/lib/public-design-meta.server";
+import { designResourceMeta } from "./public-design-meta";
 
 describe("public Design metadata", () => {
   beforeEach(() => {

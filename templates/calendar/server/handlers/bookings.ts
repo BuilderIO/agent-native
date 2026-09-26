@@ -3,6 +3,7 @@ import { getOrgContext, orgMembers } from "@agent-native/core/org";
 import {
   getSession,
   getAppProductionUrl,
+  getRequestContext,
   recordChange,
   readBody,
   runWithRequestContext,
@@ -29,7 +30,6 @@ import type {
   Booking,
   CalendarEvent,
   AvailabilityConfig,
-  ConferencingConfig,
   CustomField,
   TimeSlot,
 } from "../../shared/api.js";
@@ -55,12 +55,18 @@ import {
 import {
   getBookingLinkCoHostEmails,
   getBookingLinkRequiredHostEmails,
+  isBookingLinkHost,
   normalizeBookingHosts,
+  parseBookingConferencingConfig,
 } from "../lib/booking-link-utils.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { eventBlocksAvailability } from "../lib/calendar-availability.js";
 import * as googleCalendar from "../lib/google-calendar.js";
-import { createZoomMeeting } from "../lib/zoom.js";
+import {
+  createZoomMeeting,
+  deleteZoomMeeting,
+  needsZoomCancellationReview,
+} from "../lib/zoom.js";
 import { getBookingUsernameOwner } from "./booking-usernames.js";
 
 async function requireRequestContext<T>(
@@ -89,16 +95,23 @@ async function getBookingLinkSlugsForOwners(
   return Array.from(new Set(rows.map((row) => row.slug)));
 }
 
-async function getBookingLinkOwnerEmail(
-  slug: string,
-): Promise<string | undefined> {
+async function getBookingLinkDetails(slug: string) {
   if (!slug) return undefined;
-  const row = await getDb()
-    .select({ ownerEmail: schema.bookingLinks.ownerEmail })
+  return getDb()
+    .select({
+      ownerEmail: schema.bookingLinks.ownerEmail,
+      hosts: schema.bookingLinks.hosts,
+      conferencing: schema.bookingLinks.conferencing,
+    })
     .from(schema.bookingLinks)
     .where(eq(schema.bookingLinks.slug, slug))
     .then((rows) => rows[0]);
-  return row?.ownerEmail;
+}
+
+async function getBookingLinkOwnerEmail(
+  slug: string,
+): Promise<string | undefined> {
+  return (await getBookingLinkDetails(slug))?.ownerEmail;
 }
 
 function stripCrlf(value: unknown): string {
@@ -1387,6 +1400,20 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
 
     // Check for conflicts + insert atomically in a transaction
+    const parsedConferencing = parseBookingConferencingConfig(
+      link?.conferencing,
+    );
+    if (parsedConferencing.status === "invalid") {
+      setResponseStatus(event, 422);
+      return {
+        error: "Failed to create booking",
+        code: "invalid_conferencing_config",
+      };
+    }
+    const conferencing =
+      parsedConferencing.status === "valid"
+        ? parsedConferencing.config
+        : undefined;
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
       if (viewer) {
@@ -1469,6 +1496,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             ? JSON.stringify(fieldResponses)
             : null,
         cancelToken,
+        zoomNeedsReview: conferencing?.type === "zoom",
         status: "confirmed",
         createdAt: now,
         ownerEmail: hostEmail,
@@ -1486,17 +1514,12 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { error: "This time slot is no longer available" };
     }
 
-    // Resolve conferencing config
-    let conferencing: ConferencingConfig | undefined;
-    if (link?.conferencing) {
-      try {
-        conferencing = JSON.parse(link.conferencing);
-      } catch {}
-    }
     let meetingLink: string | undefined;
     let googleEventId: string | undefined;
     let calendarAccountId: string | undefined;
     let meetingLinkPending = false;
+    let zoomMeetingId: string | undefined;
+    let zoomAccountId: string | undefined;
 
     // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
@@ -1536,6 +1559,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           throw new Error("Zoom meeting was not created");
         }
         meetingLink = zoomResult.meetingUrl;
+        zoomMeetingId = zoomResult.meetingId;
+        zoomAccountId = zoomResult.accountId;
       } catch (error) {
         console.error(
           `[bookings] Failed to create Zoom meeting for ${hostEmail}:`,
@@ -1543,8 +1568,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         );
         // Zoom may have created the meeting even if its response was lost or
         // unreadable, so keep the booking to reserve the slot and prevent a
-        // retry from silently creating a duplicate meeting. Finish the
-        // independent calendar write before returning the provider error.
+        // retry from silently creating a duplicate meeting.
         meetingLinkPending = true;
       }
     }
@@ -1634,10 +1658,23 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         meetingLink?: string;
         googleEventId?: string;
         calendarAccountId?: string;
+        zoomNeedsReview?: boolean;
+        zoomMeetingId?: string;
+        zoomAccountId?: string;
         meetingLinkPending: boolean;
       } = { meetingLinkPending };
       if (meetingLink) providerUpdates.meetingLink = meetingLink;
       if (googleEventId) providerUpdates.googleEventId = googleEventId;
+      if (zoomMeetingId) providerUpdates.zoomMeetingId = zoomMeetingId;
+      if (zoomAccountId) providerUpdates.zoomAccountId = zoomAccountId;
+      if (
+        conferencing?.type === "zoom" &&
+        meetingLink &&
+        zoomMeetingId &&
+        zoomAccountId
+      ) {
+        providerUpdates.zoomNeedsReview = false;
+      }
       if (googleEventId && calendarAccountId) {
         providerUpdates.calendarAccountId = calendarAccountId;
       }
@@ -1664,6 +1701,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       ...(meetingLinkPending ? { meetingLinkPending: true } : {}),
       googleEventId,
       cancelToken,
+      zoomNeedsReview: conferencing?.type === "zoom" && meetingLinkPending,
       status: "confirmed",
       createdAt: now,
     };
@@ -1897,6 +1935,7 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
 export async function cancelBookingById(
   id: string,
   origin = getAppProductionUrl(),
+  options: { zoomMeetingResolved?: boolean } = {},
 ) {
   if (!id)
     throw createError({ statusCode: 400, statusMessage: "id is required" });
@@ -1914,11 +1953,23 @@ export async function cancelBookingById(
 
   // Bookings have no ownerEmail of their own — scope through the booking link.
   const accessibleLinks = await db
-    .select({ slug: schema.bookingLinks.slug })
+    .select({
+      slug: schema.bookingLinks.slug,
+      ownerEmail: schema.bookingLinks.ownerEmail,
+      hosts: schema.bookingLinks.hosts,
+      conferencing: schema.bookingLinks.conferencing,
+    })
     .from(schema.bookingLinks)
-    .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
-  const accessibleSlugs = new Set(accessibleLinks.map((link) => link.slug));
-  if (!accessibleSlugs.has(existing.slug)) {
+    .where(
+      accessFilter(
+        schema.bookingLinks,
+        schema.bookingLinkShares,
+        undefined,
+        "editor",
+      ),
+    );
+  const link = accessibleLinks.find((item) => item.slug === existing.slug);
+  if (!link) {
     throw createError({ statusCode: 403, statusMessage: "Access denied" });
   }
 
@@ -1926,7 +1977,35 @@ export async function cancelBookingById(
     return { success: true, alreadyCancelled: true };
   }
 
-  const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
+  if (
+    options.zoomMeetingResolved === true &&
+    !isBookingLinkHost(link, getRequestContext()?.userEmail)
+  ) {
+    throw createError({ statusCode: 403, statusMessage: "Access denied" });
+  }
+
+  if (
+    needsZoomCancellationReview({
+      ...existing,
+      conferencing: link.conferencing,
+    }) &&
+    options.zoomMeetingResolved !== true
+  ) {
+    throw createError({
+      statusCode: 409,
+      statusMessage:
+        "Check the Zoom meeting and resolve it before canceling this booking",
+    });
+  }
+
+  if (existing.zoomMeetingId && existing.zoomAccountId) {
+    await deleteZoomMeeting({
+      accountId: existing.zoomAccountId,
+      meetingId: existing.zoomMeetingId,
+    });
+  }
+
+  const hostEmail = link.ownerEmail;
   const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
   const bookAgainUrl = existing.slug
     ? `${origin}/book/${existing.slug}`
@@ -1940,7 +2019,7 @@ export async function cancelBookingById(
   await deleteGoogleEventForBooking({ booking: existing, hostEmail });
   await db
     .update(schema.bookings)
-    .set({ status: "cancelled" })
+    .set({ status: "cancelled", zoomNeedsReview: false })
     .where(eq(schema.bookings.id, id));
   recordBookingsChanged(hostEmail);
   return { success: true };
@@ -1949,9 +2028,19 @@ export async function cancelBookingById(
 export const deleteBooking = defineEventHandler(async (event: H3Event) => {
   return requireRequestContext(event, async () => {
     try {
+      const body = await readBody(event);
+      const parsed = z
+        .object({ zoomMeetingResolved: z.boolean().optional() })
+        .strict()
+        .safeParse(body ?? {});
+      if (!parsed.success) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid cancellation options" };
+      }
       return await cancelBookingById(
         getRouterParam(event, "id") as string,
         getRequestURL(event).origin,
+        parsed.data,
       );
     } catch (error: any) {
       setResponseStatus(event, error?.statusCode ?? 500);
@@ -1982,6 +2071,7 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
 
     // Return limited info — don't expose internal IDs
     const booking = rowToBooking(row);
+    const link = await getBookingLinkDetails(row.slug);
     return {
       eventTitle: booking.eventTitle,
       name: booking.name,
@@ -1989,6 +2079,10 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
       end: booking.end,
       slug: booking.slug,
       meetingLink: booking.meetingLink,
+      zoomCancellationNeedsReview: needsZoomCancellationReview({
+        ...row,
+        conferencing: link?.conferencing,
+      }),
       meetingLinkPending: booking.meetingLinkPending,
       status: booking.status,
     };
@@ -2024,12 +2118,34 @@ export const cancelBookingByToken = defineEventHandler(
         return { success: true, alreadyCancelled: true };
       }
 
+      const link = await getBookingLinkDetails(row.slug);
+      if (
+        needsZoomCancellationReview({
+          ...row,
+          conferencing: link?.conferencing,
+        })
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          error:
+            "The organizer must review the Zoom meeting before this booking can be canceled",
+          code: "zoom_meeting_review_required",
+        };
+      }
+
+      if (row.zoomMeetingId && row.zoomAccountId) {
+        await deleteZoomMeeting({
+          accountId: row.zoomAccountId,
+          meetingId: row.zoomMeetingId,
+        });
+      }
+
       await db
         .update(schema.bookings)
-        .set({ status: "cancelled" })
+        .set({ status: "cancelled", zoomNeedsReview: false })
         .where(eq(schema.bookings.id, row.id));
 
-      const hostEmail = await getBookingLinkOwnerEmail(row.slug);
+      const hostEmail = link?.ownerEmail;
       const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
       const reqUrl = getRequestURL(event);
       const bookAgainUrl = row.slug
@@ -2046,7 +2162,7 @@ export const cancelBookingByToken = defineEventHandler(
 
       return { success: true, slug: row.slug };
     } catch (error: any) {
-      setResponseStatus(event, 500);
+      setResponseStatus(event, error?.statusCode ?? 500);
       return { error: error.message };
     }
   },

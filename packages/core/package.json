@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.191.0",
+  "version": "0.192.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -184,6 +184,7 @@
     "./client/AgentSidebar": "./dist/client/AgentSidebar.js",
     "./client/application-state": "./dist/client/application-state.js",
     "./client/api-path": "./dist/client/api-path.js",
+    "./client/sign-in-landing": "./dist/client/sign-in-landing.js",
     "./client/oauth-popup": "./dist/client/oauth-popup.js",
     "./client/clipboard": "./dist/client/clipboard.js",
     "./client/route-state": "./dist/client/route-state.js",

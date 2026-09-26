@@ -1129,8 +1129,8 @@ interface DesignCanvasProps {
    * screen. When set to a non-null tool, DesignCanvas mounts a transparent
    * capture overlay above the iframe so pointer gestures draw a new
    * primitive instead of reaching the iframe's own content/editor-chrome
-   * bridge. `null`/`undefined` fully restores prior (pre-creation-tool)
-   * behavior — the overlay never mounts.
+   * bridge. `null`/`undefined` disables pointer capture while keeping a
+   * rejected Pen draft mounted for retry.
    */
   activeCreationTool?: CreationTool | null;
   selectedPenPathNodeId?: string | null;
@@ -1143,7 +1143,7 @@ interface DesignCanvasProps {
    * persisted primitive (see `appendCanvasPrimitiveToHtml` /
    * `draftPrimitiveToInsert` on the overview side).
    */
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | false | void;
   onUpdatePenPath?: (
     nodeId: string,
     path: PenPath,
@@ -8120,23 +8120,19 @@ export function DesignCanvas({
           title=""
         />
       ) : null}
-      {/* Single-screen click-to-place creation overlay — sits over the
-          iframe, NOT inside it, mirroring the SharedDrawOverlay pattern
-          below. Only mounts while a creation tool is active so it never
-          changes existing behavior otherwise (T14: single-screen mode
-          previously had no creation capability at all). */}
-      {activeCreationTool && !interactMode ? (
-        <SingleScreenCreationOverlay
-          tool={activeCreationTool}
-          iframeRef={iframeRef}
-          selectedPenPathNodeId={selectedPenPathNodeId}
-          onCreatePrimitive={onCreatePrimitive}
-          onUpdatePenPath={onUpdatePenPath}
-        />
-      ) : null}
+      {/* Keep the overlay mounted while Move is active so a rejected Pen
+          commit remains available to retry; without a creation tool it is
+          transparent to pointer events. */}
+      <SingleScreenCreationOverlay
+        key={screenId}
+        tool={interactMode ? null : (activeCreationTool ?? null)}
+        iframeRef={iframeRef}
+        selectedPenPathNodeId={selectedPenPathNodeId}
+        onCreatePrimitive={onCreatePrimitive}
+        onUpdatePenPath={onUpdatePenPath}
+      />
       {/* OS file drag-over capture overlay — sits over the iframe, NOT
-          inside it, mirroring the SingleScreenCreationOverlay mount pattern
-          just above. Only mounts while a native OS file drag is actually in
+          inside it. Only mounts while a native OS file drag is actually in
           progress over this wrapper (see handleWrapperDragEnter/Leave), so it
           never changes existing pointer/click behavior otherwise. Skipped
           while a creation tool is active — the two capture surfaces would
@@ -8692,10 +8688,10 @@ interface SingleScreenPenGestureState {
 const SINGLE_SCREEN_PEN_HIT_RADIUS_PX = 10;
 
 interface SingleScreenCreationOverlayProps {
-  tool: CreationTool;
+  tool: CreationTool | null;
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   selectedPenPathNodeId?: string | null;
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | false | void;
   onUpdatePenPath?: (
     nodeId: string,
     path: PenPath,
@@ -8843,6 +8839,7 @@ function SingleScreenCreationOverlay({
       options?: {
         preserveActiveTool?: boolean;
         continueAfterCommit?: boolean;
+        nextTool?: "move" | "pen";
       },
     ) => {
       const committed = path ? clonePenPath(path) : null;
@@ -8859,7 +8856,6 @@ function SingleScreenCreationOverlay({
           options?.preserveActiveTool === false ? "move" : undefined,
         );
         if (!updated) {
-          continuationPenPathRef.current = null;
           updatePenPath(committed);
           setPenGesturePreview(null);
           return;
@@ -8874,13 +8870,30 @@ function SingleScreenCreationOverlay({
           return;
         }
         clearPenPath();
-        const nodeId = onCreatePrimitive({
-          tool: "pen",
-          points: committed.nodes.map((node) => node.point),
-          penPath: committed,
-          fromClick: false,
-          preserveActiveTool: options?.preserveActiveTool,
-        });
+        const restoreDraft = () => {
+          updatePenPath(committed);
+          setPenGesturePreview(null);
+          setPenPointer(null);
+          setPenCloseHover(false);
+        };
+        let nodeId: string | false | void;
+        try {
+          nodeId = onCreatePrimitive({
+            tool: "pen",
+            points: committed.nodes.map((node) => node.point),
+            penPath: committed,
+            fromClick: false,
+            preserveActiveTool: options?.preserveActiveTool,
+            nextTool: options?.nextTool,
+          });
+        } catch (error) {
+          restoreDraft();
+          throw error;
+        }
+        if (nodeId === false) {
+          restoreDraft();
+          return;
+        }
         continuationPenPathRef.current =
           typeof nodeId === "string" &&
           !committed.closed &&
@@ -8933,6 +8946,12 @@ function SingleScreenCreationOverlay({
     if (previousTool === "pen" && tool !== "pen") {
       finishPenPath(penPathRef.current, { preserveActiveTool: true });
       if (!penPathRef.current) continuationPenPathRef.current = null;
+    }
+    if (!tool) {
+      dragRef.current = null;
+      setDrag(null);
+      setPenPointer(null);
+      setPenCloseHover(false);
     }
   }, [finishPenPath, tool]);
 
@@ -8995,14 +9014,13 @@ function SingleScreenCreationOverlay({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || !tool) return;
       if (tool === "pen") {
         e.preventDefault();
         e.stopPropagation();
         seedSelectedPenContinuation();
-        const currentPath = penPathRef.current?.closed
-          ? null
-          : penPathRef.current;
+        const currentPath = penPathRef.current;
+        if (currentPath?.closed) return;
         const pathBefore = currentPath ? clonePenPath(currentPath) : null;
         const rawPoint = toContentPoint(e.clientX, e.clientY);
         if (!pathBefore && continuationPenPathRef.current) {
@@ -9244,13 +9262,23 @@ function SingleScreenCreationOverlay({
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && penGestureRef.current) {
+        const pathBefore = penGestureRef.current.pathBefore;
         clearPenPath();
+        updatePenPath(pathBefore);
         return;
       }
+      const continuesExistingPath =
+        event.key === "Enter" && continuationPenPathRef.current !== null;
       finishPenPath(path, {
-        preserveActiveTool: false,
-        continueAfterCommit: true,
+        preserveActiveTool: event.key === "Escape" || continuesExistingPath,
+        continueAfterCommit: continuesExistingPath,
+        nextTool:
+          event.key === "Enter"
+            ? continuesExistingPath
+              ? "pen"
+              : "move"
+            : undefined,
       });
     };
 
@@ -9258,7 +9286,13 @@ function SingleScreenCreationOverlay({
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [clearPenPath, finishPenPath, tool, updatePenPath]);
 
-  const cursorClass = tool === "text" ? "cursor-text" : "cursor-crosshair";
+  const cursorClass =
+    tool === null
+      ? "pointer-events-none"
+      : cn(
+          "pointer-events-auto",
+          tool === "text" ? "cursor-text" : "cursor-crosshair",
+        );
   const isLineTool = tool === "line" || tool === "arrow";
   const displayedPenPath =
     penGesturePreview ??
@@ -9287,7 +9321,7 @@ function SingleScreenCreationOverlay({
     y: point.y - previewScrollOffset.top,
   });
   const previewRect =
-    drag && drag.moved && !isLineTool && tool !== "pen"
+    tool && drag && drag.moved && !isLineTool && tool !== "pen"
       ? getDraftGeometryFromPoints(
           toOverlayLocal(drag.startContent),
           toOverlayLocal(drag.currentContent),
@@ -9321,7 +9355,7 @@ function SingleScreenCreationOverlay({
       ref={penOverlayRef}
       data-design-canvas-creation-overlay
       data-creation-tool={tool}
-      className={cn("absolute inset-0 z-20 pointer-events-auto", cursorClass)}
+      className={cn("absolute inset-0 z-20", cursorClass)}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -9339,7 +9373,7 @@ function SingleScreenCreationOverlay({
         }
       }}
     >
-      {tool === "pen" && displayedPenPathOverlay ? (
+      {displayedPenPathOverlay ? (
         <SingleScreenPenPathOverlay
           path={displayedPenPathOverlay}
           closeHover={penCloseHover}

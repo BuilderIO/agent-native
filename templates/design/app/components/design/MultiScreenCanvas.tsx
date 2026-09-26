@@ -882,11 +882,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     setPenPointer(null);
     setPenCloseHover(false);
   }, []);
-  const cancelActivePenPath = useCallback(() => {
-    clearActivePenPath();
-    penContinuesVectorEditRef.current = false;
-    penContinuationBaseCountRef.current = 0;
-  }, [clearActivePenPath]);
   // Last raw client point the pen ghost/close-hover preview was computed
   // from (P18). A wheel pan/zoom gesture mutates pan/zoom every animation
   // frame via applyViewToDom without the mouse itself moving, so the
@@ -5636,19 +5631,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      const hasActivePenPath =
-        Boolean(activePenPathRef.current) &&
-        !isEditableHotkeyTarget(event.target);
       const cancelled = cancelActiveDrag(
         eventEpochMilliseconds(event.timeStamp),
       );
-      if (hasActivePenPath) cancelActivePenPath();
-      if (cancelled || hasActivePenPath) {
+      if (cancelled) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
         return;
       }
+      if (activePenPathRef.current) return;
       // No in-flight drag to cancel: Escape while in vector edit mode exits
       // the mode entirely (matches Figma), rather than being a no-op.
       if (vectorEdit) {
@@ -5663,7 +5655,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [cancelActiveDrag, cancelActivePenPath, vectorEdit]);
+  }, [cancelActiveDrag, vectorEdit]);
 
   const beginPan = useCallback(
     (e: React.MouseEvent) => {
@@ -6359,7 +6351,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const lastPersisted = persistedEntries[persistedEntries.length - 1];
     // Do not call onPrimitiveCreated for board objects (sentinel frameId).
     if (lastPersisted && lastPersisted.frameId !== "__board__") {
-      onPrimitiveCreated?.(lastPersisted.frameId, lastPersisted.nodeId);
+      onPrimitiveCreated?.(lastPersisted.frameId, lastPersisted.nodeId, {
+        preserveActiveTool: true,
+      });
     }
   }, [
     onCreatePrimitive,
@@ -6382,7 +6376,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         nextTool?: "move" | "pen";
       },
     ) => {
-      const nextTool = options?.nextTool ?? "pen";
+      let nextTool: "move" | "pen" = options?.nextTool ?? "pen";
       // Clear before committing: the commit flushes React synchronously, and
       // an effect it wakes can re-enter here and commit the same path twice.
       clearActivePenPath();
@@ -6392,31 +6386,47 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
 
       if (penContinuesVectorEditRef.current) {
-        penContinuesVectorEditRef.current = false;
         const active = vectorEditRef.current;
         const baseCount = penContinuationBaseCountRef.current;
-        penContinuationBaseCountRef.current = 0;
-        if (
-          active &&
-          (path.nodes.length > baseCount || path.closed !== active.path.closed)
-        ) {
-          const toLocal = (point: Point): Point => ({
-            x: point.x - active.originCanvas.x,
-            y: point.y - active.originCanvas.y,
-          });
-          active.onChange(
-            {
-              closed: path.closed,
-              nodes: path.nodes.map((node) => ({
-                ...node,
-                point: toLocal(node.point),
-                handleIn: node.handleIn ? toLocal(node.handleIn) : undefined,
-                handleOut: node.handleOut ? toLocal(node.handleOut) : undefined,
-              })),
-            },
-            "commit",
+        const changed =
+          path.nodes.length > baseCount || path.closed !== active?.path.closed;
+        const accepted =
+          !changed ||
+          Boolean(
+            active &&
+            active.onChange(
+              {
+                closed: path.closed,
+                nodes: path.nodes.map((node) => ({
+                  ...node,
+                  point: {
+                    x: node.point.x - active.originCanvas.x,
+                    y: node.point.y - active.originCanvas.y,
+                  },
+                  handleIn: node.handleIn
+                    ? {
+                        x: node.handleIn.x - active.originCanvas.x,
+                        y: node.handleIn.y - active.originCanvas.y,
+                      }
+                    : undefined,
+                  handleOut: node.handleOut
+                    ? {
+                        x: node.handleOut.x - active.originCanvas.x,
+                        y: node.handleOut.y - active.originCanvas.y,
+                      }
+                    : undefined,
+                })),
+              },
+              "commit",
+            ),
           );
+        if (!accepted) {
+          activePenPathRef.current = path;
+          setActivePenPath(path);
+          return;
         }
+        penContinuesVectorEditRef.current = false;
+        penContinuationBaseCountRef.current = 0;
         if (nextTool === "move") active?.onExit();
         onActiveToolChange?.(nextTool);
         return;
@@ -6432,7 +6442,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           updateNodeId: continuation.nodeId,
         });
         if (!persisted) {
-          continuationPenPathRef.current = null;
           activePenPathRef.current = path;
           setActivePenPath(path);
           return;
@@ -6445,6 +6454,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const persisted = commitDraftPrimitive(draft, undefined, {
           nextTool,
         });
+        if (!persisted) nextTool = "pen";
         continuationPenPathRef.current =
           persisted && !path.closed && options?.continueAfterCommit
             ? {
@@ -6455,9 +6465,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             : null;
       }
       // The parent selection callback receives nextTool, but board primitives
-      // intentionally bypass that generic callback and
-      // asynchronous selection reconciliation can otherwise paint Move for a
-      // frame. Drive the controlled tool explicitly at the commit boundary.
+      // intentionally bypass it, so update the controlled tool here too.
       onActiveToolChange?.(nextTool);
     },
     [
@@ -10513,10 +10521,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        finishPenPath(path, {
-          continueAfterCommit: true,
-          nextTool: "move",
+        if (dragState.current?.type === "pen-node") cancelActiveDrag();
+        const pathToFinish = activePenPathRef.current;
+        if (!pathToFinish) return;
+        const continuesExistingPath =
+          continuationPenPathRef.current !== null ||
+          penContinuesVectorEditRef.current;
+        finishPenPath(pathToFinish, {
+          continueAfterCommit: continuationPenPathRef.current !== null,
+          nextTool: continuesExistingPath ? "pen" : "move",
         });
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        finishPenPath(path);
         return;
       }
 
@@ -10532,7 +10554,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [finishPenPath, undoActivePenPathSegment]);
+  }, [cancelActiveDrag, finishPenPath, undoActivePenPathSegment]);
 
   useEffect(() => {
     const tool = normalizeCanvasTool(activeTool ?? localActiveTool);

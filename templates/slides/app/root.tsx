@@ -342,7 +342,6 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
     return <Outlet />;
@@ -353,11 +352,10 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         defaultTheme="dark"
-        isPublicPath={isMarketingPath}
         i18n={{ catalog: i18nCatalog }}
         sessionBypass={isShareableContentPath(location.pathname)}
       >
-        {isMarketingPath ? <Outlet /> : <AppContent />}
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

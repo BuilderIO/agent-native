@@ -3,15 +3,25 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-26
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
 ## 2026-09-25
 
 ### Improved
 
+- Connect Builder storage by creating an account in one click.
+- Public clip embeds and meeting notes show richer link previews.
 - The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.
 - Shared clips remember your sidebar choice and help new viewers understand why to sign up.
 
 ### Fixed
 
+- Clips desktop sign-in now accepts authenticator codes when two-step verification is enabled.
+- Keep Builder login state after blocked popups and show feedback while retrying storage connection checks
 - Clips clears a stale recording overlay after an interrupted save
 - Concurrent workflow requests no longer replace an active generation.
 - Generated workflows stay tied to the request that created them.

@@ -430,11 +430,9 @@ const messages = {
     agentEmptyTitle: "대화에 참여하세요",
     agentEmptyDescription:
       "무료 Clips 계정을 만들어 이 클립에 댓글을 달고, 반응하고, 질문해 보세요.",
-    commentSignupTitle: "AI 에이전트에 전체 맥락을 전달하세요",
-    commentSignupContext:
-      "전사본과 타임스탬프가 표시된 프레임을 하나의 링크로 공유하세요",
-    commentSignupFeedback: "녹화된 피드백을 명확한 다음 단계로 바꿔 보세요",
-    commentSignupDebug: "콘솔 오류와 실패한 요청을 캡처하세요",
+    commentSignupTitle: "AI 에이전트가 보고 들을 수 있는 화면 녹화",
+    commentSignupDescription:
+      "Clips는 AI 에이전트와 버그, 피드백, 단계별 안내를 공유할 수 있는 무료 오픈 소스 화면 녹화 도구입니다.",
     agentEmptySignInPrompt: "이미 계정이 있나요?",
     signUp: "가입",
     ownerInsights: "소유자 인사이트",
@@ -829,6 +827,8 @@ const messages = {
     changelogEmpty: "아직 업데이트가 없습니다.",
     changelogCommentSignup:
       "댓글이 없을 때 사이드바에서 Clips를 사용해 볼 이유를 간단히 설명하고 쉽게 가입할 수 있도록 안내합니다.",
+    changelogCommentsEmptyState:
+      "댓글이 없을 때 화면 녹화가 AI 에이전트에 어떻게 도움이 되는지 설명합니다.",
     changelogShareLink:
       "로그인한 사용자가 사용할 수 없거나 만료되었거나 비공개인 공유 링크에서 '홈으로 이동'을 선택하면 공개 마케팅 페이지 대신 라이브러리로 이동합니다.",
     viewAllUpdates: "모든 업데이트 보기",

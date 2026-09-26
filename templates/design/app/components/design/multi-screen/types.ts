@@ -293,7 +293,10 @@ export interface MultiScreenCanvasProps {
   onPrimitiveCreated?: (
     screenId: string,
     nodeId: string,
-    options?: { nextTool?: "move" | "pen" },
+    options?: {
+      nextTool?: "move" | "pen";
+      preserveActiveTool?: boolean;
+    },
   ) => void;
   onUpdatePenPath?: (
     screenId: string,
@@ -855,7 +858,7 @@ export interface VectorEditOverlayState {
   originCanvas: Point;
   selectedAnchorIndex: number | null;
   onSelectedAnchorChange: (nodeIndex: number | null) => void;
-  onChange: (nextPath: PenPath, phase: "preview" | "commit") => void;
+  onChange: (nextPath: PenPath, phase: "preview" | "commit") => boolean;
   onExit: () => void;
 }
 

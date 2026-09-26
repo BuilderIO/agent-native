@@ -468,50 +468,6 @@
   flex: 1;
 }
 
-.mm-nav-rail {
-  display: flex;
-  width: 56px;
-  min-width: 56px;
-  flex: 0 0 56px;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  border-right: 1px solid var(--mm-border);
-  background: hsl(0 0% 14%);
-  padding: 9px 0;
-}
-
-.mm-rail-brand,
-.mm-rail-item {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  flex: none;
-  place-items: center;
-  border-radius: 6px;
-  color: var(--mm-muted);
-}
-
-.mm-rail-brand {
-  height: 38px;
-  margin-bottom: 6px;
-  color: var(--mm-fg);
-}
-
-.mm-rail-brand svg {
-  width: 27px;
-  height: 16px;
-}
-
-.mm-rail-item.is-active {
-  color: var(--mm-primary);
-  background: hsl(0 0% 75% / 0.12);
-}
-
-.mm-rail-spacer {
-  flex: 1;
-}
-
 .mm-inbox {
   display: flex;
   min-width: 0;

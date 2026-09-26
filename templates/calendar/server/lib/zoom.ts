@@ -24,6 +24,8 @@ import {
  */
 import { nanoid } from "nanoid";
 
+import { parseBookingConferencingConfig } from "./booking-link-utils.js";
+
 const PROVIDER = "zoom_video";
 const SCOPES = [
   "meeting:write:meeting",
@@ -54,6 +56,51 @@ export function getZoomAuthUrl(redirectUri: string, state: string) {
     scope: SCOPES.join(" "),
   });
   return `https://zoom.us/oauth/authorize?${params}`;
+}
+
+function createProvider(creds: { clientId: string; clientSecret: string }) {
+  return createZoomProvider({
+    clientId: creds.clientId,
+    clientSecret: creds.clientSecret,
+    getAccessToken: (credentialId) => resolveAccessToken(credentialId),
+    updateTokens: async (credentialId, tokens) => {
+      const existing = await getOAuthTokens(PROVIDER, credentialId);
+      await saveOAuthTokens(PROVIDER, credentialId, {
+        ...existing,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken ?? (existing as any)?.refreshToken,
+        expiresAt: tokens.expiresAt?.getTime(),
+      });
+    },
+  });
+}
+
+export function needsZoomCancellationReview(booking: {
+  zoomNeedsReview?: boolean;
+  meetingLink?: string | null;
+  zoomMeetingId?: string | null;
+  zoomAccountId?: string | null;
+  conferencing?: string | null;
+  status?: string;
+}): boolean {
+  if (booking.status === "cancelled") return false;
+  if (booking.zoomMeetingId && booking.zoomAccountId) return false;
+  if (booking.zoomNeedsReview) return true;
+  const conferencing = parseBookingConferencingConfig(booking.conferencing);
+  if (conferencing.status === "invalid") return true;
+  if (conferencing.status === "valid" && conferencing.config.type === "zoom") {
+    return true;
+  }
+  if (!booking.meetingLink) return false;
+
+  try {
+    const hostname = new URL(booking.meetingLink).hostname.toLowerCase();
+    return ["zoom.us", "zoom.com", "zoomgov.com"].some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    );
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -168,7 +215,12 @@ export async function disconnectZoom(ownerEmail: string) {
  * owned by the host. `not_started` means the meeting creation request was not sent.
  */
 export type ZoomMeetingResult =
-  | { status: "created"; meetingUrl: string; meetingId: string }
+  | {
+      status: "created";
+      meetingUrl: string;
+      meetingId: string;
+      accountId: string;
+    }
   | { status: "not_started" }
   | { status: "rejected" };
 
@@ -248,7 +300,20 @@ export async function createZoomMeeting(opts: {
     status: "created",
     meetingUrl: result.meetingUrl,
     meetingId: result.meetingId,
+    accountId: credentialId,
   };
+}
+
+export async function deleteZoomMeeting(opts: {
+  accountId: string;
+  meetingId: string;
+}): Promise<void> {
+  const creds = getZoomCreds();
+  if (!creds) throw new Error("Zoom OAuth is not configured");
+  await createProvider(creds).deleteMeeting!({
+    credentialId: opts.accountId,
+    meetingId: opts.meetingId,
+  });
 }
 
 /**

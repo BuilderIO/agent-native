@@ -65,9 +65,6 @@ export default createAuthPlugin({
   ],
   marketing: {
     appName: "Plan",
-    screenshotPath: "/auth-marketing/plan.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     learnMoreUrl: "https://agent-native.com/apps/plan",
     tagline:
       "Turn coding-agent plans into visual, annotatable HTML before code changes happen.",

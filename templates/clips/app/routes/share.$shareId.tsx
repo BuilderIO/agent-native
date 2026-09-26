@@ -533,9 +533,8 @@ export default function ShareRoute() {
     status: sessionStatus,
     retry: retrySession,
   } = useSession();
-  // appPath("/") always renders the public marketing shell (root.tsx's
-  // isMarketingHome), even for a signed-in viewer - never use it as a
-  // signed-in destination.
+  // The root entry is public, even for signed-in viewers; keep private
+  // destinations on the app's home route.
   const homeHref = session ? appPath("/home") : appPath("/");
   const retriedUnavailableSessionRef = useRef(false);
   const requestAccess = useActionMutation<
@@ -1870,12 +1869,10 @@ export default function ShareRoute() {
                   sessionStatus !== "signing-out" &&
                   comments.length === 0 ? (
                     <PublicCommentsEmptyState
-                      signInHref={signInHref}
                       onSignUp={() => {
                         fireShareCtaClick("signup");
                         openCreateAccount("comment");
                       }}
-                      onSignIn={() => fireShareCtaClick("signin")}
                     />
                   ) : (
                     <CommentsPanel
@@ -2055,45 +2052,23 @@ function formatRecordedOn(
   }).format(date);
 }
 
-function PublicCommentsEmptyState({
-  signInHref,
-  onSignUp,
-  onSignIn,
-}: {
-  signInHref: string;
-  onSignUp: () => void;
-  onSignIn: () => void;
-}) {
+function PublicCommentsEmptyState({ onSignUp }: { onSignUp: () => void }) {
   const t = useT();
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-sm flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-5 py-5 text-center">
       <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <IconDeviceDesktop aria-hidden="true" className="size-5" />
+        <AgentNativeIcon aria-hidden="true" className="h-3.5 w-6" />
       </div>
       <h2 className="text-base font-semibold tracking-tight">
         {t("sharePage.commentSignupTitle")}
       </h2>
       <p className="max-w-xs text-sm leading-5 text-muted-foreground">
-        {t("sharePage.commentSignupContext")} ·{" "}
-        {t("sharePage.commentSignupFeedback")} ·{" "}
-        {t("sharePage.commentSignupDebug")}
+        {t("sharePage.commentSignupDescription")}
       </p>
-      <div className="w-full space-y-2">
-        <Button type="button" className="w-full" onClick={onSignUp}>
-          {t("signInPrompt.createAccount")}
-        </Button>
-        <p className="text-center text-xs text-muted-foreground">
-          {t("sharePage.agentEmptySignInPrompt")}{" "}
-          <a
-            href={signInHref}
-            onClick={onSignIn}
-            className="font-medium text-foreground underline underline-offset-4 hover:no-underline"
-          >
-            {t("signInPrompt.signIn")}
-          </a>
-        </p>
-      </div>
+      <Button type="button" className="w-full" onClick={onSignUp}>
+        {t("signInPrompt.createAccount")}
+      </Button>
     </div>
   );
 }

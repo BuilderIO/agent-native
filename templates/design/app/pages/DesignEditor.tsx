@@ -9750,7 +9750,7 @@ function DesignEditor() {
     canEditDesign || canEditLiveScreen(activeFile?.id ?? activeFileId);
   // P4: arms DesignCanvas's single-screen click-to-place overlay only while
   // focused on a single screen with an active creation tool selected —
-  // `null` in every other case leaves the overlay unmounted (see
+  // `null` in every other case disables pointer capture (see
   // getSingleScreenCreationTool's doc comment for the full tool mapping).
   const activeSingleScreenCreationTool = getSingleScreenCreationTool({
     activeTool,
@@ -11720,24 +11720,24 @@ function DesignEditor() {
    * same `handleCreatePrimitive`/`handlePrimitiveCreated` pair overview
    * drawing already uses — `createPrimitiveInsertFromSpec` just translates
    * the overlay's screen-content-space spec into the shared
-   * `CanvasPrimitiveInsert` shape first. Pen commits keep Pen active, matching
-   * overview/Figma, unless the overlay is flushing a path because the user
-   * already selected a different tool.
+   * `CanvasPrimitiveInsert` shape first. Pen commits keep Pen active unless
+   * the overlay supplies explicit tool intent or flushes after a tool change.
    */
   const handleSingleScreenCreatePrimitive = useCallback(
     (spec: CreatePrimitiveSpec) => {
-      if (!activeFile || !canEditDesign) return;
+      if (!activeFile || !canEditDesign) return false;
       const nodeId = uniqueLayerId(spec.tool === "pen" ? "path" : spec.tool);
       const primitive = createPrimitiveInsertFromSpec(spec, nodeId);
-      if (!primitive) return;
+      if (!primitive) return false;
       const result = handleCreatePrimitive(activeFile.id, primitive);
-      if (!result) return;
+      if (!result) return false;
       const resultNodeId = typeof result === "string" ? result : nodeId;
       handlePrimitiveCreated(activeFile.id, resultNodeId, {
         nextTool:
-          spec.tool === "pen" && spec.preserveActiveTool !== false
+          spec.nextTool ??
+          (spec.tool === "pen" && spec.preserveActiveTool !== false
             ? "pen"
-            : undefined,
+            : undefined),
         preserveActiveTool: spec.preserveActiveTool,
       });
       return resultNodeId;
@@ -11782,56 +11782,61 @@ function DesignEditor() {
    */
   const handleVectorEditChange = useCallback(
     (nextPath: PenPath, phase: "preview" | "commit") => {
-      setVectorEditingState((current) => {
-        if (!current) return current;
-        if (phase === "commit") {
-          const baseContent = getScreenContent(current.screenId);
-          if (!baseContent) {
-            toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-            return current;
-          }
-
-          const sourcePath = translatePenPath(
-            nextPath,
-            -current.sourceOffset.x,
-            -current.sourceOffset.y,
-          );
-          const nextContent = current.primitiveSource
-            ? writeBackPrimitiveAsVector(
-                baseContent,
-                current.nodeId,
-                sourcePath,
-                current.primitiveSource.geometry,
-                current.primitiveSource.fill,
-              )
-            : writeBackVectorEditedPenPath(
-                baseContent,
-                current.nodeId,
-                sourcePath,
-              );
-          if (nextContent === null) {
-            toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-            return current;
-          }
-          if (nextContent !== baseContent) {
-            applyFileContentUpdate(current.screenId, nextContent, {
-              skipPreview: current.screenId !== activeFile?.id,
-              historyBeforeContent: baseContent,
-            });
-          }
-          return {
-            ...current,
-            path: nextPath,
-            primitiveSource:
-              current.primitiveSource && nextContent !== baseContent
-                ? null
-                : current.primitiveSource,
-          };
+      const current = vectorEditingState;
+      if (!current) return false;
+      let primitiveSource = current.primitiveSource;
+      if (phase === "commit") {
+        const baseContent = getScreenContent(current.screenId);
+        if (!baseContent) {
+          toast.error(t("designEditor.toasts.vectorEditUnsupported"));
+          return false;
         }
-        return { ...current, path: nextPath };
-      });
+
+        const sourcePath = translatePenPath(
+          nextPath,
+          -current.sourceOffset.x,
+          -current.sourceOffset.y,
+        );
+        const nextContent = current.primitiveSource
+          ? writeBackPrimitiveAsVector(
+              baseContent,
+              current.nodeId,
+              sourcePath,
+              current.primitiveSource.geometry,
+              current.primitiveSource.fill,
+            )
+          : writeBackVectorEditedPenPath(
+              baseContent,
+              current.nodeId,
+              sourcePath,
+            );
+        if (nextContent === null) {
+          toast.error(t("designEditor.toasts.vectorEditUnsupported"));
+          return false;
+        }
+        if (nextContent !== baseContent) {
+          const result = applyFileContentUpdate(current.screenId, nextContent, {
+            skipPreview: current.screenId !== activeFile?.id,
+            historyBeforeContent: baseContent,
+          });
+          if (result.status !== "accepted") return false;
+          if (current.primitiveSource) primitiveSource = null;
+        }
+      }
+      setVectorEditingState((latest) =>
+        latest?.layerId === current.layerId
+          ? { ...latest, path: nextPath, primitiveSource }
+          : latest,
+      );
+      return true;
     },
-    [activeFile?.id, applyFileContentUpdate, getScreenContent, t],
+    [
+      activeFile?.id,
+      applyFileContentUpdate,
+      getScreenContent,
+      t,
+      vectorEditingState,
+    ],
   );
 
   const handleVectorEditExit = useCallback(() => {

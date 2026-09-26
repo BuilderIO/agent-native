@@ -225,7 +225,6 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
-  const isMarketingPath = pathname === "/";
   const sessionBypass =
     pathname === "/chat" ||
     pathname === "/plans" ||
@@ -242,23 +241,18 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isMarketingPath}
         sessionBypass={sessionBypass}
         documentTitleFallback={APP_TITLE}
         toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >
-        {isMarketingPath ? (
-          <Outlet />
-        ) : (
-          <div
-            data-an-mask={localPlanPrivacyRoute ? "" : undefined}
-            style={{ display: "contents" }}
-          >
-            <DbSyncSetup />
-            <AppContent />
-          </div>
-        )}
+        <div
+          data-an-mask={localPlanPrivacyRoute ? "" : undefined}
+          style={{ display: "contents" }}
+        >
+          <DbSyncSetup />
+          <AppContent />
+        </div>
       </AppProviders>
     </AppToolkitProvider>
   );
