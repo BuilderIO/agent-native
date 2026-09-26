@@ -2013,8 +2013,6 @@ export default function Index() {
     loadError,
     deckCount: decks.length,
   });
-  const hasDeckSearch = normalizedDeckSearch.length > 0;
-
   useSetHeaderActions(
     useMemo(
       () => (
