@@ -453,6 +453,7 @@ const messages = {
       requestAccess: "请求访问权限",
       requestAccessTitle: "请求访问此计划",
       requestSent: "请求已发送",
+      storageStatusUnavailable: "无法检查文件存储。",
       retry: "重试",
       sendFeedback: "发送反馈",
       feedbackPlaceholder: "描述此计划错误出现前发生了什么。",

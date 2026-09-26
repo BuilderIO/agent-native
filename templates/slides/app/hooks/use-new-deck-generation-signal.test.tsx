@@ -13,6 +13,7 @@ import { useNewDeckGenerationSignal } from "./use-new-deck-generation-signal";
 
 const observerState = vi.hoisted(() => ({
   options: null as { tabId: string | null } | null,
+  startedTabId: null as string | null,
   generating: false,
   observedRun: false,
   runError: false,
@@ -21,10 +22,14 @@ const observerState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/use-agent-generating", () => ({
-  MAX_GENERATING_MS: 30 * 60 * 1000,
+  getStartedGenerationAttemptTabId: vi.fn(() => observerState.startedTabId),
   useAgentGenerating: (options: { tabId: string | null }) => {
     observerState.options = options;
-    return { ...observerState };
+    return {
+      ...observerState,
+      generating: Boolean(options.tabId) && observerState.generating,
+      observedRun: Boolean(options.tabId) && observerState.observedRun,
+    };
   },
 }));
 
@@ -63,6 +68,7 @@ describe("useNewDeckGenerationSignal", () => {
     vi.useRealTimers();
     Object.assign(observerState, {
       options: null,
+      startedTabId: null,
       generating: false,
       observedRun: false,
       runError: false,
@@ -78,8 +84,6 @@ describe("useNewDeckGenerationSignal", () => {
     props = {
       attemptId: "attempt-1",
       tabId: "target-tab",
-      broadGenerating: true,
-      submitStarted: true,
     };
 
     act(() => root.render(<Harness />));
@@ -100,10 +104,6 @@ describe("useNewDeckGenerationSignal", () => {
       "false",
     );
 
-    props = {
-      ...props,
-      broadGenerating: true,
-    };
     Object.assign(observerState, { generating: false });
     act(() => root.render(<Harness />));
     expect(state.generating).toBe(false);
@@ -112,51 +112,54 @@ describe("useNewDeckGenerationSignal", () => {
     expect((container.firstChild as HTMLElement).dataset.clearUrl).toBe("true");
   });
 
-  it("does not treat broad activity as this run before submit", () => {
+  it("does not infer generation while the target tab is unresolved", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     props = {
       attemptId: "attempt-1",
       tabId: null,
-      broadGenerating: true,
-      submitStarted: false,
     };
+    observerState.generating = true;
 
     act(() => root.render(<Harness />));
     expect(state.generating).toBe(false);
     expect(state.generationStarted).toBe(false);
+    expect(observerState.options).toEqual({ tabId: null });
     expect((container.firstChild as HTMLElement).dataset.clearUrl).toBe(
       "false",
     );
   });
 
-  it("uses the broad signal only after this component submitted before tab resolution", () => {
+  it("attaches to the mapped generation tab after submit resolves", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     props = {
       attemptId: "attempt-1",
+      outputId: "deck-1",
       tabId: null,
-      broadGenerating: true,
-      submitStarted: true,
     };
 
     act(() => root.render(<Harness />));
+    observerState.startedTabId = "target-tab";
+    Object.assign(observerState, { generating: true, observedRun: true });
+    act(() => {
+      root.render(<Harness />);
+    });
 
-    expect(observerState.options).toEqual({ tabId: null });
+    expect(observerState.options?.tabId).toBe("target-tab");
     expect(state.generating).toBe(true);
+    expect(state.attempt.timedOut).toBe(false);
   });
 
-  it("settles when the scoped observer watchdog expires", () => {
+  it("keeps generation active after the scoped observer watchdog expires", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     props = {
       attemptId: "attempt-1",
       tabId: "target-tab",
-      broadGenerating: true,
-      submitStarted: true,
     };
     Object.assign(observerState, { generating: true, observedRun: true });
 
@@ -165,30 +168,16 @@ describe("useNewDeckGenerationSignal", () => {
     act(() => root.render(<Harness />));
 
     expect(state.attempt.timedOut).toBe(true);
-    expect(state.generating).toBe(false);
+    expect(state.generating).toBe(true);
     expect(state.generationStarted).toBe(true);
-    expect((container.firstChild as HTMLElement).dataset.clearUrl).toBe("true");
-  });
+    expect((container.firstChild as HTMLElement).dataset.clearUrl).toBe(
+      "false",
+    );
 
-  it("keeps a watchdog while the submitted run's tab is unresolved", async () => {
-    vi.useFakeTimers();
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
-    props = {
-      attemptId: "attempt-1",
-      tabId: null,
-      broadGenerating: true,
-      submitStarted: true,
-    };
-
+    observerState.generating = false;
     act(() => root.render(<Harness />));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
-    });
 
-    expect(state.attempt.timedOut).toBe(true);
     expect(state.generating).toBe(false);
-    expect(state.generationStarted).toBe(true);
+    expect((container.firstChild as HTMLElement).dataset.clearUrl).toBe("true");
   });
 });

@@ -180,6 +180,18 @@ export default {
     notFoundBackToDesigns: "العودة إلى التصاميم",
     teamCreateOrgDescription: "أعد فريقا لمشاركة التصاميم مع زملائك.",
   },
+  onboarding: {
+    fileStorage: {
+      title: "اختر تخزين الملفات",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
+      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+    },
+    common: { retry: "إعادة المحاولة" },
+  },
   chat: {
     emptyState: "صف تصميمًا لإنشائه",
     suggestionLandingPage: "صمم صفحة هبوط لشركتي الناشئة",

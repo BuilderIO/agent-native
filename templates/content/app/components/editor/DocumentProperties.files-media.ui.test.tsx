@@ -5,9 +5,20 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const setPropertyMutation = vi.hoisted(() => ({
-  mutateAsync: vi.fn(async () => ({})),
-  isPending: false,
+const { setPropertyMutation, uploadStatus } = vi.hoisted(() => ({
+  setPropertyMutation: {
+    mutateAsync: vi.fn(async () => ({})),
+    isPending: false,
+  },
+  uploadStatus: {
+    current: {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: false } as { configured: boolean } | undefined,
+      refetch: vi.fn(),
+    },
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -21,6 +32,18 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     return key;
   },
 }));
+
+vi.mock("@agent-native/core/client/uploads", () => ({
+  useFileUploadStatus: () => uploadStatus.current,
+}));
+
+vi.mock("@agent-native/core/client/setup-connections", async () => {
+  const { createElement } = await import("react");
+  return {
+    FileStorageSetupCard: () =>
+      createElement("div", { "data-testid": "file-storage-setup-card" }),
+  };
+});
 
 vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-document-properties")>()),
@@ -63,6 +86,13 @@ describe("files and media property editor", () => {
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     setPropertyMutation.mutateAsync.mockClear();
+    uploadStatus.current = {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: false },
+      refetch: vi.fn(),
+    };
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -83,6 +113,7 @@ describe("files and media property editor", () => {
   afterEach(() => {
     act(() => root.unmount());
     document.body.replaceChildren();
+    vi.unstubAllGlobals();
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = false;
@@ -120,4 +151,78 @@ describe("files and media property editor", () => {
       ],
     });
   });
+
+  it("blocks image uploads and shows the shared storage setup", async () => {
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Edit Image"]',
+    );
+    await act(async () => trigger?.click());
+
+    expect(
+      container.querySelector('[data-testid="file-storage-setup-card"]'),
+    ).not.toBeNull();
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "editor.properties.upload",
+      ),
+    ).toBe(false);
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input?.disabled).toBe(true);
+    if (input) {
+      Object.defineProperty(input, "files", {
+        configurable: true,
+        value: [new File(["image"], "photo.png", { type: "image/png" })],
+      });
+      await act(async () => input.dispatchEvent(new Event("change")));
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(setPropertyMutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["loading", false],
+    ["error", true],
+  ] as const)(
+    "shows retry instead of setup when file storage status is %s",
+    async (_state, isError) => {
+      const refetch = vi.fn();
+      uploadStatus.current = {
+        isSuccess: false,
+        isError,
+        isFetching: !isError,
+        data: undefined,
+        refetch,
+      };
+      const trigger = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Edit Image"]',
+      );
+      await act(async () => trigger?.click());
+
+      expect(
+        container.querySelector('[data-testid="file-storage-setup-card"]'),
+      ).toBeNull();
+      expect(
+        container.querySelector<HTMLInputElement>('input[type="file"]')
+          ?.disabled,
+      ).toBe(true);
+      expect(container.textContent).toContain(
+        "onboarding.fileStorage.statusUnavailable",
+      );
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-testid="file-storage-retry"]',
+          )
+          ?.click();
+      });
+
+      expect(refetch).toHaveBeenCalledOnce();
+    },
+  );
 });

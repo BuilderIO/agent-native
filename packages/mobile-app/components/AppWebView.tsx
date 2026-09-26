@@ -49,6 +49,7 @@ import {
 import {
   buildMobileWebViewAuthUrl,
   canCaptureMobileWebViewSession,
+  mobileWebViewTargetPath,
   resolveStickyWebViewUrl,
 } from "@/lib/webview-auth-url";
 import {
@@ -240,15 +241,6 @@ async function resolveGoogleAuthUrl(startUrl: string): Promise<string | null> {
       : null;
   } catch {
     return null;
-  }
-}
-
-function embedTargetPath(rawUrl: string): string {
-  try {
-    const parsed = new URL(rawUrl);
-    return `${parsed.pathname || "/"}${parsed.search}`;
-  } catch {
-    return "/";
   }
 }
 
@@ -486,7 +478,7 @@ function AppWebView(
       const mint = () =>
         createWorkspaceAppEmbedSession({
           app: workspaceAppId!,
-          path: embedTargetPath(url),
+          path: mobileWebViewTargetPath(url),
         });
       const known = peekWorkspaceSsoEnabled(parentSessionToken);
       if (known === false) {

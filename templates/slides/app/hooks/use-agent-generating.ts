@@ -1,15 +1,17 @@
 import {
   sendToAgentChatAndConfirm,
+  useAbortRun,
   useAgentChatGenerating,
   useAgentEngineConfigured,
+  useRunStuckDetection,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-// This is only a lost-signal recovery guard. A long deck legitimately takes
-// several minutes because each slide is written and fit-checked separately.
-export const MAX_GENERATING_MS = 30 * 60 * 1000;
+// A long deck may run for hours while its chat stream, tools, or slides keep
+// making progress. Only a quiet run is considered stuck.
+export const GENERATION_NO_PROGRESS_TIMEOUT_MS = 5 * 60 * 1000;
 
 // Gateway continuations can briefly report a stopped chat between model/tool
 // chunks. Keep generation UI and presence steady across that transport gap.
@@ -48,6 +50,22 @@ export function clearStartedGenerationAttempt(
   startedGenerationAttempts.delete(generationAttemptKey(attemptId, outputId));
 }
 
+function recordStartedGenerationAttempt(
+  attemptId: string,
+  outputId: string,
+  tabId: string,
+): void {
+  startedGenerationAttempts.set(
+    generationAttemptKey(attemptId, outputId),
+    tabId,
+  );
+  window.dispatchEvent(
+    new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+      detail: { generationAttemptId: attemptId, outputId, tabId },
+    }),
+  );
+}
+
 type AgentGeneratingSubmitOptions = Pick<
   AgentChatMessage,
   | "newTab"
@@ -58,6 +76,7 @@ type AgentGeneratingSubmitOptions = Pick<
   | "engine"
   | "effort"
   | "submitMessageId"
+  | "targetTabId"
 > & {
   reuseEmptyTab?: boolean;
   attachments?: ReadonlyArray<unknown>;
@@ -66,13 +85,16 @@ type AgentGeneratingSubmitOptions = Pick<
 };
 
 /**
- * Tracks whether an agent chat submission is in progress.
- * Wraps @agent-native/core's useAgentChatGenerating hook, with a timeout
- * fallback so a run that never reports completion can't spin forever.
+ * Tracks chat generation locally and uses durable run health before offering
+ * recovery for a quiet run.
  */
-export function useAgentGenerating(options?: { tabId: string | null }) {
+export function useAgentGenerating(options?: {
+  tabId: string | null;
+  progressToken?: number;
+}) {
   const hasTabScope = options !== undefined;
   const scopedTabId = options?.tabId ?? null;
+  const progressToken = options?.progressToken;
   const [generating, send, stopReason, observedRun] = useAgentChatGenerating(
     hasTabScope ? { tabId: scopedTabId } : undefined,
   );
@@ -80,14 +102,25 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
   const [recentlyGenerating, setRecentlyGenerating] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [runError, setRunError] = useState(false);
+  const serverRunState = useRunStuckDetection({
+    threadId: hasTabScope ? scopedTabId : null,
+    enabled: hasTabScope && timedOut,
+  });
+  const abortRun = useAbortRun();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSubmitRef = useRef<string | null>(null);
+  const activeGenerationAttemptRef = useRef<{
+    attemptId: string;
+    outputId: string;
+    submitMessageId: string;
+  } | null>(null);
   const scopedTabIdRef = useRef<string | null>(scopedTabId);
   scopedTabIdRef.current = scopedTabId;
   const activeTabRef = useRef<string | null>(scopedTabId);
   const generationActiveRef = useRef(false);
   generationActiveRef.current = generating || recentlyGenerating;
+  const lastProgressTokenRef = useRef(progressToken);
 
   const clearWatchdog = useCallback(() => {
     if (timeoutRef.current !== null) {
@@ -103,7 +136,34 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
     }
   }, []);
 
+  const resetWatchdog = useCallback(() => {
+    clearWatchdog();
+    timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = null;
+      setTimedOut(true);
+    }, GENERATION_NO_PROGRESS_TIMEOUT_MS);
+  }, [clearWatchdog]);
+
   const providerMissing = engineConfigured.state === "missing";
+  const freshBackgroundWorker =
+    serverRunState.status === "running" &&
+    serverRunState.dispatchMode === "background-processing" &&
+    serverRunState.heartbeatSinceMs != null &&
+    serverRunState.heartbeatSinceMs >= 0 &&
+    serverRunState.heartbeatSinceMs < 30_000;
+  const canContinueAfterStall = Boolean(
+    timedOut &&
+    serverRunState.isStuck &&
+    serverRunState.status === "running" &&
+    serverRunState.runId &&
+    serverRunState.hasInFlightWork === false &&
+    !freshBackgroundWorker,
+  );
+  const abortStalledRun = useCallback(async () => {
+    const runId = serverRunState.runId;
+    if (!canContinueAfterStall || !runId) return false;
+    return (await abortRun(runId, "user_stuck_retry")) === runId;
+  }, [abortRun, canContinueAfterStall, serverRunState.runId]);
 
   useEffect(() => {
     if (!hasTabScope) return;
@@ -135,6 +195,17 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
         return;
       }
       activeTabRef.current = detail.tabId;
+      const generationAttempt = activeGenerationAttemptRef.current;
+      if (
+        generationAttempt &&
+        generationAttempt.submitMessageId === detail.submitMessageId
+      ) {
+        recordStartedGenerationAttempt(
+          generationAttempt.attemptId,
+          generationAttempt.outputId,
+          detail.tabId,
+        );
+      }
     };
     const errorHandler = (event: Event) => {
       const detail = (event as CustomEvent).detail;
@@ -188,6 +259,36 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
   }, [clearStopDebounce, clearWatchdog]);
 
   useEffect(() => {
+    const handleProgress = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (
+        !generationActiveRef.current ||
+        typeof detail?.tabId !== "string" ||
+        detail.tabId !== activeTabRef.current
+      ) {
+        return;
+      }
+      setTimedOut(false);
+      resetWatchdog();
+    };
+
+    window.addEventListener("agent-chat:stream-progress", handleProgress);
+    window.addEventListener("agent-chat:activity", handleProgress);
+    return () => {
+      window.removeEventListener("agent-chat:stream-progress", handleProgress);
+      window.removeEventListener("agent-chat:activity", handleProgress);
+    };
+  }, [resetWatchdog]);
+
+  useEffect(() => {
+    if (lastProgressTokenRef.current === progressToken) return;
+    lastProgressTokenRef.current = progressToken;
+    if (!generationActiveRef.current) return;
+    setTimedOut(false);
+    resetWatchdog();
+  }, [progressToken, resetWatchdog]);
+
+  useEffect(() => {
     if (runError) {
       clearStopDebounce();
       clearWatchdog();
@@ -201,12 +302,7 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
       return clearStopDebounce;
     }
     if (generating) {
-      if (hasTabScope && timeoutRef.current === null) {
-        timeoutRef.current = setTimeout(() => {
-          timeoutRef.current = null;
-          setTimedOut(true);
-        }, MAX_GENERATING_MS);
-      }
+      if (hasTabScope && timeoutRef.current === null) resetWatchdog();
       clearStopDebounce();
       setRecentlyGenerating(true);
     } else if (recentlyGenerating) {
@@ -231,6 +327,7 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
     hasTabScope,
     clearStopDebounce,
     clearWatchdog,
+    resetWatchdog,
   ]);
 
   useEffect(
@@ -258,41 +355,39 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
         `slides-submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setTimedOut(false);
       setRunError(false);
-      clearWatchdog();
-      timeoutRef.current = setTimeout(
-        () => setTimedOut(true),
-        MAX_GENERATING_MS,
-      );
+      resetWatchdog();
       activeSubmitRef.current = submitMessageId;
-      activeTabRef.current = send({
+      activeGenerationAttemptRef.current =
+        generationAttemptId && generationOutputId
+          ? {
+              attemptId: generationAttemptId,
+              outputId: generationOutputId,
+              submitMessageId,
+            }
+          : null;
+      activeTabRef.current = null;
+      const returnedTabId = send({
         message,
         context,
         submit: true,
         submitMessageId,
         ...agentOptions,
       } as AgentChatMessage & { attachments?: ReadonlyArray<unknown> });
+      activeTabRef.current ??= returnedTabId;
       if (
         generationAttemptId &&
         generationOutputId &&
         activeTabRef.current &&
         typeof window !== "undefined"
       ) {
-        startedGenerationAttempts.set(
-          generationAttemptKey(generationAttemptId, generationOutputId),
+        recordStartedGenerationAttempt(
+          generationAttemptId,
+          generationOutputId,
           activeTabRef.current,
-        );
-        window.dispatchEvent(
-          new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
-            detail: {
-              generationAttemptId,
-              outputId: generationOutputId,
-              tabId: activeTabRef.current,
-            },
-          }),
         );
       }
     },
-    [send, clearWatchdog],
+    [send, resetWatchdog],
   );
 
   const submitAndConfirm = useCallback(
@@ -312,11 +407,7 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
         `slides-submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setTimedOut(false);
       setRunError(false);
-      clearWatchdog();
-      timeoutRef.current = setTimeout(
-        () => setTimedOut(true),
-        MAX_GENERATING_MS,
-      );
+      resetWatchdog();
       activeSubmitRef.current = submitMessageId;
       activeTabRef.current = null;
       const submission = sendToAgentChatAndConfirm(
@@ -374,12 +465,13 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
       !providerMissing &&
       stopReason !== "stopped" &&
       (generating || recentlyGenerating) &&
-      !timedOut &&
       !runError,
     runError,
     stopReason,
     observedRun,
     timedOut,
+    canContinueAfterStall,
+    abortStalledRun,
     submit,
     submitAndConfirm,
   };

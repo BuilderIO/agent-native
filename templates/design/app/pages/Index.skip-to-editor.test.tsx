@@ -36,18 +36,18 @@ const mocks = vi.hoisted(() => ({
   focusComposer: vi.fn(),
   submitWithText: vi.fn(),
   agentEngine: { state: "configured", missing: false },
-  connect: vi.fn(),
   starterPrompt: "Un panel de análisis con cuatro indicadores clave.",
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  useAgentEngineConfigured: () => mocks.agentEngine,
-}));
-vi.mock("@agent-native/core/client/settings", () => ({
-  useBuilderConnectFlow: () => ({ connecting: false, start: mocks.connect }),
-  BuilderConnectPopover: ({ children }: { children: React.ReactNode }) => (
-    <div onClick={mocks.connect}>{children}</div>
+  BuilderSetupCard: ({ onConnected }: { onConnected?: () => void }) => (
+    <div data-testid="ai-setup-card">
+      <h3>Connect AI</h3>
+      <button onClick={onConnected}>Connect Builder.io</button>
+      <a href="/settings/keys">Custom keys</a>
+    </div>
   ),
+  useAgentEngineConfigured: () => mocks.agentEngine,
 }));
 vi.mock("@/components/templates/TemplatePreview", () => ({
   TemplatePreview: () => null,
@@ -442,33 +442,65 @@ describe("Index skip to editor", () => {
     expect(mocks.createDesign).not.toHaveBeenCalled();
   });
 
-  it("offers provider connection without disabling draft or context staging and enables sending when configured", async () => {
+  it("gates chat on missing provider, offers Builder and custom keys, then enables when configured", async () => {
     mocks.agentEngine = { state: "missing", missing: true };
     await act(async () => root.render(<Index />));
-    const connect = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("home.connectBuilderIo"),
-    );
-    expect(connect).toBeDefined();
-    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Connect AI");
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "Connect Builder.io",
+      ),
+    ).toBe(true);
+    expect(
+      Array.from(container.querySelectorAll("a")).some(
+        (link) =>
+          link.textContent === "Custom keys" &&
+          link.href.endsWith("/settings/keys"),
+      ),
+    ).toBe(true);
     expect(mocks.promptProps).toMatchObject({
+      disabled: true,
       submissionDisabled: true,
       showModelSelector: false,
       modelStatusChecksEnabled: false,
     });
-    expect(mocks.promptProps?.disabled).not.toBe(true);
-    expect(mocks.promptProps?.contextMenuItems).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "design" })]),
+    await act(async () =>
+      mocks.promptProps?.onSubmit?.("Build a dashboard", [], {}),
     );
-    await act(async () => connect?.click());
-    expect(mocks.connect).toHaveBeenCalledTimes(1);
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
     mocks.agentEngine = { state: "configured", missing: false };
     await act(async () => root.render(<Index />));
     expect(mocks.promptProps).toMatchObject({
+      disabled: false,
       submissionDisabled: false,
       showModelSelector: true,
-      modelStatusChecksEnabled: true,
+      modelStatusChecksEnabled: false,
     });
-    expect(container.textContent).not.toContain("home.connectBuilderIo");
+    expect(container.querySelector("[data-testid='ai-setup-card']")).toBeNull();
+  });
+
+  it("keeps chat closed while provider status is unresolved and offers retry when unavailable", async () => {
+    mocks.agentEngine = { state: "unknown", missing: false };
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).toContain("agentChat.setup.checkingProvider");
+    expect(mocks.promptProps).toMatchObject({
+      disabled: true,
+      submissionDisabled: true,
+    });
+
+    mocks.agentEngine = { state: "unavailable", missing: false };
+    await act(async () => root.render(<Index />));
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "agentChat.common.retry",
+    );
+    expect(retry).toBeDefined();
+    await act(async () => retry?.click());
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-engine:configured-changed" }),
+    );
+    dispatch.mockRestore();
   });
 
   it("hides home suggestions until the provider status is confirmed", async () => {
