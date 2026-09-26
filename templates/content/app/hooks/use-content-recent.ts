@@ -53,10 +53,11 @@ export function useContentRecent(spaceId?: string) {
   const contextChanged = isContentRecentContextChanged(query.error);
 
   useEffect(() => {
-    if (!scopeKey || !contextChanged) {
-      if (!query.isError) resyncedScopeRef.current = null;
+    if (!contextChanged) {
+      resyncedScopeRef.current = null;
       return;
     }
+    if (!scopeKey) return;
     if (resyncedScopeRef.current === scopeKey) return;
 
     resyncedScopeRef.current = scopeKey;
@@ -90,11 +91,20 @@ export function useContentRecent(spaceId?: string) {
     scopeKey,
   ]);
 
+  const refetch = useCallback(
+    (...args: Parameters<typeof query.refetch>) => {
+      if (contextChanged) resyncedScopeRef.current = null;
+      return query.refetch(...args);
+    },
+    [contextChanged, query.refetch],
+  );
+
   const recoveringContext =
     contextChanged &&
     (refreshingScope === scopeKey || resyncedScopeRef.current !== scopeKey);
   return {
     ...query,
+    refetch,
     data:
       !org.isFetching && query.data?.scopeKey === scopeKey
         ? query.data
