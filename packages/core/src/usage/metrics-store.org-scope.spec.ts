@@ -291,6 +291,51 @@ describe("listAppUsageMetrics organization scoping", () => {
     expect(metrics.recent[11]?.prompt).toBe("prompt 1");
   });
 
+  it("bounds recent prompt hydration to the result size", async () => {
+    const now = Date.now();
+    for (let index = 0; index < 13; index += 1) {
+      const threadId = `thread-${index}`;
+      await pglite
+        .prepare(
+          `INSERT INTO chat_threads (id, preview, thread_data) VALUES (?, ?, ?)`,
+        )
+        .run(threadId, "", JSON.stringify({ messages: [] }));
+      await pglite
+        .prepare(
+          `INSERT INTO token_usage (id, owner_email, app, thread_id, task_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          index + 1,
+          "a@example.com",
+          "",
+          threadId,
+          `turn-${index}`,
+          now - index,
+        );
+    }
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "me" },
+      { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+    );
+
+    expect(metrics.recent).toHaveLength(12);
+    const threadQueries = rawClient.execute.mock.calls
+      .map(([input]) => input)
+      .filter(
+        (input) =>
+          typeof input !== "string" &&
+          input.sql.startsWith("SELECT id, thread_data FROM chat_threads"),
+      );
+    const threadQuery = threadQueries[threadQueries.length - 1];
+    expect(threadQuery).toBeDefined();
+    if (!threadQuery || typeof threadQuery === "string") {
+      throw new Error("Expected a chat thread prompt lookup");
+    }
+    expect(threadQuery.args).toHaveLength(12);
+  });
+
   it("uses the sole legacy prompt when persisted messages have no timestamps", async () => {
     await pglite
       .prepare(

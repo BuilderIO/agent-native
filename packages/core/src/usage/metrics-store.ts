@@ -541,13 +541,14 @@ async function hydrateRecentPrompts(
   rows: Array<Record<string, unknown>>,
   builderCreditsEnabled: boolean,
 ): Promise<UsageRecentMetric[]> {
+  const recentLimit = 12;
   const threadIds = [
     ...new Set(
       rows
         .map((row) => nullableStringField(row, "thread_id"))
         .filter((value): value is string => Boolean(value)),
     ),
-  ];
+  ].slice(0, recentLimit);
   const threads = new Map<string, ThreadPromptRow>();
   let threadQueryUnavailable = false;
   if (threadIds.length > 0) {
@@ -635,7 +636,7 @@ async function hydrateRecentPrompts(
           : "not-captured",
       threadId,
     });
-    if (recent.length === 12) break;
+    if (recent.length === recentLimit) break;
   }
   return recent;
 }
