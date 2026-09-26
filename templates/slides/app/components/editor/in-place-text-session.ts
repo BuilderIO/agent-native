@@ -684,6 +684,8 @@ export function startInPlaceTextSession(
   let edited = false;
   /** A drag-move's deletion, which its drop joins into one undo step. */
   let dragDeleted = false;
+  /** The text a drag-move deleted from, reshaped once the drop has landed. */
+  let dragSource: Node | null = null;
   // Script can still scroll an overflow:hidden ancestor, and Chrome does, to
   // reveal a caret in text the slide clips; that slides the whole slide
   // under the edit. Their offsets stay pinned for the session.
@@ -760,17 +762,26 @@ export function startInPlaceTextSession(
    * deleting next to a joined Arabic letter leaves it drawn unjoined until
    * the node is recreated.
    */
-  function reshapeAtCaret() {
-    const range = selectionRange();
-    const text = range?.startContainer;
-    if (!range?.collapsed || !(text instanceof Text)) return;
+  function reshape(text: Node | null | undefined) {
     // Latin text has no joining to redo; leave its node, and whatever the
     // browser tracks on it, alone.
-    if (!/[^\t\n\r\u0020-\u024f\u2000-\u206f]/.test(text.data)) return;
-    const offset = range.startOffset;
+    if (
+      !(text instanceof Text) ||
+      !text.isConnected ||
+      !/[^\t\n\r\u0020-\u024f\u2000-\u206f]/.test(text.data)
+    ) {
+      return;
+    }
+    const range = selectionRange();
+    const caretHere = range?.collapsed && range.startContainer === text;
     const copy = text.cloneNode() as Text;
     text.replaceWith(copy);
-    placeCaret(copy, offset);
+    if (caretHere) placeCaret(copy, range.startOffset);
+  }
+
+  function reshapeAtCaret() {
+    const range = selectionRange();
+    if (range?.collapsed) reshape(range.startContainer);
   }
 
   const notify = () => {
@@ -1670,6 +1681,7 @@ export function startInPlaceTextSession(
     const range = selectionRange();
     const dropJoins = dragDeleted && type === "insertFromDrop";
     dragDeleted = false;
+    if (!dropJoins) dragSource = null;
     if (type === "deleteByDrag") {
       // Chrome deletes a moved selection first and then drops it: both
       // halves are one step. Inside one text node Chrome's delete also
@@ -1685,6 +1697,7 @@ export function startInPlaceTextSession(
       // Not edit(): its reshape would move Chrome's live drop point.
       checkpoint("command");
       deleteRange(dragged);
+      dragSource = selectionRange()?.startContainer ?? null;
       notify();
       dragDeleted = true;
       return;
@@ -1730,6 +1743,7 @@ export function startInPlaceTextSession(
       if (dropJoins) {
         if (insertClipboard(data, at)) {
           reshapeAtCaret();
+          reshape(dragSource);
           notify();
         }
       } else {
@@ -1758,7 +1772,9 @@ export function startInPlaceTextSession(
     }
     // Replacing the node would cancel an IME composition, or move the live
     // Range Chrome drops a dragged selection at.
-    if (!input.isComposing && input.inputType !== "deleteByDrag") {
+    if (input.inputType === "deleteByDrag") {
+      dragSource = selectionRange()?.startContainer ?? null;
+    } else if (!input.isComposing) {
       reshapeAtCaret();
     }
     notify();

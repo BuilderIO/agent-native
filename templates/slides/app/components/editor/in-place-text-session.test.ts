@@ -1132,6 +1132,20 @@ describe("in-place text session: clipboard and drag", () => {
     dropAt(el, drop, "ha be");
     expect(el.textContent).toBe("aha belpta gamma");
   });
+
+  it("reshapes the Arabic run a drag moved text out of, once the drop lands", () => {
+    const el = mount('<p id="t">مراجعة ربع <b>beta</b> gamma</p>');
+    session = startInPlaceTextSession(el);
+    const source = textOf(el, "مراجعة");
+    const drop = document.createRange();
+    drop.setStart(textOf(el, "gamma"), 3);
+    select(source, 7, textOf(el, "beta"), 2);
+    expect(beforeInput(el, "deleteByDrag").defaultPrevented).toBe(true);
+    dropAt(el, drop, "ربع be");
+    expect(el.textContent).toBe("مراجعة ta gaربع bemma");
+    // Chrome redraws the joins left behind only in a recreated node.
+    expect(el.firstChild).not.toBe(source);
+  });
 });
 
 describe("in-place text session: composition over a selection", () => {
