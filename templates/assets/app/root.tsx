@@ -180,19 +180,14 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isMarketingPath}
-        toaster={
-          isMarketingPath ? null : <Toaster richColors position="bottom-left" />
-        }
+        toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >
-        {isMarketingPath ? <Outlet /> : <AppContent />}
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

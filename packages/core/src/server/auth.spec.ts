@@ -2843,24 +2843,6 @@ describe("server/auth", () => {
       expect(result).toBeUndefined();
     });
 
-    it("lets auth marketing WebP assets reach the public static handler", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("ACCESS_TOKEN", "my-secret");
-      const { autoMountAuth } = await import("./auth.js");
-
-      const app = createMockApp();
-      await autoMountAuth(app);
-
-      const guard = app.use.mock.calls
-        .map((call: any[]) => call[0])
-        .find((arg: unknown) => typeof arg === "function");
-      expect(guard).toBeTypeOf("function");
-
-      await expect(
-        guard(createMockEvent({ path: "/auth-marketing/analytics.webp" })),
-      ).resolves.toBeUndefined();
-    });
-
     it("allows public workspace app pages while keeping API and framework routes protected", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -4082,7 +4064,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
       // With the app home at "/", the root is the authenticated app shell, not
-      // a public marketing surface. Serving the login document there would
+      // a public sign-in entrypoint. Serving the login document there would
       // bounce a signed-in visitor back to "/" forever.
       defineAppConfig({ app: { homePath: "/" } });
       const { autoMountAuth } = await import("./auth.js");
@@ -8976,7 +8958,7 @@ describe("server/auth", () => {
       expect(data.initialView).toBe("googleOnly");
     });
 
-    it("renders marketing assets under APP_BASE_PATH", async () => {
+    it("keeps app branding and auth assets under APP_BASE_PATH", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({
@@ -8986,25 +8968,22 @@ describe("server/auth", () => {
         },
       });
 
-      expect(html).toContain('src="/dispatch/agent-native-icon-dark.svg"');
-      expect(html).not.toContain('src="/agent-native-icon-dark.svg"');
+      expect(readAuthPageData(html).appName).toBe("Dispatch");
+      expect(html).toContain('href="/dispatch/icon-180.svg"');
+      expect(html).not.toContain("/dispatch/auth-marketing/");
     });
 
-    it("does not render a run-local command in the marketing panel", async () => {
+    it("does not render legacy auth marketing CTAs", async () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({
         marketing: {
           appName: "Agent-Native Mail",
           tagline: "Manage email with an agent.",
-          runLocalCommand:
-            "npx @agent-native/core@latest create my-mail-app --template mail",
         },
       });
 
-      expect(html).not.toContain('id="run-local-button"');
-      expect(html).not.toContain('id="run-local-panel"');
-      expect(html).not.toContain("Run Locally");
-      expect(html).not.toContain("function __anCopyRunLocalCommand()");
+      expect(html).not.toContain('class="marketing-panel"');
+      expect(html).not.toContain("auth-marketing-visual");
     });
 
     it("defaults the active tab from the login or signup path", async () => {

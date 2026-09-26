@@ -430,22 +430,13 @@ export interface AuthOptions {
    * ```
    */
   googleScopes?: string[];
-  /**
-   * Product marketing content shown alongside the sign-in form.
-   * When provided, the page uses a split layout: marketing on the left,
-   * sign-in form on the right.
-   */
+  /** Product metadata used for the auth document title and social preview. */
   marketing?: {
     appName: string;
     tagline: string;
     description?: string;
     features?: string[];
-    screenshotPath?: string;
-    screenshotWidth?: number;
-    screenshotHeight?: number;
     learnMoreUrl?: string;
-    /** @deprecated Local execution is no longer offered from auth pages. */
-    runLocalCommand?: string;
   };
   /**
    * Optional email signup legal copy for the built-in login page.

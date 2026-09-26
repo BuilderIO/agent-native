@@ -208,12 +208,6 @@ function isAgentNativeDesktop(): boolean {
   );
 }
 
-function AppContent() {
-  const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
-  return <PrivateAppContent />;
-}
-
 function PrivateAppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
@@ -295,9 +289,7 @@ export default function Root() {
   );
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
-  const isMarketingHome = location.pathname === "/";
-  const isPublicPath =
-    isMarketingHome || isPublicBookingPath(location.pathname);
+  const isPublicPath = isPublicBookingPath(location.pathname);
 
   return (
     <AppToolkitProvider>
@@ -314,7 +306,7 @@ export default function Root() {
           persistPreference: !isPublicPath,
         }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

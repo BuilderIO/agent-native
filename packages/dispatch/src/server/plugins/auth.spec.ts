@@ -49,9 +49,6 @@ describe("dispatchAuthPlugin", () => {
     mocks.getDispatchConfig.mockReturnValue({
       auth: {
         marketing: {
-          screenshotPath: "/auth-marketing/dispatch.webp",
-          screenshotWidth: 914,
-          screenshotHeight: 818,
           learnMoreUrl: "https://agent-native.com/apps/dispatch",
         },
       },
@@ -64,9 +61,6 @@ describe("dispatchAuthPlugin", () => {
           appName: "Dispatch",
           tagline:
             "Your AI agent manages secrets, orchestrates other agents, and routes messages across your workspace.",
-          screenshotPath: "/auth-marketing/dispatch.webp",
-          screenshotWidth: 914,
-          screenshotHeight: 818,
           learnMoreUrl: "https://agent-native.com/apps/dispatch",
         }),
       }),

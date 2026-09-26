@@ -123,6 +123,7 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
+const WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH = "/_agent-native/google/callback";
 const VERCEL_OUTPUT_DIR = ".vercel/output";
 
 const WORKSPACE_DIRECTORY_ENV_SNIPPET = `
@@ -559,8 +560,13 @@ function writeNetlifyRedirects(
       lines.push(`/${from} /dispatch/${to} 302`);
     }
     lines.push("/apps/* /dispatch/apps/:splat 302");
-  } else if (rootPage !== "directory") {
-    lines.push(`/ /${apps[0]}/ 302`);
+  } else {
+    lines.push(
+      `${WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH} /.netlify/functions/${apps[0]}-server 200`,
+    );
+    if (rootPage !== "directory") {
+      lines.push(`/ /${apps[0]}/ 302`);
+    }
   }
 
   fs.writeFileSync(path.join(distDir, "_redirects"), lines.join("\n") + "\n");
@@ -638,8 +644,14 @@ function writeVercelBuildConfig(
       routes.push(vercelRedirect(`/${from}`, `/dispatch/${to}`));
     }
     routes.push(vercelRedirect("/apps/(.*)", "/dispatch/apps/$1"));
-  } else if (rootPage !== "directory") {
-    routes.push(vercelRedirect("/", `/${apps[0]}/`));
+  } else {
+    routes.push({
+      src: vercelRouteSrc(WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH),
+      dest: `/${apps[0]}-server`,
+    });
+    if (rootPage !== "directory") {
+      routes.push(vercelRedirect("/", `/${apps[0]}/`));
+    }
   }
 
   for (const app of apps) {
@@ -1226,6 +1238,12 @@ function patchNetlifyFunctionEntry(
     workspaceApps,
     app,
   );
+  const workspaceOAuthCallbackApp =
+    workspaceApps.find((entry) => entry.isDispatch)?.id ?? workspaceApps[0]?.id;
+  const rootGoogleCallbackPath =
+    app === workspaceOAuthCallbackApp && app !== "dispatch"
+      ? [WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH]
+      : [];
   const pathConfig =
     app === "dispatch"
       ? [
@@ -1243,6 +1261,7 @@ function patchNetlifyFunctionEntry(
               ...(descendants ? [`${path}/*`] : []),
             ],
           ),
+          ...rootGoogleCallbackPath,
         ];
   const normalizeBasePathHelper =
     app === "dispatch"
