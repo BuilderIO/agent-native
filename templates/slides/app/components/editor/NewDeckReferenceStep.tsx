@@ -44,6 +44,10 @@ import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status
 import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
+import {
+  isPromptUploadAuthRequiredError,
+  isPromptUploadNetworkError,
+} from "@/lib/prompt-file-uploads";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
@@ -556,11 +560,19 @@ export function NewDeckReferenceStep({
                   onClick={() => chooseSource("figma")}
                 />
               </div>
-              {!storageQuery.isLoading ? (
+              {storageQuery.isError ? (
+                <p className="mt-3 text-sm text-destructive" role="alert">
+                  {isPromptUploadAuthRequiredError(storageQuery.error)
+                    ? t("home.importMenu.notStarted")
+                    : isPromptUploadNetworkError(storageQuery.error)
+                      ? t("home.importMenu.networkFailed")
+                      : t("home.fileStorageStatusUnavailable")}
+                </p>
+              ) : !storageQuery.isLoading ? (
                 <div className="mt-3">
                   <UploadStorageGate
                     configured={fileStorageConfigured}
-                    unavailable={storageQuery.isError}
+                    unavailable={false}
                     onRetry={() => void storageQuery.refetch()}
                   />
                 </div>

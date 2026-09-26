@@ -27,8 +27,12 @@ import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status
 import type { SlidesPromptSubmitOptions } from "@/lib/composer-context";
 import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
+import { createSlidesPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
 import {
   deleteUploadedPromptFile,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -45,6 +49,8 @@ import {
   type PromptImportSelection,
   type PromptImportSource,
 } from "./use-prompt-import";
+
+const slidesPromptAttachmentAdapter = createSlidesPromptAttachmentAdapter();
 
 export type {
   PromptImportSelection,
@@ -324,6 +330,11 @@ export default function PromptPopover({
   }, [inline, open, onOpenChange, anchorRef]);
 
   const deleteUploadedFile = useCallback(deleteUploadedPromptFile, []);
+  const uploadPromptFilesWithStorageMessage = useCallback(
+    (files: File[]) =>
+      uploadPromptFiles(files, t("home.referenceFileStorageUnavailable")),
+    [t],
+  );
 
   const handleRetainedFilesAbandoned = useCallback(
     (_files: readonly File[], discard: () => void) => {
@@ -348,7 +359,7 @@ export default function PromptPopover({
     uploading,
     reset: resetEagerUploads,
     syncFiles,
-  } = useEagerFileUploads(uploadPromptFiles, {
+  } = useEagerFileUploads(uploadPromptFilesWithStorageMessage, {
     onDiscard: deleteUploadedFile,
     onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
@@ -383,9 +394,15 @@ export default function PromptPopover({
         toast.error(t("raw.uploadFailed"), {
           description: storageSetupRequired
             ? t("home.fileStorageSetupRequired")
-            : error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
+            : isPromptUploadNetworkError(error)
+              ? t("home.importMenu.networkFailed")
+              : isPromptUploadAuthRequiredError(error)
+                ? t("home.importMenu.notStarted")
+                : isPromptUploadStorageStatusError(error)
+                  ? t("editorToolbar.importFailedDescription")
+                  : error instanceof Error
+                    ? error.message
+                    : t("raw.uploadAttachedFailed"),
         });
       });
     },
@@ -500,9 +517,15 @@ export default function PromptPopover({
         toast.error(t("raw.uploadFailed"), {
           description: storageSetupRequired
             ? t("home.fileStorageSetupRequired")
-            : error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
+            : isPromptUploadNetworkError(error)
+              ? t("home.importMenu.networkFailed")
+              : isPromptUploadAuthRequiredError(error)
+                ? t("home.importMenu.notStarted")
+                : isPromptUploadStorageStatusError(error)
+                  ? t("editorToolbar.importFailedDescription")
+                  : error instanceof Error
+                    ? error.message
+                    : t("raw.uploadAttachedFailed"),
         });
         throw error;
       }
@@ -710,6 +733,7 @@ export default function PromptPopover({
                   inline ? "slides-home-prompt-composer-area" : undefined
                 }
                 attachmentsEnabled={fileStorageConfigured}
+                attachmentAdapter={slidesPromptAttachmentAdapter}
                 showModelSelector={showModelSelector}
                 modelStatusChecksEnabled={modelStatusChecksEnabled}
                 submissionDisabled={submissionDisabled}

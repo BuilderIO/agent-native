@@ -836,6 +836,8 @@ const messages = {
       invalidPdf: "Escolha um arquivo PDF.",
       invalidPptx: "Escolha um arquivo PPTX.",
       invalidFile: "Escolha um arquivo PDF ou PPTX.",
+      networkFailed:
+        "A solicitação de importação expirou ou perdeu a conexão de rede. Verifique sua conexão e tente novamente.",
       notStarted: "Conclua o login necessário e tente importar novamente.",
     },
     importDeck: "Importar apresentação",
@@ -876,6 +878,8 @@ const messages = {
       notReady:
         "O contexto está carregando ou indisponível. Tente novamente ou remova-o antes de enviar.",
       emptySource: "Esta fonte não retornou contexto utilizável.",
+      figmaReadFailed:
+        "O Figma não conseguiu ler esta referência. Confira o link, a conexão e o acesso ao arquivo e tente novamente.",
       tooMany: "Escolha até 20 referências.",
       search: "Buscar referências",
       designCategory: "Criação",

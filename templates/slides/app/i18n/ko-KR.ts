@@ -814,6 +814,8 @@ const messages = {
       invalidPdf: "PDF 파일을 선택하세요.",
       invalidPptx: "PPTX 파일을 선택하세요.",
       invalidFile: "PDF 또는 PPTX 파일을 선택하세요.",
+      networkFailed:
+        "가져오기가 시간 초과되었거나 네트워크 연결이 끊겼습니다. 연결을 확인한 후 다시 시도하세요.",
       notStarted: "필요한 로그인을 완료한 후 가져오기를 다시 시도하세요.",
     },
     importDeck: "덱 가져오기",
@@ -853,6 +855,8 @@ const messages = {
       notReady:
         "컨텍스트를 불러오는 중이거나 사용할 수 없습니다. 전송 전에 다시 시도하거나 제거하세요.",
       emptySource: "이 소스에 사용 가능한 컨텍스트가 없습니다.",
+      figmaReadFailed:
+        "Figma에서 이 참조를 읽을 수 없습니다. 링크, 연결, 파일 액세스 권한을 확인한 후 다시 시도하세요.",
       tooMany: "참조를 최대 20개까지 선택하세요.",
       search: "참조 검색",
       designCategory: "디자인",

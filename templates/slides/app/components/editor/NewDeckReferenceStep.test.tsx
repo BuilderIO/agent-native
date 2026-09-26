@@ -2,6 +2,11 @@
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => true,
 }));
+const isReferenceStorageReadyMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/prompt-file-uploads", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/prompt-file-uploads")>()),
+  isReferenceStorageReady: isReferenceStorageReadyMock,
+}));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -33,6 +38,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "home.googleSlidesImportLabel": "Slides",
         "home.googleSlidesReferenceTitle": "Google Slides",
         "home.referenceImportSuccess": "Imported successfully",
+        "home.importMenu.networkFailed":
+          "The import request timed out or lost its network connection. Check your connection and retry.",
+        "home.importMenu.notStarted":
+          "Complete any required sign-in, then retry the import.",
+        "home.fileStorageStatusUnavailable":
+          "Couldn't check object storage. Retry before uploading files.",
         "home.none": "None",
         "home.continue": "Continue",
         "home.continueToGenerate": "Continue to generate",
@@ -72,9 +83,11 @@ import {
   type ImportedReference,
 } from "./NewDeckReferenceStep";
 
-function render(ui: ReactNode, configured = true) {
+function render(ui: ReactNode, configured: boolean | null = true) {
   const queryClient = new QueryClient();
-  queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, { configured });
+  if (configured !== null) {
+    queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, { configured });
+  }
   return renderWithoutQueryClient(ui, {
     wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -84,7 +97,7 @@ function render(ui: ReactNode, configured = true) {
 
 async function renderStep(
   overrides: Partial<React.ComponentProps<typeof NewDeckReferenceStep>> = {},
-  storageConfigured = true,
+  storageConfigured: boolean | null = true,
 ) {
   const onSelect = vi.fn();
   const onImport =
@@ -140,7 +153,10 @@ async function renderStep(
 }
 
 describe("<NewDeckReferenceStep>", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    isReferenceStorageReadyMock.mockReset();
+  });
 
   it("confirms a PPTX import and keeps it selected until generation continues", async () => {
     const imported: ImportedReference = {
@@ -186,6 +202,46 @@ describe("<NewDeckReferenceStep>", () => {
       referenceSource: null,
       referenceFilePaths: ["/uploads/reference.pptx"],
     });
+  });
+
+  it("explains when it cannot check file storage", async () => {
+    isReferenceStorageReadyMock.mockRejectedValue(
+      new TypeError("Failed to fetch"),
+    );
+    await renderStep({}, null);
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The import request timed out or lost its network connection. Check your connection and retry.",
+    );
+  });
+
+  it.each([
+    [
+      Object.assign(new Error("private storage response"), {
+        code: "reference_storage_auth_required",
+      }),
+      "Complete any required sign-in, then retry the import.",
+    ],
+    [
+      Object.assign(new Error("Storage status request failed (503)"), {
+        code: "reference_storage_http_failed",
+      }),
+      "Couldn't check object storage. Retry before uploading files.",
+    ],
+    [
+      Object.assign(new Error("Storage status response is invalid"), {
+        code: "reference_storage_contract_failed",
+      }),
+      "Couldn't check object storage. Retry before uploading files.",
+    ],
+  ])("maps storage check failures to safe guidance", async (error, message) => {
+    isReferenceStorageReadyMock.mockRejectedValue(error);
+    await renderStep({}, null);
+
+    expect((await screen.findByRole("alert")).textContent).toBe(message);
+    expect(
+      screen.queryByText(/private storage|503|response is invalid/i),
+    ).toBeNull();
   });
 
   it("confirms a PDF import as the selected reference deck", async () => {

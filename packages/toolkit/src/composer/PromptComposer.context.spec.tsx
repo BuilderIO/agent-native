@@ -93,6 +93,27 @@ describe("controlled composer context", () => {
     return file;
   }
 
+  it("bounds the attachment strip and keeps overflow scrollable", async () => {
+    await mount();
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: Array.from(
+        { length: 10 },
+        (_, index) => new File(["reference"], `reference-${index}.pdf`),
+      ),
+    });
+
+    await act(async () =>
+      input.dispatchEvent(new Event("change", { bubbles: true })),
+    );
+
+    const strip = container.querySelector(".agent-composer-attachment-strip");
+    expect(strip?.className).toContain("max-h-24");
+    expect(strip?.className).toContain("overflow-y-auto");
+  });
+
   it.each(["host", "provider"] as const)(
     "%s submission gating prevents sends until ready",
     async (gate) => {

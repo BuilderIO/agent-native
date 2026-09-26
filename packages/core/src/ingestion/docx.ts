@@ -149,9 +149,23 @@ async function loadMammoth(): Promise<{
       convertToHtml(input: { buffer: Buffer }): Promise<{ value: string }>;
       extractRawText(input: { buffer: Buffer }): Promise<{ value: string }>;
     };
-  } catch {
+  } catch (error) {
+    if (!isMissingMammothDependency(error)) throw error;
     throw new Error(
       "Structured DOCX parsing requires the optional mammoth dependency.",
+      { cause: error },
     );
   }
+}
+
+function isMissingMammothDependency(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+
+  const code = "code" in error ? error.code : undefined;
+  const message = "message" in error ? error.message : undefined;
+  return (
+    code === "ERR_MODULE_NOT_FOUND" &&
+    typeof message === "string" &&
+    /Cannot find package ['"]mammoth['"]/.test(message)
+  );
 }

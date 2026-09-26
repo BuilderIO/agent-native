@@ -5,6 +5,7 @@ const mockWriteFile = vi.hoisted(() => vi.fn(async () => undefined));
 const mockIsHostedSlidesRuntime = vi.hoisted(() => vi.fn(() => false));
 const mockIsPrivateBlobConfiguredForRequest = vi.hoisted(() => vi.fn());
 const mockStoreUploadedReferenceBlob = vi.hoisted(() => vi.fn());
+const mockDeleteUploadedReferenceBlob = vi.hoisted(() => vi.fn());
 const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockResolveSlidesRequestAuth = vi.hoisted(() => vi.fn());
@@ -39,6 +40,8 @@ vi.mock("../lib/tenant-files.js", () => ({
 
 vi.mock("../lib/uploaded-reference-storage.js", () => ({
   isHostedSlidesRuntime: () => mockIsHostedSlidesRuntime(),
+  deleteUploadedReferenceBlob: (...args: unknown[]) =>
+    mockDeleteUploadedReferenceBlob(...args),
   storeUploadedReferenceBlob: (...args: unknown[]) =>
     mockStoreUploadedReferenceBlob(...args),
 }));
@@ -75,6 +78,7 @@ describe("Slides reference upload limits", () => {
     mockIsPrivateBlobConfiguredForRequest.mockReset();
     mockIsPrivateBlobConfiguredForRequest.mockResolvedValue(false);
     mockStoreUploadedReferenceBlob.mockReset();
+    mockDeleteUploadedReferenceBlob.mockReset();
     mockReadMultipartFormData.mockReset();
     mockSetResponseStatus.mockReset();
     mockHasExpectedSvgSignature.mockReset();
@@ -303,6 +307,34 @@ describe("Slides reference upload limits", () => {
         orgId: "active-org",
       }),
     );
+  });
+
+  it("names the rejected file in a failed batch and cleans up successful files", async () => {
+    const event = {} as any;
+    mockReadMultipartFormData.mockResolvedValue([
+      {
+        name: "files",
+        filename: "deck.pdf",
+        type: "application/pdf",
+        data: Buffer.from("%PDF-1.7"),
+      },
+      {
+        name: "files",
+        filename: "reference.html",
+        type: "text/html",
+        data: Buffer.from("<main>Design system</main>"),
+      },
+    ]);
+
+    await expect(uploadFiles(event)).resolves.toEqual({
+      error: expect.stringMatching(
+        /^File "reference\.html": Unsupported file type\./,
+      ),
+    });
+
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    expect(mockDeleteUploadedReferenceBlob).toHaveBeenCalledOnce();
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 400);
   });
 
   it("fails closed when hosted private file storage is unavailable", async () => {

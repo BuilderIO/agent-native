@@ -26,6 +26,9 @@ import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   deleteUploadedPromptFile,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -124,6 +127,11 @@ export function AddSlidePopover({
     },
     [],
   );
+  const uploadPromptFilesWithStorageMessage = useCallback(
+    (files: File[]) =>
+      uploadPromptFiles(files, t("home.referenceFileStorageUnavailable")),
+    [t],
+  );
   const {
     commitFiles,
     discardFiles,
@@ -132,7 +140,7 @@ export function AddSlidePopover({
     uploadFiles,
     uploading,
     reset: resetEagerUploads,
-  } = useEagerFileUploads(uploadPromptFiles, {
+  } = useEagerFileUploads(uploadPromptFilesWithStorageMessage, {
     onDiscard: deleteUploadedPromptFile,
     onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
@@ -199,9 +207,15 @@ export function AddSlidePopover({
             toast.error(t("editorSidebar.uploadFailed"), {
               description: storageSetupRequired
                 ? t("home.fileStorageSetupRequired")
-                : error instanceof Error
-                  ? error.message
-                  : t("editorSidebar.uploadAttachedFileFailed"),
+                : isPromptUploadNetworkError(error)
+                  ? t("home.importMenu.networkFailed")
+                  : isPromptUploadAuthRequiredError(error)
+                    ? t("home.importMenu.notStarted")
+                    : isPromptUploadStorageStatusError(error)
+                      ? t("editorToolbar.importFailedDescription")
+                      : error instanceof Error
+                        ? error.message
+                        : t("editorSidebar.uploadAttachedFileFailed"),
             });
             return;
           }
@@ -298,9 +312,15 @@ export function AddSlidePopover({
         toast.error(t("editorSidebar.uploadFailed"), {
           description: storageSetupRequired
             ? t("home.fileStorageSetupRequired")
-            : error instanceof Error
-              ? error.message
-              : t("editorSidebar.uploadAttachedFileFailed"),
+            : isPromptUploadNetworkError(error)
+              ? t("home.importMenu.networkFailed")
+              : isPromptUploadAuthRequiredError(error)
+                ? t("home.importMenu.notStarted")
+                : isPromptUploadStorageStatusError(error)
+                  ? t("editorToolbar.importFailedDescription")
+                  : error instanceof Error
+                    ? error.message
+                    : t("editorSidebar.uploadAttachedFileFailed"),
         });
       });
     },

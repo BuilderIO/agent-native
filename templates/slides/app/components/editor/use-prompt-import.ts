@@ -3,8 +3,13 @@ import { useT } from "@agent-native/core/client/i18n";
 import { getOversizedDocumentAttachmentError } from "@agent-native/toolkit/composer/TiptapComposer";
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
+import {
+  isPromptUploadAuthRequiredError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
+} from "@/lib/prompt-file-uploads";
 
+import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
 export type PromptImportSource = "pdf" | "pptx" | "google-slides";
 export type PromptImportSelection =
   | { kind: "pdf" | "pptx"; files: File[] }
@@ -94,11 +99,25 @@ export function usePromptImport({
         onSuccess?.();
         return true;
       } catch (cause) {
-        return fail(
-          actionErrorMessage(cause) ??
-            t("editorToolbar.importFailedDescription"),
-          cause,
-        );
+        const actionMessage = actionErrorMessage(cause);
+        if (actionMessage) return fail(actionMessage, cause);
+        if (
+          cause instanceof Error &&
+          "code" in cause &&
+          cause.code === "reference_storage_unavailable"
+        ) {
+          return fail(cause.message, cause);
+        }
+        if (isPromptUploadNetworkError(cause)) {
+          return fail(t("home.importMenu.networkFailed"), cause);
+        }
+        if (isPromptUploadAuthRequiredError(cause)) {
+          return fail(t("home.importMenu.notStarted"), cause);
+        }
+        if (isPromptUploadStorageStatusError(cause)) {
+          return fail(t("home.fileStorageStatusUnavailable"), cause);
+        }
+        return fail(t("editorToolbar.importFailedDescription"), cause);
       } finally {
         busy.current = false;
         setImportingSource(null);

@@ -38,6 +38,26 @@ describe("Slides composer reference contract", () => {
       statusMessage: "Enter a valid Figma URL",
     });
   });
+  it("localizes safe Figma source failures instead of showing server text", async () => {
+    const failure = Object.assign(new Error("The reference app failed"), {
+      details: { source: "figma" },
+    });
+    callAction.mockRejectedValue(failure);
+
+    const [item] = await readSlidesComposerContext(
+      {
+        designSystemId: null,
+        references: [figma("https://www.figma.com/design/FILE/Name")],
+      },
+      "Empty source",
+      "Figma could not read this reference.",
+    );
+
+    expect(item).toMatchObject({
+      status: "error",
+      statusMessage: "Figma could not read this reference.",
+    });
+  });
   it("separates the same frame in different Figma files and branches", () => {
     const keys = [
       "https://www.figma.com/design/FILE_A/Name",

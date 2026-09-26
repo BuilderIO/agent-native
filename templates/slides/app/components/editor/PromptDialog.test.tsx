@@ -40,6 +40,24 @@ const promptFile = new File(["pdf"], "large.pdf", {
   type: "application/pdf",
 });
 
+function stubReadyStorageUpload(
+  uploadFetch: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>,
+) {
+  vi.stubGlobal("fetch", async (...args: Parameters<typeof fetch>) => {
+    const input = args[0];
+    const url = input instanceof Request ? input.url : input.toString();
+    if (url.includes("/api/uploads/status")) {
+      return new Response(JSON.stringify({ referenceStorageReady: true }), {
+        status: 200,
+      });
+    }
+    return uploadFetch(...args);
+  });
+}
+
 function useEagerFileUploadsMock<T>(
   upload: (files: File[]) => Promise<readonly T[]>,
 ) {
@@ -98,6 +116,7 @@ vi.mock("@agent-native/core/client/composer", () => ({
     onTextChange?: (text: string) => void;
     contextItems?: readonly unknown[];
     onAttachmentsChange?: (files: File[]) => void;
+    attachmentAdapter?: { accept: string };
     onModelSelectionChange?: (selection: {
       model?: string;
       engine?: string;
@@ -210,15 +229,22 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   addInlineImageFallbacks,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
   isReferenceStorageReady,
-  uploadPromptFiles,
+  uploadPromptFiles as uploadPromptFilesImpl,
 } from "@/lib/prompt-file-uploads";
 
+import { SLIDES_REFERENCE_FILE_ACCEPT } from "../../../shared/upload-types";
 import PromptPopover, {
   createPromptChatAttachments,
   type PromptPopoverHandle,
 } from "./PromptDialog";
 import type { useSlidesComposerContext } from "./SlidesComposerContext";
+
+const uploadPromptFiles = (files: File[]) =>
+  uploadPromptFilesImpl(files, "File storage is unavailable.");
 
 describe("createPromptChatAttachments", () => {
   it("keeps PDFs and pasted text as display-only chat descriptors", async () => {
@@ -399,9 +425,64 @@ describe("uploadPromptFiles", () => {
     expect(ensureEmbedAuthFetchInterceptor).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    [401, "reference_storage_auth_required", false],
+    [503, "reference_storage_http_failed", false],
+  ])(
+    "classifies storage status HTTP %s separately from transport errors",
+    async (status, code, isNetworkError) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response(null, { status })),
+      );
+
+      const error = await isReferenceStorageReady().catch((cause) => cause);
+      expect(error).toMatchObject({
+        code,
+        message: "Reference file storage status could not be verified",
+      });
+      expect(isPromptUploadNetworkError(error)).toBe(isNetworkError);
+      expect(isPromptUploadAuthRequiredError(error)).toBe(status === 401);
+      expect(isPromptUploadStorageStatusError(error)).toBe(status === 503);
+    },
+  );
+
+  it.each([
+    [new Response("not-json", { status: 200 })],
+    [new Response(JSON.stringify({ ready: true }), { status: 200 })],
+  ])(
+    "classifies malformed storage status responses as contract errors",
+    async (response) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+      const error = await isReferenceStorageReady().catch((cause) => cause);
+      expect(error).toMatchObject({
+        code: "reference_storage_contract_failed",
+        message: "Reference file storage status could not be verified",
+      });
+      expect(isPromptUploadNetworkError(error)).toBe(false);
+      expect(isPromptUploadAuthRequiredError(error)).toBe(false);
+      expect(isPromptUploadStorageStatusError(error)).toBe(true);
+    },
+  );
+
+  it("classifies a rejected status fetch as a network error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    );
+
+    const error = await isReferenceStorageReady().catch((cause) => cause);
+    expect(error).toMatchObject({
+      code: "reference_storage_network_failed",
+      message: "Reference file storage status could not be verified",
+    });
+    expect(isPromptUploadNetworkError(error)).toBe(true);
+  });
+
   it("rejects more than 20 files before starting uploads", async () => {
     const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
     const files = Array.from(
       { length: 21 },
       (_, index) => new File(["x"], `reference-${index}.pdf`),
@@ -428,7 +509,7 @@ describe("uploadPromptFiles", () => {
         { status: 200 },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
 
     await uploadPromptFiles([
       new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
@@ -442,6 +523,37 @@ describe("uploadPromptFiles", () => {
         method: "POST",
       }),
     );
+  });
+
+  it("blocks eager attachments when reference storage is unavailable", async () => {
+    const uploadFetch = vi.fn();
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      if (input.toString().includes("/api/uploads/status")) {
+        return new Response(JSON.stringify({ referenceStorageReady: false }), {
+          status: 200,
+        });
+      }
+      return uploadFetch(input);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <PromptPopover
+        open
+        centered
+        onOpenChange={vi.fn()}
+        title="New presentation"
+        onSubmit={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/uploads/status"),
+      { credentials: "include" },
+    );
+    expect(uploadFetch).not.toHaveBeenCalled();
   });
 
   it("keeps hosted images URL-only while adding bytes for unhosted images", async () => {
@@ -467,7 +579,7 @@ describe("uploadPromptFiles", () => {
         { status: 200 },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
 
     const uploads = await uploadPromptFiles([
       new File(["hosted"], "hosted.png", { type: "image/png" }),
@@ -482,29 +594,31 @@ describe("uploadPromptFiles", () => {
   });
 
   it("preserves selection order across multipart and chunked uploads", async () => {
-    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-      const url = input.toString();
-      if (url.includes("/api/uploads-chunked/start")) {
-        return new Response(JSON.stringify({ uploadMode: "multipart" }), {
-          status: 200,
-        });
-      }
-      const formData = init?.body as FormData;
-      const file = formData.get("files") as File;
-      return new Response(
-        JSON.stringify([
-          {
-            path: `uploads/${file.name}`,
-            originalName: file.name,
-            filename: file.name,
-            type: file.type,
-            size: file.size,
-          },
-        ]),
-        { status: 200 },
-      );
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+        if (url.includes("/api/uploads-chunked/start")) {
+          return new Response(JSON.stringify({ uploadMode: "multipart" }), {
+            status: 200,
+          });
+        }
+        const formData = init?.body as FormData;
+        const file = formData.get("files") as File;
+        return new Response(
+          JSON.stringify([
+            {
+              path: `uploads/${file.name}`,
+              originalName: file.name,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            },
+          ]),
+          { status: 200 },
+        );
+      },
+    );
+    stubReadyStorageUpload(fetchMock);
     const large = new File([new Uint8Array(4 * 1024 * 1024 + 1)], "large.pptx");
     const small = new File(["pdf"], "small.pdf", {
       type: "application/pdf",
@@ -516,6 +630,24 @@ describe("uploadPromptFiles", () => {
       "large.pptx",
       "small.pdf",
     ]);
+  });
+
+  it("classifies chunked upload network failures without exposing transport details", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString().includes("/api/uploads-chunked/start")) {
+        return new Response(JSON.stringify({ sessionId: "upload-session" }), {
+          status: 200,
+        });
+      }
+      throw new TypeError("Failed to fetch");
+    });
+    stubReadyStorageUpload(fetchMock);
+
+    await expect(
+      uploadPromptFiles([
+        new File([new Uint8Array(4 * 1024 * 1024 + 1)], "large.pptx"),
+      ]),
+    ).rejects.toMatchObject({ code: "reference_upload_network_failed" });
   });
 
   it("keeps oversized hosted images URL-only", async () => {
@@ -534,7 +666,7 @@ describe("uploadPromptFiles", () => {
         { status: 200 },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
 
     const [upload] = await uploadPromptFiles([
       new File([new Uint8Array(750_000)], "large.png", {
@@ -566,7 +698,7 @@ describe("uploadPromptFiles", () => {
         { status: 200 },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
 
     const uploads = await uploadPromptFiles(
       Array.from(
@@ -686,7 +818,7 @@ describe.each(["popover", "inline"] as const)(
             resolveUpload = resolve;
           }),
       );
-      vi.stubGlobal("fetch", fetchMock);
+      stubReadyStorageUpload(fetchMock);
       const onSubmit = vi.fn();
 
       render(
@@ -706,6 +838,7 @@ describe.each(["popover", "inline"] as const)(
 
       expect(screen.getByRole("status").textContent).toContain("Uploading...");
       expect((composer as HTMLButtonElement).disabled).toBe(true);
+      await waitFor(() => expect(resolveUpload).toBeTypeOf("function"));
 
       resolveUpload(
         new Response(
@@ -742,7 +875,7 @@ describe.each(["popover", "inline"] as const)(
 
     it("hands off signed-out prompts before uploading files", async () => {
       const fetchMock = vi.fn();
-      vi.stubGlobal("fetch", fetchMock);
+      stubReadyStorageUpload(fetchMock);
       const onBeforeUpload = vi.fn(() => false);
       const onSubmit = vi.fn();
 
@@ -829,7 +962,7 @@ describe.each(["popover", "inline"] as const)(
           { status: 200 },
         ),
       );
-      vi.stubGlobal("fetch", fetchMock);
+      stubReadyStorageUpload(fetchMock);
       const onSubmit = vi.fn();
 
       render(
@@ -889,8 +1022,8 @@ describe("inline prompt starters", () => {
         promptComposerProps.mock.lastCall![0].attachButton,
       ).toBeUndefined();
       expect(
-        promptComposerProps.mock.lastCall![0].attachmentAdapter,
-      ).toBeUndefined();
+        promptComposerProps.mock.lastCall![0].attachmentAdapter?.accept,
+      ).toBe(SLIDES_REFERENCE_FILE_ACCEPT);
     },
   );
 
@@ -984,7 +1117,7 @@ describe("inline prompt starters", () => {
         { status: 200 },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
     render(
       <PromptPopover
         presentation="inline"
@@ -1081,7 +1214,7 @@ describe("inline prompt starters", () => {
         { status: 200 },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
     const onSubmit = vi.fn().mockReturnValue("retain");
     const props = {
       presentation: "inline" as const,
@@ -1132,8 +1265,7 @@ describe("inline prompt starters", () => {
     const sourceFile = new File(["source"], "source.pdf", {
       type: "application/pdf",
     });
-    vi.stubGlobal(
-      "fetch",
+    stubReadyStorageUpload(
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify(

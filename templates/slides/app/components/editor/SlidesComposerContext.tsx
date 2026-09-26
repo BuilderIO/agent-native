@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import {
+  composerSourceErrorMessage,
   composerSourceKey,
   formatSlidesComposerContext,
   readSlidesComposerContext,
@@ -44,6 +45,7 @@ function figmaPickerId(reference: ComposerSource) {
 }
 
 export function useSlidesComposerContext({
+  active = true,
   defaultDesignSystemId,
   defaultReferenceDeck,
   systems,
@@ -52,6 +54,7 @@ export function useSlidesComposerContext({
   retrySystems,
   onCreateDesignSystem,
 }: {
+  active?: boolean;
   defaultDesignSystemId: string | null;
   defaultReferenceDeck?: { id: string; title: string };
   systems: Array<{ id: string; title: string }>;
@@ -99,6 +102,9 @@ export function useSlidesComposerContext({
     setError(undefined);
     version.current++;
   }, [identity]);
+  useEffect(() => {
+    if (!active) setInspectedKey(undefined);
+  }, [active]);
   useEffect(() => {
     if (edited.current) return;
     try {
@@ -157,6 +163,7 @@ export function useSlidesComposerContext({
     void readSlidesComposerContext(
       selection,
       t("home.context.emptySource"),
+      t("home.context.figmaReadFailed"),
     ).then((resolved) => {
       if (active && currentVersion === version.current) setItems(resolved);
     });
@@ -323,7 +330,11 @@ export function useSlidesComposerContext({
           };
         } catch (error) {
           throw new Error(
-            actionErrorMessage(error) ?? t("home.context.loadFailed"),
+            composerSourceErrorMessage(
+              error,
+              t("home.context.loadFailed"),
+              t("home.context.figmaReadFailed"),
+            ),
           );
         }
       },
@@ -442,6 +453,7 @@ export function useSlidesComposerContext({
       const resolved = await readSlidesComposerContext(
         snapshot,
         t("home.context.emptySource"),
+        t("home.context.figmaReadFailed"),
       );
       if (capturedIdentity !== activeIdentity.current)
         throw new Error(t("home.context.loadFailed"));
@@ -465,7 +477,7 @@ export function useSlidesComposerContext({
     },
     dialogs: (
       <Dialog
-        open={Boolean(inspectedKey)}
+        open={active && Boolean(inspectedKey)}
         onOpenChange={(open) => !open && setInspectedKey(undefined)}
       >
         <DialogContent>

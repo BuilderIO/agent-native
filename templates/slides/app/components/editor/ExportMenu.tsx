@@ -88,6 +88,7 @@ export function canExportPptxFromServer(
 interface ExportMenuProps {
   deckId: string;
   deckTitle: string;
+  disabled?: boolean;
   onDuplicate: () => void;
   onExportPdf: () => Promise<void> | void;
   onExportPptx: () => Promise<void> | void;
@@ -223,6 +224,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     {
       deckId,
       deckTitle,
+      disabled = false,
       onDuplicate,
       onExportPdf,
       onExportPptx,
@@ -298,7 +300,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       action: () => Promise<void> | void,
       fallbackError: string,
     ) => {
-      if (!beginExport(kind)) return;
+      if (disabled || !beginExport(kind)) return;
       try {
         await action();
         updateExportStatus({ state: "idle" });
@@ -388,7 +390,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     };
 
     const handleExportGoogleSlides = async () => {
-      if (!onExportGoogleSlides) return;
+      if (disabled || !onExportGoogleSlides) return;
       if (!beginExport("google-slides")) return;
       try {
         // The connect step is a top-level navigation to Google. When Google
@@ -470,6 +472,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     const exportActions = (
       <>
         <DropdownMenuItem
+          disabled={disabled}
           onClick={() => void handleExportHtml()}
           className="cursor-pointer"
         >
@@ -477,6 +480,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           {t("editorExport.downloadHtml")}
         </DropdownMenuItem>
         <DropdownMenuItem
+          disabled={disabled}
           onClick={() => void handleExportPdf()}
           className="cursor-pointer"
         >
@@ -484,6 +488,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           {t("editorExport.exportPdf")}
         </DropdownMenuItem>
         <DropdownMenuItem
+          disabled={disabled}
           onClick={() => void handleExportPptx()}
           className="cursor-pointer"
         >
@@ -493,7 +498,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         {onExportGoogleSlides && (
           <DropdownMenuItem
             onClick={() => void handleExportGoogleSlides()}
-            disabled={!googleSlidesExport.available}
+            disabled={disabled || !googleSlidesExport.available}
             className="cursor-pointer"
           >
             <IconBrandGoogle className="size-4" />
@@ -554,7 +559,10 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           </>
         ) : null}
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="cursor-pointer gap-2">
+          <DropdownMenuSubTrigger
+            disabled={disabled}
+            className="cursor-pointer gap-2"
+          >
             <IconUpload className="size-4" />
             {t("editorExport.export")}
           </DropdownMenuSubTrigger>
