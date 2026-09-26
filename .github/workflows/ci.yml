@@ -425,6 +425,7 @@ jobs:
         run: pnpm test:content-db
 
   # Runs on every PR regardless of scope, so it must not wait on change-scope:
+  # the gate only adds a second queue wait before an unconditional job.
   pglite-tests:
     name: PGlite lock and migration tests
     runs-on: ubuntu-latest
@@ -729,6 +730,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      # Skip postinstall build chain here — core is built explicitly below so we
+      # control the exact build order and avoid redundant parallel builds.
       - uses: ./.github/actions/setup-pnpm
         with:
           install: no-scripts
@@ -817,6 +820,10 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      # These checks read source files only — no DB, browser, network, or
+      # secrets — so they're safe to run on every PR. (The heavier harnesses —
+      # test:mcp:e2e, qa:public-share, qa:composer-geometry — need a live
+      # server / DB / browser and belong in a separate, set-up job.)
       - uses: ./.github/actions/setup-pnpm
         with:
           install: no-scripts

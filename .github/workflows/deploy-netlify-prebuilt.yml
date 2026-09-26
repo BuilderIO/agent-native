@@ -1,5 +1,16 @@
 name: Deploy Netlify prebuilt artifacts from GitHub Actions
 
+# GitHub Actions owns builds for the canonical beta, production, and PR preview
+# sites. Netlify only receives the resulting prebuilt artifact and serves it.
+#
+# Safe rollout:
+#   1. deploy=false + build_context=deploy-preview validates the GitHub runner.
+#   2. deploy=true + deploy_mode=draft validates a non-live Netlify upload.
+#   3. deploy=true + deploy_mode=production publishes after readiness checks.
+#
+# Production deploys use the production Netlify build context because the
+# existing netlify.toml commands own the current production environment setup
+# and migration behavior. Keep this lane manual until that behavior is audited.
 on:
   workflow_dispatch:
     inputs:
@@ -171,7 +182,13 @@ permissions:
   contents: read
 
 concurrency:
+  # Beta and production lanes share the canonical production site queue so a
   # beta migration cannot race its production cutover. Design and Slides use
+  # one production database, so they intentionally share one queue as well.
+  # Keep an accepted publisher alive and coalesce only pending beta children;
+  # manual validation must not evict a pending automatic publish. Production
+  # callers hand the current main source back to the beta workflow after their
+  # operation, so this shared queue remains the migration exclusion boundary.
   group: >-
     ${{ inputs.target == 'beta'
         && github.event_name == 'workflow_dispatch'
@@ -665,7 +682,9 @@ jobs:
           set -euo pipefail
           node scripts/check-function-size-baseline.mjs --site "$SITE" --dir "$FUNCTIONS_DIRECTORY"
 
+      # Beta's artifact producer has deploy=false but receives the inherited
       # Netlify credential; PR preview producers intentionally do not, and
+      # their trusted deploy job runs this check before the Netlify upload.
       - name: Verify Netlify Google OAuth relay metadata
         if: >-
           (inputs.deploy || inputs.target == 'beta') &&

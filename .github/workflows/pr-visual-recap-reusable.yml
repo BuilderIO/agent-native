@@ -268,7 +268,6 @@ jobs:
       issues: write
       pull-requests: write
     env:
-      # Use the PLAN_RECAP_APP_URL secret when set (self-hosted); otherwise
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL || inputs.plan-url }}
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       GH_TOKEN: ${{ github.token }}

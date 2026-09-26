@@ -225,6 +225,8 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
+          # This job runs an agent over untrusted PR diff; don't leave the token
+          # in .git/config (it uses GH_TOKEN for gh API calls, never git push).
           persist-credentials: false
 
       - name: Resolve recap CLI

@@ -21,6 +21,8 @@ jobs:
       apps: all
       lane: public+authed
       grep: ""
+      # Scheduled health checks use the separately limited E2E credential so
+      # they cannot spend or inherit the repository-wide provider key.
       key_source: dedicated
     secrets: inherit
     permissions:

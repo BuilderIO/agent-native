@@ -1,6 +1,33 @@
 name: PR Visual Recap (fork, trusted + label-gated)
 
+# Fork-safe variant of pr-visual-recap.yml.
+#
+# PURPOSE: Fork PRs cannot run the main workflow (pull_request runs without
+# secrets, so publishing fails cleanly and is skipped). This workflow lets a
+# trusted member/collaborator author get a recap automatically, and lets a
+# MAINTAINER opt an outside fork PR in by applying the `recap` label after
+# reviewing the diff for prompt-injection-shaped content.
+#
+# SECURITY MODEL:
+#   - Trigger: pull_request_target (has access to base-repo secrets).
+#   - Gate condition: PR is from a fork AND either the author is an active
+#     member of the base repository owner organization, has write-level access
+#     to the base repository, the author association is trusted (`OWNER`,
+#     `MEMBER`, or `COLLABORATOR`), OR this event is a fresh `recap` label
+#     application. Non-fork PRs are excluded — the main workflow covers them.
+#   - NO fork code is checked out or executed. We checkout only the BASE
+#     repository at the base ref. The diff is obtained by fetching the fork
+#     head ref as a remote ref (safe — fetching commits is not executing them)
+#     then running `git diff base...refs/recap/fork-head`.
+#   - The diff is attacker-controlled text fed as INPUT to the LLM; it is
 #     never executed. Mitigations: secret-scan (fail-closed), sensitive-path
+#     gate, and the prompt explicitly marks diff content as untrusted data.
+#   - To refresh after new fork commits, a maintainer must review the updated
+#     diff, then remove/reapply the `recap` label, unless the PR author has a
+#     trusted author association. A rerun only reuses the original event
+#     payload/SHA and is appropriate for transient failures on the same reviewed
+#     commit.
+#   - Concurrency: per-PR, cancel-in-progress (mirror of main workflow).
 
 on:
   pull_request_target:

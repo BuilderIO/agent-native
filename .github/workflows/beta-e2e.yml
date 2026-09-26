@@ -1,5 +1,26 @@
 name: Beta E2E (browser)
 
+# Manual gate for "is beta safe to promote to production?" and reusable job
+# for the scheduled beta health check.
+#
+# The public lane is sharded one host per runner. Measured: a page load against
+# a beta host costs 1-2s from a laptop and 20-40s from a GitHub runner, because
+# the fleet sits behind one CDN that throttles bursty datacenter traffic. On a
+# single runner the sweep took ~28 minutes with scheduling already 83%
+# efficient, so the time was raw network wait rather than queueing. Sharding
+# makes the fleet cost the slowest single host and spreads the requests over
+# sixteen source addresses: measured 1704s -> 437s.
+#
+# Drives the deployed beta fleet with a real browser. Two gating lanes decide
+# the answer; a third advisory lane reports real-but-not-blocking findings so a
+# red run always means "do not promote".
+#
+# The workflow itself has no push or schedule trigger. The authenticated lane
+# spends model tokens against the credential selected by its caller, and most
+# beta apps share a database with production, so the explicit manual entrypoint
+# remains a deliberate promotion decision. The separate scheduled wrapper
+# calls this workflow on a six-hour cadence with the hosted sites' shared
+# credential and reports failures to one deduplicated issue.
 
 on:
   workflow_call:
@@ -268,6 +289,13 @@ jobs:
       - name: Authenticated ${{ matrix.cluster }}
         if: ${{ matrix.cluster == 'design' && contains(needs.discover.outputs.apps, 'design') || matrix.cluster != 'design' && needs.discover.outputs.apps != 'design' }}
         # Global setup fails loudly if a credential is missing rather than
+        # degrading to an anonymous run that would pass without testing
+        # anything. The clusters are separate so a provider failure cannot
+        # hide registry or journey regressions.
+        # A title filter can select only public/fleet tests, though. Ask
+        # Playwright for the authenticated selection first with auth disabled;
+        # --list does not run globalSetup, so an empty selection skips the
+        # credentialed setup without turning a requested auth run into a pass.
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             selection_file="$(mktemp)"

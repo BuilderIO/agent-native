@@ -21,6 +21,11 @@ permissions:
   contents: read
   actions: read
 
+# Beta is a moving mirror of main. Keep one accepted automatic publisher running
+# and coalesce pending automatic and production-handoff runs. Manual runs use
+# isolated validation so an invalid input cannot evict a valid pending publish;
+# builds use per-run artifacts so the shared production-site queue only covers
+# the migration and publish critical section.
 concurrency:
   group: >-
     ${{ github.event_name == 'workflow_dispatch'

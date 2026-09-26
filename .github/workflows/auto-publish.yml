@@ -1,6 +1,22 @@
 name: Publish packages
 
+# npm packages have two separate release trains:
+#
+#   1. Every matching ordinary merge to `main` publishes a `nightly` snapshot.
+#      It never changes the repository or moves npm's `latest` dist-tag.
+#   2. A maintainer dispatches this workflow with a patch/minor/major choice.
+#      That creates the normal all-package Version Packages PR. Its marked
+#      merge is the only path that publishes a stable release.
+#
+# Stable release merges produce a `[stable-release]`-marked commit. The
+# workflow verifies that marker belongs to the bot-owned release PR before
 # stable publication, so an ordinary merge cannot opt into the stable lane.
+#
+# Desktop-app publishing is OUT of changesets - it ships binaries via
+# electron-builder, not npm. Production desktop releases are dispatched from
+# `desktop-release.yml`; pushes to main only feed the Nightly desktop train.
+# npm trusted publishers are registered against this workflow file, so both
+# package trains intentionally keep this workflow path.
 
 on:
   push:
@@ -136,6 +152,8 @@ jobs:
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
+      # Node 24 ships with npm 11.6+, which is required for Trusted Publishing
+      # OIDC. Node 22's npm cannot complete the nightly publish handshake.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
@@ -231,6 +249,7 @@ jobs:
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
+      # Node 24 ships with npm 11.6+, required for Trusted Publishing OIDC.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
@@ -309,6 +328,11 @@ jobs:
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
+      # Node 24 ships with npm 11.6+ — required for Trusted Publishing OIDC
+      # (>= 11.5.1). Node 22 ships npm 10.x; the in-place self-upgrade
+      # (`npm install -g npm@latest`) is broken on the current runner image
+      # (actions/runner-images#13883), so we just use a Node version that
+      # already has the right npm baked in.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
@@ -326,6 +350,11 @@ jobs:
       - name: Enforce package bump policy
         run: node scripts/guard-no-major-changeset.mjs
 
+      # A stable merge can race with another PR's pending changeset. Keep
+      # those changesets out of validation and publication so this merge
+      # publishes its already-versioned packages. Public-package changesets
+      # are consumed after that publication because the all-package release
+      # already includes their source changes.
       - name: Hold pending changesets for stable publication
         if: github.event_name == 'push'
         run: |
@@ -500,7 +529,10 @@ jobs:
 
       - name: Dispatch and report
         env:
+          # The starter mirror runs in THIS repo (push-chat-template-to-starter
+          # needs the monorepo source to materialize), so it is dispatched to
           # ourselves. Must be an app token, not GITHUB_TOKEN: repository_dispatch
+          # events created with GITHUB_TOKEN don't trigger workflow runs.
           SELF_TOKEN: ${{ steps.app-token.outputs.token }}
           WORKSPACE_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
           REDISPATCH: ${{ inputs.redispatchDownstream }}
