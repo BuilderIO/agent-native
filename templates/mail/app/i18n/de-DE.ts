@@ -615,6 +615,8 @@ const messages = {
       connectJevToRunTriage: "Verbinde Jev, um die Triage auszuführen",
       freeBuilderOrApiKey:
         "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
+      jevAvailabilityFailed:
+        "Die Verfügbarkeit von Jev konnte nicht geprüft werden.",
       connectBuilder: "Builder.io verbinden",
       addJevApiKey: "API-Schlüssel hinzufügen",
     },

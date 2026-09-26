@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 export function JevConnectionPrompt({
   variant = "row",
@@ -22,7 +23,7 @@ export function JevConnectionPrompt({
   disabled = false,
   showHeading = true,
 }: {
-  variant?: "row" | "trigger";
+  variant?: "row" | "trigger" | "menu-item";
   onConnected?: () => void;
   disabled?: boolean;
   showHeading?: boolean;
@@ -60,6 +61,39 @@ export function JevConnectionPrompt({
     </div>
   );
 
+  const dialogContent = (
+    <DialogContent className="sm:max-w-[420px]">
+      <DialogHeader>
+        <DialogTitle>{t("mail.aiFilter.connectJev")}</DialogTitle>
+      </DialogHeader>
+      <p className="text-sm text-muted-foreground">
+        {t("mail.aiFilter.freeBuilderOrApiKey")}
+      </p>
+      {actions}
+      {flow.error ? (
+        <p className="text-xs text-destructive">{flow.error}</p>
+      ) : null}
+    </DialogContent>
+  );
+
+  if (variant === "menu-item") {
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DropdownMenuItem
+          onSelect={() => setOpen(true)}
+          disabled={disabled || flow.connecting}
+          className="justify-between"
+        >
+          {t("mail.sort.priority")}
+          <span className="text-xs text-muted-foreground">
+            {t("mail.aiFilter.connectJev")}
+          </span>
+        </DropdownMenuItem>
+        {dialogContent}
+      </Dialog>
+    );
+  }
+
   if (variant === "trigger") {
     return (
       <Dialog open={open} onOpenChange={setOpen}>
@@ -68,24 +102,13 @@ export function JevConnectionPrompt({
             type="button"
             variant="outline"
             size="sm"
-            disabled={disabled}
+            disabled={disabled || flow.connecting}
             className="h-7 px-2 text-[11px]"
           >
             {t("mail.aiFilter.connectJev")}
           </Button>
         </DialogTrigger>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>{t("mail.aiFilter.connectJev")}</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            {t("mail.aiFilter.freeBuilderOrApiKey")}
-          </p>
-          {actions}
-          {flow.error ? (
-            <p className="text-xs text-destructive">{flow.error}</p>
-          ) : null}
-        </DialogContent>
+        {dialogContent}
       </Dialog>
     );
   }
@@ -106,6 +129,40 @@ export function JevConnectionPrompt({
       {flow.error ? (
         <p className="basis-full text-xs text-destructive">{flow.error}</p>
       ) : null}
+    </div>
+  );
+}
+
+export function JevAvailabilityError({
+  onRetry,
+  retrying = false,
+  showMessage = true,
+}: {
+  onRetry: () => void;
+  retrying?: boolean;
+  showMessage?: boolean;
+}) {
+  const t = useT();
+  return (
+    <div
+      role="alert"
+      className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2.5"
+    >
+      {showMessage ? (
+        <p className="text-sm text-muted-foreground">
+          {t("mail.aiFilter.jevAvailabilityFailed")}
+        </p>
+      ) : null}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={retrying}
+        aria-busy={retrying}
+        onClick={onRetry}
+      >
+        {t("mail.error.tryAgain")}
+      </Button>
     </div>
   );
 }

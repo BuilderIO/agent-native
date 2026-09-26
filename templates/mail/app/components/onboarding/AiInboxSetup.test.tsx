@@ -12,14 +12,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   createRule: vi.fn(),
   updateSettings: vi.fn(),
+  jevAvailability: {
+    data: undefined as { configured: boolean } | undefined,
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  },
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: () => ({
-    data: { configured: true },
-    isLoading: false,
-    refetch: vi.fn(),
-  }),
+  useActionQuery: () => mocks.jevAvailability,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -28,6 +31,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("@/components/settings/JevConnectionPrompt", () => ({
   JevConnectionPrompt: () => null,
+  JevAvailabilityError: ({ onRetry }: { onRetry: () => void }) => (
+    <button type="button" onClick={onRetry}>
+      mail.error.tryAgain
+    </button>
+  ),
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
@@ -70,6 +78,12 @@ describe("AiInboxSetup", () => {
   beforeEach(() => {
     mocks.createRule.mockResolvedValue(undefined);
     mocks.updateSettings.mockResolvedValue(undefined);
+    Object.assign(mocks.jevAvailability, {
+      data: { configured: true },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+    });
   });
 
   afterEach(() => {
@@ -140,5 +154,30 @@ describe("AiInboxSetup", () => {
         actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
       }),
     );
+  });
+
+  it("shows retry instead of a connect prompt when Jev availability cannot be checked", async () => {
+    Object.assign(mocks.jevAvailability, {
+      data: undefined,
+      isError: true,
+    });
+    render(<AiInboxSetup forceOpen />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "mail.aiFilter.jevAvailabilityFailed",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.aiFilter.connectBuilder" }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+    expect(mocks.jevAvailability.refetch).toHaveBeenCalledOnce();
   });
 });

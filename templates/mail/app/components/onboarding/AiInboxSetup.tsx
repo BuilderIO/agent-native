@@ -8,7 +8,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { AiRulePromptField } from "@/components/settings/AiRulePromptField";
-import { JevConnectionPrompt } from "@/components/settings/JevConnectionPrompt";
+import {
+  JevAvailabilityError,
+  JevConnectionPrompt,
+} from "@/components/settings/JevConnectionPrompt";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -63,7 +66,8 @@ export function AiInboxSetup({
       refetchOnWindowFocus: true,
     },
   );
-  const jevConfigured = jevAvailability.data?.configured === true;
+  const jevConfigured =
+    !jevAvailability.isError && jevAvailability.data?.configured === true;
   const createRuleMutation = useCreateAutomation();
   const updateSettings = useUpdateSettings();
   const [step, setStep] = useState<SetupStep>(0);
@@ -218,7 +222,9 @@ export function AiInboxSetup({
 
   const headline =
     step === -1
-      ? t("mail.aiFilter.connectJev")
+      ? jevAvailability.isError
+        ? t("mail.aiFilter.jevAvailabilityFailed")
+        : t("mail.aiFilter.connectJev")
       : step === 0
         ? t("mail.sort.aiSetupTagsHeadline")
         : step === 1
@@ -262,10 +268,18 @@ export function AiInboxSetup({
             )}
           </div>
           {step === -1 ? (
-            <JevConnectionPrompt
-              showHeading={false}
-              onConnected={() => void jevAvailability.refetch()}
-            />
+            jevAvailability.isError ? (
+              <JevAvailabilityError
+                onRetry={() => void jevAvailability.refetch()}
+                retrying={jevAvailability.isFetching}
+                showMessage={false}
+              />
+            ) : (
+              <JevConnectionPrompt
+                showHeading={false}
+                onConnected={() => void jevAvailability.refetch()}
+              />
+            )
           ) : step === 0 ? (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">

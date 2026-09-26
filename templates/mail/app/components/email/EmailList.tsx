@@ -202,7 +202,9 @@ interface EmailListProps {
   showPrioritySort?: boolean;
   jevConfigured?: boolean;
   jevAvailabilityLoading?: boolean;
+  jevAvailabilityError?: boolean;
   onJevConnected?: () => void;
+  onJevRetry?: () => void;
   sortMode?: MailSortMode;
   onSortModeChange?: (mode: MailSortMode) => void;
 }
@@ -527,7 +529,9 @@ export function EmailList({
   showPrioritySort = false,
   jevConfigured = false,
   jevAvailabilityLoading = false,
+  jevAvailabilityError = false,
   onJevConnected,
+  onJevRetry,
   sortMode = "newest",
   onSortModeChange,
 }: EmailListProps) {
@@ -2205,21 +2209,25 @@ export function EmailList({
                   </DropdownMenuItem>
                 </div>
               )}
-              {!jevConfigured && (
-                <div
-                  role="none"
-                  className="flex items-center justify-between gap-2 px-2 py-1.5"
-                >
-                  <span className="text-sm text-muted-foreground">
+              {!jevConfigured &&
+                (jevAvailabilityError ? (
+                  <DropdownMenuItem
+                    onSelect={onJevRetry}
+                    disabled={jevAvailabilityLoading}
+                    className="justify-between"
+                  >
                     {t("mail.sort.priority")}
-                  </span>
+                    <span className="text-xs text-muted-foreground">
+                      {t("mail.error.tryAgain")}
+                    </span>
+                  </DropdownMenuItem>
+                ) : (
                   <JevConnectionPrompt
-                    variant="trigger"
+                    variant="menu-item"
                     disabled={jevAvailabilityLoading}
                     onConnected={onJevConnected}
                   />
-                </div>
-              )}
+                ))}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -2231,7 +2239,9 @@ export function EmailList({
       showPrioritySort,
       jevConfigured,
       jevAvailabilityLoading,
+      jevAvailabilityError,
       onJevConnected,
+      onJevRetry,
       currentSortMode,
       onSortModeChange,
       searchQuery,

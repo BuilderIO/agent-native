@@ -594,6 +594,7 @@ const messages = {
       connectJev: "ربط Jev",
       connectJevToRunTriage: "اربط Jev لتشغيل الفرز",
       freeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
+      jevAvailabilityFailed: "تعذّر التحقق مما إذا كان Jev متاحًا.",
       connectBuilder: "ربط Builder.io",
       addJevApiKey: "إضافة مفتاح API",
     },

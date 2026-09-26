@@ -577,6 +577,7 @@ const messages = {
       connectJev: "連接 Jev",
       connectJevToRunTriage: "連接 Jev 以執行分類",
       freeBuilderOrApiKey: "透過 Builder.io 免費使用，或新增 API 金鑰。",
+      jevAvailabilityFailed: "無法檢查 Jev 是否可用。",
       connectBuilder: "連接 Builder.io",
       addJevApiKey: "新增 API 金鑰",
     },

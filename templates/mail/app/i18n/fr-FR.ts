@@ -613,6 +613,7 @@ const messages = {
       connectJev: "Connecter Jev",
       connectJevToRunTriage: "Connectez Jev pour lancer le tri",
       freeBuilderOrApiKey: "Gratuit avec Builder.io, ou ajoutez une clé API.",
+      jevAvailabilityFailed: "Impossible de vérifier si Jev est disponible.",
       connectBuilder: "Connecter Builder.io",
       addJevApiKey: "Ajouter une clé API",
     },

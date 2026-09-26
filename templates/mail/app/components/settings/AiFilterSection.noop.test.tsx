@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   includeTagRule: false,
   includeDisabledImportant: false,
   includeExtraDuplicate: false,
+  jevAvailabilityError: false,
+  refetchJevAvailability: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -27,9 +29,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@agent-native/core/client/hooks", () => ({
   actionErrorMessage: (error: unknown) => String(error),
   useActionQuery: () => ({
-    data: { configured: true },
+    data: mocks.jevAvailabilityError ? undefined : { configured: true },
     isLoading: false,
-    refetch: vi.fn(),
+    isError: mocks.jevAvailabilityError,
+    isFetching: false,
+    refetch: mocks.refetchJevAvailability,
   }),
 }));
 
@@ -159,6 +163,7 @@ describe("AiFilterSection prompt blur saves", () => {
     mocks.includeTagRule = false;
     mocks.includeDisabledImportant = false;
     mocks.includeExtraDuplicate = false;
+    mocks.jevAvailabilityError = false;
     mocks.createRule.mockReset();
     mocks.consolidateRule.mockReset();
     mocks.deleteRule.mockReset();
@@ -187,6 +192,35 @@ describe("AiFilterSection prompt blur saves", () => {
     expect(
       screen.queryByRole("button", { name: "mail.sort.aiSetupRunAgain" }),
     ).toBeNull();
+  });
+
+  it("offers retry instead of Jev connection options when availability lookup fails", () => {
+    mocks.jevAvailabilityError = true;
+    render(<AiFilterSection />);
+
+    expect(
+      screen.getByText("mail.aiFilter.jevAvailabilityFailed"),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "mail.aiFilter.connectBuilder",
+      }),
+    ).toBeNull();
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "mail.aiFilter.importantMode",
+        }) as HTMLTextAreaElement
+      ).disabled,
+    ).toBe(true);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+    expect(mocks.refetchJevAvailability).toHaveBeenCalledOnce();
   });
 
   it("keeps disabled instructions out of prompt edits", async () => {

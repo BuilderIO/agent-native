@@ -599,6 +599,7 @@ const messages = {
       connectJev: "Jevを接続",
       connectJevToRunTriage: "トリアージを実行するにはJevを接続",
       freeBuilderOrApiKey: "Builder.ioなら無料、またはAPIキーを追加。",
+      jevAvailabilityFailed: "Jev の利用可否を確認できませんでした。",
       connectBuilder: "Builder.ioを接続",
       addJevApiKey: "APIキーを追加",
     },

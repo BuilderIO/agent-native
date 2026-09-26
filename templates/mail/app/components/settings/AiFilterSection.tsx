@@ -21,7 +21,10 @@ import {
   TAG_SUGGESTIONS,
 } from "@/components/onboarding/AiInboxSetup";
 import { AiRulePromptField } from "@/components/settings/AiRulePromptField";
-import { JevConnectionPrompt } from "@/components/settings/JevConnectionPrompt";
+import {
+  JevAvailabilityError,
+  JevConnectionPrompt,
+} from "@/components/settings/JevConnectionPrompt";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -203,7 +206,8 @@ export function AiFilterSection() {
       refetchOnWindowFocus: true,
     },
   );
-  const jevConfigured = jevAvailability.data?.configured === true;
+  const jevConfigured =
+    !jevAvailability.isError && jevAvailability.data?.configured === true;
   const updateSettings = useManageAiFilter();
   const updatePreferences = useUpdateSettings();
   const consolidateAiFilterRules = useConsolidateAiFilterRules();
@@ -576,6 +580,11 @@ export function AiFilterSection() {
 
         {jevAvailability.isLoading ? (
           <Skeleton className="h-16 w-full" />
+        ) : jevAvailability.isError ? (
+          <JevAvailabilityError
+            onRetry={() => void jevAvailability.refetch()}
+            retrying={jevAvailability.isFetching}
+          />
         ) : !jevConfigured ? (
           <JevConnectionPrompt
             onConnected={() => void jevAvailability.refetch()}

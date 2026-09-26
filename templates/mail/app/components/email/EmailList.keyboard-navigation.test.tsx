@@ -222,6 +222,8 @@ function Harness({
   isFetchingNextPage,
   showPrioritySort,
   jevConfigured = showPrioritySort,
+  jevAvailabilityError,
+  onJevRetry,
   sortMode,
 }: {
   emails?: React.ComponentProps<typeof EmailList>["emails"];
@@ -231,6 +233,8 @@ function Harness({
   isFetchingNextPage?: boolean;
   showPrioritySort?: boolean;
   jevConfigured?: boolean;
+  jevAvailabilityError?: boolean;
+  onJevRetry?: React.ComponentProps<typeof EmailList>["onJevRetry"];
   sortMode?: "newest" | "priority";
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
@@ -252,6 +256,8 @@ function Harness({
         isFetchingNextPage={isFetchingNextPage}
         showPrioritySort={showPrioritySort}
         jevConfigured={jevConfigured}
+        jevAvailabilityError={jevAvailabilityError}
+        onJevRetry={onJevRetry}
         sortMode={sortMode}
       />
     </>
@@ -302,6 +308,22 @@ function hasJevConnectionPrompt(node: unknown): boolean {
   );
 }
 
+function jevConnectionPromptVariant(node: unknown): unknown {
+  if (Array.isArray(node)) {
+    return node.map(jevConnectionPromptVariant).find((variant) => variant);
+  }
+  if (!isValidElement(node)) return undefined;
+  if (
+    typeof node.type === "function" &&
+    node.type.name === "JevConnectionPrompt"
+  ) {
+    return (node.props as { variant?: unknown }).variant;
+  }
+  return jevConnectionPromptVariant(
+    (node.props as { children?: unknown }).children,
+  );
+}
+
 describe("EmailList keyboard navigation interactions", () => {
   beforeEach(() => {
     mocks.navigate.mockReset();
@@ -331,6 +353,21 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(false);
     expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(true);
+    expect(jevConnectionPromptVariant(mocks.headerActions)).toBe("menu-item");
+  });
+
+  it("shows a retry menu item when Jev availability lookup fails", () => {
+    mocks.view = "inbox";
+    render(
+      <Harness
+        showPrioritySort={false}
+        jevConfigured={false}
+        jevAvailabilityError
+      />,
+    );
+
+    expect(hasText(mocks.headerActions, "mail.error.tryAgain")).toBe(true);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
   });
 
   it("shows Priority sort when Jev is configured", () => {
