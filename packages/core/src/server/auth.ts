@@ -42,6 +42,7 @@ import {
   isEmbedCapabilityScope,
   revokeEmbedSessionsForOwner,
   requestHasEmbedAuthMarker,
+  resolveEmbedSessionCookieOwners,
   resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
@@ -261,6 +262,7 @@ import { captureAuthError } from "./sentry.js";
 import {
   forgetCachedSessionEmail,
   getCachedSessionEmail,
+  getSessionEmailCacheGeneration,
   invalidateSessionEmailCache,
   setCachedSessionEmail,
 } from "./session-email-cache.js";
@@ -1446,6 +1448,50 @@ async function emailFromBetterAuthSessionToken(
   return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
 }
 
+function getPresentedSessionTokenCandidates(event: H3Event): string[] {
+  const bearerToken = getBearerSessionToken(event);
+  return [
+    ...new Set(
+      [
+        ...getFrameworkSessionCookieValues(event),
+        ...getBetterAuthSessionTokenValues(event),
+        ...(bearerToken ? [bearerToken] : []),
+      ].flatMap(sessionTokenLookupCandidates),
+    ),
+  ];
+}
+
+async function getPresentedSessionIdentities(
+  event: H3Event,
+  tokens: string[],
+  resolveBetterAuthTokens: boolean,
+): Promise<Set<string>> {
+  const identities = new Set<string>();
+  const addIdentity = (email: string | null | undefined) => {
+    const normalized = normalizeAuthEmail(email);
+    if (normalized) identities.add(normalized);
+  };
+
+  addIdentity((await resolveSessionUncached(event))?.email);
+  addIdentity(
+    (await resolveSessionUncached(event, { ignoreEmbedSession: true }))?.email,
+  );
+  for (const email of await resolveEmbedSessionCookieOwners(
+    event,
+    getCookieValues(event, EMBED_SESSION_COOKIE),
+  )) {
+    addIdentity(email);
+  }
+  for (const token of tokens) {
+    const legacyEmail = await getSessionEmail(token);
+    addIdentity(legacyEmail);
+    if (!legacyEmail && resolveBetterAuthTokens) {
+      addIdentity(await emailFromBetterAuthSessionToken(token));
+    }
+  }
+  return identities;
+}
+
 async function emailFromVerificationResponseSession(
   response: Response,
 ): Promise<string | null> {
@@ -2029,16 +2075,7 @@ async function performLogout(
   event: H3Event,
   getAuth: () => Promise<BetterAuthInstance | null> | BetterAuthInstance | null,
 ): Promise<{ ok: true } | { error: string }> {
-  const bearerToken = getBearerSessionToken(event);
-  const betterAuthTokens = getBetterAuthSessionTokenValues(event);
-  const rawTokens = [
-    ...getFrameworkSessionCookieValues(event),
-    ...betterAuthTokens,
-    ...(bearerToken ? [bearerToken] : []),
-  ];
-  const candidates = [
-    ...new Set(rawTokens.flatMap(sessionTokenLookupCandidates)),
-  ];
+  const candidates = getPresentedSessionTokenCandidates(event);
   let revocationFailed = false;
   let auth: BetterAuthInstance | null = null;
   try {
@@ -2049,24 +2086,11 @@ async function performLogout(
   }
 
   try {
-    const identities = new Set<string>();
-    const addIdentity = (email: string | null | undefined) => {
-      const normalized = normalizeAuthEmail(email);
-      if (normalized) identities.add(normalized);
-    };
-
-    addIdentity((await resolveSessionUncached(event))?.email);
-    addIdentity(
-      (await resolveSessionUncached(event, { ignoreEmbedSession: true }))
-        ?.email,
+    const identities = await getPresentedSessionIdentities(
+      event,
+      candidates,
+      Boolean(auth || revocationFailed),
     );
-    for (const token of candidates) {
-      const legacyEmail = await getSessionEmail(token);
-      addIdentity(legacyEmail);
-      if (!legacyEmail && (auth || revocationFailed)) {
-        addIdentity(await emailFromBetterAuthSessionToken(token));
-      }
-    }
     for (const email of identities) {
       await revokeEmbedSessionsForOwner(email);
     }
@@ -2149,6 +2173,7 @@ export async function logout(
 export async function getSessionEmail(token: string): Promise<string | null> {
   const cached = getCachedSessionEmail(token);
   if (cached !== undefined) return cached;
+  const cacheGeneration = getSessionEmailCacheGeneration();
   await ensureSessionTable();
   const client = getDbExec();
   const { rows } = await retryIfSessionsMissing(() =>
@@ -2168,7 +2193,7 @@ export async function getSessionEmail(token: string): Promise<string | null> {
     return null;
   }
   const email = (rows[0].email as string) ?? null;
-  if (email) setCachedSessionEmail(token, email);
+  if (email) setCachedSessionEmail(token, email, cacheGeneration);
   return email;
 }
 
@@ -4821,10 +4846,15 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   };
   if (!ctx.__anSessionCache) {
     ctx.__anSessionCache = (async () => {
+      const identityResolutionStartedAtMs = Date.now();
       const session = await resolveSessionUncached(event);
       if (session?.email) {
-        // Logout compares its cutoff to the validation boundary, before enrichment awaits.
-        markRequestIdentityAuthenticatedAtMs(event, session.email, Date.now());
+        // A logout racing any credential lookup must win over work using its result.
+        markRequestIdentityAuthenticatedAtMs(
+          event,
+          session.email,
+          identityResolutionStartedAtMs,
+        );
       }
       const resolved = session?.email
         ? await backfillSessionOrg(session, event)
@@ -7076,10 +7106,8 @@ async function mountBetterAuthRoutes(
     }),
   );
 
-  // POST /_agent-native/auth/logout-all — revoke every session row for
-  // the authenticated user across both auth tables. Companion to the
-  // password-reset session-revocation logic; lets a user sign out
-  // everywhere from one device. Requires an authenticated session.
+  // POST /_agent-native/auth/logout-all — revoke every presented identity's
+  // sessions across both auth tables. Requires an authenticated session.
   app.use(
     "/_agent-native/auth/logout-all",
     defineEventHandler(async (event) => {
@@ -7093,42 +7121,43 @@ async function mountBetterAuthRoutes(
         return { error: "Not authenticated" };
       }
       try {
-        await revokeEmbedSessionsForOwner(session.email);
-        const db = getDbExec();
-        // 1. Resolve user_id from email so we can wipe Better Auth sessions
-        // by their FK column.
-        let userId: string | undefined;
-        try {
-          const { rows } = await db.execute({
-            sql: 'SELECT id FROM "user" WHERE email = ?',
-            args: [session.email],
-          });
-          userId = (rows[0]?.id ?? rows[0]?.[0]) as string | undefined;
-        } catch {
-          // User table may not exist on token-only deployments — skip.
-        }
-        if (userId) {
-          try {
-            await db.execute({
-              sql: 'DELETE FROM "session" WHERE user_id = ?',
-              args: [userId],
-            });
-          } catch {
-            // Best-effort.
-          }
-        }
-
-        // 2. Legacy `sessions` table — keyed by `email` column.
-        try {
-          await db.execute({
-            sql: "DELETE FROM sessions WHERE email = ?",
-            args: [session.email],
-          });
-        } catch {
-          // Best-effort.
+        const identities = await getPresentedSessionIdentities(
+          event,
+          getPresentedSessionTokenCandidates(event),
+          true,
+        );
+        const sessionEmail = normalizeAuthEmail(session.email);
+        if (sessionEmail) identities.add(sessionEmail);
+        for (const email of identities) {
+          await revokeEmbedSessionsForOwner(email);
         }
         invalidateSessionEmailCache();
+        const db = getDbExec();
+        try {
+          for (const email of identities) {
+            // 1. Resolve user_id from email so we can wipe Better Auth sessions
+            // by their FK column.
+            const { rows } = await db.execute({
+              sql: 'SELECT id FROM "user" WHERE email = ?',
+              args: [email],
+            });
+            const userId = (rows[0]?.id ?? rows[0]?.[0]) as string | undefined;
+            if (userId) {
+              await db.execute({
+                sql: 'DELETE FROM "session" WHERE user_id = ?',
+                args: [userId],
+              });
+            }
 
+            // 2. Legacy `sessions` table — keyed by `email` column.
+            await db.execute({
+              sql: "DELETE FROM sessions WHERE email = ?",
+              args: [email],
+            });
+          }
+        } finally {
+          invalidateSessionEmailCache();
+        }
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).
         clearFrameworkSessionCookies(event);

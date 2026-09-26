@@ -792,6 +792,25 @@ export async function resolveEmbedSessionTokenForHost(
   return verified.claims;
 }
 
+export async function resolveEmbedSessionCookieOwners(
+  event: H3Event,
+  tokens: string[],
+): Promise<string[]> {
+  if (tokens.length === 0) return [];
+  const hostname = requestHostname(event);
+  if (!hostname) {
+    throw new Error("Cannot resolve embed session cookies without a hostname.");
+  }
+
+  const owners = new Set<string>();
+  for (const token of tokens) {
+    const claims = await resolveEmbedSessionTokenForHost(token, hostname);
+    const owner = normalizedEmail(claims?.ownerEmail);
+    if (owner && !isEmbedCapabilityScope(claims?.scope)) owners.add(owner);
+  }
+  return [...owners];
+}
+
 export async function consumeEmbedSessionTicket(
   ticket: string | undefined | null,
   options: ConsumeEmbedSessionTicketOptions = {},

@@ -15,6 +15,7 @@ import {
   SSR_CACHE_ENV_VAR,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import { EMBED_SESSION_COOKIE } from "../shared/embed-auth.js";
 import { FIRST_RUN_ONBOARDING_COOKIE } from "../shared/first-run-onboarding.js";
 import {
   PASSWORD_MAX_LENGTH,
@@ -1897,31 +1898,65 @@ describe("server/auth", () => {
 
     it("revokes all-session embed access before changing cookies and fails closed", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("OAUTH_STATE_SECRET", "auth-logout-all-test-secret");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
       const operations: string[] = [];
       let failRevocation = false;
-      const revokeEmbedSessionsForOwner = vi.fn(async () => {
-        operations.push("revoke");
+      let failDatabaseDeleteAt: number | null = null;
+      let databaseDeleteCount = 0;
+      const deletedLegacyEmails = new Set<string>();
+      const embedTokens: string[] = [];
+      const resolveEmbedSessionFromRequest = vi.fn(async (event: any) =>
+        event.headers
+          ?.get("cookie")
+          ?.includes(`${EMBED_SESSION_COOKIE}=${embedTokens[0]}`)
+          ? {
+              email: "embed-owner@example.com",
+              token: embedTokens[0],
+              targetPath: "/inbox",
+            }
+          : null,
+      );
+      const revokeEmbedSessionsForOwner = vi.fn(async (email: string) => {
+        operations.push(`revoke:${email}`);
         if (failRevocation) throw new Error("revocation store unavailable");
       });
       const mockExecute = vi.fn(async (query: any) => {
-        operations.push("database");
         const sql = typeof query === "string" ? query : query.sql;
+        const args = typeof query === "string" ? [] : query.args;
+        if (typeof sql === "string" && sql.startsWith("DELETE")) {
+          operations.push(sql);
+          databaseDeleteCount++;
+          if (databaseDeleteCount === failDatabaseDeleteAt) {
+            throw new Error("session delete failed");
+          }
+          if (sql === "DELETE FROM sessions WHERE email = ?") {
+            deletedLegacyEmails.add(String(args?.[0]));
+          }
+        }
         return {
           rows: sql?.includes('SELECT id FROM "user"')
-            ? [{ id: "auth-user-1" }]
-            : [],
+            ? [{ id: `user-${args?.[0]}` }]
+            : sql?.includes("SELECT email, created_at FROM sessions") &&
+                args?.[0] === "legacy-session-b"
+              ? deletedLegacyEmails.has("framework-cookie-owner@example.com")
+                ? []
+                : [{ email: "framework-cookie-owner@example.com" }]
+              : sql?.includes("SELECT email, created_at FROM sessions") &&
+                  args?.[0] === "bearer-session-d"
+                ? [{ email: "bearer-owner@example.com" }]
+                : sql?.includes('SELECT u.email FROM "session"') &&
+                    args?.[0] === "better-auth-session-c"
+                  ? [{ email: "better-auth-cookie-owner@example.com" }]
+                  : [],
         };
       });
       const auth = {
         handler: vi.fn(async () => new Response("{}")),
         api: {
-          getSession: vi.fn(async () => ({
-            user: { id: "auth-user-1", email: "owner@example.com" },
-            session: { token: "session-token" },
-          })),
+          getSession: vi.fn(async () => null),
           signOut: vi.fn(async () => ({ headers: new Headers() })),
         },
       };
@@ -1929,6 +1964,7 @@ describe("server/auth", () => {
       vi.doMock("./embed-session.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
         revokeEmbedSessionsForOwner,
+        resolveEmbedSessionFromRequest,
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
@@ -1946,7 +1982,42 @@ describe("server/auth", () => {
         resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
       }));
 
-      const { autoMountAuth, COOKIE_NAME } = await import("./auth.js");
+      const {
+        autoMountAuth,
+        BETTER_AUTH_COOKIE_PREFIX,
+        COOKIE_NAME,
+        getSession,
+      } = await import("./auth.js");
+      const { signEmbedSessionToken } = await import("./embed-session.js");
+      embedTokens.push(
+        signEmbedSessionToken({
+          ownerEmail: "embed-owner@example.com",
+          targetPath: "/inbox",
+          audienceHost: "localhost",
+        }),
+        signEmbedSessionToken({
+          ownerEmail: "second-embed-owner@example.com",
+          targetPath: "/inbox",
+          audienceHost: "localhost",
+        }),
+        signEmbedSessionToken({
+          ownerEmail: "capability-owner@example.com",
+          targetPath: "/inbox",
+          scope: "capability:calendar.read",
+          audienceHost: "localhost",
+        }),
+      );
+      const mixedCookieHeaders = {
+        cookie: [
+          `${EMBED_SESSION_COOKIE}=${embedTokens[0]}`,
+          `${EMBED_SESSION_COOKIE}=${embedTokens[1]}`,
+          `${EMBED_SESSION_COOKIE}=${embedTokens[2]}`,
+          `${COOKIE_NAME}=legacy-session-b`,
+          `${BETTER_AUTH_COOKIE_PREFIX}.session_token=better-auth-session-c`,
+        ].join("; "),
+        authorization: "Bearer bearer-session-d",
+        host: "localhost",
+      };
       const app = createMockApp();
       await autoMountAuth(app);
       const logoutAllHandler = app.use.mock.calls.find(
@@ -1957,29 +2028,81 @@ describe("server/auth", () => {
       const event = createJsonPostEvent(
         "/_agent-native/auth/logout-all",
         {},
-        { cookie: `${COOKIE_NAME}=session-token` },
+        mixedCookieHeaders,
       );
       await expect(logoutAllHandler(event)).resolves.toEqual({ ok: true });
-      expect(operations[0]).toBe("revoke");
-      expect(revokeEmbedSessionsForOwner).toHaveBeenCalledWith(
-        "owner@example.com",
+      expect(
+        revokeEmbedSessionsForOwner.mock.calls.map(([email]) => email),
+      ).toEqual([
+        "embed-owner@example.com",
+        "bearer-owner@example.com",
+        "second-embed-owner@example.com",
+        "framework-cookie-owner@example.com",
+        "better-auth-cookie-owner@example.com",
+      ]);
+      expect(
+        operations
+          .filter((operation) => operation.startsWith("revoke:"))
+          .at(-1),
+      ).toBe("revoke:better-auth-cookie-owner@example.com");
+      expect(
+        operations.findIndex((operation) => operation.startsWith("DELETE")),
+      ).toBeGreaterThan(
+        operations.findLastIndex((operation) =>
+          operation.startsWith("revoke:"),
+        ),
       );
       expect(event.res.headers.get("set-cookie") ?? "").toContain(
         `${COOKIE_NAME}=; Max-Age=0`,
       );
+      expect(event.res.headers.get("set-cookie") ?? "").toContain(
+        `${EMBED_SESSION_COOKIE}=; Max-Age=0`,
+      );
 
       operations.length = 0;
+      databaseDeleteCount = 0;
+      deletedLegacyEmails.clear();
+      failDatabaseDeleteAt = 9;
+      const databaseFailedEvent = createJsonPostEvent(
+        "/_agent-native/auth/logout-all",
+        {},
+        mixedCookieHeaders,
+      );
+      await expect(logoutAllHandler(databaseFailedEvent)).resolves.toEqual({
+        error: "session delete failed",
+      });
+      expect(databaseFailedEvent.res.status).toBe(500);
+      expect(databaseFailedEvent.res.headers.get("set-cookie") ?? "").toBe("");
+      await expect(
+        getSession(
+          createJsonPostEvent(
+            "/_agent-native/auth/session",
+            {},
+            {
+              cookie: `${COOKIE_NAME}=legacy-session-b`,
+              host: "localhost",
+            },
+          ),
+        ),
+      ).resolves.toBeNull();
+
+      operations.length = 0;
+      failDatabaseDeleteAt = null;
+      databaseDeleteCount = 0;
+      deletedLegacyEmails.clear();
       failRevocation = true;
       const failedEvent = createJsonPostEvent(
         "/_agent-native/auth/logout-all",
         {},
-        { cookie: `${COOKIE_NAME}=session-token` },
+        mixedCookieHeaders,
       );
       await expect(logoutAllHandler(failedEvent)).resolves.toEqual({
         error: "revocation store unavailable",
       });
       expect(failedEvent.res.status).toBe(500);
-      expect(operations).toEqual(["revoke"]);
+      expect(
+        operations.some((operation) => operation.startsWith("DELETE")),
+      ).toBe(false);
       expect(failedEvent.res.headers.get("set-cookie") ?? "").toBe("");
     }, 30_000);
 
@@ -7796,7 +7919,26 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
-    it("records identity validation before asynchronous organization enrichment", async () => {
+    it("does not cache a legacy lookup that finishes after invalidation", async () => {
+      const {
+        getCachedSessionEmail,
+        getSessionEmailCacheGeneration,
+        invalidateSessionEmailCache,
+        setCachedSessionEmail,
+      } = await import("./session-email-cache.js");
+      const generation = getSessionEmailCacheGeneration();
+
+      invalidateSessionEmailCache();
+      setCachedSessionEmail(
+        "late-session-lookup",
+        "owner@example.com",
+        generation,
+      );
+
+      expect(getCachedSessionEmail("late-session-lookup")).toBeUndefined();
+    });
+
+    it("records identity resolution start before asynchronous credential validation", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -7855,7 +7997,7 @@ describe("server/auth", () => {
 
         expect(
           getRequestIdentityAuthenticatedAtMs(event, "owner@example.com"),
-        ).toBe(1_100);
+        ).toBe(1_000);
 
         resolveOrgBackfill("org-1");
         await expect(pendingSession).resolves.toMatchObject({
