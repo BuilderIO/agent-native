@@ -508,6 +508,41 @@ describe("calendar event rules sweep", () => {
     ).toContainEqual(expect.objectContaining({ id: healthyPending.id }));
   });
 
+  it("runs the rule sweep after a pending RSVP reconciliation failure", async () => {
+    const failedPending = {
+      id: "pending-failed",
+      eventId: "event-failed",
+      accountEmail: "one@example.com",
+      title: "First event",
+      action: "accepted",
+      occurredAt: "2026-09-25T12:00:00.000Z",
+    };
+    const { owner, settingsByOwner } = configureOwnerSweep({
+      runtime: { pendingRsvps: { [failedPending.id]: failedPending } },
+    });
+    mocks.getEvent
+      .mockRejectedValueOnce(new Error("temporary event lookup failure"))
+      .mockResolvedValueOnce({ responseStatus: "needsAction" });
+
+    await expect(runCalendarEventRulesOnce()).rejects.toMatchObject({
+      name: "AggregateError",
+    });
+
+    expect(mocks.calendarListEvents).toHaveBeenCalledTimes(1);
+    expect(mocks.requestJevThroughBuilder).toHaveBeenCalledTimes(1);
+    expect(mocks.rsvpEvent).toHaveBeenCalledWith(
+      "event-1",
+      "accepted",
+      expect.any(Object),
+    );
+    expect(
+      settingsByOwner[owner]["calendar-event-rules-runtime"],
+    ).toMatchObject({
+      pendingRsvps: { [failedPending.id]: failedPending },
+      lastSweepAt: expect.any(Number),
+    });
+  });
+
   it("claims the event before re-reading and sending an RSVP across overlapping sweeps", async () => {
     configureOwnerSweep();
     let finishRsvp!: () => void;
