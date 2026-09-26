@@ -64,6 +64,8 @@ export function StorageSetupCard({
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [retryingBuilderStatus, setRetryingBuilderStatus] = useState(false);
+  const retryingBuilderStatusAtCountRef = useRef<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
@@ -164,6 +166,25 @@ export function StorageSetupCard({
     trackingFlow: connectFlow,
     onConnected: handleBuilderConnected,
   });
+  useEffect(() => {
+    const startedAt = retryingBuilderStatusAtCountRef.current;
+    if (
+      startedAt !== null &&
+      builderConnect.statusReadSettledCount > startedAt
+    ) {
+      retryingBuilderStatusAtCountRef.current = null;
+      setRetryingBuilderStatus(false);
+    }
+  }, [builderConnect.statusReadSettledCount]);
+  const retryBuilderStatus = useCallback(() => {
+    retryingBuilderStatusAtCountRef.current =
+      builderConnect.statusReadSettledCount;
+    setRetryingBuilderStatus(true);
+    if (!builderConnect.retry()) {
+      retryingBuilderStatusAtCountRef.current = null;
+      setRetryingBuilderStatus(false);
+    }
+  }, [builderConnect.retry, builderConnect.statusReadSettledCount]);
   const handleBuilderConnect = useCallback(
     (provisionAccount: boolean) => {
       connectRequestedRef.current = true;
@@ -176,7 +197,7 @@ export function StorageSetupCard({
     builderConnect.statusResolved &&
     builderConnect.agentNativeProvisioningEnabled;
   const builderConnectErrorMessage = builderConnect.error
-    ? builderConnect.error.toLowerCase().includes("popup")
+    ? /popup|chat host/i.test(builderConnect.error)
       ? t("storageSetup.builderConnectPopupError")
       : t("storageSetup.builderConnectError")
     : null;
@@ -351,10 +372,22 @@ export function StorageSetupCard({
               builderConnect.error && (
                 <button
                   type="button"
+                  aria-busy={retryingBuilderStatus}
+                  disabled={retryingBuilderStatus}
                   className="text-xs text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => builderConnect.retry()}
+                  onClick={retryBuilderStatus}
                 >
-                  {t("meetingDetail.retry")}
+                  {retryingBuilderStatus ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <IconLoader2
+                        className="h-3 w-3 animate-spin"
+                        aria-hidden
+                      />
+                      {t("storageSetup.checkingBuilderConnection")}
+                    </span>
+                  ) : (
+                    t("meetingDetail.retry")
+                  )}
                 </button>
               )}
             {builderConnect.connecting && (

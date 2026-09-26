@@ -1364,9 +1364,10 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "Builder.io could not open. Allow popups for this site and try again.",
+      "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, allow popups for this site and try again.",
     builderConnectError:
       "Couldn't connect Builder.io. Try again or contact support.",
+    checkingBuilderConnection: "Checking Builder connection…",
     builderTimeout:
       "Didn't hear back from Builder in 5 minutes. Check the popup and try again.",
     builderConnected: "Builder.io connected",

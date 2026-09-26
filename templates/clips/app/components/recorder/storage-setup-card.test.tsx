@@ -9,11 +9,13 @@ const mocks = vi.hoisted(() => ({
   useBuilderConnectFlow: vi.fn(),
   flow: {
     statusResolved: false,
+    statusReadSettledCount: 0,
     agentNativeProvisioningEnabled: false,
     accountExists: false,
     connecting: false,
     error: null,
     cancel: vi.fn(),
+    retry: vi.fn(() => true),
   },
 }));
 
@@ -81,6 +83,7 @@ describe("StorageSetupCard", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.start.mockReset();
     mocks.flow.cancel.mockReset();
+    mocks.flow.retry.mockReset().mockReturnValue(true);
     mocks.useBuilderConnectFlow.mockReset().mockReturnValue({
       ...mocks.flow,
       start: mocks.start,
@@ -170,6 +173,69 @@ describe("StorageSetupCard", () => {
       container.querySelector('[data-testid="mock-builder-trigger"]'),
     ).toBeNull();
     expect(container.querySelector("button[disabled]")).not.toBeNull();
+  });
+
+  it("shows pending feedback while retrying a failed status lookup", async () => {
+    const flow = {
+      ...mocks.flow,
+      hasFetchedStatus: true,
+      error: "Couldn't read Builder connection status.",
+      statusReadSettledCount: 1,
+      start: mocks.start,
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
+    });
+
+    const retryButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "meetingDetail.retry",
+    );
+    expect(retryButton).toBeDefined();
+
+    act(() => retryButton?.click());
+
+    expect(mocks.flow.retry).toHaveBeenCalledOnce();
+    expect(retryButton?.disabled).toBe(true);
+    expect(retryButton?.getAttribute("aria-busy")).toBe("true");
+    expect(retryButton?.textContent).toContain(
+      "storageSetup.checkingBuilderConnection",
+    );
+
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      ...flow,
+      statusReadSettledCount: 2,
+    });
+    await act(async () => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
+    });
+
+    const settledRetryButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "meetingDetail.retry",
+    );
+    expect(settledRetryButton?.disabled).toBe(false);
+  });
+
+  it("preserves browser-tab recovery guidance for embedded connect failures", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      ...mocks.flow,
+      error:
+        "Couldn't open Builder from this chat host. Open this app in a browser tab and try Connect Builder again.",
+      hasFetchedStatus: true,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
+    });
+
+    expect(container.textContent).toContain(
+      "storageSetup.builderConnectPopupError",
+    );
+    expect(container.textContent).not.toContain(
+      "storageSetup.builderConnectError",
+    );
   });
 
   it("shows a localized error after the status-resolved fallback flow fails", () => {

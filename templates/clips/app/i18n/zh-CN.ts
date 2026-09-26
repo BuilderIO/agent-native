@@ -1367,8 +1367,9 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "无法打开 Builder.io。请允许此网站的弹出窗口，然后重试。",
+      "无法打开 Builder.io。如果此应用嵌入在聊天中，请在浏览器标签页中打开；否则请允许此网站显示弹出窗口，然后重试。",
     builderConnectError: "无法连接到 Builder.io。请重试或联系支持团队。",
+    checkingBuilderConnection: "正在检查 Builder 连接…",
     builderTimeout: "5 分钟内未收到 Builder 响应。请检查弹出窗口并重试。",
     builderConnected: "Builder.io 已连接",
     waitingForBuilder: "正在等待 Builder...",

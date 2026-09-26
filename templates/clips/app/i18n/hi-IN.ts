@@ -1410,9 +1410,10 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "Builder.io नहीं खुल सका। इस साइट के लिए पॉप-अप की अनुमति दें और फिर कोशिश करें।",
+      "Builder.io नहीं खुल सका। अगर यह ऐप किसी चैट में एम्बेड है, तो इसे ब्राउज़र टैब में खोलें; अन्यथा इस साइट के लिए पॉप-अप की अनुमति दें और फिर कोशिश करें।",
     builderConnectError:
       "Builder.io से कनेक्ट नहीं हो सका। फिर से कोशिश करें या सहायता टीम से संपर्क करें।",
+    checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
     builderTimeout:
       "5 मिनट में Builder से जवाब नहीं मिला। पॉपअप जांचें और फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",

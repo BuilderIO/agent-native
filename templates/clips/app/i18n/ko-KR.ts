@@ -1429,9 +1429,10 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "Builder.io를 열 수 없습니다. 이 사이트의 팝업을 허용한 후 다시 시도하세요.",
+      "Builder.io를 열 수 없습니다. 이 앱이 채팅에 삽입되어 있다면 브라우저 탭에서 여세요. 그렇지 않다면 이 사이트의 팝업을 허용한 후 다시 시도하세요.",
     builderConnectError:
       "Builder.io에 연결하지 못했습니다. 다시 시도하거나 지원팀에 문의해 주세요.",
+    checkingBuilderConnection: "Builder 연결을 확인하는 중…",
     builderTimeout:
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",

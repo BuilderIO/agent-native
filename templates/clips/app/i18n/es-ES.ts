@@ -1469,9 +1469,10 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "No se pudo abrir Builder.io. Permite las ventanas emergentes para este sitio e inténtalo de nuevo.",
+      "No se pudo abrir Builder.io. Si esta aplicación está integrada en un chat, ábrela en una pestaña del navegador; de lo contrario, permite las ventanas emergentes para este sitio e inténtalo de nuevo.",
     builderConnectError:
       "No se pudo conectar Builder.io. Inténtalo de nuevo o contacta con el soporte.",
+    checkingBuilderConnection: "Comprobando la conexión con Builder…",
     builderTimeout:
       "No hubo respuesta de Builder en 5 minutos. Revisa la ventana emergente e inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
