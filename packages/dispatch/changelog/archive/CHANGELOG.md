@@ -1,3 +1,9 @@
+## 0.23.2
+
+### Patch Changes
+
+- 44ac2c4: Require explicit Slack mentions before dispatching channel turns.
+
 ## 0.23.1
 
 ### Patch Changes
