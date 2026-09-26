@@ -36,6 +36,7 @@ import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
   IconArrowRight,
+  IconPlus,
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
@@ -682,6 +683,15 @@ export default function Index() {
     },
     [setSearchParams],
   );
+
+  const openNewDeck = useCallback(() => {
+    preloadPromptPopover();
+    designSystemAutoRef.current = true;
+    referenceDeckAutoRef.current = true;
+    setSelectedDesignSystemId(initialDesignSystemId ?? null);
+    setSelectedReferenceDeckId(initialReferenceDeckId ?? null);
+    setShowNewDeckPrompt(true);
+  }, [initialDesignSystemId, initialReferenceDeckId]);
 
   useEffect(() => {
     if (
