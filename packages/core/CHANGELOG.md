@@ -51,6 +51,33 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.193.0
+
+### Minor Changes
+
+- 7e8a10a: Gate chat until an LLM provider is ready and show setup choices when file storage is missing.
+
+### Patch Changes
+
+- cbf8a52: Use the local workspace app ACL when no Dispatch directory is mounted.
+- 9328cc4: Give API key provider buttons a soft background and comfortable spacing.
+- Release all public npm packages with a patch version bump.
+- 8700be3: Report Slides file storage readiness and omit absent AgentKit runtime run IDs.
+- c625807: Remove external-link markers from internal settings navigation.
+- 7582194: Tighten local development sign-in spacing and collapse account options by default.
+- a6b2eaa: Forward typed action cooldowns through HTTP Retry-After headers.
+- 2a87449: Make human review responsive and clearer, add search and artifact filtering, and allow the configured super-organization's admins to review other organizations without cross-tenant writes.
+- 0f78444: Remove framing around API key provider logos.
+- 8791318: Preserve canonical identity in analytics and align Clips completion events with recording attempts.
+- d12f203: Human review runs are easier to scan, and expanded details have a clear boundary.
+- d52c9a0: Use TypeSafe AI's Jev logo in API key settings.
+- af54bfd: Clarify usage trends with a labeled value axis and group repeated recent prompts by occurrence.
+- Updated dependencies [7e8a10a]
+- Updated dependencies
+  - @agent-native/toolkit@0.22.1
+  - @agent-native/agentkit@0.3.1
+  - @agent-native/recap-cli@0.5.45
+
 ## 0.192.0
 
 ### Minor Changes
@@ -3217,13 +3244,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - ae91302: Make shared user-share writes conflict-aware when a resource enforces normalized principal uniqueness.
-
-## 0.164.10
-
-### Patch Changes
-
-- 6a18780: Keep the beta environment switcher visible to signed-out visitors, including the standalone auth page.
-- e439054: Support reusable Code Agent worktrees and reliable local chat forking across Desktop sessions.
-- 5ececad: Surface sync-version allocator reseed failures while preserving the existing retry and clock-fallback behavior.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
