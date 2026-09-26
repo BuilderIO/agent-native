@@ -482,13 +482,37 @@ export async function ssrfSafeFetch(
       // of being held until GC.
       await response.body?.cancel().catch(() => {});
       const nextUrl = new URL(location, currentUrl);
-      if (nextUrl.origin !== new URL(currentUrl).origin) {
-        const headers = new Headers(currentInit.headers);
-        headers.delete("authorization");
-        headers.delete("cookie");
-        headers.delete("proxy-authorization");
-        currentInit = { ...currentInit, headers };
+      const method = currentInit.method?.toUpperCase() ?? "GET";
+      const rewritesToGet =
+        ((response.status === 301 || response.status === 302) &&
+          method === "POST") ||
+        (response.status === 303 && method !== "GET" && method !== "HEAD");
+      let headers = new Headers(currentInit.headers);
+      if (rewritesToGet) {
+        for (const name of [
+          "content-encoding",
+          "content-language",
+          "content-length",
+          "content-location",
+          "content-type",
+        ]) {
+          headers.delete(name);
+        }
+        currentInit = { ...currentInit, method: "GET", body: undefined };
       }
+      if (nextUrl.origin !== new URL(currentUrl).origin) {
+        const redirectedMethod = currentInit.method?.toUpperCase() ?? "GET";
+        if (redirectedMethod !== "GET" && redirectedMethod !== "HEAD") {
+          throw new Error(
+            "Refusing to follow a cross-origin redirect with a non-GET request",
+          );
+        }
+        const safeHeaders = new Headers();
+        const accept = headers.get("accept");
+        if (accept !== null) safeHeaders.set("accept", accept);
+        headers = safeHeaders;
+      }
+      currentInit = { ...currentInit, headers };
       currentUrl = nextUrl.href;
       continue;
     }

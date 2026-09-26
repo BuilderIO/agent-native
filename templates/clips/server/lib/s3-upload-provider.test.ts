@@ -210,7 +210,11 @@ describe("s3FileUploadProvider", () => {
     expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
       expect.stringContaining("https://s3.example.com/org-bucket/"),
       expect.objectContaining({ method: "GET" }),
-      { followRedirects: false, requireDispatcher: true },
+      {
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: ["https://s3.example.com"],
+      },
     );
 
     const workspaceReadCount = mockReadAppSecret.mock.calls.length;
@@ -228,7 +232,7 @@ describe("s3FileUploadProvider", () => {
       S3_BUCKET: "current-bucket",
       S3_ACCESS_KEY_ID: "access",
       S3_SECRET_ACCESS_KEY: "secret",
-      S3_ENDPOINT: "https://s3.example.com",
+      S3_ENDPOINT: "http://10.0.0.12:9000/minio/",
       S3_REGION: "us-east-1",
     };
     mockReadAppSecret.mockImplementation(
@@ -247,8 +251,17 @@ describe("s3FileUploadProvider", () => {
 
     expect(result?.status).toBe(404);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://s3.example.com/current-bucket/clips/logo-abc123/1722720000000-abcd1234.png",
+      "http://10.0.0.12:9000/minio/current-bucket/clips/logo-abc123/1722720000000-abcd1234.png",
       expect.objectContaining({ method: "GET" }),
+    );
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      expect.stringContaining("http://10.0.0.12:9000/minio/current-bucket/"),
+      expect.objectContaining({ method: "GET" }),
+      {
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: ["http://10.0.0.12:9000"],
+      },
     );
   });
 

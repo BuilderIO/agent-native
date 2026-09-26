@@ -65,6 +65,36 @@ function sendLogo(
   return data;
 }
 
+async function readBoundedBody(response: Response): Promise<Uint8Array | null> {
+  const reader = response.body?.getReader();
+  if (!reader) return new Uint8Array();
+
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (byteLength + value.byteLength > MAX_LOGO_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      byteLength += value.byteLength;
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const data = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return data;
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   // Organization logos are public share/email branding, but this endpoint
   // resolves only the logo reference saved on this organization.
@@ -117,15 +147,26 @@ export default defineEventHandler(async (event: H3Event) => {
         setResponseStatus(event, response.status === 404 ? 404 : 502);
         return { error: "Stored organization logo is unavailable" };
       }
-      const contentLength = Number(response.headers.get("content-length"));
-      if (Number.isFinite(contentLength) && contentLength > MAX_LOGO_BYTES) {
+      const contentLengthHeader = response.headers.get("content-length");
+      const contentLength =
+        contentLengthHeader === null ? null : Number(contentLengthHeader);
+      if (
+        contentLength !== null &&
+        Number.isFinite(contentLength) &&
+        contentLength > MAX_LOGO_BYTES
+      ) {
         await response.body?.cancel().catch(() => undefined);
+        setResponseStatus(event, 502);
+        return { error: "Stored organization logo exceeds the size limit" };
+      }
+      const data = await readBoundedBody(response);
+      if (!data) {
         setResponseStatus(event, 502);
         return { error: "Stored organization logo exceeds the size limit" };
       }
       return sendLogo(
         event,
-        new Uint8Array(await response.arrayBuffer()),
+        data,
         response.headers.get("content-type")?.split(";")[0]?.trim() ||
           legacyMimeType(stored),
       );

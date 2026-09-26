@@ -133,6 +133,58 @@ describe("/api/media/organization-logo/:organizationId", () => {
     expect(mocks.setResponseStatus).toHaveBeenCalledWith({}, 404);
   });
 
+  it("serves legacy logos with unknown content length when within the limit", async () => {
+    const legacyUrl =
+      "https://old-storage.example/clips/logo-abc123/1722720000000-abcd1234.png";
+    mocks.rows = [{ brandLogoUrl: legacyUrl }];
+    mocks.fetchLegacyLogo.mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("png"));
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "image/png" } },
+      ),
+    );
+
+    await expect(handler({} as any)).resolves.toEqual(
+      new TextEncoder().encode("png"),
+    );
+    expect(mocks.setResponseHeader).toHaveBeenCalledWith(
+      {},
+      "Content-Type",
+      "image/png",
+    );
+  });
+
+  it("cancels legacy logo streams once their unknown-length body exceeds the limit", async () => {
+    const legacyUrl =
+      "https://old-storage.example/clips/logo-abc123/1722720000000-abcd1234.png";
+    const cancel = vi.fn();
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(5 * 1024 * 1024));
+          controller.enqueue(new Uint8Array(1));
+        },
+        cancel,
+      }),
+      { headers: { "content-type": "image/png" } },
+    );
+    const arrayBuffer = vi.spyOn(response, "arrayBuffer");
+    mocks.rows = [{ brandLogoUrl: legacyUrl }];
+    mocks.fetchLegacyLogo.mockResolvedValue(response);
+
+    await expect(handler({} as any)).resolves.toEqual({
+      error: "Stored organization logo exceeds the size limit",
+    });
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith({}, 502);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(arrayBuffer).not.toHaveBeenCalled();
+  });
+
   it("returns 503 when current storage configuration is unavailable", async () => {
     mocks.rows = [
       {

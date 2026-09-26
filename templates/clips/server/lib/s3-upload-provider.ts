@@ -76,7 +76,11 @@ async function fetchWithTimeout(
         ...init,
         signal: AbortSignal.timeout(timeoutMs),
       },
-      { followRedirects: false, requireDispatcher: true },
+      {
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: [new URL(url).origin],
+      },
     );
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {

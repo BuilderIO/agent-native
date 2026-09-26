@@ -359,12 +359,12 @@ describe("ssrfSafeFetch per-hop policies", () => {
     expect(redirectResponse.bodyUsed).toBe(true);
   });
 
-  it("keeps credentials on same-origin redirects", async () => {
+  it("preserves request data on same-origin 307 redirects", async () => {
     const redirectUrl = "https://93.184.216.34/next";
     const fetchMock = vi.fn(async (url: string) =>
       url === httpsOrigin
         ? new Response(null, {
-            status: 302,
+            status: 307,
             headers: { location: redirectUrl },
           })
         : new Response("ok", { status: 200 }),
@@ -373,46 +373,100 @@ describe("ssrfSafeFetch per-hop policies", () => {
 
     await expect(
       ssrfSafeFetch(httpsOrigin, {
-        headers: { Authorization: "Bearer example-token" },
-      }),
-    ).resolves.toMatchObject({ status: 200 });
-
-    expect(
-      new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("authorization"),
-    ).toBe("Bearer example-token");
-  });
-
-  it("strips credentials before following a cross-origin redirect", async () => {
-    const redirectUrl = "https://93.184.216.35/image.png";
-    const fetchMock = vi.fn(async (url: string) =>
-      url === httpsOrigin
-        ? new Response(null, {
-            status: 302,
-            headers: { location: redirectUrl },
-          })
-        : new Response("ok", { status: 200 }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(
-      ssrfSafeFetch(httpsOrigin, {
+        method: "POST",
         headers: {
           Authorization: "Bearer example-token",
-          Cookie: "session=example-cookie",
-          "Proxy-Authorization": "Bearer example-proxy-token",
-          "X-Request-Id": "example-request",
+          "Content-Type": "text/plain",
         },
+        body: "same-origin payload",
       }),
     ).resolves.toMatchObject({ status: 200 });
 
-    const redirectedHeaders = new Headers(
-      fetchMock.mock.calls[1]?.[1]?.headers,
+    const redirectedRequest = fetchMock.mock.calls[1]?.[1] as
+      | RequestInit
+      | undefined;
+    expect(redirectedRequest?.method).toBe("POST");
+    expect(redirectedRequest?.body).toBe("same-origin payload");
+    expect(new Headers(redirectedRequest?.headers).get("authorization")).toBe(
+      "Bearer example-token",
     );
-    expect(redirectedHeaders.get("authorization")).toBeNull();
-    expect(redirectedHeaders.get("cookie")).toBeNull();
-    expect(redirectedHeaders.get("proxy-authorization")).toBeNull();
-    expect(redirectedHeaders.get("x-request-id")).toBe("example-request");
   });
+
+  it.each([
+    { status: 301, method: "POST" },
+    { status: 302, method: "POST" },
+    { status: 303, method: "PUT" },
+  ])(
+    "rewrites cross-origin $status $method redirects to GET and allowlists headers",
+    async ({ status, method }) => {
+      const redirectUrl = "https://93.184.216.35/image.png";
+      const fetchMock = vi.fn(async (url: string) =>
+        url === httpsOrigin
+          ? new Response(null, {
+              status,
+              headers: { location: redirectUrl },
+            })
+          : new Response("ok", { status: 200 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        ssrfSafeFetch(httpsOrigin, {
+          method,
+          headers: {
+            Authorization: "Bearer example-token",
+            Cookie: "session=example-cookie",
+            "Proxy-Authorization": "Bearer example-proxy-token",
+            "X-API-Key": "example-api-key",
+            "X-Request-Id": "example-request",
+            Accept: "image/png",
+            "Content-Type": "application/json",
+          },
+          body: "sensitive payload",
+        }),
+      ).resolves.toMatchObject({ status: 200 });
+
+      const originalRequest = fetchMock.mock.calls[0]?.[1] as
+        | RequestInit
+        | undefined;
+      expect(originalRequest?.method).toBe(method);
+      expect(originalRequest?.body).toBe("sensitive payload");
+
+      const redirectedRequest = fetchMock.mock.calls[1]?.[1] as
+        | RequestInit
+        | undefined;
+      expect(redirectedRequest?.method).toBe("GET");
+      expect(redirectedRequest?.body).toBeUndefined();
+      const redirectedHeaders = new Headers(redirectedRequest?.headers);
+      expect(redirectedHeaders.get("authorization")).toBeNull();
+      expect(redirectedHeaders.get("cookie")).toBeNull();
+      expect(redirectedHeaders.get("proxy-authorization")).toBeNull();
+      expect(redirectedHeaders.get("x-api-key")).toBeNull();
+      expect(redirectedHeaders.get("x-request-id")).toBeNull();
+      expect(redirectedHeaders.get("content-type")).toBeNull();
+      expect(redirectedHeaders.get("accept")).toBe("image/png");
+    },
+  );
+
+  it.each([307, 308])(
+    "does not follow cross-origin %s redirects with a non-GET method",
+    async (status) => {
+      const redirectResponse = new Response(null, {
+        status,
+        headers: { location: "https://93.184.216.35/other" },
+      });
+      const fetchMock = vi.fn(async () => redirectResponse);
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        ssrfSafeFetch(httpsOrigin, {
+          method: "POST",
+          body: "sensitive payload",
+        }),
+      ).rejects.toThrow(/cross-origin redirect with a non-GET request/);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("can return a validated redirect for a caller with its own redirect policy", async () => {
     const redirectResponse = new Response("moved", {
