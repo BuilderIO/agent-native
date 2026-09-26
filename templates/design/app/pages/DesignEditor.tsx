@@ -4297,6 +4297,9 @@ function DesignEditor() {
         return true;
         // coercion-ok: IndexedDB journaling is optional; the network save remains authoritative.
       } catch {
+        // IndexedDB can be unavailable in private/embedded contexts. The
+        // network mutation still runs below, so this is not a disconnect and
+        // must not show “save when reconnected” on every edit.
         return false;
       }
     },
@@ -7634,7 +7637,7 @@ function DesignEditor() {
         doc = iframe.contentDocument;
         // coercion-ok: cross-origin iframe access is an expected absent-geometry result.
       } catch {
-        return null;
+        return null; // cross-origin — cannot inspect
       }
       if (!doc) return null;
       let el: Element | null = null;
@@ -7642,7 +7645,7 @@ function DesignEditor() {
         el = doc.querySelector(selector);
         // coercion-ok: an invalid selector has no inspectable geometry.
       } catch {
-        return null;
+        return null; // invalid selector
       }
       if (!el) return null;
       return mapIframeRectToViewport(iframe, el.getBoundingClientRect());

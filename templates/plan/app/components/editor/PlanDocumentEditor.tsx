@@ -648,6 +648,8 @@ function applyBlocksSurgically(editor: Editor, blocks: PlanBlock[]): boolean {
     const result = applyDocSurgically(editor, doc);
     return result === "applied" || result === "noop";
   } catch {
+    // A schema mismatch, an invalid parse, or a torn-down view: fall back to the
+    // whole-document `setContent` path.
     return false;
   }
 }

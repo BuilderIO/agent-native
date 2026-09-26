@@ -576,6 +576,7 @@ async function latestStateMatches(
     return stableStringify(previousState) === currentStateJson;
     // coercion-ok: unreadable history cannot suppress a new autosave.
   } catch {
+    // An unreadable checkpoint cannot establish equality; preserve autosave.
     return false;
   }
 }

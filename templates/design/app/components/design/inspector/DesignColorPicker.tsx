@@ -453,6 +453,8 @@ export async function beginEyedropperPick(): Promise<string | null> {
     const result = await new EyeDropper().open();
     return result.sRGBHex ?? null;
   } catch {
+    // Browser cancels (Escape / click-away) reject the promise — treat as a
+    // no-op pick rather than an error.
     return null;
   }
 }

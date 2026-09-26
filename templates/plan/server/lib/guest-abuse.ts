@@ -135,6 +135,7 @@ async function countRows(
     const row = rows[0] as Record<string, unknown> | undefined;
     return Number(row?.n ?? 0);
   } catch {
+    // Fail open: a transient DB error must not block a legitimate guest.
     return null;
   }
 }

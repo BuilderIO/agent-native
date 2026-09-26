@@ -10,6 +10,7 @@ export function getCollapseStorage(): CollapseStorage | null {
   try {
     return window.localStorage;
   } catch {
+    // Storage can be disabled outright (private mode, blocked cookies).
     return null;
   }
 }

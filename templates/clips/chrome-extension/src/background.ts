@@ -573,6 +573,8 @@ async function injectContentScript(tabId: number): Promise<boolean> {
     });
     return true;
   } catch {
+    // Unsupported pages (chrome://, the Chrome Web Store, and similar) reject
+    // injection. They still need to record without an in-page overlay.
     return false;
   }
 }
