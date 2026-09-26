@@ -430,6 +430,8 @@ function workspaceAppsJson(): string {
   );
 }
 
+// Strip ANSI SGR escapes so downstream regex matches work after FORCE_COLOR=1
+// makes children emit colored output (vite wraps the URL bullet in green, etc.).
 // eslint-disable-next-line no-control-regex
 const ANSI_REGEX = /\x1b\[[\d;]*[A-Za-z]/g;
 

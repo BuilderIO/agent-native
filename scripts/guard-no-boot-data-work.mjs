@@ -121,19 +121,11 @@ const DATA_WORK = new RegExp(
     `)\\s*\\(`,
 );
 
-/**
- * A plugin's default export body and module scope both run at startup. This is
- * a line-oriented approximation: a call sitting at low indentation in a server
- * plugin is startup code, while one nested inside a handler or callback is not.
- * Cheap and wrong in the safe direction — deep nesting is skipped, so the guard
- * under-reports rather than crying wolf.
- */
 const MAX_STARTUP_INDENT = 4;
 
 function isStartupContext(line, file) {
   const indent = line.length - line.trimStart().length;
   if (indent > MAX_STARTUP_INDENT) return false;
-  // Plugin files are startup by definition; elsewhere only module scope counts.
   if (/\/server\/plugins\//.test(file) || PLUGIN_FILE.test(file)) return true;
   return indent === 0;
 }

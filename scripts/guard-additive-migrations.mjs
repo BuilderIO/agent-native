@@ -91,11 +91,6 @@ const PRAGMA_RE = /^\s*(?:\/\/|--)\s*guard:allow-destructive-ddl\b/i;
 const BLOCKING_COLUMN_PRAGMA_RE =
   /^\s*(?:\/\/|--)\s*guard:allow-blocking-column-default\b/i;
 
-/**
- * The engine itself, not a migration list - its doc comments demonstrate
- * migration syntax (including conditional ALTER examples) and would be a
- * false-positive source if scanned as one.
- */
 const NOT_A_MIGRATION_LIST = new Set(["packages/core/src/db/migrations.ts"]);
 
 function findMigrationSourceFiles() {
@@ -144,12 +139,6 @@ function extractBacktickLiterals(src) {
   return out;
 }
 
-/**
- * Only literals that look like an actual SQL statement are treated as
- * migration DDL — this is what keeps the scan from tripping over unrelated
- * template literals (log lines, error messages) that share these files
- * with the real migration entries.
- */
 const SQL_START_RE =
   /^\s*(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|SELECT|TRUNCATE|WITH|GRANT|REVOKE)\b/i;
 
@@ -382,15 +371,6 @@ function hasUsableColumnDefault(maskedClause) {
   return true;
 }
 
-/**
- * True for `GENERATED ALWAYS AS ( <expr> ) STORED` — a stored generated
- * column computes its value from the row's other columns, so it fills in
- * on every existing row the same way a DEFAULT would. Depth-matches the
- * parens (reusing the same helper the migration-array scanner uses below)
- * instead of a non-greedy regex, so a generation expression with its own
- * nested call — `COALESCE(a, b)`, `CONCAT(x, y)` — doesn't truncate the
- * match at the first `)` it contains.
- */
 function hasStoredGeneratedExpression(maskedClause) {
   const marker = /GENERATED\s+ALWAYS\s+AS\s*\(/i.exec(maskedClause);
   if (!marker) return false;

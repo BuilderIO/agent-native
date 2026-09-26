@@ -68,17 +68,6 @@ const REPO_ROOT = path.resolve(
 
 const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-blob-predicate\b/;
 
-/**
- * All first-party source. Deliberately NOT narrowed to `server/` or `actions/`.
- *
- * The bug this guard exists for lived in
- * `packages/core/src/chat-threads/store.ts` — a store module under none of
- * those directories. A directory-shaped scope would have reported a clean pass
- * on the exact line it was written to catch, which is the same blind spot
- * `guard:no-boot-data-work` had. The predicate below is specific enough (a SQL
- * LIKE against a known-heavy column, with a literal pattern) that scanning
- * broadly costs nothing; missing the one file that matters costs everything.
- */
 const IN_SCOPE = /^(packages|templates|apps)\//;
 const SKIPPED = /(\.spec\.|\.test\.|\/__tests__\/|\/dist\/|\/node_modules\/)/;
 

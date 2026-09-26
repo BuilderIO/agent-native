@@ -13,7 +13,10 @@ const docsProductionPath = ".github/workflows/deploy-docs-production.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
 const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 
+// promote /restore locks the site, and prebuilt unlock/upload is not atomic;
+// the reusable production, manager, and promote jobs must share one queue.
 // The fleet caller keeps a distinct wrapper queue so it cannot deadlock on its
+// reusable child while that child waits for the canonical production queue.
 export const PRODUCTION_SITE_GROUP =
   "agent-native-production-site-${{ matrix.site }}";
 export const PRODUCTION_MAPPED_SITE_GROUP =
@@ -1542,6 +1545,11 @@ const betaPostFreshnessStep =
     ? reusableBetaFreshness.slice(betaPostFreshnessStart, betaPostFreshnessEnd)
     : "";
 
+// Monotonic, not exact-equality: both post-publish freshness checks must use
+// the same ancestor-of-main compare as beta_pre_migration_freshness/
+// beta_freshness (check 1), not a hard SHA match — otherwise a run that
+// legitimately passed the pre-publish gate gets reverted the moment main
+// advances during migration/upload, and the livelock just moves here.
 if (
   !betaFirstPublishFreshnessStep.includes("['ahead', 'identical'].includes") ||
   !betaFirstPublishFreshnessStep.includes("compareCommits(") ||

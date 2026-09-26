@@ -83,9 +83,6 @@ const UTILITY_SHADE_RE =
 
 const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-raw-color\b/;
 
-/** What real token in app/global.css to reach for instead of each literal
- * Tailwind color word — named explicitly so the failure message points
- * somewhere real, not just "use a variable". */
 const TOKEN_HINT = {
   white:
     "background / card / popover (or primary-foreground on a colored surface)",

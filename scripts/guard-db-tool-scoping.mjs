@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-/**
- * guard-db-tool-scoping.mjs
- *
- * The agent's raw DB tools (`db-query`, `db-exec`, `db-patch`) can only safely
- * expose tables with an explicit tenant scope (`owner_email` and/or `org_id`)
- * or a known framework-specific scoping rule. The runtime DB layer now fails
- * closed by shadowing unknown-scope tables with empty temp views, but this
- * guard keeps template schema drift visible in CI.
- *
- * If a new template table should be usable through raw DB tools, add
- * `owner_email`/`org_id` plus an additive migration. If it is a join table,
- * public-token table, cache, or implementation detail that should remain
- * hidden from raw DB tools, add it to INTENTIONAL_RAW_DB_DENYLIST below with
- * a short reviewer-readable reason.
- */
 
 import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -43,6 +28,9 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
+// Existing template tables intentionally hidden from raw DB tools because
+// access is mediated through a scoped parent, custom action, public token, or
+// cache pathway. Key format: "<template>:<sql_table_name>".
 const INTENTIONAL_RAW_DB_DENYLIST = {
   "content:content_database_setup_receipts":
     "actor-scoped retry receipts; access is rechecked through database setup actions",

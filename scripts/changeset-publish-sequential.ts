@@ -331,6 +331,9 @@ export function isAlreadyStaged(output: string): boolean {
   );
 }
 
+// A 404 on the PUT for a package that isn't on npm yet means the registry
+// would not let us CREATE the package. With OIDC trusted publishing this is
+// expected: a brand-new package's first version cannot be created over OIDC
 // and must be bootstrapped with a token (npm/cli#8544).
 function isMissingPackageOnPublish(output: string): boolean {
   return (

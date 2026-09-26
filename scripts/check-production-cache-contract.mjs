@@ -324,6 +324,10 @@ async function repeatUntilHit(observation, host, fetchImpl = fetch) {
 }
 
 export async function probeUrl(host, probe, fetchImpl = fetch) {
+  // The synthetic path is impossible to route; dynamic real pages use a unique
+  // `index` key, which Netlify includes in the durable cache key. Static docs
+  // use an ordinary query because their published file does not need a durable
+  // key assertion.
   const cacheBust = `cache-contract-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
   const pathname = probe?.pathname;
   const url =

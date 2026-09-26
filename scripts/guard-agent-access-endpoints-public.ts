@@ -15,6 +15,9 @@ const SKIPPED_DIRECTORIES = new Set([
 ]);
 
 // An `agent_access` URL is fetched with no session cookie, so its endpoint must
+// be in the template's auth `publicPaths` or the session gate answers 401 before
+// the handler can verify the scoped token. Matching by name makes a new endpoint
+// constant opt in here instead of shipping unreachable.
 const AGENT_ENDPOINT_CONSTANT = /^[A-Z0-9_]*AGENT[A-Z0-9_]*_ENDPOINT$/;
 
 export type RequiredEndpoint = {

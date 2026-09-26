@@ -537,6 +537,8 @@ async function waitForDevStable(
       continue;
     }
 
+    // Do not fetch `/` here — Node fetch would consume the one-time auto-login
+    // cookie before Playwright opens. Let the browser be the first client.
     await sleep(2_000);
     return;
   }

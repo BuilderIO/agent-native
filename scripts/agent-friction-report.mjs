@@ -1121,6 +1121,9 @@ const PATTERNS = [
     re: /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i,
   },
   {
+    // Added 2026-09-25 because `branch-moves` measures unwanted branch moves,
+    // while asking permission to create a safe branch inside a task-owned
+    // worktree is a separate, repeated error.
     key: "worktree-branch-permission",
     label: "Had to correct permission asks for task-owned worktree branches",
     fixedBy:

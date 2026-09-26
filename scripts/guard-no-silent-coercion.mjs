@@ -52,6 +52,12 @@ const PRAGMA_RE = /\/\/\s*coercion-ok:/i;
 const DOT_CATCH_RE =
   /\.catch\(\s*\(\)\s*=>\s*(?:\[\]|null|\(\{\}\)|false|0|""|'')\s*\)/;
 
+// Lazily consume everything up to the operator as long as no `;` is crossed,
+// so two unrelated statements on one line (`await x(); y() ?? []`) don't
+// pair an await from one statement with a coercion from the next.
+// \b after `\]`/`\}` would never match (both are non-word chars, and the
+// token after them — `;`, `,`, `)` — is non-word too, so no boundary exists
+// there); only `null`/`0` need the trailing boundary.
 const AWAIT_NULLISH_RE = /\bawait\b(?:(?!;).)*?\?\?\s*(?:\[\]|\{\}|null\b)/;
 const AWAIT_OR_RE = /\bawait\b(?:(?!;).)*?\|\|\s*(?:\[\]|\{\}|0\b)/;
 

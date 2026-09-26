@@ -1,4 +1,3 @@
-
 import { execFileSync } from "node:child_process";
 
 const DIFF_BASE_ENV = ["GUARD_DIFF_BASE", "GITHUB_BASE_REF"];
@@ -72,6 +71,10 @@ export function parseUnifiedDiff(diff, cwd) {
   let file = null;
   let line = 0;
   for (const raw of diff.split("\n")) {
+    // Git emits no +++/@@/+ lines for a file it considers binary, so such a
+    // file contributes nothing here and every diff-scoped guard passes having
+    // inspected none of it. A single stray NUL byte is enough to mark a .ts
+    // file binary, which is indistinguishable from a clean check. Refuse to
     // scope rather than report a pass over a file we never read.
     const binary = /^Binary files (?:a\/)?(.+?) and (?:b\/)?(.+?) differ$/.exec(
       raw,

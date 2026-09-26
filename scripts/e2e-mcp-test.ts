@@ -1,60 +1,10 @@
 #!/usr/bin/env tsx
-/**
- * e2e-mcp-test.ts — exhaustive end-to-end MCP behavior test against a remote
- * Agent-Native MCP server (typically https://*.agent-native.com or an ngrok dev URL).
- *
- * # Usage
- *
- *   pnpm test:mcp:e2e [baseUrl] [token] [flags]
- *   tsx scripts/e2e-mcp-test.ts [baseUrl] [token] [flags]
- *
- *   Default baseUrl: https://archer-ophitic-unhortatively.ngrok-free.dev (dispatch dev)
- *
- * # Auth
- *
- *   1. Pass token as second positional arg, OR
- *   2. Set MCP_TEST_TOKEN env var, OR
- *   3. Use --device-flow (preferred) — the dispatch UI Connect page mints a token,
- *      device flow lets the script obtain it programmatically. Open the printed
- *      verification URL, approve it, and the script picks up the token.
- *   4. Use --auth-code — performs Dynamic Client Registration + Authorization Code
- *      with PKCE (S256 is required by the server). The script prints the auth URL
- *      and waits for you to paste back the `code=` param.
- *   5. --insecure-no-auth — skip auth (only works against AUTH_DISABLED dev servers).
- *
- * # Flags
- *
- *   --verbose             dump full request/response bodies
- *   --catalog-dump        just print tools/list + resources/list and exit
- *   --save-responses DIR  save each response body to a file
- *   --device-flow         use POST /_agent-native/mcp/connect/device/start
- *   --auth-code           use Dynamic Client Registration + Authorization Code (PKCE S256)
- *   --insecure-no-auth    skip auth entirely (dev only)
- *   --skip-mail           skip Group D (manage-draft) even if mail-like server detected
- *   --skip-open-app       skip Group C (open_app) even if open_app is listed
- *   --skip-stability      skip Group F (catalog stability — runs tools/list twice)
- *   --help                show this help
- *
- * # Test groups
- *
- *   A: Compact catalog detection (UA + client hint headers select catalog size)
- *   B: Resources catalog
- *   C: open_app + embed ticket privacy
- *   D: Mail manage-draft URL privacy
- *   E: ui.domain validation for Claude (no https:// prefix)
- *   F: Catalog stability across turns
- *
- * Exits 0 if all assertions pass, 1 if any fail.
- *
- * Node 22 built-ins only — no external deps.
- */
 
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const DEFAULT_BASE_URL = "https://archer-ophitic-unhortatively.ngrok-free.dev";
-
 
 interface CliFlags {
   baseUrl: string;
@@ -135,7 +85,6 @@ Flags:
 `);
 }
 
-
 interface TestResult {
   group: string;
   id: string;
@@ -202,7 +151,6 @@ function maybeSaveResponse(name: string, body: unknown) {
   }
 }
 
-
 function parseSseEvents(text: string): any[] {
   const events: any[] = [];
   const blocks = text.split(/\r?\n\r?\n/);
@@ -224,7 +172,6 @@ function parseSseEvents(text: string): any[] {
   }
   return events;
 }
-
 
 interface McpCallOptions {
   userAgent?: string;
@@ -356,7 +303,6 @@ async function initialize(opts: McpCallOptions = {}): Promise<McpCallResult> {
   );
 }
 
-
 async function runDeviceFlow(): Promise<string> {
   logInfo(`  Starting device flow against ${flags.baseUrl}`);
   const startRes = await fetch(
@@ -438,7 +384,6 @@ async function runDeviceFlow(): Promise<string> {
   }
   throw new Error("Timed out waiting for device-flow approval");
 }
-
 
 function base64url(buf: Buffer): string {
   return buf.toString("base64url");
@@ -543,7 +488,6 @@ function prompt(question: string): Promise<string> {
   });
 }
 
-
 function unwrapResult(call: McpCallResult): { result?: any; error?: any } {
   const env = call.result;
   if (!env || typeof env !== "object") {
@@ -563,7 +507,6 @@ function unwrapResult(call: McpCallResult): { result?: any; error?: any } {
     },
   };
 }
-
 
 const INTERNAL_TOOL_NAMES = [
   "view-screen",
@@ -742,7 +685,6 @@ async function groupA_CompactCatalog(): Promise<GroupAOutcome> {
   return out;
 }
 
-
 interface GroupBOutcome {
   compactResources: any[];
   fullResources: any[];
@@ -878,7 +820,6 @@ async function groupB_Resources(): Promise<GroupBOutcome> {
 
   return out;
 }
-
 
 interface GroupCOutcome {
   apps: { id: string }[];
@@ -1124,7 +1065,6 @@ async function groupC_OpenAppPrivacy(
   return out;
 }
 
-
 async function groupD_MailManageDraft(
   toolsByProbe: GroupAOutcome["toolsByProbe"],
 ): Promise<void> {
@@ -1224,7 +1164,6 @@ async function groupD_MailManageDraft(
   }
 }
 
-
 async function groupE_UiDomain(resourcesOutcome: GroupBOutcome): Promise<void> {
   startGroup("Group E: ui.domain validation across resources/read");
   const all = [
@@ -1281,7 +1220,6 @@ async function groupE_UiDomain(resourcesOutcome: GroupBOutcome): Promise<void> {
     );
   }
 }
-
 
 async function groupF_Stability(): Promise<void> {
   startGroup("Group F: Catalog stability across turns");
@@ -1342,7 +1280,6 @@ async function groupF_Stability(): Promise<void> {
   }
 }
 
-
 async function runCatalogDump(): Promise<void> {
   logInfo(`Catalog dump for ${flags.baseUrl} (full catalog via client=code)`);
   await initialize({ clientHint: "code" });
@@ -1364,7 +1301,6 @@ async function runCatalogDump(): Promise<void> {
   );
   logInfo(JSON.stringify(unwrapResult(compactTools).result, null, 2));
 }
-
 
 async function main(): Promise<void> {
   logInfo(`MCP test target: ${flags.baseUrl}`);

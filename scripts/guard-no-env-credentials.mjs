@@ -85,6 +85,10 @@ const ALLOWLIST_EXACT = new Set([
   "ACCESS_TOKEN",
   "PORT",
   "HOST",
+  // Deploy-level master key for the per-user secrets vault.
+  // NOT a user credential — it's the symmetric key the vault uses to
+  // encrypt user secrets at rest. Rotating it invalidates the entire
+  // vault, so it lives at deployment scope.
   "SECRETS_ENCRYPTION_KEY",
   "WORKSPACE_SECRETS_ENCRYPTION_KEY",
   "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",

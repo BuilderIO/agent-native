@@ -1,4 +1,36 @@
 #!/usr/bin/env node
+// Audits every first-party app's /_agent-native/health endpoint. Production
+// warming happens inside each site's Netlify Scheduled Function because GitHub
+// Actions cron runs can be delayed longer than a scale-to-zero database's
+// autosuspend window.
+//
+// /_agent-native/health only proves the database is reachable — it stays
+// green through the single most-repeated production report (15+ times, 9+
+// people, 3 months): the app loads but the agent stalls and nothing renders
+// right. --strict runs also GET the public SSR shell at prodUrl and assert
+// it actually rendered (2xx after redirects, body has `<html`, no known
+// error-page markers), so that outage shows up here instead of only in Slack.
+//
+// Driven off packages/shared-app-config/templates.ts (the single source of
+// truth for prodUrls) so new apps are covered automatically. Pure Node, no
+// dependencies or install step — safe to run on a bare `actions/setup-node`
+// runner or locally:
+//
+//   node scripts/keep-warm.mjs            # audit every app's prod health route
+//   node scripts/keep-warm.mjs plan mail  # audit only the named apps
+//   node scripts/keep-warm.mjs --strict   # also fail on an unhealthy or unrendered app
+//
+// --strict runs also ask each app to read its OWN pg_stat_activity
+// (?pressure=1) and fail on the three signals that preceded the 2026-08-06
+// analytics outage — idle-in-transaction pileup, a slow trivial query, and one
+// query stampeding. The app holds that credential already, so the scheduled
+// fleet audit needs no production database secrets of its own. An app running
+// a core release from before that route reports "not measured", which is
+// printed as such and never counted as healthy.
+//
+// Ordinary runs preserve the old best-effort behavior (health only, no shell
+// fetch). Use --strict for monitoring so a partial outage cannot be reported
+// as healthy.
 
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";

@@ -141,6 +141,10 @@ const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
   "SENTRY_DSN",
   "SENTRY_SERVER_DSN",
 ]);
+// Sentry build-time upload credentials are one org/project shared by every
+// hosted site, unlike SENTRY_DSN which can vary per site. LaunchDarkly's SDK
+// key is the same: one project shared fleet-wide. Pulling them from the
+// invoking shell (rather than each template's committed .env) means the
 // token is never written to disk in this repo.
 const FLEET_WIDE_ENV_KEYS = [
   "SENTRY_AUTH_TOKEN",
@@ -403,6 +407,10 @@ function loadTemplateEnv(template: string, sources: string[]) {
     const relativePath = path.relative(REPO_ROOT, filePath);
     foundSources.push(relativePath);
     for (const [key, value] of parseEnvFile(filePath)) {
+      // Fleet-wide keys are shell-only (see FLEET_WIDE_ENV_KEYS below): a
+      // template file's value for one of them is never eligible, so it can't
+      // sync a stale or developer-local credential when the shell key is
+      // simply unset.
       if (FLEET_WIDE_ENV_KEY_SET.has(key)) continue;
       values.set(key, value);
       sourcesByKey.set(key, [...(sourcesByKey.get(key) ?? []), relativePath]);

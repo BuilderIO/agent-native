@@ -760,6 +760,14 @@ describe("production Netlify site concurrency guard", () => {
       /steps\.beta_freshness\.outputs\.current == 'true'/,
     );
     assert.doesNotMatch(reusableSource, /allowPinnedRecovery/);
+    // The post-publish freshness checks must also be monotonic
+    // (ancestor-of-main), not exact equality — otherwise a source that
+    // legitimately cleared the pre-publish gate gets reverted the moment
+    // main advances during migration/upload, and the livelock just moves
+    // here. Unlike the pre-publish checks, these apply check 1 only: there
+    // is either no previous published deploy yet (first publish) or the
+    // published deploy IS this source (post-publish), so there is nothing
+    // to regress against.
     for (const freshnessStep of [
       betaFirstPublishFreshness,
       betaPostFreshness,

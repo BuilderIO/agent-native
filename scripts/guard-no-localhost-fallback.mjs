@@ -113,7 +113,9 @@ const ALLOWED_PATH_PREDICATES = [
   (rel) => /^scripts\//.test(rel),
   (rel) => /\/seed\//.test(rel),
   (rel) => /\/seeds\//.test(rel),
+  // Framework's own dev-mode-aware helpers — they read/write the literal
   // intentionally because that IS the dev-mode identity, and the migration
+  // helpers explicitly need to find rows owned by it.
   (rel) => rel === "packages/core/src/org/context.ts",
   (rel) => rel === "packages/core/src/server/local-migration.ts",
   (rel) => rel === "packages/core/src/server/google-oauth.ts",

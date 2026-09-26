@@ -37,7 +37,6 @@ const EXCLUDED_PATH =
   /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage|corpus|\.tmp[^/]*)(\/|$)/;
 
 const OPT_IN_CLASS = "agent-native-search-input";
-// instead of the shared class. Either one satisfies the invariant.
 const INLINE_SUPPRESSION_RE =
   /\[&::-webkit-search-cancel-button\]:appearance-none/;
 const SEARCH_TYPE_RE = /type=(?:["']search["']|\{\s*["']search["']\s*\})/;
@@ -107,6 +106,9 @@ function main() {
       process.exit(GUARD_EXIT_COULD_NOT_RUN);
     }
     for (const absolutePath of walk(absoluteRoot)) {
+      // Same reasoning as `walk`: a file this guard enumerated but cannot read
+      // is a failure to inspect, not a clean file. Letting `readFileSync`
+      // throw would surface as exit 1, which the runner reports as a violated
       // invariant rather than a scan that never happened.
       let source;
       try {

@@ -103,10 +103,8 @@ const BINARY_EXTENSIONS = new Set([
   ".node",
 ]);
 
-// a human typed a secret into by hand; skip it rather than pay to scan it.
 const MAX_SCAN_BYTES = 2 * 1024 * 1024;
 
-/** Line contains an obvious stand-in value rather than a real secret. */
 const PLACEHOLDER_RE =
   /\bexample\b|\bplaceholder\b|\byour-|xxx|<|\bREPLACE\b|\bfake\b|\bdummy\b/i;
 
@@ -161,6 +159,7 @@ const PATTERNS = [
   },
   {
     // Captures scheme/user/password separately so the password never
+    // reaches the redaction preview, not even partially.
     name: "database connection string with password",
     re: /\b(postgres(?:ql)?):\/\/([^\s:@/]+):([^\s@/]+)@/g,
     redact: (_m, scheme, user) => `${scheme}://${user}:***@`,
@@ -195,7 +194,6 @@ const PATTERNS = [
   },
   {
     name: "PEM private key",
-    // Header only — the header line isn't the secret material, the body
     re: /-----BEGIN (?:[A-Z ]*)PRIVATE KEY-----/g,
     redact: (m) => m,
     isPlaceholder: (m, index, contents) => {

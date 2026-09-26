@@ -183,7 +183,6 @@ const OPT_OUT_MARKER = /\/\/\s*guard:allow-ssr-shell-exception\b[^\n]*/;
 const OPT_OUT_REQUIRES_REASON =
   /\/\/\s*guard:allow-ssr-shell-exception\s*[—-]\s*\S/;
 
-
 function readFileSafe(absPath) {
   try {
     return readFileSync(absPath, "utf8");
@@ -244,7 +243,6 @@ function walkForFilename(dir, targetName) {
   }
   return results;
 }
-
 
 const CALL_PATTERNS = [
   { name: "getSession( call on the SSR path", re: /\bgetSession\s*\(/g },
@@ -373,7 +371,6 @@ function requireIdentifiers(rel, content, identifiers) {
   return violations;
 }
 
-
 function extractConstValue(content, name, depth = 0) {
   if (depth > 5) {
     return {
@@ -433,7 +430,6 @@ function checkCacheControl() {
   return violations;
 }
 
-
 function checkSsrHandler() {
   const abs = path.join(REPO_ROOT, SSR_HANDLER_FILE);
   const content = readFileSafe(abs);
@@ -449,7 +445,6 @@ function checkSsrHandler() {
   ];
 }
 
-
 function checkDeployBuild() {
   const abs = path.join(REPO_ROOT, DEPLOY_BUILD_FILE);
   const content = readFileSafe(abs);
@@ -463,7 +458,6 @@ function checkDeployBuild() {
     ]),
   ];
 }
-
 
 function checkAuth() {
   const abs = path.join(REPO_ROOT, AUTH_FILE);
@@ -485,7 +479,6 @@ function checkAuth() {
   }
   return [];
 }
-
 
 function checkTemplateCatchAlls() {
   const templatesAbs = path.join(REPO_ROOT, TEMPLATES_DIR);
@@ -512,7 +505,6 @@ function checkTemplateCatchAlls() {
   return violations;
 }
 
-
 const REQUEST_DERIVED_PATTERNS = [
   ...CALL_PATTERNS,
   {
@@ -529,7 +521,10 @@ const REQUEST_DERIVED_PATTERNS = [
   },
 ];
 
+// Case-insensitive variants of the check B/C literal scans: a real `Vary`
+// header literal is normally capitalized, and the disabled policy must stay
 // `no-store` (uniform for everyone) rather than `private` / `Vary: Cookie`
+// (which is what leaks one visitor's response through a shared cache).
 const CACHE_POLICY_LITERAL_PATTERNS = [
   {
     name: 'string literal containing "private"',
@@ -611,7 +606,6 @@ function checkResolverStaysDeploymentWide() {
   return violations;
 }
 
-
 function checkDocsSsrSurfaces() {
   const violations = [];
   for (const [files, scan] of [
@@ -635,7 +629,6 @@ function checkDocsSsrSurfaces() {
   }
   return violations;
 }
-
 
 function checkStaleWhileRevalidateFloor() {
   const files = [...DOCS_SSR_FILES];
@@ -683,7 +676,6 @@ function checkStaleWhileRevalidateFloor() {
   }
   return violations;
 }
-
 
 const violations = [
   ...checkCacheControl(),

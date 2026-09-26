@@ -158,11 +158,6 @@ function leaseHash(leaseId: string): string {
   return createHash("sha256").update(leaseId).digest("hex").slice(0, 20);
 }
 
-/**
- * Creates a lease-bound disposable account without making its password a
- * serializable field. The adapter receives it only while issuing same-origin
- * requests from the trusted runner's browser context.
- */
 export function createSyntheticQaIdentity(
   leaseId: string,
   domain = "acceptance.invalid",
