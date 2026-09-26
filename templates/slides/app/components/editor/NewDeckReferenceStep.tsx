@@ -42,7 +42,7 @@ import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
-import { isPrivateBlobStorageConfigured } from "@/lib/prompt-file-uploads";
+import { isReferenceStorageReady } from "@/lib/prompt-file-uploads";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
@@ -195,7 +195,7 @@ export function NewDeckReferenceStep({
     if (!open) return;
     let cancelled = false;
     setFileStorageStatus("checking");
-    void isPrivateBlobStorageConfigured()
+    void isReferenceStorageReady()
       .then((configured) => {
         if (!cancelled) {
           setFileStorageStatus(configured ? "available" : "unavailable");

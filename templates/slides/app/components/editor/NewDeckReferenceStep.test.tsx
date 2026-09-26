@@ -2,9 +2,9 @@
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => true,
 }));
-const isPrivateBlobStorageConfiguredMock = vi.hoisted(() => vi.fn());
+const isReferenceStorageReadyMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/prompt-file-uploads", () => ({
-  isPrivateBlobStorageConfigured: isPrivateBlobStorageConfiguredMock,
+  isReferenceStorageReady: isReferenceStorageReadyMock,
 }));
 import {
   act,
@@ -129,7 +129,7 @@ async function renderStep(
 
 describe("<NewDeckReferenceStep>", () => {
   beforeEach(() => {
-    isPrivateBlobStorageConfiguredMock.mockResolvedValue(true);
+    isReferenceStorageReadyMock.mockResolvedValue(true);
   });
 
   afterEach(() => cleanup());
@@ -210,7 +210,7 @@ describe("<NewDeckReferenceStep>", () => {
   });
 
   it("blocks file imports and explains when private storage is unavailable", async () => {
-    isPrivateBlobStorageConfiguredMock.mockResolvedValue(false);
+    isReferenceStorageReadyMock.mockResolvedValue(false);
     const { onImport } = await renderStep();
 
     expect(document.querySelector('input[accept=".pdf"]')).toHaveProperty(

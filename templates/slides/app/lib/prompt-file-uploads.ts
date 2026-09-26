@@ -1,7 +1,4 @@
-import {
-  agentNativePath,
-  appBasePath,
-} from "@agent-native/core/client/api-path";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import { ensureEmbedAuthFetchInterceptor } from "@agent-native/core/client/host";
 
 import {
@@ -72,12 +69,11 @@ export async function addInlineImageFallbacks(
 const CHUNK_UPLOAD_THRESHOLD_BYTES = 4 * 1024 * 1024;
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 
-export async function isPrivateBlobStorageConfigured(): Promise<boolean> {
+export async function isReferenceStorageReady(): Promise<boolean> {
   ensureEmbedAuthFetchInterceptor();
-  const response = await fetch(
-    agentNativePath("/_agent-native/file-upload/status"),
-    { credentials: "include" },
-  );
+  const response = await fetch(`${appBasePath()}/api/uploads/status`, {
+    credentials: "include",
+  });
   if (!response.ok) {
     throw new Error(`Storage status unavailable (${response.status})`);
   }
@@ -85,12 +81,12 @@ export async function isPrivateBlobStorageConfigured(): Promise<boolean> {
   if (
     !status ||
     typeof status !== "object" ||
-    typeof (status as { privateBlobConfigured?: unknown })
-      .privateBlobConfigured !== "boolean"
+    typeof (status as { referenceStorageReady?: unknown })
+      .referenceStorageReady !== "boolean"
   ) {
     throw new Error("Storage status response is invalid");
   }
-  return (status as { privateBlobConfigured: boolean }).privateBlobConfigured;
+  return (status as { referenceStorageReady: boolean }).referenceStorageReady;
 }
 
 async function readUploadJson(response: Response): Promise<unknown> {

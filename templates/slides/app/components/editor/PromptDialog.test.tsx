@@ -194,7 +194,7 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   addInlineImageFallbacks,
-  isPrivateBlobStorageConfigured,
+  isReferenceStorageReady,
   uploadPromptFiles,
 } from "@/lib/prompt-file-uploads";
 
@@ -367,17 +367,17 @@ describe("uploadPromptFiles", () => {
     ensureEmbedAuthFetchInterceptor.mockClear();
   });
 
-  it("reads private blob readiness from the shared file storage status", async () => {
+  it("reads reference storage readiness from the Slides upload status", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ privateBlobConfigured: false }), {
+      new Response(JSON.stringify({ referenceStorageReady: false }), {
         status: 200,
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(isPrivateBlobStorageConfigured()).resolves.toBe(false);
+    await expect(isReferenceStorageReady()).resolves.toBe(false);
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/_agent-native/file-upload/status"),
+      expect.stringContaining("/api/uploads/status"),
       { credentials: "include" },
     );
     expect(ensureEmbedAuthFetchInterceptor).toHaveBeenCalledOnce();
