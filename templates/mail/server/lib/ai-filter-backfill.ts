@@ -20,7 +20,6 @@ import {
   type AiFilterState,
   createDefaultAiFilterState,
 } from "../../shared/ai-filter.js";
-import { AI_IMPORTANT_LABEL } from "../../shared/ai-priority.js";
 import { automationActionSchema } from "../../shared/automation-schema.js";
 import { mailLabelsInclude } from "../../shared/gmail-labels.js";
 import type { AutomationAction, EmailMessage } from "../../shared/types.js";

@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import {
   useAiFilterBackfillStatus,
@@ -116,7 +117,6 @@ function SetupRuleRow({
         <Input
           value={condition}
           onChange={(event) => onConditionChange(event.target.value)}
-          className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
           aria-label={title}
         />
       </label>
@@ -211,19 +211,12 @@ function SetupResults({
                   })}
             </p>
           </div>
-          <div
-            className="h-1.5 overflow-hidden rounded-full bg-muted"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={percent}
+          <Progress
+            value={percent}
+            max={100}
             aria-label={t("mail.sort.aiSetupSortingHeadline")}
-          >
-            <div
-              className="h-full rounded-full bg-primary transition-[width] duration-300"
-              style={{ width: `${percent}%` }}
-            />
-          </div>
+            className="h-1.5"
+          />
         </div>
       ) : null}
       {status?.status === "failed" || failed ? (
@@ -331,12 +324,7 @@ function SetupResults({
         <p className="text-xs text-muted-foreground">
           {t("mail.sort.aiSetupChatTip")}
         </p>
-        <Button
-          type="button"
-          variant="link"
-          className="h-auto p-0 text-sm"
-          onClick={onTeach}
-        >
+        <Button type="button" variant="link" size="sm" onClick={onTeach}>
           {t("mail.sort.aiSetupChatPrompt")}
         </Button>
       </div>
@@ -606,12 +594,10 @@ export function AiInboxSetup({
         }
       }}
     >
-      <DialogContent className="fixed inset-0 flex h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col rounded-none border-0 p-6 sm:p-12">
-        <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center overflow-y-auto">
+      <DialogContent className="max-w-3xl">
+        <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center overflow-y-auto">
           <DialogHeader className="mb-6">
-            <DialogTitle className="text-xl font-semibold">
-              {headline}
-            </DialogTitle>
+            <DialogTitle>{headline}</DialogTitle>
           </DialogHeader>
           <div
             className="mb-8 flex items-center gap-2"
@@ -698,7 +684,7 @@ export function AiInboxSetup({
               onChange={(event) => setImportantPrompt(event.target.value)}
               aria-label={headline}
               placeholder={t("mail.sort.aiSetupImportantExample")}
-              className="h-12 text-base"
+              className="h-12"
             />
           ) : step === 2 ? (
             <div className="space-y-3">
@@ -754,7 +740,6 @@ export function AiInboxSetup({
                   variant="ghost"
                   size="sm"
                   onClick={() => setCustomCleanupOpen(true)}
-                  className="text-muted-foreground"
                 >
                   <IconPlus className="size-4" />
                   {t("mail.aiFilter.newRule")}

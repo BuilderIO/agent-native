@@ -4,7 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { AI_FILTER_LABEL, AI_FILTER_RULE_NAME } from "@shared/ai-filter";
+import { AI_FILTER_RULE_NAME } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
   aiFilterRuleActionsForMode,
@@ -38,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -137,7 +138,7 @@ function RuleRow({
                 {rule.condition}
               </p>
               {rule.actions.some((action) => action.type === "archive") && (
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                   {t("mail.aiFilter.autoArchiveMode")}
                 </span>
               )}
@@ -157,7 +158,7 @@ function RuleRow({
             <Button
               variant="ghost"
               size="icon"
-              className="size-8 shrink-0 text-muted-foreground"
+              className="size-8 shrink-0"
               aria-label={t("mail.toolbar.menu")}
             >
               <IconDotsVertical className="size-4" />
@@ -206,7 +207,7 @@ function RuleRow({
             disabled={editDisabled}
             label={t("mail.aiFilter.instructionsTitle")}
             placeholder={t("mail.aiFilter.instructionPlaceholder")}
-            className="min-h-20 resize-y text-sm"
+            className="min-h-20 resize-y"
           />
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
@@ -283,19 +284,12 @@ function RuleBackfillStatus({
         <p role="status" className="text-xs text-muted-foreground">
           {message}
         </p>
-        <div
-          className="h-1 overflow-hidden rounded-full bg-muted"
-          role="progressbar"
+        <Progress
+          value={status?.totalThreads ? percent : 0}
+          max={100}
           aria-label={message}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
-        >
-          <div
-            className={`h-full rounded-full bg-primary transition-[width] duration-300 ${status?.totalThreads ? "" : "w-1/3 animate-pulse"}`}
-            style={status?.totalThreads ? { width: `${percent}%` } : undefined}
-          />
-        </div>
+          className="h-1"
+        />
       </div>
     );
   }
@@ -313,7 +307,7 @@ function RuleBackfillStatus({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 px-2 text-xs"
+            className="h-7"
             onClick={() => onUndo(status.runId, status.undoToken!)}
             disabled={undoing}
           >
@@ -360,12 +354,7 @@ function RuleBackfillStatus({
         </p>
         <div className="flex items-center gap-1">
           {reviewHref && ruleStatus.matchedCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              asChild
-            >
+            <Button variant="ghost" size="sm" className="h-7" asChild>
               <Link to={reviewHref}>
                 {t("mail.aiFilter.ruleBackfillReview")}
               </Link>
@@ -375,7 +364,7 @@ function RuleBackfillStatus({
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs"
+              className="h-7"
               onClick={() => onUndo(status.runId, status.undoToken!)}
               disabled={undoing}
             >
@@ -401,7 +390,7 @@ function RuleBackfillStatus({
               <p className="truncate text-xs text-foreground">
                 {preview.subject || t("mail.aiFilter.noSubject")}
               </p>
-              <p className="truncate text-[11px] text-muted-foreground">
+              <p className="truncate text-xs text-muted-foreground">
                 {preview.from || t("mail.aiFilter.unknownSender")}
               </p>
             </li>
@@ -779,7 +768,7 @@ export function AiFilterSection() {
   if (automations.isError && automations.data === undefined) {
     return (
       <div
-        className="flex max-w-[720px] items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
+        className="flex max-w-180 items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
         role="alert"
       >
         <span className="text-sm text-muted-foreground">
@@ -798,16 +787,16 @@ export function AiFilterSection() {
   }
 
   if (filterLoading || automations.isLoading || !state) {
-    return <Skeleton className="h-72 w-full max-w-[720px]" />;
+    return <Skeleton className="h-72 w-full max-w-180" />;
   }
 
   const decisions = latestAiFilterDecisions(state).slice(0, 5);
 
   return (
     <>
-      <div className="max-w-[720px] space-y-7 pb-10">
+      <div className="max-w-180 space-y-7 pb-10">
         <div className="flex items-center justify-between border-b border-border/50 pb-4">
-          <h2 className="text-[16px] font-semibold text-foreground">
+          <h2 className="text-base font-semibold text-foreground">
             {t("mail.aiFilter.triageTitle")}
           </h2>
           <Switch
@@ -833,13 +822,13 @@ export function AiFilterSection() {
 
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-[13px] font-semibold text-foreground">
+            <h3 className="text-sm font-semibold text-foreground">
               {t("mail.aiFilter.rulesTitle")}
             </h3>
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs"
+              className="h-7"
               disabled={!jevConfigured}
               onClick={() => setNewRuleOpen((open) => !open)}
             >
@@ -897,7 +886,7 @@ export function AiFilterSection() {
                 disabled={!jevConfigured || savingNewRule}
                 label={t("mail.aiFilter.instructionsTitle")}
                 placeholder={t("mail.aiFilter.instructionPlaceholder")}
-                className="min-h-20 resize-y text-sm"
+                className="min-h-20 resize-y"
               />
               <div className="flex justify-end gap-2">
                 <Button
@@ -937,7 +926,7 @@ export function AiFilterSection() {
               if (mode !== "filtered" && modeRules.length === 0) return null;
               return (
                 <section key={mode} className="space-y-2">
-                  <h4 className="text-[13px] font-semibold text-foreground">
+                  <h4 className="text-sm font-semibold text-foreground">
                     {modeLabel(mode)}
                   </h4>
                   {modeRules.length > 0 && (
@@ -1059,7 +1048,7 @@ export function AiFilterSection() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-7 px-2 text-xs"
+                              className="h-7"
                               asChild
                             >
                               <Link to={labelTabHref(state.labelName)}>
@@ -1120,7 +1109,7 @@ export function AiFilterSection() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 px-2 text-xs text-muted-foreground"
+            className="h-8"
             onClick={() => setSetupAgainOpen(true)}
           >
             {t("mail.sort.aiSetupRunAgain")}
