@@ -61,39 +61,51 @@ function normalizedEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function workspaceManifestHasNoDispatch(appsJson: string | undefined): boolean {
-  if (!appsJson?.trim()) return false;
-
-  try {
-    const parsed: unknown = JSON.parse(appsJson);
-    const apps = Array.isArray(parsed)
-      ? parsed
-      : parsed && typeof parsed === "object" && "apps" in parsed
-        ? (parsed as { apps?: unknown }).apps
-        : null;
-    if (
-      !Array.isArray(apps) ||
-      apps.length === 0 ||
-      apps.some(
-        (app) =>
-          !app ||
-          typeof app !== "object" ||
-          typeof (app as { id?: unknown }).id !== "string",
-      )
-    ) {
-      return false;
-    }
-    return !apps.some((app) => {
-      const entry = app as { id: string; isDispatch?: unknown };
-      return (
-        entry.id.trim().toLowerCase() === "dispatch" ||
-        entry.isDispatch === true
-      );
-    });
-  } catch {
-    // coercion-ok: a malformed workspace manifest cannot prove no Dispatch is mounted.
-    return false;
+function workspaceManifestDispatchState(
+  appsJson: string | undefined,
+): "missing" | "dispatch" | "no-dispatch" {
+  if (appsJson === undefined) return "missing";
+  if (!appsJson.trim()) {
+    throw new Error("AGENT_NATIVE_WORKSPACE_APPS_JSON must not be empty.");
   }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(appsJson);
+  } catch (error) {
+    throw new Error(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain valid JSON.",
+      { cause: error },
+    );
+  }
+
+  const apps = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === "object" && "apps" in parsed
+      ? (parsed as { apps?: unknown }).apps
+      : null;
+  if (
+    !Array.isArray(apps) ||
+    apps.length === 0 ||
+    apps.some(
+      (app) =>
+        !app ||
+        typeof app !== "object" ||
+        typeof (app as { id?: unknown }).id !== "string",
+    )
+  ) {
+    throw new Error(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain apps with string ids.",
+    );
+  }
+
+  const hasDispatch = apps.some((app) => {
+    const entry = app as { id: string; isDispatch?: unknown };
+    return (
+      entry.id.trim().toLowerCase() === "dispatch" || entry.isDispatch === true
+    );
+  });
+  return hasDispatch ? "dispatch" : "no-dispatch";
 }
 
 export function isStandaloneDispatchRuntime(): boolean {
@@ -111,7 +123,8 @@ export function isStandaloneDispatchRuntime(): boolean {
 function configuredWorkspaceDirectory(): string | null {
   const config = getAppConfig();
   const workspace = config.workspace;
-  const noDispatch = workspaceManifestHasNoDispatch(workspace.appsJson);
+  const noDispatch =
+    workspaceManifestDispatchState(workspace.appsJson) === "no-dispatch";
   const isOwnOrigin = (value: string) => {
     if (!noDispatch || !config.app.url) return false;
     try {

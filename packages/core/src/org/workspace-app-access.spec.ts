@@ -479,6 +479,31 @@ describe("isWorkspaceAppAccessAllowed", () => {
     expect(mocks.execute).toHaveBeenCalledOnce();
   });
 
+  it("rejects an invalid workspace manifest instead of guessing its directory", async () => {
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "{ invalid json");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://community.example.test",
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    resetAppConfigForTests();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).rejects.toThrow(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain valid JSON.",
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
   it("uses Dispatch's mount path for a local gateway fallback", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv("AGENT_NATIVE_ORG_DIRECTORY_URL", "");
