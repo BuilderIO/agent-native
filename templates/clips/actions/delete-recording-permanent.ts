@@ -16,6 +16,7 @@ import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { countPendingRedactions } from "../server/lib/pending-redactions.js";
 import {
   deleteRecordingMediaObjects,
   deleteStoredMediaUrl,
@@ -25,6 +26,7 @@ import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+import { screenshotLeftoverUrls } from "../server/lib/screenshot-edits.js";
 
 export default defineAction({
   description:
@@ -78,27 +80,33 @@ export default defineAction({
       }
     }
 
-    // A screenshot's files include unredacted originals — its base while
-    // boxes are pending, and any leftovers — and the row is the only record
-    // of them. Delete them all before the row, and keep the row, with its
-    // hold and a way to retry, if any is still in storage.
+    // Some of a screenshot's files are unredacted: its leftovers, and its
+    // base while boxes are still pending. The row is the only record of them,
+    // so they go first, and the row stays — with its hold and a way to retry
+    // — if any is still in storage. Everything else is already redacted and
+    // is cleaned up best-effort, as for a video.
     const alreadyDeleted = new Set<string>();
-    // (`recordingMediaUrls` has already refused edits it cannot read.)
     if (isImageRecording(existing)) {
-      for (const url of mediaUrls) {
+      const unredacted = [
+        ...(screenshotLeftoverUrls(existing.editsJson) ?? []),
+        ...(existing.baseImageUrl && countPendingRedactions(existing.editsJson)
+          ? [existing.baseImageUrl]
+          : []),
+      ];
+      for (const url of new Set(unredacted)) {
         if (protectedUrls.has(url)) continue;
         let gone = false;
         try {
           gone = await deleteStoredMediaUrl(url);
         } catch (err) {
           console.warn(
-            `[delete-recording-permanent] could not delete a file for ${args.id}:`,
+            `[delete-recording-permanent] could not delete an unredacted file for ${args.id}:`,
             err instanceof Error ? err.message : String(err),
           );
         }
         if (!gone) {
           throw new Error(
-            "A file of this screenshot could not be deleted from storage, so the screenshot was kept. Try again later.",
+            "An unredacted copy of this screenshot could not be deleted from storage, so the screenshot was kept. Try again later.",
           );
         }
         alreadyDeleted.add(url);

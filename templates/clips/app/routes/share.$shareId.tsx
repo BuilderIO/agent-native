@@ -712,6 +712,9 @@ export default function ShareRoute() {
         readyMediaPollRef.current = null;
         return 2000;
       }
+      // Nothing else about a finished screenshot changes on its own; the
+      // settle poll below is for a video's repaired file.
+      if (isImageRecording(rec)) return false;
       if (rec.seekableRepairPending === true) {
         readyMediaPollRef.current = null;
         return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;

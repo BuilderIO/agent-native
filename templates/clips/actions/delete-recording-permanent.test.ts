@@ -229,17 +229,49 @@ describe("delete-recording-permanent", () => {
       }) as never);
     });
 
-    it("deletes every file, leftovers included, before the row", async () => {
+    it("deletes the unredacted leftovers before the row", async () => {
       await deleteRecordingPermanent.run({ id: "rec_1" });
       expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
         "https://cdn.example.com/media/clips/copy.png",
       );
-      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
+      // The redacted picture goes the ordinary, best-effort way.
+      expect(mockDeleteStoredMediaUrl).not.toHaveBeenCalledWith(
         "https://cdn.example.com/media/clips/rec_1.jpg",
       );
       expect(mockDeleteStoredMediaUrl.mock.invocationCallOrder[0]).toBeLessThan(
         mockDbDelete.mock.invocationCallOrder[0],
       );
+    });
+
+    it("treats the base as unredacted while boxes are pending", async () => {
+      mockSelectWhere.mockReset();
+      mockSelectWhere
+        .mockResolvedValueOnce([
+          {
+            ...shot,
+            baseImageUrl: "https://cdn.example.com/media/clips/base.png",
+            editsJson: JSON.stringify({
+              overlays: [
+                {
+                  kind: "redact",
+                  id: "r1",
+                  startMs: 0,
+                  endMs: 1,
+                  keys: [{ atMs: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+                },
+              ],
+            }),
+          },
+        ])
+        .mockResolvedValueOnce([]);
+      mockDeleteStoredMediaUrl.mockResolvedValueOnce(false);
+      await expect(
+        deleteRecordingPermanent.run({ id: "rec_1" }),
+      ).rejects.toThrow(/unredacted copy/);
+      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/media/clips/base.png",
+      );
+      expect(mockDb.transaction).not.toHaveBeenCalled();
     });
 
     it("keeps the row when one is still in storage", async () => {
@@ -248,7 +280,9 @@ describe("delete-recording-permanent", () => {
       mockDeleteStoredMediaUrl.mockResolvedValueOnce(false);
       await expect(
         deleteRecordingPermanent.run({ id: "rec_1" }),
-      ).rejects.toThrow(/could not be deleted from storage/);
+      ).rejects.toThrow(
+        /unredacted copy of this screenshot could not be deleted/,
+      );
       expect(mockDb.transaction).not.toHaveBeenCalled();
     });
 

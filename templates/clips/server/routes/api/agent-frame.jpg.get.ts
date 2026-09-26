@@ -249,7 +249,12 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseHeader(event, "X-Content-Type-Options", "nosniff");
       return Buffer.from(image.bytes);
     } catch (err) {
-      setResponseStatus(event, 502);
+      // Pass the storage outcome on, as the video path does: a timeout or a
+      // missing object is not the same failure to retry as a bad gateway.
+      setResponseStatus(
+        event,
+        err instanceof RecordingMediaFetchError ? err.statusCode : 502,
+      );
       setResponseHeader(
         event,
         "Content-Type",

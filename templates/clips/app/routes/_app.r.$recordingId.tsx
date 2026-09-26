@@ -653,6 +653,11 @@ export default function RecordingPage() {
   const redacting = redactingId !== null && redactingId === recordingId;
   const setRedacting = (open: boolean) =>
     setRedactingId(open ? (recordingId ?? null) : null);
+  // Cleared, not just hidden, on the way out: coming back must not reopen an
+  // editor whose unsaved marks went with the page.
+  useEffect(() => {
+    setRedactingId(null);
+  }, [recordingId]);
   /** Redaction boxes open in the screenshot editor, saved or not. */
   const [editorRedactions, setEditorRedactions] = useState(0);
   const isCompactLayout = useIsCompactRecordingLayout();
@@ -758,6 +763,9 @@ export default function RecordingPage() {
           readyMediaPollRef.current = null;
           return 1000;
         }
+        // Nothing else about a finished screenshot changes on its own; the
+        // settle poll below is for a video's repaired file.
+        if (isImageRecording(rec)) return false;
         if (rec.seekableRepairPending === true) {
           readyMediaPollRef.current = null;
           return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
