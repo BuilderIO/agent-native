@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-// Server-only — part of `appConfigSchema` (see `schema.ts`), which is never
-// serialized to the browser, so the SDK key never reaches a bundle.
 export const launchDarklyConfig = z.object({
   sdkKey: z
     .string()

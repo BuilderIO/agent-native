@@ -198,7 +198,6 @@ export function filterResourceTree(
   });
 }
 
-// ─── Create Menu (unified + button) ────────────────────────────────────────
 
 type CreateMenuView =
   | "menu"
@@ -1116,7 +1115,6 @@ The result should be a reusable agent profile, not a one-off task response.`,
   );
 }
 
-// ─── PathBreadcrumb ─────────────────────────────────────────────────────────
 
 function PathBreadcrumb({ path }: { path: string }) {
   const parts = path.split("/").filter(Boolean);
@@ -1139,7 +1137,6 @@ function PathBreadcrumb({ path }: { path: string }) {
   );
 }
 
-// ─── ResourcesPanel ─────────────────────────────────────────────────────────
 
 const DEFAULT_AGENTS_MD_CLIENT = `# Agent Instructions
 
@@ -1168,7 +1165,6 @@ Agent resources are files users intentionally add, edit, or manage. Agents may c
 const WORKSPACE_RESOURCE_OWNER = "__workspace__";
 const SHARED_RESOURCE_OWNER = "__shared__";
 
-/** Bare or organization-scoped workspace owner; mirrors `isWorkspaceResourceOwner`. */
 function isWorkspaceResourceOwner(owner: string): boolean {
   return (
     owner === WORKSPACE_RESOURCE_OWNER ||
@@ -1177,17 +1173,12 @@ function isWorkspaceResourceOwner(owner: string): boolean {
 }
 
 export interface ResourcesPanelProps {
-  /** Hide the virtual MCP folder when Files is hosted by the Agent page. */
   showMcpServers?: boolean;
-  /** Optional page-level scope to mirror in the resource toolbar. */
   scope?: ResourceScope;
   /** When set, show only the requested scope instead of both scope sections. */
   showOnlyRequestedScope?: boolean;
-  /** Limit the tree to one agent-native resource collection. */
   resourceFilter?: ResourceView;
-  /** Render special collections as cards instead of a nested file tree. */
   resourceTreeVariant?: ResourceTreeVariant;
-  /** Optional app-owned remote MCP catalog. */
   mcpIntegrations?: DefaultMcpIntegration[];
 }
 
@@ -1239,8 +1230,6 @@ export function ResourcesPanel({
 }: ResourcesPanelProps = {}) {
   const t = useT();
   const { data: org } = useOrg();
-  // Non-admin org members get read-only access to organization resources.
-  // Solo deployments (no orgId) behave as owner — users can edit their own.
   const canEditOrg =
     !org?.orgId || org.role === "owner" || org.role === "admin";
 
@@ -1296,18 +1285,11 @@ export function ResourcesPanel({
     includeAgentScratch: showAgentScratch,
   });
   const workspaceTreeQuery = useResourceTree("workspace");
-  // Agent rail resources view: the panel mode persists, so this can mount
-  // before first paint even though the tree is not visible yet.
   const mcpServersQuery = useMcpServers({ defer: true });
   const builtinCapabilitiesQuery = useBuiltinCapabilities();
   const createMcpServer = useCreateMcpServer();
   const deleteMcpServer = useDeleteMcpServer();
 
-  // Merge MCP servers into each scope's tree as a virtual `mcp-servers/`
-  // folder. The servers live in the settings store, not the resources
-  // table — the virtual ids carry the `mcp:<scope>:<id>` prefix that
-  // `handleSelect` and `handleDelete` below recognize to route back to
-  // the MCP endpoints.
   const personalTree = withAgentScratchFolder(
     showMcpServers
       ? withMcpServersFolder(
@@ -1371,9 +1353,6 @@ export function ResourcesPanel({
     hasMcpIntegrations,
   );
 
-  // Virtual MCP server currently selected in the tree (or null for a real
-  // resource / nothing). Resolved by scanning both trees' mcp folders for
-  // a matching virtual id.
   const selectedMcpServer = React.useMemo(() => {
     const parsed = selectedResourceId
       ? parseMcpVirtualId(selectedResourceId)
@@ -1397,7 +1376,6 @@ export function ResourcesPanel({
     return capability ? { capability, scope: parsed.scope } : null;
   }, [selectedResourceId, builtinCapabilitiesQuery.data]);
 
-  // Sync activeScope once the org role arrives (canEditOrg is resolved async).
   useEffect(() => {
     if (!requestedScope && !canEditOrg && activeScope === "shared") {
       setActiveScope("personal");
@@ -1408,8 +1386,6 @@ export function ResourcesPanel({
     if (!requestedScope) return;
     setActiveScope(requestedScope);
   }, [requestedScope]);
-  // Virtual MCP ids aren't in the resources store — skip the fetch so
-  // useResource doesn't 404-flash.
   const resourceQuery = useResource(
     selectedResourceId &&
       !parseMcpVirtualId(selectedResourceId) &&
@@ -1427,10 +1403,6 @@ export function ResourcesPanel({
       !isLocalWorkspaceResource(resourceQuery.data)) ||
       (resourceQuery.data.owner === SHARED_RESOURCE_OWNER && !canEditOrg));
 
-  // Ensure AGENTS.md exists in the organization scope when the panel opens.
-  // The server also seeds it on table init; this is a safety net. Only attempt
-  // for users who can write to organization resources — non-admins would just
-  // get a 403.
   const seededRef = useRef(false);
   useEffect(() => {
     if (seededRef.current || !canEditOrg) return;
@@ -1447,7 +1419,6 @@ export function ResourcesPanel({
     }).catch(() => {});
   }, [canEditOrg]);
 
-  // Are we viewing a file (editor) or the tree?
   const isEditing = selectedResourceId !== null;
 
   const handleSelect = useCallback((resource: ResourceMeta) => {
@@ -1564,7 +1535,6 @@ export function ResourcesPanel({
       description?: string;
     }) => {
       const server = await createMcpServer.mutateAsync(args);
-      // Select the newly-created virtual entry so the detail view opens.
       setSelectedResourceId(`mcp:${args.scope}:${server.id}`);
     },
     [createMcpServer],
@@ -1886,7 +1856,6 @@ export function ResourcesPanel({
           </div>
         </div>
       ) : (
-        /* Floating action buttons — absolute top-right over tree view */
         <div className="absolute end-3 top-3 z-10 flex items-center gap-1">
           {activeCreateMenuMode !== "hidden" &&
             (!resourceFilter || resourceFilter === "files") && (

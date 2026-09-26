@@ -1,25 +1,6 @@
-/**
- * Unit tests for collab event access scoping.
- *
- * Verifies that the canSeeChangeForUser logic correctly prevents collab
- * updates (tagged with owner/orgId) from being delivered to users who
- * lack access, while still delivering them to the correct users.
- *
- * This tests the security contract set up by the security commit: collab
- * events are tagged with owner/orgId when resourceType is configured, so
- * getChangesSinceForUser scopes delivery.
- *
- * It also tests the SYNC-CACHE variant that additionally tags events with
- * resourceType/resourceId and drives an access-aware delivery decision:
- * cache-miss returns false + schedules a background resolveAccess check, and
- * the user's next event within the TTL is pushed once the cache is populated.
- */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The access-aware branch of canSeeChangeForUser dynamically imports
-// "../sharing/access.js" in a background task. Mock it so we can control the
-// resolveAccess result deterministically per-test.
 const resolveAccessMock =
   vi.fn<
     (
@@ -55,7 +36,6 @@ type CollabChangeEvent = {
   version?: number;
 };
 
-/** Flush pending microtasks + a macrotask so the background check settles. */
 async function flushAsync(): Promise<void> {
   await new Promise((r) => setTimeout(r, 0));
   await new Promise((r) => setTimeout(r, 0));
@@ -71,7 +51,7 @@ describe("collab event scoping via canSeeChangeForUser", () => {
 
   describe("unscoped events (no owner, no orgId)", () => {
     it("delivers to any authenticated user", () => {
-      const event = { ...baseEvent }; // no owner/orgId
+      const event = { ...baseEvent };
       expect(canSeeChangeForUser(event, "alice@example.com", undefined)).toBe(
         true,
       );
@@ -101,7 +81,6 @@ describe("collab event scoping via canSeeChangeForUser", () => {
     });
 
     it("does NOT deliver to a user who happens to share the same org", () => {
-      // owner-tagged event: only the owner, not org members.
       const event = {
         ...baseEvent,
         owner: "alice@example.com",
@@ -171,12 +150,8 @@ describe("collab event scoping via canSeeChangeForUser", () => {
   });
 
   describe("non-owner sharees (conservative fallback)", () => {
-    // Sharees (non-owner, different org) should NOT receive owner-scoped events.
-    // They fall back to state-vector catch-up via the poll loop. This is the
-    // safe/conservative path: never deliver to someone without access.
     it("does not deliver owner-scoped event to an explicit sharee in a different org", () => {
       const event = { ...baseEvent, owner: "alice@example.com" };
-      // Bob is a sharee but he doesn't match owner and has no orgId match.
       expect(canSeeChangeForUser(event, "bob@example.com", "org-bob")).toBe(
         false,
       );
@@ -192,10 +167,6 @@ describe("collab event scoping via canSeeChangeForUser", () => {
 });
 
 describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
-  // Events tagged with resourceType + resourceId let non-owner sharees receive
-  // the push via an access-aware, TTL'd cache populated by a background
-  // resolveAccess check. Cache miss returns false (no leak) and schedules the
-  // check; the user's next event within TTL is pushed.
   const resourceEvent: CollabChangeEvent = {
     source: "collab",
     type: "change",
@@ -235,12 +206,10 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
   it("sharee with viewer access: miss returns false, then true after background check", async () => {
     resolveAccessMock.mockResolvedValue({ role: "viewer", resource: {} });
 
-    // First call: cache miss → false, schedules the background check.
     expect(
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
     ).toBe(false);
 
-    // Let the background resolveAccess settle and populate the cache.
     await flushAsync();
     expect(resolveAccessMock).toHaveBeenCalledTimes(1);
     expect(resolveAccessMock).toHaveBeenCalledWith("document", "doc-res-1", {
@@ -248,7 +217,6 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
       orgId: "org-bob",
     });
 
-    // Second call: fresh cache hit → true (pushed).
     expect(
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
     ).toBe(true);
@@ -263,7 +231,6 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
     await flushAsync();
     expect(resolveAccessMock).toHaveBeenCalledTimes(1);
 
-    // Still false after the check resolves to null.
     expect(
       canSeeChangeForUser(resourceEvent, "stranger@example.com", "org-x"),
     ).toBe(false);
@@ -278,9 +245,6 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
         }),
     );
 
-    // Burst of events before the first check resolves — all miss and return
-    // false; the in-flight guard (_accessInFlight) is set synchronously so only
-    // one background task is ever started for this key.
     expect(
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
     ).toBe(false);
@@ -291,9 +255,6 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
     ).toBe(false);
 
-    // The dynamic import + call is async; flush so the single scheduled task
-    // reaches resolveAccess. It must have been called exactly once despite the
-    // 3-event burst.
     await flushAsync();
     expect(resolveAccessMock).toHaveBeenCalledTimes(1);
 
@@ -314,7 +275,6 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
     await flushAsync();
     expect(resolveAccessMock).toHaveBeenCalledTimes(1);
 
-    // Cached deny → still false (fail closed).
     expect(
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
     ).toBe(false);
@@ -355,7 +315,6 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
 
-    // Grant access, populate cache.
     resolveAccessMock.mockResolvedValue({ role: "viewer", resource: {} });
     expect(
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
@@ -365,11 +324,9 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
     ).toBe(true);
 
-    // Access revoked upstream.
     resolveAccessMock.mockResolvedValue(null);
     invalidateCollabAccessCache("document", "doc-res-1");
 
-    // Still within the old 30s TTL, but explicit invalidation drops stale allow.
     vi.setSystemTime(new Date("2026-01-01T00:00:20Z"));
     expect(
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
@@ -384,7 +341,6 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
 
-    // First check errors → cached deny with the short (~5s) TTL.
     resolveAccessMock.mockRejectedValueOnce(new Error("transient"));
     expect(
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
@@ -394,12 +350,11 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
     ).toBe(false);
 
-    // After the short deny TTL, a re-check that now succeeds grants access.
     resolveAccessMock.mockResolvedValue({ role: "viewer", resource: {} });
     vi.setSystemTime(new Date("2026-01-01T00:00:06Z"));
     expect(
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
-    ).toBe(false); // miss → schedules re-check
+    ).toBe(false);
     await vi.runAllTimersAsync();
     expect(
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
@@ -407,7 +362,6 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
   });
 
   it("event with owner/org tags but NO resourceType/resourceId keeps the conservative contract", () => {
-    // No resource tags → access-aware branch never runs; only owner/org match.
     const legacy: CollabChangeEvent = {
       source: "collab",
       type: "change",
@@ -490,27 +444,19 @@ describe("awareness event scoping via poll-events", () => {
 });
 
 describe("awareness outer-map memory leak guard (pruneIfEmpty)", () => {
-  // Test that the awareness map does not accumulate empty per-doc maps.
-  // This exercises the behaviour added to postAwareness in the security commit.
 
   it("cleans up empty doc maps after all clients expire", async () => {
-    // Dynamic import so the module-level map state is fresh.
     const { getDocAwareness, cleanExpired } = await import("./awareness.js");
 
     const docId = `test-prune-${Math.random()}`;
     const map = getDocAwareness(docId);
 
-    // Populate with one entry that will immediately expire.
     const longAgo = Date.now() - 60_000;
     map.set(42, { clientId: 42, state: "s", lastSeen: longAgo });
     expect(map.size).toBe(1);
 
-    // cleanExpired removes the entry.
     cleanExpired(map);
     expect(map.size).toBe(0);
-    // map is now empty; the outer map should eventually not contain it.
-    // (pruneIfEmpty is called inside the handlers, not cleanExpired itself.)
-    // We confirm the entry was removed from the per-doc map here.
     expect(map.has(42)).toBe(false);
   });
 });

@@ -434,7 +434,6 @@ describe("DomainSettingsSection", () => {
     ).find((button) => button.textContent?.trim() === "Enable for @acme.com");
     expect(enableButton).not.toBeUndefined();
 
-    // No free-text field ceremony: the only legal value is already known.
     expect(container.querySelector("input")).toBeNull();
 
     act(() => enableButton?.click());

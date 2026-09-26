@@ -339,7 +339,6 @@ export async function listDueContextImportJobDispatches(input: {
   const { getDb, schema } = getCreativeContext();
   const timestamp = input.now ?? nowIso();
   // guard:allow-unscoped — the system worker only reads dispatch coordinates,
-  // then re-enters each job owner's request context before accessing content.
   const rows = await getDb()
     .select({
       jobId: schema.contextJobs.id,
@@ -403,7 +402,6 @@ export async function listDueContextBackgroundJobDispatches(input: {
   const { getDb, schema } = getCreativeContext();
   const timestamp = input.now ?? nowIso();
   // guard:allow-unscoped — only dispatch coordinates leave this query; each
-  // processor re-enters the owner's request context before loading a job.
   const rows = await getDb()
     .select({
       jobId: schema.contextJobs.id,

@@ -31,9 +31,6 @@ export default defineAction({
     const orgId = getRequestOrgId();
     const definitions = listTransactionalEmails();
 
-    // A failed stats read must not masquerade as "no email ever sent" — the
-    // catalog is still worth returning, but the caller has to be able to tell
-    // that the numbers are missing rather than zero.
     let statsById: Map<
       string,
       { sent: number; failed: number; lastSentAt: number | null }

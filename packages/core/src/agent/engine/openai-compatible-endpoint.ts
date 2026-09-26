@@ -37,12 +37,6 @@ export function normalizeOpenAiBaseUrl(value: string): string {
   return normalizeProviderBaseUrl(value);
 }
 
-/**
- * Ollama's own API has no `/v1` path — that suffix only applies to its
- * OpenAI-compatibility shim, which this integration doesn't use. Docs for
- * other tools commonly show `/v1`, so users copy-paste it in; strip it
- * silently rather than making them notice and remove it themselves.
- */
 export function stripOllamaV1Suffix(value: string): string {
   return value.replace(/\/v1$/i, "");
 }

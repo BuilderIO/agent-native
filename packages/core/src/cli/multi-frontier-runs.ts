@@ -74,14 +74,9 @@ export interface MultiFrontierRecovery {
   checkpointId?: string;
 }
 
-/**
- * The durable state contract shared by the main process and every participant.
- * Only the main-process coordinator writes it through this module.
- */
 export interface MultiFrontierRunState {
   schemaVersion: 1;
   collaborationId: string;
-  /** Opaque local workspace handle; never a filesystem path. */
   workspaceId?: string;
   phase: MultiFrontierPhase;
   participants: MultiFrontierParticipantState[];
@@ -91,7 +86,6 @@ export interface MultiFrontierRunState {
   round: number;
   proposalIds: string[];
   reviewIds: string[];
-  /** Opt-in policy; explicit GO remains the durable default. */
   autoContinueAfterAgreement: boolean;
   recovery?: MultiFrontierRecovery;
 }
@@ -133,7 +127,6 @@ export interface MultiFrontierArtifactTestSummary {
   summary?: string;
 }
 
-/** A bounded, redacted projection used only for Desktop orchestrator recovery. */
 export interface MultiFrontierOrchestrationArtifact {
   id: string;
   kind:
@@ -153,11 +146,6 @@ export interface MultiFrontierOrchestrationArtifact {
   metadata?: Record<string, unknown>;
 }
 
-/**
- * A deliberately narrow coordination record. Full diffs, transcripts, and
- * provider payloads stay in their owning runtime rather than this durable
- * cross-provider index.
- */
 export interface PersistedMultiFrontierArtifact {
   schemaVersion: 1;
   id: string;
@@ -219,10 +207,6 @@ export interface MultiFrontierStoredRun extends MultiFrontierRunState {
   updatedAt: string;
 }
 
-/**
- * The desktop main-process coordinator is the sole caller of this transition
- * boundary. Its callback receives a detached snapshot, never renderer input.
- */
 export type MultiFrontierCoordinatorTransition = (
   current: MultiFrontierStoredRun,
 ) => MultiFrontierRunState | MultiFrontierStoredRun | null;
@@ -284,7 +268,6 @@ export const DEFAULT_MULTI_FRONTIER_PARTICIPANT_EVENT_RETENTION: MultiFrontierPa
     maxBytes: 1_000_000,
   };
 
-/** All multi-frontier state stays alongside the existing local Code store. */
 export function multiFrontierRunsStoreRoot(): string {
   return path.join(codeAgentStoreRoot(), "multi-frontier");
 }
@@ -358,10 +341,6 @@ export function listMultiFrontierRuns(): MultiFrontierStoredRun[] {
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-/**
- * Recovery never resumes a native participant automatically. Any in-flight
- * driver lease is revoked and requires an explicit, newly fenced activation.
- */
 export function recoverMultiFrontierRun(
   state: MultiFrontierRunState,
   input: RecoverMultiFrontierRunInput,
@@ -391,7 +370,6 @@ export function recoverMultiFrontierRun(
   };
 }
 
-/** Persist the recovery decision made by the main-process coordinator. */
 export function recoverStoredMultiFrontierRun(
   collaborationId: string,
   input: RecoverMultiFrontierRunInput,
@@ -402,12 +380,6 @@ export function recoverStoredMultiFrontierRun(
   });
 }
 
-/**
- * Applies one durable coordinator-owned state transition under the run lock.
- * A state-shaped result retains proposal and review references by default;
- * returning a full stored record is the explicit escape hatch for a
- * coordinator operation that intentionally changes those references.
- */
 export function transitionStoredMultiFrontierRun(
   collaborationId: string,
   updatedAt: string,
@@ -478,10 +450,6 @@ export function transitionStoredMultiFrontierRun(
   });
 }
 
-/**
- * Coordinators must call this before applying a participant event. Write
- * events are accepted only from the active driver generation.
- */
 export function canApplyMultiFrontierParticipantEvent(
   state: MultiFrontierRunState,
   event: MultiFrontierParticipantEvent,
@@ -506,10 +474,6 @@ export function canApplyMultiFrontierParticipantEvent(
   );
 }
 
-/**
- * Explicitly restores a write lease after recovery. The generation increments
- * so an event from the interrupted process can never regain write authority.
- */
 export function reactivateMultiFrontierDriver(
   state: MultiFrontierRunState,
   participantId: string,
@@ -552,7 +516,6 @@ export function reactivateMultiFrontierDriver(
   };
 }
 
-/** Assign the first explicit write lease for an implementing run. */
 export function activateMultiFrontierDriver(
   state: MultiFrontierRunState,
   participantId: string,
@@ -587,7 +550,6 @@ export function activateMultiFrontierDriver(
   };
 }
 
-/** Persist the first explicit driver activation from the main-process coordinator. */
 export function activateStoredMultiFrontierDriver(
   collaborationId: string,
   participantId: string,
@@ -599,7 +561,6 @@ export function activateStoredMultiFrontierDriver(
   );
 }
 
-/** Persist an explicit driver reactivation after the human-approved resume. */
 export function reactivateStoredMultiFrontierDriver(
   collaborationId: string,
   participantId: string,
@@ -611,11 +572,6 @@ export function reactivateStoredMultiFrontierDriver(
   );
 }
 
-/**
- * Appends an idempotent participant event after the coordinator has fenced it.
- * The event journal is diagnostic; state is mutated only through this guarded
- * coordinator entry point.
- */
 export function appendMultiFrontierParticipantEvent(
   input: AppendMultiFrontierParticipantEventInput,
 ): AppendMultiFrontierParticipantEventResult {
@@ -696,11 +652,6 @@ export function appendMultiFrontierParticipantEvent(
   });
 }
 
-/**
- * Appends a bounded proposal, review, or checkpoint index record. The
- * coordinator owns both the artifact and its run-state reference under one
- * run lock, so a reader never observes a durable reference without its record.
- */
 export function appendMultiFrontierArtifact(
   input: AppendMultiFrontierArtifactInput,
 ): AppendMultiFrontierArtifactResult {
@@ -837,10 +788,6 @@ export function getMultiFrontierParticipantEventRetention(
   );
 }
 
-/**
- * Coordinator maintenance for a bounded event journal. It deliberately keeps
- * the newest contiguous tail and a replay marker instead of deleting run state.
- */
 export function compactMultiFrontierParticipantEvents(
   collaborationId: string,
   limits = DEFAULT_MULTI_FRONTIER_PARTICIPANT_EVENT_RETENTION,

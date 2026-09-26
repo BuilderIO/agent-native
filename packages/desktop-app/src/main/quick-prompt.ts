@@ -95,8 +95,6 @@ function setQuickPromptWindowChrome(
 ): void {
   if (process.platform !== "darwin") return;
 
-  // The vibrancy material should cover the compact composer, not the larger
-  // transparent bounds needed to keep the shared picker on-screen.
   window.setVibrancy(pickerOpen ? null : "under-window");
   window.setHasShadow(!pickerOpen);
 }
@@ -129,8 +127,6 @@ function hideQuickPrompt(options: { restoreFocus?: boolean } = {}): void {
   ) {
     previousFocusedWindow.focus();
   } else if (process.platform === "darwin") {
-    // Hiding a focused floating window otherwise activates this app's main
-    // window. Hide the app only when no Electron window was focused before it.
     app.hide();
   }
 }

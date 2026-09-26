@@ -10,31 +10,11 @@ import {
   type ChecklistItem,
 } from "./checklist.config.js";
 
-/**
- * Standard `checklist` block. A list of toggleable items, each with a label and
- * an optional note. Lives in core so any app can register it.
- *
- * `Read` mirrors the legacy plan `PlanBlockView` checklist branch byte-for-byte
- * (same `plan-block` section, toggle buttons, `IconCheck` marker, and the
- * existing toggle-via-`onChange` behavior) so converting the block to the
- * registry does not change rendered output. The plan CSS classes
- * (`plan-block`, `text-plan-*`, `border-plan-line`) resolve against the plan
- * app's stylesheet at render time, exactly as before.
- *
- * `Edit` is a custom editor (the schema auto-editor can't edit an array of
- * objects): it lets you add, remove, toggle, and relabel items inline.
- */
 
-/** Mint a reasonably-unique item id without pulling a dep into core. */
 function newItemId(): string {
   return `item-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/**
- * Read renderer. Note `onToggle` is supplied by the block dispatcher for the
- * historical click-to-toggle behavior; in pure read contexts it is omitted and
- * the markers render statically.
- */
 export function ChecklistBlock({
   data,
   blockId,
@@ -100,7 +80,6 @@ function ChecklistItemBody({ item }: { item: ChecklistItem }) {
   );
 }
 
-/** Custom editor: toggle, relabel, add, and remove items. */
 export function ChecklistEditor({
   data,
   onChange,
@@ -178,18 +157,6 @@ export function ChecklistEditor({
   );
 }
 
-/**
- * The standard checklist block spec (with React `Read`/`Edit`). Apps register
- * this in their browser registry. The schema + MDX config come from
- * `./checklist.config.ts`, the exact same object server / agent code registers,
- * so rendering and source round-trip never drift.
- *
- * `Read` is typed against `BlockReadProps<ChecklistData>`; the optional
- * `onToggle` the dispatcher injects for the legacy click-to-toggle behavior is
- * an extra prop the registry's `BlockView` passes through harmlessly when
- * present (it lives outside `BlockReadProps`, so it's wired by the app's block
- * dispatch rather than the generic `BlockView`).
- */
 export const checklistBlock = defineBlock<ChecklistData>({
   type: "checklist",
   schema: checklistSchema,
@@ -198,7 +165,6 @@ export const checklistBlock = defineBlock<ChecklistData>({
   Edit: ChecklistEditor,
   placement: ["block"],
   editSurface: "inline",
-  // A checklist maps to NFM to-do items, so it round-trips to Notion.
   notionCompatible: true,
   label: "Checklist",
   icon: IconCheck,

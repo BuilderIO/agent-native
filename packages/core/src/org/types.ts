@@ -1,6 +1,3 @@
-/**
- * Shared types for the org module. Server and client both depend on these.
- */
 
 import type { IconValue } from "../icons/index.js";
 
@@ -42,10 +39,8 @@ export interface OrgInfo {
   orgId: string | null;
   orgName: string | null;
   role: OrgRole | null;
-  /** Workspace visual identity resolved by the organization authority. */
   icon: IconValue | null;
   iconRevision: number;
-  /** Whether invitations can be delivered by the configured email provider. */
   emailConfigured?: boolean;
   access?: {
     signup: "open" | "invited";
@@ -58,17 +53,8 @@ export interface OrgInfo {
   pendingInvitations: OrgInvitationSummary[];
   domainMatches: DomainMatchOrg[];
   allowedDomain: string | null;
-  /**
-   * Origin of the org's own workspace deployment, when it runs one. Members
-   * who land on a different host (a shared hosted app reached from the
-   * template catalog) get pointed here instead of concluding their team's
-   * apps are missing. Null for the common case of an org with no separate
-   * workspace.
-   */
   workspaceUrl: string | null;
-  /** Sign-in provider required for members of the active org. */
   requiredAuthProvider: RequiredAuthProvider;
-  /** Default visibility applied when a new workspace app is first registered. */
   workspaceAppDefaultVisibility?: WorkspaceAppDefaultVisibility;
   /**
    * Whether the active org has an A2A secret. The value itself is never part

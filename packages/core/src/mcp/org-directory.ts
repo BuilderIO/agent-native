@@ -42,22 +42,13 @@
  */
 
 export interface OrgApp {
-  /** Canonical app id, e.g. `calendar`. */
   id: string;
-  /** Human-readable name, e.g. `Calendar`. */
   name: string;
-  /** Deployed app origin/URL, e.g. `https://calendar.acme.com`. */
   url: string;
-  /**
-   * A2A endpoint to route `ask_app` to. The authority side returns this; we
-   * fall back to the app `url` (the A2A client appends `/_agent-native/a2a`).
-   */
   a2aUrl: string;
-  /** Optional capability hints the authority side may include. */
   capabilities?: string[];
 }
 
-/** Default cache TTL for a successful directory fetch. */
 const SUCCESS_TTL_MS = 60_000;
 interface CacheEntry {
   apps: OrgApp[];
@@ -78,15 +69,8 @@ export type OrgDirectoryFetchResult =
   | { status: "available"; apps: OrgApp[] }
   | { status: "unavailable"; reason: OrgDirectoryUnavailableReason };
 
-/** In-memory cache keyed by resolved directory origin (+ identity scope). */
 const cache = new Map<string, CacheEntry>();
 
-/**
- * Resolve the org-directory origin from env. Returns `null` when neither env
- * var is set — the caller treats `null` as "feature inactive".
- *
- * `env` is injectable for tests; defaults to `process.env`.
- */
 export function resolveOrgDirectoryOrigin(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
@@ -96,7 +80,6 @@ export function resolveOrgDirectoryOrigin(
   const trimmed = raw.trim().replace(/\/+$/, "");
   if (!trimmed) return null;
   try {
-    // Validate it's an absolute http(s) URL; reject anything else.
     const u = new URL(trimmed);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
     return trimmed;
@@ -155,7 +138,6 @@ function normalizeApp(raw: unknown, strict = false): OrgApp | null {
   };
 }
 
-/** Compare two origins by host (ignores trailing slash / protocol noise). */
 function sameOrigin(a: string, b: string): boolean {
   try {
     const ua = new URL(a);
@@ -208,21 +190,6 @@ function serviceScopedCacheKey(
   ].join("|");
 }
 
-/**
- * Fetch the org's first-party sibling apps from the org directory.
- *
- * - Returns `[]` (never throws) on ANY failure or when the directory env is
- *   unset — the cross-app verbs then keep their exact local-only behavior.
- * - Short in-memory TTL cache so it isn't fetched on every tool call.
- * - Strips the current app from the result (compared by id and by origin) so
- *   `list_apps` / `ask_app` never offer to route to themselves.
- *
- * @param opts.selfId      Current app id (so it's stripped from the result).
- * @param opts.selfOrigin  Current app origin (so it's stripped by origin too).
- * @param opts.includeDirectoryApp Request the directory authority itself. The
- *   server keeps legacy self-filtering unless this explicit signal is present.
- * @param opts.env         Injectable env (tests). Defaults to `process.env`.
- */
 export interface FetchOrgAppsOptions {
   selfId?: string;
   selfOrigin?: string;
@@ -367,7 +334,6 @@ export async function fetchOrgApps(
   return result.status === "available" ? result.apps : [];
 }
 
-/** Test-only: clear the in-memory cache between cases. */
 export function _resetOrgDirectoryCache(): void {
   cache.clear();
 }
@@ -379,10 +345,6 @@ async function resolveOrgDirectoryCallerAuth(): Promise<{
   orgId?: string;
   orgDomain?: string;
 }> {
-  // Reuse the existing A2A caller-auth: it reads userEmail + orgId from the
-  // request context, loads the org A2A secret via getOrgA2ASecret (falling
-  // back to the global A2A_SECRET env), and signs the same bearer JWT A2A
-  // peers already use. No new secret loading is invented for normal callers.
   const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
   return resolveA2ACallerAuth();
 }

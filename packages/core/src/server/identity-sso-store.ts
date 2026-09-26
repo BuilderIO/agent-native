@@ -80,10 +80,6 @@ const NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES = new Set(
   ),
 );
 
-// ---------------------------------------------------------------------------
-// Feature switch — this module is intentionally dependency-light because the
-// auth guard and the route handler both import the same pure switch.
-// ---------------------------------------------------------------------------
 
 function configuredAppOrigin(): string | undefined {
   for (const raw of [
@@ -126,8 +122,6 @@ export function getIdentityHubUrl(): string | undefined {
     }
   }
 
-  // Canonical hosted apps are all registered with Dispatch already. Keep
-  // self-hosted deployments opt-in, and never make Dispatch federate to itself.
   const appOrigin = configuredAppOrigin();
   return isCanonicalIdentitySsoClientOrigin(appOrigin)
     ? CANONICAL_IDENTITY_SSO_HUB_URL
@@ -228,8 +222,6 @@ function isNetlifyDeployPermalinkRequestForSites(
   forwardedProtocol: string | undefined,
   allowedSiteNames: Set<string>,
 ): boolean {
-  // Netlify exposes the site identity under either name at runtime; accept the
-  // immutable deploy URL, not DEPLOY_PRIME_URL's movable Deploy Preview alias.
   const requestProtocol = forwardedProtocol?.trim().toLowerCase() || "https";
   const configuredSiteName = (
     process.env.SITE_NAME?.trim() || process.env.NETLIFY_SITE_NAME?.trim()
@@ -301,7 +293,6 @@ function isNetlifyDeployPermalinkOriginForSites(
   }
 }
 
-/** Silent federation and post-login bootstrap remain limited to canonical or explicitly configured clients. */
 export function isIdentitySsoAvailableForRequest(
   options: {
     requestHost?: string;
@@ -373,7 +364,6 @@ function buildIdentitySsoJtiCreateSql(): string {
 }
 
 export async function ensureTable(): Promise<void> {
-  // Release migrations own schema in production serverless functions. A
   // request must not turn a missing migration into request-time DDL.
   if (isProductionServerlessFunctionRuntime()) return;
   if (!_initPromise) {
@@ -454,7 +444,6 @@ function isSafeStateInput(input: CreateSsoStateInput): boolean {
   return true;
 }
 
-/** Mint and persist a bound, crypto-random state value. */
 export async function createSsoState(
   input: CreateSsoStateInput,
 ): Promise<string> {
@@ -575,12 +564,6 @@ export async function consumeSsoState(
   };
 }
 
-/**
- * Strict replay defense for the server-to-server assertion. A database error
- * fails closed here: code exchange already provides the primary single-use
- * guarantee, and refusing a login is safer than accepting an unverifiable
- * replay boundary.
- */
 export async function consumeOneTimeJti(
   jti: string | undefined,
 ): Promise<boolean> {

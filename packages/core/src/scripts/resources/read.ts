@@ -1,11 +1,3 @@
-/**
- * Core script: resource-read
- *
- * Read a resource and output its content to stdout.
- *
- * Usage:
- *   pnpm action resource-read --path <path> [--scope personal|shared|workspace]
- */
 
 import {
   SHARED_OWNER,
@@ -50,7 +42,6 @@ Options:
     );
   }
 
-  // Seed personal AGENTS.md + LEARNINGS.md on first access
   if (scope !== "shared" && scope !== "workspace") {
     await ensurePersonalDefaults(owner);
   }
@@ -88,7 +79,6 @@ Options:
     return;
   }
 
-  // Default: try personal first, then app/organization shared, then workspace.
   const personal = await resourceGetByPath(owner, resourcePath);
   if (personal) {
     process.stdout.write(personal.content);
@@ -96,7 +86,6 @@ Options:
   }
 
   if (scope === "personal") {
-    // Explicit personal scope — don't fall back
     console.log(
       `Resource not found: ${resourcePath} (scope: personal). You can create it with resource-write.`,
     );

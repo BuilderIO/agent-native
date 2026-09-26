@@ -1,6 +1,3 @@
-/**
- * list-agent-engines — returns the registered engine registry and current selection.
- */
 
 import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
 import {
@@ -49,10 +46,6 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     ? (currentSetting as { engine?: string; model?: string })
     : null;
 
-  // Same priority chain resolveEngine uses after explicit request options:
-  // AGENT_ENGINE → app default → stored (if usable) → user/Builder app_secrets
-  // → env → anthropic. Gating stored/app defaults on the request-aware helper
-  // keeps the picker in step with the runtime.
   const storedEntry =
     typeof current?.engine === "string"
       ? getAgentEngineEntry(current.engine)
@@ -95,8 +88,6 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       : storedUsable && currentEntry?.name === current?.engine
         ? current?.model
         : undefined;
-  // Resolve both gateway and provider model capabilities so a saved custom
-  // model is reported as-is instead of being normalized to the engine default.
   const acceptsCustomModels = currentEntry
     ? await resolveEngineAcceptsCustomModels(currentEntry)
     : false;
@@ -111,20 +102,8 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
           { acceptsCustomModels, preserveCustomModels },
         )
       : undefined;
-  // Readiness has to be resolved here: `requiredEnvVars` alone cannot see
-  // vault-stored keys or the deploy-injected Builder gateway lane, so a client
-  // that re-derives it from env keys marks working engines unconfigured.
   const engineEntries = await Promise.all(
     engines.map(async (e) => {
-      // Resolved per engine, not across the set: one provider whose credential
-      // store is momentarily unreadable must not reject the whole listing. The
-      // chat refresh catches that rejection and renders an empty catalog, so a
-      // single unrelated provider would make every engine unselectable — the
-      // exact symptom this readiness plumbing exists to fix.
-      //
-      // A read error is its own state, left as `configured: undefined` so the
-      // client falls back to its env heuristic. Folding it into `false` would
-      // claim the engine needs an API key when nobody actually knows.
       let configured: boolean | undefined;
       let configuredError: string | undefined;
       try {

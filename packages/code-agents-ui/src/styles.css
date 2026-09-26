@@ -1,14 +1,6 @@
 @import "@agent-native/core/styles/agent-conversation.css";
 @import "@agent-native/core/styles/chat-history-list.css";
 
-/* ─── Agent-Native Code shadcn/template alignment ───────────────
-   Light is the default palette (matches the scaffolded template's
-   `:root` tokens in packages/core/src/templates/default/app/global.css).
-   Dark applies when the document root has the `.dark` class (set by the
-   desktop shell's OS-theme listener), or — before that listener runs, or
-   for hosts that never add the class — when the OS prefers dark and the
-   root has no explicit `.light`/`.dark` class, mirroring the pattern used
-   in agent-conversation.css. */
 .code-agents-surface {
   --background: 0 0% 98%;
   --foreground: 0 0% 10%;
@@ -575,8 +567,6 @@
   color: hsl(var(--foreground));
 }
 
-/* The chat-first rail uses one neutral treatment for New chat, Search, and
-   the shared Integrations/Scheduled actions. */
 .desktop-chat-first-hub .code-agents-nav-link {
   color: hsl(var(--sidebar-foreground) / 0.8);
 }
@@ -599,8 +589,6 @@
   flex: 1 1 auto;
 }
 
-/* Align the shared ChatHistoryList rail-variant insets with the existing
-   rail gutter tokens instead of the component's own fixed row margin. */
 .code-agents-run-list .an-chat-history-row {
   margin-inline: 0;
 }
@@ -609,7 +597,6 @@
   padding-inline-start: var(--code-agents-rail-row-inset);
 }
 
-/* ── Session status indicators in the rail ─────────────────────── */
 .code-agents-run-status-spinner,
 .code-agents-run-status-dot {
   display: inline-block;
@@ -617,7 +604,6 @@
   border-radius: 50%;
 }
 
-/* Spinning arc for actively-running sessions */
 .code-agents-run-status-spinner {
   width: 9px;
   height: 9px;
@@ -632,7 +618,6 @@
   }
 }
 
-/* Blue dot for completed sessions the user hasn't opened yet */
 .code-agents-run-status-dot {
   width: 7px;
   height: 7px;
@@ -1971,8 +1956,6 @@
   }
 }
 
-/* The gate and disabled composer are one connected control on the start
-   surface. The negative margin absorbs the start rail's default gap. */
 .code-agents-start .code-agents-provider-gate {
   position: relative;
   z-index: 1;
@@ -2467,10 +2450,6 @@
   color: hsl(var(--muted-foreground, 0 0% 45%));
 }
 
-/* Radix Select/DropdownMenu also portal to `document.body`, same as the
-   tooltip/composer-popover and `.code-agents-select-content` blocks above —
-   give both portal roots their own light/dark token copy so the `var(--x,
-   fallback)` references below resolve correctly regardless of theme. */
 .desktop-select-content,
 .desktop-dropdown-content {
   --border: 0 0% 90%;
@@ -2515,7 +2494,6 @@
   box-shadow:
     0 18px 44px rgba(0, 0, 0, 0.16),
     inset 0 1px 0 hsl(var(--foreground, 0 0% 10%) / 0.04);
-  /* shadcn-style enter/exit animations */
   transform-origin: var(--radix-select-content-transform-origin);
   animation-duration: 140ms;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
@@ -2627,7 +2605,6 @@
   box-shadow:
     0 18px 44px rgba(0, 0, 0, 0.16),
     inset 0 1px 0 hsl(var(--foreground, 0 0% 10%) / 0.04);
-  /* shadcn-style enter/exit animations via Radix data-state */
   transform-origin: var(--radix-dropdown-menu-content-transform-origin);
   animation-duration: 140ms;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
@@ -3213,8 +3190,6 @@ button.code-agents-capability:focus-visible {
   }
 }
 
-/* Dialog also portals to `document.body` (see ui/dialog.tsx), so it needs
-   its own light/dark token copy like the other portal roots above. */
 .code-agents-dialog-overlay,
 .code-agents-dialog-content {
   --background: 0 0% 100%;

@@ -2,7 +2,6 @@ import { useEffect, useRef, type ReactNode } from "react";
 
 import { MenuSearchInput } from "../ui/command.js";
 
-/** Integrated search with keyboard navigation owned by its Radix menu. */
 export function ComposerContextMenuSearch({
   placeholder,
   value,
@@ -22,7 +21,6 @@ export function ComposerContextMenuSearch({
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       const menu = input.current?.closest('[role="menu"]');
-      // Ancestors can mount in the same frame when a source is resumed.
       if (!menu?.querySelector('[aria-haspopup="menu"][aria-expanded="true"]'))
         input.current?.focus();
     });
@@ -60,7 +58,6 @@ export function ComposerContextMenuSearch({
           event.key === "Home" ||
           event.key === "End"
         ) {
-          // Text entry must not activate Radix's menu typeahead.
           event.stopPropagation();
         }
       }}

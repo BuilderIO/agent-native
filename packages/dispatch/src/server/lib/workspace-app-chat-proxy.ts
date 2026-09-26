@@ -57,7 +57,6 @@ const HOP_BY_HOP_HEADERS = new Set([
   "upgrade",
 ]);
 
-/** Headers Dispatch owns on the upstream call, or that must not cross origins. */
 const DROPPED_REQUEST_HEADERS = new Set([
   "accept-encoding",
   "authorization",
@@ -81,7 +80,6 @@ const DROPPED_RESPONSE_HEADERS = new Set([
 ]);
 
 export interface WorkspaceAppChatSession {
-  /** Target app root, including any configured base path. */
   appBaseUrl: string;
   token: string;
   embedTarget: string;
@@ -129,10 +127,6 @@ export function embedSessionTokenExpiry(token: string): number {
 
 async function mintEmbedStartUrl(appId: string): Promise<string> {
   const input = { app: appId, path: "/", chrome: "minimal" } as const;
-  // Mirrors `WorkspaceAppFrame`: the workspace-sign-in mint when the rollout
-  // covers this app, the Dispatch MCP grant mint otherwise. Both return the
-  // target app's own embed session — neither is a fallback onto Dispatch's
-  // agent, which this proxy must never do.
   try {
     return (await createWorkspaceSsoEmbedSession(input)).startUrl;
   } catch (ssoError) {
@@ -148,11 +142,6 @@ async function mintEmbedStartUrl(appId: string): Promise<string> {
   }
 }
 
-/**
- * Exchange the one-time embed ticket for the reusable short-lived token. The
- * target's embed-start route answers a redirect whose location carries both the
- * token and the path the token is bound to.
- */
 export async function exchangeEmbedStartUrl(
   startUrl: string,
   fetchImpl: typeof fetch = fetch,
@@ -230,7 +219,6 @@ async function resolveWorkspaceAppChatSession(input: {
   }
 }
 
-/** Test seam: drop cached app sessions so a spec starts from a cold proxy. */
 export function clearWorkspaceAppChatSessions(): void {
   sessionCache.clear();
 }
@@ -249,17 +237,12 @@ function upstreamRequestHeaders(
   }
   headers.set("authorization", `Bearer ${session.token}`);
   headers.set(EMBED_TARGET_HEADER, session.embedTarget);
-  // Documented same-origin marker (see packages/core/src/server/csrf.ts). The
-  // proxy sends no cookies, but stating first-party intent keeps the contract
   // explicit rather than relying on the no-cookie shortcut.
   headers.set(CSRF_MARKER_HEADER, "1");
   return headers;
 }
 
 function proxyErrorResponse(status: number, message: string): Response {
-  // An unavailable proxy is a visible failure. Dispatch must never answer an
-  // app-scoped chat request with its own agent: that would look like it worked
-  // while silently supplying the wrong tools and instructions.
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: {
@@ -269,7 +252,6 @@ function proxyErrorResponse(status: number, message: string): Response {
   });
 }
 
-/** h3 v2 request event: `url` is the parsed URL and `req` is the web Request. */
 interface WorkspaceAppChatProxyEvent {
   url: URL;
   req: Request;
@@ -281,10 +263,6 @@ export function createWorkspaceAppChatProxyHandler(
   const fetchImpl = options.fetchImpl ?? fetch;
   return async (event: WorkspaceAppChatProxyEvent): Promise<Response> => {
     const url = event.url;
-    // The framework's `.use(prefix, handler)` contract strips the mount prefix
-    // from `url.pathname` before invoking us. Parse the preserved full path so
-    // the app id is not lost in production while keeping direct handler calls
-    // and tests compatible.
     const mountedPathname = (
       event as WorkspaceAppChatProxyEvent & {
         context?: { _mountedPathname?: string };
@@ -297,9 +275,6 @@ export function createWorkspaceAppChatProxyHandler(
       return proxyErrorResponse(404, "Workspace app chat route not found.");
     }
 
-    // "Not signed in" and "the session store did not answer" are different
-    // failures. Telling a signed-in user to sign in during an outage is the
-    // confidently-wrong report this proxy must not produce.
     let session: Awaited<ReturnType<typeof getSession>>;
     let orgId: string | undefined;
     try {
@@ -341,9 +316,6 @@ export function createWorkspaceAppChatProxyHandler(
     target.search = url.search;
 
     const method = request.method.toUpperCase();
-    // The turn body is a small JSON payload, so buffering the REQUEST costs
-    // nothing and avoids half-duplex streaming support varying by runtime. The
-    // RESPONSE is the streaming half and is piped through untouched below.
     const body =
       method === "GET" || method === "HEAD"
         ? undefined
@@ -369,9 +341,7 @@ export function createWorkspaceAppChatProxyHandler(
       );
     }
 
-    // A rejected embed session is not a transport failure: drop the cached
     // credential so the next request re-mints instead of looping on a token the
-    // app has already stopped honouring.
     if (upstream.status === 401 || upstream.status === 403) {
       sessionCache.delete(
         sessionCacheKey({
@@ -393,8 +363,6 @@ export function createWorkspaceAppChatProxyHandler(
       }
       headers.set(name, value);
     }
-    // `upstream.body` is the live stream: SSE run events and the turn's token
-    // stream reach the browser as the app emits them, never buffered here.
     return new Response(upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,

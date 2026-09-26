@@ -48,14 +48,8 @@ function readRoute(event: H3Event): string | undefined {
   }
 }
 
-/**
- * Skip session resolution for paths that obviously don't need one. Avoids
- * a DB round-trip on every static-asset / favicon / public-share request
- * while keeping API + framework routes covered.
- */
 function shouldResolveSession(path: string | undefined): boolean {
   if (!path) return false;
-  // Vite / React Router static assets and similar.
   if (
     path.startsWith("/assets/") ||
     path.startsWith("/_build/") ||
@@ -74,17 +68,11 @@ export function createSentryPlugin(): NitroPluginDef {
 
     initServerSentry();
     if (!isServerSentryEnabled()) {
-      // No DSN — skip wiring per-request hooks. We'd just be paying the
-      // call-site overhead for every request to no effect.
       return;
     }
 
     registerErrorCaptureProvider("sentry", captureRouteError);
 
-    // Per-request: resolve session and attach to Sentry isolation scope so
-    // any exception captured later in the request carries the user. Wrapped
-    // in try/catch so a session-DB hiccup or auth-broken state never turns
-    // into a 500 — the worst case is we lose user context on the event.
     nitroApp.hooks?.hook?.("request", async (event: H3Event) => {
       if (!shouldResolveSession(readRoute(event))) return;
       try {
@@ -95,12 +83,7 @@ export function createSentryPlugin(): NitroPluginDef {
       }
     });
 
-    // Wrap-time: every `runWithRequestContext({ userEmail, orgId, ... })`
-    // call also pins user/org onto Sentry's per-async-context isolation
     // scope. Covers paths the cookie-based `request` hook can't see —
-    // integration webhook processors, A2A calls, agent-chat tool
-    // re-entries, and any internal call chain that opens a request scope
-    // without an HTTP cookie.
     addRequestContextObserver((ctx) => {
       setSentryRequestContext({ userEmail: ctx.userEmail, orgId: ctx.orgId });
     });
@@ -113,10 +96,4 @@ export function createSentryPlugin(): NitroPluginDef {
   };
 }
 
-/**
- * Default Sentry plugin — auto-mounts when a template doesn't define its
- * own `server/plugins/sentry.ts`. Reads `SENTRY_SERVER_DSN`/`SENTRY_DSN` from env and
- * silently no-ops when it's unset, so this is safe to default-mount in
- * every template (including local dev with no DSN configured).
- */
 export const defaultSentryPlugin: NitroPluginDef = createSentryPlugin();

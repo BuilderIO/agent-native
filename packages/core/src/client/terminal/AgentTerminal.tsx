@@ -1,13 +1,3 @@
-/**
- * AgentTerminal — Embeddable CLI terminal component
- *
- * Renders an xterm.js terminal connected to a PTY WebSocket server.
- * When running inside a frame, renders nothing (the frame manages the terminal).
- *
- * Usage:
- *   import { AgentTerminal } from "@agent-native/core/terminal";
- *   <AgentTerminal className="w-full h-[400px]" />
- */
 
 import { useRef, useEffect, useState, type CSSProperties } from "react";
 
@@ -16,31 +6,18 @@ import { agentNativePath } from "../api-path.js";
 import { getFrameOrigin, isTrustedFrameMessage } from "../frame.js";
 
 export interface AgentTerminalProps {
-  /** CLI command to run. Default: 'builder' */
   command?: string;
-  /** Additional CLI flags */
   flags?: string;
-  /** Custom WebSocket URL (overrides auto-discovery) */
   wsUrl?: string;
-  /** Hide when running inside frame. Default: true */
   hideInFrame?: boolean;
-  /** Terminal theme overrides */
   theme?: Record<string, string>;
-  /** Font size. Default: 12 */
   fontSize?: number;
-  /** Focus the terminal on mount and when it becomes active. Default: true */
   autoFocus?: boolean;
-  /** CSS class for the container */
   className?: string;
-  /** Inline styles for the container */
   style?: CSSProperties;
-  /** Callback when connection state changes */
   onConnectionChange?: (connected: boolean) => void;
-  /** Callback when agent running state changes */
   onAgentRunningChange?: (running: boolean) => void;
-  /** Queue a prompt for the CLI once the PTY WebSocket is ready. */
   submitRequest?: AgentTerminalSubmitRequest;
-  /** Called after a queued prompt is written to the PTY. */
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
 }
 
@@ -49,7 +26,6 @@ export interface AgentTerminalSubmitRequest {
   text: string;
 }
 
-// Inject xterm CSS once
 let cssInjected = false;
 function injectXtermCss() {
   if (cssInjected || typeof document === "undefined") return;
@@ -172,10 +148,8 @@ export function AgentTerminal({
   const [error, setError] = useState<string | null>(null);
   const [inFrame, setInFrame] = useState(false);
 
-  // Check frame state after mount (postMessage is async)
   useEffect(() => {
     if (!hideInFrame) return;
-    // Check immediately and also after a short delay for the postMessage to arrive
     const check = () => {
       if (getFrameOrigin()) setInFrame(true);
     };
@@ -184,7 +158,6 @@ export function AgentTerminal({
     return () => clearTimeout(timer);
   }, [hideInFrame]);
 
-  // Notify parent of connection changes
   useEffect(() => {
     onConnectionChange?.(connected);
   }, [connected, onConnectionChange]);
@@ -203,14 +176,12 @@ export function AgentTerminal({
     }
   }, [autoFocus]);
 
-  // Main terminal setup
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (hideInFrame && inFrame) return;
 
     const containerRaw = termRef.current;
     if (!containerRaw) return;
-    // Non-null assertion: null branch exited above; closures lose the narrowing.
     const container: HTMLDivElement = containerRaw;
 
     let disposed = false;
@@ -218,7 +189,6 @@ export function AgentTerminal({
     let cleanupMessageHandler: (() => void) | null = null;
 
     async function init() {
-      // Dynamic imports for SSR safety
       const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all(
         [
           import("@xterm/xterm"),
@@ -281,7 +251,6 @@ export function AgentTerminal({
       window.addEventListener("focus", handleVisibilityOrFocus);
       document.addEventListener("visibilitychange", handleVisibilityOrFocus);
 
-      // Resize observer for auto-fitting
       const resizeObserver = new ResizeObserver(() => {
         fitAndResize();
       });
@@ -310,7 +279,6 @@ export function AgentTerminal({
         return true;
       }
 
-      // Discover WebSocket URL
       let wsUrl = wsUrlProp;
       let resolvedCommand = command;
       if (!wsUrl) {
@@ -340,14 +308,12 @@ export function AgentTerminal({
         }
       }
 
-      // Build WebSocket URL with query params
       const fullWsUrl = new URL(wsUrl);
       if (resolvedCommand) {
         fullWsUrl.searchParams.set("command", resolvedCommand);
       }
       if (flags) fullWsUrl.searchParams.set("flags", flags);
 
-      // Connect WebSocket
       let agentRunning = false;
       let idleTimer: ReturnType<typeof setTimeout> | null = null;
       let connectionId = 0;
@@ -422,13 +388,11 @@ export function AgentTerminal({
               ? new TextDecoder().decode(event.data)
               : event.data;
 
-          // Check for setup-status JSON messages
           try {
             const msg = JSON.parse(data);
             if (msg.type === "setup-status") {
               if (msg.status === "not-found" || msg.status === "failed") {
                 setError(msg.message);
-                // Bump connectionId to suppress reconnect on close
                 connectionId++;
               }
               return;
@@ -440,7 +404,6 @@ export function AgentTerminal({
           setError(null);
           term.write(data);
 
-          // Idle detection — prompt or cursor visible means agent stopped
           if (data.includes("❯") || data.includes("\x1b[?25h")) {
             if (idleTimer) clearTimeout(idleTimer);
             idleTimer = setTimeout(() => {
@@ -468,14 +431,12 @@ export function AgentTerminal({
         socket.onerror = () => socket.close();
       }
 
-      // Terminal input → WebSocket
       term.onData((data) => {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(data);
         }
       });
 
-      // Chat bridge integration — listen for sendToAgentChat messages
       const messageHandler = (event: MessageEvent) => {
         if (!isTrustedFrameMessage(event)) return;
         const parsed = parseSubmitChatMessage(event);
@@ -494,7 +455,6 @@ export function AgentTerminal({
       if (initialRequest) submitPrompt(initialRequest);
       connect(fullWsUrl.toString());
 
-      // Store cleanup references
       return () => {
         disposed = true;
         connectionId++;

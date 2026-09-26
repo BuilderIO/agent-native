@@ -7,8 +7,6 @@ import {
   type OnboardingRole,
 } from "../user-profile/shared.js";
 
-// Server-only: `node:crypto` must never reach `shared/`, which the browser
-// bundle imports (see `index.browser.spec.ts`).
 
 export const SHARED_ONBOARDING_COOKIE = "an_onboarding";
 export const SHARED_ONBOARDING_COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
@@ -18,9 +16,7 @@ export const SHARED_ONBOARDING_EMAIL_HASH_SALT =
 const EMAIL_HASH_PATTERN = /^[A-Za-z0-9_-]{27}$/;
 
 const sharedOnboardingPayloadSchema = z.object({
-  /** Onboarding role, or absent. Validated leniently — see `readRole`. */
   r: z.unknown().optional(),
-  /** Salted hash of the completing person's normalized email. */
   e: z.string().regex(EMAIL_HASH_PATTERN),
 });
 
@@ -61,7 +57,6 @@ export function decodeSharedOnboardingCookie(raw: string | undefined): {
     parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
   } catch {
     // coercion-ok: an unreadable cookie shows onboarding, the safe state. No
-    // success value is fabricated — the person sees the flow either way.
     return null;
   }
 

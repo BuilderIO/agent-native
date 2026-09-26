@@ -1,16 +1,5 @@
 import { parseRetryAfterMs } from "../../shared/retry-after.js";
 
-/**
- * Compose an error's message with its `cause` chain.
- *
- * Provider SDKs collapse the real failure into a generic wrapper message —
- * the Anthropic SDK reports every transport failure as exactly
- * "Connection error." and undici reports "fetch failed" — and keep the actual
- * reason (ECONNRESET, UND_ERR_SOCKET, TLS failure, request too large) only on
- * `.cause`. Recording `err.message` alone makes every one of them
- * indistinguishable after the fact, which is how a whole class of production
- * failures becomes undiagnosable.
- */
 const DEFAULT_MAX_CAUSE_LINKS = 4;
 const MAX_CAUSE_LINK_CHARS = 200;
 
@@ -50,26 +39,6 @@ export function describeErrorWithCauses(
   return links.length > 0 ? `${head} (cause: ${links.join(" <- ")})` : head;
 }
 
-/**
- * The single provider-transport-failure classifier. Every layer that decides
- * "is this a network blip?" — engine error codes, run-level retry, Sentry
- * suppression — must call THIS, on `describeErrorWithCauses(err)` rather than
- * on a bare `err.message`.
- *
- * Four divergent copies of this predicate existed, and they disagreed on
- * exactly the string production actually throws. The AI SDK's `RetryError`
- * reports `"Failed after 2 attempts. Last error: Cannot connect to API: …"`,
- * so a copy anchored with `startsWith` scored it as unclassified while a copy
- * using `includes` scored it as retryable. The result was a split brain: the
- * agent loop retried the turn, but the run persisted `error_code = 'unknown'`,
- * which the client does not list as auto-recoverable — so a transient TLS
- * reset ended the user's chat with a dead error instead of resuming. That one
- * mismatch accounted for ~150 failed production runs in a week.
- *
- * Substring matching is deliberate: the real message is always a provider SDK
- * wrapper around the transport error, never bare, and the wrapper prefix
- * differs per SDK and per version.
- */
 export function isProviderConnectionErrorMessage(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
@@ -78,23 +47,10 @@ export function isProviderConnectionErrorMessage(message: string): boolean {
   );
 }
 
-/** `isProviderConnectionErrorMessage` over an error's full cause chain. */
 export function isProviderConnectionError(err: unknown): boolean {
   return isProviderConnectionErrorMessage(describeErrorWithCauses(err));
 }
 
-/**
- * The single context-window-overflow classifier, shared by the layer that reads
- * a provider's raw reply and the layer that decides to trim and retry.
- *
- * It lives here, beside the transport classifier, because the Builder gateway
- * reports an overflow as an ordinary 400 `invalid_request_error` whose prose is
- * the only carrier — and on a Builder-credits deployment that prose is replaced
- * by one visitor line before any agent-level predicate sees it. The engine
- * therefore runs this against the RAW reply and hands the verdict on as a
- * structural field; `isContextTooLongError` (production-agent) keeps calling it
- * for every other engine, which still delivers its own message intact.
- */
 export function isContextOverflowMessage(message: string): boolean {
   const msg = message.toLowerCase();
   return (
@@ -103,42 +59,19 @@ export function isContextOverflowMessage(message: string): boolean {
     msg.includes("too many tokens") ||
     msg.includes("prompt is too long") ||
     msg.includes("reduce the length") ||
-    // Gemini phrasing
     msg.includes("input token count exceeds") ||
     msg.includes("request too large")
   );
 }
 
-/**
- * The Builder gateway's own 500 envelope, which is the whole message: an
- * apology sentence plus a correlation id, e.g. "Sorry, we ran into an issue
- * processing your request. ERROR ID: 0f3c...". Require the known apology
- * prefix as well as the id so an unrelated provider message cannot match.
- */
 export const BUILDER_GATEWAY_INTERNAL_ERROR_CODE =
   "builder_gateway_internal_error";
 
-/**
- * A provider refusal with no structured reason: the gateway relayed an
- * upstream 403 whose body was empty or a bare "Forbidden". Prod shows these
- * arriving in bursts across unrelated users, usually right after a 429 run,
- * for credentials that worked seconds earlier — load-shedding, not a revoked
- * key. Classifying them as a credential rejection told users to reconnect a
- * working provider and ended the turn on the first attempt; this code keeps
- * them on the retry-with-backoff lane next to 429/529.
- */
 export const PROVIDER_TRANSIENT_REJECTION_ERROR_CODE =
   "provider_transient_rejection";
 
-/**
- * Terminal code for a turn that stayed rate limited after the engine's short
- * retries, one cooled-down continuation, and the fallback model. The client
- * renders it with a manual retry and never auto-continues it, so a sustained
- * provider limit cannot become a multi-minute chain of identical requests.
- */
 export const PROVIDER_RATE_LIMITED_ERROR_CODE = "provider_rate_limited";
 
-/** Shared so the gateway, chat copy, and error presentation classify quotas alike. */
 export function isCreditsLimitErrorCode(errorCode?: string): boolean {
   const code = errorCode?.trim().toLowerCase();
   return code === "http_402" || code?.startsWith("credits-limit") === true;
@@ -167,15 +100,6 @@ const BUILDER_GATEWAY_ERROR_ID_MIN_CHARS = 8;
 const BUILDER_GATEWAY_ERROR_PREFIX_PATTERN =
   /^sorry,\s+(?:we ran into an issue processing your request|this was caused by an internal error)\b/i;
 
-/**
- * The gateway attaches that envelope to an unhandled 500, and it arrives two
- * ways: as an HTTP body, which is already retried because 500 is in the
- * engine's retryable status set, and as an in-stream error frame after the
- * gateway has already answered 200, where there is no status to read and the
- * prose carries no keyword any other predicate here matches. Naming it is what
- * makes the second path behave like the first instead of dying uncoded on the
- * first attempt.
- */
 export function isBuilderGatewayInternalErrorMessage(message: string): boolean {
   const match = BUILDER_GATEWAY_ERROR_ID_PATTERN.exec(message);
   return (
@@ -185,7 +109,6 @@ export function isBuilderGatewayInternalErrorMessage(message: string): boolean {
   );
 }
 
-/** Preserve the canonical code only for the gateway's generic error envelope. */
 export function canonicalizeBuilderGatewayErrorCode(
   code: string | undefined,
   message: string,
@@ -196,7 +119,6 @@ export function canonicalizeBuilderGatewayErrorCode(
     : code;
 }
 
-/** The overflow codes a provider or gateway may report instead of prose. */
 export function isContextOverflowCode(code: string | undefined): boolean {
   const normalized = (code ?? "").toLowerCase();
   return (
@@ -205,31 +127,15 @@ export function isContextOverflowCode(code: string | undefined): boolean {
   );
 }
 
-/** Classification fields an AI SDK provider failure carries. */
 export interface ProviderErrorClassification {
   errorCode?: string;
   statusCode?: number;
   providerRetryable?: boolean;
-  /**
-   * Provider-requested backoff from its `Retry-After` header, capped at
-   * {@link MAX_RETRY_AFTER_MS}. Absent when no error in the chain carried a
-   * (parseable) header — callers fall back to their own fixed backoff.
-   */
   retryAfterMs?: number;
 }
 
-/**
- * Upper bound on a provider-requested `Retry-After` wait. Without a cap, a
- * provider asking for an hour-long backoff would silently consume the entire
- * hosted foreground run budget on one retry attempt.
- */
 const MAX_RETRY_AFTER_MS = 60_000;
 
-/**
- * Read `Retry-After` off whichever error in the chain actually carries the
- * HTTP response: the raw error, the AI SDK's unwrapped `RetryError.lastError`,
- * or a plain `.cause`. Checked in that order so the most specific source wins.
- */
 export function extractRetryAfterMs(err: unknown): number | undefined {
   const wrapped = err as { lastError?: unknown; cause?: unknown } | null;
   for (const source of [err, wrapped?.lastError, wrapped?.cause]) {
@@ -249,27 +155,10 @@ export function extractRetryAfterMs(err: unknown): number | undefined {
   return undefined;
 }
 
-/**
- * Classify a provider error from the AI SDK, whichever way it surfaced.
- *
- * `streamText` does not throw for a failed provider request — it emits an
- * `error` part on `fullStream` — so there are two arrival paths, and only the
- * thrown one used to be classified. The stream-part path discarded
- * `statusCode`, `errorCode`, and `isRetryable` entirely, which is why every
- * provider HTTP failure on an ai-sdk engine landed as `unknown`: a 429 was only
- * retried if its prose happened to contain "rate_limit", and a
- * 100%-reproducible config 400 was indistinguishable from any other unclassified
- * failure, so it had no signature to alert on. Both call sites go through here.
- *
- * `timedOut` is the caller's own first-event deadline, which only the streaming
- * path can know.
- */
 export function classifyProviderError(
   err: unknown,
   timedOut = false,
 ): ProviderErrorClassification {
-  // The AI SDK wraps exhausted retries in RetryError and keeps the final
-  // APICallError on `lastError`.
   const wrapped = err as { lastError?: unknown } | null;
   const providerError = (
     wrapped?.lastError instanceof Error ? wrapped.lastError : err
@@ -284,10 +173,6 @@ export function classifyProviderError(
       ? providerError.statusCode
       : undefined;
 
-  // Classify on the cause chain of the ORIGINAL error, not the unwrapped one:
-  // when RetryError does not expose `lastError` as an Error the unwrap falls
-  // back to the wrapper, whose message ("Failed after 2 attempts. Last error:
-  // …") only *embeds* the transport failure. Matching the wrapper is the point.
   const described = describeErrorWithCauses(err);
   const isConnectionError =
     !timedOut &&
@@ -299,13 +184,6 @@ export function classifyProviderError(
           : stringifyUnknown(providerError),
       ));
 
-  // A 403 with a real status but no reason worth reading — the gateway
-  // load-shedding signature, not a revoked credential. Checked against both
-  // the cause chain and the raw provider message for the same reason
-  // `isConnectionError` is. This helper also serves the direct provider
-  // adapters, whose SDKs can say `isRetryable: false` outright; that verdict
-  // outranks the inference, so an opaque but explicitly final 403 from a
-  // direct provider keeps `http_403` and the credential-rejected lane.
   const isBareRejection =
     statusCode === 403 &&
     providerError?.isRetryable !== false &&
@@ -326,10 +204,6 @@ export function classifyProviderError(
   const retryAfterMs = extractRetryAfterMs(err);
 
   return {
-    // Tag every known status as `http_<status>` (not just 401) so a rate limit
-    // surfaces as `http_429`: the structured statusCode drives turn-level
-    // retries, but run-level continuation keys off the errorCode. A bare 403
-    // is the one status that gets a different code instead of `http_403`,
     // because that code is the client's credential-rejected signal.
     ...(statusCode !== undefined
       ? isBareRejection
@@ -340,8 +214,7 @@ export function classifyProviderError(
         : { errorCode: `http_${statusCode}`, statusCode }
       : isConnectionError || timedOut
         ? { errorCode: "provider_network_error" }
-        : // Nothing structured — fall back to reading the message, so a
-          // stream-part 529/timeout is not silently unclassified.
+        :
           (() => {
             const code = classifyTerminalErrorCode(described);
             return code ? { errorCode: code } : {};
@@ -372,7 +245,6 @@ export function classifyTerminalErrorCode(
   if (!message) return undefined;
   const msg = message.toLowerCase();
   if (isProviderConnectionErrorMessage(msg)) return "provider_network_error";
-  // Word-bounded: request ids and hashes routinely contain a bare "529".
   if (msg.includes("overloaded") || /\b529\b/.test(msg)) {
     return "overloaded_error";
   }
@@ -389,16 +261,6 @@ export function classifyTerminalErrorCode(
   if (msg.includes("stream ended without a stop event")) {
     return "builder_gateway_network_error";
   }
-  // Deterministic below this line — named so they stop landing in `unknown`,
-  // never retried. Both were measured against the 13 prod app DBs over
-  // 2026-07-24..31: 27 turns/week and 14 turns/week respectively, each with
-  // exactly 1.00 runs/turn, i.e. the chat died on the first attempt showing
-  // the raw provider sentence.
-  //
-  // The request side already avoids emitting reasoning_effort alongside tools
-  // (see ai-sdk-engine.ts). This classifies the failure for the paths that
-  // still reach the provider — another gateway, a stale deploy — so it reads
-  // as a configuration problem rather than a mystery.
   if (
     msg.includes("reasoning_effort are not supported") ||
     msg.includes("reasoning_effort to 'none'") ||
@@ -417,8 +279,6 @@ export function classifyTerminalErrorCode(
   ) {
     return "provider_network_error";
   }
-  // Last, so a gateway 500 whose body happens to quote a more specific upstream
-  // failure keeps that classification instead of collapsing to this one.
   if (isBuilderGatewayInternalErrorMessage(message)) {
     return BUILDER_GATEWAY_INTERNAL_ERROR_CODE;
   }

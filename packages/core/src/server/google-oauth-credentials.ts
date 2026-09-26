@@ -49,16 +49,6 @@ async function readInjectedCredentialPair(
   return { clientId, clientSecret };
 }
 
-/**
- * Resolve Google provider credentials from an app-owned credential source.
- *
- * Templates pass their scoped secret reader so Core does not choose an app's
- * secret store or request context. An optional fallback reader preserves
- * deployments that still keep the same credential pair in environment vars.
- * Each candidate pair is read atomically and de-duped by client id, which lets
- * refresh paths retry tokens minted by a previous Google OAuth client without
- * ever mixing an id and secret from different sources.
- */
 export async function resolveGoogleProviderCredentialCandidatesWithReader(options: {
   readCredential: ReadGoogleOAuthCredential;
   fallbackReadCredential?: ReadGoogleOAuthCredential;
@@ -102,9 +92,6 @@ export function resolveGoogleSignInCredentials(): GoogleOAuthCredentials | null 
     "GOOGLE_CLIENT_SECRET",
   );
 
-  // Different clients can be intentional: sign-in uses GOOGLE_SIGN_IN_* while
-  // provider API flows use GOOGLE_CLIENT_*. Keep the warning because editing
-  // the provider pair cannot repair a sign-in pair that is actually active.
   if (signIn && provider && signIn.clientId !== provider.clientId) {
     console.warn(
       "[agent-native][google-oauth] GOOGLE_SIGN_IN_CLIENT_ID and GOOGLE_CLIENT_ID " +
@@ -141,7 +128,6 @@ export function recordActiveGoogleSignInCredentials(
   activeSignInCredentialsVersion += 1;
 }
 
-/** Test seam: forget what Better Auth wired, as if it had not initialised. */
 export function resetActiveGoogleSignInCredentials(): void {
   activeSignInCredentials = null;
   activeSignInCredentialsRecorded = false;

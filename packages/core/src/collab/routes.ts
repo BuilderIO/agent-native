@@ -1,8 +1,3 @@
-/**
- * HTTP route handlers for collaborative editing.
- *
- * Mounted under /_agent-native/collab/ by the collab plugin.
- */
 
 import {
   defineEventHandler,
@@ -18,17 +13,12 @@ import { uint8ArrayToBase64, base64ToUint8Array } from "./storage.js";
 import * as manager from "./ydoc-manager.js";
 import { searchAndReplace as doSearchAndReplace } from "./ydoc-manager.js";
 
-/** Default maximum payload size (2 MB). Overridden by plugin via event.context. */
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 
 function getMaxPayloadBytes(event: H3Event): number {
   return (event.context as any)?._collabMaxPayloadBytes ?? DEFAULT_MAX_BYTES;
 }
 
-/**
- * Check the serialized body length against the configured limit.
- * Returns true if within limits; sets 413 status and returns false otherwise.
- */
 function enforcePayloadLimit(event: H3Event, body: unknown): boolean {
   const maxBytes = getMaxPayloadBytes(event);
   const encoded = typeof body === "string" ? body : JSON.stringify(body ?? "");
@@ -39,11 +29,6 @@ function enforcePayloadLimit(event: H3Event, body: unknown): boolean {
   return true;
 }
 
-/**
- * GET /_agent-native/collab/:docId/state
- *
- * Returns full Yjs document state as base64 for initial client load.
- */
 export const getCollabState = defineEventHandler(async (event: H3Event) => {
   setResponseHeader(event, "Cache-Control", "private, no-store");
   const docId = getRouterParam(event, "docId");
@@ -75,14 +60,6 @@ export const getCollabState = defineEventHandler(async (event: H3Event) => {
   };
 });
 
-/**
- * POST /_agent-native/collab/:docId/update
- *
- * Client sends a Yjs update (base64). Server applies it, persists, and
- * emits a change event so other clients pick it up via polling.
- *
- * Body: { update: string (base64), requestSource?: string }
- */
 export const postCollabUpdate = defineEventHandler(async (event: H3Event) => {
   const docId = getRouterParam(event, "docId");
   if (!docId) {
@@ -110,14 +87,6 @@ export const postCollabUpdate = defineEventHandler(async (event: H3Event) => {
   return { ok: true };
 });
 
-/**
- * POST /_agent-native/collab/:docId/text
- *
- * Agent sends full text content. Server computes diff against current
- * Yjs state and applies minimal operations.
- *
- * Body: { text: string, fieldName?: string, requestSource?: string }
- */
 export const postCollabText = defineEventHandler(async (event: H3Event) => {
   const docId = getRouterParam(event, "docId");
   if (!docId) {
@@ -150,14 +119,6 @@ export const postCollabText = defineEventHandler(async (event: H3Event) => {
   return { ok: true, text: result };
 });
 
-/**
- * POST /_agent-native/collab/:docId/search-replace
- *
- * Search-and-replace text in the Y.XmlFragment (ProseMirror tree).
- * Produces minimal Yjs operations for cursor-preserving updates.
- *
- * Body: { find: string, replace: string, requestSource?: string }
- */
 export const postCollabSearchReplace = defineEventHandler(
   async (event: H3Event) => {
     const docId = getRouterParam(event, "docId");

@@ -1,16 +1,3 @@
-/**
- * The hosted-realtime gate exists in three places that cannot import each
- * other: `resolveRealtimeClientConfig` (SSR shell), the worker emitter inside
- * the generated bundle string in `deploy/build.ts`, and
- * `hostedRealtimeTransportEnabled` in `poll.ts` (import-cycle sensitive).
- *
- * A disagreement between them is not a cosmetic drift. If the first two say
- * "hosted" and the third says "local", the app writes clock-assigned versions
- * while gateway instances write DB-assigned ones against the same table —
- * silent cross-writer skew, the exact failure `dbAssignedVersions` exists to
- * close. This spec runs all three over the same env matrix so a future edit to
- * one of them fails here instead of in production.
- */
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -27,11 +14,6 @@ const ENV_KEYS = [
 const DEFAULT_GATEWAY =
   "https://api.builder.io/agent-native/gateway/v1/realtime";
 
-/**
- * Evaluate the worker copy for real. Extracting the function text and running
- * it is the only way to test a gate that ships as a string; asserting on the
- * source with a regex would pass against a copy that no longer parses.
- */
 function evaluateWorkerGate(env: Record<string, string | undefined>) {
   const source = generateWorkerEntry([], []);
   const start = source.indexOf("function firstNonEmpty()");
@@ -54,8 +36,6 @@ function evaluateWorkerGate(env: Record<string, string | undefined>) {
   );
   const script = fn(env) as string | null;
   if (!script) return null;
-  // The emitted script is an Object.assign call, so the first `{` is the empty
-  // target literal, not the payload. Slice from the last argument boundary.
   const marker = "window.__AGENT_NATIVE_CONFIG__,";
   const json = script.slice(
     script.lastIndexOf(marker) + marker.length,
@@ -67,9 +47,6 @@ function evaluateWorkerGate(env: Record<string, string | undefined>) {
   };
 }
 
-/** Save-and-restore, not blanket-delete: vitest reuses one process per worker,
- * and BUILDER_GATEWAY_BASE_URL is a general Builder setting a staging run may
- * legitimately export for every later spec file in that worker. */
 const saved = new Map<string, string | undefined>();
 
 function withEnv(env: Record<string, string | undefined>) {
@@ -161,7 +138,6 @@ describe("hosted realtime transport gate", () => {
     const worker = evaluateWorkerGate(process.env);
     const poll = __hostedRealtimeTransportEnabledForTests();
 
-    // The claim that matters: all three reach the same verdict.
     expect({
       ssr: ssr !== null,
       worker: worker !== null,

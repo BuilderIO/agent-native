@@ -28,27 +28,15 @@
 @import "./chat-history-list.css";
 @import "./tokens/agent-kit.css";
 
-/* Core's own client components (settings, TeamPage, share dialogs, …) render
-   @agent-native/toolkit UI, so the toolkit's @source registration belongs here
-   rather than in each app's global.css. Without it Tailwind never generates the
-   classes that appear only inside toolkit components — including the `z-[290]`
-   on portaled dropdown/select/popover content — and those menus render behind
-   raised app surfaces. Apps that import this stylesheet get it for free. */
 @import "@agent-native/toolkit/styles.css";
 
-/* Scan @agent-native/core's compiled client output for Tailwind classes.
-   Path is resolved relative to THIS file. After build, this CSS lives at
-   dist/styles/agent-native.css, so `../client/**` resolves to dist/client/**. */
 @source "../client/**/*.{js,mjs,ts,tsx}";
 @source "../client/**/onboarding/**/*.{js,mjs,ts,tsx}";
 
-/* Class-based dark mode (matches v3 darkMode: ["class"]). */
 @custom-variant dark (&:is(.dark *));
 
 @plugin "@tailwindcss/typography";
 
-/* shadcn/ui animation utilities (animate-in, animate-out, fade-in/out,
-   zoom-in/out, slide-in-from-*, spin-in, etc.). */
 @import "tw-animate-css";
 
 :root {
@@ -61,15 +49,6 @@
   }
 }
 
-/* Shared shell depth.
-   Use these classes on app layouts that have a persistent left nav:
-
-   <div className="agent-layout-shell ...">
-     <aside className="agent-layout-left-drawer ...">...</aside>
-     <main className="agent-layout-main-surface ...">...</main>
-   </div>
-
-   AgentSidebar applies the same classes internally for the right agent drawer. */
 .agent-sidebar-shell,
 .agent-layout-shell {
   --agent-native-lower-surface: var(--agent-kit-nav-surface);
@@ -130,9 +109,6 @@
   background: inherit;
 }
 
-/* The agent rail is a working surface, not a second copy of the app canvas.
-   Keep its depth legible while leaving the product's semantic palette in
-   charge of the actual colors. */
 .agent-sidebar-panel[data-agent-sidebar-layout="desktop"] {
   border-inline-start: 1px solid hsl(var(--border) / 0.72);
   background: var(--agent-kit-recessed-surface);
@@ -143,9 +119,6 @@
   background: var(--agent-kit-recessed-surface);
 }
 
-/* Tabs should read as part of the panel's navigation, not as a second window
-   chrome. The active tab gets its own quiet surface and border; inactive tabs
-   stay close to the panel background until hovered. */
 .agent-sidebar-panel .agent-sidebar-chat-header .agent-native-shell-topbar {
   background: transparent;
 }
@@ -228,13 +201,6 @@
   width: calc(100% - 2.5rem);
 }
 
-/* The mask is declared unconditionally and the fade is driven by its size
-   variable. Adding/removing a mask changes the element's paint properties, and
-   the `--top-fade` modifier flips with `hasContentAbove` — which oscillates
-   while a reply streams into an auto-scrolled transcript. Toggling the
-   declaration made Chromium tear down and rebuild this scroller's paint state
-   on every flip; animating a length inside a mask that is always present does
-   not. Keep the fade size at 0 rather than removing the mask. */
 .message-scroller-viewport {
   --message-scroller-top-fade-size: 0px;
   -webkit-mask-image: linear-gradient(
@@ -305,9 +271,6 @@
   container: agent-native-main / inline-size;
 }
 
-/* Dispatch and Electron own the chat drawer when an app is embedded. Keep
-   the standard app's navigation beside its content, on the opposite edge.
-   Custom shells opt out with data-agent-native-shell-variant="custom". */
 @media (min-width: 768px) {
   .agent-layout-shell:not([data-agent-native-shell-variant="custom"]):has(
       > .agent-sidebar-shell[data-agent-native-hosted-chat="true"]
@@ -395,9 +358,6 @@
   }
 }
 
-/* Shared agent sidebar entry/exit transitions.
-   `@starting-style` gives newly-mounted panels a real before-change style, so
-   opening animates in as reliably as closing animates out. */
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"] {
   width: 0;
   overflow: clip;
@@ -419,17 +379,9 @@
   max-width: var(--agent-sidebar-width);
   height: 100%;
   transform: var(--agent-sidebar-inner-closed-transform, translateX(100%));
-  /* No `will-change: transform` here. This element wraps the whole chat
-     transcript and stays mounted for the life of the page, so the hint is never
-     retired — it pins a permanently composited layer whose backing store grows
-     with the transcript. Chromium already promotes a transform transition for
-     the 260ms it runs, which is the entire benefit. */
   transition: transform 260ms var(--ease-drawer);
 }
 
-/* The wide preset keeps the normal sidebar slot in flow while its panel
-   overlays the page as a fixed drawer. View Transitions morph the geometry
-   when available; these transforms provide the fallback and exit motion. */
 .agent-sidebar-panel[data-agent-sidebar-animation="drawer"] {
   overflow: clip;
   box-shadow: var(--agent-kit-drawer-elevation);
@@ -473,10 +425,6 @@
   opacity: 1;
 }
 
-/* A named chat surface already morphs from its old geometry during a
-   full-page-chat handoff. Override only the initial style of that panel so it
-   does not slide in from the right underneath the morph. Keeping the normal
-   rules intact preserves ordinary sidebar open/close animation. */
 @starting-style {
   .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {
     width: 0;
@@ -598,8 +546,6 @@
       transform: translateY(0);
     }
   }
-  /* Indeterminate: a route load has no percentage to report, so the bar
-     sweeps rather than pretending to know how far along it is. */
   @keyframes route-transition-sweep {
     0% {
       transform: translateX(-100%);
@@ -610,8 +556,6 @@
   }
 }
 
-/* AgentKit component roles. Keep product code on named roles so applications
-   can tune the chat system without reaching into component implementation. */
 .agent-kit-density {
   font-size: var(--agent-kit-density-font-size);
   line-height: var(--agent-kit-density-line-height);
@@ -739,8 +683,6 @@
   }
 }
 
-/* Whole-surface loading treatment. The muted selectors keep hand-rolled
-   placeholders on the same motion until they migrate to the shared class. */
 .skeleton-shimmer,
 .animate-pulse[class~="bg-muted"],
 .animate-pulse[class*="bg-muted/"],
@@ -794,11 +736,6 @@
   }
 }
 
-/* Border-color compatibility shim:
-   In Tailwind v3, the preflight set the default border colour to
-   `hsl(var(--border))`. v4 drops that — borders default to currentColor.
-   Many of our components/templates use `border` or `border-t/b/l/r` without
-   an explicit colour and rely on the v3 behaviour. Keep that working. */
 @layer base {
   *,
   ::after,
@@ -838,14 +775,6 @@
     cursor: pointer;
   }
 
-  /* WebKit paints its own cancel/decoration widgets inside every
-     `input[type="search"]`, so a field that also renders a themed clear button
-     shows two "x" affordances side by side. Opting in per field rather than
-     suppressing globally is deliberate: a search field with no clear button of
-     its own still needs the platform widget, and a blanket rule would take
-     away its only pointer-accessible way to clear. `guard:single-search-clear`
-     fails when a field grows its own clear button without this class, so the
-     duplicate cannot come back silently. */
   .agent-native-search-input::-webkit-search-cancel-button,
   .agent-native-search-input::-webkit-search-decoration,
   .agent-native-search-input::-webkit-search-results-button,
@@ -855,12 +784,6 @@
   }
 }
 
-/* Appearance presets.
-   Applied via `<html data-appearance="...">` so the user can switch the
-   background tint and accent without editing the template's source. Presets
-   override the most visible HSL vars (background, accent, primary, ring,
-   sidebar tint); everything else inherits from the template's :root / .dark.
-   The `default` preset is the absence of the attribute — no overrides. */
 :root[data-appearance="warm"] {
   --background: 35 30% 97%;
   --sidebar-background: 35 28% 95%;
@@ -946,7 +869,6 @@
   --ring: 215 12% 60%;
 }
 
-/* Settings sections: animate between closed and intrinsic open height. */
 .agent-native-settings-section-body {
   display: flow-root;
   height: auto;
@@ -997,16 +919,6 @@
   }
 }
 
-/* Full settings page section bodies.
-   The framework's shared settings sections (LLM, App model defaults, Agent
-   limits, Email, Account, Secrets, Usage, Voice, Automations, A2A, hosting
-   cards, etc.) are authored dense for the compact agent sidebar. On the
-   full-width settings page they render inside polished shadcn-style cards
-   (PageSettingsSection), so bump the smallest fixed type up to a comfortable,
-   consistent reading size that matches the app-owned General/Team cards.
-   Scoped to `[data-agent-native-settings-page]` (only PageSettingsSection's
-   body) so app-owned tab content is never affected. The `.text-[…px]` classes
-   are Tailwind arbitrary values; the double-class specificity here wins. */
 [data-agent-native-settings-page] .text-\[10px\] {
   font-size: 0.75rem;
   line-height: 1rem;
@@ -1024,18 +936,11 @@
   line-height: 1.4rem;
 }
 
-/* Settings rows size themselves from the available content column. The full
-   Settings page can be narrow even on a desktop viewport when its navigation
-   rail and agent sidebar are both open, so viewport breakpoints are not a
-   reliable signal for keeping copy and controls side by side. */
 .agent-native-settings-row {
   container-type: inline-size;
   container-name: settings-row;
 }
 
-/* Integration cards use their content column, not the viewport, to choose a
-   two-column layout. Settings can leave a desktop viewport with only a narrow
-   content column once the navigation rail is open. */
 .agent-native-integration-grid {
   container-type: inline-size;
   container-name: integration-grid;
@@ -1060,11 +965,6 @@
   }
 }
 
-/* Composer toolbar: keep the model name + version readable on narrow
-   chatfields. The bordered composer box is a size container; below 370px
-   wide (e.g. a narrow agent sidebar) we drop the reasoning-level suffix
-   ("· Auto") so the model name + version never truncates. The reasoning
-   level always stays reachable via the model picker popover. */
 .agent-composer-root {
   container-type: inline-size;
   container-name: agent-composer;
@@ -1080,8 +980,6 @@
   }
 }
 
-/* Guided questions size themselves from the rendered container, not viewport
-   breakpoints, so they stay readable in narrow chat sidebars. */
 .guided-question-flow {
   container-type: inline-size;
   container-name: guided-question-flow;
@@ -1131,8 +1029,6 @@
   }
 }
 
-/* Connect AI card: use the card width, not the viewport, so narrow embedded
-   sidebars stack the copy and actions before the secondary button clips. */
 .agent-builder-setup-card {
   container-type: inline-size;
   container-name: agent-builder-setup;
@@ -1144,8 +1040,6 @@
   container-name: agent-builder-setup;
 }
 
-/* Provider setup tucks behind the composer. The extra bottom paint is hidden
-   by the higher composer layer, leaving one connected control. */
 .agent-builder-setup-card--attached {
   position: relative;
   z-index: 1;
@@ -1318,8 +1212,6 @@
   line-height: var(--agent-kit-composer-line-height);
 }
 
-/* Keep touch-width editors at 16px so mobile Safari does not zoom the page
-   when the composer receives focus. */
 @media (max-width: 767px) {
   .agent-composer-root--hero [data-agent-composer-slot="editor-input"] {
     font-size: var(--agent-kit-composer-mobile-font-size);
@@ -1357,16 +1249,10 @@
   gap: 0.5rem;
 }
 
-/* Plan-mode callout pill: lives inside .agent-composer-stack directly above
-   the composer. Matching .agent-composer-area's own width keeps the pill
-   visually attached to (and right-aligned with) the composer instead of the
-   full pane, whether the pane is a narrow sidebar or a wide centered page. */
 .agent-plan-mode-callout {
   width: 100%;
 }
 
-/* Tool-call rows are rendered in several disclosure/grouping shapes as the
-   stream grows. Keep the layout wrapper transparent. */
 .agent-tool-call-stack {
   display: contents;
 }
@@ -1473,12 +1359,6 @@
     ::view-transition-new(agent-native-chat),
     ::view-transition-old(agent-native-sidebar-drawer),
     ::view-transition-new(agent-native-sidebar-drawer) {
-      /* The default `block-size: auto` scales each snapshot by width, so as the
-         panel narrows (896 -> 380) its captured height shrinks and the
-         bottom-pinned chat field gets dragged upward (the "rises to half-page"
-         bug). Lock the snapshots to the group's constant height so only x +
-         width animate: the panel slides right at constant height and the chat
-         field stays pinned to the bottom. */
       height: 100%;
       animation-duration: 340ms;
       animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);

@@ -151,8 +151,6 @@ export function useShareDialogController({
     unshare: unshareMutation,
     setVisibility: visibilityMutation,
   } = useShareMutations();
-  // Hosts mount one closed dialog per list row (e.g. every deck card), so
-  // these fetches must wait for `open` or a list page fans out N requests.
   const memberSearch = useShareOrgMemberSearch("", open, {
     limit: undefined,
     debounceMs: 0,

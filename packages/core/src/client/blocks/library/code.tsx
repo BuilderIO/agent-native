@@ -28,19 +28,7 @@ import {
 import { codeSchema, codeMdx, type CodeData } from "./code.config.js";
 import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
 
-/**
- * Standard `code` block (STANDARD core library): THE primitive single code
- * snippet, used everywhere in plan + content. Notion-style — one border, a
- * hover-revealed language switcher + copy, and the shared collapse-to-N-lines
- * read surface. A "file rail" of several files is just the `tabs` primitive
- * holding `code` blocks; there is no bespoke "code-tabs" container.
- *
- * Read = the shared {@link CodeSurface} (Shiki, single border, language label,
- * "Show N more lines"). Edit = a clean, single-border editable surface (no
- * drag-to-resize; it auto-grows to its content) with the same hover chrome.
- */
 
-/** Language options for the hover switcher; "" is the Auto-detect sentinel. */
 const CODE_LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "", label: "Auto" },
   { value: "typescript", label: "TypeScript" },
@@ -61,7 +49,6 @@ const CODE_LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "diff", label: "Diff" },
 ];
 
-/* ── Read ──────────────────────────────────────────────────────────────────── */
 
 function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
   const language =
@@ -109,12 +96,10 @@ function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
   );
 }
 
-/* ── Edit (single border, no resize, auto-grow, hover chrome) ──────────────── */
 
 const SETTINGS_INPUT =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
-/** Hover "settings" (pencil) → popover to edit the filename + max-lines cap. */
 function CodeSettingsPopover({
   filename,
   maxLines,
@@ -243,11 +228,6 @@ function CodeEditorSurface({
     () => highlightCode(code, resolvedLanguage),
     [resolvedLanguage, code],
   );
-  // Size the editor to its content by line count — deterministic, no layout
-  // measurement. `wrap="off"` means one row per line. Long snippets collapse to
-  // `cap` lines behind a "Show N more lines" toggle, matching the read surface
-  // and the file-tree block. `maxLines` omitted ⇒ DEFAULT (40); `0` ⇒ never
-  // collapse (show everything).
   const lineCount = code ? code.split("\n").length : 1;
   const cap =
     maxLines == null ? DEFAULT_CODE_MAX_LINES : maxLines > 0 ? maxLines : null;
@@ -396,7 +376,6 @@ function CodeEdit({ data, onChange, editable }: BlockEditProps<CodeData>) {
   );
 }
 
-/* ── Spec ──────────────────────────────────────────────────────────────────── */
 
 export const codeBlock = defineBlock<CodeData>({
   type: "code",

@@ -8,28 +8,12 @@ import type {
   BlockRenderContext,
 } from "./types.js";
 
-/**
- * Resolve a spec's effective edit surface. Defaults to `"inline"` when the block
- * ships a custom `Edit` (its author built direct-manipulation editing), else
- * `"panel"` — an auto-form block is a property form, which reads best behind a
- * corner edit button. An explicit `spec.editSurface` always wins.
- */
 export function blockEditSurface(
   spec: BlockSpec<any>,
 ): "inline" | "panel" | "container" | "none" {
   return spec.editSurface ?? (spec.Edit ? "inline" : "panel");
 }
 
-/**
- * Render one registered block. In read mode (or when the spec is inline-only and
- * not editing) it renders the spec's `Read`. In edit mode for a `block`-placed
- * spec it renders the editor — either inline (the spec's `Edit` or the
- * schema-driven {@link SchemaBlockEditor}) or, for `editSurface: "panel"` blocks,
- * the rendered `Read` plus a corner edit button that opens that editor in the
- * app-provided panel ({@link BlockRenderContext.renderEditSurface}, e.g. a
- * popover). This is what the app renderer delegates to once the registry
- * recognizes a block type — the legacy switch handles unregistered types.
- */
 export function BlockView({
   spec,
   block,
@@ -41,11 +25,8 @@ export function BlockView({
 }: {
   spec: BlockSpec<any>;
   block: { id: string; title?: string; summary?: string; data: unknown };
-  /** Whether the document is in an editable/edit state. */
   editing: boolean;
-  /** Whether this specific block allows editing (block.editable !== false). */
   editable?: boolean;
-  /** Commit a new `data` value for the block. */
   onChange?: (nextData: unknown, meta?: BlockDataChangeMeta) => void;
   ctx: BlockRenderContext;
   compactVisuals?: boolean;
@@ -102,9 +83,6 @@ export function BlockView({
     />
   );
 
-  // Panel mode: show the rendered block with a corner edit button that opens the
-  // form in the app-provided panel (popover). Falls back to inline editing when
-  // the app hasn't wired `renderEditSurface`.
   if (blockEditSurface(spec) === "panel" && ctx.renderEditSurface) {
     return (
       <div
@@ -140,6 +118,5 @@ export function BlockView({
     );
   }
 
-  // Inline mode (direct manipulation).
   return formNode;
 }

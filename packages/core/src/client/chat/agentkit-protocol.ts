@@ -57,15 +57,10 @@ import type {
 } from "./runtime.js";
 
 export interface CreateAgentKitProtocolAdapterOptions {
-  /** Stable clock used for event timestamps and thread fallbacks. */
   readonly now?: () => string;
-  /** Allows a host to use its own stable IDs when the runtime omits one. */
   readonly createId?: (prefix: string) => string;
-  /** Optional capability overrides for host-owned protocol features. */
   readonly capabilities?: AgentCapabilities;
-  /** Format for assistant text when the runtime omits an explicit format. */
   readonly textFormat?: TextPart["format"];
-  /** Host-owned operations layered onto Core's run and thread runtime. */
   readonly operations?: Partial<
     AgentTransportThreadOperations &
       Pick<
@@ -77,17 +72,8 @@ export interface CreateAgentKitProtocolAdapterOptions {
         | "submitFeedback"
       >
   >;
-  /** Maximum replay events retained for each process-local run. */
   readonly maxRetainedEvents?: number;
-  /**
-   * Maximum completed runs retained for process-local replay. Active runs are
-   * never evicted. Least-recently-accessed completed runs are removed first.
-   */
   readonly maxRetainedRuns?: number;
-  /**
-   * Milliseconds a completed run remains eligible for process-local replay.
-   * The count bound may evict it sooner when newer completed runs arrive.
-   */
   readonly retainedRunTtlMs?: number;
   readonly metadata?: Record<string, unknown>;
 }
@@ -978,8 +964,6 @@ function runtimeCapabilitiesToProtocolCapabilities(
     clientEffects: capabilities.rich?.clientEffects,
     multiAgentActivity,
     taskGroups: capabilities.rich?.taskGroups,
-    // This adapter can replay while its process is alive, but it does not own a
-    // durable event store and must not advertise restart-safe run resumption.
     resumableRuns: false,
     threadHistory: capabilities.messages.history,
     threadForking: capabilities.sessions?.fork,
@@ -1065,11 +1049,6 @@ function protocolError(error: unknown, code = "runtime_error"): AgentError {
   };
 }
 
-/**
- * Adapts Core's session/turn runtime into the standalone AgentKit transport.
- * The event log is intentionally owned here: Core turns are one-shot streams,
- * while protocol subscribers may reconnect with an `afterSequence` cursor.
- */
 export function createAgentKitProtocolAdapter(
   runtime: AgentChatRuntime,
   options: CreateAgentKitProtocolAdapterOptions = {},
@@ -1218,8 +1197,6 @@ export function createAgentKitProtocolAdapter(
       derivedCapabilities.connectionRequests &&
       runtime.capabilities.rich?.connectionRequests !== false,
     ),
-    // Deliberately after the options spread: a host must not be able to
-    // advertise a restart-safe guarantee this adapter cannot keep.
     resumableRuns: false,
     "x-run-replay-retention": {
       maxEventsPerRun: maxRetainedEvents,
@@ -1236,10 +1213,6 @@ export function createAgentKitProtocolAdapter(
     id: AgentCapabilityId,
   ): AgentCapabilityDescriptor {
     if (id === "resumableRuns") {
-      // Not degraded: within one process replay is complete, and across a
-      // restart there is nothing to degrade to. Reporting it as unsupported
-      // matches the boolean projection and stops it reading as unfinished
-      // work. x-run-replay-retention states what replay does cover.
       return capabilityDescriptor(
         id,
         "unsupported",
@@ -1773,9 +1746,6 @@ export function createAgentKitProtocolAdapter(
         }
         run.waitingForContinuation = true;
         run.pendingApprovalId = event.approvalId;
-        // AG-UI models an approval interrupt as RUN_FINISHED. Close the wire
-        // stream while retaining ownership of the paused Core turn so it can
-        // still be resumed, cancelled, or disposed.
         run.streamClosed = true;
         return [
           {
@@ -2214,9 +2184,6 @@ export function createAgentKitProtocolAdapter(
           { type: "run.completed", ...base, usage: run.usage },
         ];
       default:
-        // Core runtimes can widen their event generic with namespaced events.
-        // This branch is unreachable for the built-in union but remains the
-        // lossless runtime boundary for those host-defined events.
         const customEvent = event as unknown as {
           type: string;
           [key: string]: unknown;

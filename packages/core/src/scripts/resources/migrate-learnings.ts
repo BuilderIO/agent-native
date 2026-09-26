@@ -1,15 +1,3 @@
-/**
- * Core script: migrate-learnings
- *
- * Migrate a learnings.md file from the project root into the SQL resource
- * store at SHARED scope under "LEARNINGS.md". This is the exact owner/path
- * pair the live prompt injection (`loadResourcesForPrompt` in
- * agent-chat-plugin.ts) reads via an exact-match lookup, so the migrated
- * content actually reaches the production agent's prompt.
- *
- * Usage:
- *   pnpm action migrate-learnings
- */
 
 import fs from "fs";
 import path from "path";

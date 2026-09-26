@@ -1,40 +1,17 @@
-/**
- * Transactional email renderers for the framework's system emails.
- *
- * Each exported function returns `{ subject, html, text }` so callers can pass
- * the result straight to `sendEmail({ to, ...rendered })`. All three share the
- * same visual identity via the generic `renderEmail` helper in
- * `email-template.ts` — dark card, Inter typography, prominent CTA button.
- *
- * If you need to add another system email (e.g. magic-link, change-email
- * confirmation), add it here rather than inlining `renderEmail` at the call
- * site — keeps the transactional look-and-feel consistent.
- */
 
 import { isFirstPartyApp } from "../app-config/app-identity.js";
 import { getAppConfig, type AppConfig } from "../app-config/index.js";
 import { renderEmail, emailStrong } from "./email-template.js";
 
-/** Shared reply-to for the framework's transactional emails. */
 export const AGENT_NATIVE_REPLY_TO = "agent-native@builder.io";
 
 export interface RenderedEmailMessage {
   subject: string;
   html: string;
   text: string;
-  /**
-   * Per-app sender branding, applied by `sendEmail` only on first-party
-   * agent-native.com deployments. Self-hosted deployments keep the sender and
-   * reply-to they configured via EMAIL_FROM.
-   */
   appSender?: { name: string; slug: string; replyTo?: string };
 }
 
-/**
- * Strip CRLF from any field that flows into the Subject line — a malicious
- * org name, inviter, or app name could otherwise inject Bcc/Reply-To headers
- * via "Name\r\nBcc: attacker@...".
- */
 function stripCrlf(s: string): string {
   return s.replace(/[\r\n]+/g, " ").trim();
 }
@@ -69,11 +46,6 @@ interface EmailBrand {
   senderSlug?: string;
 }
 
-/**
- * Recipient-facing brand for auth emails. Only a recognized first-party
- * template is presented as "Agent-Native <App>"; a custom deployment keeps
- * its own name and logo.
- */
 function resolveBrand(): EmailBrand {
   const app = getAppConfig().app;
   const firstParty = isFirstPartyApp(app);
@@ -93,18 +65,11 @@ function resolveAppLogoUrl(): string | undefined {
   return isFirstPartyApp(app) ? undefined : app.logoUrl;
 }
 
-// ---------------------------------------------------------------------------
-// Organization invitation
-// ---------------------------------------------------------------------------
 
 export interface RenderInviteEmailArgs {
-  /** Email address of the person being invited. */
   invitee: string;
-  /** Name of the organization they're being invited to. */
   orgName: string;
-  /** URL the recipient clicks to accept — usually the app's root URL. */
   acceptUrl: string;
-  /** Email (or display name) of the person who sent the invitation. */
   inviter: string;
 }
 
@@ -139,23 +104,12 @@ export function renderInviteEmail(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Signup email verification
-// ---------------------------------------------------------------------------
 
 export interface RenderVerifySignupEmailArgs {
-  /** The email address being verified. */
   email: string;
-  /** The full verification URL from better-auth. */
   verifyUrl: string;
 }
 
-/**
- * Customer-facing description overrides for the verification email body. The
- * default descriptions come from the app-picker hints, which name competitors
- * for internal positioning; these rewrites frame them as "replacement" for a
- * customer-facing email without changing the picker copy.
- */
 const VERIFY_EMAIL_DESCRIPTIONS: Record<string, string> = {
   calendar:
     "Agent-Native Google Calendar replacement — manage events, sync, and public booking",
@@ -282,14 +236,9 @@ export function renderChangeEmailVerificationEmail(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Magic-link sign-in
-// ---------------------------------------------------------------------------
 
 export interface RenderMagicLinkEmailArgs {
-  /** The account email receiving the one-time sign-in link. */
   email: string;
-  /** The full Better Auth URL containing the one-time token. */
   magicLinkUrl: string;
 }
 
@@ -325,14 +274,9 @@ export function renderMagicLinkEmail(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Password reset
-// ---------------------------------------------------------------------------
 
 export interface RenderResetPasswordEmailArgs {
-  /** The account email the reset is for. */
   email: string;
-  /** The full reset URL (includes the signed token). */
   resetUrl: string;
 }
 
@@ -340,8 +284,6 @@ export function renderResetPasswordEmail(
   args: RenderResetPasswordEmailArgs,
 ): RenderedEmailMessage {
   const email = stripCrlf(args.email);
-  // Match the verification email branding so password resets are clearly tied
-  // to the specific app. No value pitch here — it's a security email.
   const brand = resolveBrand();
 
   const { html, text } = renderEmail({

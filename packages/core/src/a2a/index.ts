@@ -1,4 +1,3 @@
-// Server (H3/Nitro)
 export { mountA2A, verifyA2AToken } from "./server.js";
 export type { A2ATokenPayload } from "./server.js";
 export { generateAgentCard } from "./agent-card.js";
@@ -22,7 +21,6 @@ export {
   parseA2AAgentActivityPart,
 } from "./activity.js";
 
-// Client
 export {
   A2AClient,
   A2AJsonRpcResponseError,
@@ -75,7 +73,6 @@ export {
   resolveAgentInvocationTarget,
 } from "./invoke.js";
 
-// Types
 export type {
   A2AConfig,
   A2AHandler,

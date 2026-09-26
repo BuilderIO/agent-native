@@ -301,10 +301,6 @@ export function createCodexAppServerClient(
   };
 }
 
-/**
- * Owns one initialized app-server process so rate-limit notifications can keep
- * the shared subscription state current between explicit refreshes.
- */
 export class CodexSubscriptionAdapter {
   private client: CodexAppServerClient | undefined;
   private initializingClient: Promise<CodexAppServerClient> | undefined;
@@ -372,12 +368,6 @@ export class CodexSubscriptionAdapter {
         }
       }
     } catch (error) {
-      // A respawn can keep failing (crash-looping app-server, stale
-      // socket/lockfile, CLI/app-server version mismatch) while telemetry is
-      // already stale. Only the softer "stale" message is worth keeping in
-      // that case, but cleanup and the retry itself must still run every
-      // time, or a second consecutive failure permanently kills the
-      // reconnect loop (and the manual Refresh button with it).
       if (this.status.telemetry.state !== "stale") {
         this.publish(
           unavailableStatus(

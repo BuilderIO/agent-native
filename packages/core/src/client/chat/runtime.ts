@@ -42,7 +42,6 @@ export interface AgentChatRuntimeContentPartBase<
 
 export interface AgentChatRuntimeTextPart extends AgentChatRuntimeContentPartBase<"text"> {
   readonly text: string;
-  /** Explicit presentation authored by the runtime or host adapter. */
   readonly format?: "plain" | "markdown";
 }
 
@@ -830,11 +829,6 @@ export interface CreateHttpAgentChatRuntimeOptions<
       runId?: string;
     },
   ) => TEvent | readonly TEvent[] | null;
-  /**
-   * Continues a paused turn through the same transport. The callback receives
-   * the most recent turn input so protocol-specific adapters can preserve the
-   * conversation context without teaching UI layers how to replay a request.
-   */
   readonly continueTurn?: (input: {
     session: AgentChatRuntimeSessionSummary;
     continuation: AgentChatRuntimeContinueInput;
@@ -1808,9 +1802,6 @@ function mapAgentNativeEvent(
         type: "approval-request",
         ...base,
         approvalId: ev.approvalKey ?? ev.id ?? createRuntimeId("approval"),
-        // `approval_required` carries the model-side call id as `toolCallId`,
-        // not `id`. Without this the request falls back to matching by tool
-        // name, which picks the wrong call when two are pending at once.
         toolCallId: ev.toolCallId ?? ev.id,
         toolName: ev.tool,
         message: ev.label ?? "Approve this tool call?",
@@ -1983,7 +1974,6 @@ function mapAgentNativeEvent(
           participantId,
           scope: "external",
           source: agentNativeAgentReference(agent),
-          // The A2A snapshot is already redacted and bounded at its producer.
           data: ev.snapshot,
           metadata: {
             sequence: ev.snapshot.sequence,
@@ -2513,10 +2503,6 @@ function applyRuntimeEventToContent(
       candidate: ContentPart,
     ): candidate is Extract<ContentPart, { type: "tool-call" }> =>
       candidate.type === "tool-call";
-    // Match on the exact call id whenever the server supplied one. Falling back
-    // to "newest call with this name" would hand this call's approvalKey to a
-    // different parallel call of the same action, so name matching is reserved
-    // for events that carry no id at all.
     const part = typed.toolCallId
       ? reversed.find(
           (candidate) =>
@@ -2534,10 +2520,6 @@ function applyRuntimeEventToContent(
           : {}),
       };
     } else if (!typed.toolCallId) {
-      // Only runtimes that never announced the call (no id) get a synthesized
-      // card. An id that matches nothing means the call was never observed or
-      // is already resolved, and inventing an Approve/Deny card for it would
-      // gate something the user cannot see.
       content.push({
         type: "tool-call",
         toolCallId: typed.approvalId,

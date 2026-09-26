@@ -13,16 +13,7 @@ export interface ScrubRelativeExpression {
   precision?: number;
 }
 
-// ─── Scrub-drag gesture-lifecycle state machine ───────────────────────────────
-//
-// Pure mirror of the pointerdown/pointermove/pointerup bookkeeping in
-// ScrubInput's dragRef, extracted so the "exactly one commit-phase emission
-// per gesture" contract can be unit tested without simulating real DOM
-// pointer events (this template has no jsdom/testing-library dependency).
 
-/** Cumulative pointer movement (px) required before a drag start is treated
- * as a real scrub rather than jitter during a plain click. Mirrors
- * ScrubInput's DRAG_THRESHOLD_PX. */
 export const SCRUB_DRAG_THRESHOLD_PX = 3;
 
 export interface ScrubDragState {
@@ -31,26 +22,15 @@ export interface ScrubDragState {
   hasDragged: boolean;
 }
 
-/** Begins tracking a new scrub gesture at the given starting pointer X. */
 export function startScrubDrag(startX: number): ScrubDragState {
   return { startX, prevX: startX, hasDragged: false };
 }
 
 export interface ScrubDragTick {
-  /** The updated drag state after this pointermove sample. */
   state: ScrubDragState;
-  /** The incremental delta (px) to apply this tick, or null when the move
-   * should be ignored (no movement, or still under the jitter threshold). */
   deltaX: number | null;
 }
 
-/**
- * Processes one pointermove sample against the in-progress drag state.
- * Mirrors ScrubInput's handlePointerMove threshold/hasDragged logic exactly:
- * a move is ignored until cumulative movement clears SCRUB_DRAG_THRESHOLD_PX,
- * after which every subsequent move (including this one) yields an
- * incremental delta and marks the gesture as a real drag.
- */
 export function updateScrubDrag(
   state: ScrubDragState,
   clientX: number,
@@ -83,9 +63,6 @@ type Token =
 
 const NUMBER_CHAR_PATTERN = /[0-9.]/;
 // Comma is only treated as a digit character while scanning a number token
-// (see tokenizeExpression) so a locale-style decimal comma ("12,5") parses as
-// 12.5, without swallowing the "," that a caller might use to separate
-// distinct expressions elsewhere.
 const NUMBER_OR_COMMA_CHAR_PATTERN = /[0-9.,]/;
 
 export function parseScrubExpression(
@@ -164,28 +141,10 @@ export function normalizeScrubNumber(
   return Object.is(next, -0) ? 0 : next;
 }
 
-/**
- * Whether a field's unit should snap to whole numbers while the user is
- * actively pointer-dragging (scrubbing) it. Px-type fields (padding, gap,
- * position, size, radius, etc.) read as integers in Figma-style editors even
- * though the underlying `precision` option (which also governs *typed* input
- * and keyboard nudges) allows one decimal place so a typed "12.5" still
- * commits legally. Scoped to "px" specifically — unitless fields like
- * line-height (precision-based, fractional by design) and other units (deg,
- * %) are untouched.
- */
 export function scrubSnapsToInteger(unit: string | undefined): boolean {
   return unit === "px";
 }
 
-/**
- * Rounds a live scrub-drag value to a whole number when the field's unit
- * calls for integer-only scrubbing (see `scrubSnapsToInteger`), applied
- * *before* `normalizeScrubNumber`'s own min/max/precision clamp so a
- * following precision clamp (if any) can't reintroduce a fraction. Only the
- * pointer-drag scrub gesture should call this — typed input and keyboard
- * nudges keep their existing `precision`-based rounding untouched.
- */
 export function roundScrubDragValue(
   value: number,
   unit: string | undefined,
@@ -202,14 +161,8 @@ export function formatScrubValue(
   if (Number.isFinite(options.precision) && options.precision! >= 0) {
     const fixed = normalized.toFixed(options.precision!);
     if (options.unit) {
-      // For fields with units (px, %, °, etc.) collapse all trailing zeros
-      // including the decimal point: "12.30px" → "12.3px", "10.00px" → "10px".
-      // Leave integer strings alone; otherwise precision 0 turns "100" into "1".
       numeric = fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
     } else {
-      // For unitless fields (e.g. line-height), preserve at least one decimal
-      // digit so values like "2.0" stay "2.0" rather than collapsing to "2".
-      // Only strip redundant trailing zeros beyond the first decimal digit.
       numeric = fixed.includes(".") ? fixed.replace(/(?<=\.\d)0+$/, "") : fixed;
     }
   } else {
@@ -222,9 +175,6 @@ export function getScrubStepFromEvent(
   event: Pick<KeyboardEvent | PointerEvent, "altKey" | "shiftKey">,
   step: number,
 ): number {
-  // Alt (fine-step) and Shift (coarse) are mutually exclusive — alt takes
-  // priority, matching Figma's modifier convention. Applying both independently
-  // would make Shift+Alt a no-op (×10 × 0.1 = ×1).
   let multiplier = 1;
   if (event.altKey) multiplier = 0.1;
   else if (event.shiftKey) multiplier = 10;
@@ -274,9 +224,6 @@ function evaluateNumericExpression(expression: string): number | null {
     }
 
     if (token.value === "u+" || token.value === "u-") {
-      // Prefix signs bind after exponentiation (`-2^2` is -4) but before
-      // multiplication and addition. Push without reducing the preceding
-      // operators because a prefix operator has no operand yet.
       operators.push(token.value);
       continue;
     }
@@ -318,8 +265,6 @@ function tokenizeExpression(expression: string): Token[] {
     if (char === "+" || char === "-") {
       if (previousWasOperator) {
         const previousToken = tokens.at(-1);
-        // A negative exponent must be grouped explicitly in this editor:
-        // `2^-2` is rejected, while `2^(-2)` is a valid expression.
         if (previousToken?.type === "operator" && previousToken.value === "^")
           return [];
         tokens.push({
@@ -338,9 +283,6 @@ function tokenizeExpression(expression: string): Token[] {
       if (!previousWasOperator) return [];
       const start = index;
       index += 1;
-      // Allow a single comma decimal separator within this number token
-      // ("12,5" → 12.5), matching common European locale input. A second
-      // comma/period is left for the caller's Number() parse to reject.
       while (NUMBER_OR_COMMA_CHAR_PATTERN.test(expression[index] ?? ""))
         index += 1;
       const value = Number(expression.slice(start, index).replace(",", "."));

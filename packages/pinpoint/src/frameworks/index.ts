@@ -1,5 +1,3 @@
-// @agent-native/pinpoint — Framework integration exports
-// MIT License
 
 export {
   registerAdapter,

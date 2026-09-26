@@ -1,10 +1,3 @@
-/**
- * Full framework core instructions (FRAMEWORK_CORE).
- * Used in the verbose prompt variant (lazyContext: false).
- *
- * Shared rules (8-9, 13-15) are imported from shared-rules.ts so the
- * compact variant uses the same text and the two can never drift.
- */
 
 import {
   frameworkGroupEnabled,
@@ -28,24 +21,10 @@ import {
 export interface FrameworkCorePromptOptions {
   databaseTools?: DatabaseToolsOption;
   extensionTools?: boolean;
-  /** Framework tool groups this app switched off. Every block below that names
-   *  a group's tool by name is gated on this — a prompt naming an absent tool
-   *  makes the model call it, fail, and often report the capability as missing. */
   disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
-  /** True for surfaces whose agent really can edit source (dev mode). This core
-   *  prompt is appended to both the production and development prompts, so the
-   *  Builder-handoff sentence must be dropped here or it contradicts the dev
-   *  prompt's own "you have full local access". */
   canEditSource?: boolean;
 }
 
-/**
- * Build the full FRAMEWORK_CORE prompt string.
- *
- * @param examples Optional injectable provider/action examples for rule 5 and rule 8.
- *   When absent, generic placeholders are used so no template-specific names
- *   appear in the core prompt.
- */
 export function buildFrameworkCore(
   examples?: PromptExamples,
   options?: FrameworkCorePromptOptions,

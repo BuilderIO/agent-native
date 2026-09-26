@@ -1,8 +1,3 @@
-/**
- * Renders the Markdown portion of a docs page. The visual-block renderer is
- * loaded only for pages that contain block syntax so ordinary docs requests do
- * not pull the full diagram/table/mermaid library into the SSR startup path.
- */
 
 import { Suspense } from "react";
 
@@ -33,13 +28,8 @@ export default function DocContent({
     return <PreloadedDocBlocksContent markdown={markdown} locale={locale} />;
   }
 
-  // Hydration can receive prerendered loader data without rerunning the route
-  // loader. Start the same preload immediately so the server HTML can hydrate
-  // into the real renderer instead of painting a second Markdown tree.
   void preloadDocBlocksContent();
 
-  // Raw Markdown is not a safe fallback for MDX pages: unresolved block tags
-  // would render as visible source instead of content.
   return (
     <Suspense fallback={null}>
       <DocBlocksContent markdown={markdown} locale={locale} />

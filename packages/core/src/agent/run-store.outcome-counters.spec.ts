@@ -2,19 +2,6 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-/**
- * `cleanupOldRuns` prunes completed runs after ~1 day but keeps errored/aborted
- * runs for ~7, so any window wider than the shorter retention read from
- * `agent_runs` alone reports N days of failures against 1 day of successes.
- * That asymmetry produced a "~25% completion rate" headline for a subsystem
- * actually completing 85-95% of interactive turns, and one investigator watched
- * a 21-day row count drop from 85 to 71 mid-session as completed rows aged out.
- *
- * The fix is not wider retention (that trades a known distortion for unbounded
- * growth) but rolling the doomed rows' outcomes into `agent_run_outcome_daily`
- * before deleting them, exercised here against a real PGlite engine so the
- * GROUP BY / upsert semantics are genuine.
- */
 
 const pglite = await createTestPglite();
 
@@ -79,8 +66,6 @@ async function liveRunCount(): Promise<number> {
 }
 
 beforeEach(async () => {
-  // Tables only exist after the first ensureRunTables() — tolerate the very
-  // first pass, which runs before any store call has created them.
   for (const table of ["agent_runs", "agent_run_outcome_daily"]) {
     try {
       await pglite.exec(`DELETE FROM ${table}`);
@@ -94,8 +79,6 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
     const day = new Date(prunedAt).toISOString().slice(0, 10);
     await terminalRun("completed", "done", prunedAt);
     await terminalRun("completed", "done", prunedAt);
-    // Errored inside its (longer) retention — still a live row, so it must NOT
-    // be counted yet or it would be double counted when it is finally pruned.
     await terminalRun("errored", "error:provider_network_error", prunedAt);
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
@@ -115,8 +98,6 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
 
-    // Reading agent_runs alone now sees 0 successes and 1 failure — a 0%
-    // completion rate for a window that was actually 3-for-4.
     const counters = await getRunOutcomeCounters();
     const counted = (status: string) =>
       counters
@@ -183,10 +164,6 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
   });
 
   it("retains truncated runs on the failure window instead of pruning them as successes", async () => {
-    // The evidence self-deletion bug: a run cut off at a budget boundary was
-    // filed as `completed`, so it was deleted at 24h while the errors it should
-    // be compared against survived 7 days. Every run id a user pasted into a
-    // report was already gone by the time anyone looked.
     const prunedAt = Date.now() - (COMPLETED_RETENTION_MS + 60_000);
     await terminalRun("truncated", "run_timeout", prunedAt);
     await terminalRun("truncated", "no_progress", prunedAt);

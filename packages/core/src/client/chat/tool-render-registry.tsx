@@ -8,7 +8,6 @@ export interface ToolRendererContext {
   resultText?: string;
   resultJson: unknown;
   isRunning: boolean;
-  /** True while this is the newest tool representing an active chat turn. */
   isActiveTail?: boolean;
   chatUI?: ActionChatUIConfig;
 }

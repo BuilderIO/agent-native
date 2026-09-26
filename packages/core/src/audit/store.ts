@@ -1,12 +1,3 @@
-/**
- * SQL persistence for the framework audit log.
- *
- * Follows the same raw-SQL, provider-agnostic pattern as observability/store.ts
- * and usage/store.ts — framework tables use `getDbExec()` + `"BIGINT"` rather
- * than Drizzle ORM (which is for template-level schemas). One append-only table
- * `agent_audit_log`; reads are scoped to the caller's identity in SQL (no
- * shares table — audit rows are never individually shared).
- */
 import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -21,7 +12,6 @@ import type {
 
 let _initPromise: Promise<void> | undefined;
 
-/** Idempotent base schema shared by boot-time audit setup and org migrations. */
 export const AGENT_AUDIT_LOG_CREATE_SQL = `
   CREATE TABLE IF NOT EXISTS agent_audit_log (
     id TEXT PRIMARY KEY,
@@ -73,8 +63,6 @@ export async function ensureAuditTables(): Promise<void> {
       ];
 
       {
-        // PG-guard: probe information_schema / pg_indexes before issuing DDL to
-        // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
         await ensureTableExists("agent_audit_log", AGENT_AUDIT_LOG_CREATE_SQL);
         for (const column of lineageColumns) {
           await ensureColumnExists(
@@ -110,7 +98,6 @@ export async function ensureAuditTables(): Promise<void> {
         return;
       }
     })().catch((err) => {
-      // Allow a later call to retry if the first init failed.
       _initPromise = undefined;
       throw err;
     });
@@ -198,21 +185,11 @@ export interface AuditReadScope {
   orgId?: string | null;
 }
 
-/**
- * Build the access-scoping WHERE fragment + args. A caller sees audit rows they
- * own, plus org-visible rows in their org. With no identity, nothing matches —
- * the audit log never leaks cross-tenant. Mirrors the core ownership clause of
- * `accessFilter` (minus shares, which audit rows don't have).
- */
 function scopeClause(scope: AuditReadScope): { sql: string; args: any[] } {
   const clauses: string[] = [];
   const args: any[] = [];
   if (scope.userEmail) {
     if (scope.orgId) {
-      // Constrain the owner's rows to the active org — plus legacy/solo rows
-      // that predate org-scoping (org_id IS NULL) — mirroring sharing's
-      // `ownerScopeFilter`, so switching orgs doesn't surface another org's
-      // trail.
       clauses.push("(owner_email = ? AND (org_id = ? OR org_id IS NULL))");
       args.push(scope.userEmail, scope.orgId);
     } else {
@@ -228,14 +205,9 @@ function scopeClause(scope: AuditReadScope): { sql: string; args: any[] } {
   return { sql: `(${clauses.join(" OR ")})`, args };
 }
 
-// Exported so callers that must page past a single call (e.g.
-// `export-audit-events`) can mirror the clamp instead of guessing it.
 export const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
 
-// Columns returned by the list surface — deliberately EXCLUDES `input` so a
-// timeline query never streams every event's (redacted) request body in bulk.
-// Fetch the full payload one event at a time via `getAuditEventById`.
 const LIST_COLUMNS =
   "id, created_at, action, caller, actor_kind, actor_email, org_id, " +
   "thread_id, turn_id, target_type, target_id, status, summary, " +
@@ -277,8 +249,6 @@ export async function queryAuditEvents(
     Math.max(1, Math.floor(filters.limit ?? DEFAULT_LIMIT)),
     MAX_LIMIT,
   );
-  // 0-based, default-compatible: existing callers that never pass `offset`
-  // keep selecting from the top of the ordered result set.
   const offset = Math.max(0, Math.floor(filters.offset ?? 0));
 
   const result = await client.execute({
@@ -307,7 +277,6 @@ export async function getAuditEventById(
   return row ? mapRow(row) : null;
 }
 
-/** Purge audit rows older than `cutoffMs`. Returns the deleted row count. */
 export async function deleteOldAuditEvents(cutoffMs: number): Promise<number> {
   await ensureAuditTables();
   const client = getDbExec();
@@ -318,7 +287,6 @@ export async function deleteOldAuditEvents(cutoffMs: number): Promise<number> {
   return Number(result.rowsAffected ?? 0);
 }
 
-/** Test-only: reset the cached init promise so a fresh DB re-creates tables. */
 export function __resetAuditInitForTests(): void {
   _initPromise = undefined;
 }

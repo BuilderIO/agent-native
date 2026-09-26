@@ -4,8 +4,6 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Control the session state directly so the gate's behaviour is tested in
-// isolation from the session-fetch plumbing.
 const useSessionMock = vi.fn();
 vi.mock("./use-session.js", () => ({
   useSession: () => useSessionMock(),
@@ -129,22 +127,15 @@ describe("RequireSession", () => {
         <Child />
       </RequireSession>,
     );
-    // Shows the fallback rather than flashing app chrome the visitor can't use.
     expect(container.querySelector('[data-testid="protected"]')).toBeNull();
     expect(replaceMock).toHaveBeenCalledTimes(1);
     const href = replaceMock.mock.calls[0][0] as string;
     expect(href).toContain(`${SIGN_IN_ENTRY_PATH}?c=`);
-    // A PATH, not a re-encoded URL: nothing downstream can nest it.
     expect(href).not.toContain("%2F");
     expect(continuationOf(href)).toBe("/inbox?label=important");
   });
 
   it("never redirects when already on the sign-in page (no infinite loop)", () => {
-    // The base-path deploy case where the app shell is served at the sign-in
-    // path. Redirecting here used to nest the sign-in URL as a fresh
-    // `?return=` and loop forever. `signInJourney` returns `signInHref: null`
-    // here, which is the only thing left standing between this surface and a
-    // same-URL replace loop — it must never gain a fallback.
     stubLocation(SIGN_IN_ENTRY_PATH, "?c=abc");
     useSessionMock.mockReturnValue({
       session: null,
@@ -176,9 +167,6 @@ describe("RequireSession", () => {
   });
 
   it("never redirects from /login or /signup under a base-path deploy", () => {
-    // `/myapp/login` carries no `/_agent-native` marker, so the login page's
-    // old marker-only base resolver returned "" and failed to recognise it as
-    // an auth entry path — a live, reproducible infinite bounce.
     vi.stubEnv("VITE_APP_BASE_PATH", "/myapp");
     useSessionMock.mockReturnValue({
       session: null,
@@ -232,12 +220,8 @@ describe("RequireSession", () => {
   });
 
   it("shows a recoverable notice when the session is unreadable", () => {
-    // A transient 5xx must read as neither "signed out" (which bounces a
-    // signed-in user to sign-in) nor "still loading" (which strands them).
     useSessionMock.mockReturnValue({
       session: null,
-      // The real hook keeps isLoading true for "unavailable" so legacy
-      // isLoading-only consumers never misread it as signed-out.
       isLoading: true,
       status: "unavailable",
       error: new Error("Could not read the session after 4 attempts."),
@@ -256,10 +240,7 @@ describe("RequireSession", () => {
   });
 
   it("unmounts the app shell while signing out without redirecting", () => {
-    // Sign-out owns the navigation: it must finish revoking the server session
     // before the browser leaves, so a redirect from here would race it. But the
-    // shell has to come down immediately — this is the window where its queries
-    // had no cookie and painted "Couldn't load data" over the app.
     useSessionMock.mockReturnValue({
       session: null,
       isLoading: true,
@@ -320,7 +301,6 @@ describe("buildSignInReturnHref", () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "/mail");
     stubLocation("/mail/inbox");
     expect(buildSignInReturnHref()).toContain(`/mail${SIGN_IN_ENTRY_PATH}?c=`);
-    // Same-origin sibling app on a multi-app workspace host.
     expect(buildSignInReturnHref({ returnTo: "/otherapp/admin" })).toBe(
       `/mail${SIGN_IN_ENTRY_PATH}`,
     );

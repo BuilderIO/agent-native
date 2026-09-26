@@ -23,8 +23,6 @@ type BetterAuthApi = Record<
 >;
 
 function requestHeaders(event: H3Event): Headers {
-  // H3's request node is not present in all adapters (notably the fetch
-  // runtime); event.headers is the portable source for Better Auth APIs.
   return new Headers(event.headers);
 }
 
@@ -80,14 +78,6 @@ function isMissingBetterAuthOrganizationMembership(error: unknown): boolean {
   );
 }
 
-/**
- * Better Auth's SSO access check only knows about Better Auth organizations.
- * Agent-Native deliberately keeps its roster in `org_members`, so an admin
- * who did not create the provider can receive this error even after the
- * framework route has authorized them. Those requests use the framework's
- * scoped operation below instead of widening Better Auth's organization
- * surface just for this compatibility case.
- */
 function isBetterAuthProviderAccessDenied(error: unknown): boolean {
   const value = error as {
     code?: unknown;
@@ -113,11 +103,6 @@ type VerificationRecord = {
   expiresAt?: unknown;
 };
 
-/**
- * Verify an organization's SSO domain when Better Auth's optional organization
- * plugin is not mounted. The DNS record format and token lookup intentionally
- * mirror the Better Auth SSO plugin's domain-verification endpoint.
- */
 async function verifyDomainForFrameworkProvider(
   provider: SSOProviderRow,
 ): Promise<void> {
@@ -219,8 +204,6 @@ async function verifyDomainForFrameworkProvider(
 function authRoot(event: H3Event): string {
   const origin = getAppProductionUrl(event).replace(/\/$/, "");
   const basePath = getConfiguredAppBasePath();
-  // The SSO provider is handed this root and calls back on it, so it must
-  // carry the deployment's public framework prefix.
   return publicFrameworkPath(`${origin}${basePath}/_agent-native/auth/ba`);
 }
 
@@ -228,8 +211,6 @@ function providerIdFromEvent(event: H3Event): string {
   const routed = getRouterParam(event, "providerId");
   if (routed) return decodeURIComponent(routed);
   const path = getRequestURL(event).pathname;
-  // The org prefix middleware strips its mount path before dispatch. Accept
-  // both the full URL and that mount-relative tail across H3/fetch adapters.
   const match = path.match(
     /(?:\/sso\/providers\/|^\/)([^/]+)(?:\/verify)?\/?$/,
   );
@@ -372,9 +353,6 @@ export const createSSOProviderHandler = defineEventHandler(
       const providerAPI = authApi(await getBetterAuth());
       let result: unknown;
       try {
-        // Pass organizationId when Better Auth's organization plugin is
-        // present. Agent-Native deliberately owns roster state in
-        // org_members, so the stock plugin may reject this before insert.
         result = await providerAPI.registerSSOProvider({
           headers: requestHeaders(event),
           body: providerPayload,
@@ -388,11 +366,6 @@ export const createSSOProviderHandler = defineEventHandler(
           body: frameworkOnlyPayload,
         });
       }
-      // The framework's org_members table is the source of truth (the
-      // Better Auth organization plugin is not mounted), so attach the
-      // successfully registered provider to that org after registration.
-      // The provider was just created in this request and providerId is
-      // globally unique in Better Auth.
       await getDbExec().execute({
         sql: `UPDATE sso_provider
               SET organization_id = ?
@@ -400,9 +373,6 @@ export const createSSOProviderHandler = defineEventHandler(
                 AND (organization_id IS NULL OR organization_id = ?)`,
         args: [org.orgId, providerId, org.orgId],
       });
-      // Better Auth returns sanitized provider config, but read our scoped row
-      // back so the response shape remains stable across plugin releases and
-      // no client secret/certificate can leak through this route.
       const providers = await listOrganizationSSOProviders(event, org.orgId);
       const provider = providers.find((item) => item.providerId === providerId);
       if (!provider) {
@@ -518,9 +488,6 @@ export const deleteSSOProviderHandler = defineEventHandler(
       });
     } catch (error) {
       if (!isBetterAuthProviderAccessDenied(error)) throw error;
-      // Better Auth's delete endpoint also removes linked account rows. Keep
-      // that cleanup when the framework-only organization compatibility path
-      // is used for an admin other than the provider creator.
       const db = getDbExec();
       if (db.transaction) {
         await db.transaction(async (tx) => {
@@ -600,7 +567,6 @@ export const createSCIMHandler = defineEventHandler(async (event: H3Event) => {
         "scim.groups.read",
         "scim.groups.write",
       ],
-      // One-year credentials are renewable from this same admin surface.
       expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       creationRequestId: newIdempotencyId(),
       provisioningDomainId: org.orgId,

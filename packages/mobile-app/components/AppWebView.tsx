@@ -71,12 +71,9 @@ interface AppWebViewProps {
   url: string;
   captureSessionToken?: boolean;
   sessionTokenKey?: string;
-  /** Parent credential used to mint a target app-scoped embed session. */
   parentSessionTokenKey?: string;
   sessionOwnerKey?: string;
-  /** Workspace app id for the parent-authenticated embed-session path. */
   workspaceAppId?: string;
-  /** Shown in the load-failure message, e.g. "Failed to load Calendar". */
   appName?: string;
 }
 
@@ -84,26 +81,12 @@ export interface AppWebViewHandle {
   reload: () => void;
 }
 
-// Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
-// system browser (Safari) instead.
 const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
 
-// The web sign-in page navigates the WebView to this same-origin endpoint,
-// which then 302s to accounts.google.com. Android does not re-fire
-// onShouldStartLoadWithRequest on that server redirect, so Google's block
-// page loads inside the WebView. Intercept the start URL here instead.
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 
 const MAX_AUTOMATIC_WORKSPACE_EMBED_RETRIES = 2;
 
-// The remote sign-in page opens Google in a window.open popup. Inside this
-// WebView that popup either loads Google inline (which Google blocks) or spins
-// forever polling a callback that never lands. Neutering window.open on the
-// sign-in page forces the page's built-in redirect fallback, which navigates
-// the main frame to /_agent-native/google/auth-url — a top-level navigation
-// handleShouldStartLoad intercepts and hands to the system browser. The SSO
-// button is hidden for the whole embedded document because the parent mobile
-// shell owns Agent-Native sign-in; the CSS also covers client-side route changes.
 const FORCE_REDIRECT_AUTH_SCRIPT = `
   (function () {
     try {
@@ -219,17 +202,10 @@ function isGoogleAuthUrl(url: string): boolean {
   }
 }
 
-// Resolve the auth-url endpoint's JSON form (without `redirect=1`) so we get
-// the accounts.google.com URL — including the server-minted `state`. The start
-// URL itself has no `state` yet (the server mints it), so it can't be opened
-// directly without breaking the callback's state check.
 async function resolveGoogleAuthUrl(startUrl: string): Promise<string | null> {
   try {
     const parsed = new URL(startUrl);
     parsed.searchParams.delete("redirect");
-    // The callback can be handled by a browser with a desktop-style user
-    // agent. Carry native intent in the signed server state so the callback
-    // always returns to this app instead of redirecting the WebView to sign-in.
     parsed.searchParams.set("mobile", "1");
     const res = await fetch(parsed.toString(), {
       headers: { Accept: "application/json" },
@@ -252,8 +228,6 @@ function embedTargetPath(rawUrl: string): string {
   }
 }
 
-// Mirrors the framework's auth-entry grammar (see core's sign-in-journey):
-// an app can land on any of these when its session is gone.
 const SIGN_IN_ENTRY_PATHS = [
   "/sign-in",
   "/_agent-native/sign-in",
@@ -269,11 +243,6 @@ function urlPathOnly(rawUrl: string): string {
     : rawUrl.slice(0, queryOrFragmentIndex);
 }
 
-/**
- * The target app served its own sign-in document. For a reused workspace
- * session that means the cookie we assumed was live is gone, and the open has
- * to fall back to minting a fresh one.
- */
 function isSignInEntryUrl(rawUrl: string): boolean {
   const path = urlPathOnly(rawUrl);
   return SIGN_IN_ENTRY_PATHS.some((entry) => path.endsWith(entry));
@@ -321,11 +290,6 @@ function AppWebView(
   const oauthInFlightRef = useRef(false);
   const sessionUrlLoadedRef = useRef(false);
   const isFocusedRef = useRef(false);
-  /**
-   * The URL the mounted WebView is showing, and which account it belongs to.
-   * The owner matters: a document loaded for a previous account must never be
-   * re-served to the next one. See webviewUrl below.
-   */
   const loadedWebviewRef = useRef<{ owner: string | null; url: string } | null>(
     null,
   );
@@ -345,20 +309,12 @@ function AppWebView(
     parentSessionTokenKey: resolvedParentSessionTokenKey,
   });
 
-  // Remember the current route so the oauth-complete fallback can return here
-  // instead of Home if the deep link leaks to the OS (Android resets the stack,
-  // so there is no back destination and it would otherwise land on Home).
   const pathname = useCurrentPathname();
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
 
   const refreshWorkspaceEmbed = useCallback(
     (automatic: boolean) => {
-      // Any refresh — the page reporting its embed session expired, a load that
-      // never left /embed/start, or the user tapping Retry — means the session
-      // we would otherwise reuse is not working. Dropped first, before the
-      // retry cap can return early, so a stale marker cannot survive to be
-      // re-selected by the next mount.
       if (workspaceAppId && parentSessionToken) {
         forgetLiveWorkspaceAppSession(workspaceAppId, parentSessionToken);
       }
@@ -422,10 +378,6 @@ function AppWebView(
           resolvedParentSessionTokenKey,
         );
         if (currentParentToken === parentToken) {
-          // A child WebView can observe a stale or transient validation
-          // failure while another app is using the same parent. Keep the
-          // central credential available for the next app; native sign-out
-          // is the only owner allowed to delete it.
           nextParentToken = null;
           if (sessionTokenKey === resolvedParentSessionTokenKey) {
             nextTargetToken = null;
@@ -444,16 +396,10 @@ function AppWebView(
     setSessionLoaded(true);
   }, [nativeAuthEnabled, resolvedParentSessionTokenKey, sessionTokenKey]);
 
-  // Load stored session tokens on mount. The parent token and target app token
-  // are intentionally separate for Clips and other app-scoped sessions.
   useEffect(() => {
     void readStoredSessions();
   }, [readStoredSessions]);
 
-  // A mobile parent session is not a valid cookie/session in every hosted app.
-  // When the targeted rollout is on, exchange it through Dispatch for a
-  // one-time app-scoped embed URL instead of leaking the parent bearer via
-  // `?_session` to a different deployment.
   useEffect(() => {
     const shouldUseWorkspaceSso =
       effectiveCaptureSessionToken && Boolean(workspaceAppId);
@@ -469,20 +415,12 @@ function AppWebView(
     setWorkspaceEmbedError(null);
     setWorkspaceEmbedState("loading");
     void (async () => {
-      // A live embed session already sits in the shared cookie store, so this
-      // app opens at its ordinary URL — a CDN-cached shell — instead of paying
-      // the mint plus the `no-store` /embed/start hop again.
       await ensureLiveWorkspaceAppSessionsHydrated();
       if (cancelled) return;
       if (hasLiveWorkspaceAppSession(workspaceAppId!, parentSessionToken)) {
         setWorkspaceEmbedState("reused");
         return;
       }
-      // A known-disabled rollout must not mint anything. Only when the gate
-      // is still unknown do the two Dispatch calls run together instead of
-      // back to back — neither needs the other's answer, and a ticket minted
-      // under a rollout that turns out disabled is never redeemed and expires
-      // on its own five-minute TTL.
       const mint = () =>
         createWorkspaceAppEmbedSession({
           app: workspaceAppId!,
@@ -532,10 +470,6 @@ function AppWebView(
     workspaceEmbedAutoRetryRef.current = 0;
   }, [parentSessionToken, url, workspaceAppId]);
 
-  // Re-read the token every time this screen regains focus. Returning from the
-  // Google sign-in browser (via oauth-complete's replace/back, or the inline
-  // auth session) refocuses this screen; without this, an already-mounted
-  // WebView keeps its stale null token and stays signed out.
   useFocusEffect(
     useCallback(() => {
       isFocusedRef.current = true;
@@ -558,10 +492,6 @@ function AppWebView(
     setNativeSignInOpen(true);
   }, [effectiveCaptureSessionToken, parentSessionToken, sessionLoaded]);
 
-  // When the app returns to foreground, check if the session token was updated
-  // (e.g. by the oauth-complete deep link handler storing a new token in
-  // SecureStore). If it changed, update state. Workspace apps exchange the
-  // parent token for a one-time embed URL; other apps keep their own login
   // surface and never receive the parent token in a URL.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
@@ -574,9 +504,6 @@ function AppWebView(
     return () => sub.remove();
   }, [readStoredSessions]);
 
-  // The OAuth completion context for this WebView — passed to the shared
-  // completeOAuthCallback so the iOS inline path and the Android deep-link
-  // handler validate and persist the session identically.
   const oauthContext = useMemo(
     () => ({
       tokenKey: sessionTokenKey,
@@ -586,10 +513,6 @@ function AppWebView(
     [sessionTokenKey, sessionOwnerKey, trustedOrigin],
   );
 
-  // Persist everything the deep-link handler needs to finish an OAuth callback
-  // (route to return to, token/owner storage keys, app origin) so completion
-  // works even if Android kills this app while it's in the browser. Shared by
-  // every path that hands OAuth off to the system browser via a deep link.
   const persistOAuthReturnContext = useCallback(
     () =>
       AsyncStorage.multiSet([
@@ -601,8 +524,6 @@ function AppWebView(
     [sessionTokenKey, sessionOwnerKey, trustedOrigin],
   );
 
-  // Google refuses OAuth inside embedded WebViews, so run the flow in a system
-  // browser tab.
   const openGoogleSession = useCallback(
     async (googleUrl: string) => {
       if (oauthInFlightRef.current) return;
@@ -611,11 +532,6 @@ function AppWebView(
         await rememberOAuthState(googleUrl);
         await persistOAuthReturnContext();
         if (Platform.OS === "android") {
-          // openAuthSessionAsync is unreliable on Android — it can hand off to
-          // an external browser/app and never redirect back (expo #27500).
-          // Open a Custom Tab in the preferred browser and let the
-          // agentnative://oauth-complete deep link (OAuthDeepLinkHandler) bring
-          // the result back.
           const { preferredBrowserPackage } =
             await WebBrowser.getCustomTabsSupportingBrowsersAsync();
           await WebBrowser.openBrowserAsync(googleUrl, {
@@ -624,8 +540,6 @@ function AppWebView(
           });
           return;
         }
-        // iOS: the auth session returns the callback inline. Run it through the
-        // same validated completion, then apply the token to this WebView.
         const result = await WebBrowser.openAuthSessionAsync(
           googleUrl,
           "agentnative://oauth-complete",
@@ -638,9 +552,6 @@ function AppWebView(
           setSessionToken(token);
           return;
         }
-        // The root deep-link handler can win the callback race on a cold or
-        // resumed app. In that case it already persisted the validated token;
-        // pick it up here so the WebView still transitions out of sign-in.
         const storedToken = await getSessionToken(sessionTokenKey);
         if (storedToken && storedToken !== lastTokenRef.current) {
           lastTokenRef.current = storedToken;
@@ -655,18 +566,12 @@ function AppWebView(
     [oauthContext, persistOAuthReturnContext, sessionTokenKey],
   );
 
-  // Some core versions navigate the WebView straight to the auth-url endpoint,
-  // which has no `state` yet; resolve its JSON form to the accounts.google.com
-  // URL (with state) before opening the browser session.
   const startGoogleAuth = useCallback(
     async (startUrl: string) => {
       const authUrl = await resolveGoogleAuthUrl(startUrl);
       if (authUrl) {
         await openGoogleSession(authUrl);
       } else {
-        // We already blocked the in-WebView auth navigation, so a failed
-        // resolve would otherwise leave the page stuck with no browser and no
-        // feedback. Surface the recoverable error/retry screen instead.
         setError(true);
       }
     },
@@ -675,8 +580,6 @@ function AppWebView(
 
   const handleShouldStartLoad = useCallback(
     (event: { url: string }) => {
-      // Same-origin Google sign-in start URL: open the flow in the system
-      // browser so Google doesn't reject the embedded WebView.
       if (
         isTrustedWebViewUrl(event.url, trustedOrigin) &&
         isGoogleAuthUrl(event.url)
@@ -689,8 +592,6 @@ function AppWebView(
         const parsed = new URL(event.url);
         if (parsed.protocol === "about:") return true;
         parsed.searchParams.delete("_session");
-        // Direct navigation to Google's consent screen: it already carries the
-        // `state`, so open it in the browser session and apply the token here.
         if (parsed.hostname === "accounts.google.com") {
           void openGoogleSession(parsed.toString());
           return false;
@@ -716,7 +617,6 @@ function AppWebView(
     [handleShouldStartLoad],
   );
 
-  // Handle messages from the web app (e.g. open a URL in the system browser)
   const handleMessage = useCallback(
     (event: { nativeEvent: { data: string; url: string } }) => {
       if (!isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)) return;
@@ -766,9 +666,6 @@ function AppWebView(
         ) {
           void (async () => {
             if (!isFocusedRef.current) return;
-            // The sign-in page has a separate cookie jar from the native
-            // browser auth session. Ignore its stale heartbeat while OAuth is
-            // open or while the newly returned token is loading into the URL.
             if (oauthInFlightRef.current) return;
             if (!sessionUrlLoadedRef.current) {
               const storedToken =
@@ -794,9 +691,6 @@ function AppWebView(
         }
         if (msg.type === "openUrl" && typeof msg.url === "string") {
           const parsed = new URL(msg.url);
-          // Only open external hosts in Safari — anything else is ignored.
-          // These are Google OAuth hosts, so persist the completion context
-          // (like the intercepted-navigation path) before handing off, or the
           // deep-link callback can't restore the return route / Clips token key.
           if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
             void openGoogleSession(msg.url);
@@ -826,8 +720,6 @@ function AppWebView(
         return;
       }
       if (workspaceAppId && parentSessionToken) {
-        // A reused session that lands on the app's own sign-in document was
-        // not live after all. refreshWorkspaceEmbed drops the marker for us.
         if (
           workspaceEmbedState === "reused" &&
           isSignInEntryUrl(event.nativeEvent.url)
@@ -836,10 +728,7 @@ function AppWebView(
           return;
         }
         workspaceEmbedAutoRetryRef.current = 0;
-        // Landing off /embed/start means the target host accepted the ticket
         // and set its session cookie. Only a freshly minted session may start
-        // the reuse window; a reused load must not extend its own deadline
-        // past the embed cookie's real lifetime.
         if (workspaceEmbedState === "ready") {
           rememberLiveWorkspaceAppSession(workspaceAppId, parentSessionToken);
         }
@@ -878,7 +767,6 @@ function AppWebView(
     ],
   );
 
-  // Workspace apps load only through their one-time embed URL. Other WebViews
   // stay on their ordinary app-owned URL and never receive a reusable token.
   const requestedWebviewUrl = useMemo(() => {
     return buildMobileWebViewAuthUrl({
@@ -895,11 +783,6 @@ function AppWebView(
     workspaceEmbedUrl,
   ]);
 
-  // A WebView that already holds a document must never be renavigated because
-  // the handshake restarted. While a workspace session is being re-established
-  // the builder falls back to the plain app URL, and handing that to a live
-  // WebView is exactly the "switching tabs reloaded everything" the sticky
-  // value prevents. Only a settled state may replace the loaded document.
   const workspaceHandshakeInFlight =
     Boolean(workspaceAppId) &&
     effectiveCaptureSessionToken &&
@@ -965,9 +848,6 @@ function AppWebView(
     );
   }
 
-  // Only blank the screen when there is genuinely nothing to show yet.
-  // Returning a loading view here once a WebView exists destroys it and every
-  // bit of app state the user had in it.
   if (
     workspaceSessionPending &&
     loadedWebviewRef.current?.owner !== webviewOwner
@@ -1021,10 +901,6 @@ function AppWebView(
     );
   }
 
-  // Recorded here, not during the early-return gauntlet above: the ref means
-  // "a WebView is showing this", and setting it before one is actually
-  // rendered would let a mid-handshake fallback URL satisfy the pending gate
-  // and then get navigated away from.
   loadedWebviewRef.current = { owner: webviewOwner, url: webviewUrl };
 
   return (
@@ -1056,12 +932,6 @@ ${buildMobileGuestThemeScript(theme)}${
         startInLoadingState={false}
         allowsBackForwardNavigationGestures
         pullToRefreshEnabled
-        // Google refuses OAuth in embedded WebViews. The remote sign-in page
-        // defaults to a window.open popup that Android's multi-window support
-        // would load inline (and Google blocks). Disabling it makes window.open
-        // return null, so the page falls back to a top-level redirect to
-        // /_agent-native/google/auth-url — which handleShouldStartLoad hands to
-        // the system browser. Works across every app domain and core version.
         setSupportMultipleWindows={false}
       />
       {loading && (

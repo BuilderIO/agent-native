@@ -1,30 +1,13 @@
-/**
- * Shared design-token extraction utilities.
- *
- * Pure functions for parsing Tailwind configs, CSS files, package.json,
- * documents, and URLs to extract colors, fonts, spacing, border-radius,
- * and CSS custom properties. Used by the import-* actions across all
- * templates (design and slides).
- *
- * No framework dependencies — no defineAction, no zod, no drizzle.
- */
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
-/** Maximum number of files to fetch from a single GitHub repo. */
 export const MAX_FILES = 10;
 
-/** Maximum individual file size (100 KB). */
 export const MAX_FILE_SIZE = 100 * 1024;
 
-/** Timeout for GitHub API / URL fetch calls (ms). */
 export const FETCH_TIMEOUT = 15000;
 
-/** File-name patterns to look for at the repo root. */
 export const ROOT_PATTERNS: RegExp[] = [
   /^tailwind\.config\.\w+$/,
   /^postcss\.config\.\w+$/,
@@ -34,7 +17,6 @@ export const ROOT_PATTERNS: RegExp[] = [
   /\.css$/,
 ];
 
-/** Secondary paths (files and directories) to check for design tokens. */
 export const SECONDARY_PATHS: string[] = [
   "src/styles",
   "styles",
@@ -46,10 +28,8 @@ export const SECONDARY_PATHS: string[] = [
   "src/app/globals.css",
 ];
 
-/** Maximum files accepted in import-code. */
 export const CODE_MAX_FILES = 20;
 
-/** Maximum total bytes accepted in import-code. */
 export const CODE_MAX_TOTAL_BYTES = 500 * 1024;
 
 export interface CodeAnalysisFile {
@@ -70,22 +50,17 @@ export interface CodeAnalysisResult {
   rawExtracts: CodeAnalysisState["rawExtracts"];
 }
 
-/** Regex for hex colors (3-8 digit, including alpha). */
 export const HEX_COLOR_RE = /#(?:[0-9a-fA-F]{3,4}){1,2}\b/g;
 
-/** Regex for well-known named CSS colors. */
 export const NAMED_COLOR_RE =
   /\b(red|blue|green|yellow|orange|purple|pink|cyan|magenta|teal|navy|maroon|coral|salmon|gold|silver|gray|grey|indigo|violet|lime|olive|aqua|fuchsia|crimson|turquoise|ivory|beige|lavender|tan|khaki|plum|orchid|sienna)\b/gi;
 
-/** Regex for well-known font family names found in documents. */
 export const FONT_NAME_RE =
   /\b(Helvetica|Arial|Times New Roman|Georgia|Garamond|Futura|Bodoni|Avenir|Proxima Nova|Montserrat|Open Sans|Lato|Poppins|Raleway|Playfair Display|Merriweather|Source Sans|Noto Sans|Work Sans|Nunito|Rubik|Oswald|Roboto|Inter|DM Sans|Space Grotesk|SF Pro|Segoe UI|Calibri|Cambria|Century Gothic|Franklin Gothic|Gill Sans|Fira Sans|Barlow|Manrope|Sora|Plus Jakarta Sans|IBM Plex Sans|IBM Plex Serif|Libre Baskerville|Cormorant|Crimson Text)\b/gi;
 
-/** Regex matching CSS custom property values that look like colors. */
 export const COLOR_VAR_PATTERN =
   /^(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\(|color\()/;
 
-/** Well-known styling framework deps to detect in package.json. */
 export const FRAMEWORK_DETECTORS: { name: string; label: string }[] = [
   { name: "tailwindcss", label: "tailwind" },
   { name: "@tailwindcss/cli", label: "tailwind" },
@@ -104,9 +79,6 @@ export const FRAMEWORK_DETECTORS: { name: string; label: string }[] = [
   { name: "windicss", label: "windi" },
 ];
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type ContentType =
   | "presentation"
@@ -155,7 +127,6 @@ export interface UrlExtractionResult {
 
 export interface GitHubFetchOptions {
   token?: string | null;
-  /** Branch, tag, or commit to read from. */
   ref?: string;
 }
 
@@ -173,18 +144,7 @@ export interface GitHubJsonResult<T = unknown> {
   message?: string;
 }
 
-// ---------------------------------------------------------------------------
-// SSRF Guard
-// ---------------------------------------------------------------------------
 
-/**
- * Cheap synchronous pre-filter for obviously-internal URLs. This is a fast
- * fail, NOT the real guard: it cannot resolve DNS and does not re-check
- * redirects. All actual outbound fetches in this module go through
- * `ssrfSafeFetch`, which performs the DNS-aware check, a connect-time
- * private-IP guard, and per-redirect re-validation. Keep both: this gives a
- * clear early error for literal private hosts, ssrfSafeFetch is the backstop.
- */
 export function validateUrl(url: string): void {
   const parsed = new URL(url);
   if (!["http:", "https:"].includes(parsed.protocol)) {
@@ -214,11 +174,7 @@ export function validateUrl(url: string): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// GitHub helpers
-// ---------------------------------------------------------------------------
 
-/** Parse a GitHub URL or "org/repo" shorthand, retaining an optional ref/path. */
 export function parseGitHubRepoReference(raw: string): GitHubRepoReference {
   const cleaned = raw
     .trim()
@@ -278,7 +234,6 @@ export function parseGitHubRepoReference(raw: string): GitHubRepoReference {
   return { owner, repo };
 }
 
-/** Parse a GitHub URL or "org/repo" shorthand into owner + repo. */
 export function parseOwnerRepo(raw: string): { owner: string; repo: string } {
   const { owner, repo } = parseGitHubRepoReference(raw);
   return { owner, repo };
@@ -307,7 +262,6 @@ function githubContentsUrl(
   return url;
 }
 
-/** Fetch a path from the GitHub Contents API as JSON. Returns null on error. */
 function githubHeaders(
   accept: string,
   options: GitHubFetchOptions = {},
@@ -319,7 +273,6 @@ function githubHeaders(
   };
 }
 
-/** Fetch a path from the GitHub Contents API as JSON with status details. */
 export async function fetchGitHubJsonResult<T = unknown>(
   owner: string,
   repo: string,
@@ -350,7 +303,6 @@ export async function fetchGitHubJsonResult<T = unknown>(
   return { ok: true, status: res.status, data: (await res.json()) as T };
 }
 
-/** Fetch a path from the GitHub Contents API as JSON. Returns null on error. */
 export async function fetchGitHubJson(
   owner: string,
   repo: string,
@@ -361,7 +313,6 @@ export async function fetchGitHubJson(
   return result.ok ? result.data : null;
 }
 
-/** Fetch raw file content from the GitHub Contents API. Returns null on error or oversize. */
 export async function fetchGitHubRaw(
   owner: string,
   repo: string,
@@ -384,11 +335,7 @@ export async function fetchGitHubRaw(
   return text;
 }
 
-// ---------------------------------------------------------------------------
-// Tailwind config parser
-// ---------------------------------------------------------------------------
 
-/** Extract colors, fonts, spacing, borderRadius from a Tailwind config file string. */
 export function parseTailwindConfig(content: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
@@ -455,11 +402,7 @@ export function parseTailwindConfig(content: string): Record<string, unknown> {
   return result;
 }
 
-// ---------------------------------------------------------------------------
-// CSS parser
-// ---------------------------------------------------------------------------
 
-/** Extract CSS custom properties and @font-face / Google Fonts from CSS content. */
 export function parseCss(content: string): ParsedCss {
   const cssCustomProperties: Record<string, string> = {};
   const varMatches = content.matchAll(/--([\w-]+)\s*:\s*([^;}\n]+)/g);
@@ -493,11 +436,7 @@ export function parseCss(content: string): ParsedCss {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Styling framework detection
-// ---------------------------------------------------------------------------
 
-/** Detect the styling framework from a package.json string. */
 export function detectStylingFramework(content: string): string | undefined {
   try {
     const pkg = JSON.parse(content);
@@ -519,11 +458,7 @@ export function detectStylingFramework(content: string): string | undefined {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Code file analysis helpers (import-code)
-// ---------------------------------------------------------------------------
 
-/** Create a fresh state object for code file analysis. */
 export function createCodeAnalysisState(): CodeAnalysisState {
   return {
     colors: {},
@@ -537,7 +472,6 @@ export function createCodeAnalysisState(): CodeAnalysisState {
   };
 }
 
-/** De-duplicate and add a font to the analysis state. */
 export function addFont(
   state: CodeAnalysisState,
   family: string,
@@ -549,7 +483,6 @@ export function addFont(
   state.fonts.push({ family: normalized, source });
 }
 
-/** Extract CSS custom properties, classifying them by name into colors/spacing/radius. */
 export function extractCssVars(
   state: CodeAnalysisState,
   content: string,
@@ -575,7 +508,6 @@ export function extractCssVars(
   }
 }
 
-/** Extract literal color values (hex, rgb, hsl, oklch) from content. */
 export function extractCodeColors(
   state: CodeAnalysisState,
   content: string,
@@ -605,7 +537,6 @@ export function extractCodeColors(
   }
 }
 
-/** Extract font-family declarations and @font-face blocks from CSS-like content. */
 export function extractCodeFonts(
   state: CodeAnalysisState,
   content: string,
@@ -638,7 +569,6 @@ export function extractCodeFonts(
   }
 }
 
-/** Analyze a CSS/SCSS/LESS file, extracting vars, colors, and fonts. */
 export function analyzeCssFile(
   state: CodeAnalysisState,
   content: string,
@@ -650,7 +580,6 @@ export function analyzeCssFile(
   state.rawExtracts.push({ filename, type: "css", data: { parsed: true } });
 }
 
-/** Analyze a Tailwind config file for tokens. */
 export function analyzeTailwindConfig(
   state: CodeAnalysisState,
   content: string,
@@ -708,7 +637,6 @@ export function analyzeTailwindConfig(
   });
 }
 
-/** Walk a parsed JSON theme object, extracting tokens into state. */
 export function analyzeJsonTheme(
   state: CodeAnalysisState,
   content: string,
@@ -759,7 +687,6 @@ export function analyzeJsonTheme(
   }
 }
 
-/** Analyze package.json for styling framework deps. */
 export function analyzePackageJson(
   state: CodeAnalysisState,
   content: string,
@@ -796,7 +723,6 @@ export function analyzePackageJson(
   }
 }
 
-/** Analyze a theme source file (theme.ts, tokens.ts) for design tokens. */
 export function analyzeThemeSourceFile(
   state: CodeAnalysisState,
   content: string,
@@ -835,7 +761,6 @@ export function analyzeThemeSourceFile(
   });
 }
 
-/** Route a file to the correct analyzer based on filename. */
 export function analyzeCodeFile(
   state: CodeAnalysisState,
   filename: string,
@@ -889,7 +814,6 @@ export function analyzeCodeFile(
   }
 }
 
-/** Analyze the bounded code-file payload accepted by the import-code actions. */
 export function analyzeCodeFiles(
   files: CodeAnalysisFile[],
 ): CodeAnalysisResult {
@@ -926,29 +850,22 @@ export function analyzeCodeFiles(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Document analysis helpers (import-document)
-// ---------------------------------------------------------------------------
 
-/** Deduplicate and trim an array of strings. */
 export function unique(arr: string[]): string[] {
   return [...new Set(arr.map((s) => s.trim()))];
 }
 
-/** Extract hex and named colors from plain text. */
 export function extractDocumentColors(text: string): string[] {
   const hex = text.match(HEX_COLOR_RE) ?? [];
   const named = text.match(NAMED_COLOR_RE) ?? [];
   return unique([...hex, ...named.map((n) => n.toLowerCase())]);
 }
 
-/** Extract known font family names from plain text. */
 export function extractDocumentFonts(text: string): string[] {
   const matches = text.match(FONT_NAME_RE) ?? [];
   return unique(matches);
 }
 
-/** Classify a file type string into a content category. */
 export function classifyFile(fileType: string): ContentType {
   const ft = fileType.toLowerCase();
   if (
@@ -976,7 +893,6 @@ export function classifyFile(fileType: string): ContentType {
   return "other";
 }
 
-/** Return per-type suggestions for how to use a document for design extraction. */
 export function suggestionsForType(
   contentType: ContentType,
   hasText: boolean,
@@ -1034,9 +950,6 @@ export function suggestionsForType(
   return base;
 }
 
-// ---------------------------------------------------------------------------
-// URL scraping helpers (import-from-url)
-// ---------------------------------------------------------------------------
 
 const URL_FETCH_TIMEOUT = 10_000;
 const MAX_URL_HTML_CHARS = 1_000_000;
@@ -1281,7 +1194,6 @@ async function fetchStylesheets(
   return { fetched, urls, failures };
 }
 
-/** Fetch and extract design tokens from a URL's HTML and linked CSS. */
 export async function extractDesignTokensFromUrl(
   rawUrl: string,
 ): Promise<UrlExtractionResult> {
@@ -1311,7 +1223,6 @@ export async function extractDesignTokensFromUrl(
 
   const result: UrlExtractionResult = { url };
 
-  // Title
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   if (titleMatch) {
     result.pageTitle = titleMatch[1].trim();
@@ -1374,14 +1285,12 @@ export async function extractDesignTokensFromUrl(
     result.googleFonts = [...googleFonts];
   }
 
-  // OG image
   const ogImage = readMetaContent(html, "property", "og:image");
   if (ogImage) {
     const resolved = resolveHttpUrl(ogImage, pageUrl);
     result.ogImage = resolved.kind === "resolved" ? resolved.url : ogImage;
   }
 
-  // Favicon
   for (const match of html.matchAll(/<link\b[^>]*>/gi)) {
     const tag = match[0];
     const rel = readHtmlAttribute(tag, "rel");

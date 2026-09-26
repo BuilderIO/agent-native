@@ -895,8 +895,6 @@ export function MessagingSetupPanel() {
                         const helpText = envKey.helpText ?? envStatus?.helpText;
                         const label =
                           envKey.label || envStatus?.label || envKey.key;
-                        // Email agent address is not a secret — show it plainly
-                        // so users can copy and share it.
                         const isPublicValue =
                           envKey.key === "EMAIL_AGENT_ADDRESS";
                         return (

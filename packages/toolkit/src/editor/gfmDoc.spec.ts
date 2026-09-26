@@ -5,53 +5,21 @@ import { describe, expect, it } from "vitest";
 
 import { gfmToProseJSON, proseJSONToGfm } from "./gfmDoc.js";
 
-/**
- * GFM ↔ ProseMirror primitive for the plan single-doc editor.
- *
- * `gfmToProseJSON` / `proseJSONToGfm` go through ONE memoized headless Tiptap
- * editor built from the SAME `createSharedEditorExtensions({ dialect: "gfm",
- * features: { image: true } })` config the live plan editor uses, plus the
- * `RunId` extension. These tests assert two things:
- *
- *   1. `proseJSONToGfm(gfmToProseJSON(md))` normalizes STABLY — once a corpus
- *      entry has been through the converter, running it through again is a
- *      fixed point (the live editor re-serializes the whole doc on every edit,
- *      so a non-stable round-trip would churn untouched prose on first edit).
- *   2. `gfmToProseJSON` produces the EXPECTED top-level node types for a known
- *      corpus, so the bridge can rely on the shapes it walks.
- *
- * The headless editor needs a DOM (ProseMirror's EditorView); this file runs
- * under `happy-dom` (the same env the other editor specs use), proving the
- * primitive works in jsdom-style test runners as well as the browser.
- */
 
-/** First pass: md → prose → md. */
 function once(markdown: string): string {
   return proseJSONToGfm(gfmToProseJSON(markdown));
 }
 
-/** Asserts the converter reaches a fixed point (re-running is a no-op). */
 function expectStableRoundTrip(markdown: string): void {
   const first = once(markdown);
   const second = once(first);
   expect(second).toBe(first);
 }
 
-/** Top-level node types produced for a markdown string. */
 function topLevelTypes(markdown: string): string[] {
   return gfmToProseJSON(markdown).map((node) => node.type ?? "");
 }
 
-/**
- * Top-level node types with any trailing empty paragraph(s) dropped.
- *
- * The markdown parser appends a trailing empty `paragraph` whenever the doc
- * would otherwise end in a non-paragraph block (heading / list / code / table /
- * blockquote). This is a genuine ProseMirror parse artifact — the GFM
- * serializer drops it again, so the round-trip stays byte-stable — and the
- * plan's doc→blocks bridge skips whitespace-only runs, so it is not meaningful
- * content. These assertions focus on the meaningful leading block types.
- */
 function meaningfulTypes(markdown: string): string[] {
   const types = topLevelTypes(markdown);
   while (
@@ -64,7 +32,6 @@ function meaningfulTypes(markdown: string): string[] {
   return types;
 }
 
-/** True when a paragraph node has no inline content (the trailing filler). */
 function isEmptyParagraph(node: JSONContent | undefined): boolean {
   return node?.type === "paragraph" && (node.content ?? []).length === 0;
 }
@@ -208,8 +175,6 @@ describe("gfmDoc GFM ↔ ProseMirror primitive", () => {
       const stamped = nodes.map((n, i) =>
         i === 0 ? { ...n, attrs: { ...(n.attrs ?? {}), runId: "block-9" } } : n,
       );
-      // Serializing drops runId (GFM), but the attribute is a valid schema
-      // attribute on the node JSON — re-parsing markdown yields runId: null.
       const reparsed = gfmToProseJSON(proseJSONToGfm(stamped));
       expect(reparsed[0]?.type).toBe("paragraph");
       expect(reparsed[0]?.attrs?.runId ?? null).toBeNull();

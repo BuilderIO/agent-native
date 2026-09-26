@@ -40,33 +40,14 @@ interface AvailableTool {
 }
 
 export interface ExtensionSlotProps {
-  /** Stable slot identifier — convention: `<app>.<area>.<position>`. */
   id: string;
-  /** Object pushed to each embedded extension as `slotContext`. */
   context?: Record<string, unknown> | null;
-  /** Show a small "+" affordance when the slot has no installs. Default: false. */
   showEmptyAffordance?: boolean;
-  /** Optional className applied to the wrapper. */
   className?: string;
-  /** Optional className applied to each EmbeddedExtension. */
   toolClassName?: string;
-  /** Fires once when the slot query and all installed extensions are ready. */
   onReady?: () => void;
 }
 
-/**
- * A named UI slot that user-installed extensions can render into. Apps drop this
- * component wherever they want to allow extensions; the framework handles
- * fetching, sandboxing, context delivery, and lifecycle.
- *
- * Example:
- *
- *   <ExtensionSlot
- *     id="mail.contact-sidebar.bottom"
- *     context={{ contactEmail }}
- *     showEmptyAffordance
- *   />
- */
 export function ExtensionSlot({
   id,
   context,
@@ -78,8 +59,6 @@ export function ExtensionSlot({
   const t = useT();
   const readyInstallIds = useRef(new Set<string>());
   const readyNotified = useRef(false);
-  // Slot installs render in sidebars and panels that are not visible during
-  // first paint; wait out the startup window before fetching.
   const afterPaint = useAfterPaint();
   const installsQuery = useQuery<SlotInstall[]>({
     queryKey: ["slot-installs", id],
@@ -96,10 +75,6 @@ export function ExtensionSlot({
     },
   });
   const installs = installsQuery.data ?? [];
-  // While the paint-gated query is deferred it sits idle with no data —
-  // that state must read as "not settled yet", not "zero installs", or the
-  // slot reports ready and flashes its empty affordance before the fetch
-  // could even begin.
   const installsSettled = afterPaint && !installsQuery.isPending;
 
   useEffect(() => {

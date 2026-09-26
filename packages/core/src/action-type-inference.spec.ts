@@ -1,12 +1,3 @@
-/**
- * Compile-time type inference tests for `defineAction`.
- *
- * These tests make no runtime assertions — they verify that the type system
- * correctly infers input and return types from `defineAction` declarations.
- * If the overload signatures ever regress to `: any`, the `expectTypeOf`
- * assertions below will produce TypeScript compile errors (caught by tsc /
- * vitest typecheck), not runtime failures.
- */
 import { describe, it, expectTypeOf } from "vitest";
 import { z } from "zod";
 
@@ -14,9 +5,6 @@ import { defineAction } from "./action.js";
 import type { ActionDefinition } from "./action.js";
 import type { ActionRegistry } from "./client/use-action.js";
 
-// ---------------------------------------------------------------------------
-// 1. defineAction with schema — input type flows from the schema
-// ---------------------------------------------------------------------------
 
 const createItemAction = defineAction({
   description: "Create an item",
@@ -32,11 +20,6 @@ const createItemAction = defineAction({
 
 describe("defineAction type inference", () => {
   it("schema overload: returns typed ActionDefinition (not any)", () => {
-    // The return type must not be `any` — if it were, the conditional below
-    // would silently pass for arbitrary types. Using expectTypeOf forces an
-    // actual assignability check.
-    // TInput is the schema's InferInput (input type — optional defaults allowed).
-    // Zod status.default("active") makes status optional on input.
     expectTypeOf(createItemAction).toMatchTypeOf<
       ActionDefinition<
         { title: string; count: number; status?: "active" | "archived" },
@@ -47,13 +30,9 @@ describe("defineAction type inference", () => {
 
   it("schema overload: run arg type is the schema's input (optional defaults allowed)", () => {
     type RunFn = typeof createItemAction.run;
-    // The first parameter carries the schema's INPUT type: defaults are optional.
     type FirstArg = Parameters<RunFn>[0];
-    // title and count are required (no default).
     expectTypeOf<FirstArg["title"]>().toEqualTypeOf<string>();
     expectTypeOf<FirstArg["count"]>().toEqualTypeOf<number>();
-    // status has a default → optional on input (string | undefined).
-    // Just check it's string-assignable (exact union shape is schema-lib detail).
     expectTypeOf<NonNullable<FirstArg["status"]>>().toEqualTypeOf<
       "active" | "archived"
     >();
@@ -68,9 +47,6 @@ describe("defineAction type inference", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 2. defineAction with parameters (legacy) — input inferred from ParameterSchema
-// ---------------------------------------------------------------------------
 
 const legacyAction = defineAction({
   description: "Legacy parameter action",
@@ -84,17 +60,12 @@ const legacyAction = defineAction({
 
 describe("defineAction legacy parameters overload", () => {
   it("parameters overload: returns ActionDefinition (not any)", () => {
-    // Params overload: InferParams<TParams> yields { name?: string }
-    // (all legacy params are optional string fields).
     expectTypeOf(legacyAction).toMatchTypeOf<
       ActionDefinition<{ name?: string }, unknown>
     >();
   });
 });
 
-// ---------------------------------------------------------------------------
-// 3. ActionDefinition type structure — run signature is preserved
-// ---------------------------------------------------------------------------
 
 describe("ActionDefinition structure", () => {
   it("action.run is a function accepting the typed input", () => {
@@ -107,14 +78,6 @@ describe("ActionDefinition structure", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 4. Registry augmentation smoke-test — ActionRegistry maps names to types
-//
-// We cannot import the generated .generated/action-types.d.ts from the core
-// package itself (it only exists inside template projects). Instead we verify
-// the ambient augmentation mechanism: declare a synthetic augmentation here
-// and confirm the helper types resolve correctly.
-// ---------------------------------------------------------------------------
 
 declare module "./client/use-action.js" {
   interface ActionRegistry {

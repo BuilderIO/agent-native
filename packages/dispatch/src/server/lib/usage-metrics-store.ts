@@ -427,8 +427,6 @@ async function queryRows<T extends Record<string, unknown>>(
 
 async function initializeUsageMetricsTable(sinceMs: number): Promise<void> {
   try {
-    // Initializes token_usage on fresh deployments before the read-only
-    // aggregate queries below. The fake owner avoids changing visible data.
     await getUsageSummary({ ownerEmail: "__dispatch_metrics_init__", sinceMs });
   } catch {
     // Metrics should still render an empty state if usage storage is locked,
@@ -489,9 +487,6 @@ function withOrgUsageScope(
   orgId: string | null,
   selfScoped: boolean,
 ): { where: string; args: unknown[] } {
-  // A no-org viewer keeps the narrow `IS NULL` scope: `usageScope` degrades to
-  // an unfiltered owner scope when it has no member emails, so dropping the
-  // org predicate there would widen the read to the whole table.
   const org = usageOrgScope({ orgId, selfScoped });
   return {
     where: `${scope.where} AND ${org.where || "org_id IS NULL"}`,
@@ -1033,11 +1028,6 @@ export async function listDispatchUsageMetrics(input: {
   const memberEmails = selectedUserEmail
     ? [selectedUserEmail]
     : members.map((member) => member.email);
-  // Unattributed (`org_id IS NULL`) usage may only be admitted when the read is
-  // narrowed to the viewer's own spend. An admin-selected member or a
-  // workspace-wide roll-up must not claim rows whose organization is unknown.
-  // Classified from the effective owner list, so a one-member organization's
-  // default workspace view still counts the viewer's own unattributed spend.
   const selfScopedUsage = isSelfScopedUsageRead(memberEmails, viewerEmail);
   const memberByEmail = new Map(
     members.map((member) => [member.email.toLowerCase(), member]),

@@ -1,12 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-// Drizzle's PGlite session opens a transaction by calling `client.transaction`
-// on the raw PGlite engine directly — it never goes through this module's own
-// `createDbExecInternal` transaction() path. Without `pgliteDrizzleClient`
-// wiring that call into the shared AsyncLocalStorage registry, any
-// `getDbExec().execute()` inside a `getDb().transaction(...)` callback falls
-// through to the main PGlite client and queues behind the open transaction on
-// PGlite's single connection — a permanent deadlock.
 
 describe("Drizzle-opened PGlite transactions register with the shared exec", () => {
   afterEach(async () => {
@@ -54,12 +47,6 @@ describe("Drizzle-opened PGlite transactions register with the shared exec", () 
     const { getDbExec } = await import("./client.js");
     const { createGetDb } = await import("./create-get-db.js");
     const getDb = createGetDb({});
-    // Resolve the concrete Drizzle instance once up front: `expect().rejects`
-    // probes `typeof x.then === "function"` before awaiting, and getDb()'s own
-    // lazy chain-recording proxy re-runs its whole recorded chain — including
-    // the side-effecting transaction() call — on every `.then` property read,
-    // so calling `.transaction()` straight off the still-lazy `getDb()` here
-    // would open two transactions instead of one.
     const db = await getDb();
 
     await getDbExec().execute(

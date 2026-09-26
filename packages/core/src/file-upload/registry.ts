@@ -6,13 +6,6 @@ import type {
   FileUploadResult,
 } from "./types.js";
 
-// Why globalThis: in dev (Vite HMR) and in some Nitro/Rollup bundle splits,
-// this module can be evaluated more than once — the plugin file that
-// registers a provider lands in one module instance and the request handler
-// that reads providers lands in another, so the call site sees an empty map
-// even though `registerFileUploadProvider` succeeded. Pinning the singletons
-// on `globalThis` guarantees one set of providers per Node process,
-// independent of how the bundler split the chunks.
 interface FileUploadGlobals {
   __agentNativeFileUploadProviders?: Map<string, FileUploadProvider>;
   __agentNativeFileUploadWarnedFallback?: { value: boolean };
@@ -23,10 +16,6 @@ const providers: Map<string, FileUploadProvider> =
 const warnedFallbackRef: { value: boolean } =
   (globals.__agentNativeFileUploadWarnedFallback ??= { value: false });
 
-/**
- * Register a file upload provider. Call from a server plugin or app
- * bootstrap. Idempotent per id — later calls with the same id replace.
- */
 export function registerFileUploadProvider(provider: FileUploadProvider): void {
   providers.set(provider.id, provider);
 }
@@ -39,12 +28,6 @@ export function listFileUploadProviders(): FileUploadProvider[] {
   return [...providers.values()];
 }
 
-/**
- * Returns the first configured provider, checking user-registered ones first
- * and falling back to the built-in Builder.io provider when its env is set.
- * Returns `null` when nothing is configured. Callers must fail closed rather
- * than persisting the original binary payload in SQL.
- */
 export function getActiveFileUploadProvider(): FileUploadProvider | null {
   for (const provider of providers.values()) {
     if (provider.isConfigured()) return provider;
@@ -77,11 +60,6 @@ export async function getActiveFileUploadProviderForRequest(): Promise<FileUploa
   return null;
 }
 
-/**
- * Upload a file via the active provider, or `null` if no provider is
- * configured. `null` is an explicit storage-setup state: callers must not
- * turn the input into a base64 SQL fallback.
- */
 export async function deleteUploadedFile(
   providerId: string,
   input: FileUploadDeleteInput,
@@ -98,17 +76,11 @@ export async function uploadFile(
   input: FileUploadInput,
 ): Promise<FileUploadResult | null> {
   const provider = await getActiveFileUploadProviderForRequest();
-  // User-registered providers (S3, etc.) may be configured by sync runtime
-  // state or request-scoped DB secrets. Builder still gets an explicit async
   // credential check below because its sync isConfigured() only checks env.
   if (provider && provider !== builderFileUploadProvider) {
     return provider.upload(input);
   }
 
-  // Resolve credentials asynchronously (works when request context is set
-  // via runWithRequestContext — actions always have one via action-routes.ts).
-  // Two separate try-catch blocks ensure a real upload failure is never
-  // silently swallowed as a "no credentials" case.
   let hasBuilderCredential = false;
   try {
     const [{ canAuthorizeBuilderApiRequest }, { BUILDER_ASSETS_WRITE_SCOPE }] =
@@ -122,7 +94,6 @@ export async function uploadFile(
   } catch (err) {
     // DB unavailable or credential store not ready — can't resolve a
     // credential. Return an unavailable-provider state below; never fall back
-    // to SQL.
     console.warn(
       "[agent-native] Builder credential check failed:",
       err instanceof Error ? err.message : String(err),
@@ -130,8 +101,6 @@ export async function uploadFile(
   }
 
   if (hasBuilderCredential) {
-    // Credentials confirmed — attempt the upload. Real errors (network,
-    // API, rate-limit) propagate to the caller; do NOT catch them here.
     return await builderFileUploadProvider.upload(input);
   }
 

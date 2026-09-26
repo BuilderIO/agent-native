@@ -16,7 +16,6 @@ import { startIntervalJob } from "../server/interval-job.js";
 import { listOAuthAccounts, saveOAuthTokens } from "./store.js";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-/** Bounds each per-account refresh call — this loop runs sequentially over every expiring account. */
 const REFRESH_REQUEST_TIMEOUT_MS = 15_000;
 
 interface GoogleTokens {
@@ -75,11 +74,6 @@ async function refreshOne(refreshToken: string): Promise<RefreshResponse> {
   throw new Error(lastStatusText);
 }
 
-/**
- * Scan all stored Google tokens and refresh any expiring within `bufferMs`.
- * Errors per-account are logged and swallowed so one bad token doesn't block
- * the rest.
- */
 export async function refreshExpiringGoogleTokens(
   opts: {
     bufferMs?: number;
@@ -113,9 +107,6 @@ export async function refreshExpiringGoogleTokens(
         merged as unknown as Record<string, unknown>,
       );
     } catch (err) {
-      // Common case: invalid_grant when the user revoked access or changed
-      // their Google password. Leave the row in place so the UI shows the
-      // account and the user can re-OAuth — don't auto-delete.
       console.warn(
         `[google-refresh] refresh failed for ${acct.accountId}:`,
         (err as Error).message,
@@ -126,32 +117,21 @@ export async function refreshExpiringGoogleTokens(
 
 let _started = false;
 
-/**
- * Start the refresh loop. Idempotent — calling more than once is a no-op,
- * so multiple plugins/templates loading this in the same process are safe.
- */
 export function startGoogleTokenRefreshLoop(
   opts: {
-    /** How often to scan. Default: 20 minutes. */
     intervalMs?: number;
-    /** Refresh tokens expiring within this window. Default: 15 minutes. */
     bufferMs?: number;
   } = {},
 ): void {
   if (_started) return;
   _started = true;
 
-  // In dev mode the local DB is usually the shared prod DB. Proactively
-  // refreshing every user's token with local OAuth credentials always fails
-  // (wrong client_id/secret). Tokens still refresh reactively on-demand.
   if (process.env.NODE_ENV !== "production") {
     return;
   }
   const intervalMs = opts.intervalMs ?? 20 * 60 * 1000;
   const bufferMs = opts.bufferMs ?? 15 * 60 * 1000;
 
-  // Kick off the first pass shortly after startup (not immediately — the DB
-  // may still be initializing).
   const startupTimer = setTimeout(() => {
     startIntervalJob(() => refreshExpiringGoogleTokens({ bufferMs }), {
       intervalMs,

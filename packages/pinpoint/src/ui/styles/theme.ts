@@ -1,8 +1,3 @@
-// @agent-native/pinpoint — CSS theme and styles
-// MIT License
-//
-// Compiled CSS for Shadow DOM injection via CSSStyleSheet.
-// Uses CSS custom properties with --pp- prefix for theming.
 
 export const overlayStyles = `
 :host {

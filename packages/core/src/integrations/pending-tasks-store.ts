@@ -1,15 +1,3 @@
-/**
- * SQL-backed pending task queue for integration webhooks.
- *
- * Why this exists: serverless platforms (Netlify Lambda, Vercel, Cloudflare
- * Workers) freeze the function execution as soon as the HTTP response is
- * returned. Fire-and-forget background `Promise`s get killed mid-flight,
- * meaning agent loops triggered from a Slack/Telegram webhook never finish.
- *
- * Solution: persist the inbound message to SQL inside the webhook handler,
- * then dispatch a fresh HTTP POST to a separate processor endpoint. Each
- * invocation gets its own fresh function timeout budget.
- */
 import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
@@ -43,7 +31,6 @@ async function ensureTable(): Promise<void> {
 )`;
 
       {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
         await ensureTableExists("integration_pending_tasks", createSql);
         await ensureColumnExists(
           "integration_pending_tasks",
@@ -85,7 +72,6 @@ async function ensureTable(): Promise<void> {
         return;
       }
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -97,7 +83,6 @@ export async function ensurePendingTasksTable(): Promise<void> {
   await ensureTable();
 }
 
-/** Status values for an integration pending task. */
 export type PendingTaskStatus =
   | "pending"
   | "processing"
@@ -191,17 +176,10 @@ export async function insertPendingTask(input: {
   });
 }
 
-/**
- * Returns whether a duplicate-event error from `insertPendingTask` looks
- * like a unique-constraint violation on `(platform, external_event_key)`.
- *
- * Postgres surfaces these as `error.code === "23505"`. Used by the webhook handler to
- * distinguish "already enqueued" (silently OK) from genuine insert failures.
- */
 export function isDuplicateEventError(err: unknown): boolean {
   const e = err as { code?: string; message?: string } | null;
   if (!e) return false;
-  if (e.code === "23505") return true; // Postgres unique-violation
+  if (e.code === "23505") return true;
   const msg = String(e.message ?? "").toLowerCase();
   return (
     msg.includes("unique") ||
@@ -210,7 +188,6 @@ export function isDuplicateEventError(err: unknown): boolean {
   );
 }
 
-/** Fetch a pending task by id. */
 export async function getPendingTask(id: string): Promise<PendingTask | null> {
   await ensureTable();
   const client = getDbExec();
@@ -280,7 +257,6 @@ export function sourceContextFromPendingTask(
   }
 }
 
-/** Resolve trusted Slack provenance without exposing the stored task payload. */
 export async function resolveIntegrationSourceContext(
   id: string,
   ownerEmail: string,
@@ -312,11 +288,6 @@ export async function resolveIntegrationSourceContext(
   );
 }
 
-/**
- * Atomically claim a task: transition pending → processing and increment
- * attempts. Returns the updated task if the transition succeeded, otherwise
- * null (e.g. the task was already claimed by a concurrent worker).
- */
 export async function claimPendingTask(
   id: string,
   options?: { dispatchOutcome?: string },
@@ -325,8 +296,6 @@ export async function claimPendingTask(
   const client = getDbExec();
   const now = Date.now();
 
-  // Conditional update: only flip if currently pending. Failed tasks are
-  // terminal unless an explicit retry path resets them to pending first.
   const result = await client.execute({
     sql: `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?,
@@ -381,7 +350,6 @@ export async function recordPendingTaskDispatchAttempt(
   });
 }
 
-/** Next queued turn for a provider thread after its current task completes. */
 export async function getNextPendingTaskForThread(
   platform: string,
   externalThreadId: string,
@@ -401,7 +369,6 @@ export async function getNextPendingTaskForThread(
     : null;
 }
 
-/** Mark a task as completed. */
 export async function markTaskCompleted(id: string): Promise<void> {
   await ensureTable();
   const client = getDbExec();
@@ -410,18 +377,10 @@ export async function markTaskCompleted(id: string): Promise<void> {
     sql: `UPDATE integration_pending_tasks
           SET status = ?, updated_at = ?, completed_at = ?, payload = ?
           WHERE id = ?`,
-    // The payload can contain short-lived provider credentials such as a
-    // Discord interaction token. Once terminal, no retry needs the inbound
-    // body, so erase it instead of retaining secrets or user text indefinitely.
     args: ["completed", now, now, "{}", id],
   });
 }
 
-/**
- * Return a transiently failed task to the retryable queue without erasing its
- * payload. The payload may contain the only copy of the inbound message and is
- * scrubbed only when the task reaches a permanent terminal state.
- */
 export async function markTaskRetryable(
   id: string,
   errorMessage: string,
@@ -510,7 +469,6 @@ export async function failTaskDeliveryTransition(
   }
 }
 
-/** Mark a task as failed and stash an error message. */
 export async function markTaskFailed(
   id: string,
   errorMessage: string,

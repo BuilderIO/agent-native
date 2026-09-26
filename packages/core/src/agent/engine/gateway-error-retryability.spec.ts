@@ -8,13 +8,6 @@ import { createBuilderEngine } from "./builder-engine.js";
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "./credential-errors.js";
 import { EngineError, type EngineStreamOptions } from "./types.js";
 
-/**
- * The contract between the Builder engine's terminal stop events and
- * production-agent's `isRetryableError`. It lives in its own file because it is
- * the only engine spec that needs the agent's real predicate rather than a
- * restatement of it — a mirrored copy of the retry rules here would pass while
- * production retried nothing.
- */
 
 const credentialState = vi.hoisted(() => ({
   lane: "identity" as "identity" | "gateway-deploy" | null,
@@ -84,10 +77,6 @@ describe("Builder gateway error retryability", () => {
   beforeEach(() => {
     credentialState.lane = "identity";
     vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
-    // The deploy-lane predicate treats these as "this is a preview/hosted
-    // workspace, not a visitor surface", so a runner that has them set executes
-    // the owner path and the visitor assertions below fail. Pin them rather than
-    // inherit whatever the environment happened to have.
     vi.stubEnv("FUSION_ENVIRONMENT", undefined);
     vi.stubEnv("FUSION_ENV_ORIGIN", undefined);
     vi.stubEnv("VITE_FUSION_ENV_ORIGIN", undefined);
@@ -99,24 +88,11 @@ describe("Builder gateway error retryability", () => {
     vi.restoreAllMocks();
   });
 
-  // Every gateway-error emission path, run through the real predicate on both
-  // lanes. The visitor rewrite replaces the message `isRetryableError` used to
-  // keyword-match, so a branch that keeps its retry decision in the message
-  // reads as terminal on credits sites alone — enumerated rather than
-  // spot-checked because that is how the last one was missed.
-  //
-  // The list covers the emissions with no HTTP response behind them too
-  // (transport failure, unparseable JSONL, a stream that stopped early). Those
-  // three built their own stop events and so skipped the rewrite entirely: the
-  // visitor read "reduce the prompt size or try again when the gateway is less
-  // busy" about someone else's Builder org.
   describe("retryability is structural on every gateway-error branch", () => {
     const branches: Array<{
       label: string;
       response?: () => Response;
-      /** Reject the fetch — the transport-failure emissions. */
       rejectWith?: () => unknown;
-      /** Full control, for the branch that needs the abort deadline to fire. */
       fetchImpl?: () => (url: string, init?: RequestInit) => Promise<Response>;
       env?: Record<string, string>;
       upgradeUrl?: boolean;
@@ -252,11 +228,6 @@ describe("Builder gateway error retryability", () => {
         retryable: true,
       },
       {
-        // The regression: identical body, two arrival shapes. As an HTTP 500 it
-        // was always retried off the status; delivered in-stream after a 200
-        // there is no status, and the envelope's prose matches no keyword, so it
-        // died uncoded on the first attempt and showed Builder's internal
-        // correlation id to the user.
         label: "in-stream gateway internal error envelope",
         response: () =>
           jsonlResponse([
@@ -313,9 +284,6 @@ describe("Builder gateway error retryability", () => {
       },
       {
         label: "transport timed out",
-        // Terminal at the turn level on purpose: the timeout spent the whole
-        // request budget, so recovery is a fresh invocation, not an in-call
-        // retry. `isRetryableError` hard-excludes the code.
         env: { AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS: "1" },
         fetchImpl: () => (_url, init) =>
           new Promise<Response>((_resolve, reject) => {
@@ -346,9 +314,6 @@ describe("Builder gateway error retryability", () => {
       },
       {
         label: "stream ended without a stop event",
-        // Also terminal at the turn level: the partial turn is real, and an
-        // in-loop retry would `clear` it and re-run the whole call. The client
-        // continues it instead, off `builder_gateway_stream_ended`.
         response: () =>
           jsonlResponse([{ type: "text-delta", text: "partial" }]),
         retryable: false,
@@ -382,8 +347,6 @@ describe("Builder gateway error retryability", () => {
           );
 
           expect(stop).toBeDefined();
-          // The other half of the same guarantee: whatever the branch decided,
-          // a visitor is told one line and nothing else.
           if (lane === "gateway-deploy") {
             expect(stop.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
           } else {
@@ -409,11 +372,6 @@ describe("Builder gateway error retryability", () => {
       }
     }
 
-    // The table above can only cover branches someone remembered to add to it.
-    // This covers the next one: `gatewayErrorStop` is the single place allowed
-    // to build a terminal error stop in this module, so a new branch that writes
-    // its own literal — the way all three transport paths did — fails here
-    // instead of shipping owner copy to a visitor.
     it("builds every terminal error stop through gatewayErrorStop", () => {
       const source = readFileSync(
         new URL("./builder-engine.ts", import.meta.url),
@@ -430,8 +388,6 @@ describe("Builder gateway error retryability", () => {
       );
     });
 
-    // The daily cap shares 429 with the transient throttle, so it must carry no
-    // retry field at all: a bare status is a retry signal on its own.
     it("gives the daily gateway cap no structured retry signal", async () => {
       credentialState.lane = "gateway-deploy";
       vi.stubEnv("BUILDER_GATEWAY_TOKEN", "btk-site-token");

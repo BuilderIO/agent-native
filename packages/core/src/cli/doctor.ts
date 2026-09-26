@@ -103,11 +103,6 @@ interface DoctorGuardResult extends GuardResult {
   warnings?: GuardFinding[];
 }
 
-/**
- * Reads the optional `"doctor"` key from `<root>/agent-native.json`. All
- * fields are optional with sane empty defaults — an app needs zero config
- * to run `agent-native doctor` with every v1 guard enabled.
- */
 export function readDoctorConfig(root: string): DoctorConfig {
   const manifestPath = path.join(root, "agent-native.json");
   if (!fs.existsSync(manifestPath)) {
@@ -204,17 +199,10 @@ function runGuard(
 
 export interface RunDoctorScanOptions {
   root: string;
-  /** Restrict to these guard names. When omitted, runs every guard not
-   * listed in `agent-native.json`'s `doctor.disabledGuards`. Unknown names
-   * are silently ignored here — the CLI layer (`runDoctor`) validates
-   * `--only` and reports a usage error before calling this. */
   only?: string[];
   migrationManifests?: MigrationManifest[];
 }
 
-/** Pure scan orchestrator: runs the selected guards against `root` and
- * returns a flat report. No I/O beyond reading `agent-native.json` and the
- * app source tree — no printing, no process.exit. */
 export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
   const root = options.root;
   const config = readDoctorConfig(root);
@@ -259,14 +247,6 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
   };
 }
 
-/**
- * A workspace root is an orchestrator, not an app root. The portable guards
- * intentionally inspect `actions/` and `server/` relative to one project, so
- * a recursive scan from the workspace root would miss `apps/<name>/` queries.
- * Run the same versioned scanner once per workspace app and shared package,
- * prefixing findings with the project path so both humans and coding agents
- * can fix the right file.
- */
 interface WorkspaceDoctorRoots {
   appRoots: string[];
   scanRoots: string[];
@@ -340,41 +320,22 @@ function runWorkspaceDoctorScan(
   };
 }
 
-/**
- * Hosted app volumes are ~4.84 GB total, so anything under this is close
- * enough to a stalled build or a failed write to be worth naming.
- */
 export const LOW_DISK_FREE_BYTES = 500 * 1024 * 1024;
 
 export interface DoctorDisk {
   freeBytes: number;
   totalBytes: number;
-  /** Size of the caches `agent-native clean` removes by default. Undefined —
-   * not 0 — unless `--disk` asked for the scan: "not measured" is not "empty". */
   reclaimableBytes?: number;
-  /** Paths the cache scan could not read, so `reclaimableBytes` is a floor. */
   scanFailures?: number;
   low: boolean;
 }
 
-/** Set instead of the reading when free space could not be determined —
- * "unknown" must not read as "plenty". */
 export interface DoctorDiskError {
   error: string;
 }
 
 export type DoctorDiskReport = DoctorDisk | DoctorDiskError;
 
-/**
- * Free space on the volume holding `root`. Advisory only: it never changes
- * doctor's exit code.
- *
- * `measureReclaimable` adds what `agent-native clean` could give back, which
- * costs a recursive walk plus a full stat of every dep cache — multi-GB and
- * seconds in a workspace, on a run that only prints one advisory line. Free
- * space is the number that matters when the disk is full, so the scan is
- * opt-in (`doctor --disk`).
- */
 export function checkDisk(
   root: string,
   { measureReclaimable = false } = {},
@@ -424,10 +385,6 @@ function formatDiskLine(disk: DoctorDiskReport): string {
     : `Disk: ${space}. ${reclaim}`;
 }
 
-/** Pure escalation rule shared by the CLI (`--strict`) and the `build`
- * pre-step (`--strict` / `agent-native.json` `doctor.failOnBuild`). Doctor
- * findings fail builds by default; only an explicit `failOnBuild: false`
- * opt-out can keep a build moving, while `strict` always fails. */
 export function shouldFailBuild(
   hasFindings: boolean,
   opts: { strict?: boolean; failOnBuild?: boolean },
@@ -486,7 +443,6 @@ export interface DoctorCliOptions {
   strict?: boolean;
   help?: boolean;
   fix?: boolean;
-  /** Also measure what `agent-native clean` would reclaim (walks every cache). */
   disk?: boolean;
 }
 
@@ -557,8 +513,6 @@ export function printDoctorHelp(io: Pick<DoctorIo, "log"> = defaultIo): void {
   );
 }
 
-/** `agent-native doctor` CLI entrypoint. Returns the process exit code —
- * callers are responsible for calling `process.exit(code)`. */
 export async function runDoctor(
   argv: string[],
   io: DoctorIo = defaultIo,
@@ -605,11 +559,6 @@ export async function runDoctor(
   const disk = checkDisk(root, { measureReclaimable: Boolean(opts.disk) });
 
   if (opts.json) {
-    // The machine-readable report always goes to stdout (io.log), whether
-    // or not findings are present, so `agent-native doctor --json >
-    // report.json` in CI always captures the report. Only the usage/
-    // execution error payloads above (bad --cwd, unknown --only) go to
-    // stderr — those are diagnostics for exit code 2, not the report.
     io.log(
       JSON.stringify(
         {
@@ -652,23 +601,14 @@ export async function runDoctor(
 
 export interface DoctorBuildHookOptions {
   cwd: string;
-  /** Set when the caller passed `agent-native build --strict`. */
   strict?: boolean;
 }
 
 export interface DoctorBuildHookResult {
-  /** False when findings are present and the project has not explicitly
-   * opted out of the build gate. */
   ok: boolean;
   report: DoctorReport;
 }
 
-/**
- * `agent-native build`'s doctor pre-step. Always runs every enabled guard
- * and always prints findings to `io.err` — never silent. Findings fail the
- * build by default; only an explicit `doctor.failOnBuild: false` opt-out can
- * keep a build moving, while `--strict` overrides that opt-out.
- */
 export async function runDoctorBuildHook(
   options: DoctorBuildHookOptions,
   io: DoctorIo = defaultIo,

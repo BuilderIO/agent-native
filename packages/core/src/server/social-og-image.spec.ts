@@ -30,8 +30,6 @@ describe("social OG image", () => {
   });
 
   it("bundles real font files so text renders without system fonts", () => {
-    // Regression guard: Linux serverless runtimes ship neither Arial nor Inter,
-    // so the OG text was rendering blank. resvg must get explicit font files.
     const fontFiles = resolveOgFontFiles();
     expect(fontFiles?.length).toBeGreaterThan(0);
     for (const file of fontFiles ?? []) {
@@ -58,8 +56,6 @@ describe("social OG image", () => {
     expect(svg).toContain("Agent-Native Analytics");
     expect(svg).toContain("100% free and open source");
     expect(svg).toContain(OG_FONT_FAMILY);
-    // resvg's fontdb maps font-weight 850 to Regular, not Bold — the title must
-    // not use it or the display title renders thin.
     expect(svg).not.toContain('font-weight="850"');
   });
 
@@ -166,9 +162,6 @@ describe("social OG image", () => {
 
     expect(custom.status).toBe(200);
     expect(trusted.status).toBe(200);
-    // Different layouts render different PNG bytes; same-layout renders are
-    // byte-identical, so equal bytes would mean the custom host got the
-    // sign-in card.
     expect(Buffer.from(await custom.arrayBuffer())).not.toEqual(
       Buffer.from(await trusted.arrayBuffer()),
     );
@@ -278,9 +271,6 @@ describe("social OG image", () => {
   });
 
   it("keeps cross-origin CORP behind the security headers middleware", async () => {
-    // The middleware stages `same-site` on every response; link-preview tools
-    // that render og:image in the browser show a broken image unless the OG
-    // route's own header wins.
     const app = createApp();
     app.use(createSecurityHeadersMiddleware());
     app.use("/_agent-native/og-image.png", createAgentNativeOgImageHandler());
@@ -306,8 +296,6 @@ describe("social OG image", () => {
         ),
       ),
     ).toBe(true);
-    // workerd's wording when the package is externalized out of the
-    // Cloudflare worker bundle.
     expect(
       isResvgRuntimeUnavailableError(
         new Error('No such module "@resvg/resvg-js".'),

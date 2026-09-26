@@ -1,5 +1,3 @@
-// @agent-native/pinpoint — Prompt mode for quick agent instructions
-// MIT License
 
 import { createSignal, onMount, type Component } from "solid-js";
 
@@ -23,7 +21,6 @@ export const PromptMode: Component<PromptModeProps> = (props) => {
     props.onSend(text);
   }
 
-  // Position near the element
   const rect = props.element.getBoundingClientRect();
   const x = Math.max(8, Math.min(rect.left, window.innerWidth - 300));
   const y =

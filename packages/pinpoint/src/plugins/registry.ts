@@ -1,5 +1,3 @@
-// @agent-native/pinpoint — Plugin registration and hook dispatch
-// MIT License
 
 import type {
   Plugin,
@@ -11,9 +9,6 @@ import type {
 const plugins: Map<string, Plugin> = new Map();
 const hookHandlers: Map<keyof PluginHooks, Set<Function>> = new Map();
 
-/**
- * Register a plugin.
- */
 export function registerPlugin(plugin: Plugin, api?: PinpointAPI): void {
   if (plugins.has(plugin.name)) {
     unregisterPlugin(plugin.name);
@@ -21,7 +16,6 @@ export function registerPlugin(plugin: Plugin, api?: PinpointAPI): void {
 
   plugins.set(plugin.name, plugin);
 
-  // Register hook handlers
   if (plugin.hooks) {
     for (const [hookName, handler] of Object.entries(plugin.hooks)) {
       if (typeof handler === "function") {
@@ -34,7 +28,6 @@ export function registerPlugin(plugin: Plugin, api?: PinpointAPI): void {
     }
   }
 
-  // Call setup if provided
   if (plugin.setup && api) {
     const registry: PluginHookRegistry = {
       register(hookName, handler) {
@@ -51,14 +44,10 @@ export function registerPlugin(plugin: Plugin, api?: PinpointAPI): void {
   }
 }
 
-/**
- * Unregister a plugin by name.
- */
 export function unregisterPlugin(name: string): void {
   const plugin = plugins.get(name);
   if (!plugin) return;
 
-  // Remove hook handlers
   if (plugin.hooks) {
     for (const [hookName, handler] of Object.entries(plugin.hooks)) {
       if (typeof handler === "function") {
@@ -70,16 +59,10 @@ export function unregisterPlugin(name: string): void {
   plugins.delete(name);
 }
 
-/**
- * Get all registered plugin names.
- */
 export function getPlugins(): string[] {
   return Array.from(plugins.keys());
 }
 
-/**
- * Dispatch a hook to all registered handlers.
- */
 export function dispatchHook(
   name: keyof PluginHooks,
   ...args: unknown[]
@@ -96,10 +79,6 @@ export function dispatchHook(
   }
 }
 
-/**
- * Dispatch a hook that can transform data (pipeline pattern).
- * Returns the transformed value, or false to cancel.
- */
 export function dispatchTransformHook<T>(
   name: keyof PluginHooks,
   initial: T,
@@ -121,9 +100,6 @@ export function dispatchTransformHook<T>(
   return current;
 }
 
-/**
- * Get context menu actions from all plugins.
- */
 export function getPluginActions() {
   const actions = [];
   for (const plugin of plugins.values()) {

@@ -113,9 +113,6 @@ function buildDelegationCorrelation(
   const inheritedDepth = Number.isInteger(context?.delegationDepth)
     ? Math.max(0, Number(context?.delegationDepth))
     : 0;
-  // The model this turn is actually running on, so a receiver with no model of
-  // its own can match the user's selection instead of its own default. A
-  // preference only — the receiver bounds it to its own engine's catalog.
   const callerModel = getRequestRunContext()?.model?.trim();
   return {
     ...(selfAppId?.trim() ? { callerApp: selfAppId.trim() } : {}),
@@ -162,13 +159,6 @@ function terminalTaskError(value: unknown): {
   };
 }
 
-/**
- * A delegated failure must be an error at the caller's tool boundary. Returning
- * an `Error: ...` string makes the production agent treat the failed call as a
- * successful tool result, so it can spend the rest of its turn retrying or
- * changing arguments while the real failure remains invisible to the loop
- * breaker.
- */
 class A2AInvocationError extends Error {
   readonly taskId?: string;
   readonly errorCode?: string;
@@ -264,20 +254,12 @@ function isNetlifyHostedRuntimeForIntegrationCall(): boolean {
   if (hasExplicitNonHostedNetlifyOverride()) return false;
   if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
 
-  // NETLIFY is a build-time marker, while deployed Netlify Functions expose
-  // SITE_ID at runtime. Recognize the same runtime-only marker used by the
-  // durable background and run-manager gates so the integration caller hands
-  // slow A2A work to durable delivery before its foreground budget expires.
   return Boolean(process.env.SITE_ID); // guard:allow-env-credential -- Netlify's read-only public site identifier is a runtime host marker, not a user credential.
 }
 
 function isServerlessHost(): boolean {
   if (hasExplicitNonHostedNetlifyOverride()) return false;
 
-  // Detection mirrors db/migrations.ts:297-301. On Cloudflare Workers/Pages,
-  // `process.env` is shimmed and CF_PAGES isn't reliably populated at runtime —
-  // the canonical signal is the `__cf_env`/`__env__` global injected by the
-  // Cloudflare runtime adapter.
   return (
     isNetlifyHostedRuntimeForIntegrationCall() ||
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
@@ -295,10 +277,6 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   );
   if (configured !== undefined) return configured;
 
-  // Netlify's current synchronous function budget is 60s. Keep delegated
-  // calls very short so multi-agent integration requests queue downstream
-  // continuations quickly instead of spending the parent Slack/email processor
-  // budget waiting on separately deployed apps one-by-one.
   if (isNetlifyHostedRuntimeForIntegrationCall()) {
     return NETLIFY_INTEGRATION_A2A_TIMEOUT_MS;
   }
@@ -720,7 +698,6 @@ export async function run(
     return "Error: --input must be an object when --action is provided";
   }
 
-  // Prevent self-calls — the agent must use its own registered tools instead
   if (selfAppId && agentIdOrName.toLowerCase() === selfAppId.toLowerCase()) {
     return `Error: You cannot use call-agent to call yourself (${selfAppId}). Use your own registered actions/tools instead. call-agent is only for communicating with OTHER separately-deployed apps.`;
   }
@@ -737,8 +714,6 @@ export async function run(
 
   const agent = await findAgent(agentIdOrName, selfAppId);
   if (!agent) {
-    // Target resolution runs ahead of the action/taskId dispatch below, so all
-    // three modes reach this branch and must report their own.
     throw unresolvableAgentTargetError(
       agentIdOrName,
       await discoverAgents(selfAppId),
@@ -871,11 +846,6 @@ export async function run(
     }
   }
 
-  // Append a small cross-app hint to the outgoing message so the receiving
-  // agent (which may be on an older deploy without the receiver-side hint
-  // in handlers.ts) still emits fully-qualified URLs. This is belt-and-
-  // suspenders with the receiver hint — but it works against any current
-  // deployment, no redeploy required.
   const sourceContext = integrationSourceContext();
   const messageWithHint = taskId
     ? ""
@@ -911,15 +881,12 @@ export async function run(
       return managed.responseText;
     }
 
-    // If we have a send context, use streaming so the UI shows progressive text
     if (context?.send) {
       const callerEmail = getRequestUserEmail();
 
-      // Build metadata with identity
       const a2aMetadata: Record<string, unknown> = {};
       if (callerEmail) a2aMetadata.userEmail = callerEmail;
 
-      // Include org domain for cross-app org resolution
       let callerOrgDomain: string | undefined;
       let callerOrgSecret: string | undefined;
       const orgId = getRequestOrgId();
@@ -937,7 +904,6 @@ export async function run(
         } catch {}
       }
 
-      // Sign JWT with identity + org domain for the streaming client
       let apiKey: string | undefined;
       if (
         !agent.auth &&
@@ -1005,64 +971,7 @@ export async function run(
         responseText = newText;
       };
 
-      // Skip the SSE streaming attempt and go straight to async + poll.
-      // Why: on Netlify (Lambda), the receiving server has no streaming
-      // response support, so message/stream returns a single JSON-RPC error
-      // body in a 200 response that our SSE parser silently consumes — the
-      // `for await` loop yields nothing AND keeps the connection open until
-      // the function timeout, eating the current serverless budget. By the
-      // time we get to the sync fallback, Lambda is dead and the second fetch
-      // errors out as "fetch failed". Async+poll has its own short fetches
-      // with their own budgets, so it works reliably across hosts. The
-      // trade-off is that cross-app activity arrives at the poll cadence rather
-      // than token-by-token. Agent-Native peers attach their current reasoning,
-      // tool status, and response preview to each task checkpoint, and the
-      // receiver's full response still surfaces below.
-      //
-      // That trade-off has a second-order cost: callAgent()'s poll (see
-      // A2AClient.sendAndWait in a2a/client.ts) can legitimately run for
-      // minutes with nothing emitted to the parent between the "start" event
-      // above and "done" below. On the parent run, that silence freezes
-      // `last_progress_at` — shouldBumpProgressForEvent in
-      // agent/run-manager.ts treats a stream of literally nothing as no
-      // progress — which trips the client's stuck-detector
-      // (DEFAULT_STUCK_THRESHOLD_MS = 90_000 in
-      // client/use-run-stuck-detection.ts) and the server's stale-run sweep
-      // (BACKGROUND_RUN_STALE_MS = 90_000 in agent/run-store.ts). In
-      // production this handed users a "still working, no progress" Retry
-      // button that aborted a perfectly healthy call and re-ran the sub-agent
-      // from scratch.
-      //
-      // Fix: surface the REAL remote liveness the poll already gathers. The
-      // A2A poll round-trips to the remote agent every ~2s and gets back a
-      // task with `status.state` (see A2AClient.sendAndWait / `onUpdate`). We
-      // emit an `agent_call_progress` event ONLY from that callback, and ONLY
-      // when a poll actually succeeds AND reports an actively-working state.
-      // Crucially this is NOT a timer: if the remote hangs or dies, the poll
-      // fetch throws, `onUpdate` stops firing, we emit nothing, and the
-      // stuck-detector correctly surfaces its banner. A wall-clock heartbeat
-      // would instead keep a dead sub-agent looking alive forever — trading a
-      // false stuck-positive for a worse false stuck-negative.
-      //
-      // Throttle: the poll runs every ~2s but both thresholds above are 90s,
-      // so emitting per-poll would be ~45 events per stuck-window. We coalesce
-      // to at most one emission per 30s — a 3x margin under 90s, so at least
-      // two land inside either window even with jitter, without flooding.
-      //
-      // Shape: a dedicated `agent_call_progress` event type (see
-      // agent/types.ts), not an extra `agent_call` status. `agent_call`
-      // consumers (production-agent.ts's step summarizer, slack.ts's task
-      // cards) render any status that isn't "start"/"done" as a failure, so a
-      // "progress" status would surface an in-flight tick as an error. A
-      // distinct type is instead ignored gracefully everywhere: the run-event
-      // switches fall to their `default`, the client if-chains fall through,
-      // and sse-event-processor returns `{action:"continue"}`. It still counts
-      // as real progress in shouldBumpProgressForEvent (any non-special event
-      // type does), which is the whole point.
       const PROGRESS_MIN_INTERVAL_MS = 30_000;
-      // Terminal states resolve the poll; "input-required" means the remote is
-      // blocked waiting on us, not making progress. Only actively-working
-      // states count as liveness worth surfacing.
       const ACTIVELY_WORKING_STATES = new Set([
         "working",
         "submitted",
@@ -1072,11 +981,6 @@ export async function run(
       let lastProgressEmitAt = callStartedAt;
       let lastActivitySequence = -1;
       const onRemotePollUpdate = (task: Task) => {
-        // Capture the remote task id on every poll, not only on the timeout and
-        // error branches that used to set it. Without this a call that SUCCEEDS
-        // slowly carries no task id, so "why did this one take four minutes?"
-        // cannot be traced into the receiving app's own task record — which is
-        // the question worth asking about a slow cross-app call.
         if (task?.id) invocationTaskId = task.id;
         const state = task?.status?.state;
         const parts = task.status?.message?.parts;
@@ -1114,10 +1018,6 @@ export async function run(
               orgId,
             })
           : undefined;
-        // Apply a polling cap ONLY for integration-platform callers on
-        // serverless hosts. Normal chat, local Node, self-hosted Node, and
-        // Docker can wait for slow-but-valid answers; integration processors
-        // still need to finish before their current function execution dies.
         const callTimeoutMs = getIntegrationCallTimeoutMs();
         const submissionTimeoutMs =
           callTimeoutMs && isNetlifyHostedRuntimeForIntegrationCall()
@@ -1153,12 +1053,7 @@ export async function run(
         responseText =
           formatDownstreamLlmCredentialFailure(agent.name, responseText) ??
           responseText;
-        // Some agents reply with relative paths (e.g. slides emits
-        // "/deck/abc"). Those resolve against the caller's host, not the
-        // receiver's, so they're broken for the user. Expand any leading-slash
-        // URL into a fully-qualified one rooted at the receiving agent's host.
         responseText = expandRelativeUrls(responseText, agent.url);
-        // Mirror the response into the streaming UI so the user sees it.
         if (responseText) emitNewText(responseText);
       } catch (pollErr: any) {
         const timeoutTaskId = getA2ATaskTimeoutTaskId(pollErr);
@@ -1178,12 +1073,6 @@ export async function run(
               `The ${agent.name} agent accepted this delegated subtask and will post its own final result to the originating integration thread automatically. ` +
               `Do not call ${agent.name} again for this same subtask. Continue any other requested work, then answer with the completed results you have; if needed, mention that ${agent.name} is posting its result separately.`;
           } else {
-            // The normal integration path must preserve the timeout task id so
-            // it can enqueue a durable continuation. If that enqueue fails,
-            // do not hide receiver-verified artifacts that were already
-            // returned with the last poll; this mirrors callAgent's default
-            // timeout behavior without treating arbitrary remote status text
-            // as a completed response.
             const recoverableArtifactText =
               extractRecoverableTimeoutArtifactText(pollErr);
             if (recoverableArtifactText) {
@@ -1284,8 +1173,6 @@ export async function run(
       );
     }
 
-    // No context — use the async + poll call so we don't get cut off at the
-    // serverless gateway's ~30s timeout. callAgent defaults to async:true.
     const email = getRequestUserEmail();
     let domain: string | undefined;
     let orgSecret: string | undefined;
@@ -1393,8 +1280,6 @@ export async function run(
         agentIdOrName,
       );
     }
-    // Friendlier message for the common timeout case so the calling agent can
-    // decide whether to give up or retry.
     if (/timeout|did not complete|Inactivity|504/i.test(msg)) {
       invocationStatus = "error";
       invocationTerminalCode = "timeout_without_task";
@@ -1550,8 +1435,6 @@ async function enqueueIntegrationContinuationIfPossible(
       agentUrl: agent.url,
       dedupeKey: getIntegrationContinuationDedupeKey(message),
       a2aTaskId: taskId,
-      // Do not persist the short-lived JWT used for the initial send. The
-      // continuation processor can mint a fresh token for each poll.
       a2aAuthToken: null,
     });
     await dispatchA2AContinuation(continuation.id).catch((err) => {
@@ -1567,10 +1450,6 @@ async function enqueueIntegrationContinuationIfPossible(
   }
 }
 
-// Pull a short human-readable detail from a polled A2A task's status message,
-// when the remote includes one, so the progress event can surface a real
-// signal (e.g. "Generating hero image…") instead of a bare elapsed counter.
-// Bounded so a chatty remote can't push a large payload through the event.
 const MAX_PROGRESS_DETAIL_CHARS = 200;
 function extractRemoteProgressDetail(task: Task): string | undefined {
   const parts = task.status?.message?.parts;
@@ -1606,12 +1485,6 @@ function getA2ATaskTimeoutTaskId(err: unknown): string | null {
   return match?.[1] ?? null;
 }
 
-/**
- * Mirrors the A2A client's default timeout recovery for the exceptional case
- * where an integration cannot enqueue a durable continuation. Only an
- * explicitly receiver-marked task message is safe to surface as a completed
- * partial result; ordinary working-state text remains a timeout failure.
- */
 function extractRecoverableTimeoutArtifactText(err: unknown): string {
   const candidate = err as
     | { lastTask?: unknown; name?: unknown }
@@ -1678,17 +1551,9 @@ function getIntegrationContinuationDedupeKey(message: string): string {
   return createHash("sha256").update(normalized).digest("hex");
 }
 
-// Expand bare leading-slash paths (e.g. "/deck/abc") into fully-qualified URLs
-// rooted at the receiving agent's host. The receiver doesn't always know it's
-// being called cross-app, so it may emit relative paths that resolve against
-// the caller's host (broken). Match a path that starts at a word boundary,
-// begins with `/`, and has at least one path segment after that. Skip if it
-// already looks like a fully-qualified URL.
 export function expandRelativeUrls(text: string, agentUrl: string): string {
   if (!text || !agentUrl) return text;
   const base = agentUrl.replace(/\/$/, "");
-  // Path must start at boundary (start, whitespace, or punctuation that isn't
-  // ':' — to avoid mangling `https://example.com/foo` or markdown link bodies).
   return text.replace(
     /(^|[\s([<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
     (_match, lead, path) => `${lead}${base}${path}`,

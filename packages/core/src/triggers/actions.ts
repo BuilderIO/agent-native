@@ -1,13 +1,3 @@
-/**
- * Framework-level agent actions for the automations system.
- *
- * These are registered as native tools (not template actions) so they're
- * available in every template. The agent uses them to create, list, and
- * manage automations from chat.
- *
- * All seven operations are consolidated into a single `manage-automations` tool
- * with an `action` discriminator to keep the tool registry compact.
- */
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -35,9 +25,6 @@ import {
 } from "../shared/reasoning-effort.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
 
-/* ------------------------------------------------------------------ */
-/*  Individual action handlers                                        */
-/* ------------------------------------------------------------------ */
 
 async function handleListEvents(): Promise<string> {
   const events = listEvents();
@@ -192,9 +179,6 @@ async function handleDefine(
             ? args.delegated_policy_id
             : undefined,
         model: typeof args.model === "string" ? args.model : undefined,
-        // Passed through rather than validated here: `defineAutomation`
-        // rejects an unrecognized value with a clear error, instead of this
-        // layer silently downgrading a typo to "use the model default".
         reasoningEffort:
           typeof args.reasoning_effort === "string"
             ? (args.reasoning_effort as ReasoningEffort)
@@ -297,9 +281,6 @@ async function handleUpdate(
             : typeof args.model === "string"
               ? args.model
               : null,
-        // Passed through rather than validated here: `updateAutomation`
-        // rejects an unrecognized value with a clear error, instead of this
-        // layer silently downgrading a typo to "clear the effort".
         reasoningEffort:
           args.reasoning_effort === undefined
             ? undefined
@@ -380,7 +361,6 @@ async function handleFireTest(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
 ): Promise<string> {
-  // Dynamic import to avoid circular dependency at module load time
   const { emit } = await import("../event-bus/index.js");
 
   let data: Record<string, unknown> = {};
@@ -393,7 +373,6 @@ async function handleFireTest(
   }
 
   // Scope the test event to the current user so only their automations fire,
-  // not automations owned by other users in the same process.
   const owner = getCurrentUser();
   emit("test.event.fired", { data }, { owner });
   return `Test event fired with payload: ${JSON.stringify({ data })}. Any automations subscribed to "test.event.fired" will be evaluated.`;
@@ -425,9 +404,6 @@ async function handleRunNow(
   }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Consolidated tool entry                                           */
-/* ------------------------------------------------------------------ */
 
 const VALID_ACTIONS = [
   "list-events",

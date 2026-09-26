@@ -22,7 +22,6 @@ const DEFAULT_TTL_MS = 5 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10_000;
 
 export type GoogleCredentialStatus =
-  /** Google accepted the client id and secret. */
   | "valid"
   /** Google rejected the client id or secret — sign-in is broken. */
   | "invalid"
@@ -32,7 +31,6 @@ export type GoogleCredentialStatus =
   | "unknown";
 
 export type GoogleRedirectUriStatus =
-  /** Google's authorize endpoint accepted this client_id/redirect_uri pair. */
   | "registered"
   /** Google's authorize endpoint reported redirect_uri_mismatch. */
   | "mismatched"
@@ -43,25 +41,13 @@ export type GoogleRedirectUriStatus =
 export interface GoogleCredentialCheck {
   status: GoogleCredentialStatus;
   clientId: string | null;
-  /** Both credential pairs are set to different Google clients. */
   mismatchedPairs: boolean;
-  /**
-   * Where the probed pair came from. `active` is the pair Better Auth wired to
-   * the provider; `preferred` means auth had not initialised yet and this fell
-   * back to the preferred pair; `managed` is the deployment-level pair used by
-   * the unauthenticated workspace OAuth health contract; `user` means the app
-   * intentionally resolves a user-scoped pair after sign-in; `none` means the
-   * app declared that it does not expose deployment-level Google OAuth.
-   */
   credentialSource: "active" | "preferred" | "managed" | "user" | "none";
-  /** Google's `error` field, or the transport failure, when there was one. */
   reason: string | null;
   /** Whether Google recognizes `redirectUri` as registered for `clientId`.
    *  Structurally cannot detect this from the token-exchange probe above —
    *  see `probeGoogleRedirectUri`. */
   redirectUriStatus: GoogleRedirectUriStatus;
-  /** The redirect URI that was probed, or `null` when the caller didn't ask
-   *  for one to be checked. */
   redirectUri: string | null;
   checkedAt: number;
 }
@@ -79,7 +65,6 @@ let managedCached: {
 } | null = null;
 let managedInFlight: Promise<GoogleCredentialCheck> | null = null;
 
-/** Test seam: drop the memoised result. */
 export function resetGoogleCredentialCheckCache(): void {
   cached = null;
   managedCached = null;
@@ -105,8 +90,6 @@ async function probeGoogle(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
-    // Unreachable is not the same as wrong. Reporting "valid" here would
-    // recreate the exact blind spot this check exists to remove.
     return {
       status: "unknown",
       reason: error instanceof Error ? error.message : "fetch failed",
@@ -130,10 +113,6 @@ async function probeGoogle(
   return { status: "unknown", reason: error ?? `http ${response.status}` };
 }
 
-/** Best-effort decode of Google's `authError` redirect param. The payload is
- *  an opaque (protobuf, not JSON) blob, but decoding it as UTF-8 surfaces the
- *  embedded human-readable strings (e.g. "redirect_uri_mismatch" and the
- *  explanatory text) well enough for a health signal. */
 function decodeGoogleAuthErrorParam(location: string): string | null {
   try {
     const authError = new URL(location).searchParams.get("authError");
@@ -141,8 +120,6 @@ function decodeGoogleAuthErrorParam(location: string): string | null {
     return Buffer.from(authError, "base64url").toString("utf-8");
   } catch {
     // coercion-ok: the decoded text only decorates `detail`; the mismatch
-    // verdict comes from the Location path, so an undecodable blob is "no
-    // detail", not a hidden failure.
     return null;
   }
 }
@@ -174,8 +151,6 @@ export async function probeGoogleRedirectUri(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
-    // Unreachable is not the same as unregistered — never coerce to either
-    // known status when we can't actually see Google's answer.
     return {
       status: "unknown",
       detail: error instanceof Error ? error.message : "fetch failed",
@@ -216,26 +191,14 @@ async function probeRedirectUriIfRequested(
   return { redirectUriStatus: probe.status, redirectUri };
 }
 
-/**
- * Ask Google whether this deploy's sign-in credentials still authenticate.
- *
- * The app's own callback collapses every Google failure into one error page,
- * so a wrong secret is invisible from outside. This is the signal a monitor
- * can read: it needs no browser, no consent grant, and no access to the secret
- * beyond the process that already holds it.
- */
 export async function checkGoogleSignInCredential(options?: {
   ttlMs?: number;
   now?: () => number;
-  /** The real callback redirect URI to verify against Google, in addition to
-   *  the client id/secret. See `probeGoogleRedirectUri`. */
   redirectUri?: string;
 }): Promise<GoogleCredentialCheck> {
   const now = options?.now ?? Date.now;
   const ttlMs = options?.ttlMs ?? DEFAULT_TTL_MS;
   const at = now();
-  // Prefer what Better Auth actually wired up. A template requesting broader
-  // scopes runs on GOOGLE_CLIENT_*, so re-deriving the preferred pair here
   // would test a credential the callback never touches.
   const active = getActiveGoogleSignInCredentials();
   if (
@@ -283,8 +246,6 @@ export async function checkGoogleSignInCredential(options?: {
         checkedAt: at,
       };
 
-  // Only memoise answers Google actually gave. Caching a transport failure for
-  // five minutes would hide a recovery for five minutes.
   if (value.status !== "unknown") {
     cached = {
       value,
@@ -296,11 +257,6 @@ export async function checkGoogleSignInCredential(options?: {
   return value;
 }
 
-/**
- * Ask Google about the deployment-level client used by managed workspace OAuth.
- * This is separate from Better Auth sign-in because a deploy may intentionally
- * use GOOGLE_SIGN_IN_* and GOOGLE_* as different clients.
- */
 async function checkGoogleManagedCredentialOnce(
   redirectUri: string | undefined,
 ): Promise<GoogleCredentialCheck> {
@@ -352,8 +308,6 @@ async function checkGoogleManagedCredentialOnce(
 }
 
 export async function checkGoogleManagedCredential(options?: {
-  /** The real callback redirect URI to verify against Google, in addition to
-   *  the client id/secret. See `probeGoogleRedirectUri`. */
   redirectUri?: string;
 }): Promise<GoogleCredentialCheck> {
   const at = Date.now();
@@ -370,8 +324,6 @@ export async function checkGoogleManagedCredential(options?: {
   managedInFlight = inFlight;
   try {
     const value = await inFlight;
-    // Keep transient Google or credential-store failures retryable while
-    // protecting the public health route from repeated definitive probes.
     if (value.status !== "unknown") {
       managedCached = {
         value,

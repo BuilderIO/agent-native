@@ -10,10 +10,6 @@ const getOrgSettingMock = vi.fn(
   async (orgId: string, key: string) =>
     orgSettings.get(`${orgId}:${key}`) ?? null,
 );
-// `getSettings` batches a mix of global ("feature-flag:*") and org-prefixed
-// ("o:<orgId>:feature-flag:*") keys in one call, so it must resolve each raw
-// key against whichever fake map it belongs to, matching how the two
-// separate maps above stand in for one real settings table.
 const ORG_KEY_RE = /^o:([^:]+):(.+)$/;
 const getSettingsMock = vi.fn(async (keys: readonly string[]) => {
   const result = new Map<string, Record<string, unknown> | null>();

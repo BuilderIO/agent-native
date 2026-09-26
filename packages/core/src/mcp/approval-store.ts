@@ -51,9 +51,6 @@ export async function createMcpApprovalGrant(
     ],
   });
 
-  // This is storage hygiene only. A failed cleanup must never turn a failed
-  // grant insert/consume into success, and expired rows remain unusable because
-  // consumeMcpApprovalGrant checks expires_at in the atomic update below.
   try {
     await client.execute({
       sql: `DELETE FROM mcp_action_approvals WHERE expires_at < ?`,

@@ -1,8 +1,3 @@
-/**
- * Core script: delete-memory
- *
- * Delete a memory entry and remove it from the index.
- */
 
 import {
   resourcePut,
@@ -32,7 +27,6 @@ export default async function deleteMemoryScript(
   const memoryPath = `memory/${name}.md`;
   const indexPath = "memory/MEMORY.md";
 
-  // Delete the memory file
   let deleted = false;
   try {
     await resourceDeleteByPath(owner, memoryPath);
@@ -41,7 +35,6 @@ export default async function deleteMemoryScript(
     // May not exist
   }
 
-  // Remove from index
   try {
     const existing = await resourceGetByPath(owner, indexPath);
     if (existing?.content) {

@@ -1,17 +1,3 @@
-/**
- * Nitro plugin that mounts collaborative editing routes.
- *
- * Templates opt in with one line:
- * ```ts
- * // server/plugins/collab.ts
- * import { createCollabPlugin } from "@agent-native/core/server";
- * export default createCollabPlugin({
- *   table: "documents",
- *   contentColumn: "content",
- *   access: { mode: "resource", resourceType: "document" },
- * });
- * ```
- */
 
 import {
   defineEventHandler,
@@ -46,7 +32,6 @@ import { runWithRequestContext } from "./request-context.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-/** Default maximum body size in bytes for collab write operations (2 MB). */
 const DEFAULT_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
 
 type CollabAwarenessScope = {
@@ -63,13 +48,10 @@ export type CollabResourceIdResolver = (
 export type CollabAccess =
   | {
       mode: "resource";
-      /** The shareable resource type registered via `registerShareableResource`. */
       resourceType: string;
-      /** Map a collab document id to its parent shareable resource id. */
       resolveResourceId?: CollabResourceIdResolver;
     }
   | {
-      /** Deliver collaboration events to every authenticated user. */
       mode: "all-authenticated";
     };
 
@@ -84,11 +66,6 @@ type NormalizedCollabAccess =
       explicit: boolean;
     };
 
-/**
- * Tables whose implicit all-authenticated warning has already been logged in
- * this process. Avoids duplicate warnings during hot reloads while still
- * identifying every affected table.
- */
 const COLLAB_WARNING_TABLES_KEY =
   "__agentNativeImplicitCollabAccessWarningTables__";
 const collabWarningGlobal = globalThis as typeof globalThis & {
@@ -99,36 +76,15 @@ const _unscoped_warning_tables = (collabWarningGlobal[
 ] ??= new Set<string>());
 
 export interface CollabPluginOptions {
-  /** Table name containing document content. Default: "documents" */
   table?: string;
-  /** Column name for text content. Default: "content" */
   contentColumn?: string;
-  /** Column name for the document ID. Default: "id" */
   idColumn?: string;
-  /** Whether to lazily seed a source row on its first collab request. Default: true */
   autoSeed?: boolean;
-  /** Map a source-table id to the id used by the collab document store. */
   resolveCollabDocumentId?: (sourceId: string) => string;
-  /**
-   * Map a collab document id back to the source-table id for lazy seeding.
-   * Without this, the legacy forward resolver is supported with a first-load
-   * compatibility scan because arbitrary functions are not invertible.
-   */
   resolveSourceIdFromCollabDocumentId?: (docId: string) => string;
-  /**
-   * Callback invoked after a collab update to sync the content column.
-   * If not provided, the plugin auto-syncs using table/contentColumn/idColumn.
-   */
   onContentSync?: (docId: string, text: string) => Promise<void>;
-  /** Content type: "text" for Y.Text (default) or "json" for Y.Map/Y.Array. */
   contentType?: "text" | "json";
-  /** Column name for JSON content (used when contentType is "json"). */
   jsonColumn?: string;
-  /**
-   * Access policy for collaboration routes and event delivery.
-   * Use `resource` for registered shareable resources, or explicitly choose
-   * `all-authenticated` for deployment-wide collaboration.
-   */
   access?: CollabAccess;
   /**
    * The shareable resource type registered via `registerShareableResource`.
@@ -143,11 +99,6 @@ export interface CollabPluginOptions {
    * @deprecated Use `access: { mode: "resource", resourceType, resolveResourceId }`.
    */
   resolveResourceId?: CollabResourceIdResolver;
-  /**
-   * Maximum allowed body size in bytes for write operations
-   * (update/text/json/patch). Requests exceeding this are rejected with 413.
-   * Default: 2097152 (2 MB).
-   */
   maxPayloadBytes?: number;
 }
 
@@ -219,10 +170,6 @@ function warnForImplicitAllAuthenticatedAccess(table: string): void {
   );
 }
 
-/**
- * Coalesce concurrent first loads for one document. The optional lock lets a
- * database-backed caller extend that guarantee across server instances.
- */
 export function createCollabSourceSeeder(options: {
   hasState: (docId: string) => Promise<boolean>;
   loadSource: (docId: string) => Promise<string | null>;
@@ -249,8 +196,6 @@ export function createCollabSourceSeeder(options: {
       }
     };
     const pending = (async () => {
-      // Keep the normal seeded-document path out of a transaction. The second
-      // check inside the lock closes the cross-instance race for cold docs.
       if (await options.hasState(docId)) return;
       if (options.withLock) {
         await options.withLock(docId, seed);
@@ -323,10 +268,6 @@ export function createCollabPlugin(
             legacyResolveCollabDocumentId &&
             !options.resolveSourceIdFromCollabDocumentId
           ) {
-            // An arbitrary forward resolver cannot be inverted. Preserve
-            // existing consumers with a request-lazy compatibility scan; new
-            // configs should provide the reverse resolver to use the indexed
-            // source-id lookup.
             const { rows } = await getDbExec().execute({
               sql: `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
             });
@@ -417,9 +358,6 @@ export function createCollabPlugin(
             });
             if (acquired) return;
 
-            // Do not leave every cold instance blocked on a database session
-            // while the first seed runs. This bounded retry keeps the wait in
-            // application memory and fails loudly if a seed cannot finish.
             await new Promise<void>((resolve) =>
               setTimeout(resolve, Math.min(200, 25 * (attempt + 1))),
             );
@@ -435,30 +373,14 @@ export function createCollabPlugin(
     await awaitBootstrap(nitroApp);
     const P = FRAMEWORK_ROUTE_PREFIX;
 
-    // Wire collab emitter → poll ring buffer so clients receive Yjs updates.
     // Security: when resourceType is configured, resolve the resource's
-    // owner/org so getChangesSinceForUser can scope delivery. We use
-    // resolveAccess to obtain the resource row — it already handles ownership,
-    // visibility, and share rows. In addition to the owner/org tags we also
-    // tag the event with `resourceType` + `resourceId` so the per-user
-    // delivery filter (canSeeChangeForUser) can evaluate resource access
-    // directly for non-owner sharees:
-    //   • tag the event with the resource owner's email and org (owner-scoped)
-    //     for backward compatibility with the conservative owner/org fast path.
-    //   • ALSO tag with resourceType/resourceId so canSeeChangeForUser can run
-    //     an access-aware (cached) check and push to explicit viewer+ sharees
-    //     who don't match owner/org — instead of only degrading them to the
-    //     poll fallback.
-    // See also: SECURITY comment in poll.ts on canSeeChangeForUser.
     const collabEmitter = getCollabEmitter();
     collabEmitter.on("collab", async (event) => {
       if (!resourceType) {
-        // No access model — broadcast to all authenticated users (no owner/orgId tag).
         recordChange(event);
         return;
       }
 
-      // Resolve the resource to learn its owner/org so we can scope the event.
       const docId = event.docId as string | undefined;
       if (!docId) {
         recordChange(event);
@@ -470,13 +392,9 @@ export function createCollabPlugin(
           ? await resolveResourceId(docId)
           : docId;
         if (!resourceId) {
-          // Cannot resolve resource — drop the event to avoid leaking to
-          // unauthorized pollers. The client will catch up via state-vector.
           return;
         }
 
-        // Load the resource row to get owner/org. resolveAccess fetches the
-        // resource row internally; use getShareableResource to read it cheaply.
         const { requireShareableResource } =
           await import("../sharing/registry.js");
         const reg = requireShareableResource(resourceType);
@@ -489,7 +407,6 @@ export function createCollabPlugin(
           .limit(1);
 
         if (!resource) {
-          // Resource deleted — drop silently.
           return;
         }
 
@@ -500,9 +417,6 @@ export function createCollabPlugin(
         const orgId =
           typeof resource.orgId === "string" ? resource.orgId : undefined;
 
-        // Tag the event with owner/org (backward-compat fast path) AND with
-        // resourceType/resourceId so canSeeChangeForUser can run an
-        // access-aware check for non-owner sharees (see poll.ts).
         recordChange({
           ...event,
           ...(ownerEmail ? { owner: ownerEmail } : {}),
@@ -516,10 +430,6 @@ export function createCollabPlugin(
       }
     });
 
-    // Mount collab routes — manual method dispatch since the path layout is
-    // `/collab/:docId/<action>`. The framework strips the `/collab` mount
-    // prefix from event.url.pathname before calling us, so we see e.g.
-    // `/abc-123/state`.
     getH3App(nitroApp).use(
       `${P}/collab`,
       defineEventHandler(async (event: H3Event) => {
@@ -534,7 +444,6 @@ export function createCollabPlugin(
         }
         const method = getMethod(event);
 
-        // Auth check — all collab routes require a session
         const session = await getSession(event).catch(() => null);
         if (!session?.email) {
           setResponseStatus(event, 401);
@@ -546,10 +455,6 @@ export function createCollabPlugin(
         const orgId = orgCtx?.orgId ?? undefined;
 
         return runWithRequestContext({ userEmail, orgId }, async () => {
-          // Access check — require at least viewer for reads, editor for writes.
-          // Awareness routes (POST awareness / GET users) require the same
-          // level as other reads so that knowledge of who is editing a doc
-          // doesn't leak to users without access.
           if (resourceType) {
             const resourceId = resolveResourceId
               ? await resolveResourceId(docId)
@@ -566,11 +471,6 @@ export function createCollabPlugin(
               (action === "patch" && method === "POST");
 
             if (isWrite) {
-              // assertAccess throws ForbiddenError (→ 403) if no editor access.
-              // Projected: only ownerEmail/orgId are read below, and a collab
-              // resource's body is the largest column it has — loading it here
-              // means every keystroke-driven update read the whole document
-              // twice, once for the ACL and once for the edit itself.
               const access = await assertAccess(
                 resourceType,
                 resourceId,
@@ -593,9 +493,6 @@ export function createCollabPlugin(
                 event.context._collabAwarenessScope = awarenessScope;
               }
             } else {
-              // resolveAccess returns null when no access; return 404 to avoid leaking existence.
-              // Projected: only ownerEmail/orgId are read below, and a collab
-              // resource's body is the largest column it has.
               const access = await resolveAccess(
                 resourceType,
                 resourceId,
@@ -623,7 +520,6 @@ export function createCollabPlugin(
             }
           }
 
-          // Payload size limit for write operations
           const isWriteAction =
             (action === "update" && method === "POST") ||
             (action === "text" && method === "POST") ||
@@ -641,8 +537,6 @@ export function createCollabPlugin(
                 error: `Payload too large. Maximum is ${maxPayloadBytes} bytes.`,
               };
             }
-            // Store limit in context so route handlers can enforce it on the
-            // parsed body when content-length is absent or spoofed.
             if (event.context) {
               event.context._collabMaxPayloadBytes = maxPayloadBytes;
             }

@@ -4,7 +4,6 @@ export interface CollabEvent {
   source: "collab";
   type: "yjs-update";
   docId: string;
-  /** Base64-encoded Yjs update */
   update: string;
   requestSource?: string;
 }

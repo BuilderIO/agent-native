@@ -49,7 +49,6 @@ export function invalidateSessionEmailCache(): void {
   sessionEmailCache.clear();
 }
 
-/** Test seam — the cache is module state, so suites must be able to clear it. */
 export function __resetSessionEmailCacheForTests(): void {
   sessionEmailCache.clear();
 }

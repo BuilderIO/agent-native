@@ -1,20 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// ---------------------------------------------------------------------------
-// buildResilientNeonPool — unit tests
-//
-// Tests the three retry-safety scenarios mandated by the task:
-//   1. read (SELECT) retried on connection-class errors
-//   2. write NOT retried on post-send errors
-//   3. write retried once on acquire-timeout (pre-send CONNECT_TIMEOUT)
-//
-// Pool and client are plain mocks — no real DB required.
-// ---------------------------------------------------------------------------
 
-// Use a tight per-test timeout so hung-pool scenarios resolve quickly.
 const TIMEOUT_MS = 20;
 
-/** Build a minimal mock pool that records calls and can be configured to fail. */
 function makeMockPool(
   opts: {
     connectBehavior?: "ok" | "fail" | "timeout";
@@ -31,7 +19,6 @@ function makeMockPool(
   let connectCalls = 0;
   let queryCalls = 0;
 
-  // Track released clients
   const releaseCalls: Array<{ err: any }> = [];
 
   function makeClient() {
@@ -70,14 +57,12 @@ function makeMockPool(
         throw err;
       }
       if (connectBehavior === "timeout") {
-        // Never resolves — simulates a frozen WebSocket.
         return new Promise<never>(() => {});
       }
       return makeClient();
     }),
 
     query: vi.fn(async (sql: string, args?: any[]) => {
-      // Pool-level query (used by drizzle for simple queries outside transactions)
       const client = await pool.connect();
       try {
         const result = await client.query(sql, args);
@@ -102,8 +87,6 @@ describe("buildResilientNeonPool", () => {
     vi.unstubAllEnvs();
   });
 
-  // Override DB_OP_TIMEOUT_MS so tests run fast without relying on the
-  // serverless/non-serverless default (8 s or 30 s).
   beforeEach(() => {
     vi.stubEnv("DB_OP_TIMEOUT_MS", String(TIMEOUT_MS));
   });
@@ -116,7 +99,6 @@ describe("buildResilientNeonPool", () => {
       connect: vi.fn(async () => {
         callCount++;
         if (callCount === 1) {
-          // First acquire succeeds, but query fails with ECONNRESET.
           return {
             query: vi.fn(async () => {
               const err: any = new Error("ECONNRESET");
@@ -126,7 +108,6 @@ describe("buildResilientNeonPool", () => {
             release: vi.fn(),
           };
         }
-        // Second attempt succeeds.
         return {
           query: vi.fn(async () => ({ rows: [{ id: 42 }], rowCount: 1 })),
           release: vi.fn(),
@@ -140,7 +121,6 @@ describe("buildResilientNeonPool", () => {
     const resilient = buildResilientNeonPool(pool as any);
     const result = await resilient.query("SELECT id FROM users");
 
-    // Should have retried: connect called twice.
     expect(pool.connect).toHaveBeenCalledTimes(2);
     expect(result.rows).toEqual([{ id: 42 }]);
   });
@@ -194,7 +174,6 @@ describe("buildResilientNeonPool", () => {
         connectCount++;
         return {
           query: vi.fn(async () => {
-            // Error surfaces after the statement was sent — post-send failure.
             const err: any = new Error("ECONNRESET after write");
             err.code = "ECONNRESET";
             throw err;
@@ -213,7 +192,6 @@ describe("buildResilientNeonPool", () => {
       resilient.query("INSERT INTO users (name) VALUES ($1)", ["alice"]),
     ).rejects.toMatchObject({ code: "ECONNRESET" });
 
-    // Connect must have been called only once — no retry on post-send write errors.
     expect(connectCount).toBe(1);
   });
 
@@ -225,10 +203,8 @@ describe("buildResilientNeonPool", () => {
       connect: vi.fn(async () => {
         connectCount++;
         if (connectCount === 1) {
-          // First acquire: never resolves → withDbTimeout fires CONNECT_TIMEOUT.
           return new Promise<never>(() => {});
         }
-        // Second acquire: succeeds.
         return {
           query: vi.fn(async () => ({ rows: [], rowCount: 1 })),
           release: vi.fn(),
@@ -246,7 +222,6 @@ describe("buildResilientNeonPool", () => {
       ["bob"],
     );
 
-    // Should have retried after the acquire timeout.
     expect(connectCount).toBe(2);
     expect(result.rowCount).toBe(1);
   });
@@ -257,7 +232,6 @@ describe("buildResilientNeonPool", () => {
     const pool = makeMockPool();
     const resilient = buildResilientNeonPool(pool as any);
 
-    // end() and on() are forwarded
     await resilient.end();
     expect(pool.end).toHaveBeenCalledTimes(1);
 
@@ -283,7 +257,6 @@ describe("buildResilientNeonPool", () => {
     await resilient.query("SELECT 1");
 
     expect(releasesMock).toHaveBeenCalledTimes(1);
-    // Called with no error argument on clean release (undefined = return slot to pool)
     expect(releasesMock).toHaveBeenCalledWith(undefined);
   });
 
@@ -370,36 +343,16 @@ describe("isSqlRead", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// createGetDb — lazy proxy returned before `_dbReady` resolves
-//
-// drizzle-orm duck-types "is this an SQL entity" via
-// `typeof value.getSQL === "function"` (isSQLWrapper, sql/sql.js), reading
-// the property synchronously — it never awaits first. If a caller embeds an
-// un-awaited chain from the lazy proxy as a raw value (e.g. a subquery
-// passed straight into `notInArray(col, subqueryChain)` instead of awaiting
-// it), the proxy must not answer that probe with something that looks like
-// a resolved SQL entity: doing so lets drizzle call `.getSQL()` on it, which
-// again duck-types as a wrapper, forever — the exact `RangeError: Maximum
-// call stack size exceeded` seen in production.
-// ---------------------------------------------------------------------------
 describe("createGetDb — lazy proxy before init resolves", () => {
   afterEach(() => {
     vi.resetModules();
   });
 
-  // Returns the `getDb` factory (never the proxy it produces): the proxy's
-  // `then` trap forwards to `_dbReady`, so returning or awaiting the proxy
-  // itself here — rather than calling it synchronously in the test body —
-  // would make the test await the same promise this suite deliberately
-  // leaves pending, and hang.
   async function getLazyDbFactory(): Promise<() => any> {
     vi.doMock("./client.js", async (importOriginal) => {
       const actual = await importOriginal<typeof import("./client.js")>();
       return {
         ...actual,
-        // Route init through the pglite branch and never resolve it, so
-        // `getDb()` is guaranteed to return the lazy proxy, not the real db.
         isPgliteUrl: vi.fn(() => true),
         loadPgliteDrizzle: vi.fn(() => new Promise(() => {})),
       };
@@ -412,8 +365,6 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     const getDb = await getLazyDbFactory();
     const db = getDb();
 
-    // Mirrors templates/clips/actions/list-recordings.ts embedding an
-    // un-awaited subquery chain as a raw value.
     const subqueryChain = db.select({ id: "recordingId" }).from("meetings");
 
     for (const prop of ["getSQL", "shouldOmitSQLParens"] as const) {
@@ -426,8 +377,6 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     const db = getDb();
     const subqueryChain = db.select({ id: "recordingId" }).from("meetings");
 
-    // Same shape as drizzle-orm's isSQLWrapper() + SQL.buildQueryFromSourceParams:
-    // while the value duck-types as an SQL wrapper, keep unwrapping it via getSQL().
     function isSQLWrapper(value: any): boolean {
       return (
         value !== null &&
@@ -444,15 +393,6 @@ describe("createGetDb — lazy proxy before init resolves", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// createGetDb — hosted-runtime local database guard
-//
-// `getDbExec()` (client.ts's initClient) already refused to fall back to
-// PGlite on a hosted function invocation. This opener resolved the same
-// runtime URL but skipped the refusal entirely, so a request that reached
-// Drizzle first silently opened the ephemeral per-instance PGlite file
-// instead of failing loudly. Both now share `assertHostedRuntimeDatabase()`.
-// ---------------------------------------------------------------------------
 describe("createGetDb hosted-runtime local database guard", () => {
   afterEach(() => {
     vi.unstubAllEnvs();

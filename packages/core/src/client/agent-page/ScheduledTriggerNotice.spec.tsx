@@ -49,9 +49,6 @@ describe("ScheduledTriggerNotice", () => {
     expect(renderState({ kind: "loading" })).toBeNull();
   });
 
-  // The bug this guards: a failed status query used to be indistinguishable
-  // from a healthy one, so an unreachable/403/404 check silently vouched for
-  // every "Next run" date on the page.
   it("says the check failed instead of vouching for the deploy", () => {
     const notice = renderState({ kind: "unknown", error: new Error("403") });
 
@@ -63,8 +60,6 @@ describe("ScheduledTriggerNotice", () => {
     expect(notice?.textContent).toContain("unconfirmed");
   });
 
-  // A weaker claim must not look like the strong one, or readers learn to
-  // discount the banner that actually means schedules are dead.
   it("keeps the failed check visually distinct from a known-dead scheduler", () => {
     const unknown = renderState({ kind: "unknown", error: null });
     const unknownClass = unknown?.className ?? "";
@@ -73,7 +68,6 @@ describe("ScheduledTriggerNotice", () => {
 
     expect(unknownClass).not.toContain("amber");
     expect(dead?.className).toContain("amber");
-    // Nothing to toggle: the check failing is not a setting anyone can flip.
     expect(unknownHasDisclosure).toBe(false);
   });
 
@@ -84,8 +78,6 @@ describe("ScheduledTriggerNotice", () => {
     expect(render({ available: true, driver: "in-process" })).toBeNull();
   });
 
-  // Naming the env var is the point: the reader's next question is always "so
-  // how do I turn it back on", and the answer is not discoverable from the UI.
   it("names the build kill switch when that is what turned schedules off", () => {
     const notice = render({ available: false, reason: "disabled-by-env" });
 
@@ -97,7 +89,6 @@ describe("ScheduledTriggerNotice", () => {
   });
 
   // Only the build re-emits the scheduled trigger, so naming the runtime scope
-  // would send the reader somewhere that cannot fix it.
   it("tells the reader how to turn schedules back on, accurately", () => {
     const notice = render({ available: false, reason: "disabled-by-env" });
 
@@ -120,8 +111,6 @@ describe("ScheduledTriggerNotice", () => {
     expect(notice?.textContent).toContain("no durable scheduler");
   });
 
-  // A dev machine is not a broken deploy; saying so would train people to
-  // ignore the banner in the one place it means something.
   it("distinguishes local development and names the local opt-in", () => {
     const notice = render({ available: false, reason: "local-development" });
 
@@ -140,8 +129,6 @@ describe("ScheduledTriggerNotice", () => {
     expect(notice?.textContent).toContain("Event-triggered automations");
   });
 
-  // Collapsed, not absent: the fix is secondary to the warning but must stay
-  // reachable by find-in-page, which a useState toggle would break.
   it("keeps the fix in a disclosure that starts closed", () => {
     const notice = render({ available: false, reason: "disabled-by-env" });
     const details = notice?.querySelector("details");
@@ -167,8 +154,6 @@ describe("ScheduledTriggerNotice", () => {
     );
   });
 
-  // An empty disclosure would promise a fix that does not exist: this host has
-  // no scheduler to switch on.
   it("shows no disclosure when nothing is toggleable", () => {
     const notice = render({
       available: false,

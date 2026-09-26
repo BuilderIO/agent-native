@@ -1,4 +1,3 @@
-// Public client API for the org module.
 
 export {
   useOrg,
@@ -58,8 +57,6 @@ export type {
   OrgScimResult,
 } from "./hooks.js";
 
-// Type-only re-export so templates can annotate the `appRoles` prop without
-// importing the server module.
 export type { AppRolesDescriptor } from "../../org/app-roles.js";
 
 export {
@@ -98,7 +95,6 @@ export {
   orgRoleRank,
 } from "../../org/permissions.js";
 
-// Re-export the shared types so consumers can import them from one place.
 export type {
   OrgRole,
   OrgInfo,

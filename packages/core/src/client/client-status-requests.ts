@@ -60,8 +60,6 @@ function installInvalidationListeners(): void {
 async function fetchClientStatus<T>(
   path: string,
 ): Promise<ClientStatusResult<T>> {
-  // "unavailable" rather than a fabricated payload: callers already treat it as
-  // "could not read", and there is genuinely nothing to read here.
   if (agentNativeApiDisabledReason()) return { state: "unavailable" };
   installInvalidationListeners();
   const url = agentNativePath(path);

@@ -4,17 +4,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * workspace-resolve maps the MCP stdio CLI to the right local dev origin. It is
- * a Node-only module that walks the filesystem, optionally queries a gateway,
- * and TCP-probes ports. We use REAL temp directories for the filesystem walk
- * and app discovery, a controllable `node:net` mock so port probes are
- * deterministic, and a stubbed `fetch` for the gateway list.
- */
 
-// --- controllable port-probe outcome -------------------------------------
-// probePort dynamically imports("node:net") and connects a socket. We make
-// every probe resolve via a single switch so tests stay deterministic.
 let probeOutcome: "connect" | "error" | "timeout" = "error";
 
 vi.mock("node:net", () => {
@@ -33,7 +23,6 @@ vi.mock("node:net", () => {
           : probeOutcome === "timeout"
             ? "timeout"
             : "error";
-      // Fire asynchronously like a real socket would.
       queueMicrotask(() => this.handlers[event]?.forEach((cb) => cb()));
     }
   }
@@ -55,7 +44,6 @@ function writePkg(dir: string, json: unknown) {
   fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(json));
 }
 
-/** Build a workspace root with the given app ids (each gets a package.json). */
 function buildWorkspace(appIds: string[]): string {
   const root = fs.mkdtempSync(path.join(tmpRoot, "ws-"));
   writePkg(root, {
@@ -99,7 +87,6 @@ describe("findWorkspaceRoot", () => {
       name: "ws",
       "agent-native": { workspaceCore: "@agent-native/core" },
     });
-    // No apps/ dir → not a workspace root.
     expect(findWorkspaceRoot(dir)).toBeNull();
   });
 
@@ -107,7 +94,6 @@ describe("findWorkspaceRoot", () => {
     const root = buildWorkspace(["mail"]);
     const child = path.join(root, "apps", "mail");
     fs.writeFileSync(path.join(child, "package.json"), "{ not valid json");
-    // Starting from the app with broken json, it should still find the root.
     expect(findWorkspaceRoot(child)).toBe(root);
   });
 });
@@ -116,13 +102,12 @@ describe("resolveWorkspace — standalone (no workspace)", () => {
   it("treats the cwd as the single app and derives a clean id from the pkg name", async () => {
     const dir = fs.mkdtempSync(path.join(tmpRoot, "solo-"));
     writePkg(dir, { name: "@agent-native/agent-native-mail" });
-    probeOutcome = "error"; // dev server not up
+    probeOutcome = "error";
     const ws = await resolveWorkspace(dir, { PORT: "4321" });
     expect(ws.isWorkspace).toBe(false);
     expect(ws.gatewayUrl).toBeUndefined();
     expect(ws.apps).toHaveLength(1);
     expect(ws.apps[0]).toMatchObject({
-      // scope + agent-native- prefix stripped
       id: "mail",
       port: 4321,
       url: "http://127.0.0.1:4321",
@@ -150,7 +135,6 @@ describe("resolveWorkspace — standalone (no workspace)", () => {
 
 describe("resolveWorkspace — workspace via filesystem fallback (gateway down)", () => {
   beforeEach(() => {
-    // Gateway unreachable → fall back to a filesystem scan.
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -164,7 +148,6 @@ describe("resolveWorkspace — workspace via filesystem fallback (gateway down)"
     const ws = await resolveWorkspace(root, {});
     expect(ws.isWorkspace).toBe(true);
     expect(ws.gatewayUrl).toBe("http://127.0.0.1:8080");
-    // dispatch first, then alphabetical: dispatch, calendar, mail.
     expect(ws.apps.map((a) => [a.id, a.port])).toEqual([
       ["dispatch", 8100],
       ["calendar", 8101],
@@ -174,7 +157,6 @@ describe("resolveWorkspace — workspace via filesystem fallback (gateway down)"
 
   it("skips apps/* entries that lack a package.json", async () => {
     const root = buildWorkspace(["mail"]);
-    // A bare directory with no package.json must be ignored.
     mkdirp(path.join(root, "apps", "not-an-app"));
     const ws = await resolveWorkspace(root, {});
     expect(ws.apps.map((a) => a.id)).toEqual(["mail"]);
@@ -195,7 +177,6 @@ describe("resolveWorkspace — workspace via filesystem fallback (gateway down)"
 describe("resolveWorkspace — workspace via gateway list (authoritative)", () => {
   it("prefers the gateway's apps + ports over the filesystem scan", async () => {
     const root = buildWorkspace(["mail", "calendar"]);
-    // Gateway reassigns ports and reports a different set than the FS scan.
     const fetchSpy = vi.fn(async (url: string) => {
       expect(url).toBe("http://127.0.0.1:8080/_workspace/apps");
       return new Response(
@@ -265,7 +246,6 @@ describe("resolveWorkspace — workspace via gateway list (authoritative)", () =
 
 describe("resolveLocalAppOrigin precedence", () => {
   beforeEach(() => {
-    // Default: gateway down → filesystem scan, ports unprobed/down.
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -277,7 +257,6 @@ describe("resolveLocalAppOrigin precedence", () => {
   it("1. explicit port wins and maps to the matching app id", async () => {
     const root = buildWorkspace(["dispatch", "mail"]);
     const res = await resolveLocalAppOrigin({ cwd: root, port: 8101 });
-    // dispatch=8100, mail=8101.
     expect(res.origin).toBe("http://127.0.0.1:8101");
     expect(res.appId).toBe("mail");
   });
@@ -286,13 +265,11 @@ describe("resolveLocalAppOrigin precedence", () => {
     const root = buildWorkspace(["mail"]);
     const res = await resolveLocalAppOrigin({ cwd: root, port: 9999 });
     expect(res.origin).toBe("http://127.0.0.1:9999");
-    // Falls back to provided appId / first app id.
     expect(res.appId).toBe("mail");
   });
 
   it("1c. an explicit port outranks a conflicting appId and adopts the matched app's id", async () => {
     const root = buildWorkspace(["dispatch", "mail"]);
-    // dispatch=8100, mail=8101. Port 8101 wins over the appId "dispatch".
     const res = await resolveLocalAppOrigin({
       cwd: root,
       port: 8101,
@@ -306,7 +283,6 @@ describe("resolveLocalAppOrigin precedence", () => {
     const root = buildWorkspace(["dispatch", "mail", "calendar"]);
     const res = await resolveLocalAppOrigin({ cwd: root, appId: "calendar" });
     expect(res.appId).toBe("calendar");
-    // dispatch first (8100), then alphabetical: calendar=8101, mail=8102.
     expect(res.origin).toBe("http://127.0.0.1:8101");
   });
 
@@ -327,7 +303,6 @@ describe("resolveLocalAppOrigin precedence", () => {
   it("3b. defaults to the first app when dispatch is absent", async () => {
     const root = buildWorkspace(["mail", "calendar"]);
     const res = await resolveLocalAppOrigin({ cwd: root });
-    // alphabetical: calendar first.
     expect(res.appId).toBe("calendar");
     expect(res.origin).toBe("http://127.0.0.1:8100");
   });
@@ -345,8 +320,6 @@ describe("resolveLocalAppOrigin precedence", () => {
   });
 
   it("throws when a workspace has zero discoverable apps and no selector", async () => {
-    // workspaceCore + apps/ dir present (so it IS a workspace) but apps/ empty
-    // and the gateway is down → no apps resolved → guarded error.
     const root = fs.mkdtempSync(path.join(tmpRoot, "empty-ws-"));
     writePkg(root, {
       name: "ws",

@@ -97,7 +97,6 @@ function migrateApps(apps: AppConfig[]): {
 export async function getApps(): Promise<AppConfig[]> {
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
   if (!raw) {
-    // First launch — seed with defaults
     await saveApps(DEFAULT_APPS);
     return DEFAULT_APPS;
   }

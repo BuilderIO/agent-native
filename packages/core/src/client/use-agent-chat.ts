@@ -77,10 +77,6 @@ export function useAgentChatGenerating(options?: {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (typeof detail?.isRunning !== "boolean") return;
-      // Only honor events for the run this hook started. Events carrying a
-      // different tabId belong to another chat surface (sidebar, other
-      // composer, automation) and must not flip our state. Once a run has a
-      // tab identity, an unscoped event is just as unrelated as another tab.
       const eventTabId = typeof detail.tabId === "string" ? detail.tabId : null;
       const nextState = {
         isRunning: detail.isRunning,

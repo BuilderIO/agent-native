@@ -23,14 +23,6 @@ async function createClient({ url }: { url: string }) {
 }
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * db-check-scoping is the CI/agent guard that flags template tables missing the
- * owner_email (and optionally org_id) scoping columns. Those unscoped tables
- * are denied to the raw db-* tools, so the detection logic here is what keeps
- * a forgotten ownership column from becoming a cross-tenant hole. The `validate`
- * helper isn't exported, so we drive the real default export against a temp-file
- * PostgreSQL database and assert on the JSON output and the process exit code.
- */
 describe("db-check-scoping", () => {
   let dir: string;
   let dbFile: string;
@@ -103,11 +95,8 @@ describe("db-check-scoping", () => {
     expect(byTable.leaky_table.hasOwnerEmail).toBe(false);
     expect(byTable.leaky_table.issues[0]).toMatch(/missing owner_email/);
 
-    // JSON mode is a pure report and does not set the exit code.
     expect(process.exitCode).toBeUndefined();
 
-    // The human-readable path fails closed: a missing scoping column must
-    // surface as exit code 1 (so CI guards catch it).
     const logs = await runCheck([]);
     expect(logs.join("\n")).toContain("Tables denied to raw database tools:");
     expect(process.exitCode).toBe(1);
@@ -115,8 +104,6 @@ describe("db-check-scoping", () => {
 
   it("skips core/framework tables that scope themselves", async () => {
     await withClient(async (c) => {
-      // settings + sessions + chat_threads are in CORE_TABLES and intentionally
-      // lack owner_email; they must NOT be reported as issues.
       await c.execute(
         `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER)`,
       );
@@ -184,7 +171,6 @@ describe("db-check-scoping", () => {
     expect(byTable.multi_org.hasOrgId).toBe(true);
     expect(byTable.multi_org.issues).toEqual([]);
 
-    // Human-readable run with --require-org must fail closed on the org gap.
     const logs = await runCheck(["--require-org"]);
     expect(logs.join("\n")).toContain("missing org_id");
     expect(process.exitCode).toBe(1);

@@ -1,17 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-/**
- * Adversarial integration tests for the real {@link ydoc-manager} against an
- * in-memory `_collab_docs` store (mirrors storage.spec.ts's SQL mock).
- *
- * These exercise the multi-client merge / persistence path that the plan collab
- * plugin relies on: two clients editing concurrently (no lost update), replayed
- * and out-of-order Yjs updates (idempotent, no duplication), the optimistic
- * version-conflict retry in persistMergedState, and the emit contract. Yjs
- * itself is replay-safe at the CRDT layer; the risk is in the wrapper's
- * load → apply → merge → persist loop.
- */
 
 interface Row {
   yjs_state: string;
@@ -24,8 +13,6 @@ const store = vi.hoisted(() => ({
     string,
     { yjs_state: string; text_snapshot: string; version: number }
   >(),
-  /** Fires once from inside the state read, to land a peer commit in the
-   *  window between a cold load's read and the cache entry it publishes. */
   onStateRead: null as null | (() => void),
 }));
 
@@ -111,7 +98,6 @@ vi.mock("./emitter.js", () => ({
 
 let manager: typeof import("./ydoc-manager.js");
 
-/** Read the persisted Y.Text content directly from the in-memory store. */
 function storedText(docId: string, field = "content"): string {
   const row = store.rows.get(docId);
   if (!row) return "";
@@ -135,12 +121,10 @@ afterEach(() => {
 describe("ydoc-manager multi-client merge", () => {
   it("merges two concurrent client inserts with no lost update", async () => {
     const docId = "plan_p1:block_a";
-    // Client A: starts empty, types "AAA"
     const docA = new Y.Doc();
     docA.getText("content").insert(0, "AAA");
     const updA = Y.encodeStateAsUpdate(docA);
 
-    // Client B: independently starts empty, types "BBB"
     const docB = new Y.Doc();
     docB.getText("content").insert(0, "BBB");
     const updB = Y.encodeStateAsUpdate(docB);
@@ -149,8 +133,6 @@ describe("ydoc-manager multi-client merge", () => {
     await manager.applyUpdate(docId, updB, "tabB");
 
     const merged = storedText(docId);
-    // Both clients' text must survive (order is CRDT-deterministic, content set
-    // is what matters for "no lost update").
     expect(merged).toContain("AAA");
     expect(merged).toContain("BBB");
     expect(merged.length).toBe(6);
@@ -164,8 +146,6 @@ describe("ydoc-manager multi-client merge", () => {
 
     await manager.applyUpdate(docId, updA, "tabA");
     const once = storedText(docId);
-    // Replay the SAME update bytes several times — a duplicate POST /update,
-    // a retried request, a re-delivered poll event.
     await manager.applyUpdate(docId, updA, "tabA");
     await manager.applyUpdate(docId, updA, "tabA");
 
@@ -175,26 +155,21 @@ describe("ydoc-manager multi-client merge", () => {
 
   it("handles an out-of-order / stale-base update without losing newer content", async () => {
     const docId = "plan_p3:block_a";
-    // A types "v1"; server now holds "v1".
     const docA = new Y.Doc();
     docA.getText("content").insert(0, "v1");
     await manager.applyUpdate(docId, Y.encodeStateAsUpdate(docA), "tabA");
 
-    // B forks from the SAME empty base (never saw "v1") and types "v2-".
     const docB = new Y.Doc();
     docB.getText("content").insert(0, "v2-");
     const staleUpdB = Y.encodeStateAsUpdate(docB);
 
-    // Meanwhile A appends "!" producing a newer update.
     docA.getText("content").insert(2, "!");
     const newerUpdA = Y.encodeStateAsUpdate(docA);
 
-    // Apply the NEWER A update, THEN the STALE B update (out of order arrival).
     await manager.applyUpdate(docId, newerUpdA, "tabA");
     await manager.applyUpdate(docId, staleUpdB, "tabB");
 
     const merged = storedText(docId);
-    // Nothing is lost: A's "v1!" content and B's "v2-" content both present.
     expect(merged).toContain("v1");
     expect(merged).toContain("!");
     expect(merged).toContain("v2-");
@@ -208,8 +183,6 @@ describe("ydoc-manager multi-client merge", () => {
       d.getText("content").insert(0, `X${i}`);
       updates.push(Y.encodeStateAsUpdate(d));
     }
-    // Fire them all "at once" — withDocWriteLock must serialize so every insert
-    // survives (no read-modify-write race that drops one).
     await Promise.all(
       updates.map((u, i) => manager.applyUpdate(docId, u, `tab${i}`)),
     );
@@ -226,7 +199,6 @@ describe("ydoc-manager multi-client merge", () => {
     docA.getText("content").insert(0, "persisted");
     await manager.applyUpdate(docId, Y.encodeStateAsUpdate(docA), "tabA");
 
-    // Drop the in-memory cached doc, forcing a reload from the store on next op.
     manager.releaseDoc(docId);
 
     const docB = new Y.Doc();
@@ -261,8 +233,6 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
     const docId = "plan_t2:block_a";
     await manager.applyText(docId, "same", "content", "agent");
     emitMock.fn.mockReset();
-    // Re-apply identical text — diff is empty, so nothing must be emitted or
-    // re-persisted (otherwise a poll loop would re-broadcast no-ops).
     const result = await manager.applyText(docId, "same", "content", "agent");
     expect(result).toBe("same");
     expect(emitMock.fn).not.toHaveBeenCalled();
@@ -270,12 +240,10 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
 
   it("computes a minimal diff so concurrent edits merge (agent edit + earlier client text)", async () => {
     const docId = "plan_t3:block_a";
-    // A client typed "The quick fox".
     const docA = new Y.Doc();
     docA.getText("content").insert(0, "The quick fox");
     await manager.applyUpdate(docId, Y.encodeStateAsUpdate(docA), "tabA");
 
-    // Agent rewrites the whole text to insert "brown ".
     const out = await manager.applyText(
       docId,
       "The quick brown fox",
@@ -289,14 +257,10 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
   it("does not publish a cold-loaded doc a peer already moved past", async () => {
     const docId = "design_cold:screen_a";
     await manager.applyText(docId, "v1", "content", "seed");
-    // Drop the cache so the next read is a genuine cold load.
     manager.releaseDoc(docId);
 
     const durable = store.rows.get(docId)!;
     store.onStateRead = () => {
-      // The peer's commit lands after this process read the row but before it
-      // publishes the cache entry. Pre-fix, that entry — and this request —
-      // answered "v1" while the durable row already said "v2-from-peer".
       const peer = new Y.Doc();
       Y.applyUpdate(peer, fromB64(durable.yjs_state));
       peer.transact(() => {
@@ -319,8 +283,6 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
     await manager.applyText(docId, "base", "content", "seed");
     expect(await manager.getText(docId)).toBe("base");
 
-    // A peer serverless instance commits. This process's cached Y.Doc still
-    // holds "base"; nothing in-process tells it the row moved.
     const durable = store.rows.get(docId)!;
     const remoteDoc = new Y.Doc();
     Y.applyUpdate(remoteDoc, fromB64(durable.yjs_state));
@@ -335,9 +297,6 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
       version: durable.version + 1,
     });
 
-    // Reading through the cache must reflect the peer's write, not the text
-    // this instance happened to load first. A reader that answers "base" here
-    // is what makes an optimistic-concurrency guard reject correct writes.
     expect(await manager.getText(docId)).toBe("human");
   });
 
@@ -346,9 +305,6 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
     await manager.applyText(docId, "base", "content", "seed");
     emitMock.fn.mockReset();
 
-    // Simulate a human edit landing through another serverless process. The
-    // durable state advances while this process's cached Y.Doc still has the
-    // common "base" ancestor.
     const durableBefore = store.rows.get(docId)!;
     const remoteDoc = new Y.Doc();
     Y.applyUpdate(remoteDoc, fromB64(durableBefore.yjs_state));
@@ -375,8 +331,6 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
       // peer, so which guard fires depends on ordering. Both are the conflict.
     ).rejects.toThrow(/stale base|moved from version|kept changing/);
 
-    // The caller's whole-document candidate never replaced the human's edit,
-    // and nothing was persisted or broadcast.
     expect(store.rows.get(docId)).toEqual(remoteDurable);
     expect(storedText(docId)).toBe("human");
     expect(emitMock.fn).not.toHaveBeenCalled();
@@ -392,10 +346,6 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
 
     await expect(
       manager.applyText(docId, "The quick brown fox", "content", "agent", {
-        // Runs inside the write lock, after the base converged and before the
-        // diff — the exact window a peer commit can still slip through. Land
-        // the human's edit here so persistMergedState merges two concurrent
-        // edits of the same range and produces a garbled snapshot.
         validateBase: () => {
           const remoteDoc = new Y.Doc();
           Y.applyUpdate(remoteDoc, fromB64(durableBefore.yjs_state));
@@ -418,10 +368,6 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
       }),
     ).rejects.toThrow(/moved from version/);
 
-    // Pinning the validated base version turns this into a conflict BEFORE the
-    // merge: the peer's commit is never merged with, so there is no garbled
-    // candidate for validateSnapshot to catch. Nothing durable or visible
-    // changed, and the human's edit stands.
     expect(storedText(docId)).toBe("human wrote this instead");
     expect(emitMock.fn).not.toHaveBeenCalled();
     expect(await manager.getText(docId)).toBe("human wrote this instead");
@@ -431,7 +377,6 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
 describe("ydoc-manager searchAndReplace", () => {
   it("does not emit or change state when the text is not found", async () => {
     const docId = "plan_sr1:block_a";
-    // Seed via the XML fragment path the plan editor actually uses.
     const seed = new Y.Doc();
     const frag = seed.getXmlFragment("default");
     const para = new Y.XmlElement("paragraph");
@@ -473,7 +418,6 @@ describe("ydoc-manager searchAndReplace", () => {
     expect(res.found).toBe(true);
     expect(emitMock.fn).toHaveBeenCalledTimes(1);
 
-    // Verify the persisted XML text reflects the replacement.
     const row = store.rows.get(docId)!;
     const check = new Y.Doc();
     Y.applyUpdate(check, fromB64(row.yjs_state));
@@ -489,10 +433,8 @@ describe("ydoc-manager seedFromText guard", () => {
     docA.getText("content").insert(0, "user typed this");
     await manager.applyUpdate(docId, Y.encodeStateAsUpdate(docA), "tabA");
 
-    // A second lazy seed attempt tries to seed the original markdown.
     await manager.seedFromText(docId, "stale original markdown", "content");
 
-    // The user's live content must NOT be clobbered by the seed.
     expect(storedText(docId)).toBe("user typed this");
   });
 });

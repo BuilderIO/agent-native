@@ -11,12 +11,6 @@ import {
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
 
-// 15 minutes was too short in practice: a user who steps away mid-approval
-// (switching tabs to update their client, checking something else) comes back
-// to a silently expired grant with no visible error — clicking Approve just
-// does nothing, because `consumeAgentToolApproval`'s `expires_at > ?` no
-// longer matches. An hour gives real human latency room while still bounding
-// how long a stale grant can be replayed.
 const APPROVAL_TTL_MS = 60 * 60_000;
 const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
 
@@ -156,11 +150,6 @@ export async function isAgentToolAlwaysAllowed(
   return (result.rows ?? []).length > 0;
 }
 
-/**
- * Recover the durable scope for an approval continuation when a transport
- * drops the original turn id. A single pending logical turn is safe to
- * recover; multiple turns are deliberately ambiguous and stay unmatched.
- */
 export async function resolveAgentToolApprovalTurnId(binding: {
   ownerEmail: string;
   orgId?: string | null;
@@ -208,15 +197,6 @@ export async function resolveAgentToolApprovalTurnId(binding: {
   return turnIds.size === 1 ? [...turnIds][0]! : null;
 }
 
-/**
- * Creates the durable pending-approval row and returns its id as the "ask"
- * identity for this specific gate hit. Every call is a fresh row (a fresh
- * id), including a second gate hit for the same `approvalKey` after a prior
- * grant failed to be consumed — so the id doubles as the signal the client
- * needs to tell "this approval_required is the one I already approved,
- * re-rendered" apart from "this is a NEW ask for the same tool call". See
- * `ApprovalAffordance` in client/chat/tool-call-display.tsx.
- */
 export async function createAgentToolApproval(
   binding: AgentToolApprovalBinding,
 ): Promise<string> {
@@ -244,9 +224,6 @@ export async function createAgentToolApproval(
     ],
   });
 
-  // Cleanup is hygiene only. Expired rows remain unusable because consume uses
-  // an atomic status and expiry predicate, so cleanup failures must not affect
-  // the approval that was just recorded.
   try {
     await getDbExec().execute({
       sql: `DELETE FROM agent_tool_approvals

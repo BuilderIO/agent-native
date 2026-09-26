@@ -42,9 +42,6 @@ describe("connectRequiredResult", () => {
     expect(result.connectRequired.settingsPath).toBe("/settings");
   });
 
-  // Shape matching means a card can arrive from an MCP server or a remote A2A
-  // agent, and the href reaches the DOM. Only a same-origin path or an http(s)
-  // URL is a connect target.
   it.each([
     "javascript:alert(1)",
     "JavaScript:alert(1)",

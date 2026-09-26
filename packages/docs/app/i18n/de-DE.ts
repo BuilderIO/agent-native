@@ -750,7 +750,6 @@ const deDE = {
         answer5:
           "Ja. Teile Dashboards mit Teammitgliedern oder deiner Organisation mit Betrachter-, Bearbeiter- oder Admin-Zugriff. Du kannst außerdem E-Mail-Berichte mit aktuellen Dashboard-Ergebnissen planen oder Alarme für Bedingungen konfigurieren, die du im Blick behalten willst.",
       },
-      // V3-Landingpage-Texte (2026-09-14) — Hero bis finaler CTA unten.
       heroEyebrow: "Analytics",
       heroTitle:
         "Eine Frage stellen. Rufen Sie das Diagramm, die Abfrage und den Kontext ab.",
@@ -881,7 +880,6 @@ const deDE = {
           "Ja. Füge erforderliche Co-Hosts hinzu, und Calendar prüft deren Verfügbarkeitsinformationen, bevor ein Termin angeboten wird. Damit auch die konfigurierten Arbeitszeiten jedes Co-Hosts berücksichtigt werden, müsst ihr eure Kalender gegenseitig als Overlay hinzufügen. Ohne diese gegenseitige Freigabe prüft Calendar nur die Verfügbarkeitsinformationen.",
       },
       s001: "Screenshot der Vorlage Calendar",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Calendar",
       heroTitle:
         "Finden Sie Zeit, buchen Sie Besprechungen und passen Sie Ihren Tag mit einem Agenten an",
@@ -1008,7 +1006,6 @@ const deDE = {
       },
       s001: "Screenshot der Vorlage Assets",
       imageCredits: "Bildnachweise",
-      // V3 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Assets",
       heroTitle: "Generieren Sie in einem Gespräch markengerechte Bilder",
       heroDescription:
@@ -1072,7 +1069,6 @@ const deDE = {
           "Ja. Erstellen Sie mit der CLI eine Kopie, fügen Sie Ihre Actions, Daten und Oberfläche hinzu und stellen Sie Ihre Anwendung bereit. Konfigurieren Sie Authentifizierung und Provider-Zugriff für Ihre Umgebung und testen Sie die hinzugefügten Workflows, bevor Sie sie mit Ihren Nutzern teilen.",
       },
       s001: "Screenshot der Chat-App",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "Bauen Sie Ihre eigene KI-Chat-App",
       heroDescription:
@@ -1119,7 +1115,6 @@ const deDE = {
     },
     clips: {
       s001: "Screenshot der Vorlage Clips",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "Bildschirmaufnahmen, die dein KI-Agent sehen und hören kann",
       heroDescription:
@@ -1287,7 +1282,6 @@ const deDE = {
           "Ja. Neue Dokumente sind standardmäßig privat. Teile sie mit Betrachter-, Bearbeiter- oder Admin-Zugriff und nutze den Versionsverlauf der Seite, um einen früheren Stand wiederherzustellen. Das Wiederherstellen eines Stands ersetzt den aktuellen Inhalt der Seite.",
       },
       s001: "Screenshot der Vorlage Content",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "Erstelle und organisiere deine Arbeit mit deinem KI-Agenten",
       heroDescription:
@@ -1412,7 +1406,6 @@ const deDE = {
           "Exportiere HTML oder ein ZIP der Design-Dateien, oder bereite eine Übergabe für einen Coding-Agenten vor. Der Prototyp bietet einen Ausgangspunkt für die Entwicklung; Anwendungslogik, Integrationen, Tests und Deployment müssen noch implementiert und geprüft werden. HTML-Exporte können externe Laufzeit-Ressourcen verwenden.",
       },
       s001: "Screenshot der Vorlage Design",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "Interaktive Prototypen mit deinem KI-Agenten gestalten",
       heroDescription:
@@ -1535,7 +1528,6 @@ const deDE = {
           "Nein. In einem Team-Workspace kann Dispatch eine Überprüfung seiner eigenen Änderungen an gemeinsamen Ressourcen und Einstellungen verlangen. Aktionen innerhalb verbundener Apps, etwa das Versenden einer E-Mail, folgen den Kontrollen dieser Apps. Die Dispatch-Freigabe-Warteschlange ist kein universelles Tor für jede Agentenaktion.",
       },
       s001: "Screenshot der Vorlage Dispatch",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "Koordiniere deine KI-Agents an einem Ort",
       heroDescription:
@@ -1773,7 +1765,6 @@ const deDE = {
           "Ja. Ein Teammitglied kann einen Entwurf anfordern, der in deiner Prüfungswarteschlange erscheint. Öffne ihn, bearbeite die Nachricht und sende sie, wenn sie fertig ist. Die anfragende Person kann sie nicht in deinem Namen senden; die Eigentümerin oder der Eigentümer des Entwurfs oder eine Organisationsadministration steuert das Senden.",
       },
       s001: "Screenshot der Vorlage Mail",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
       heroTitle: "Verwalte deinen Posteingang mit deinem KI-Agenten",
       heroDescription:
@@ -1964,7 +1955,6 @@ const deDE = {
           "Exportiere eine PPTX-Datei, um sie in PowerPoint zu öffnen. Um die Präsentation in Google Slides zu verwenden, importiere die Datei dort. Überprüfe Schriften und Layouts nach dem Export, da sie sich zwischen Editoren unterschiedlich darstellen können.",
       },
       s001: "Screenshot der Vorlage Slides",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "Präsentationen mit deinem KI-Agenten erstellen",
       heroDescription:

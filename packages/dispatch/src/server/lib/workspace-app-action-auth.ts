@@ -58,7 +58,6 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
       throw new Error("Invalid workspace registry authorization");
     }
 
-    // Native clients use their normal persisted session bearer for the same
     // read-only action. Let the framework resolve that credential before
     // treating an otherwise opaque bearer as an A2A token.
     const hasRequestUrl =
@@ -86,8 +85,6 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
     const claimedOrgId = identity.orgId?.trim();
     let orgId: string | null;
     if (claimedOrgId) {
-      // A signed org_id is authoritative when the sender had an org-scoped
-      // request but could not resolve a domain. If both claims exist, reject
       // a mismatch rather than allowing either claim to widen scope.
       if (orgDomain) {
         const org = await resolveOrgByDomain(orgDomain);
@@ -100,16 +97,12 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
       }
       orgId = claimedOrgId;
     } else if (orgDomain) {
-      // A verified domain claim identifies the caller's intended org. Resolve
-      // it locally instead of falling back to the receiver's active-org or
-      // first-membership selection, which can be wrong for multi-org users.
       const org = await resolveOrgByDomain(orgDomain);
       if (!org || !(await isOrgMember(org.orgId, identity.email))) {
         throw new Error("Invalid workspace registry authorization");
       }
       orgId = org.orgId;
     } else {
-      // Preserve compatibility with legacy tokens that predate org_domain.
       orgId = await resolveOrgIdForEmail(identity.email);
     }
 

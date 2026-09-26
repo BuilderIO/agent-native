@@ -16,7 +16,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Restore the real home dir so no test pollutes the developer's machine.
   if (savedHome === undefined) delete process.env.HOME;
   else process.env.HOME = savedHome;
   if (savedCodexHome === undefined) delete process.env.CODEX_HOME;
@@ -32,7 +31,6 @@ function tmpDir() {
   return root;
 }
 
-/** Point both $HOME and $CODEX_HOME at temp dirs so writes are hermetic. */
 function isolateHome() {
   const home = tmpDir();
   const codexHome = path.join(home, ".codex");
@@ -41,7 +39,6 @@ function isolateHome() {
   return { home, codexHome };
 }
 
-/** A fetch mock that returns scripted JSON responses keyed by URL substring. */
 function mockFetch(
   handlers: { match: string; status?: number; json: unknown }[],
 ): typeof fetch {
@@ -138,7 +135,6 @@ describe("registerMcpServer", () => {
       interactive: true,
     });
 
-    // claude-code @ user scope → ~/.claude.json
     const claudeJson = JSON.parse(
       fs.readFileSync(path.join(home, ".claude.json"), "utf-8"),
     );
@@ -435,7 +431,6 @@ describe("registerMcpServer", () => {
       hostedUrl: "https://xray.agent-native.com",
     };
 
-    // Pass a fetch that throws — proves authMode "none" never hits the network.
     const fetchImpl = (async () => {
       throw new Error("network must not be called for authMode none");
     }) as unknown as typeof fetch;
@@ -521,9 +516,7 @@ describe("registerMcpServer", () => {
   it("collects errors instead of throwing when a single key write fails", async () => {
     const { home } = isolateHome();
     // Point baseDir at a file so project-scope writes would fail — but user
-    // scope here writes to ~/.claude.json, so use an unwritable codex home.
     const baseDir = tmpDir();
-    // Make CODEX_HOME a path whose parent is a file → mkdir fails.
     const blocker = path.join(home, "blocker");
     fs.writeFileSync(blocker, "x", "utf-8");
     process.env.CODEX_HOME = path.join(blocker, "nested");
@@ -543,12 +536,10 @@ describe("registerMcpServer", () => {
       interactive: false,
     });
 
-    // claude-code succeeded.
     const claudeJson = JSON.parse(
       fs.readFileSync(path.join(home, ".claude.json"), "utf-8"),
     );
     expect(claudeJson.mcpServers["agent-native-x"]).toBeDefined();
-    // codex failed but did not throw — surfaced in guidance.
     expect(result.guidance.join("\n")).toMatch(/Could not write .*codex/);
     expect(result.written.some((w) => w.client === "claude-code")).toBe(true);
   });

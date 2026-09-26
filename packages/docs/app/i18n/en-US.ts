@@ -744,7 +744,6 @@ const enUS = {
       },
       s001: "Assets app screenshot",
       imageCredits: "Image credits",
-      // V3 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Assets",
       heroTitle: "Generate on-brand images in a conversation",
       heroDescription:
@@ -806,7 +805,6 @@ const enUS = {
           "Yes. Create a copy with the CLI, add your actions, data, and interface, then deploy your application. Configure authentication and provider access for your environment, and test the workflows you add before sharing it with users.",
       },
       s001: "Chat app screenshot",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "Build your own AI chat app",
       heroDescription:
@@ -868,7 +866,6 @@ const enUS = {
         answer5:
           "Yes. Share dashboards with teammates or your organization using viewer, editor, or admin access. You can also schedule email reports with current dashboard results, or configure alerts for conditions you want to track.",
       },
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Analytics",
       heroTitle: "Ask a question. Get the chart, query, and context.",
       heroDescription:
@@ -996,7 +993,6 @@ const enUS = {
           "Yes. Add required co-hosts, and Calendar checks their free/busy information before offering a time. To also respect each co-host's configured working hours, you and that co-host must add each other's calendars as overlays. Without that mutual sharing, Calendar checks their free/busy information only.",
       },
       s001: "Calendar app screenshot",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Calendar",
       heroTitle: "Find time, book meetings, and adapt your day with an agent",
       heroDescription:
@@ -1099,7 +1095,6 @@ const enUS = {
     },
     clips: {
       s001: "Clips app screenshot",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "Screen recordings your AI agent can see and hear",
       heroDescription:
@@ -1266,7 +1261,6 @@ const enUS = {
           "Yes. New documents are private by default. Share them with viewer, editor, or admin access, and use page version history to restore an earlier snapshot. Restoring a snapshot replaces the page's current content.",
       },
       s001: "Content app screenshot",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "Create and organize your work with your AI agent",
       heroDescription:
@@ -1390,7 +1384,6 @@ const enUS = {
           "Export HTML or a ZIP of the design files, or prepare a handoff for a coding agent. The prototype provides a starting point for development; application logic, integrations, testing, and deployment still need implementation and review. HTML exports may use external runtime resources.",
       },
       s001: "Design app screenshot",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "Design interactive prototypes with your AI agent",
       heroDescription:
@@ -1512,7 +1505,6 @@ const enUS = {
           "No. In a team workspace, Dispatch can require review of its own changes to shared resources and settings. Actions inside connected apps, such as sending email, follow those apps' controls. The Dispatch approval queue is not a universal gate for every agent action.",
       },
       s001: "Dispatch app screenshot",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "Coordinate your AI agents from one place",
       heroDescription:
@@ -1628,7 +1620,6 @@ const enUS = {
           "Yes, after configuring a destination for the form. Slack and Discord use webhook URLs. Google Sheets requires a deployed Google Apps Script endpoint that receives submissions; a spreadsheet link alone will not work. You can also use a webhook or export responses as CSV. Agent exports of all responses as CSV or JSON require connected file storage.",
       },
       s001: "Forms app screenshot",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Forms",
       heroTitle: "Create forms with your AI agent",
       heroDescription:
@@ -1748,7 +1739,6 @@ const enUS = {
           "Yes. A teammate can request a draft that appears in your review queue. Open it, edit the message, and send it when ready. The requester cannot send it on your behalf; the draft owner or an organization admin controls sending.",
       },
       s001: "Mail app screenshot",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
       heroTitle: "Manage your inbox with your AI agent",
       heroDescription:
@@ -1935,7 +1925,6 @@ const enUS = {
           "Export a PPTX file to open in PowerPoint. To use the presentation in Google Slides, import that file there. Review fonts and layouts after export because they can render differently between editors.",
       },
       s001: "Slides app screenshot",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "Create presentations with your AI agent",
       heroDescription:
@@ -2650,7 +2639,6 @@ const enUS = {
     automationConnectors: "Workflow Connectors",
     workspaceConnections: "Workspace Connections",
     // i18n-copy-ignore: existing locale translations already name templates;
-    // this fixes the English nav label to match the page.
     creatingTemplates: "Creating Templates",
     syncingTemplateChanges: "Syncing Template Changes",
     writingAgentInstructions: "Writing Agent Instructions",

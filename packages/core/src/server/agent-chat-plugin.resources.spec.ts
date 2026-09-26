@@ -23,7 +23,6 @@ const routeHarness = vi.hoisted(() => ({
   initPromises: [] as Promise<void>[],
 }));
 
-// Mirror the real `getRuntimeSkills`: drop `scope: dev` skills, keep the rest.
 function runtimeSkillsFromBundle(bundle: { skills?: Record<string, any> }) {
   return Object.values(bundle.skills ?? {}).filter(
     (skill: any) => skill?.meta?.scope !== "dev",
@@ -1032,8 +1031,6 @@ describe("loadResourcesForPrompt", () => {
   });
 
   it("keeps cross-app discovery and names what it dropped when compact context overflows", async () => {
-    // 30 peers with real descriptions is a ~14,000-character block: large
-    // enough that the old greedy fitter had no room left for it.
     mocks.discoverAgents.mockResolvedValueOnce(
       Array.from({ length: 30 }, (_, index) => ({
         id: index === 0 ? "analytics" : `app-${index}`,
@@ -1158,7 +1155,6 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain('<resource name="LEARNINGS.md" scope="shared"');
     expect(prompt).toContain("truncated after 30,000 characters");
     expect(prompt).toContain('Use the `resources` tool with `action: "read"`');
-    // The full oversized content must not have been inlined verbatim.
     expect(prompt.length).toBeLessThan(hugeLearnings.length);
   });
 

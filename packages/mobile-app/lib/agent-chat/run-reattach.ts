@@ -1,10 +1,3 @@
-/**
- * Recovery for chat streams that close without a terminal event. The server
- * always ends a finished run with `done`/`error`/…; a stream that just stops
- * was dropped (mobile network cut, proxy timeout, hosted background-worker
- * handoff). Reattach to the run's event stream from the last seen seq —
- * mirrors the web adapter's `/runs/:id/events?after=lastSeq+1` reconnect.
- */
 
 import type { WireEvent } from "./types";
 import { isTerminalWireEvent } from "./types";
@@ -16,10 +9,8 @@ export interface ReattachResult {
 
 export interface ReattachOptions {
   runId: string;
-  /** Seq of the last event already applied; -1 when none arrived. */
   lastSeq: number;
   signal: AbortSignal;
-  /** Folds a recovered event into the visible turn state. */
   apply: (event: WireEvent) => void;
   resume: (
     runId: string,

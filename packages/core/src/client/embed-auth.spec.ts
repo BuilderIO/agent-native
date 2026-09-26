@@ -55,10 +55,7 @@ describe("embed auth client", () => {
   });
 
   it("keeps the URL token in opaque-origin frames so document reloads stay authenticated", async () => {
-    // MCP App embeds always load in a sandboxed iframe without
-    // allow-same-origin, so window.location.origin is "null". The embed session
     // cookie cannot be delivered to an opaque context, so stripping the token
-    // would make any full document reload land on the sign-in page.
     window.history.replaceState(
       null,
       "",
@@ -152,7 +149,6 @@ describe("embed auth client", () => {
   });
 
   it("keeps MCP chat bridge mode active when sessionStorage starts throwing mid-session", async () => {
-    // Boot with sessionStorage working so the bridge enrolls normally.
     window.history.replaceState(
       null,
       "",
@@ -163,8 +159,6 @@ describe("embed auth client", () => {
     first.ensureEmbedAuthFetchInterceptor();
     expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
 
-    // Mid-session, sessionStorage starts denying access (e.g. third-party-cookie
-    // policy update in a sandboxed iframe, Safari private-browsing throttling).
     const getItem = vi
       .spyOn(Storage.prototype, "getItem")
       .mockImplementation(() => {
@@ -172,11 +166,8 @@ describe("embed auth client", () => {
       });
 
     try {
-      // The flag should still be true even though sessionStorage now throws,
-      // because the in-memory bridge state was already captured.
       expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
 
-      // And it should survive even if the URL token also gets stripped.
       window.history.replaceState(null, "", "/inbox?embedded=1");
       expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
     } finally {
@@ -195,10 +186,8 @@ describe("embed auth client", () => {
     first.ensureEmbedAuthFetchInterceptor();
     expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
 
-    // Mimic a host that strips the bridge flag from the URL too after boot.
     window.history.replaceState(null, "", "/inbox?embedded=1");
 
-    // The in-memory bridge state should still be authoritative.
     expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
   });
 
@@ -213,9 +202,6 @@ describe("embed auth client", () => {
     first.ensureEmbedAuthFetchInterceptor();
     expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
 
-    // A different embed token (e.g. a different user session reusing the same
-    // page context) MUST drop the bridge — this is the real de-enrollment
-    // signal we still need to honor.
     window.history.replaceState(
       null,
       "",

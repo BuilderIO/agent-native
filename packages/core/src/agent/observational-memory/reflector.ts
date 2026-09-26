@@ -1,12 +1,3 @@
-/**
- * The Reflector.
- *
- * When the persisted observation log itself exceeds the reflection token
- * threshold, the Reflector runs ONE internal (tool-less) agent call to condense
- * the observations into higher-level reflections, and persists a
- * `tier: "reflection"` entry. Observations are kept (they remain the dense
- * mid-tier); the reflection sits above them.
- */
 
 import { countTextTokens } from "../context-xray/tokenize.js";
 import {
@@ -31,15 +22,12 @@ import type {
 export interface RunReflectorOptions extends ObservationalMemoryOwner {
   threadId: string;
   config?: Partial<ObservationalMemoryConfig>;
-  /** Internal-run seam — defaults to the real one; injected in tests. */
   runInternal?: InternalAgentRunFn;
 }
 
 export interface RunReflectorResult {
-  /** True when a reflection was produced and persisted. */
   reflected: boolean;
   entry?: ObservationalMemoryEntry;
-  /** Tokens in the observation log that was considered. */
   observationLogTokens: number;
 }
 

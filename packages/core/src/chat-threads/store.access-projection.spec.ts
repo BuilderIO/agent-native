@@ -42,11 +42,6 @@ describe("resolveThreadAccess loads the ACL without the conversation blob", () =
   });
 
   it("asks resolveAccess for the projected row, not the full thread", async () => {
-    // The access load and `getThread` read the SAME row. Without the projection
-    // the access check pulls `thread_data` — the whole conversation history —
-    // and then throws it away, so every agent-chat request downloaded the
-    // conversation twice. Production showed this as a 94k/71k split across two
-    // `chat_threads WHERE id = ?` query shapes.
     resolveAccessMock.mockResolvedValue({
       role: "owner",
       resource: {
@@ -74,7 +69,6 @@ describe("resolveThreadAccess loads the ACL without the conversation blob", () =
   });
 
   it("still denies a caller whose role does not satisfy the minimum", async () => {
-    // The projection must not weaken the check it exists to make cheaper.
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {

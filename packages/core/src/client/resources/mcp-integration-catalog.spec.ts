@@ -275,8 +275,6 @@ describe("MCP integration catalog", () => {
         integration.verification,
       );
     }
-    // GitHub's authorization server publishes no registration_endpoint, so an
-    // OAuth entry here would render a Connect button that can only ever fail.
     expect(
       DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "github"),
     ).toMatchObject({
@@ -377,7 +375,6 @@ describe("MCP integration catalog", () => {
     expect(findMcpIntegrationForToolName("mcp__chrome-devtools__click")).toBe(
       null,
     );
-    // The tool half of the name must never drive the icon.
     expect(
       findMcpIntegrationForToolName("mcp__zapier__send_slack_message")?.id,
     ).toBe("zapier");

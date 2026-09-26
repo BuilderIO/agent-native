@@ -98,8 +98,6 @@ describe("resolveStickyWebViewUrl", () => {
   });
 
   it("keeps the loaded URL when a handshake is in flight and a URL is already loaded", () => {
-    // Regression: switching back to a workspace-app tab must not reload it
-    // just because the workspace handshake happens to be re-running.
     expect(
       resolveStickyWebViewUrl({
         requestedUrl: EMBED_START,
@@ -122,8 +120,6 @@ describe("resolveStickyWebViewUrl", () => {
   });
 
   it("never serves a document loaded for a different account", () => {
-    // A newly signed-in account must not mount the previous account's page
-    // while its own handshake is still pending.
     expect(
       resolveStickyWebViewUrl({
         requestedUrl: EMBED_START,

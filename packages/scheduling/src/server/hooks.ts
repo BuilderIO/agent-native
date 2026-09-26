@@ -1,12 +1,3 @@
-/**
- * Booking lifecycle hooks → workflow / webhook dispatcher.
- *
- * When a booking is created / rescheduled / cancelled / no-shown, we:
- *   - Materialize scheduled reminders for each active workflow step
- *   - Enqueue outgoing webhook deliveries
- *
- * The actual reminder + webhook firing happens on a recurring job (not here).
- */
 import { eq, and, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -31,7 +22,6 @@ export async function onBookingRescheduled(
 export async function onBookingCancelled(booking: Booking): Promise<void> {
   await materializeReminders(booking, "cancellation");
   await enqueueWebhooks(booking, "BOOKING_CANCELLED");
-  // Cancel any pending before-event reminders
   const { getDb, schema } = getSchedulingContext();
   await getDb()
     .update(schema.scheduledReminders)
@@ -74,7 +64,6 @@ async function materializeRemindersBefore(booking: Booking): Promise<void> {
   const start = new Date(booking.startTime);
   for (const wf of workflows) {
     for (const step of wf.steps) {
-      // offsetMinutes is how many minutes BEFORE the event
       const scheduledFor = addMinutes(start, -Math.abs(step.offsetMinutes));
       if (scheduledFor <= new Date()) continue;
       await writeReminder(booking, step, scheduledFor);

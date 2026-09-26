@@ -1435,11 +1435,6 @@ describe("workspace deploy", () => {
   });
 });
 
-// The deploy-time half of durable-background: a SECOND Netlify function whose
-// name ends in `-background` plus a per-app recurring-job handoff. These drive
-// the REAL workspace deploy path (not private helpers) so the gates are proven
-// where they actually fire. The env flags are captured/restored locally so they
-// never leak into the surrounding suite.
 describe("durable-background Netlify function emit (workspace, flag-gated)", () => {
   let previousFlag: string | undefined;
 
@@ -1473,10 +1468,6 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
   }
 
   it("emits for exactly the env inputs the workspace runtime gate enables", async () => {
-    // A workspace app opts in through its agent-chat plugin, so the deploy gate
-    // must stay as wide as the runtime's app-opt-in path. A local copy of this
-    // parse previously claimed to match a default-off gate while implementing a
-    // default-on one — drift that silently drops the function fleet-wide.
     vi.stubEnv("SITE_ID", "site-123");
     vi.stubEnv("A2A_SECRET", "shhh");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "starter");
@@ -1506,7 +1497,6 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
       execFile: execFile as typeof execFileSync,
     });
 
-    // The normal single function per app is still emitted...
     expect(
       fs.existsSync(
         path.join(
@@ -1518,7 +1508,6 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         ),
       ),
     ).toBe(true);
-    // ...and NO -background sibling exists for any app.
     expect(fs.existsSync(backgroundFuncDir("dispatch"))).toBe(false);
     expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
   });
@@ -1612,9 +1601,6 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
   });
 
   it("emits a per-app -background function BY DEFAULT (flag unset) at its DEFAULT url (no custom path)", async () => {
-    // Default-on: the flag is unset (deleted in beforeEach) and the 15-min
-    // `-background` function MUST still be emitted so the worker gets the real
-    // long budget instead of overshooting the ~60s synchronous wall.
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
 
@@ -1626,11 +1612,7 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
 
     for (const app of ["dispatch", "starter"]) {
       const dest = backgroundFuncDir(app);
-      // Name MUST end in -background for Netlify async invocation + the runtime
-      // guard. It is reached at its default url /.netlify/functions/<name>.
       expect(path.basename(dest).endsWith("-background")).toBe(true);
-      // Shares the SAME built handler bundle (re-exports ./main.mjs); the
-      // original Nitro entry is dropped.
       expect(fs.existsSync(path.join(dest, "main.mjs"))).toBe(true);
       expect(fs.existsSync(path.join(dest, "server.mjs"))).toBe(false);
 
@@ -1639,15 +1621,7 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         "utf8",
       );
       expect(entry).toContain('await import("./main.mjs")');
-      // background: true → async invoke (202, 15-min budget).
       expect(entry).toContain("background: true");
-      // DOC-CORRECT FIX: NO custom config.path key. The function keeps its
-      // default url /.netlify/functions/<app>-agent-background (a custom path
-      // would remove the default url; the overlapping framework-route path 404'd
-      // in prod). The entry REWRITES the incoming pathname to the
-      // base-path-prefixed _process-run route before delegating to the Nitro
-      // router. (Assert on the config key at line start, not the word "path" in
-      // comments/`url.pathname`.)
       expect(entry).not.toMatch(/^\s*path:/m);
       expect(entry).toContain(
         `const PROCESS_RUN_PATH = ${JSON.stringify(
@@ -1676,7 +1650,6 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
       // The HMAC Authorization header + body must survive the rewrite.
       expect(entry).toContain("await request.text()");
       expect(entry).toContain("headers: request.headers");
-      // Marks the durable background runtime so the worker takes the 13-min budget.
       expect(entry).toContain(
         "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
       );
@@ -1695,8 +1668,6 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         `const SWEEP_PATH = ${JSON.stringify(`/${app}/_agent-native/jobs/_process-sweep`)}`,
       );
       expect(recurringEntry).toContain("return new URL(request.url).origin");
-      // The entry imports node:crypto, so the deploy packager rejects it
-      // unless includedFiles is declared.
       expect(recurringEntry).toContain(
         'import { createHmac } from "node:crypto"',
       );
@@ -1707,7 +1678,6 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
       expect(recurringModule.config.schedule).toBe("* * * * *");
     }
 
-    // The synchronous per-app function is still present and unchanged.
     expect(
       fs.existsSync(
         path.join(

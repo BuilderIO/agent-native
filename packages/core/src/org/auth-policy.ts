@@ -48,7 +48,6 @@ function isMissingOrgAuthPolicySchema(error: unknown): boolean {
   );
 }
 
-/** Resolve the active auth requirement for an organization. */
 export async function getRequiredAuthProviderForOrg(
   orgId: string,
 ): Promise<RequiredAuthProvider> {
@@ -62,8 +61,6 @@ export async function getRequiredAuthProviderForOrg(
       args: [orgId],
     });
   } catch (error) {
-    // Apps that do not mount the org plugin have no policy surface. This is a
-    // known absence, while every other read failure must remain loud.
     if (isMissingOrgAuthPolicySchema(error)) return null;
     throw error;
   }
@@ -112,8 +109,6 @@ export async function getRequiredAuthProviderForEmail(
       args: [normalizedEmail, normalizedEmail, domain],
     });
   } catch (error) {
-    // The org module is optional for custom-auth apps. Do not turn its absent
-    // tables into an auth outage; unreadable existing policy data still throws.
     if (isMissingOrgAuthPolicySchema(error)) return null;
     throw error;
   }
@@ -135,14 +130,12 @@ export async function isGoogleSignInRequiredForEmail(
   return (await getRequiredAuthProviderForEmail(email)) === "google";
 }
 
-/** Resolve the email used by Better Auth's session lifecycle hook. */
 export async function getAuthEmailForUserId(
   userId: string,
   adapter?: Parameters<typeof getCurrentAdapter>[0],
 ): Promise<string> {
   let email: unknown;
   if (adapter) {
-    // The session-create hook can run before the new user commits.
     const user = await (
       await getCurrentAdapter(adapter)
     ).findOne<{
@@ -170,10 +163,6 @@ function isMissingLegacySessionTable(error: unknown): boolean {
   );
 }
 
-/**
- * Enable or disable an org auth requirement. Enabling revokes every current
- * session in both auth stores before the request returns.
- */
 export async function setRequiredAuthProvider(
   orgId: string,
   provider: RequiredAuthProvider,
@@ -241,8 +230,6 @@ export async function setRequiredAuthProvider(
   } catch (error) {
     if (!isMissingLegacySessionTable(error)) throw error;
   }
-  // Revoking a whole org's sessions must land immediately, not after the
-  // resolution cache's TTL.
   invalidateSessionEmailCache();
 
   return {

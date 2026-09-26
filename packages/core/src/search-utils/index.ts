@@ -72,11 +72,6 @@ export function matchesSearchMode(
     : tokens.some((term) => normalizedValue.includes(term));
 }
 
-/**
- * Build a bounded, case-insensitive matcher for agent-facing text search.
- * Regexes are deliberately constrained because these matchers may scan a
- * packaged source corpus during a single agent turn.
- */
 export function createTextMatcher(
   pattern: string,
   mode: TextSearchMode = "substring",

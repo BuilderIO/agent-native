@@ -14,24 +14,6 @@ async function createClient({ url }: { url: string }) {
 }
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * db-patch is the agent's surgical search-and-replace + JSON-op tool. None of
- * the interesting logic (validateWhere, the JSON-op engine, strict-uniqueness
- * matching) is exported, so we drive everything through the real default
- * export.
- *
- * For tests that VERIFY THE WRITTEN VALUE, we drive a mocked Postgres backend:
- *   - In production (Neon Postgres) db-patch's scoped temp views are
- *     auto-updatable single-table views WITH LOCAL CHECK OPTION, so the UPDATE
- *     through the view succeeds and the patch engine's output is what lands.
- *   - The mock records the SELECT result and captures the UPDATE bind value so
- *     we can assert exactly what applyEdits / the JSON-op engine produced.
- * (See the PostgreSQL section below for the desktop/local path, which surfaces a
- * genuine view-write bug.)
- *
- * For tests that only check validation / no-write behavior we use a real
- * temp-file PostgreSQL database since no write is attempted.
- */
 describe("db-patch", () => {
   let dir: string;
   let dbFile: string;
@@ -59,9 +41,6 @@ describe("db-patch", () => {
   });
 
   afterEach(async () => {
-    // doMock registrations are file-scoped and survive resetModules; clear them
-    // so the PostgreSQL tests (which use the real client) don't inherit a partial
-    // Postgres mock of ../../db/client.js from an earlier test.
     vi.doUnmock("postgres");
     vi.doUnmock("../../db/client.js");
     vi.unstubAllEnvs();
@@ -70,14 +49,8 @@ describe("db-patch", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  // ── Postgres-backed harness (write verification) ────────────────────────
-  //
-  // Mocks `postgres` so db-patch's runPostgres path runs against an in-memory
-  // fake: the SELECT returns `initialValue`, the UPDATE captures the new value.
   interface PgHarness {
-    /** The value the UPDATE wrote, or undefined if no UPDATE ran. */
     written: () => string | undefined;
-    /** All UPDATE statements seen. */
     updateCount: () => number;
   }
 
@@ -113,7 +86,6 @@ describe("db-patch", () => {
       return [];
     });
 
-    // The introspection query is the tagged-template call on tx.
     const introspect = vi.fn(async () => introspectRows);
     const tx: any = Object.assign(introspect, { unsafe });
     const pgSql: any = Object.assign(introspect, {
@@ -154,14 +126,12 @@ describe("db-patch", () => {
     return start >= 0 ? JSON.parse(joined.slice(start)) : null;
   }
 
-  // ── PostgreSQL harness (validation / no-write paths) ────────────────────────
   async function seedDoc(id: string, owner: string, content: string) {
     await withClient((c) =>
       c.unsafe(`INSERT INTO documents VALUES (?, ?, ?)`, [id, owner, content]),
     );
   }
 
-  // ── Argument validation (no DB touch) ──────────────────────────────────
   describe("argument validation", () => {
     it("rejects a non-identifier table name (SQL injection via --table)", async () => {
       const { default: dbPatch } = await import("./patch.js");
@@ -264,11 +234,6 @@ describe("db-patch", () => {
     });
 
     it("rejects a ';' even when it is inside a quoted string literal (the ';' check runs before string-stripping)", async () => {
-      // validateWhere checks for ';' on the raw clause BEFORE stripping string
-      // literals, so unlike the DDL-keyword denylist there is no carve-out for
-      // a semicolon hidden in a quoted value. This is the conservative-by-design
-      // asymmetry: a stray ';' is always refused, the throw happens before any
-      // DB connection, and the PostgreSQL victim DB is never touched.
       const { default: dbPatch } = await import("./patch.js");
       await expect(
         dbPatch([
@@ -289,9 +254,6 @@ describe("db-patch", () => {
     });
 
     it("allows a blocked keyword that only appears inside a quoted string literal", async () => {
-      // "DROP TABLE" lives entirely inside the string literal, so validateWhere
-      // strips it before scanning. With a Postgres backend the patch goes
-      // through and the engine output is written.
       const h = mockPg({
         table: "documents",
         columns: ["id", "owner_email", "content"],
@@ -330,8 +292,6 @@ describe("db-patch", () => {
     });
 
     it("rejects an empty --find (passed as --find= so parseArgs keeps it empty)", async () => {
-      // `--find ""` would be parsed as a boolean flag; `--find=` preserves the
-      // empty value, which is the case the empty-find guard rejects.
       const { default: dbPatch } = await import("./patch.js");
       await expect(
         dbPatch([
@@ -367,7 +327,6 @@ describe("db-patch", () => {
     });
   });
 
-  // ── Text edits: strict uniqueness, not-found, replaceAll (Postgres) ─────
   describe("text edits", () => {
     function docPg(content: string): PgHarness {
       return mockPg({
@@ -493,7 +452,6 @@ describe("db-patch", () => {
     });
 
     it("applies a batch of --edits sequentially against the evolving content", async () => {
-      // The second edit's `find` only exists after the first edit runs.
       const h = docPg("alpha");
       const out = await runPatchPg(h, [
         "--table",
@@ -583,7 +541,6 @@ describe("db-patch", () => {
     });
   });
 
-  // ── JSON ops engine (Postgres) ──────────────────────────────────────────
   describe("json-ops", () => {
     function deckPg(data: unknown): PgHarness {
       return mockPg({
@@ -644,7 +601,6 @@ describe("db-patch", () => {
     });
 
     it("move-before reorders an array element so it lands at the requested index", async () => {
-      // Move index 3 to index 1; final order must be a, d, b, c.
       const h = deckPg({ list: ["a", "b", "c", "d"] });
       const { out, result } = await runDeckOps(h, [
         { op: "move-before", from: "/list/3", path: "/list/1" },
@@ -666,7 +622,6 @@ describe("db-patch", () => {
       const h = deckPg({ list: ["a", "b"] });
       const { out, result } = await runDeckOps(h, [
         { op: "set", path: "/list/0", value: "Z" },
-        // Out-of-bounds parent walk → this op fails but must not discard op 0.
         { op: "set", path: "/list/9/deep", value: "x" },
       ]);
       expect(out.applied).toBe(1);
@@ -727,15 +682,12 @@ describe("db-patch", () => {
     it("rejects a JSON path that does not start with '/'", async () => {
       const h = deckPg({ x: 1 });
       const { out } = await runDeckOps(h, [{ op: "set", path: "x", value: 2 }]);
-      // The op fails individually (caught) → recorded as a failed op, nothing
-      // applied, no write.
       expect(out.applied).toBe(0);
       expect(out.results[0].detail).toContain("FAILED");
       expect(h.updateCount()).toBe(0);
     });
   });
 
-  // ── Scoping / safety (PostgreSQL, no successful write needed) ───────────────
   describe("scoping and safety (PostgreSQL)", () => {
     it("cannot read a row owned by another user (it appears as no-rows)", async () => {
       await seedDoc("victim", "other@x.com", "victim content");
@@ -756,7 +708,6 @@ describe("db-patch", () => {
           "pwned",
         ]),
       ).rejects.toThrow(/No rows matched/);
-      // The victim's row is byte-for-byte intact.
       const stillThere = await withClient((c) =>
         c
           .unsafe(`SELECT content FROM documents WHERE id = ?`, ["victim"])
@@ -835,9 +786,6 @@ describe("db-patch", () => {
     });
 
     it("refuses to patch a row owned by a different user under PostgreSQL scoping (the re-applied predicate blocks the cross-tenant write)", async () => {
-      // The row exists but belongs to someone else. The scoped SELECT can't see
-      // it, so db-patch reports "no rows matched" and never issues the UPDATE —
-      // the cross-tenant row must stay untouched.
       await seedDoc("d-other", "someone-else@x.com", "secret value");
       const { default: dbPatch } = await import("./patch.js");
       await expect(

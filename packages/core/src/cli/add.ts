@@ -1,55 +1,17 @@
-/**
- * `agent-native add <kind> [name|url]` — the **blueprint installer**.
- *
- * Borrowed from Flue's `flue add`: instead of being a dumb scaffolder that
- * writes files for you, this command emits a curated Markdown *integration
- * blueprint* to stdout. You pipe that blueprint into your own coding agent,
- * which applies the changes against the live repo:
- *
- *   agent-native add provider stripe | claude
- *   agent-native add channel discord  | codex
- *
- * This fits the agent-applies-changes, filesystem-first house style: the
- * framework supplies the recipe (the canonical files to touch, the rules to
- * honor, the verification step), and the coding agent does the editing with
- * full repo context.
- *
- * A bare name resolves a curated blueprint from `blueprints/<kind>/<name>.md`.
- * A URL instead of a name emits a GENERIC "research-and-integrate" blueprint
- * for that kind with the URL embedded as the research starting point (mirrors
- * Flue: a URL is a research seed, not a known recipe).
- *
- * Blueprint `.md` files ship in the published package via the `blueprints`
- * entry in `package.json` `files`, so they live at
- * `node_modules/@agent-native/core/blueprints/**` at runtime. Resolution works
- * both from source (tsx: `src/cli` → `../../blueprints`) and from the compiled
- * package (`dist/cli` → `../../blueprints`), with an upward-walk fallback.
- */
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** A coarse classification of what `add` resolved for a given invocation. */
 export type AddBlueprintSource =
   | { kind: "curated"; blueprintKind: string; name: string; path: string }
   | { kind: "generic-url"; blueprintKind: string; url: string };
 
 export interface ResolvedBlueprint {
-  /** The Markdown to print to stdout (piped into a coding agent). */
   markdown: string;
   source: AddBlueprintSource;
 }
 
-/**
- * Locate the directory that holds the blueprint `.md` recipes.
- *
- * Both `src/cli` (tsx/source) and `dist/cli` (published) sit two levels under
- * the package root, where `blueprints/` lives, so `../../blueprints` from this
- * module's directory is the primary path. We additionally walk upward looking
- * for a `blueprints` directory as a resilience fallback (e.g. unusual bundler
- * layouts). An explicit override is honored for tests.
- */
 export function resolveBlueprintsRoot(overrideRoot?: string): string {
   if (overrideRoot) return overrideRoot;
 
@@ -57,7 +19,6 @@ export function resolveBlueprintsRoot(overrideRoot?: string): string {
   const primary = path.resolve(here, "../../blueprints");
   if (isDir(primary)) return primary;
 
-  // Fallback: walk up from this module looking for a sibling `blueprints` dir.
   let dir = here;
   for (let i = 0; i < 8; i += 1) {
     const candidate = path.join(dir, "blueprints");
@@ -66,7 +27,6 @@ export function resolveBlueprintsRoot(overrideRoot?: string): string {
     if (parent === dir) break;
     dir = parent;
   }
-  // Return the primary path even if missing so error messages are concrete.
   return primary;
 }
 
@@ -78,12 +38,10 @@ function isDir(p: string): boolean {
   }
 }
 
-/** True for an argument that should be treated as a research URL, not a name. */
 export function looksLikeUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
 }
 
-/** List the blueprint kinds (subdirectories) available, sorted. */
 export function listKinds(root: string): string[] {
   if (!isDir(root)) return [];
   return fs
@@ -93,7 +51,6 @@ export function listKinds(root: string): string[] {
     .sort();
 }
 
-/** List the blueprint names available under a kind, sorted (no `.md`). */
 export function listBlueprintNames(root: string, kind: string): string[] {
   const dir = path.join(root, kind);
   if (!isDir(dir)) return [];
@@ -104,7 +61,6 @@ export function listBlueprintNames(root: string, kind: string): string[] {
     .sort();
 }
 
-/** A flat catalog of every kind and its blueprint names. */
 export function listCatalog(root: string): Array<{
   kind: string;
   names: string[];
@@ -115,7 +71,6 @@ export function listCatalog(root: string): Array<{
   }));
 }
 
-/** Render the `--list` / no-args catalog text. */
 export function formatCatalog(root: string): string {
   const catalog = listCatalog(root);
   const lines: string[] = [];
@@ -146,12 +101,6 @@ export function formatCatalog(root: string): string {
   return lines.join("\n");
 }
 
-/**
- * Build the generic "research-and-integrate" blueprint emitted when the user
- * passes a URL instead of a known blueprint name. Mirrors Flue: a URL is a
- * research seed. We keep this self-contained — the coding agent reading it has
- * no other context.
- */
 export function buildGenericUrlBlueprint(kind: string, url: string): string {
   const kindGuidance = GENERIC_KIND_GUIDANCE[kind] ?? GENERIC_DEFAULT_GUIDANCE;
   return `# Blueprint: integrate a new ${kind} from a URL
@@ -239,13 +188,6 @@ const GENERIC_KIND_GUIDANCE: Record<string, string> = {
     "per-field actions). Read the `actions` skill.",
 };
 
-/**
- * Resolve a blueprint for a `kind` + optional `name`/`url`.
- *
- * - A known name → the curated `blueprints/<kind>/<name>.md`.
- * - A URL → the generic research-and-integrate blueprint for the kind.
- * - Unknown name → throws `AddResolutionError` listing what's available.
- */
 export function resolveBlueprint(opts: {
   kind: string;
   nameOrUrl?: string;
@@ -260,7 +202,6 @@ export function resolveBlueprint(opts: {
     );
   }
 
-  // A URL seed → generic blueprint for the kind.
   if (nameOrUrl && looksLikeUrl(nameOrUrl)) {
     return {
       markdown: buildGenericUrlBlueprint(kind, nameOrUrl.trim()),
@@ -274,8 +215,6 @@ export function resolveBlueprint(opts: {
 
   const names = listBlueprintNames(root, kind);
 
-  // No name given: if exactly one curated blueprint exists, use it; otherwise
-  // ask the user to pick one (or pass a URL for the generic path).
   if (!nameOrUrl) {
     if (names.length === 1) {
       return loadCurated(root, kind, names[0]);
@@ -315,7 +254,6 @@ function loadCurated(
   };
 }
 
-/** Thrown for an unknown kind/name; the CLI prints the message and exits 1. */
 export class AddResolutionError extends Error {
   constructor(message: string) {
     super(message);
@@ -326,7 +264,6 @@ export class AddResolutionError extends Error {
 interface ParsedAddArgs {
   list: boolean;
   help: boolean;
-  /** Accepted as an explicit no-op alias for the default print behavior. */
   print: boolean;
   positionals: string[];
 }
@@ -344,7 +281,6 @@ export function parseAddArgs(argv: string[]): ParsedAddArgs {
     else if (arg === "--help" || arg === "-h") out.help = true;
     else if (arg === "--print" || arg === "-p") out.print = true;
     else if (arg.startsWith("-")) {
-      // Ignore unknown flags rather than misparse them as a name.
       continue;
     } else out.positionals.push(arg);
   }
@@ -374,11 +310,6 @@ Options:
   -p, --print    Print the blueprint to stdout (the default; explicit no-op)
   -h, --help     Show this help`;
 
-/**
- * CLI entry point. Returns the process exit code so the dispatcher / tests can
- * assert on it. Writes the blueprint Markdown to stdout and diagnostics to
- * stderr so `... | claude` only receives the blueprint.
- */
 export function runAdd(
   argv: string[],
   io: {
@@ -398,8 +329,6 @@ export function runAdd(
     return 0;
   }
 
-  // `--list` or no positionals → show the catalog (to stdout; this is the
-  // requested output, not an error).
   if (parsed.list || parsed.positionals.length === 0) {
     out(formatCatalog(root) + "\n");
     return 0;

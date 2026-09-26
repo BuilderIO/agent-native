@@ -1,8 +1,3 @@
-/**
- * Refuse empty `runMigrations([])` plugins. The migration runner itself is
- * safe for an empty list, but an empty plugin usually means a serverless boot
- * is still paying for a database migration check that has no work to do.
- */
 
 import path from "node:path";
 
@@ -19,7 +14,6 @@ const ALLOW_MARKER_RE = /guard:allow-empty-migrations\s*[—-]\s*\S/;
 const SOURCE_EXTENSIONS = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/i;
 const TEST_FILE = /\.(?:spec|test)\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/i;
 
-/** Mask comments and string literals while preserving offsets and newlines. */
 function maskNonCode(source: string): string {
   const output = source.split("");
   let state: "code" | "line" | "block" | "single" | "double" | "template" =

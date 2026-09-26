@@ -9,44 +9,15 @@ import {
 } from "@tiptap/pm/state";
 import { type EditorView } from "@tiptap/pm/view";
 
-/**
- * Default editor-wrapper CSS selector the drag handle scopes itself to.
- *
- * The handle, the drop indicator, and the `position: relative` anchor are all
- * appended to / measured against the closest ancestor matching this selector.
- * Content's editor wraps its ProseMirror DOM in a `.visual-editor-wrapper`
- * element, so that is the historical default. Other apps (e.g. the plan editor)
- * pass their own wrapper selector via {@link DragHandleOptions.wrapperSelector}.
- */
 export const DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR = ".visual-editor-wrapper";
 
 export interface DragHandleOptions {
-  /**
-   * CSS selector for the editor wrapper element the handle is anchored to.
-   *
-   * Must match an ancestor of the ProseMirror editor DOM. The wrapper gets
-   * `position: relative` so the absolutely-positioned grip and drop indicator
-   * can be placed relative to it. Defaults to
-   * {@link DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR} so Content keeps working
-   * unchanged.
-   */
   wrapperSelector: string;
-  /**
-   * Optional source-side payload for a cross-editor block move. The editor doc
-   * carries ProseMirror node content, but app-owned side-map data (for example a
-   * plan `diagram` block's HTML/CSS) can live outside the doc; this lets the
-   * host carry that data to the receiving editor before the node is inserted.
-   */
   getDragTransferData?: (context: {
     view: EditorView;
     node: ProseMirrorNode;
     pos: number;
   }) => unknown;
-  /**
-   * Optional target-side receiver for cross-editor transfer data. Called before
-   * the node is inserted into the target editor so the target's serializer can
-   * resolve app-owned data during the synchronous ProseMirror update.
-   */
   receiveDragTransferData?: (
     data: unknown,
     context: {
@@ -56,51 +27,23 @@ export interface DragHandleOptions {
       sourceView: EditorView;
     },
   ) => void;
-  /**
-   * Optional host-level drop handler for document-specific structure changes.
-   * Returning true tells the shared drag handle that the host fully handled the
-   * move and no ProseMirror insert/delete should run. This is used for
-   * Notion-style side drops where dropping a block to the left/right creates or
-   * inserts into a column layout rather than inserting into the target editor.
-   */
   handleDrop?: (data: unknown, context: DragHandleDropContext) => boolean;
 }
 
 const dragHandleKey = new PluginKey("dragHandle");
 const HOVER_SIDE_OUTSET_REM = 8;
-// Notion-style side drop: drag a block to a neighbour's LEFT/RIGHT region and it
-// builds (or joins) a column layout instead of reordering. The activation region
-// has to be GENEROUS or the gesture is dead for a real human — a natural drag
-// releases somewhere over the block's body, nowhere near a thin edge sliver. The
-// old values (28% of width, capped at 140px, AND only the vertical middle 60%)
-// left a wide ~820px plan block with two ~17%-of-width edge slivers in a 35px-tall
-// band as the ONLY column targets — ~66% of the block (the whole centre) plus the
-// top/bottom only ever reordered, so "drag side by side" essentially never made
-// columns. Now each side claims ~a third of the width across the FULL block
-// height, with a middle band always preserved for before/after reorder.
 const SIDE_DROP_ZONE_RATIO = 0.33;
 const SIDE_DROP_ZONE_MIN_PX = 56;
 const SIDE_DROP_ZONE_MAX_PX = 320;
-// Never let the two side zones swallow the whole block: keep at least the middle
-// ~10% of the width as the before/after reorder band so dropping over the centre
-// still moves the block above/below the target (Notion keeps reorder reachable).
 const SIDE_DROP_ZONE_MAX_WIDTH_FRACTION = 0.45;
 const DRAG_HANDLE_MENU_STYLE_ID = "an-rich-md-drag-menu-styles";
 const DRAG_HANDLE_MENU_WIDTH = 220;
 const DRAG_HANDLE_MENU_GAP = 6;
 const DRAG_HANDLE_MENU_VIEWPORT_PADDING = 8;
 
-/**
- * Wraps Tabler outline icon path data in the standard 24×24 stroke SVG so the
- * DOM-based block menu renders the same icons the React UI uses (Tabler is the
- * framework-wide icon set). The editor is plain DOM, not React, so we inline the
- * markup instead of importing `@tabler/icons-react` components.
- */
 const tablerIconSvg = (paths: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`;
 
-// Tabler `copy`, `trash`, and `plus` (outline). Path data copied verbatim from
-// @tabler/icons so the glyphs stay pixel-identical to the React icon set.
 const DRAG_HANDLE_MENU_ICON_DUPLICATE = tablerIconSvg(
   '<path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666" /><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1" />',
 );
@@ -110,7 +53,6 @@ const DRAG_HANDLE_MENU_ICON_DELETE = tablerIconSvg(
 const DRAG_HANDLE_MENU_ICON_INSERT = tablerIconSvg(
   '<path d="M12 5l0 14" /><path d="M5 12l14 0" />',
 );
-// Tabler `grip-vertical` (outline) for the left-margin drag grip.
 const DRAG_HANDLE_GRIP_ICON = tablerIconSvg(
   '<path d="M8 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M14 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M14 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M14 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />',
 );
@@ -179,18 +121,12 @@ type DragHandleRegistration = {
   findHoverBlock?: (clientX: number, clientY: number) => HoverBlock | null;
   showHoverBlock?: (block: HoverBlock) => void;
   hideHover?: () => void;
-  /** The currently displayed grip's bounding rect, or null when hidden. */
   gripRect?: () => DOMRect | null;
 };
 
 const dragHandleRegistrations = new Set<DragHandleRegistration>();
 let dragHandleGlobalHoverListeners = 0;
 let activeDragRegistration: DragHandleRegistration | null = null;
-// The registration whose grip is currently shown. Used to keep that grip alive
-// while the cursor travels from a block's body to its grip, even when the grip
-// sits in a contested gap (an inter-column gap or a tab body's left offset)
-// where another editor's wide forgiving zone would otherwise re-win the hover
-// and hide the grip out from under the approaching cursor.
 let activeHoverRegistration: DragHandleRegistration | null = null;
 
 const clamp = (value: number, min: number, max: number) =>
@@ -269,17 +205,6 @@ const updateRegisteredHover = (clientX: number, clientY: number) => {
     }
   }
 
-  // Grip keepalive. Once a block's grip is showing, hold it while the cursor
-  // travels LEFT of that block's content toward its grip glyph — within the
-  // block's own vertical row and no further left than the glyph itself. This is
-  // what makes grips grabbable for blocks that are NOT flush with the page's
-  // left gutter (a right column, a tab body): their grip sits in a gap that the
-  // neighbour's wide forgiving zone also claims, so the normal picker would flip
-  // hover to the neighbour mid-approach and the grip would vanish before the
-  // cursor reaches it. The keepalive only bridges the body→grip gap — it does
-  // NOT fire while the cursor is over content (so the innermost/nested picking
-  // and gutter-grab rules below still decide there) and the row guard stops it
-  // from sticking the grip across vertical moves to another block's row.
   if (activeHoverRegistration) {
     const held = candidates.find(
       (candidate) => candidate.registration === activeHoverRegistration,
@@ -301,39 +226,11 @@ const updateRegisteredHover = (clientX: number, clientY: number) => {
     }
   }
 
-  // Pick which editor owns the grip when several register a hover block at this
-  // point. Nested region editors (e.g. each column inside a `columns` block) tile
-  // their container's whole footprint AND extend a wide forgiving zone
-  // (HOVER_SIDE_OUTSET_REM) into its left-margin gutter, so a pure
-  // "smallest editor wins" rule lets an inner block beat the container everywhere
-  // and leaves the container itself impossible to grab. Split candidates by where
-  // the cursor sits relative to each block:
-  //   - Over a block's body (clientX at/after its left edge) the innermost
-  //     (smallest) editor wins, so nested blocks stay grabbable from their content.
-  //   - In the shared left-margin gutter (clientX left of every candidate's
-  //     content, where the grip lives) the outermost (largest) editor wins, so the
-  //     container block can be picked up and reordered.
-  // Prefer the candidate whose block actually sits UNDER the cursor
-  // horizontally. Without this, a left column's forgiving side zone reaches
-  // across the inter-column gap, ties the right column's editor on area, and
-  // wins — so hovering a right-column block shows the grip for the LEFT block
-  // (and right-column blocks appear to have no grip at all). `overContent`
-  // restricts to blocks the cursor is genuinely within; `rightOfLeftEdge` keeps
-  // the gutter-grab behaviour; fully left of every block → the container wins.
   const overContent = candidates.filter(
     (candidate) =>
       clientX >= candidate.block.rect.left &&
       clientX <= candidate.block.rect.right,
   );
-  // The grip renders in a narrow band just LEFT of each block (≈24px). A block
-  // must OWN that band so moving the cursor onto its grip keeps showing (and
-  // lets you press) that block's grip — otherwise, for a column block whose grip
-  // sits in the gutter/inter-column gap, the "gutter → largest editor" rule
-  // below would flip the hover to the columns container and the grip would
-  // vanish out from under the cursor, making inner column blocks impossible to
-  // drag. The band is narrow, so it does not collide with the neighbouring
-  // column's content (the right column's grip lives in the inter-column gap,
-  // left of its own content but right of the left column's content).
   const GRIP_HOVER_ZONE_PX = 28;
   const overGrip = candidates.filter(
     (candidate) =>
@@ -477,33 +374,6 @@ const ensureDragHandleMenuStyles = () => {
   document.head.appendChild(style);
 };
 
-/**
- * App-agnostic Tiptap extension providing a Notion-style left-margin drag grip
- * (the `::` handle), block selection, and drag-to-reorder over top-level block
- * nodes.
- *
- * Behavior:
- * - On hover over any top-level block, a `.drag-handle` grip appears in the left
- *   margin (forgiving hit zone extends {@link HOVER_SIDE_OUTSET_REM}rem to the
- *   sides and into the gap above/between blocks).
- * - Single-clicking the grip selects the block and opens a block action menu.
- *   Dragging past a small threshold starts a reorder, showing a floating clone
- *   preview (`.notion-drag-preview`) and a `.notion-drop-indicator` line.
- *   `Escape` cancels.
- * - While dragging, the source block carries `.notion-block--dragging` and the
- *   document element carries `.notion-editor-is-dragging` so apps can style the
- *   in-flight state. Apps own all of these CSS class names.
- * - Works for ANY top-level node ProseMirror renders as a direct child of the
- *   editor — including `group: "block"`, `draggable: true` atoms such as the
- *   plan editor's `planBlock`.
- *
- * The only app-specific coupling — the editor wrapper element the handle and
- * drop indicator are anchored to — is configurable via
- * {@link DragHandleOptions.wrapperSelector}, defaulting to
- * {@link DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR} (`.visual-editor-wrapper`) so the
- * Content editor keeps working byte-identically. The plan editor passes its own
- * wrapper selector via `DragHandle.configure({ wrapperSelector })`.
- */
 export const DragHandle = Extension.create<DragHandleOptions>({
   name: "dragHandle",
 
@@ -612,11 +482,6 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       const wrapper = editorView.dom.closest(wrapperSelector);
       if (!wrapper) return;
 
-      // Lazily (re)attach the grip the first time a wrapper is actually
-      // available. At plugin `view()` init the editor DOM may not yet be mounted
-      // inside the wrapper (React mounts `EditorContent` after the EditorView is
-      // constructed), so the init-time append can silently no-op and leave the
-      // grip orphaned. Re-home it here once the wrapper exists.
       if (handle.parentElement !== wrapper) {
         (wrapper as HTMLElement).style.position = "relative";
         wrapper.appendChild(handle);
@@ -798,16 +663,6 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       resolved.view.focus();
     };
 
-    /**
-     * Pick the rect the menu anchors to.
-     *
-     * `getBoundingClientRect()` answers an all-zero rect for an element that is
-     * detached, `display: none`, or not yet laid out — it does not answer null.
-     * A plain `handle ?? block` fallback therefore never fires for the case that
-     * actually happens (the shared grip is hidden or re-homed by a React
-     * re-render between mousedown and mouseup), and the zero rect clamps the
-     * menu into the top-left corner of the viewport.
-     */
     const resolveMenuAnchorRect = (
       ...candidates: Array<Element | null | undefined>
     ): DOMRect | null => {
@@ -961,9 +816,6 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       let placement: DragHandleDropPlacement;
       const withinBlockY =
         clientY >= block.rect.top && clientY <= block.rect.bottom;
-      // Side (column) zones span the FULL block height — only the horizontal
-      // position decides column-vs-reorder. Restricting to the vertical middle
-      // (the old 0.2 band) made the already-tiny edge slivers nearly unhittable.
       const sideZoneWidth = Math.min(
         clamp(
           block.rect.width * SIDE_DROP_ZONE_RATIO,
@@ -1061,12 +913,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         !target ||
         (target.view === session.view &&
           (isSideDrop
-            ? // A side drop only ever builds columns; the ProseMirror seam
-              // position is irrelevant. The only no-op is dropping a block on
-              // ITS OWN side — adjacent *different* blocks must still form
-              // columns (otherwise dropping onto an immediate neighbour's
-              // facing edge silently does nothing, which reads as "side drop
-              // works sometimes").
+            ?
               target.targetPos === session.sourcePos
             : target.pos === session.sourcePos ||
               target.pos === sourceEnd ||
@@ -1093,11 +940,6 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       const editorRect = target.view.dom.getBoundingClientRect();
 
       session.dropTarget = target;
-      // A column (side) drop and a reorder (before/after) drop both draw the
-      // `.notion-drop-indicator`, but they mean very different things, so the
-      // column case carries a modifier class apps style distinctly (a bolder,
-      // glowing vertical bar) — without a clear cue a human can't tell they've
-      // entered column-build mode before releasing.
       const isColumnDrop =
         target.placement === "left" || target.placement === "right";
       session.dropLine.classList.toggle(
@@ -1105,8 +947,6 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         isColumnDrop,
       );
       if (isColumnDrop) {
-        // A vertical bar centred on the seam at the target's left/right edge,
-        // spanning the block's full height.
         const SIDE_BAR_WIDTH = 4;
         const seam =
           target.placement === "left" ? target.rect.left : target.rect.right;
@@ -1136,14 +976,6 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       el.setAttribute("aria-haspopup", "menu");
       el.setAttribute("aria-expanded", "false");
       el.title = "Open block menu or drag to reorder";
-      // The icon must not be its own hit target: a real mouse-down inside a
-      // nested editor (a column) lands on the SVG, and a container block's
-      // capture-phase block-select handler (RegistryBlockNode) only spares the
-      // grip DIV — so a press on the icon gets swallowed and the block can't be
-      // dragged out of / between columns. `pointer-events:none` makes every
-      // press in the grip area resolve to the DIV instead.
-      // Tabler `grip-vertical` (the framework-wide icon set). `pointer-events:none`
-      // keeps every press in the grip area resolving to the DIV, not the SVG.
       el.innerHTML = DRAG_HANDLE_GRIP_ICON;
       const gripSvg = el.querySelector("svg");
       if (gripSvg) {
@@ -1235,8 +1067,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         if (
           target.view !== session.view ||
           (isSideDrop
-            ? // Side drop (column build): proceed for any block that isn't the
-              // source itself, including the source's immediate neighbour.
+            ?
               target.targetPos !== sourceStart
             : dropPos !== sourceStart &&
               dropPos !== sourceEnd &&

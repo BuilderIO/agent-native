@@ -134,7 +134,6 @@ export function useMobileTabLayout(apps: readonly AppConfig[]) {
 
   const defaultIds = useMemo(
     () => getDefaultMobileTabAppIds(apps),
-    // The app ids and enabled state are the only inputs used to derive defaults.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [appIdsKey],
   );

@@ -23,16 +23,10 @@ import crypto from "node:crypto";
 
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 
-/** Default token TTL, in seconds. 10 minutes covers a typical video session. */
 const DEFAULT_TTL_SECONDS = 600;
 
-/**
- * Inputs for {@link signShortLivedToken}.
- */
 export interface ShortLivedTokenClaims {
-  /** Resource id the token authorises (recording id, call id, snippet id, …). */
   resourceId: string;
-  /** Optional viewer email for audit / analytics — not used for authorisation. */
   viewerEmail?: string;
   /**
    * Optional display name of the agent the token was minted for. Signed so a
@@ -40,7 +34,6 @@ export interface ShortLivedTokenClaims {
    * never consult it for authorisation.
    */
   agentLabel?: string;
-  /** Override default TTL (seconds). */
   ttlSeconds?: number;
 }
 
@@ -51,10 +44,6 @@ interface DecodedClaims {
   exp: number;
 }
 
-/**
- * Result of {@link verifyShortLivedToken}. Discriminated by the literal
- * `ok` field so callers can `if (!result.ok) return …`.
- */
 export type VerifyResult =
   | { ok: true; viewerEmail?: string; agentLabel?: string }
   | { ok: false; reason: string };
@@ -91,17 +80,10 @@ function base64UrlEncode(buf: Buffer | string): string {
 }
 
 function base64UrlDecode(s: string): Buffer {
-  // Re-pad to a multiple of 4 so Buffer.from('base64') decodes cleanly.
   const padded = s + "=".repeat((4 - (s.length % 4)) % 4);
   return Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64");
 }
 
-/**
- * Mint a signed token authorising read access to `claims.resourceId` until
- * `exp = now + ttl`. The result is safe to drop into a query string —
- * `?t=<token>` — and verified by {@link verifyShortLivedToken} on the
- * downstream route.
- */
 export function signShortLivedToken(claims: ShortLivedTokenClaims): string {
   const ttl = claims.ttlSeconds ?? DEFAULT_TTL_SECONDS;
   const payload: DecodedClaims = {
@@ -144,13 +126,10 @@ export function verifyShortLivedToken(
     crypto.createHmac("sha256", getSigningKey()).update(payloadStr).digest(),
   );
 
-  // Constant-time compare. Length-mismatched inputs would throw under
-  // `crypto.timingSafeEqual`, so we check length first and fall back to a
-  // dummy compare to keep timing roughly constant on the failure path.
   const sigBuf = Buffer.from(sig, "utf8");
   const expBuf = Buffer.from(expected, "utf8");
   if (sigBuf.length !== expBuf.length) {
-    crypto.timingSafeEqual(expBuf, expBuf); // burn ~equal cycles
+    crypto.timingSafeEqual(expBuf, expBuf);
     return { ok: false, reason: "bad_signature" };
   }
   if (!crypto.timingSafeEqual(sigBuf, expBuf)) {
@@ -181,39 +160,14 @@ export function verifyShortLivedToken(
   };
 }
 
-// ── Realtime subscribe tokens ────────────────────────────────────────────────
-//
-// An identity-bearing extension of the same HMAC discipline, used by the hosted
-// Realtime Gateway. Differs from the media token above in three ways the gateway
-// depends on:
-//   1. It is signed with a caller-supplied PER-PROJECT key (the app's HMAC
-//      secret), not the single deployment-wide `getSigningKey()`. The app server
-//      mints with it; the gateway (a second issuer for stream rotation) verifies
-//      and re-mints with the same per-project key. A token minted for project A
-//      fails signature verification against project B's key.
-//   2. It carries authorization-bearing identity (`owner`/`orgId`) that the
-//      gateway feeds to `canSeeChangeForUser` — the media token's `viewerEmail`
-//      is audit-only by contract, so a new field is required, not repurposed.
-//   3. It binds `projectId` as the channel and stamps a `typ` discriminator, so
-//      it is verified against the connect channel and cannot be replayed as a
-//      media token (or vice-versa) even if keys ever overlapped.
 
-/** Payload `typ` discriminator for realtime subscribe tokens. */
 export const REALTIME_SUBSCRIBE_TOKEN_TYPE = "rt-subscribe";
 const DEFAULT_REALTIME_TTL_SECONDS = 600;
 
-/** Inputs for {@link signRealtimeSubscribeToken}. */
 export interface RealtimeSubscribeClaims {
-  /** Channel — one Neon project per app. Verified at connect, not just carried. */
   projectId: string;
-  /**
-   * App end-user session email (NOT a Builder.io account — see the tech spec).
-   * Fed to `canSeeChangeForUser`. Present in v0.
-   */
   owner?: string;
-  /** Framework org id for the app's end-user. */
   orgId?: string;
-  /** Override default TTL (seconds). */
   ttlSeconds?: number;
   /**
    * Absolute unix-seconds ceiling, independent of `exp`. The gateway re-signs a
@@ -233,10 +187,6 @@ interface DecodedRealtimeClaims {
   absExp?: number;
 }
 
-/**
- * Result of {@link verifyRealtimeSubscribeToken}. On success it returns the
- * identity claims the gateway uses to scope delivery.
- */
 export type RealtimeVerifyResult =
   | {
       ok: true;
@@ -258,27 +208,17 @@ function timingSafeEqualB64(sig: string, expected: string): boolean {
   const sigBuf = Buffer.from(sig, "utf8");
   const expBuf = Buffer.from(expected, "utf8");
   if (sigBuf.length !== expBuf.length) {
-    crypto.timingSafeEqual(expBuf, expBuf); // burn ~equal cycles
+    crypto.timingSafeEqual(expBuf, expBuf);
     return false;
   }
   return crypto.timingSafeEqual(sigBuf, expBuf);
 }
 
-/**
- * Mint a realtime subscribe token for `claims.projectId`, signed with the
- * app's per-project `key`. Safe to place on the connect query string (short
- * TTL, single-purpose, channel-bound). Verified by
- * {@link verifyRealtimeSubscribeToken} at connect.
- */
 export function signRealtimeSubscribeToken(
   claims: RealtimeSubscribeClaims,
   key: string,
 ): string {
   if (!key) throw new Error("signRealtimeSubscribeToken requires a key");
-  // Fail closed: a token with neither owner nor orgId carries no authorization
-  // identity, so canSeeChangeForUser would only ever match global/unowned
-  // events. Every issuer (mint endpoint + the gateway's rotation re-mint) must
-  // supply at least one identity claim.
   if (!claims.owner && !claims.orgId) {
     throw new Error(
       "signRealtimeSubscribeToken requires an owner or orgId claim",
@@ -338,7 +278,6 @@ export function verifyRealtimeSubscribeToken(
     if (typeof claims.absExp !== "number") {
       return { ok: false, reason: "bad_payload" };
     }
-    // `<=`, not `<`: a ceiling is not valid at the instant it is reached.
     if (claims.absExp * 1000 <= Date.now()) {
       return { ok: false, reason: "session_expired" };
     }
@@ -357,23 +296,14 @@ export function verifyRealtimeSubscribeToken(
   };
 }
 
-// ── Realtime voice tool capabilities ─────────────────────────────────────────
-// Signed, not stored: minting and spending are separate requests, and under a
-// serverless preset they land on different instances.
 
-/** Payload `typ` discriminator for realtime voice tool capabilities. */
 export const REALTIME_VOICE_CAPABILITY_TOKEN_TYPE = "rt-voice-capability";
 
-/** Inputs for {@link signRealtimeVoiceCapability}. */
 export interface RealtimeVoiceCapabilityClaims {
-  /** Authenticated caller. Re-checked against the session on every tool call. */
   userEmail: string;
   orgId?: string;
-  /** Binds the capability to the tab that opened the session. */
   browserTabId?: string;
-  /** Tool names packed into the session's opening manifest. */
   toolNames: readonly string[];
-  /** Names added later by a successful `tool-search`, capped separately. */
   discoveredToolNames?: readonly string[];
   ttlSeconds?: number;
 }
@@ -388,7 +318,6 @@ interface DecodedRealtimeVoiceCapabilityClaims {
   exp: number;
 }
 
-/** Result of {@link verifyRealtimeVoiceCapability}. */
 export type RealtimeVoiceCapabilityVerifyResult =
   | {
       ok: true;
@@ -426,11 +355,6 @@ export function signRealtimeVoiceCapability(
   return `${payloadStr}.${hmacB64(payloadStr, getSigningKey())}`;
 }
 
-/**
- * Verify a realtime voice capability and confirm it was minted for exactly the
- * identity now making the request. Identity mismatch is reported separately
- * from a bad signature so callers can tell a replay from a stale tab.
- */
 export function verifyRealtimeVoiceCapability(
   token: string | undefined,
   expected: { userEmail: string; orgId?: string; browserTabId?: string },
@@ -482,25 +406,14 @@ export function verifyRealtimeVoiceCapability(
   };
 }
 
-// ── Gateway access-check tokens ──────────────────────────────────────────────
-//
-// The hosted gateway has no access to an app's shareable-resource registry, so
-// it cannot resolve sharee visibility itself. It signs one of these with the
-// app's per-project key and calls the app's `/_agent-native/can-see`, which runs
-// `resolveAccess` and answers. The full access query is bound into the token so
-// the app authenticates the params, not merely the caller.
 
-/** Payload `typ` discriminator for gateway access-check tokens. */
 export const GATEWAY_ACCESS_TOKEN_TYPE = "rt-access-check";
-/** Short TTL: minted per check, used immediately server-to-server. */
 const DEFAULT_GATEWAY_ACCESS_TTL_SECONDS = 60;
 
-/** Inputs for {@link signGatewayAccessToken}. */
 export interface GatewayAccessClaims {
   projectId: string;
   resourceType: string;
   resourceId: string;
-  /** App end-user whose visibility of the resource is being checked. */
   userEmail: string;
   orgId?: string;
   ttlSeconds?: number;
@@ -516,7 +429,6 @@ interface DecodedGatewayAccessClaims {
   exp: number;
 }
 
-/** Result of {@link verifyGatewayAccessToken}; on success carries the bound query. */
 export type GatewayAccessVerifyResult =
   | {
       ok: true;
@@ -528,7 +440,6 @@ export type GatewayAccessVerifyResult =
     }
   | { ok: false; reason: string };
 
-/** Mint a gateway access-check token, signed with the app's per-project `key`. */
 export function signGatewayAccessToken(
   claims: GatewayAccessClaims,
   key: string,
@@ -548,7 +459,6 @@ export function signGatewayAccessToken(
   return `${payloadStr}.${hmacB64(payloadStr, key)}`;
 }
 
-/** Verify a gateway access-check token against the app's per-project `key`. */
 export function verifyGatewayAccessToken(
   token: string,
   key: string,
@@ -586,9 +496,6 @@ export function verifyGatewayAccessToken(
   ) {
     return { ok: false, reason: "bad_payload" };
   }
-  // Optional channel binding, mirroring verifyRealtimeSubscribeToken. The
-  // per-project key already scopes verification to one app; this is belt-and-
-  // suspenders for a future multi-tenant secret store. Skipped when the caller
   // can't cheaply resolve its own project id (scoped-secret apps).
   if (expectedProjectId && claims.projectId !== expectedProjectId) {
     return { ok: false, reason: "wrong_project" };

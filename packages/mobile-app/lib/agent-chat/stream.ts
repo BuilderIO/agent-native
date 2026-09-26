@@ -1,14 +1,8 @@
-/**
- * Incremental parser for the agent chat response stream: line-delimited JSON,
- * where lines may be SSE-framed (`data: {...}` with blank-line flushes) or
- * bare JSON objects. Ported from the web runtime's readJsonEventStream.
- */
 
 export class JsonEventStreamParser {
   private buffer = "";
   private pendingSseData: string[] = [];
 
-  /** Feed a decoded chunk; returns every complete event it terminated. */
   push(chunk: string): unknown[] {
     this.buffer += chunk;
     const lines = this.buffer.split(/\r?\n/);
@@ -31,7 +25,6 @@ export class JsonEventStreamParser {
     return events;
   }
 
-  /** Call once the stream ends to drain any trailing buffered event. */
   end(): unknown[] {
     const events: unknown[] = [];
     if (this.buffer.trim()) {

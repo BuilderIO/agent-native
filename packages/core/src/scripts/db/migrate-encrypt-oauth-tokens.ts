@@ -1,8 +1,3 @@
-/**
- * Core script: db-migrate-encrypt-oauth-tokens
- *
- * Encrypt plaintext OAuth payloads in the oauth_tokens table in place.
- */
 
 import path from "node:path";
 

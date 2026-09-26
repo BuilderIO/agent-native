@@ -34,42 +34,6 @@ export function meta() {
   return [{ title: "Workspace app - Dispatch" }];
 }
 
-/**
- * Catch-all for `/dispatch/<segment>` paths that don't match an explicit
- * Dispatch route. When `<segment>` is the id of a workspace app sibling
- * (e.g. `/dispatch/todo` after Builder.io routes a "navigate to /todo"
- * call through Dispatch's mount point), bounce to the absolute `/<appId>`
- * so the user lands on the actual app instead of a 404 inside Dispatch.
- *
- * Server-side redirect: we resolve the workspace app manifest via the
- * shared `loadWorkspaceAppsManifest()` helper, which checks the
- * `AGENT_NATIVE_WORKSPACE_APPS_JSON` env var, then the
- * `.agent-native/workspace-apps.json` file written by `workspace-deploy.ts`,
- * then a live filesystem scan of `apps/` for local dev. We then throw
- * `redirect("/<appId>")`. React Router 7 does not prepend the basename to
- * absolute paths returned from a loader, so the redirect escapes Dispatch's
- * `/dispatch` mount cleanly.
- *
- * Why a catch-all instead of fixing the agent prompt: Builder.io currently
- * resolves "navigate to /todo" relative to Dispatch's mount, sending the
- * user to /dispatch/todo. The same wrong path then gets captured as the
- * OAuth callbackURL, so Google sign-in completes back at /dispatch/todo
- * and looks broken. This route fixes both the post-creation navigation
- * and the OAuth round-trip from a single place.
- *
- * Built-in template fallback: when no workspace manifest is available
- * (framework dev with each template on its own port, hosted dispatch with
- * no sibling apps), redirect to the matching first-party template's deploy
- * URL — `http://localhost:<devPort>` in dev, `https://<id>.agent-native.com`
- * in production. Without this, a user visiting `/forms` on dispatch is
- * forced to sign in (auth guard) and then lands on this route's "Page not
- * found" pane after the post-login reload.
- *
- * `appId === "dispatch"` short-circuit: when the segment matches Dispatch
- * itself (e.g. `/dispatch/dispatch`), we go straight to the overview rather
- * than chaining through `/dispatch` (which polled `useActionQuery` re-fired
- * `window.location.assign` against and looped forever in production).
- */
 function dispatchSelfRedirect(appId: string | undefined): string | null {
   if (appId === "dispatch") return appPath("/overview");
   return null;
@@ -91,11 +55,6 @@ export async function clientLoader({
 }: ClientLoaderFunctionArgs) {
   const selfTarget = dispatchSelfRedirect(params.appId);
   if (selfTarget) throw withSsrHtmlContentType(redirect(selfTarget));
-  // Defer to the server loader so the built-in template fallback runs on
-  // SPA navigations too (e.g. clicking a `/<template-id>` link inside
-  // dispatch). Without this the client side would only check the workspace
-  // apps query, which never lists the static first-party templates and so
-  // the user would land on the "Page not found" pane.
   return serverLoader();
 }
 

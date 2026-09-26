@@ -58,11 +58,6 @@ type DesignatedVaultFallbackAccess =
     }
   | { status: "unavailable"; cause: unknown };
 
-/**
- * The designated vault fallback is an all-apps compatibility path. Manual
- * mode must use the per-app sync path instead, or a known key name would be
- * enough to read the whole vault from an ungranted workspace app.
- */
 async function canReadDesignatedVaultFallback(
   vaultOrgId: string,
   credentialKey: string,
@@ -73,13 +68,6 @@ async function canReadDesignatedVaultFallback(
   );
   if (access?.mode !== "manual") return { status: "allowed" };
 
-  // Manual mode is still usable across a Dispatch vault org and a separate
-  // app org, but only for this app's explicit active grant. The app identity
-  // comes from deployment configuration, never from request input.
-  //
-  // `workspaceId` first is load-bearing: `vault_grants` rows are written with
-  // the id a workspace deploy assigns, so preferring the generic `id` would
-  // look grants up under a name nobody granted.
   const app = getAppConfig().app;
   const appId = app.workspaceId ?? app.id ?? app.name;
   if (!appId) {
@@ -103,8 +91,6 @@ async function canReadDesignatedVaultFallback(
       ? { status: "allowed" }
       : { status: "denied", reason: "no-active-grant" };
   } catch (cause) {
-    // A missing/unreadable grant table must fail closed. The app can still
-    // resolve a locally scoped credential or retry after the store recovers.
     return { status: "unavailable", cause };
   }
 }
@@ -169,11 +155,6 @@ export class CredentialStoreUnavailableError extends Error {
   }
 }
 
-/**
- * The one place that decides when an unanswered credential lookup becomes a
- * user-visible retryable error. A store that is not configured at all is a real
- * "no credential"; a store that timed out or dropped the connection is not.
- */
 export function assertCredentialStoreReadable(result: {
   lookupFailed: boolean;
   cause?: unknown;
@@ -222,12 +203,8 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "OLLAMA_BASE_URL",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
-  // OAuth client ids identify the deployment; user identity remains in scoped tokens.
   "NOTION_CLIENT_ID",
   "NOTION_CLIENT_SECRET",
-  // The Slack bot belongs to the deployed app, not the signed-in webhook
-  // actor. The adapter still pins it to the incoming team and app via
-  // auth.test + bots.info before using it.
   "SLACK_BOT_TOKEN",
   "RESEND_API_KEY",
   "SENDGRID_API_KEY",
@@ -258,9 +235,6 @@ export function isDeployCredentialFallbackAllowed(): boolean {
 export function canUseDeployCredentialFallbackForRequest(
   key?: string,
 ): boolean {
-  // Synthetic checks must never fall through to a deploy-wide provider key.
-  // If the dedicated test credential is rejected, using the site's shared key
-  // would make a green retry both misleading and billable to real traffic.
   if (getRequestContext()?.isSyntheticTraffic === true) return false;
   if (key && HOSTED_MODEL_PROVIDER_ENV_KEYS.has(key)) {
     if (isHostedWorkspaceRuntime()) return false;
@@ -274,9 +248,7 @@ export function canUseDeployCredentialFallbackForRequest(
   return isLocalDatabase();
 }
 
-/** The raw `btk-` gateway PAT a Builder-credits deploy injects. */
 export const BUILDER_GATEWAY_TOKEN_ENV_VAR = "BUILDER_GATEWAY_TOKEN";
-/** The space id that pairs with it, sent as `x-builder-api-key`. */
 export const BUILDER_GATEWAY_SPACE_ID_ENV_VAR = "BUILDER_GATEWAY_SPACE_ID";
 
 const BUILDER_CREDENTIAL_KEYS = [
@@ -296,17 +268,6 @@ function isBuilderCredentialKey(key: string): boolean {
   return (BUILDER_CREDENTIAL_KEYS as readonly string[]).includes(key);
 }
 
-/**
- * Whether a hosting PLATFORM marked this process as one of its runtimes.
- *
- * Deliberately excludes `NODE_ENV`: that one is set by the app's own env file,
- * so it travels with a copied `.env` to a laptop and proves nothing about
- * where the process is running. Every marker here is written by the platform
- * itself, so a local run of a production build has none of them. Callers that
- * only need "is this production-shaped" should use `isProductionLikeRuntime`;
- * use this one where mistaking a developer's machine for the deployment has a
- * consequence beyond the process itself.
- */
 export function hasPlatformRuntimeMarker(): boolean {
   return (
     /^(1|true)$/i.test(process.env.NETLIFY ?? "") ||
@@ -344,39 +305,17 @@ export function isTrustedSelfHostedRuntime(): boolean {
   return isLocalDatabase();
 }
 
-/**
- * Whether deployment-level Builder env keys may back the current request.
- *
- * This is intentionally self-contained rather than delegating to
- * `canUseDeployCredentialFallbackForRequest`. That generic helper blocks the
- * deploy fallback for any signed-in user in a hosted workspace runtime, so the
- * Builder dogfooding escape hatch must apply its own hosted-workspace exception
- * here instead of inheriting the generic helper's stricter (and hatch-unaware)
- * decision. Reading the env once into locals keeps the rules legible.
- *
- * Rules (all evaluated against the live request/runtime, not a build-time value):
- *  - No signed-in user → safe to use the deploy env (nobody to mis-identify).
- *  - Hosted workspace + signed-in user → deploy-level Builder keys would
- *    impersonate that user, so block them — UNLESS a developer has explicitly
- *    opted into the local dogfooding escape hatch (non-prod only). Default OFF;
- *    hosted/shared production deployments are never affected.
- *  - Otherwise → allowed in non-prod, or on a local/single-tenant database.
- */
 function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();
   if (!email) return true;
 
   const isProductionRuntime = isProductionLikeRuntime();
-  // Local dogfooding escape hatch: lets the env / root-`.env` Builder key back
-  // a signed-in user so running the app locally doesn't require completing the
-  // Builder connect flow first. Non-prod only.
   const localDevOptIn =
     !isProductionRuntime &&
     /^(1|true)$/i.test(process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV ?? "");
 
   if (isHostedWorkspaceRuntime() && !localDevOptIn) return false;
 
-  // Deploy fallback is safe in non-prod or on a local/single-tenant database.
   return !isProductionRuntime || isLocalDatabase();
 }
 
@@ -388,20 +327,6 @@ function shouldTraceCredentialResolve(): boolean {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Builder credential resolution:
-//
-//   1. **Request-scoped credentials.** A signed-in user can connect Builder
-//      through the CLI-auth flow. Owner/admin connections land at org scope;
-//      member/no-org connections land at user scope.
-//
-//   2. **Deployment fallback.** BUILDER_PRIVATE_KEY in env still makes local
-//      and single-tenant deploys work out of the box, but it no longer blocks
-//      per-user connect. Request-scoped credentials win whenever present.
-//
-// To run multi-tenant SaaS: prefer leaving BUILDER_PRIVATE_KEY unset unless a
-// shared fallback identity is intentional.
-// ---------------------------------------------------------------------------
 
 type BuilderCredentialSource = "user" | "org" | "workspace" | "env";
 interface BuilderResolvedCredentials {
@@ -418,14 +343,6 @@ interface BuilderResolvedCredentials {
   source: Exclude<BuilderCredentialSource, "env">;
 }
 
-/**
- * A complete key pair is not necessarily a usable one: the gateway may have
- * already rejected this exact private+public pair (see
- * `recordBuilderCredentialAuthFailure`). Treating a marked-bad pair as
- * "complete" is how a rejected credential got resent on every subsequent
- * turn forever — this is the read side of that write, symmetric with
- * `resolveUsableProviderSecret` for every non-Builder provider.
- */
 async function isCompleteBuilderConnection(
   creds: BuilderResolvedCredentials,
 ): Promise<boolean> {
@@ -474,12 +391,6 @@ async function readBuilderCredentialScope(
   };
 }
 
-/**
- * A transient org_members read failure makes getOrgContext report no org, which
- * would otherwise hide an org-scoped Builder connection behind a permanent-
- * sounding "not configured" error. resolveOrgIdForEmail honors an explicit
- * Personal selection, so this cannot promote a user into an org they left.
- */
 async function resolveOrgIdForRequestEmail(
   email: string,
 ): Promise<{ orgId: string | null; cause?: unknown }> {
@@ -487,8 +398,6 @@ async function resolveOrgIdForRequestEmail(
     const { resolveOrgIdForEmail } = await import("../org/context.js");
     return { orgId: await resolveOrgIdForEmail(email) };
   } catch (err) {
-    // Could not read org membership, so org- and workspace-scoped rows were
-    // never searched. Report the failure instead of the empty answer.
     return { orgId: null, cause: err };
   }
 }
@@ -496,12 +405,7 @@ async function resolveOrgIdForRequestEmail(
 interface ScopedCredentialResult {
   value: string | null;
   source: "user" | "org" | "workspace" | null;
-  /** The failure, when there was one, so callers can classify it. */
   cause?: unknown;
-  /**
-   * True when reading the store (or the org membership that decides which
-   * scopes to search) failed, as opposed to the store answering "no row".
-   */
   lookupFailed: boolean;
 }
 
@@ -519,16 +423,12 @@ async function resolveScopedBuilderCredential(
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return NOT_FOUND;
 
-  // Trace only when explicitly requested. These diagnostics are useful for
-  // support, but they include account identifiers and run on hot paths.
   const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";
   let orgLookupCause: unknown;
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
 
-    // 1. Per-user override: a user can paste their own key in settings to
-    //    overrule the org-shared one (handy for a personal sandbox).
     const userSecret = await readAppSecret({
       key,
       scope: "user",
@@ -555,10 +455,6 @@ async function resolveScopedBuilderCredential(
       if (orgId) orgSource = "email-fallback";
     }
 
-    // 2. Per-org shared credential: when one teammate connects Builder
-    //    as an owner/admin we write the OAuth result at org scope so
-    //    every member of that org gets the AI chat working without
-    //    re-running the connect flow. Resolution falls back here
     //    silently — the caller never has to know which scope answered.
     if (orgId) {
       scopeAttempted = "org";
@@ -576,9 +472,6 @@ async function resolveScopedBuilderCredential(
         return { value: orgSecret.value, source: "org", lookupFailed: false };
       }
 
-      // Older setup flows wrote shared credentials at workspace scope.
-      // Keep reading those rows so status UIs and runtime resolution agree
-      // for users who connected before org-scoped Builder credentials existed.
       scopeAttempted = "workspace";
       const workspaceSecret = await readAppSecret({
         key,
@@ -604,9 +497,6 @@ async function resolveScopedBuilderCredential(
       }
     }
 
-    // Membership lookup failure means the org scopes were never searched.
-    // Do not let a pre-org solo row silently impersonate the current org while
-    // the membership read is retryable.
     if (orgLookupCause !== undefined) {
       return {
         value: null,
@@ -616,10 +506,6 @@ async function resolveScopedBuilderCredential(
       };
     }
 
-    // 3. Solo-workspace fallback: always checked, even when an org id was
-    //    found above. Older no-org connect flows wrote here, so a credential
-    //    written before the user joined/created an org must not become
-    //    unreachable once that org exists.
     scopeAttempted = "workspace-solo";
     const soloWorkspaceSecret = await readAppSecret({
       key,
@@ -661,7 +547,6 @@ async function resolveScopedBuilderCredential(
 
 interface ScopedBuilderCredentialsResult {
   creds: BuilderResolvedCredentials | null;
-  /** The failure, when there was one, so callers can classify it. */
   cause?: unknown;
   /**
    * True when reading the credential store itself threw (db timeout, etc),
@@ -672,9 +557,7 @@ interface ScopedBuilderCredentialsResult {
 }
 
 export interface BuilderCredentialLookupIdentity {
-  /** The verified owner of a background run, when it has no browser request. */
   userEmail?: string | null;
-  /** The verified organization attached to that run, when one exists. */
   orgId?: string | null;
 }
 
@@ -751,9 +634,6 @@ async function resolveScopedBuilderCredentials(
       return { creds: null, lookupFailed: true, cause: orgLookupCause };
     }
 
-    // Solo-workspace fallback: always checked, even when an org id was found
-    // above. See resolveScopedBuilderCredential for why this must not be
-    // gated behind "no org".
     scopeAttempted = "workspace-solo";
     const soloScopeId = `solo:${email}`;
     const soloCreds = await readBuilderCredentialScope(
@@ -800,56 +680,32 @@ export async function resolveBuilderCredential(
     ? (readDeployCredentialEnv(key) ?? null)
     : null;
   if (envValue) {
-    // A deploy fallback is still useful, but it must not turn a transient
-    // credential-store failure into a clean connected result for Builder.
     assertCredentialStoreReadable(scoped);
     return envValue;
   }
-  // Nothing answered AND the store never gave a real answer: that is not
-  // "not connected", it is "we could not look".
   assertCredentialStoreReadable(scoped);
   return null;
 }
 
-/**
- * True when `BUILDER_PRIVATE_KEY` is set at the deployment level. This means
- * a deploy-level fallback exists; it does not prevent per-user connect.
- */
 export function isBuilderEnvManaged(): boolean {
   return !!process.env.BUILDER_PRIVATE_KEY;
 }
 
-/**
- * Resolve the Builder private key for the current request. User/org OAuth
- * credentials win; deploy-level `BUILDER_PRIVATE_KEY` is the fallback.
- */
 export async function resolveBuilderPrivateKey(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<string | null> {
   return resolveBuilderCredential("BUILDER_PRIVATE_KEY", identity);
 }
 
-/**
- * Resolve the current user's Builder auth header.
- * Returns `"Bearer <key>"` or null.
- */
 export async function resolveBuilderAuthHeader(): Promise<string | null> {
   const key = await resolveBuilderPrivateKey();
   return key ? `Bearer ${key}` : null;
 }
 
-/**
- * Check whether the current user has a Builder private key configured
- * (per-user or deployment-level).
- */
 export async function resolveHasBuilderPrivateKey(): Promise<boolean> {
   return !!(await resolveBuilderPrivateKey());
 }
 
-/**
- * Check whether the current request has the complete Builder credential bundle
- * needed for Builder-backed assistant/image-generation calls.
- */
 export async function resolveHasCompleteBuilderConnection(): Promise<boolean> {
   const creds = await resolveBuilderCredentials();
   return !!(creds.privateKey && creds.publicKey);
@@ -876,14 +732,12 @@ export interface BuilderCredentialsDetailed {
   subscriptionName: string | null;
   isEnterprise: boolean | null;
   isFreeAccount: boolean | null;
-  /** Which scope answered, or null when nothing did. */
   source: BuilderCredentialSource | null;
   /**
    * True when reading the credential store itself failed (db timeout, etc).
    * Callers must report this as retryable rather than "not configured".
    */
   lookupFailed: boolean;
-  /** The failure, when there was one, so callers can classify it. */
   cause?: unknown;
 }
 
@@ -968,8 +822,6 @@ export async function resolveBuilderCredentialsDetailed(
         readDeployCredentialEnv("BUILDER_IS_FREE_ACCOUNT"),
       )
     : null;
-  // The deploy-level fallback is a candidate scope like any other: a pair the
-  // gateway already rejected must not be handed back as the "configured"
   // credential just because no per-user/org row exists to shadow it.
   const envFailure =
     privateKey && publicKey
@@ -1009,11 +861,6 @@ export async function resolveBuilderCredentialsDetailed(
   };
 }
 
-/**
- * Resolve the Builder assistant credential bundle from one complete scope.
- * Kept to its original return shape (no `source`/`lookupFailed`) for existing
- * callers; use `resolveBuilderCredentialsDetailed()` for those fields.
- */
 export async function resolveBuilderCredentials(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<{
@@ -1054,17 +901,12 @@ export async function resolveBuilderCredentials(
   };
 }
 
-/** `gateway-deploy` means the site pays, so owner-facing copy must not be shown. */
 export type BuilderGatewayLane = "identity" | "gateway-deploy";
 
 export interface BuilderGatewayCredentialsDetailed extends BuilderCredentialsDetailed {
   lane: BuilderGatewayLane | null;
 }
 
-/**
- * Both halves required: the gateway 403s a token with no space id before it
- * consults any route policy, so half a pair is not a usable credential.
- */
 export async function resolveUsableBuilderGatewayDeployCredentials(): Promise<{
   token: string;
   spaceId: string;
@@ -1087,11 +929,6 @@ export async function resolveUsableBuilderGatewayDeployCredentials(): Promise<{
   return failure ? null : { token, spaceId };
 }
 
-/**
- * Weaker than "usable" on purpose: a present-but-rejected token still means the
- * reader is a visitor. Excludes the dev preview, which carries the same token but
- * is read by the project owner.
- */
 export function isBuilderGatewayDeployConfigured(): boolean {
   return (
     canUseDeployCredentialFallbackForRequest(BUILDER_GATEWAY_TOKEN_ENV_VAR) &&
@@ -1099,7 +936,6 @@ export function isBuilderGatewayDeployConfigured(): boolean {
   );
 }
 
-/** One decision for every gateway-lane consumer; a per-consumer copy drifts. */
 export function gatewayLaneUnavailableMessage(ownerFacing: string): string {
   return isBuilderGatewayDeployConfigured()
     ? GATEWAY_UNAVAILABLE_VISITOR_MESSAGE
@@ -1121,18 +957,11 @@ export async function resolveBuilderGatewayCredentialsDetailed(
   if (scoped.source && scoped.source !== "env") {
     return { ...scoped, lane: "identity" };
   }
-  // A COMPLETE legacy pair in env is owner-configured, not deploy-injected, so it
-  // outranks the gateway here — `selectDetectedEngine` gives it priority for the
-  // same reason, and letting the gateway win would pick `builder` on the
-  // customer's own pair and then bill the call to the project's gateway space.
-  // An incomplete pair is not a usable credential and still falls through.
   if (scoped.privateKey && scoped.publicKey) {
     return { ...scoped, lane: "identity" };
   }
   const gateway = await resolveUsableBuilderGatewayDeployCredentials();
   if (gateway) {
-    // Same discipline as `resolveBuilderCredential`: a deploy fallback must not
-    // turn an unreadable credential store into a clean connected result.
     assertCredentialStoreReadable(scoped);
     return {
       privateKey: gateway.token,
@@ -1201,15 +1030,8 @@ export async function resolveBuilderGatewayCredentials(
 }
 
 export interface BuilderGatewayAuth {
-  /** `Bearer <token>` for the `Authorization` header. */
   authorization: string;
-  /**
-   * Send as `x-builder-api-key`. Null for a legacy single-key deployment, or
-   * for an OAuth access token: the token itself carries the caller's identity,
-   * so the gateway does not require a space id alongside it.
-   */
   spaceId: string | null;
-  /** Send as `x-builder-user-id` when the lane carries a Builder user. */
   userId: string | null;
 }
 
@@ -1223,10 +1045,6 @@ export class BuilderCredentialLookupError extends Error {
   }
 }
 
-/**
- * The gate for gateway-lane features. Not `resolveHasBuilderPrivateKey`, which is
- * identity-only and false on a credits site.
- */
 export async function resolveHasBuilderGatewayCredential(): Promise<boolean> {
   return Boolean(await resolveBuilderGatewayAuth());
 }
@@ -1245,7 +1063,6 @@ export async function resolveBuilderGatewayAuth(
 ): Promise<BuilderGatewayAuth | null> {
   const ownerEmail =
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
-  // undefined resolves the owner's org; null deliberately pins the lookup to Personal.
   const orgId = identity === undefined ? getRequestOrgId() : identity.orgId;
   let hasOAuthSession = false;
   if (ownerEmail) {
@@ -1288,9 +1105,7 @@ export async function resolveBuilderGatewayAuth(
         userId: creds.userId?.trim() || null,
       };
     }
-    // Single-key deployments predate the space id and still authenticate on a
     // `bpk-` private key alone. A gateway token never reaches this branch — its
-    // pair is required above.
     const legacyKey = (await resolveBuilderPrivateKey(identity))?.trim();
     return legacyKey
       ? { authorization: `Bearer ${legacyKey}`, spaceId: null, userId: null }
@@ -1338,7 +1153,6 @@ function authFailureTtlMs(
   );
 }
 
-/** Next strike count for a marker being (re-)armed on the same fingerprint. */
 async function nextAuthFailureStrikes(settingKey: string): Promise<number> {
   const { getSetting } = await import("../settings/store.js");
   const prior = await getSetting(settingKey, { bypassCache: true });
@@ -1349,12 +1163,6 @@ async function nextAuthFailureStrikes(settingKey: string): Promise<number> {
 }
 
 const BUILDER_AUTH_FAILURE_SETTING_PREFIX = "builder-auth-failure:";
-/**
- * Stale markers expire so a rejected model or a transient gateway failure
- * cannot pin a signed-in user to "Builder not connected" forever. Only a
- * successful gateway call clears the marker early, and that call never happens
- * while the marker is what makes the connection look broken.
- */
 export const BUILDER_AUTH_FAILURE_TTL_MS = 15 * 60 * 1000;
 
 export interface BuilderCredentialAuthFailure {
@@ -1401,9 +1209,6 @@ export async function getBuilderCredentialAuthFailure(
     const row = await settings.getSetting(settingKey);
     if (!row) return null;
     const at = typeof row.at === "number" ? row.at : Date.now();
-    // Expired means "usable again", not "never failed": the row stays so the
-    // strike count survives, and a credential that fails on re-admission backs
-    // off further instead of resetting to the base TTL. A success clears it.
     if (Date.now() - at > authFailureTtlMs(BUILDER_AUTH_FAILURE_TTL_MS, row)) {
       return null;
     }
@@ -1475,7 +1280,6 @@ export async function clearBuilderCredentialAuthFailure(creds: {
 }
 
 const PROVIDER_AUTH_FAILURE_SETTING_PREFIX = "provider-auth-failure:";
-/** Stale failure markers expire so a transient 401 cannot permanently block deploy keys. */
 export const PROVIDER_AUTH_FAILURE_TTL_MS = 15 * 60 * 1000;
 
 export interface ProviderCredentialAuthFailure {
@@ -1522,8 +1326,6 @@ export async function getProviderCredentialAuthFailure(opts: {
     if (!row) return null;
     if (row.fingerprint !== fingerprint) return null;
     const at = typeof row.at === "number" ? row.at : Date.now();
-    // See `getBuilderCredentialAuthFailure`: the row outlives its TTL so the
-    // strike count does, and re-admission backs off instead of resetting.
     if (Date.now() - at > authFailureTtlMs(PROVIDER_AUTH_FAILURE_TTL_MS, row)) {
       return null;
     }
@@ -1615,13 +1417,11 @@ export async function recordBuilderGatewayAuthFailure(details?: {
       return;
     }
   } catch {
-    // Best-effort marker only; the chat error is still returned to the caller.
     return;
   }
   await recordBuilderCredentialAuthFailure(details);
 }
 
-/** Each clear is a no-op off its own lane, so callers need not know which they are on. */
 export async function clearBuilderGatewayAuthFailure(creds: {
   privateKey?: string | null;
   publicKey?: string | null;
@@ -1633,34 +1433,6 @@ export async function clearBuilderGatewayAuthFailure(creds: {
   });
 }
 
-/**
- * Write Builder credentials to `app_secrets`.
- *
- * Scope decision (see `resolveCredentialWriteScope`): when the connecting
- * user is owner/admin of an active org we write at `scope: "org"` so every
- * member of that org auto-resolves the credentials via
- * `resolveBuilderCredential`'s org fallback — no per-user re-connect
- * needed. A plain member or a user with no active org writes at
- * `scope: "user"` (the safe default that doesn't trample the org's shared
- * connection).
- *
- * Stale-credential cleanup: before writing the new values we (1) clear ALL
- * five BUILDER_* keys at the target scope, so optional fields the new
- * connection doesn't carry (e.g. user picked a Builder space that returns
- * no orgName) don't leave the previous connection's metadata behind, and
- * (2) when writing at org scope, also clear the writer's own user-scope
- * BUILDER_* rows so a stale personal override from an earlier connect
- * doesn't shadow the new org write on resolution (user scope wins org
- * scope by design — see `resolveScopedBuilderCredential`). The org-scope
- * row is intentionally left alone when writing at user scope: that row is
- * shared with the rest of the org and a single user's personal override
- * shouldn't blow it away. (Victoria's "I signed in again with my Builder
- * space and it still says no credits" report on 2026-05-11 was exactly
- * this stale-shadow case.)
- *
- * Returns the actual scope/scopeId used so the caller can show "Connected
- * for Builder.io" vs "Connected (personal)" in the UI.
- */
 export async function writeBuilderCredentials(
   email: string,
   creds: {
@@ -1698,8 +1470,6 @@ export async function writeBuilderCredentials(
     options?.role ?? null,
   );
 
-  // Clear stale rows before writing the new connection. See the function's
-  // doc comment for the two cases this handles.
   const cleanups: Array<Promise<unknown>> = BUILDER_CREDENTIAL_KEYS.map((key) =>
     deleteAppSecret({
       key,
@@ -1773,16 +1543,6 @@ export async function writeBuilderCredentials(
   return target;
 }
 
-/**
- * Delete Builder credentials.
- *
- * Default behaviour: clears only this user's per-user override (so a
- * member can disconnect their personal Builder identity without
- * collapsing the org-wide connection for every teammate). To revoke the
- * org's shared connection, pass `{ orgId, role }` for an owner/admin —
- * matching the same authority gate `writeBuilderCredentials` uses on
- * write. Plain members can never reach the org-scoped row.
- */
 export async function deleteBuilderCredentials(
   email: string,
   options?: { orgId?: string | null; role?: string | null },
@@ -1805,16 +1565,7 @@ export async function deleteBuilderCredentials(
   return target;
 }
 
-// ---------------------------------------------------------------------------
-// Generic request-scoped secret resolution
-//
-// New consumers should prefer this over reading `process.env.X` directly.
-// User-pasted and shared secrets live in `app_secrets` (encrypted). The
-// settings UI / onboarding panels can write user, org, or workspace rows.
-// Deploy-level env vars are the fallback for unauthenticated/CLI/background
 // contexts where there's no user to scope by. Hosted requests never use a
-// deploy-level model-provider key; personal and shared keys live in app_secrets.
-// ---------------------------------------------------------------------------
 
 /**
  * Warm this request's secret memo for many keys with one read per scope.
@@ -1866,8 +1617,6 @@ export async function prefetchSecrets(keys: readonly string[]): Promise<void> {
 export async function resolveSecret(key: string): Promise<string | null> {
   const resolved = await resolveSecretDetailed(key);
   if (resolved.value) return resolved.value;
-  // Nothing answered AND the store never gave a real answer. Reporting null
-  // here is what turns a database blip into "you never configured this".
   assertCredentialStoreReadable(resolved);
   return null;
 }
@@ -1878,11 +1627,6 @@ type ResolveSecretPairOptions = {
   preferWorkspaceScope?: boolean;
 };
 
-/**
- * Resolve the first complete pair from the requested aliases. A complete
- * lower-precedence pair wins over mixing a partial override with another
- * source, and workspace preference applies across every alias before org.
- */
 export async function resolveSecretPairs(
   keyPairs: ReadonlyArray<SecretPairKeys>,
   options?: ResolveSecretPairOptions,
@@ -2023,21 +1767,13 @@ export async function resolveSecretPair(
   return resolveSecretPairs([keys], options);
 }
 
-/**
- * `resolveSecret` without the throw: reports whether the miss is definitive
- * (`lookupFailed: false` — no such row anywhere the caller can reach) or just
- * unknown (`lookupFailed: true` — the store or the org membership behind it
- * could not be read).
- */
 export type ResolvedSecretSource = "user" | "org" | "workspace" | "env";
 
 export interface ResolvedSecretDetail {
   value: string | null;
   lookupFailed: boolean;
   cause?: unknown;
-  /** Which store answered. Absent when nothing did. */
   source?: ResolvedSecretSource;
-  /** The `app_secrets` scope id that answered, so callers can read its metadata. */
   scopeId?: string;
 }
 
@@ -2054,7 +1790,6 @@ export async function resolveSecretDetailed(
     try {
       const { readAppSecret } = await import("../secrets/storage.js");
 
-      // Per-user override first.
       const userSecret = options.skipUserScope
         ? null
         : await readAppSecret({
@@ -2077,12 +1812,8 @@ export async function resolveSecretDetailed(
       }
 
       // The beta suite writes one user-scoped credential and must never turn a
-      // rejected or missing test key into a charge against a shared scope.
       if (syntheticTraffic) return { value: null, lookupFailed: false };
 
-      // Mirrors resolveScopedBuilderCredential: a transient org_members read
-      // failure makes getOrgContext report no org, which would otherwise hide
-      // an org-scoped vault row behind an intermittent "not configured" error.
       let orgId: string | null | undefined = getRequestOrgId();
       if (!orgId) {
         const resolved = await resolveOrgIdForRequestEmail(email);
@@ -2096,8 +1827,6 @@ export async function resolveSecretDetailed(
       }
 
       if (orgId) {
-        // These rows are independent once the org is known, so read them in
-        // parallel while still applying precedence below in the same order.
         const [orgRead, workspaceRead] = await Promise.allSettled([
           readAppSecret({ key, scope: "org", scopeId: orgId }),
           readAppSecret({ key, scope: "workspace", scopeId: orgId }),
@@ -2107,8 +1836,6 @@ export async function resolveSecretDetailed(
           return settled.value;
         };
 
-        // Fall back to the active org's shared row, when present. Builder
-        // Connect uses this first-class org scope.
         const orgSecret = unwrap(orgRead);
         if (orgSecret?.value) {
           if (traceLookup) {
@@ -2124,9 +1851,6 @@ export async function resolveSecretDetailed(
           };
         }
 
-        // Registered secrets historically used "workspace" scope for
-        // org-shared configuration. Keep reading it so Settings status and
-        // runtime resolution agree.
         const workspaceSecret = unwrap(workspaceRead);
         if (workspaceSecret?.value) {
           if (traceLookup) {
@@ -2143,11 +1867,6 @@ export async function resolveSecretDetailed(
         }
       }
 
-      // Solo-workspace fallback: always checked, even when an org id was found
-      // above. A secret written before the user joined/created an org lives
-      // here, and must not become unreachable once that org exists. It stays
-      // inside this try so a failed org-scoped read still surfaces as
-      // retryable instead of being answered by a stale pre-org row.
       const soloWorkspaceSecret = await readAppSecret({
         key,
         scope: "workspace",
@@ -2167,11 +1886,6 @@ export async function resolveSecretDetailed(
         };
       }
 
-      // Dispatch's workspace vault is stored under the organization that
-      // performed the sync. AGENT_VAULT_ORG_ID is an explicit single-workspace
-      // deployment assertion; without it, never guess which other tenant owns
-      // a shared key. This fallback keeps workspace apps from requiring every
-      // builder to copy a vault key into app-local settings.
       const vaultOrgId = process.env.AGENT_VAULT_ORG_ID?.trim();
       if (vaultOrgId && vaultOrgId !== orgId) {
         const designatedVaultAccess = await canReadDesignatedVaultFallback(
@@ -2227,15 +1941,9 @@ export async function resolveSecretDetailed(
           `[resolve-secret] key=${key} email=${email} scope=error err=${(err as Error)?.message ?? err}`,
         );
       }
-      // Keep looking (env may still have the key), but remember that the store
-      // never actually answered "no row".
       lookupFailed = true;
       cause = err;
     }
-    // Read deployment-provided env values as fallbacks; framework code must not
-    // write to `process.env`, but keys supplied by the host remain valid config.
-    // Builder credentials keep a narrower path below because those keys carry a
-    // Builder identity rather than just enabling a provider call.
     const envFallback = (
       isBuilderCredentialKey(key)
         ? canUseBuilderDeployCredentialFallbackForRequest()
@@ -2255,8 +1963,6 @@ export async function resolveSecretDetailed(
       ...(envFallback ? { source: "env" as const } : {}),
     };
   }
-  // Unauthenticated / local-dev / CLI / background context: only return an
-  // env fallback when the same hosted model-key policy allows it.
   const value = canUseDeployCredentialFallbackForRequest(key)
     ? process.env[key] || null
     : null;
@@ -2272,23 +1978,11 @@ export async function resolveSecretDetailed(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Synchronous helpers — env-only fallbacks for contexts where per-user
-// lookup isn't possible (sync isConfigured checks, CLI scripts).
-// ---------------------------------------------------------------------------
 
-/**
- * True when a Builder private key is configured at the deployment level.
- *
- * This is the same env-only check as `isBuilderEnvManaged()`. For "does this
- * request have access to Builder via user/org/env credentials?" use the async
- * `resolveHasBuilderPrivateKey()`.
- */
 export function hasBuilderPrivateKey(): boolean {
   return !!process.env.BUILDER_PRIVATE_KEY;
 }
 
-/** The origin for Builder-proxied API calls. Overridable for testing. */
 export function getBuilderProxyOrigin(): string {
   return (
     process.env.BUILDER_PROXY_ORIGIN ||
@@ -2298,11 +1992,6 @@ export function getBuilderProxyOrigin(): string {
   );
 }
 
-/**
- * Base URL for the public Builder LLM gateway, which lives at
- * api.builder.io/agent-native/gateway.
- * Override via BUILDER_GATEWAY_BASE_URL for staging / testing.
- */
 export function getBuilderGatewayBaseUrl(): string {
   return (
     process.env.BUILDER_GATEWAY_BASE_URL ||
@@ -2310,10 +1999,6 @@ export function getBuilderGatewayBaseUrl(): string {
   );
 }
 
-/**
- * Base URL for Builder-managed image generation.
- * Override via BUILDER_IMAGE_GENERATION_BASE_URL for staging / testing.
- */
 export function getBuilderImageGenerationBaseUrl(): string {
   return (
     process.env.BUILDER_IMAGE_GENERATION_BASE_URL ||
@@ -2329,10 +2014,6 @@ export function getBuilderVideoGenerationBaseUrl(): string {
   return "https://api.builder.io/agent-native/videos/v1";
 }
 
-/**
- * Base URL for Builder-managed web search.
- * Override via BUILDER_WEB_SEARCH_BASE_URL for staging / testing.
- */
 export function getBuilderWebSearchBaseUrl(): string {
   return (
     process.env.BUILDER_WEB_SEARCH_BASE_URL ||

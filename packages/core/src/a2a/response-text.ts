@@ -30,9 +30,6 @@ export function collectFinalResponseTextFromAgentEvents(
   const startIdx = lastToolIdx >= 0 ? lastToolIdx + 1 : 0;
   let responseText = collectTextEvents(events, startIdx);
 
-  // Some agents let the final tool output speak for itself. Fall back to all
-  // text so callers do not get an empty reply just because no post-tool text
-  // was emitted.
   if (!responseText.trim() && lastToolIdx >= 0 && fallbackToPreToolText) {
     responseText = collectTextEvents(events, 0);
   }

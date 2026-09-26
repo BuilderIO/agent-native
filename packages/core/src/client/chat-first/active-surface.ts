@@ -6,11 +6,6 @@ export type ChatFirstPrimaryTab =
   | "scheduled"
   | "search";
 
-/**
- * The one rail entry that owns the active presentation. `undefined` means the
- * host has not resolved a surface yet, which must stay distinguishable from a
- * nav surface owning the rail while no app is selected.
- */
 export type ChatFirstActiveSurface =
   | { kind: "app"; appId: string }
   | { kind: "nav"; tab: ChatFirstPrimaryTab };

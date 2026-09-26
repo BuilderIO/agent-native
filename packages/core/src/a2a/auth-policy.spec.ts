@@ -8,9 +8,6 @@ import {
   shouldAdvertiseJwtA2AAuth,
 } from "./auth-policy.js";
 
-// Env vars these helpers read. Cleared before each test so the host machine's
-// real environment (NODE_ENV, CI provider flags, etc.) can't make a "default"
-// case secretly pass.
 const A2A_ENV_KEYS = [
   "NODE_ENV",
   "NETLIFY",
@@ -38,7 +35,6 @@ describe("a2a auth-policy", () => {
   afterEach(() => {
     process.env = { ...originalEnv };
     if (hadCfEnv) {
-      // restore whatever was there; tests never set a meaningful value
       (globalThis as Record<string, unknown>).__cf_env ??= {};
     } else {
       delete (globalThis as Record<string, unknown>).__cf_env;

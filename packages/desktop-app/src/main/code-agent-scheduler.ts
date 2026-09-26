@@ -61,8 +61,6 @@ export class DesktopCodeAgentScheduler {
         schedules: listCodeAgentSchedules().map(toShared),
       };
     } catch (error) {
-      // An unreadable store is not an empty one; say so rather than showing
-      // the user zero schedules they still have on disk.
       return {
         status: "unavailable",
         schedules: [],
@@ -197,8 +195,6 @@ export class DesktopCodeAgentScheduler {
         message: "Schedule deleted.",
       };
     } catch (error) {
-      // Unreadable storage must reach the renderer as a result, not as a
-      // rejected IPC call the schedules panel cannot show.
       return {
         ok: false,
         message: "Could not delete schedule.",
@@ -249,8 +245,6 @@ export class DesktopCodeAgentScheduler {
       try {
         due = listCodeAgentSchedules();
       } catch (error) {
-        // Skip this tick instead of running against a store we could not read;
-        // dispatching would mark runs and rewrite the file from a partial view.
         console.warn(
           "[code-agent scheduler] skipping tick; schedules unreadable:",
           errorMessage(error),

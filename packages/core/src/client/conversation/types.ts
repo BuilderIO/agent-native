@@ -7,7 +7,6 @@ export interface AgentConversationAttachment {
   name: string;
   type?: string;
   size?: number;
-  /** Base64 data URL for image attachments (e.g. "data:image/png;base64,..."). */
   dataUrl?: string;
 }
 

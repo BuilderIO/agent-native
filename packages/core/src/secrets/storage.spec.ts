@@ -11,9 +11,6 @@ import {
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { decryptSharedSecretValue } from "./crypto.js";
 
-// A stable encryption key so values round-trip deterministically and the
-// crypto layer never falls through to the cwd-derived fallback (which would
-// warn on every run).
 beforeAll(async () => {
   process.env.SECRETS_ENCRYPTION_KEY = "storage-spec-encryption-key";
 });
@@ -161,10 +158,6 @@ describe("secrets storage bootstrap", () => {
     const { writeAppSecret } = await import("./storage.js");
     await writeAppSecret({ ...userRef, value: "example-secret" });
 
-    // On Postgres ensureTable now probes information_schema first (no lock) and
-    // only issues DDL for what is missing. With an empty fake DB every probe
-    // reports "missing", so the CREATE TABLE still runs — just not as call[0].
-    // Existence probes are passed as { sql, args }; DDL as a raw string.
     const allSql = execute.mock.calls.map((c) => {
       const input = c[0] as string | { sql: string };
       return typeof input === "string" ? input : input.sql;
@@ -176,18 +169,11 @@ describe("secrets storage bootstrap", () => {
     expect(createSql).toContain("BIGINT");
     expect(createSql).not.toMatch(/\bINTEGER\b/);
 
-    // The first statement is a lock-free introspection read, not DDL — proving
-    // the hot path takes no ACCESS EXCLUSIVE lock when the schema already
-    // exists. Existence is now resolved from one batched introspection pass per
-    // database (information_schema.columns + pg_indexes) rather than a query per
-    // object, so this asserts the property, not the exact statement.
     expect(allSql[0]).toMatch(/information_schema|pg_indexes/);
     expect(allSql[0]).not.toMatch(/CREATE|ALTER|DROP/i);
   });
 
   it("skips all DDL on Postgres when the table and columns already exist", async () => {
-    // information_schema probes report the table and both additive columns as
-    // present, so NO CREATE / ALTER should run (no ACCESS EXCLUSIVE lock).
     const execute = vi.fn(async (input: unknown) => {
       const sql = typeof input === "string" ? input : (input as any).sql;
       if (/information_schema/i.test(String(sql))) {
@@ -232,7 +218,6 @@ describe("secrets storage CRUD (real pglite)", () => {
   it("encrypts the value at rest and round-trips the plaintext", async () => {
     await mod.writeAppSecret({ ...userRef, value: "sk-live-abc12345" });
 
-    // The raw column never contains the plaintext — it is v1:-tagged ciphertext.
     const row = (await pglite
       .prepare(`SELECT encrypted_value FROM app_secrets`)
       .get()) as { encrypted_value: string };
@@ -301,9 +286,6 @@ describe("secrets storage CRUD (real pglite)", () => {
     const originalA2ASecret = process.env.A2A_SECRET;
 
     try {
-      // Hosted workspace deploy: no literal SECRETS_ENCRYPTION_KEY or
-      // BETTER_AUTH_SECRET is set for either app — shared material is only
-      // ever available via A2A_SECRET derivation.
       delete process.env.SECRETS_ENCRYPTION_KEY;
       delete process.env.BETTER_AUTH_SECRET;
       delete process.env.AGENT_NATIVE_WORKSPACE;
@@ -405,8 +387,6 @@ describe("secrets storage CRUD (real pglite)", () => {
       );
       expect(after.updated_at).toBe(before.updated_at);
 
-      // A sibling with a different auth secret can now decrypt the migrated
-      // shared column because the workspace A2A-derived key owns it.
       process.env.APP_NAME = "slides"; // guard:allow-env-credential — test switches deploy-level app scope.
       process.env.BETTER_AUTH_SECRET = "slides-auth-secret";
       await expect(
@@ -459,8 +439,6 @@ describe("secrets storage CRUD (real pglite)", () => {
         value: "legacy-deployment-secret",
       });
 
-      // Existing rows remain readable after the deployment adds the preferred
-      // workspace key; the storage read path falls back to the old app key.
       const beforeMigration = (await pglite
         .prepare(
           `SELECT encrypted_value, shared_encrypted_value, updated_at FROM app_secrets`,
@@ -493,12 +471,6 @@ describe("secrets storage CRUD (real pglite)", () => {
         decryptSharedSecretValue(afterMigration.shared_encrypted_value!),
       ).toBe("legacy-deployment-secret");
 
-      // An older app version without shared key material clears the shared
-      // ciphertext on update instead of preserving the (now potentially
-      // stale) value written by a newer sibling — after a secret rotation, a
-      // preserved shared ciphertext would let sibling apps silently decrypt
-      // the old value. Siblings get an honest cache miss until the owning
-      // app's next read repopulates shared_encrypted_value.
       delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
       await mod.writeAppSecret({
         ...userRef,
@@ -543,8 +515,6 @@ describe("secrets storage CRUD (real pglite)", () => {
       // guard:allow-env-credential — test configures deploy-level app encryption material.
       process.env.ROTATION_SECRETS_ENCRYPTION_KEY = "rotation-app-material";
 
-      // 1. Write the original value while shared material is present — this
-      // populates shared_encrypted_value alongside the legacy column.
       process.env.SECRETS_ENCRYPTION_KEY = "rotation-shared-material";
       await mod.writeAppSecret({ ...userRef, value: "original-secret-value" });
       const original = (await pglite
@@ -552,11 +522,6 @@ describe("secrets storage CRUD (real pglite)", () => {
         .get()) as { shared_encrypted_value: string | null };
       expect(original.shared_encrypted_value).not.toBeNull();
 
-      // 2. A writer without shared key material updates the value (e.g. an
-      // app mid-rollout of shared key material, or one that only has the
-      // app-scoped key). The write path still succeeds via the app-scoped
-      // key, but must clear the now-stale shared ciphertext rather than
-      // preserve it.
       delete process.env.SECRETS_ENCRYPTION_KEY;
       delete process.env.BETTER_AUTH_SECRET;
       await mod.writeAppSecret({ ...userRef, value: "rotated-secret-value" });
@@ -565,10 +530,6 @@ describe("secrets storage CRUD (real pglite)", () => {
         .get()) as { shared_encrypted_value: string | null };
       expect(afterRotationWrite.shared_encrypted_value).toBeNull();
 
-      // 3. Shared material comes back (e.g. the deployment finishes rolling
-      // out SECRETS_ENCRYPTION_KEY). A read afterward must not resurrect the
-      // pre-rotation plaintext from a preserved stale ciphertext — it must
-      // come from the legacy column's up-to-date value instead.
       process.env.SECRETS_ENCRYPTION_KEY = "rotation-shared-material";
       const read = await mod.readAppSecret(userRef);
       expect(read).not.toBeNull();
@@ -655,7 +616,6 @@ describe("secrets storage CRUD (real pglite)", () => {
       urlAllowlist: JSON.stringify(["https://api.openai.com"]),
     });
 
-    // Reference stability: overwriting a key must not mint a new id.
     expect(secondId).toBe(firstId);
 
     const { count } = (await pglite
@@ -672,12 +632,6 @@ describe("secrets storage CRUD (real pglite)", () => {
   });
 
   it("handles concurrent writes to the same key without throwing (atomic upsert)", async () => {
-    // Regression test for the SELECT-then-branch race: two writers for the
-    // same (scope, scope_id, key) used to both see "no row" and both
-    // attempt INSERT, and the loser threw a raw UNIQUE constraint
-    // violation. The atomic `INSERT ... ON CONFLICT DO UPDATE` closes that
-    // window — both calls must resolve without throwing and settle to a
-    // single row that keeps a stable id.
     const [firstId, secondId] = await Promise.all([
       mod.writeAppSecret({ ...userRef, value: "concurrent-value-aaaa" }),
       mod.writeAppSecret({ ...userRef, value: "concurrent-value-bbbb" }),
@@ -711,7 +665,6 @@ describe("secrets storage CRUD (real pglite)", () => {
       value: "workspace-secret",
     });
 
-    // Same key name, three different owners — each read returns only its own.
     expect((await mod.readAppSecret(userRef))!.value).toBe("alice-secret");
     expect(
       (await mod.readAppSecret({
@@ -746,20 +699,14 @@ describe("secrets storage CRUD (real pglite)", () => {
 
   it("returns null (never throws or leaks) when the stored ciphertext is corrupt", async () => {
     await mod.writeAppSecret({ ...userRef, value: "tamperable" });
-    // Simulate a tampered / key-rotated row by overwriting the ciphertext with
-    // a syntactically-encrypted-but-undecryptable value.
     await pglite
       .prepare(
         `UPDATE app_secrets SET encrypted_value = ?, shared_encrypted_value = ?`,
       )
       .run("v1:dead:beef:cafe", "v1:dead:beef:cafe");
 
-    // readAppSecret swallows decryption errors and reports "missing" so the
-    // ciphertext never escapes up the stack.
     await expect(mod.readAppSecret(userRef)).resolves.toBeNull();
 
-    // readAppSecretMeta still returns metadata, but with an empty last4 — the
-    // value is not exposed.
     const meta = await mod.readAppSecretMeta(userRef);
     expect(meta).not.toBeNull();
     expect(meta!.last4).toBe("");
@@ -786,8 +733,6 @@ describe("secrets storage CRUD (real pglite)", () => {
       "https://b.test",
     ]);
 
-    // A non-array / non-string-array / malformed allowlist degrades to null
-    // rather than throwing or exposing junk.
     await pglite
       .prepare(`UPDATE app_secrets SET url_allowlist = ?`)
       .run("{not json");
@@ -819,9 +764,6 @@ describe("secrets storage CRUD (real pglite)", () => {
       value: "bob-secret",
     });
 
-    // Both writes can land in the same millisecond; force a distinct, newer
-    // updated_at on SECOND_KEY so the ORDER BY updated_at DESC contract is
-    // exercised deterministically rather than depending on clock resolution.
     await pglite
       .prepare(
         `UPDATE app_secrets SET updated_at = ? WHERE scope_id = ? AND key = ?`,
@@ -830,15 +772,12 @@ describe("secrets storage CRUD (real pglite)", () => {
 
     const list = await mod.listAppSecretsForScope("user", "alice@example.test");
     expect(list.map((s) => s.key).sort()).toEqual(["FIRST_KEY", "SECOND_KEY"]);
-    // Newest write comes first (ORDER BY updated_at DESC).
     expect(list[0].key).toBe("SECOND_KEY");
     expect(list[0].description).toBe("second");
-    // Metadata only — plaintext never serialized into the list.
     const serialized = JSON.stringify(list);
     expect(serialized).not.toContain("first-secret-1111");
     expect(serialized).not.toContain("second-secret-2222");
     expect(serialized).not.toContain("bob-secret");
-    // last4 preview is still surfaced for set keys.
     expect(list.find((s) => s.key === "FIRST_KEY")!.last4).toBe("••••1111");
   });
 
@@ -846,7 +785,6 @@ describe("secrets storage CRUD (real pglite)", () => {
     await mod.writeAppSecret({ ...userRef, value: "to-delete" });
     expect(await mod.deleteAppSecret(userRef)).toBe(true);
     expect(await mod.readAppSecret(userRef)).toBeNull();
-    // Deleting again is a no-op and reports false.
     expect(await mod.deleteAppSecret(userRef)).toBe(false);
   });
 });
@@ -863,7 +801,6 @@ describe("last4 preview", () => {
 
   it("masks all but the trailing 4 characters and never reveals short values", () => {
     expect(mod.last4("")).toBe("");
-    // Values <= 4 chars reveal nothing — fully masked.
     expect(mod.last4("ab")).toBe("••••");
     expect(mod.last4("abcd")).toBe("••••");
     expect(mod.last4("abcde")).toBe("••••bcde");
@@ -928,7 +865,6 @@ describe("per-request read memo", () => {
     expect(first.b?.value).toBe("sk-live-1111");
     expect(first.reads).toBe(1);
 
-    // A different request gets its own snapshot — the memo must not outlive it.
     const second = await runWithRequestContext(
       { userEmail: "alice@example.test" },
       async () => {

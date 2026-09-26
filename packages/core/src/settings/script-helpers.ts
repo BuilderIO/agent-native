@@ -1,8 +1,3 @@
-/**
- * Settings helpers for use in scripts.
- *
- * Persistent key-value settings stored in the settings SQL table.
- */
 
 import { getSetting, putSetting, deleteSetting } from "./store.js";
 

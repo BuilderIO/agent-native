@@ -55,9 +55,7 @@ export type AnthropicManagedAgentRuntimeEvent =
 export interface AnthropicManagedAgentHandlerOptions {
   agentId: string;
   environmentId: string;
-  /** Name of the vault credential containing the Anthropic API key. */
   credentialRef: string;
-  /** Injectable endpoint for a local fixture; production defaults to Claude Platform. */
   apiBaseUrl?: string;
   fetch?: typeof fetch;
   resolveApiKey?: (
@@ -71,7 +69,6 @@ export interface AnthropicManagedAgentHandlerOptions {
   streamConnectTimeoutMs?: number;
 }
 
-/** Plural alias matching the provider name used in configuration. */
 export type AnthropicManagedAgentsHandlerOptions =
   AnthropicManagedAgentHandlerOptions;
 

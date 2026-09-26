@@ -1,18 +1,4 @@
-// Single-source shared cores. Each partial is a heading-less BODY string that
-// begins and ends with its own SHARED-CORE marker comment, so the marker-region
-// sync guard can extract and compare it across the skills that consume it. The
-// skill constants below interpolate these partials at module-eval time; the
-// distributed artifact stays a flat string, so distribution is unchanged.
-//
-// Consumers:
-//   WIREFRAME_QUALITY_CORE  — visual-plan, visual-recap (surface-agnostic)
-//   CANVAS_SURFACE_CORE     — visual-plan modes (canvas/artboard mechanics)
-//   DOCUMENT_QUALITY_CORE   — visual-plan
-//   EXEMPLAR_CORE           — visual-plan
 
-// Surface-agnostic HTML wireframe quality rules. Applies equally to a standalone
-// WireframeBlock/<Screen> (visual-recap) and to a canvas artboard (visual-plan).
-// Do not put canvas/artboard placement mechanics here.
 export const WIREFRAME_QUALITY_CORE = `<!-- SHARED-CORE:wireframe-quality START -->
 
 **A wireframe is an HTML mockup. The renderer owns the look; you write the
@@ -326,14 +312,6 @@ hex colors:
 
 <!-- SHARED-CORE:wireframe-quality END -->`;
 
-// Progressive-disclosure reference file. `WIREFRAME_QUALITY_CORE` is the single
-// source of truth for HTML wireframe quality; it is materialized verbatim into a
-// sibling `references/wireframe.md` in EVERY plan skill dir (visual-plan and
-// visual-recap), instead of being interpolated inline into each SKILL.md body.
-// The SKILL.md bodies carry only `WIREFRAME_REFERENCE_POINTER`, which tells the
-// agent to read this file before authoring any wireframe. Keeping the reference
-// body byte-identical to the core (markers included) lets the sync guard assert
-// the on-disk copies never drift from the canonical constant.
 export const WIREFRAME_REFERENCE_MD = `# HTML wireframe quality — single source of truth
 
 This file is the canonical quality bar for HTML wireframes / \`<Screen>\` /
@@ -344,9 +322,6 @@ author wireframes from memory or paraphrase these rules per command.
 ${WIREFRAME_QUALITY_CORE}
 `;
 
-// Short pointer that replaces the inline wireframe-quality core in each SKILL.md
-// body. Authoring quality lives in the sibling reference file so the SKILL.md
-// stays lean (progressive disclosure); the agent loads the detail on demand.
 export const WIREFRAME_REFERENCE_POINTER = `UI recap/plan wireframes must meet a strict quality bar — full-width chrome,
 pinned bottom bars, real product content, before/after comparability, the right
 \`surface\` preset, \`--wf-*\` tokens instead of hex, and no \`<html>\`/\`<style>\`/font

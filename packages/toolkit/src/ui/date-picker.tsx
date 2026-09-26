@@ -8,7 +8,6 @@ import { Calendar } from "./calendar.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover.js";
 
 interface DatePickerProps {
-  /** Date string in YYYY-MM-DD format */
   value: string;
   onChange: (value: string) => void;
   className?: string;

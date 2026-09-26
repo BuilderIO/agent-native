@@ -8,27 +8,6 @@ import { DevInput, DevLabel } from "./dev-doc-ui.js";
 import { DiagramLightbox } from "./diagram.js";
 import type { MermaidData } from "./mermaid.config.js";
 
-/**
- * Read + Edit renderers for a `mermaid` block — a Mermaid diagram definition
- * (flowchart, sequence, etc.) edited as raw text and rendered as an
- * Excalidraw-style SVG so it matches the plan's hand-drawn / sketchy house
- * style.
- * Lives in core so any app can register the dev-doc block; it stays app-agnostic
- * (no shadcn / next-themes import).
- *
- * The Mermaid and Excalidraw runtimes are browser-only,
- * so the Read renderer SSR-guards: it renders a lightweight placeholder until a
- * `useEffect` confirms it is mounted, then dynamically imports
- * `@excalidraw/mermaid-to-excalidraw` + `@excalidraw/excalidraw` and injects
- * the exported SVG. If Excalidraw conversion fails, it falls back to Mermaid's
- * hand-drawn renderer. Parse errors never throw; they show the raw source and
- * the error message.
- *
- * Dark mode: the plan editor toggles a `.dark` class on <html>. The Read renderer
- * reads `document.documentElement.classList.contains("dark")` (re-checking on a
- * `MutationObserver` of the html class) and re-renders the diagram with matching
- * light/dark export settings.
- */
 
 interface MermaidRenderState {
   svg?: string;
@@ -122,7 +101,6 @@ async function renderMermaidSvg(
   return sanitizeSvgMarkup(svg);
 }
 
-/** Read the live dark-mode flag from the document root (next-themes-free). */
 function useIsDark(): boolean {
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
@@ -137,12 +115,6 @@ function useIsDark(): boolean {
   return isDark;
 }
 
-/**
- * Inject a rendered Mermaid/Excalidraw SVG string. Shared by the inline render
- * and the expand lightbox so the enlarged view shows the exact same SVG; the
- * lightbox passes `enlarged` so the SVG stretches to fill the wider modal
- * (`max-w-5xl`) instead of staying at its intrinsic inline size.
- */
 function MermaidSvg({ svg, enlarged }: { svg: string; enlarged?: boolean }) {
   return (
     <div
@@ -151,7 +123,6 @@ function MermaidSvg({ svg, enlarged }: { svg: string; enlarged?: boolean }) {
           ? "flex justify-center overflow-auto [&_svg]:h-auto [&_svg]:w-full [&_svg]:max-w-full"
           : "mt-2 flex justify-center overflow-auto [&_svg]:h-auto [&_svg]:max-w-full"
       }
-      // Excalidraw and Mermaid output are sanitized before injection.
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   );
@@ -166,13 +137,10 @@ function MermaidDiagram({
 }) {
   const isDark = useIsDark();
   const copy = useBlockCopy();
-  // Only render the diagram after mount: `mermaid` is client-only and SSR has no
-  // DOM for it to measure against.
   const [mounted, setMounted] = useState(false);
   const [state, setState] = useState<MermaidRenderState>({});
   const [expanded, setExpanded] = useState(false);
 
-  // A DOM-id-safe, stable-per-block render id. Mermaid requires a valid CSS id.
   const renderId = useMemo(
     () => `mermaid-${idSeed.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
     [idSeed],
@@ -196,8 +164,6 @@ function MermaidDiagram({
         if (!cancelled) setState({ svg });
       } catch (excalidrawError) {
         try {
-          // Fallback keeps diagrams usable if a Mermaid feature is not supported
-          // by the Excalidraw converter in a given host app.
           const svg = await renderMermaidSvg(
             trimmed,
             `${renderId}-${isDark ? "d" : "l"}`,
@@ -254,10 +220,6 @@ function MermaidDiagram({
     );
   }
 
-  // Hover-revealed top-right expand button + shared lightbox, matching the
-  // DiagramBlock affordance exactly (same icon, reveal-on-hover/focus, Escape +
-  // backdrop close via the reused `DiagramLightbox`). The enlarged view re-shows
-  // the same rendered SVG scaled to fit the wider modal.
   const svg = state.svg;
   return (
     <div className="group/mermaid relative">
@@ -281,11 +243,6 @@ function MermaidDiagram({
   );
 }
 
-/**
- * Read-only renderer for a `mermaid` block. Wraps the diagram in the standard
- * titled `plan-block` section + an optional muted caption, matching the plan
- * house style.
- */
 export function MermaidRead({
   data,
   blockId,
@@ -308,13 +265,6 @@ export function MermaidRead({
   );
 }
 
-/**
- * Edit renderer (panel surface) for a `mermaid` block: a monospace textarea for
- * the diagram source plus an optional caption input. Both commit immediately via
- * `onChange`. `editSurface: "panel"` means the registry renders the `Read` view
- * with a corner edit button that opens this form in the plan's shared popover, so
- * this renders only the form (the popover supplies the chrome and title).
- */
 export function MermaidEdit({
   data,
   onChange,

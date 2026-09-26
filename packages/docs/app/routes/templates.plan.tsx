@@ -51,9 +51,6 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "plan")!;
 
-// The docs page walking through installing the skill/connector — the
-// primary hero and final-CTA action, per the copy. Same-origin route, so it
-// stays a plain path rather than an absolute agent-native.com URL.
 const PLAN_PLUGIN_DOCS_PATH = "/docs/plan-plugin";
 
 const USE_CASES = [
@@ -110,8 +107,6 @@ const KEY_FEATURES = [
   },
 ] as const;
 
-// The publishable copy has five Q&A pairs, not six — implemented as given
-// rather than padded to match the older six-item FAQ this replaces.
 const FAQ_ITEMS = [
   { id: "what-is-plans", question: "question1", answer: "answer1" },
   { id: "use-with-coding-agent", question: "question2", answer: "answer2" },
@@ -120,11 +115,6 @@ const FAQ_ITEMS = [
   { id: "where-plans-are-saved", question: "question5", answer: "answer5" },
 ] as const;
 
-// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
-// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
-// below draws its grid lines flush to that same max-w-site edge, so this
-// wrapper must match exactly (no px-* here) or the hero's border-x box ends
-// up narrower than the rest of the page.
 const HERO_WRAPPER_CLASS =
   "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
@@ -340,11 +330,6 @@ export default function PlanTemplate() {
           <Button
             variant="cta"
             href={PLAN_PLUGIN_DOCS_PATH}
-            // The shared cta variant renders at 14px in sentence case, but the
-            // hero's .primary-button (uppercase 12px mono, via the
-            // .template-detail-page CSS rule) only applies inside the hero
-            // wrapper. Match it explicitly here so both CTAs on the page read
-            // as the same button style.
             style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
             onClick={() =>
               trackEvent("click add to agent", {

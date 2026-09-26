@@ -5,26 +5,12 @@ export interface AgentChatHomeProps extends Omit<
   AgentChatSurfaceProps,
   "className" | "isFullscreen" | "mode" | "style"
 > {
-  /** CSS class for the full-page shell around the chat surface. */
   className?: string;
-  /** CSS class for the inner width/height rail. */
   contentClassName?: string;
-  /** CSS class for the AgentChatSurface itself. */
   surfaceClassName?: string;
-  /**
-   * Apply the shared chat view-transition name to the surface so it can morph
-   * into an AgentSidebar with `chatViewTransition` enabled.
-   * Default: true.
-   */
   chatViewTransition?: boolean;
 }
 
-/**
- * Minimal full-page chat route primitive for chat-first apps.
- *
- * It keeps the actual chat runtime in AgentChatSurface while providing a stable
- * first-viewport shell that templates can use for `/`, `/ask`, or `/chat`.
- */
 export function AgentChatHome({
   className,
   contentClassName,

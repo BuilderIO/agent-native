@@ -5,15 +5,12 @@ import { cn } from "./utils.js";
 
 export interface PoweredByBadgeProps {
   position?: "bottom-right" | "bottom-left";
-  /** Plain shows the logo only with no surrounding badge chrome. */
   variant?: "badge" | "plain";
-  /** When true, positioning is handled by the parent container. */
   embedded?: boolean;
 }
 
 export interface OpenSourceBadgeProps {
   position?: "bottom-left" | "bottom-right";
-  /** When true, positioning is handled by the parent container. */
   embedded?: boolean;
 }
 
@@ -46,21 +43,11 @@ const containerStyle = (
 
 const darkQuery = "(prefers-color-scheme: dark)";
 
-/**
- * Small branding badge: "Built with [Agent-Native logo]"
- *
- * - Fixed position in the corner
- * - Subtle, semi-transparent
- * - Links to https://agent-native.com
- * - Respects prefers-color-scheme
- * - Can be hidden via HIDE_BRANDING=true env var (for white-label)
- */
 export function PoweredByBadge({
   position = "bottom-right",
   variant = "badge",
   embedded = false,
 }: PoweredByBadgeProps) {
-  // Allow hiding via env var
   const hidden =
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_HIDE_BRANDING === "true";
@@ -190,11 +177,6 @@ export function PoweredByBadge({
   );
 }
 
-/**
- * Small badge: "Free and open source"
- *
- * Intended to pair with PoweredByBadge on public pages.
- */
 export function OpenSourceBadge({
   position = "bottom-left",
   embedded = false,

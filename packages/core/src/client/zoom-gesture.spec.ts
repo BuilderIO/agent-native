@@ -24,9 +24,6 @@ describe("isPinchZoomDelta", () => {
   });
 
   it("treats a large fractional delta as a wheel, not a pinch", () => {
-    // A Windows notch at fractional display scaling arrives as 66.7, and macOS
-    // reports an accelerated wheel as large fractional deltas. Reading
-    // fractionality as "pinch" puts both on the ~8x-hotter curve.
     expect(isPinchZoomDelta(66.7)).toBe(false);
     expect(isPinchZoomDelta(-66.7)).toBe(false);
     expect(isPinchZoomDelta(240.5)).toBe(false);
@@ -54,8 +51,6 @@ describe("resolveZoomGestureDevice", () => {
   });
 
   it("classifies a held Cmd as a wheel whatever the delta size", () => {
-    // Cmd is a deliberate modifier; only the browser's synthetic ctrl+wheel
-    // can be a trackpad pinch.
     expect(
       resolveZoomGestureDevice({
         deltaY: -6,
@@ -69,8 +64,6 @@ describe("resolveZoomGestureDevice", () => {
   });
 
   it("keeps a mouse gesture on the wheel curve once its deltas ramp up", () => {
-    // macOS starts an accelerated wheel small, so the first event alone reads
-    // as a pinch; latching must not leave the whole stream on that curve.
     let device = resolveZoomGestureDevice({
       ...pinchEvent,
       atMs: 0,
@@ -95,8 +88,6 @@ describe("resolveZoomGestureDevice", () => {
   });
 
   it("never flips wheel → pinch inside one gesture", () => {
-    // A classification that flips mid-stream also flips the merge key of any
-    // accumulator keyed on it, which silently discards a frame's input.
     let device = resolveZoomGestureDevice({
       deltaY: -100,
       deltaMode: 0,
@@ -162,13 +153,10 @@ describe("normalizeWheelDeltaPx", () => {
   });
 
   it("scales a line-mode tick to a notch-sized travel", () => {
-    // Firefox reports a wheel notch as deltaY 3 in line mode. Feeding that raw
-    // into a pixel-calibrated curve moves zoom by 1.1^0.03 — visibly nothing.
     const px = normalizeWheelDeltaPx(-3, 1);
     expect(px).toBe(-3 * WHEEL_LINE_HEIGHT_PX);
     const factor = clampZoomFactor(zoomFactorForWheelDelta(px, false));
     expect(factor).toBeCloseTo(Math.pow(ZOOM_STEP_PER_NOTCH, 48 / 100), 6);
-    // The raw delta would have moved zoom by well under a percent.
     expect(clampZoomFactor(zoomFactorForWheelDelta(-3, false))).toBeLessThan(
       1.01,
     );
@@ -183,8 +171,6 @@ describe("normalizeWheelDeltaPx", () => {
   });
 
   it("classifies from the raw delta, never the normalized one", () => {
-    // A line tick normalizes to 16px, which sits inside the pinch band —
-    // classifying after normalizing would put a mouse wheel on the pinch curve.
     const device = resolveZoomGestureDevice({
       deltaY: -1,
       deltaMode: 1,

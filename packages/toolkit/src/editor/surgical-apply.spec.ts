@@ -12,17 +12,6 @@ import {
   reconcileDocAgainstBase,
 } from "./surgical-apply.js";
 
-/**
- * The surgical reconcile must replace ONLY the changed top-level run —
- * unchanged siblings keep their identity (no NodeView teardown, minimal Yjs
- * ops under Collaboration) — and must converge the editor to exactly the
- * document a full setContent would have produced.
- *
- * NOTE: ProseMirror `Node.eq` relies on NodeType identity, which is
- * per-Schema-instance — so target docs in these tests are parsed with the SAME
- * editor's schema via `defaultParseValue`, mirroring production (where
- * `parseValue` always uses the live editor).
- */
 
 function makeEditor(markdown: string): Editor {
   const editor = new Editor({
@@ -39,7 +28,6 @@ function md(editor: Editor): string {
   );
 }
 
-/** Parse markdown into a doc bound to THIS editor's schema. */
 function parse(editor: Editor, markdown: string): ProseMirrorNode {
   const doc = defaultParseValue(editor, markdown);
   if (!doc) throw new Error("defaultParseValue returned null in test setup");
@@ -81,8 +69,8 @@ describe("diffTopLevel", () => {
       const diff = diffTopLevel(editor.state.doc, target);
       expect(diff).not.toBeNull();
       expect(diff!.fromIndex).toBe(1);
-      expect(diff!.oldToIndex).toBe(1); // nothing removed
-      expect(diff!.newToIndex).toBe(2); // one node inserted
+      expect(diff!.oldToIndex).toBe(1);
+      expect(diff!.newToIndex).toBe(2);
     } finally {
       editor.destroy();
     }
@@ -118,8 +106,6 @@ describe("applyDocSurgically", () => {
       expect(result).toBe("applied");
       expect(editor.state.doc.eq(target)).toBe(true);
 
-      // Structure-preserving: the untouched siblings are still node-equal
-      // (same content at the same top-level slots).
       const after = editor.state.doc;
       expect(after.child(0).eq(untouched[0])).toBe(true);
       expect(after.child(2).eq(untouched[1])).toBe(true);
@@ -135,7 +121,6 @@ describe("applyDocSurgically", () => {
       const same = parse(editor, "Alpha\n\nBravo");
       const docBefore = editor.state.doc;
       expect(applyDocSurgically(editor, same)).toBe("noop");
-      // Same state object — no transaction was dispatched.
       expect(editor.state.doc).toBe(docBefore);
     } finally {
       editor.destroy();
@@ -148,15 +133,12 @@ describe("applyDocSurgically", () => {
       const target = parse(editor, "# Totally\n\nDifferent\n\n- list");
       expect(applyDocSurgically(editor, target)).toBe("applied");
 
-      // Serialization converges to what a full setContent would produce…
       const reference = makeEditor("# Totally\n\nDifferent\n\n- list");
       try {
         expect(md(editor)).toBe(md(reference));
       } finally {
         reference.destroy();
       }
-      // …and re-applying the same parsed value is a no-op (stable after one
-      // apply — trailing-cursor-paragraph preservation doesn't oscillate).
       const again = parse(editor, "# Totally\n\nDifferent\n\n- list");
       expect(applyDocSurgically(editor, again)).toBe("noop");
     } finally {
@@ -167,15 +149,12 @@ describe("applyDocSurgically", () => {
   it("preserves the user's trailing empty paragraph across reconciles", () => {
     const editor = makeEditor("Alpha");
     try {
-      // Give the user a trailing cursor line below the content.
       editor.commands.focus("end");
       editor.commands.insertContentAt(editor.state.doc.content.size, {
         type: "paragraph",
       });
       const childCountBefore = editor.state.doc.childCount;
 
-      // Agent rewrites the first paragraph; markdown can't express the
-      // trailing empty paragraph, so the parsed doc lacks it.
       const target = parse(editor, "Alpha CHANGED");
       expect(applyDocSurgically(editor, target)).toBe("applied");
 
@@ -204,7 +183,6 @@ describe("applyDocSurgically", () => {
         expect(result === "applied" || result === "noop").toBe(true);
         expect(editor.state.doc.eq(target)).toBe(true);
 
-        // The serialized output matches what a full setContent would produce.
         const reference = makeEditor(step);
         try {
           expect(md(editor)).toBe(md(reference));
@@ -219,7 +197,7 @@ describe("applyDocSurgically", () => {
 
   it("fails (for setContent fallback) when the doc comes from a foreign schema", () => {
     const editor = makeEditor("Alpha");
-    const foreign = makeEditor("Alpha CHANGED"); // separate Editor → separate Schema
+    const foreign = makeEditor("Alpha CHANGED");
     try {
       expect(applyDocSurgically(editor, foreign.state.doc)).toBe("failed");
       expect(md(editor)).toBe("Alpha");

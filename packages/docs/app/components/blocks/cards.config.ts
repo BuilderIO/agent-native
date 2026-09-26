@@ -12,7 +12,6 @@ export interface CardItem {
 
 export interface CardsData {
   cards: CardItem[];
-  /** Grid column count, 1-4. Defaults to 3. */
   columns?: number;
 }
 

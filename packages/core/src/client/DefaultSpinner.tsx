@@ -39,11 +39,6 @@ function getRandomLoadingLabelIndex(): number {
   return Math.floor(Math.random() * LOADING_LABELS.length);
 }
 
-/**
- * Full-screen loading spinner rendered during SSR and initial hydration.
- * Uses inline layout because Tailwind may not be loaded yet on the server.
- * Respects the user's OS color scheme so dark-mode users don't get a white flash.
- */
 
 export function DefaultSpinner({
   ariaLabel = "Loading",

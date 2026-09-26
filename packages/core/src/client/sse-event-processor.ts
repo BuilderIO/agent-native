@@ -26,12 +26,6 @@ import {
 export type ContentPart =
   | { type: "text"; text: string }
   | {
-      /**
-       * Model chain-of-thought / extended-thinking prose. Streamed from
-       * server `thinking` SSE events (and code-agent thinking transcript
-       * items). Rendered as a collapsible plain-English cell — not a tool
-       * call.
-       */
       type: "reasoning";
       text: string;
     }
@@ -43,12 +37,6 @@ export type ContentPart =
       args: Record<string, string>;
       result?: string;
       isError?: boolean;
-      /**
-       * Set when the stream ended while this tool was still in flight. We know
-       * it started and NOT whether its side effect landed, so it is deliberately
-       * separate from `isError` — an email that WAS delivered must never render
-       * as a failure just because the transport dropped before `tool_done`.
-       */
       outcome?: "unknown";
       completedSideEffect?: boolean;
       artifacts?: ArtifactReceipt[];
@@ -56,27 +44,12 @@ export type ContentPart =
       chatUI?: ActionChatUIConfig;
       activity?: boolean;
       repeatCount?: number;
-      /**
-       * Set when the server emitted an `approval_required` event for this tool
-       * call (opt-in `needsApproval` actions). The action did NOT run; the UI
-       * renders an Approve/Deny affordance. `approvalKey` is echoed back in
-       * `approvedToolCalls` to approve, `dismissed` records a local Deny.
-       * `askId` identifies THIS gate hit; it changes when a failed resume
-       * re-emits `approval_required` for the same call, which is how the UI
-       * tells that apart from the same ask simply re-rendering (see
-       * `ApprovalAffordance` in chat/tool-call-display.tsx).
-       */
       approval?: {
         approvalKey: string;
         dismissed?: boolean;
         askId?: string;
         allowPersistentApproval?: false;
       };
-      /**
-       * Structured metadata from the coding-tools executor side-channel.
-       * Present only on code-agent tool calls from executors new enough to
-       * emit it.  The `toolKind` discriminant identifies the shape.
-       */
       structuredMeta?: Record<string, unknown>;
     };
 
@@ -86,9 +59,7 @@ export interface SSEEvent {
   suggestions?: AgentSuggestion[];
   event?: AgentChatRichEventEnvelope;
   tool?: string;
-  /** Server-assigned call identifier emitted on tool_start / tool_done events. */
   id?: string;
-  /** Stable transport identity, preserved when a durable turn is replayed. */
   eventId?: string;
   label?: string;
   progressBytes?: number;
@@ -99,16 +70,10 @@ export interface SSEEvent {
   artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
-  /** Stable key the client echoes back in `approvedToolCalls` to approve a
-   *  paused `needsApproval` tool call. Present on `approval_required` events. */
   approvalKey?: string;
-  /** Model-side tool-call id for `approval_required` (mirrors AgentChatEvent). */
   toolCallId?: string;
-  /** Identifies this `approval_required` gate hit (mirrors AgentChatEvent). */
   askId?: string;
-  /** False when this action requires a fresh approval for every call. */
   allowPersistentApproval?: false;
-  /** Host-resolved connection request. URLs and scopes are never streamed. */
   requestId?: string;
   provider?: string;
   connectionReason?: "connect" | "grant" | "reauthorize" | "admin_required";
@@ -125,20 +90,16 @@ export interface SSEEvent {
   terminalCode?: string;
   snapshot?: A2AAgentActivitySnapshot;
   reason?: string;
-  // Agent task fields
   taskId?: string;
   threadId?: string;
   description?: string;
   preview?: string;
   currentStep?: string;
   summary?: string;
-  // Structured error metadata — Builder gateway sets these on quota/auth/setup
-  // failures so the UI can render a CTA alongside the error text.
   errorCode?: string;
   upgradeUrl?: string;
   details?: string;
   recoverable?: boolean;
-  /** The engine said another attempt may succeed — see `AgentChatEvent`. */
   providerRetryable?: boolean;
   maxIterations?: number;
 }
@@ -166,12 +127,6 @@ export interface AgentAutoContinueErrorInfo {
   upgradeUrl?: string;
 }
 
-/**
- * Kept verbatim in sync with `INTERRUPTED_TOOL_RESULT_MARKER`
- * (agent/production-agent.ts): the server matches this substring in replayed
- * history to count how many times a write tool was interrupted, which is the
- * only thing that tells "we do not know if it landed" apart from "it failed".
- */
 export const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
@@ -219,9 +174,6 @@ export function settleInterruptedToolCalls(
       (part.activity !== true || options?.includeActivity === true)
     ) {
       if (options?.userStopped) {
-        // A deliberate Stop is a neutral terminal state. The card must stop
-        // spinning, but the user should not see an error or an unknown-outcome
-        // warning for an action they chose to cancel.
         part.result = "";
         delete part.outcome;
       } else {
@@ -229,9 +181,6 @@ export function settleInterruptedToolCalls(
           part.activity === true
             ? (options?.activityResult ?? INTERRUPTED_ACTIVITY_RESULT)
             : result;
-        // Interrupted is not failed: the side effect may well have landed. Never
-        // set `isError` here — that is reserved for a result the server told us
-        // failed.
         part.outcome = "unknown";
       }
       changed = true;
@@ -245,12 +194,6 @@ export class AgentAutoContinueSignal extends Error {
   readonly maxIterations?: number;
   readonly activityTrail: AgentActivityTrailEntry[];
   readonly errorInfo?: AgentAutoContinueErrorInfo;
-  /**
-   * True when a CLIENT watchdog produced this signal rather than the server
-   * asking for a continuation. The two need opposite handling: a server
-   * `auto_continue` wants a fresh POST, a client watchdog only means "the
-   * browser stopped seeing bytes" and must reattach instead.
-   */
   readonly clientWatchdog: boolean;
 
   constructor(options: {
@@ -270,32 +213,10 @@ export class AgentAutoContinueSignal extends Error {
   }
 }
 
-/**
- * Client no-progress window for foreground runs. MUST stay ABOVE the server's
- * authoritative backstop (`RUN_NO_PROGRESS_HARD_TIMEOUT_MS`, 150s in
- * agent/run-manager.ts) so the server's recovery ladder always gets first
- * chance and the browser is never the primary stall detector. At the old 75s
- * this fired below every server bound, so the whole server ladder was dead
- * code and the median hosted foreground turn ended as a client-declared stall.
- * Progress accounting here deliberately mirrors the server's
- * `shouldBumpProgressForEvent` (keepalives and zero-byte prep activity do not
- * count) so the two never disagree about what "progress" means.
- */
 export const SSE_NO_PROGRESS_TIMEOUT_MS = 180_000;
 export const SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 90_000;
-/**
- * Window applied instead of the normal no-progress budget while a tool call or
- * A2A delegation is open. The server deliberately suspends its own backstop for
- * exactly this case — tool execution legitimately emits nothing for minutes —
- * so without the mirror here the browser silently caps every long tool at the
- * shorter window and kills a run the server believes is healthy.
- */
 export const SSE_IN_FLIGHT_WORK_TIMEOUT_MS = 15 * 60_000;
 
-/**
- * Open-work delta for one event: +1 when a tool call or A2A delegation starts,
- * -1 when it settles. Mirrors the server's `in_flight_since` marker.
- */
 export function sseInFlightWorkDelta(ev: SSEEvent): number {
   if (ev.type === "tool_start") return 1;
   if (ev.type === "tool_done") return -1;
@@ -310,20 +231,6 @@ export function sseInFlightWorkDelta(ev: SSEEvent): number {
   }
   return 0;
 }
-/**
- * Widened client watchdog windows for durable background runs. The SERVER is
- * the recovery brain for these runs: its run-manager no-progress backstop
- * emits `auto_continue` over the same stream the client is already reading,
- * and its unclaimed-run sweep reaps dead workers into loud terminal errors.
- * The client watchdogs therefore sit ABOVE the server's durable-background
- * backstop so a healthy background run never trips them — the server's own
- * recovery event arrives first over the wire. When one does fire, the thrown
- * signal only means "reattach the read" (the adapter's background follow loop
- * re-polls /runs/active); it never escalates to a client-declared error or a
- * synthetic continuation POST. Progress ACCOUNTING (what counts as a
- * meaningful event) is unchanged — only the client-initiated recovery timing
- * is relaxed.
- */
 export const SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS = 13 * 60_000;
 export const SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 13 * 60_000;
 
@@ -354,43 +261,14 @@ function sseActionPreparationStallTimeoutMs(
 }
 
 export interface SSEStreamOptions {
-  /**
-   * Durable background runs have their own server-side liveness budget and
-   * heartbeat. While one is active, generic keepalive-only periods keep the
-   * client attached. Tool-input preparation is stricter: real byte progress
-   * keeps long payloads alive, but zero-byte/silent preparation still recovers
-   * so one stuck action cannot pin the chat forever — just on the wider
-   * durable windows above (behind the server's own 150s backstop) instead of
-   * the tight foreground 75s/90s windows.
-   */
   durableBackgroundRun?: boolean;
-  /**
-   * Optional reader-local watchdog override. A background follow reader can
-   * use a shorter value because a timeout only detaches that read; the follow
-   * loop immediately re-checks the server-owned run state.
-   */
   noProgressTimeoutMs?: number;
-  /** Reader-local counterpart to `noProgressTimeoutMs` for action preparation. */
   actionPreparationStallTimeoutMs?: number;
-  /** Mark the adapter's final `done` snapshot terminal before it is yielded. */
   markTerminalResults?: boolean;
-  /**
-   * Optional caller-owned preparation watchdog state. Passing the same object
-   * across reconnect reads keeps a stuck action preparation from getting a
-   * fresh stall budget every time the browser reattaches to the same run.
-   */
   preparingActionState?: PreparingActionState;
-  /** Run identity attached to processor-generated error events. */
   runId?: string;
-  /** Logical turn identity attached to processor-generated error events. */
   turnId?: string;
-  /**
-   * Caller-owned sequence admission shared by every read of one run. Durable
-   * reconnects can replay the last persisted frame after a dropped response;
-   * admit it once before any progress accounting or content folding.
-   */
   seenEventSeqs?: Set<number>;
-  /** Caller-owned identity admission shared by every read of one logical turn. */
   seenEventIds?: Set<string>;
 }
 
@@ -399,11 +277,6 @@ export function admitSSEEvent(
   seenEventSeqs?: Set<number>,
   seenEventIds?: Set<string>,
 ): boolean {
-  // During a rolling deploy, the same durable frame can arrive once from an
-  // old worker with only `seq` and again from a new worker with `seq` plus
-  // `eventId`. Check both identities before recording either one so the
-  // metadata added by the new worker cannot turn that replay into a second
-  // tool call.
   const alreadySeenById = Boolean(
     event.eventId && seenEventIds?.has(event.eventId),
   );
@@ -421,15 +294,6 @@ type PreparingActionEntry = {
   tool: string;
   startedAt?: number;
   lastProgressBytes?: number;
-  /**
-   * Timestamp of the last real streaming progress for the in-preparation tool
-   * input. The server emits a throttled `activity` heartbeat per
-   * `tool-input-delta`, so while the model is actively streaming a (possibly
-   * very large) tool argument this keeps advancing. The stall guard measures
-   * silence from HERE — not from `startedAt` — so a legitimately large, still-
-   * streaming input is never aborted; only genuine silence (keepalive-only, no
-   * further deltas) can trip it.
-   */
   lastProgressAt?: number;
 };
 
@@ -467,12 +331,6 @@ function isMeaningfulProgressEvent(
   return true;
 }
 
-/**
- * The browser's durable liveness cursor must mirror the server's
- * `last_progress_at` predicate. The stream watchdog intentionally has a
- * broader background policy, so it cannot be reused for this cursor: raw
- * keepalives and repeated zero-byte preparation are not proof of real work.
- */
 function isDurableProgressEvent(
   ev: SSEEvent,
   actionPreparationProgress?: boolean,
@@ -515,9 +373,6 @@ function findPendingToolCallIndex(
   toolName: string,
   toolCallId?: string,
 ): number {
-  // Prefer id-based match when the event carries an id: parallel same-name
-  // calls can be in flight simultaneously, and name-only matching would
-  // attach a result to the wrong call.
   if (toolCallId) {
     const exactIndex = findPendingToolCallIndexById(content, toolCallId);
     if (exactIndex >= 0) return exactIndex;
@@ -556,20 +411,6 @@ function findPendingToolCallIndexById(
   return -1;
 }
 
-/**
- * Locate the tool call an `approval_required` event refers to.
- *
- * Stricter than `findPendingToolCallIndex`: when the server supplies a call id
- * we never fall back to "newest pending call with this name". A paused
- * `tool_done` resolves the call right after the gate fires, so a replayed or
- * reordered approval would otherwise miss on id and silently attach this call's
- * approvalKey to a *different* in-flight call of the same action — putting the
- * wrong key behind a visible Approve button.
- *
- * The only tolerated fallback mirrors `findPendingActivityToolCallIndex`: a
- * single unambiguous reader-local (`tc_N`) placeholder, which is how a call
- * looks when an older server omitted the id on `tool_start`.
- */
 function findApprovalToolCallIndex(
   content: ContentPart[],
   toolName: string,
@@ -624,16 +465,9 @@ function findPendingActivityToolCallIndex(
     return findPendingToolCallIndex(content, toolName);
   }
 
-  // Activity events emitted while the model is assembling tool input already
-  // carry the engine's stable call id. Match that id exactly so repeated
-  // progress for one call updates one placeholder while parallel same-name
-  // calls retain separate cards.
   const exactIndex = findPendingToolCallIndexById(content, toolCallId);
   if (exactIndex >= 0) return exactIndex;
 
-  // Older activity events may omit the id before a later progress event adds
-  // it. Upgrade one unambiguous reader-local placeholder instead of painting a
-  // second card for the same logical call.
   const readerLocalCandidates: number[] = [];
   for (let i = 0; i < content.length; i += 1) {
     const part = content[i];
@@ -761,8 +595,6 @@ function updatePreparingActionState(
       madeProgress = id ? progressBytes > previousBytes : progressBytes > 0;
     }
     if (madeProgress) {
-      // A byte increase is proof the model is still streaming this action's
-      // argument. Repeated zero-byte prep activity is only a heartbeat.
       entry.lastProgressAt = now;
       toolEntry.lastProgressAt = now;
       return true;
@@ -803,13 +635,6 @@ function hasStalledPreparingAction(
   now: number,
   stallTimeoutMs: number,
 ) {
-  // Fire only when a tool input has gone SILENT — no further streaming deltas
-  // for the whole window — never merely because a large input has been
-  // streaming for a long time. `lastProgressAt` advances on every delta
-  // heartbeat, so an actively-streaming large output keeps resetting this and
-  // survives; a genuinely stuck prep (keepalive-only, no deltas) trips it.
-  // Durable background reads pass the wider durable window so the server's
-  // own 150s no-progress backstop gets first chance to recover the stall.
   for (const entry of [
     ...(state.toolEntries?.values() ?? []),
     ...(state.entries?.values() ?? []),
@@ -833,8 +658,6 @@ async function readChunkWithProgressTimeout(
   const timeoutMs = Math.max(0, noProgressTimeoutMs - elapsed);
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const readPromise = reader.read();
-  // If the timeout wins and cancellation causes the pending read to reject,
-  // swallow that rejection because the generator is already recovering.
   void readPromise.catch(() => {});
 
   const timeoutPromise = new Promise<"timeout">((resolve) => {
@@ -858,20 +681,9 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   const code = String(ev.errorCode ?? "").toLowerCase();
   const msg = errMsg.toLowerCase();
 
-  // An explicit `recoverable: false` outranks EVERY inference below — the code
-  // list as well as the message sniff — matching the server's own precedence in
-  // `isRecoverableContinuationError`. The repeat guards stop a turn with a
-  // message that names the looping tool, so a stop on
-  // `list-workspace-connections` matched the "connection" sniff and
-  // auto-continued the very loop it was emitted to break; the background
-  // no-progress breaker stops one while PRESERVING the underlying transient
-  // code (so the failure stays diagnosable), so reading the code instead of the
-  // flag re-POSTs the exact chain the server just refused to continue.
   if (ev.recoverable === false) return false;
 
-  // These messages can carry `recoverable: true` for banner rendering, but
   // repeating the request would retry the same rejected credential or a run
-  // the user already stopped.
   if (
     msg.includes(
       "the provider rejected the credential used for this request",
@@ -891,7 +703,6 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "authentication_error" ||
     code === "permission_error" ||
     code === "builder_auth_error" ||
-    // The account cannot use this model; another POST picks the same one.
     code === "builder_model_unauthorized" ||
     code === "http_401" ||
     code === "http_403" ||
@@ -903,56 +714,15 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "request_too_large" ||
     code === "not_found_error" ||
     code === "model_not_found" ||
-    // The server now owns rate-limit recovery end to end (in-loop retries,
-    // sibling-model fallback, one cooled continuation, then a terminal
-    // `provider_rate_limited`) and caps the continuation chain it hands back
-    // to the client. Auto-recovering a bare `http_429`/`http_529` here would
-    // let an exhausted rate-limit error re-POST as a client continuation,
-    // bypassing that one-hop cap and restarting the retry/fallback budget
-    // the server just spent. Render with the manual Retry affordance like
-    // `provider_rate_limited` below, not auto-continued.
     code === "http_429" ||
     code === "http_529" ||
-    // The gateway's own throttle codes, same reasoning.
     code === "rate_limited" ||
     code === "too_many_concurrent_requests" ||
     code === "provider_rate_limited" ||
-    // The server already retried the bare-403 load-shedding signature before
-    // this reached the client; another automatic POST would just hammer the
-    // same throttle. Renders with the manual Retry affordance like
-    // `provider_rate_limited` above, not auto-continued.
     code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
-    // `builder_gateway_error` is the no-detail fallback the Builder engine
-    // emits when the gateway returns `{type:"stop",reason:"error"}` with no
-    // explanation — almost always the upstream provider giving up (model
-    // quota hit, account misconfiguration, opaque downstream failure). The
-    // production-agent already retries this synchronously up to MAX_RETRIES
-    // before the error escapes to the SSE stream, so by the time the client
-    // sees it, retrying again with another POST /agent-chat will hit the
-    // same wall. This used to send the chat into a 32-continuation runaway
-    // (each turn cleared+regenerated visible content) for users hitting a
-    // misbehaving Builder route. Surface the error instead.
     code === "builder_gateway_error" ||
-    // The hosted run exhausted its in-invocation continuation budget without
-    // finishing (run-loop-with-resume.ts). It's flagged `recoverable: true` so
-    // the recovery banner reads "stopped before finishing", but it must NOT
-    // auto-continue: another POST would hit the same ~40s wall and churn. The
-    // user retries deliberately (ideally as a single bulk action).
     code === "run_budget_exhausted" ||
-    // `aborted_<reason>` is emitted by `terminalEventForAbortReason` for every
-    // abort that is neither a user stop nor a continuation boundary — a Slack
-    // cancel, a stuck-banner auto-retry, an operator kill. Whoever aborted the
-    // run owns the retry; auto-continuing here restarts work someone just
-    // stopped (and double-fires alongside the stuck banner's own retry). They
-    // stay `recoverable: true` so the banner still reads "stopped before
-    // finishing".
     code.startsWith("aborted_") ||
-    // The run's outcome is genuinely UNKNOWN: its row is gone, or it left
-    // 'running' in a state the server has no terminal event for. Both stay
-    // `recoverable: true` so the banner offers a manual Retry, but an
-    // automatic re-POST would assert the turn did not finish — and it may
-    // well have, side effects included. Replaying it would duplicate them.
-    // The user decides, which is exactly what these errors say to do.
     code === "run_record_missing" ||
     code === "unknown_run_status" ||
     code === "run_terminal_lookup_failed"
@@ -969,17 +739,11 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "timeout_error" ||
     code === "http_408" ||
     code === "http_500" ||
-    // The gateway's unhandled-500 envelope delivered in-stream instead of as a
-    // status. Recoverable for the same reason `http_500` is.
     code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
     code === "overloaded_error" ||
-    // A gateway stream that ended without a stop event. The partial turn is
-    // real, so this continues rather than retrying: the code carries what the
-    // message used to (`msg.includes("stream ended")` below), which a
-    // Builder-credits deployment replaces with its one visitor line.
     code === "builder_gateway_stream_ended"
   ) {
     return true;
@@ -989,18 +753,8 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
 
   if (msg.includes("daily gateway request cap")) return false;
 
-  // The engine's structural verdict, checked after every terminal code above so
-  // it can never revive a quota or auth rejection. It is the only retry signal
-  // left once the message is one visitor line: an upstream "Overloaded" carries
-  // no code, and its text is what the rewrite removed.
   if (ev.providerRetryable === true) return true;
 
-  // "gateway error" intentionally absent — that's the no-detail Builder
-  // gateway fallback and the production-agent already retries it
-  // synchronously up to MAX_RETRIES before the error escapes here. Treating
-  // it as auto-recoverable on top of that produced a 32-continuation
-  // runaway in production for users hitting a misbehaving Builder route.
-  // (See `code === "builder_gateway_error"` in the not-recoverable list.)
   return (
     msg.includes("overloaded") ||
     msg.includes("rate_limit") ||
@@ -1060,13 +814,6 @@ function dispatchActivityClear(tabId: string | undefined) {
   );
 }
 
-// Fires once per chunk (see ProcessEventState.streamProgressDispatched) the
-// moment a chunk produces real model output (visible text or a reasoning
-// delta). Unlike `agent-chat:activity-clear` — which also fires for
-// old-chunk `tool_done` replays and server-retry `clear` events, and so
-// cannot be used to detect genuine forward progress — this event exists
-// solely so listeners can distinguish "the run is actually producing new
-// output" from those replay/retry cases.
 function dispatchStreamProgress(tabId: string | undefined) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
@@ -1167,13 +914,6 @@ function completedToolRepeatSignature(
   ].join("\u0000");
 }
 
-/**
- * Result prefixes the server emits when a tool_start/tool_done pair is a
- * REPLAY of a call that already executed in an earlier interrupted chunk of
- * this turn (tool-call journal hard-block and zombie-ledger recovery in
- * production-agent.ts). These are not new calls — rendering them as separate
- * cards produces the "same tool twice, one spinning / one done" duplicate.
- */
 const JOURNAL_RECOVERY_RESULT_PREFIXES = [
   "(Already completed in an earlier interrupted attempt",
   "(Recovered from prior interrupted chunk",
@@ -1186,22 +926,6 @@ function isJournalRecoveryResult(result: unknown): boolean {
   );
 }
 
-/**
- * Merge a journal/ledger-recovered tool_done into the earlier card for the
- * same logical call instead of leaving a duplicate pair. Two shapes occur:
- *
- * 1. The original card already completed (reconnect/continuation replay): the
- *    recovery card at `completedIndex` is redundant — drop it, keeping the
- *    original result.
- * 2. The recovery result attached to the ORIGINAL still-pending card (the
- *    id-less replay tool_done name-matches the earliest pending card): the
- *    replay's own tool_start pushed a second pending card AFTER it that no
- *    tool_done will ever resolve — remove that stuck-spinner artifact.
- *
- * Gated strictly on the recovery result markers so genuinely repeated
- * identical calls are never collapsed. Returns true when it spliced the card
- * at `completedIndex` (callers must not reuse the index afterwards).
- */
 function coalesceJournalRecoveredTool(
   content: ContentPart[],
   completedIndex: number,
@@ -1221,8 +945,6 @@ function coalesceJournalRecoveredTool(
     const prior = content[i];
     if (!matchesCurrentCall(prior)) continue;
     if (prior.result === undefined) {
-      // The original was interrupted mid-flight (spinner) — resolve it with
-      // the recovered result instead of showing a second card.
       prior.result = current.result;
       if (current.isError !== undefined) prior.isError = current.isError;
       if (current.completedSideEffect !== undefined) {
@@ -1242,9 +964,6 @@ function coalesceJournalRecoveredTool(
     return true;
   }
 
-  // No earlier card — the recovery result landed on the original pending card
-  // itself. Remove any later still-pending replay-start artifact for the same
-  // call so it doesn't spin forever.
   for (let i = content.length - 1; i > completedIndex; i--) {
     const later = content[i];
     if (
@@ -1346,15 +1065,6 @@ function completedToolOnlyMessage(toolNames: string[]): string | null {
 
 const MAX_REPORTED_TOOL_ERROR_LENGTH = 300;
 
-/**
- * The failing tool results the turn ended on, newest first.
- *
- * A turn that stops on a failed tool used to render the same "review the tool
- * card above" note as one that stops on a successful tool, so the reason it
- * stopped — an expired handoff URL, a missing Stripe credential — was one the
- * user had to go hunting for. The error text the tool already returned is the
- * answer, so say it.
- */
 function failedToolResultsAfterLastAssistantText(
   content: ContentPart[],
 ): { toolName: string; error: string }[] {
@@ -1450,16 +1160,10 @@ export function appendMissingFinalResponseWarning(
       materializedToolNames.add(part.toolName);
     }
   }
-  // A rendered custom UI is a legitimate final answer only when nothing failed
-  // after it. `hasCompletedCustomUi` skips errored results, so without this a
-  // widget followed by a failing tool would silently claim the turn finished —
-  // the same verdict the run manager makes from the last tool_done.
   if (!lastToolResultFailed && hasCompletedCustomUi(content)) return null;
   if (successfulToolNames.length === 0 && lastTextIndex > lastToolIndex) {
     return null;
   }
-  // A failure outranks the completed-tool note: it is both the reason the turn
-  // stopped and the only part of it the user cannot reconstruct on their own.
   const failures = failedToolResultsAfterLastAssistantText(content);
   const completedToolMessage = completedToolOnlyMessage(successfulToolNames);
   const message =
@@ -1509,9 +1213,6 @@ function resetProcessEventState(state: ProcessEventState | undefined) {
   if (state) state.streamProgressDispatched = false;
 }
 
-// Returns true the first time it's called for a given state (or every time
-// when state is unavailable, since there is nothing to dedupe against) and
-// false on subsequent calls until `resetProcessEventState` re-arms it.
 function shouldDispatchStreamProgress(
   state: ProcessEventState | undefined,
 ): boolean {
@@ -1565,10 +1266,6 @@ function emitFirstPartyOpenAppHandoff(ev: SSEEvent): void {
   }
 }
 
-/**
- * Process a single SSE event and update the content accumulator.
- * Returns: "continue" to keep going, "done" to stop, or a yield-ready result.
- */
 export function processEvent(
   ev: SSEEvent,
   content: ContentPart[],
@@ -1592,8 +1289,6 @@ export function processEvent(
   };
 } {
   if (ev.type === "clear") {
-    // Server is retrying — discard rejected draft text and unfinished tool
-    // output while keeping completed tool results visible.
     clearAssistantDraftContent(content);
     resetProcessEventState(state);
     dispatchActivityClear(tabId);
@@ -1604,15 +1299,8 @@ export function processEvent(
   }
 
   if (ev.type === "text") {
-    // Visible output means the run is plainly not hanging — drop any running
-    // activity label so a transient "Contacting model" / "Still generating
-    // image" doesn't linger beside streamed text. Idempotent (clears once, then
-    // no-ops) so per-token text deltas stay cheap.
     if (ev.text) {
       dispatchActivityClear(tabId);
-      // Real output resumed — let listeners (e.g. the auto-resume "Resuming…"
-      // indicator) clear state that must NOT be cleared by activity-clear
-      // alone, since activity-clear also fires for old-chunk/retry replays.
       if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
     }
     if (ev.text?.trim()) markAssistantText(state);
@@ -1629,8 +1317,6 @@ export function processEvent(
   }
 
   if (ev.type === "thinking" || ev.type === "reasoning") {
-    // Model chain-of-thought. Coalesce consecutive deltas into one reasoning
-    // part so the UI can render a single collapsible "Thinking" cell.
     const delta = ev.text ?? "";
     if (!delta) return { action: "continue" };
     if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
@@ -1678,11 +1364,6 @@ export function processEvent(
       }
     }
     if (pendingToolCallIndex === -1) {
-      // Only surface a placeholder spinner when this tool has no card yet. A
-      // trailing activity heartbeat that arrives after the matching tool_done
-      // (e.g. reordered reconnect replay) must NOT resurrect a spinner for an
-      // already-completed call — that is the "pop back to an older state"
-      // flicker. The real card reappears on the next tool_start regardless.
       const hasCompletedSameTool = content.some(
         (part) =>
           part.type === "tool-call" &&
@@ -1791,8 +1472,6 @@ export function processEvent(
         }),
       );
     }
-    // Pass the server-assigned id so we upgrade the pending activity card
-    // using id-match when available (parallel same-name calls stay separate).
     const pendingToolCallIndex = ev.id
       ? findPendingActivityToolCallIndex(content, tool, ev.id)
       : findOldestPendingActivityToolCallIndex(content, tool);
@@ -1802,11 +1481,6 @@ export function processEvent(
       pendingToolCall?.type === "tool-call" &&
       pendingToolCall.activity === true &&
       pendingToolCall.result === undefined;
-    // A re-emitted start for the SAME id — a retry/auto-continue clear that
-    // keeps the in-flight card mounted, or a reconnect replay — must update the
-    // existing card in place instead of pushing a duplicate. Matching on id
-    // keeps genuinely parallel same-name calls, which carry distinct ids,
-    // separate.
     const pendingIsSameIdReplay =
       pendingToolCall?.type === "tool-call" &&
       ev.id !== undefined &&
@@ -1816,9 +1490,6 @@ export function processEvent(
       pendingToolCall.type === "tool-call" &&
       (pendingIsActivityPlaceholder || pendingIsSameIdReplay)
     ) {
-      // Upgrade the pending card in place. Prefer the server-assigned id so the
-      // subsequent tool_done can match it precisely (parallel same-name calls
-      // each carry their own id). Fall back to the locally-generated id.
       content[pendingToolCallIndex] = {
         type: "tool-call",
         toolCallId: ev.id ?? pendingToolCall.toolCallId,
@@ -1842,16 +1513,9 @@ export function processEvent(
   }
 
   if (ev.type === "approval_required") {
-    // Opt-in `needsApproval` gate: the server emitted `tool_start` immediately
-    // before this, so the matching tool-call part already exists. Mark it as
-    // awaiting approval so the UI can render the Approve/Deny affordance. The
-    // action did NOT execute; a paused `tool_done` follows.
     const approvalTool = ev.tool ?? "unknown";
     const approvalKey = ev.approvalKey;
     if (approvalKey) {
-      // `toolCallId` is the model-side id in the `approval_required` contract;
-      // `id` is only carried by older frames. Same precedence as the runtime
-      // path so both processors resolve an event to the same call.
       const idx = findApprovalToolCallIndex(
         content,
         approvalTool,
@@ -1877,9 +1541,6 @@ export function processEvent(
   }
 
   if (ev.type === "tool_done") {
-    // Normalize identically to tool_start (which stores `ev.tool ?? "unknown"`)
-    // so a tool_done frame with an undefined tool name still matches its
-    // pending tool-call entry instead of leaving it forever unresolved.
     const doneTool = ev.tool ?? "unknown";
     if (findCompletedToolCallIndex(content, ev.id) >= 0) {
       return { action: "continue" };
@@ -1892,12 +1553,7 @@ export function processEvent(
         }),
       );
     }
-    // Clear any sticky running-activity label (e.g. "Still generating image"):
-    // the tool that was emitting activity heartbeats has finished, so the label
-    // must not linger while the model streams its follow-up text or reasoning.
     dispatchActivityClear(tabId);
-    // Use id-based lookup when available so parallel same-name tool calls
-    // get their results correctly assigned; fall back to name-matching.
     const doneIdx = findPendingToolCallIndex(content, doneTool, ev.id);
     if (doneIdx >= 0) {
       const part = content[doneIdx];
@@ -1915,9 +1571,6 @@ export function processEvent(
         if (part.activity !== true && part.isError !== true) {
           markCompletedToolAfterAssistantText(state, part.toolName);
         }
-        // Journal/ledger replay merge first (may splice the card at doneIdx —
-        // when it does, the adjacent-repeat coalesce below must not run on the
-        // stale index).
         if (!coalesceJournalRecoveredTool(content, doneIdx)) {
           coalesceCompletedToolRepeat(content, doneIdx);
         }
@@ -1979,7 +1632,6 @@ export function processEvent(
 
   if (ev.type === "agent_call_text") {
     const agentName = ev.agent ?? "agent";
-    // Find the in-progress agent tool-call and append streaming text to argsText
     for (let i = content.length - 1; i >= 0; i--) {
       const part = content[i];
       if (
@@ -2061,9 +1713,6 @@ export function processEvent(
     };
   }
 
-  // ─── Agent task events (sub-agent chips) ─────────────────────────
-  // These events are dispatched as CustomEvents so AgentTaskCard components
-  // can listen for updates to their specific taskId.
   if (
     ev.type === "agent_task" ||
     ev.type === "agent_task_update" ||
@@ -2072,7 +1721,6 @@ export function processEvent(
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("agent-task-event", { detail: ev }));
     }
-    // Don't add to content — the agent-teams tool call handles rendering
     return { action: "continue" };
   }
 
@@ -2096,8 +1744,6 @@ export function processEvent(
         }),
       );
     }
-    // This event is terminal. There may be no visible text or tool_done after
-    // the last preparation activity, so do not leave its label mounted.
     dispatchActivityClear(tabId);
     settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     return {
@@ -2202,8 +1848,6 @@ export function processEvent(
       ...(ev.errorCode ? { errorCode: ev.errorCode } : {}),
       ...(ev.recoverable ? { recoverable: ev.recoverable } : {}),
     };
-    // Non-recoverable errors end the turn. Recoverable errors return above as
-    // auto-continue signals and must keep their activity state alive.
     dispatchActivityClear(tabId);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
@@ -2235,9 +1879,6 @@ export function processEvent(
   }
 
   if (ev.type === "done") {
-    // `done` is authoritative even when the final model chunk contains only
-    // a wrap-up marker. Clear any preparation label before inspecting pending
-    // tools so both success and interrupted-terminal paths settle the UI.
     dispatchActivityClear(tabId);
     const userStoppedRun = ev.reason === "user";
     const interruptedTools = pendingToolNames(content);
@@ -2329,15 +1970,6 @@ export function processEvent(
   return { action: "continue" };
 }
 
-/**
- * Drop the draft the server is about to re-emit — the narration since the last
- * completed tool, not the whole turn. A `clear` arrives on a final-answer-guard
- * retry or a continuation, both of which resume AFTER the last completed tool
- * call, so anything before that boundary is settled multi-step narration the
- * retry will never re-send. Wiping it read to users as "it deleted its reply
- * and started over", and `thread-data-builder` replays this same scoping on
- * rebuild, so the loss survived a reload.
- */
 function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
@@ -2354,9 +1986,6 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
       continue;
     }
     if (part.type === "tool-call" && part.result === undefined) {
-      // Only drop ephemeral placeholders. Materialized in-flight tool cards
-      // (real args from tool_start) stay mounted so a retry/auto-continue clear
-      // does not hide→show the same call when the next chunk re-emits it.
       const isEphemeral =
         part.activity === true ||
         part.argsText === "" ||
@@ -2366,15 +1995,6 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
   }
 }
 
-/**
- * Read and process SSE events from a ReadableStream response body.
- * Yields ChatModelRunResult for each meaningful event.
- *
- * When `runId` is provided, every yielded result carries
- * `metadata.custom.runId` so the UI can expose the trace ID via
- * "Copy Request ID" — including mid-stream, so users can grab it before
- * the run completes (or if the run hangs / ends prematurely).
- */
 export async function* readSSEStream(
   body: ReadableStream<Uint8Array>,
   content: ContentPart[],
@@ -2406,9 +2026,6 @@ export async function* readSSEStream(
       : noProgressTimeoutMs;
 
   const paceRenderUpdate = async (hasBufferedEvent: boolean): Promise<void> => {
-    // A single event in a network chunk already has a natural read boundary.
-    // Avoid inserting a task into quiet streams so watchdogs and fake-clock
-    // consumers can continue to observe their own timers normally.
     if (!hasBufferedEvent) {
       renderUpdatesThisTurn = 0;
       return;
@@ -2531,7 +2148,6 @@ export async function* readSSEStream(
           lastMeaningfulEventAt = now;
         }
 
-        // Track sequence number for reconnection
         if (ev.seq !== undefined && onSeq) {
           onSeq(ev.seq, durableProgress);
         }
@@ -2638,10 +2254,6 @@ export async function* readSSEStream(
     }
   }
 
-  // Stream ended without explicit done event. Even an empty content array is
-  // abnormal here: a healthy run emits a terminal `done` event. Treat this as
-  // recoverable so the adapter can first reconnect to the run, then continue
-  // from durable history if the producer is gone.
   throw new AgentAutoContinueSignal({
     reason: "stream_ended",
     activityTrail: [...activityTrail],
@@ -2649,12 +2261,6 @@ export async function* readSSEStream(
   });
 }
 
-/**
- * Read raw SSE events from a ReadableStream and process them into ContentPart[].
- * Unlike readSSEStream, this doesn't yield ChatModelRunResult — it updates the
- * content array in-place and calls onUpdate for each meaningful change.
- * Designed for reconnection scenarios where we render outside assistant-ui's runtime.
- */
 export async function readSSEStreamRaw(
   body: ReadableStream<Uint8Array>,
   content: ContentPart[],
@@ -2677,10 +2283,6 @@ export async function readSSEStreamRaw(
     completedToolsAfterLastAssistantText: new Set(),
     streamProgressDispatched: false,
   };
-  // Tracks whether the most recent content state was already pushed via
-  // onUpdate inside the loop, so the post-loop flush below doesn't emit the
-  // identical content a second time when the stream closes without a terminal
-  // event.
   let emittedLatestContent = false;
   let inFlightWork = 0;
   const currentNoProgressTimeoutMs = () =>

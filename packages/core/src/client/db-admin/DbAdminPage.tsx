@@ -1,11 +1,4 @@
 import { IconDatabase, IconLoader2 } from "@tabler/icons-react";
-/**
- * Database admin page — the shell that hosts the table browser, the table
- * editor, and the SQL editor.
- *
- * By default this is gated to Code mode for the core dev route. Trusted hosts
- * can opt out and point it at their own admin-gated API path.
- */
 import { useEffect, useMemo, useState } from "react";
 
 import type { DbAdminFilter } from "../../db-admin/types.js";
@@ -49,14 +42,12 @@ export function DbAdminPage({
   );
 
   const tables = overview?.tables ?? [];
-  // Default selection to the first table once the overview loads.
   useEffect(() => {
     if (selectedTable === null && tables.length > 0) {
       setSelectedTable(tables[0].name);
     }
   }, [selectedTable, tables]);
 
-  // Keep the agent's <current-screen> in sync, and let it drive navigation.
   useDbAdminAgentSync({ table: selectedTable, mode, enabled: syncNavigation });
   useNavigateConsumer((table) => {
     setSelectedTable(table);
@@ -65,11 +56,8 @@ export function DbAdminPage({
   }, syncNavigation);
 
   const tableNames = useMemo(() => tables.map((t) => t.name), [tables]);
-  // SqlEditor degrades gracefully without per-table columns; pass an empty map.
-  // (Table-name autocomplete still works; column autocomplete fills in lazily.)
   const columnsByTable = useMemo<Record<string, string[]>>(() => ({}), []);
 
-  // ─── Code mode gate ──────────────────────────────────────────────────────
   if (codeModeGate && !devLoading && !canToggle) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-background p-6">

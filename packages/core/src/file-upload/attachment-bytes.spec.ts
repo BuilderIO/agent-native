@@ -15,10 +15,6 @@ import {
   WEBP_BASE64,
 } from "./test-image-fixtures.js";
 
-// Every rejection below was measured against the live Builder gateway: each one
-// returns `reason: invalid_request` with the opaque
-// "Sorry, this was caused by an internal error. ERROR ID: ..." envelope, and
-// takes the entire turn down, not just the one attachment.
 describe("sniffAttachmentMediaType", () => {
   it("recognizes every media type a provider decodes inline", () => {
     expect(sniffAttachmentMediaType(PNG_BASE64)).toBe("image/png");
@@ -65,9 +61,6 @@ describe("reconcileImageBytes", () => {
     ).toEqual({ kind: "ok", mediaType: "image/png" });
   });
 
-  // A browser sets File.type from the extension, so a screenshot saved as .jpg
-  // that holds PNG bytes is ordinary user data. Sending the declared label
-  // killed the whole request; relabelling makes the image work.
   it("relabels an image to the type its bytes actually are", () => {
     expect(
       reconcileImageBytes({ base64: PNG_BASE64, declared: "image/jpeg" }),
@@ -120,9 +113,6 @@ describe("reconcileImageBytes", () => {
     ).toEqual({ kind: "truncated", mediaType: "image/gif" });
   });
 
-  // Truncation is only claimed for formats with a fixed, spec-mandated
-  // terminator. Guessing at JPEG or WebP would demote valid images carrying
-  // trailing metadata, and losing a good image is worse than the rejection.
   it("does not claim truncation for formats with no fixed terminator", () => {
     const jpegWithTrailingBytes = Buffer.concat([
       Buffer.from(JPEG_BASE64, "base64"),
@@ -137,9 +127,6 @@ describe("reconcileImageBytes", () => {
   });
 });
 
-// Review feedback on #5033, each confirmed against the live gateway before
-// being fixed: a magic number alone is not proof the bytes decode, and Node's
-// base64 reader is more forgiving than the provider's.
 describe("payloads that satisfy a magic number but still fail the provider", () => {
   it("rejects a PNG signature wrapped around no image", () => {
     const sigAndEnd = Buffer.concat([
@@ -185,8 +172,6 @@ describe("payloads that satisfy a magic number but still fail the provider", () 
     ).toEqual({ kind: "truncated", mediaType: "image/webp" });
   });
 
-  // `<< 24` produces a signed int32, so a header claiming 0xffffffff read back
-  // as -1 and looked like it fit comfortably inside the payload.
   it("rejects a WebP declaring a size with the high bit set", () => {
     const highBit = Buffer.concat([
       Buffer.from("RIFF", "ascii"),
@@ -217,9 +202,6 @@ describe("payloads that satisfy a magic number but still fail the provider", () 
   });
 });
 
-// Buffer.from(value, "base64") skips characters outside the alphabet, so these
-// all decode to the correct bytes in Node while the provider rejects the whole
-// request. Line-wrapped base64 is a real encoder output.
 describe("non-canonical base64", () => {
   const clean = PNG_BASE64;
 

@@ -38,7 +38,6 @@ import {
 const MAX_READ_CHARS = 100_000;
 const DEFAULT_READ_CHARS = 40_000;
 
-/** Resolve scope from the current request context (org-preferred). */
 function resolveScope(): WorkspaceFilesScope | null {
   const orgId = getRequestOrgId();
   if (orgId) return { scope: "org", scopeId: orgId };
@@ -194,7 +193,6 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
                   ? Math.min(Math.max(1, Math.floor(rawMax)), MAX_READ_CHARS)
                   : DEFAULT_READ_CHARS;
 
-              // The sentinel character distinguishes an exact page from a truncated one.
               const file = await readWorkspaceFile(scope, path, {
                 offset,
                 maxChars: maxChars + 1,

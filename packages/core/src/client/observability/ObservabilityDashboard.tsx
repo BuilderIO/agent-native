@@ -71,7 +71,6 @@ import {
   type Experiment,
 } from "./useObservability.js";
 
-// ─── Helpers ────────────────────────────────────────────────────────────
 
 function formatCost(centsX100: number): string {
   const cents = centsX100 / 100;
@@ -254,7 +253,6 @@ const RANGES = [
   { value: 90, label: "90d" },
 ] as const;
 
-// ─── Shared components ──────────────────────────────────────────────────
 
 function RangeSelector({
   value,
@@ -346,7 +344,6 @@ function LoadingState() {
   );
 }
 
-// ─── Tab: Overview ──────────────────────────────────────────────────────
 
 function OverviewTab({ days }: { days: number }) {
   const t = useT();
@@ -391,7 +388,6 @@ function OverviewTab({ days }: { days: number }) {
   );
 }
 
-// ─── Tab: Conversations ─────────────────────────────────────────────────
 
 function ConversationsTab({ days }: { days: number }) {
   const t = useT();
@@ -716,7 +712,6 @@ function TraceDetailView({
   );
 }
 
-// ─── Tab: Evals ─────────────────────────────────────────────────────────
 
 function EvalsTab({ days }: { days: number }) {
   const t = useT();
@@ -774,7 +769,6 @@ function EvalsTab({ days }: { days: number }) {
   );
 }
 
-// ─── Tab: Experiments ───────────────────────────────────────────────────
 
 function ExperimentsTab() {
   const t = useT();
@@ -987,7 +981,6 @@ function ExperimentDetailView({
   );
 }
 
-// ─── Tab: Human review ─────────────────────────────────────────────────
 
 function ReviewTab({
   days,
@@ -2238,7 +2231,6 @@ function ReviewTab({
   );
 }
 
-// ─── Tab: Feedback ──────────────────────────────────────────────────────
 
 function FeedbackTab({ days }: { days: number }) {
   const t = useT();
@@ -2373,7 +2365,6 @@ function FeedbackTab({ days }: { days: number }) {
   );
 }
 
-// ─── Main Dashboard ─────────────────────────────────────────────────────
 
 const TABS = [
   {

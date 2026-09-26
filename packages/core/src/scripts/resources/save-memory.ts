@@ -1,9 +1,3 @@
-/**
- * Core script: save-memory
- *
- * Create or update a structured memory entry and its index.
- * Stores memory in the selected private scope and maintains its index.
- */
 
 import {
   resourceGetByPath,
@@ -177,7 +171,6 @@ export default async function saveMemoryScript(
     );
   }
 
-  // A later read can see a newer save; these are the committed snapshots.
 
   if (parsed.quiet !== "true") {
     for (const entry of entries) {

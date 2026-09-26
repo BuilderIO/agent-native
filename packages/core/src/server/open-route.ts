@@ -47,16 +47,11 @@ import {
 } from "./auth.js";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
 
-/** Query keys that are route control, not navigation payload. */
 const RESERVED = new Set([
   "app",
   "view",
   "to",
   "compose",
-  // Mobile/caller-session bridge token (see `promoteQuerySession` in
-  // auth.ts). `getSession()` below reads and promotes it into a cookie; it
-  // must never also land in `navParams`, or it would be persisted into the
-  // `navigate` application-state row that the client polls and reads.
   "_session",
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
@@ -64,28 +59,16 @@ const RESERVED = new Set([
   AGENT_SIDEBAR_QUERY_PARAM,
 ]);
 
-// Control-char guard (NUL..US + DEL). Defined via codepoints so the source
-// file stays plain ASCII.
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 
-// Compose-draft id charset. Mirrors `sanitizeDraftId` in
-// templates/mail/actions/manage-draft.ts so the id we concatenate into the
-// `compose-<id>` application-state key can't escape the key namespace
-// (path-traversal / key injection guard).
 const COMPOSE_ID = /^[a-zA-Z0-9_-]{1,64}$/;
 
 export interface OpenRouteOptions {
-  /** Per-template override that turns the parsed deep-link params into the
-   *  client-side SPA path to redirect to. Return `null` to use the default
-   *  (`/<view>`). Filter params (`f_*`) are appended automatically. */
   resolveOpenPath?: (params: {
     app?: string;
     view?: string;
     params: Record<string, string>;
   }) => string | null | undefined;
-  /** Per-template escape hatch for public deep-link targets. Return true only
-   *  when the resolved SPA target is safe to show without a session. The open
-   *  route will redirect without writing application state. */
   allowUnauthenticatedOpen?: (params: {
     app?: string;
     view?: string;
@@ -102,26 +85,16 @@ function getRequestUrl(event: H3Event): string {
   return (event as any).node?.req?.url ?? (event as any).path ?? "/";
 }
 
-/** Decode a base64url string to UTF-8 (Node Buffer; this route is Node-only). */
 function decodeBase64Url(input: string): string {
   return Buffer.from(input, "base64url").toString("utf8");
 }
 
-/**
- * Normalize a candidate redirect path to a safe, same-origin, leading-slash
- * relative path. Rejects absolute URLs, scheme-relative `//host`, and control
- * chars (open-redirect guard). Returns `null` when unsafe.
- */
 function safeRelativePath(raw: string | undefined | null): string | null {
   if (!raw) return null;
   if (CONTROL_CHARS.test(raw)) return null;
   if (!raw.startsWith("/")) return null;
   if (raw.startsWith("//") || raw.startsWith("/\\")) return null;
   if (/^\/[a-z][a-z0-9+.-]*:/i.test(raw)) return null;
-  // Shared validator: adds the WHATWG reparse the prefix checks above miss,
-  // and the auth-entry rejection, so a deep link cannot resolve to a login
-  // form. No base path here — the base is applied later by
-  // `withConfiguredRedirectBasePath`, so this value is still base-relative.
   return normalizeAppPath(raw);
 }
 
@@ -132,7 +105,6 @@ function addMcpEmbedHeaders(event: H3Event, headers: Headers): Headers {
   headers.set("Referrer-Policy", "no-referrer");
   const origin = getHeader(event, "origin");
   if (isMcpEmbedCorsOrigin(origin)) {
-    // origin is non-null: isMcpEmbedCorsOrigin only returns true for truthy origins
     headers.set("Access-Control-Allow-Origin", origin!);
     headers.set("Vary", "Origin");
     headers.set("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
@@ -147,11 +119,8 @@ function redirect(
   location: string,
   embedRedirect: boolean,
 ): Response {
-  // A bare `new Response("", { status: 302, headers: { Location } })` here
   // would silently drop the Set-Cookie `getSession()` just staged below (e.g.
   // `promoteQuerySession` promoting a `_session` query token) — h3 v2 only
-  // merges `event.res.headers`-staged cookies onto a returned Response when
-  // it's 2xx. Route through the same cookie-preserving redirect auth.ts uses.
   const response = redirectWithStagedCookies(event, location);
   if (!embedRedirect) return response;
   const headers = new Headers(response.headers);
@@ -208,8 +177,6 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
     const toParam = search.get("to") ?? undefined;
     const compose = search.get("compose") ?? undefined;
 
-    // Build the navigation payload from every non-reserved query param
-    // (record ids + filters: threadId, eventId, dashboardId, f_*, ...).
     const navParams: Record<string, string> = {};
     for (const [k, v] of search.entries()) {
       if (RESERVED.has(k)) continue;
@@ -218,7 +185,6 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
     const navPayload: Record<string, unknown> = { ...navParams };
     if (view) navPayload.view = view;
 
-    // Resolve the SPA path to redirect to.
     let target =
       safeRelativePath(toParam) ??
       safeRelativePath(
@@ -227,8 +193,6 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
       ) ??
       "/";
 
-    // Forward filter params (f_*) onto the redirect so dashboards/lists open
-    // pre-filtered even before the navigate command is drained.
     const filters = new URLSearchParams();
     for (const [k, v] of search.entries()) {
       if (k.startsWith("f_")) filters.set(k, v);
@@ -247,10 +211,6 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
     target = withCollapsedAgentSidebarParam(target);
     target = withConfiguredRedirectBasePath(target);
 
-    // Resolve the BROWSER session. When unauthenticated, serve the same login
-    // form the guard would — at this URL — so the post-login reload returns
-    // here authenticated. Public templates may opt specific deep-link targets
-    // into anonymous redirect; no app-state writes happen without a session.
     const session = await getSession(event);
     if (!session?.email) {
       const allowAnonymous = await options.allowUnauthenticatedOpen?.({
@@ -281,10 +241,6 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
         if (compose) {
           try {
             const draft = JSON.parse(decodeBase64Url(compose));
-            // Validate the id before using it as a key segment. An unsafe id
-            // could escape the `compose-` namespace and clobber an unrelated
-            // application-state key; skip the write (the view still opens),
-            // mirroring the malformed-payload branch below.
             if (
               draft &&
               typeof draft === "object" &&
@@ -292,13 +248,6 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
               COMPOSE_ID.test(draft.id)
             ) {
               const composeKey = `compose-${draft.id}`;
-              // A compact deep link may carry only `{ id, subject }` when the
-              // full draft was too large to inline in the URL. The complete
-              // draft is already persisted at `compose-<id>` by manage-draft
-              // on create/update. Never let the truncated stub overwrite that
-              // richer saved draft (would silently lose body / recipients /
-              // reply metadata). Only write when the payload actually carries
-              // content, or when nothing is saved yet (composer still opens).
               const hasContent =
                 (typeof draft.body === "string" && draft.body.length > 0) ||
                 !!draft.to ||

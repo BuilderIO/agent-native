@@ -1,22 +1,4 @@
-/**
- * In-memory aggregation over staged dataset rows.
- *
- * Deliberately keeps aggregation in memory instead of relying on PostgreSQL
- * JSON operators.
- *
- * Supported aggregations (no SQL required):
- *   - groupBy + sum / avg / count / min / max per group
- *   - where filters: equals / not_equals / contains / gt / gte / lt / lte / exists
- *   - orderBy + limit
- *   - select (column projection)
- *
- * All numeric operations coerce values to numbers; non-numeric strings produce
- * NaN which surfaces as null in the output.
- */
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type AggregateOp =
   | "sum"
@@ -29,7 +11,6 @@ export type AggregateOp =
 export interface AggregateField {
   column: string;
   op: AggregateOp;
-  /** Output column name. Defaults to `${op}_${column}`. */
   as?: string;
 }
 
@@ -52,25 +33,15 @@ export interface WhereClause {
 }
 
 export interface AggregateQuery {
-  /** Row-level filters applied before aggregation. */
   where?: WhereClause[];
-  /** Column(s) to group by. Omit for a single aggregate over all rows. */
   groupBy?: string[];
-  /** Aggregation operations to compute. */
   aggregate?: AggregateField[];
-  /** Column(s) to select (projection). Applied when aggregate is empty. */
   select?: string[];
-  /** Sort output by this column. */
   orderBy?: string;
-  /** Ascending (default) or descending sort. */
   orderDir?: "asc" | "desc";
-  /** Limit number of output rows. */
   limit?: number;
 }
 
-// ---------------------------------------------------------------------------
-// Filter
-// ---------------------------------------------------------------------------
 
 function getField(row: Record<string, unknown>, column: string): unknown {
   return row[column];
@@ -128,9 +99,6 @@ function applyWhere(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Aggregate
-// ---------------------------------------------------------------------------
 
 interface GroupAccumulator {
   count: number;
@@ -226,7 +194,6 @@ function applyAggregate(
   }
 
   if (groups.size === 0 && rows.length > 0) {
-    // No group keys — single aggregate over all rows
     const acc = newAccumulator();
     for (const row of rows) accumulate(acc, row, fields);
     return [finalizeAccumulator(acc, fields)];
@@ -240,9 +207,6 @@ function applyAggregate(
   }));
 }
 
-// ---------------------------------------------------------------------------
-// Sort + limit
-// ---------------------------------------------------------------------------
 
 function applySort(
   rows: Record<string, unknown>[],
@@ -254,11 +218,9 @@ function applySort(
     const bv = b[orderBy];
     const an = coerceNum(av);
     const bn = coerceNum(bv);
-    // Numeric sort when both parse as numbers.
     if (!isNaN(an) && !isNaN(bn)) {
       return dir === "asc" ? an - bn : bn - an;
     }
-    // String sort fallback.
     const as = String(av ?? "");
     const bs = String(bv ?? "");
     if (as < bs) return dir === "asc" ? -1 : 1;
@@ -267,18 +229,13 @@ function applySort(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Main entry point
-// ---------------------------------------------------------------------------
 
 export function runAggregateQuery(
   rows: Record<string, unknown>[],
   query: AggregateQuery,
 ): Record<string, unknown>[] {
-  // 1. Filter
   let result = applyWhere(rows, query.where ?? []);
 
-  // 2. Aggregate or project
   if (query.aggregate && query.aggregate.length > 0) {
     result = applyAggregate(result, query.groupBy ?? [], query.aggregate);
   } else if (query.select && query.select.length > 0) {
@@ -290,12 +247,10 @@ export function runAggregateQuery(
     });
   }
 
-  // 3. Sort
   if (query.orderBy) {
     result = applySort(result, query.orderBy, query.orderDir ?? "asc");
   }
 
-  // 4. Limit
   if (query.limit && query.limit > 0) {
     result = result.slice(0, query.limit);
   }

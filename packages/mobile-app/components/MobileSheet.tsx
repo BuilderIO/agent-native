@@ -40,7 +40,6 @@ export function MobileSheet({
   children: React.ReactNode;
   side?: MobileSheetSide;
   motion?: MobileSheetMotion;
-  /** Positive closed-state travel distance. Left sheets travel in from -x. */
   motionOffset?: number;
   contentClassName?: string;
   contentStyle?: StyleProp<ViewStyle>;

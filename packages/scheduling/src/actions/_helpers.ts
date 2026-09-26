@@ -1,6 +1,3 @@
-/**
- * Shared helpers for actions in this package.
- */
 import { and, eq } from "drizzle-orm";
 
 import { getSchedulingContext } from "../server/context.js";
@@ -56,12 +53,6 @@ export async function assertTeamAdmin(teamId: string): Promise<void> {
   }
 }
 
-/**
- * Verify the current user is a member of the team (any role). Read-only
- * team resource listings should gate on this so that team IDs cannot be
- * enumerated by guessing. Throws "Not authenticated" if there is no
- * current user, and "Forbidden" if the user is not a member.
- */
 export async function assertTeamMember(teamId: string): Promise<void> {
   const { getDb, schema } = getSchedulingContext();
   const email = currentUserEmail();

@@ -101,11 +101,6 @@ async function renderWithEvent(event: Record<string, unknown>) {
     await Promise.resolve();
     await Promise.resolve();
   });
-  // useDbSync coalesces invalidation into a single flush per
-  // INVALIDATE_COALESCE_MS (250ms) — wait past that window (outside `act`,
-  // since a raw application `setTimeout` nested inside `act(async () => …)`
-  // is not reliably awaited by React's act() batching) so the batch has
-  // landed before assertions run.
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 260));
   });
@@ -113,11 +108,6 @@ async function renderWithEvent(event: Record<string, unknown>) {
   return { container, fetchMock, queryClient, root };
 }
 
-/**
- * Query keys targeted by each recorded invalidation. Every sync-driven
- * invalidation also carries the framework's terminal-auth-failure skip
- * predicate, so assertions compare keys rather than whole filter objects.
- */
 function invalidatedQueryKeys(
   calls: QueryClientProbe["calls"],
 ): Array<string[] | undefined> {
@@ -198,8 +188,6 @@ describe("useDbSync", () => {
     };
     const healthy: ProbeQuery = { queryKey: ["action", "list-projects"] };
 
-    // A 401 repeats until the session changes; refetching it on every sync
-    // tick is what turned one expired session into 135k background 401s.
     expect(actionCall?.predicate?.(unauthorized)).toBe(false);
     expect(actionCall?.predicate?.(healthy)).toBe(true);
   });
@@ -299,9 +287,6 @@ describe("useDbSync", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // useDbSync coalesces invalidation into a single flush per
-    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
-    // (see the comment in renderWithEvent above).
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
@@ -357,9 +342,6 @@ describe("useDbSync", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // useDbSync coalesces invalidation into a single flush per
-    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
-    // (see the comment in renderWithEvent above).
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
@@ -369,8 +351,6 @@ describe("useDbSync", () => {
     expect(keys).not.toContainEqual(["extension"]);
     expect(keys).not.toContainEqual(["extensions"]);
     expect(keys).not.toContainEqual(["slot-installs"]);
-    // Suppression must not swallow the events themselves — templates layer
-    // surgical logic on onEvent and must still see suppressed-action batches.
     expect(forwardedEvents).toContainEqual(
       expect.objectContaining({ key: "process-builder-body-hydration" }),
     );
@@ -418,9 +398,6 @@ describe("useDbSync", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // useDbSync coalesces invalidation into a single flush per
-    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
-    // (see the comment in renderWithEvent above).
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
@@ -462,11 +439,6 @@ describe("useDbSync", () => {
   });
 
   it("does not refetch action/extension/tool queries for app-state-only events", async () => {
-    // Regression guard for the client fetch storm: an active agent session
-    // mirrors navigation/selection into application_state continuously, and
-    // the serverless poll path replays those writes back to the tab. Those
-    // app-state events must NOT fan out into "refetch every action query"
-    // (which exhausted the DB pool and surfaced downstream as stale_run).
     const result = await renderWithEvent({
       version: 1,
       source: "app-state",
@@ -480,8 +452,6 @@ describe("useDbSync", () => {
     const appStateCall = result.queryClient.calls.find(
       (call) => call?.predicate,
     );
-    // Only app-state queries for the changed key (plus the aggregate query)
-    // should refresh - unrelated keyed app-state reads stay untouched.
     expect(
       appStateCall?.predicate?.({ queryKey: ["app-state", "selection"] }),
     ).toBe(true);
@@ -491,7 +461,6 @@ describe("useDbSync", () => {
     expect(appStateCall?.predicate?.({ queryKey: ["app-state"] })).toBe(true);
     const keys = invalidatedQueryKeys(result.queryClient.calls);
     expect(keys).toHaveLength(1);
-    // But never the broad data-query prefixes.
     expect(keys).not.toContainEqual(["action"]);
     expect(keys).not.toContainEqual(["extension"]);
     expect(keys).not.toContainEqual(["tool"]);
@@ -499,9 +468,6 @@ describe("useDbSync", () => {
   });
 
   it("still refetches action queries when an action event rides alongside app-state churn", async () => {
-    // A real mutation (action event) that ALSO writes navigation state must
-    // still refresh action queries — the scoping only drops app-state-ONLY
-    // batches from the data-query invalidation.
     const queryClient = new QueryClientProbe();
     const fetchMock = vi.fn(
       async () =>
@@ -578,10 +544,6 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    // Interaction-critical events (navigate/show-questions/__set_url__
-    // app-state writes) must bypass INVALIDATE_COALESCE_MS entirely — no
-    // 260ms wait needed, the invalidation lands in the same flush of
-    // microtasks that delivered the event.
     expect(invalidatedQueryKeys(queryClient.calls)).toContainEqual([
       "app-state",
     ]);
@@ -668,13 +630,8 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    // No wait yet: a pure action-change batch (no interaction-critical
-    // events) must still be sitting in the coalesce window, unflushed.
     expect(queryClient.calls).toHaveLength(0);
 
-    // useDbSync coalesces invalidation into a single flush per
-    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
-    // (see the comment in renderWithEvent above).
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
@@ -705,12 +662,8 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    // Mount poll = failure #1.
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // Base interval is 50ms, but after one failure the next poll is delayed
-    // to 50 * 2^1 = 100ms — advancing past the base interval alone must NOT
-    // trigger another poll.
     await act(async () => {
       vi.advanceTimersByTime(60);
       await Promise.resolve();
@@ -719,13 +672,12 @@ describe("useDbSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      vi.advanceTimersByTime(50); // 110ms total ≥ 100ms backoff
+      vi.advanceTimersByTime(50);
       await Promise.resolve();
       await Promise.resolve();
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    // Failure #2 → next delay 50 * 2^2 = 200ms.
     await act(async () => {
       vi.advanceTimersByTime(150);
       await Promise.resolve();
@@ -735,13 +687,12 @@ describe("useDbSync", () => {
 
     failing = false;
     await act(async () => {
-      vi.advanceTimersByTime(60); // crosses the 200ms mark → poll #3 succeeds
+      vi.advanceTimersByTime(60);
       await Promise.resolve();
       await Promise.resolve();
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
 
-    // Success resets the backoff to the base 50ms interval.
     await act(async () => {
       vi.advanceTimersByTime(60);
       await Promise.resolve();
@@ -1037,7 +988,6 @@ describe("useDbSync", () => {
     });
     expect(pollCallCount()).toBe(1);
 
-    // Fired while the first poll's fetch is still unresolved.
     await act(async () => {
       window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
       await Promise.resolve();
@@ -1135,10 +1085,8 @@ describe("useDbSync", () => {
       pauseWhenHidden: false,
     });
 
-    // Joining reports the current SSE state immediately (disabled here).
     expect(sseStates).toEqual([false]);
 
-    // The transport polls on start; events fan out to plain subscribers.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock).toHaveBeenCalled();
     expect(
@@ -1228,9 +1176,6 @@ describe("useDbSync", () => {
     container.remove();
   });
 
-  // -------------------------------------------------------------------------
-  // Shared transport regression tests
-  // -------------------------------------------------------------------------
 
   it("uses a single fetch when useDbSync and useScreenRefreshKey are both mounted", async () => {
     const queryClient = new QueryClientProbe();
@@ -1273,8 +1218,6 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    // Both hooks share the same transport — only ONE fetch call for the
-    // initial poll, not two.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -1323,20 +1266,14 @@ describe("useDbSync", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // useDbSync coalesces invalidation into a single flush per
-    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
-    // (see the comment in renderWithEvent above).
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
-    // useDbSync received the action event and invalidated only action-backed
-    // queries; it no longer fans the event across the entire active cache.
     expect(invalidatedQueryKeys(queryClient.calls)).toContainEqual(["action"]);
     expect(invalidatedQueryKeys(queryClient.calls)).not.toContainEqual(
       undefined,
     );
-    // useScreenRefreshKey received the screen-refresh event.
     expect(capturedScreenKey).toBe(1);
   });
 
@@ -1367,11 +1304,9 @@ describe("useDbSync", () => {
     const afterFirst = fetchCallCount;
     expect(afterFirst).toBeGreaterThanOrEqual(1);
 
-    // Unmount — transport tears down and registry entry is cleared.
     act(() => root1.unmount());
     container1.remove();
 
-    // Re-mount should start a fresh transport (new poll from version 0).
     fetchCallCount = 0;
     const qc2 = new QueryClientProbe();
     const container2 = document.createElement("div");
@@ -1386,7 +1321,6 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    // New transport polls again from scratch.
     expect(fetchCallCount).toBeGreaterThanOrEqual(1);
   });
 });

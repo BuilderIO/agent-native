@@ -75,7 +75,6 @@ const clientCredentialsTokenCache = new Map<
 const TOKEN_CACHE_SKEW_MS = 30_000;
 const TOKEN_REQUEST_TIMEOUT_MS = 10_000;
 
-/** Clear the in-memory token cache between tests or after a credential rotation. */
 export function clearRemoteAgentTokenCache(): void {
   clientCredentialsTokenCache.clear();
 }
@@ -148,9 +147,7 @@ async function resolveClientCredentialsToken(
     });
   }
   const clientSecret = await resolveVaultCredential(clientSecretRef, context);
-  // Vault references are stable across rotations. Include a one-way
   // fingerprint of the resolved secret so replacing a value invalidates the
-  // old access token without retaining the secret itself.
   const secretFingerprint = createHash("sha256")
     .update(clientSecret)
     .digest("hex");

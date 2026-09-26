@@ -161,9 +161,6 @@ export function McpIntegrationDialog({
     ((integration: DefaultMcpIntegration) => void) | null
   >(null);
   const mcpApi = useMcpServersApi();
-  // Rendered (closed) inside rail and settings surfaces that mount during
-  // startup, so it waits out the paint window like its parents; the open
-  // state already holds actions until the read succeeds.
   const mcpServersQuery = useMcpServers({ defer: true });
   const defaultIntegrations = useMemo(
     () => integrations ?? getDefaultMcpIntegrations(),
@@ -180,9 +177,6 @@ export function McpIntegrationDialog({
       ...(mcpServersQuery.data?.user ?? []),
       ...(mcpServersQuery.data?.org ?? []),
     ];
-    // A saved server is not necessarily a working connection. The settings
-    // page reports failed and unknown health states separately, so only mark
-    // catalog entries as connected after the health probe succeeds.
     return servers.filter((server) => server.status.state === "connected");
   }, [mcpServersQuery.data]);
 
@@ -207,10 +201,6 @@ export function McpIntegrationDialog({
       createMcpIntegrationFormDefaults(initialIntegration);
     const initialNeedsScopeChoice = Boolean(
       initialIntegration &&
-      // Org-only integrations reach the choice screen regardless of workspace
-      // membership: the form would otherwise offer a personal connection the
-      // server rejects, and with no workspace there is nothing else to explain
-      // why the only option is unavailable.
       (requiresMcpIntegrationOrganizationScope(initialIntegration) ||
         (hasOrg &&
           requiresMcpIntegrationSetup(initialIntegration) &&
@@ -307,9 +297,6 @@ export function McpIntegrationDialog({
       setTestResult(null);
       return;
     }
-    // A hand-entered org-only URL has no catalog entry to route it through the
-    // workspace-only flow, so check eligibility here rather than navigating to
-    // an OAuth start the server can only refuse.
     if (
       mcpUrlRequiresOrganizationScope(args.url) &&
       !(hasOrg && canCreateOrgMcp)
@@ -433,10 +420,6 @@ export function McpIntegrationDialog({
     });
   };
 
-  // Org-only integrations have no personal connection to fall back to, so they
-  // must never reach the user-scoped paths below. When the workspace connection
-  // is available we start it directly; otherwise the choice screen is the only
-  // surface that can explain why nothing here is actionable yet.
   const routeOrganizationOnlyIntegration = (
     integration: DefaultMcpIntegration,
   ): boolean => {
@@ -666,9 +649,7 @@ export function McpIntegrationDialog({
     }
   };
 
-  // The org-only rule covers the shared OAuth grant, so it applies to the OAuth
   // connection modes only. A header connection carries the user's own token and
-  // stays legitimately personal, exactly as the server treats it.
   const formRequiresOrganizationScope = selected
     ? selected.authMode === "oauth" &&
       requiresMcpIntegrationOrganizationScope(selected)
@@ -676,8 +657,6 @@ export function McpIntegrationDialog({
 
   const renderScopeSelector = () => {
     if (selected?.managedOAuth) return null;
-    // Offering a personal choice here would be a lie: the connection can only
-    // be created for the workspace, so say that instead of showing a toggle.
     if (formRequiresOrganizationScope) {
       return (
         <p className="text-[11px] leading-relaxed text-muted-foreground">

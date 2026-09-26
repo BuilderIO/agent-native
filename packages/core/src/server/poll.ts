@@ -1,24 +1,3 @@
-/**
- * Polling-based change notification.
- *
- * Replaces SSE with a simple version counter. Each DB mutation (app-state,
- * settings, resources) increments the version. Clients poll `/_agent-native/poll?since=N`
- * and receive any events that occurred after version N.
- *
- * Works in all deployment environments (serverless, edge, long-lived).
- *
- * Also detects cross-process DB writes by periodically checking the
- * application_state and settings tables' updated_at timestamps. This ensures
- * that changes made by external processes (e.g., CLI actions, cron jobs)
- * are picked up even though they don't call recordChange() in this process.
- *
- * All change-tracking state lives on an {@link AppSyncState} instance rather
- * than in module-level singletons, so a single process can hold one isolated
- * instance per app (the hosted Realtime Gateway serves many apps at once). The
- * module-level exports below delegate to a lazily-created default instance
- * bound to the process-global DB, so self-hosted apps run exactly one code
- * path with no behavioral change.
- */
 
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -49,35 +28,14 @@ import { getSettingsEmitter } from "../settings/store.js";
 
 export interface ChangeEvent {
   version: number;
-  /** Stable durable-row tie-breaker for events sharing a millisecond version. */
   cursorId?: string;
   source: string;
   type: string;
   key?: string;
-  /**
-   * Owner email for tenant-scoped events. When absent, the event is treated
-   * as deployment-global (e.g. table-level "something changed" pings) and
-   * delivered to every authenticated poller. Specific events that should
-   * only fan out to one user MUST set this — otherwise polling clients
-   * across tenants see each other's signals.
-   */
   owner?: string;
-  /** Optional org ID for org-scoped events. */
   orgId?: string;
-  /**
-   * Shareable resource type this event belongs to (e.g. "document"). When
-   * present together with `resourceId`, the per-user delivery filter
-   * (`canSeeChangeForUser`) can run an access-aware check so non-owner sharees
-   * with explicit viewer+ access receive the push instead of only the poll
-   * fallback. See the SYNC-CACHE note above `canSeeChangeForUser`.
-   */
   resourceType?: string;
-  /**
-   * Shareable resource id this event belongs to. Paired with `resourceType`
-   * to drive the access-aware delivery check in `canSeeChangeForUser`.
-   */
   resourceId?: string;
-  /** Public-resource scope for events whose resource may be gone. */
   visibility?: "public";
   [k: string]: unknown;
 }
@@ -88,63 +46,23 @@ export interface TransactionalChange {
   publish(): ChangeEvent;
 }
 
-// In-memory ring buffer of recent changes. Kept small since clients
-// poll frequently (every 2-3s) and only need events since their last poll.
 const MAX_BUFFER = 200;
 const DURABLE_READ_LIMIT = 1000;
 const DURABLE_RETENTION_MS = 24 * 60 * 60 * 1000;
-/**
- * Rows per prune statement, and the ceiling on statements per prune call.
- * The product (400k) leaves headroom over one app's documented production of
- * ~1k events/sec over the five-minute throttle, so a healthy app catches up;
- * the cap still bounds how long a single call can run.
- */
 const DURABLE_PRUNE_BATCH = 10_000;
 const DURABLE_PRUNE_MAX_BATCHES = 40;
-/**
- * Postgres advisory-lock key for the per-database retention worker. The lock
- * is transaction-scoped so a serverless worker that is killed cannot leave a
- * lease behind for another worker to clear.
- */
 const DURABLE_PRUNE_LOCK_KEY = "agent-native:sync-events-prune";
-/**
- * How far back a cold-started process replays durable action markers.
- * Covers the gap between a separate action process writing its marker and this
- * process's first poll — seconds in practice. Anything older is history, and
- * replaying history is what produced 1,169 sync events/sec on one app.
- */
 const ACTION_MARKER_REPLAY_WINDOW_MS = 60_000;
 const LEGACY_DB_CHECK_INTERVAL_MS = 1000;
 export const DURABLE_LEGACY_DB_CHECK_INTERVAL_MS = 30_000;
 export const POLL_CHANGE_EVENT = "poll-change";
 
-/** TTL for an allowed (true) cache entry. */
 const ACCESS_CACHE_TTL_MS = 30_000;
-/**
- * Shorter TTL for a denied (false) entry so a transient DB error (which we
- * fail-closed on) doesn't lock a legitimate user out of the push path for the
- * full 30s — they recover on their next event after this window.
- */
 const ACCESS_CACHE_DENY_TTL_MS = 5_000;
-/** Max cache entries before FIFO eviction kicks in. */
 const ACCESS_CACHE_MAX = 500;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
 
-/**
- * DB-assigned version allocation (see `AppSyncStateOptions.dbAssignedVersions`).
- * The allocator is a one-row table advanced with `GREATEST(v + 1, epoch_ms)` —
- * the SQL analog of the in-memory `Math.max(version + 1, Date.now())` — inside
- * the same autocommit statement as the event insert. The row lock is held to
- * the statement's implicit commit, so version order equals commit order across
- * every writer, closing the cross-writer clock-skew hole no sequence closes
- * (sequences serialize allocation, not commit visibility). Single-statement is
- * required: the gateway reaches the app DB through a pooled (transactionless)
- * connection. `ON CONFLICT DO UPDATE` (not DO NOTHING) so a deterministic-id
- * dedupe loser still gets the winner's version back and never emits a phantom
- * version to its own clients. The stored JSON is restamped with the allocated
- * version; the read path's column-wins override makes that belt-and-suspenders.
- */
 const SEED_SYNC_VERSION_SQL = `
   INSERT INTO sync_version (id, v)
   SELECT 1, GREATEST(
@@ -239,7 +157,6 @@ async function readMaxUpdatedAtRaw(
     );
     return result.rows[0]?.max_ts;
   } catch {
-    // Optional framework tables may not exist in every app yet.
     return undefined;
   }
 }
@@ -256,18 +173,6 @@ async function readMaxUpdatedAt(
   return timestampValue(await readMaxUpdatedAtRaw(db, table, excludeKey));
 }
 
-/**
- * The settings watermark deliberately cannot see the realtime registration row.
- *
- * `wireLocalEmitters` already skips that key so the isolate that WRITES it fans
- * out nothing — but the cross-instance detector below has no key filter, and a
- * bare `MAX(updated_at)` advancing makes every OTHER live isolate record a
- * durable `key:"*"` settings change. That invalidates every connected client's
- * settings queries for a write none of them can see, which is exactly what the
- * emitter skip exists to prevent. Filtering here closes the second half.
- * `settings_updated_at_idx` still serves this: the excluded key is one row, so
- * a backwards index scan skips at most one tuple before it stops.
- */
 async function readSettingsMaxUpdatedAt(db: {
   execute: (
     query: string | { sql: string; args?: unknown[] },
@@ -314,10 +219,6 @@ function accessCacheKey(
   resourceType: string,
   resourceId: string,
 ): string {
-  // orgId is part of the key: org visibility and org shares are org-scoped, so a
-  // user in multiple orgs must not reuse an org-A decision under an org-B
-  // session. The trailing `|resourceType|resourceId` still lets
-  // invalidateCollabAccessCache match by suffix.
   return `${userEmail}|${orgId ?? ""}|${resourceType}|${resourceId}`;
 }
 
@@ -362,9 +263,6 @@ function extensionTargetsForRow(
     } else if (principalType === "org" && principalId) {
       addExtensionTarget(targets, { orgId: principalId });
     } else if (principalType === "group" && orgId) {
-      // Group membership is org-scoped. Invalidating the org target is a
-      // conservative fallback that keeps group-share changes fresh for every
-      // member without making the poll layer own group-directory queries.
       addExtensionTarget(targets, { orgId });
     }
   }
@@ -418,23 +316,10 @@ type ChangeVisibility = "visible" | "hidden" | "pending";
 export type ChangeReadResult = {
   version: number;
   events: ChangeEvent[];
-  /** Composite `(version,id)` cursor for durable rows sharing a version. */
   cursor?: string;
-  /**
-   * True when the returned version is an intentional cursor stop, not the
-   * source high-water mark. This happens when access is still pending or when a
-   * durable page hit the read limit and more rows may remain unread.
-   */
   cursorLimited?: boolean;
 };
 
-/**
- * Resolve whether `userEmail`/`orgId` may access a shareable resource. Injected
- * so the hosted gateway can bind the check to a specific app's resource
- * registry + DB; the default resolves the framework's process-global registry
- * lazily to avoid a load-order/circular-import hazard (poll.ts is imported very
- * widely and the sharing module pulls in the resource registry).
- */
 export type AccessResolver = (
   resourceType: string,
   resourceId: string,
@@ -451,99 +336,35 @@ const defaultResolveAccess: AccessResolver = async (
 };
 
 export interface AppSyncStateOptions {
-  /**
-   * Per-app DB accessor. Called per query (not memoized here) so a mocked or
-   * hot-swapped exec is always honored. Defaults to the process-global
-   * `getDbExec`.
-   */
   getDb?: () => DbExec;
-  /** Access-aware delivery resolver. Defaults to the framework registry. */
   resolveAccess?: AccessResolver;
-  /**
-   * Derive durable-event ids deterministically from the event's logical
-   * identity plus a caller-supplied dedupe signal (the source row's
-   * `updated_at`), instead of the default `version-<random>` id.
-   *
-   * Off by default: a single-process app has one writer, so random ids are
-   * fine and `ON CONFLICT (id) DO NOTHING` never needs to fire. The hosted
-   * gateway sets this so two instances that independently detect the same
-   * out-of-band write persist the SAME id and dedupe to one row. The signal
-   * intentionally excludes `version` (which is per-instance) so it collides
-   * across instances.
-   */
   deterministicEventIds?: boolean;
-  /**
-   * Allocate durable-event versions from the app's Postgres DB (a one-row
-   * allocator advanced with `GREATEST(v + 1, epoch_ms_now)` inside the insert
-   * statement) instead of the per-writer in-memory clock counter.
-   *
-   * Off by default: a single-writer app's clock counter is already monotonic.
-   * Hosted realtime has MULTIPLE writers per app DB (the app's serverless
-   * instances plus gateway instances), where clock skew can assign a LOWER
-   * version to a LATER event — a client whose cursor passed the higher value
-   * then filters the later event out forever. DB allocation serializes on the
-   * allocator row's lock, so version order equals commit order across all
-   * writers. Versions stay on the epoch-ms scale (existing cursors, the
-   * detector's timestamp-mixed seed, and lag metrics all assume it).
-   * Postgres-only durable version allocation.
-   */
   dbAssignedVersions?: boolean;
-  /**
-   * TTL for a cached ALLOW decision. Defaults to 30s.
-   *
-   * `invalidateCollabAccessCache` only reaches the in-process default instance,
-   * so a gateway holding per-app instances cannot be told a share was revoked
-   * and serves its cached ALLOW until this lapses. Shorten it to bound that
-   * window, at the cost of more `can-see` round-trips per shared resource.
-   */
   accessAllowTtlMs?: number;
 }
 
-/**
- * Per-app change-tracking state and read path. One instance per deployed app.
- * The framework runs a single default instance ({@link getDefaultAppSyncState})
- * bound to the process DB; the hosted Realtime Gateway constructs one instance
- * per app with that app's pooled Neon connection injected.
- */
 export class AppSyncState {
   private readonly getDb: () => DbExec;
   private readonly resolveAccessFn: AccessResolver;
   private readonly deterministicEventIds: boolean;
   private readonly dbAssignedVersions: boolean;
-  /** Serializes gated recordChange calls so buffer/emit order matches
-   * allocation order (interleaved allocations could buffer out of order). */
   private recordChain: Promise<void> = Promise.resolve();
-  /** Count of DB-allocation failures that fell back to clock versions. */
   private dbVersionFallbacks = 0;
   private warnedListenerThrow = false;
 
-  // Timestamp-aligned versions so all serverless instances produce values in
-  // the same range (seeded from DB, then incremented via Date.now). Plain
-  // ++counter diverges across cold starts.
   private version = 0;
   private latestCursor: SyncCursor = { version: 0, id: "" };
   private readonly buffer: ChangeEvent[] = [];
   private readonly pollEmitter = new EventEmitter();
   private syncEventsInitPromise: Promise<boolean> | undefined;
-  // Cold starts should not immediately run a potentially large anti-join. A
-  // long-lived process will still prune on its first scheduled interval.
   private lastDurablePrune = Date.now();
   private durablePruneFailures = 0;
   private durableWriteFailures = 0;
   private allocatorReseedFailures = 0;
 
-  /**
-   * Whether we've seeded `version` from the DB. In serverless (Netlify,
-   * Vercel, etc.) each invocation starts fresh — without seeding, `version`
-   * resets to 0 and polling clients see the version jump backwards, causing
-   * duplicate events and stuck UI.
-   */
   private versionSeeded = false;
 
   private lastDbCheck = 0;
-  // Coalesces concurrent checkExternalDbChanges runs. The throttle alone does
-  // not prevent overlap when a single check takes longer than the interval —
-  // two overlapping runs would each read+advance the watermarks and double-emit.
   private checkPromise: Promise<void> | null = null;
   private lastAppStateTs = 0;
   private lastSettingsTs = 0;
@@ -551,38 +372,19 @@ export class AppSyncState {
   private lastExtensionsUpdatedAt: string | number | undefined;
   private lastExtensionMarkerTs = 0;
   private lastActionMarkerTs = 0;
-  /**
-   * Set by the seed when a durable action marker predates this process, so the
-   * first `doCheckExternalDbChanges` reads the marker rows even though the
-   * MAX(updated_at) probe cannot distinguish that row from the seeded max.
-   */
   private replayActionMarkerOnce = false;
 
-  /**
-   * Tracks the latest updated_at seen on the `__screen_refresh__` key.
-   * `screenRefreshInitialized` guards against spurious emits on the first poll
-   * after a restart (where an existing row would look like a fresh bump).
-   */
   private lastScreenRefreshTs = 0;
   private lastScreenRefreshSessionId = "";
   private screenRefreshInitialized = false;
   private screenRefreshHasMore = false;
   private localEmittersWired = false;
 
-  /**
-   * TTL'd access cache for the access-aware branch of `canSeeChangeForUser`,
-   * keyed `${userEmail}|${resourceType}|${resourceId}`. Insertion order doubles
-   * as FIFO for eviction (JS Maps preserve insertion order). Held per-instance
-   * so one gateway process serving many apps never leaks one app's cached
-   * access decision into another app's delivery filter.
-   */
   private readonly accessCache = new Map<
     string,
     { allowed: boolean; checkedAt: number }
   >();
-  /** In-flight background access checks, keyed identically, to dedupe bursts. */
   private readonly accessInFlight = new Set<string>();
-  /** Per-resource generation bumped when shares/visibility change. */
   private readonly accessInvalidationEpoch = new Map<string, number>();
   private readonly accessAllowTtlMs: number;
 
@@ -599,14 +401,6 @@ export class AppSyncState {
     return allowed ? this.accessAllowTtlMs : ACCESS_CACHE_DENY_TTL_MS;
   }
 
-  /**
-   * Durable-event id. Deterministic (hash of logical identity + `dedupeKey`,
-   * excluding the per-instance `version`) when the instance opts in AND a
-   * dedupe signal is supplied — that combination lets `ON CONFLICT (id) DO
-   * NOTHING` collapse the same out-of-band write detected by multiple gateway
-   * instances into one row. Otherwise the historical `version-<random>` id,
-   * which is unique-per-write for a single-writer app.
-   */
   private durableEventId(event: ChangeEvent, dedupeKey?: string): string {
     if (this.deterministicEventIds && dedupeKey !== undefined) {
       const identity = [
@@ -624,7 +418,6 @@ export class AppSyncState {
     return `${event.version}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  /** Get the current version counter. */
   getVersion(): number {
     return this.version;
   }
@@ -633,12 +426,6 @@ export class AppSyncState {
     return this.pollEmitter;
   }
 
-  /**
-   * Wire the in-process app-state/settings emitters into `recordChange` so
-   * same-process writes surface on the poll/SSE fast path. Idempotent. Only the
-   * default (in-process) instance calls this — the gateway learns of changes by
-   * tailing the DB, not from these process-global emitters.
-   */
   wireLocalEmitters(): void {
     if (this.localEmittersWired) return;
     this.localEmittersWired = true;
@@ -652,10 +439,6 @@ export class AppSyncState {
       this.recordChange(event);
     });
     getSettingsEmitter().on("settings", (event) => {
-      // Internal infrastructure, like the change-marker keys above: nothing
-      // renders it, so recording it would fan a durable sync event out to every
-      // connected client and invalidate their settings queries for a write they
-      // cannot see.
       if (event.key === REALTIME_REGISTRATION_SETTING_KEY) return;
       this.recordChange(event);
     });
@@ -721,32 +504,6 @@ export class AppSyncState {
     return this.syncEventsInitPromise;
   }
 
-  /**
-   * Drop events past the retention window, in bounded batches.
-   *
-   * Three things here are load-bearing, all of them learned from a 47 GB
-   * `sync_events` table on a live app:
-   *
-   *   - Prune by `created_at`, the actual retention timestamp, with the
-   *     additive `(created_at, id)` index created above. A version can move
-   *     ahead of the clock under bursty writes, so it is not a retention
-   *     timestamp and cannot define a 24-hour boundary safely.
-   *   - Batch it. One statement deleting an unbounded slice is a long
-   *     transaction, and a long transaction killed mid-flight by a serverless
-   *     worker shutdown is what leaves connections `idle in transaction`
-   *     holding locks — the shape of the 2026-08-06 outage.
-   *   - `ORDER BY created_at, id` inside the subquery. Without it the planner
-   *     prefers a sequential scan even with a LIMIT; with it, the existing
-   *     `sync_events_created_at_id_idx` drives the batch and the delete is a
-   *     bounded index range scan.
-   *
-   * The `lastDurablePrune` throttle below is per-process and starts at process
-   * initialization, so a cold serverless worker does not run a potentially
-   * large delete during its first request. Postgres workers also take a
-   * transaction-scoped advisory lease for each batch. The lease and delete
-   * are one bounded statement, so a serverless worker killed after the
-   * statement starts cannot leave an open transaction.
-   */
   private async pruneDurableEvents(client: DbExec): Promise<void> {
     const now = Date.now();
     if (now - this.lastDurablePrune < 5 * 60 * 1000) return;
@@ -776,11 +533,6 @@ export class AppSyncState {
       }
       this.durablePruneFailures = 0;
     } catch (err) {
-      // This used to be `.catch(() => {})`. A prune that silently never
-      // succeeded is indistinguishable from one that had nothing to do, which
-      // is how the table reached 47 GB without anyone finding out. Warn once
-      // per failure streak so a persistently broken prune is visible without
-      // repeating every five minutes.
       this.durablePruneFailures++;
       if (this.durablePruneFailures === 1) {
         console.warn(
@@ -826,8 +578,6 @@ export class AppSyncState {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO NOTHING`,
       args: [
-        // presetId lets a gated fallback reuse the allocating attempt's id,
-        // so a commit-then-timeout can't produce the same event twice.
         presetId ?? this.durableEventId(event, dedupeKey),
         event.version,
         JSON.stringify(event),
@@ -845,14 +595,6 @@ export class AppSyncState {
     await this.pruneDurableEvents(client);
   }
 
-  /**
-   * Persist with a DB-allocated version (see ALLOCATING_INSERT_SQL). Returns
-   * the allocated version — for a deterministic-id dedupe loser, the winner's
-   * existing version — or null when persistence is unavailable (caller falls
-   * back to clock allocation). Unlike `persistSyncEvent`, errors PROPAGATE to
-   * the caller: silence here would silently drop the event entirely, since the
-   * buffer/emit are deferred behind this call.
-   */
   private async persistWithDbAssignedVersion(
     event: { source: string; type: string; key?: string; [k: string]: unknown },
     id: string,
@@ -860,12 +602,8 @@ export class AppSyncState {
     if (!(await this.ensureSyncEventsTable())) return null;
     const client = this.getDb();
     const args = [
-      // Local monotonicity floor: after a clock fallback, the next allocation
-      // must not land at/below versions this writer already emitted.
       this.version + 1,
       id,
-      // jsonb (unlike the legacy TEXT write) rejects \\u0000 escapes; strip
-      // them rather than diverting those events to the clock fallback.
       JSON.stringify(event).split("\\u0000").join(""),
       event.source,
       event.type,
@@ -878,14 +616,10 @@ export class AppSyncState {
     ];
     let result = await client.execute({ sql: ALLOCATING_INSERT_SQL, args });
     if (result.rows.length === 0) {
-      // Allocator row missing (e.g. wiped after ensure): reseed, retry once.
       try {
         await client.execute(SEED_SYNC_VERSION_SQL);
         this.allocatorReseedFailures = 0;
       } catch (error) {
-        // Keep the retry/fallback behavior, but do not hide the reason the
-        // allocator was unavailable. A missing warning here makes a broken
-        // allocator look like a normal retry until version ordering drifts.
         this.reportAllocatorReseedFailure(error);
       }
       result = await client.execute({ sql: ALLOCATING_INSERT_SQL, args });
@@ -896,8 +630,6 @@ export class AppSyncState {
     return version > 0 ? version : null;
   }
 
-  /** Read back the version of an already-committed row (a failed allocating
-   * call whose statement actually committed). Null when absent/unreachable. */
   private async recoverCommittedVersion(id: string): Promise<number | null> {
     try {
       const result = await this.getDb().execute({
@@ -911,14 +643,6 @@ export class AppSyncState {
     }
   }
 
-  /**
-   * Lift the allocator to at least `floor`. Client cursors are max-only, so
-   * any value that can become a cursor (notably the seed's app-clock
-   * `updated_at` domain) must never exceed the allocator — a cursor above it
-   * would filter later, lower-allocated events out permanently. Failure is
-   * swallowed: alignment degrades to the same soft guarantee as the clock
-   * fallback.
-   */
   private async alignVersionAllocator(floor: number): Promise<void> {
     if (floor <= 0) return;
     try {
@@ -944,12 +668,6 @@ export class AppSyncState {
     }
   }
 
-  /**
-   * Oldest retained durable version. Used to detect a reconnect cursor that
-   * predates the 24h retention window so the gateway can signal a full
-   * resync instead of silently dropping events. One indexed aggregate over
-   * `sync_events_version_idx`; no schema change.
-   */
   async readMinSyncEventVersion(): Promise<number> {
     if (!(await this.ensureSyncEventsTable())) return 0;
     try {
@@ -978,11 +696,9 @@ export class AppSyncState {
   }
 
   private setAccessCache(key: string, allowed: boolean, now: number): void {
-    // Re-insert so the key moves to the end (most-recent) for FIFO ordering.
     this.accessCache.delete(key);
     this.accessCache.set(key, { allowed, checkedAt: now });
     if (this.accessCache.size > ACCESS_CACHE_MAX) {
-      // Evict the oldest entries (front of insertion order) back under the cap.
       const overflow = this.accessCache.size - ACCESS_CACHE_MAX;
       let removed = 0;
       for (const oldestKey of this.accessCache.keys()) {
@@ -992,12 +708,6 @@ export class AppSyncState {
     }
   }
 
-  /**
-   * Fire a background access check for a cache-miss key. Never awaited by the
-   * caller — the current event is NOT delivered (we returned false), but the
-   * result is cached so the user's NEXT event within the TTL is pushed. Dedupes
-   * concurrent checks for the same key via `accessInFlight`.
-   */
   private scheduleAccessCheck(
     key: string,
     resourceType: string,
@@ -1020,8 +730,6 @@ export class AppSyncState {
         }
         this.setAccessCache(key, access != null, Date.now());
       } catch {
-        // Fail closed on any error (DB not ready, missing registration, etc.),
-        // but with the short deny TTL so a transient failure self-heals quickly.
         if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
           return;
         }
@@ -1032,10 +740,6 @@ export class AppSyncState {
     })();
   }
 
-  /**
-   * Test-only: clear the access cache and in-flight set so cases don't bleed
-   * into each other. Intentionally NOT part of the public API.
-   */
   __resetAccessCacheForTests(): void {
     this.accessCache.clear();
     this.accessInFlight.clear();
@@ -1084,9 +788,6 @@ export class AppSyncState {
     orgId: string | undefined,
   ): ChangeVisibility {
     const normalizedUserEmail = userEmail.trim().toLowerCase();
-    // Global / unowned events: every authenticated user gets them. Events that
-    // predate resource tagging (owner/org only, no resourceType) keep the exact
-    // conservative contract they had before.
     if (!event.owner && !event.orgId && !event.resourceType) return "visible";
     if (
       typeof event.owner === "string" &&
@@ -1097,8 +798,6 @@ export class AppSyncState {
     if (event.orgId && orgId && event.orgId === orgId) return "visible";
     if (event.visibility === "public") return "visible";
 
-    // Access-aware branch: only when the event carries BOTH resourceType and
-    // resourceId and the owner/org fast paths above did not already grant.
     if (event.resourceType && event.resourceId) {
       const key = accessCacheKey(
         normalizedUserEmail,
@@ -1112,11 +811,8 @@ export class AppSyncState {
         cached &&
         now - cached.checkedAt < this.accessCacheTtl(cached.allowed)
       ) {
-        // Fresh, non-expired cache hit → trust the cached decision.
         return cached.allowed ? "visible" : "hidden";
       }
-      // Miss or expired: do NOT deliver this event, but schedule the async check
-      // so the user's next event (or poll cycle) resolves correctly.
       this.scheduleAccessCheck(
         key,
         event.resourceType,
@@ -1130,12 +826,6 @@ export class AppSyncState {
     return "hidden";
   }
 
-  /**
-   * Record a change event. Called by emitter listeners and the tail detector.
-   * `dedupeKey` is a stable cross-instance signal (a source row's `updated_at`)
-   * used only when the instance derives deterministic ids; it is a persistence
-   * concern and never stored on the event object.
-   */
   recordChange(
     event: {
       source: string;
@@ -1146,12 +836,6 @@ export class AppSyncState {
     opts?: { dedupeKey?: string },
   ): void {
     if (this.dbAssignedVersions && !syncEventsDisabled()) {
-      // No provisional version may reach clients: cursors are max-only, so an
-      // emitted clock version above a later DB allocation would recreate the
-      // skew bug. Buffer/emit happen only after the DB returns the version,
-      // serialized so entries land in allocation order. The catch is a
-      // backstop: one rejected link must never poison the chain and silently
-      // drop every later event.
       this.recordChain = this.recordChain
         .then(() => this.recordWithDbVersion(event, opts?.dedupeKey))
         .catch((error) => {
@@ -1171,12 +855,6 @@ export class AppSyncState {
     );
   }
 
-  /**
-   * Prepare a durable change whose row must commit with a caller-owned
-   * transaction. Persistence and in-process publication are deliberately
-   * separate: callers persist through the transaction, then publish only
-   * after that transaction resolves successfully.
-   */
   async prepareTransactionalChange(event: {
     source: string;
     type: string;
@@ -1258,7 +936,6 @@ export class AppSyncState {
     };
   }
 
-  /** Buffer + emit. Shared by both version-allocation modes. */
   private commitEntry(entry: ChangeEvent): void {
     this.buffer.push(entry);
     const cursor = cursorForEvent(entry);
@@ -1275,13 +952,6 @@ export class AppSyncState {
     event: { source: string; type: string; key?: string; [k: string]: unknown },
     dedupeKey?: string,
   ): Promise<void> {
-    // One id for both the allocating attempt AND any fallback persist: if the
-    // allocating INSERT commits server-side but the call fails (e.g. a query
-    // timeout after commit), the fallback's ON CONFLICT dedupes against the
-    // committed row instead of writing the same event twice under two ids.
-    // Deterministic ids exclude version by design; the random fallback id gets
-    // a wall-clock prefix instead of its usual version prefix (the prefix is
-    // debuggability, not semantics — nothing parses row ids).
     const id =
       this.deterministicEventIds && dedupeKey !== undefined
         ? this.durableEventId(
@@ -1299,20 +969,9 @@ export class AppSyncState {
       version = null;
     }
     if (version == null) {
-      // The statement may have COMMITTED even though the call failed (e.g. a
-      // timeout after commit). Recover the durable row's version by the shared
-      // id so clients see the allocator-assigned value, never a divergent
-      // clock one.
       version = await this.recoverCommittedVersion(id);
     }
     if (version == null) {
-      // Availability fallback: a DB blip must not stall the in-process fast
-      // path. Clock-allocate and emit — but first make a best effort to lift
-      // the allocator to the fallback value, so other writers' next
-      // allocations land above the cursors this emit will advance (max-only
-      // cursors above the allocator would filter those events permanently).
-      // If the DB is down the lift fails too; the ordering guarantee is soft
-      // exactly while the DB is unhealthy.
       this.dbVersionFallbacks++;
       if (this.dbVersionFallbacks === 1) {
         console.warn(
@@ -1332,20 +991,10 @@ export class AppSyncState {
       });
       return;
     }
-    // A deterministic-id dedupe loser adopts the winner's (possibly older)
-    // version here — buffer filtering is a full scan, so a non-tail version is
-    // delivered correctly and the version-keyed combined-read dedupe collapses
-    // it against the durable row.
     this.version = Math.max(this.version, version);
     this.commitEntryForChain({ ...event, version, cursorId: id });
   }
 
-  /**
-   * `commitEntry` for the deferred (chained) path: the buffer push must land
-   * and a throwing pollEmitter listener must not reject the chain — the
-   * synchronous path propagates such throws to the recordChange caller, but
-   * here there is no caller to propagate to, only the chain to poison.
-   */
   private commitEntryForChain(entry: ChangeEvent): void {
     try {
       this.commitEntry(entry);
@@ -1409,7 +1058,6 @@ export class AppSyncState {
     }
   }
 
-  /** Get all changes after a given version. */
   getChangesSince(since: number): { version: number; events: ChangeEvent[] } {
     if (since >= this.version) {
       return { version: this.version, events: [] };
@@ -1418,10 +1066,6 @@ export class AppSyncState {
     return { version: this.version, events };
   }
 
-  /**
-   * Get changes after a given version, filtered to events the caller is
-   * allowed to see.
-   */
   getChangesSinceForUser(
     since: number,
     userEmail: string,
@@ -1499,15 +1143,6 @@ export class AppSyncState {
       const compositeCursorSql = cursor
         ? "(version > ? OR (version = ? AND id > ?))"
         : "version > ?";
-      // Scope the fetch to rows that could ever be visible to this caller
-      // before paying to JSON.parse and visibility-check every deployment-wide
-      // event: deployment-global rows (no owner, no org), the caller's own
-      // rows, the caller's org's rows, and resource-scoped rows (access is
-      // decided below by the access-aware branch, which can grant a non-owner
-      // sharee, so resource-scoped rows must still flow through that check
-      // regardless of who owns them). A caller with no org passes a null
-      // `orgId` bind param, which makes `org_id = ?` match no row in both
-      // mirroring the `event.orgId && orgId` truthy check.
       const result = await this.getDb().execute({
         sql: `SELECT id, version, event_json FROM sync_events WHERE ${compositeCursorSql}
               AND (
@@ -1566,9 +1201,6 @@ export class AppSyncState {
           event = null;
         }
         if (!event) {
-          // Malformed durable rows are skipped from delivery, but their
-          // composite cursor still needs to advance. Otherwise every poll
-          // rereads the same bad row forever and can never reach later rows.
           if (rowCursor) lastCursor = rowCursor;
           continue;
         }
@@ -1730,10 +1362,6 @@ export class AppSyncState {
     };
   }
 
-  /**
-   * Seed `version` from DB timestamps on the first call so serverless cold
-   * starts don't return version 0 and confuse polling clients.
-   */
   async seedVersionFromDb(): Promise<void> {
     if (this.versionSeeded) return;
     this.versionSeeded = true;
@@ -1778,35 +1406,16 @@ export class AppSyncState {
         extensionMarkerTs,
         actionMarkerTs,
       );
-      // The seed mixes app-clock `updated_at` values that can sit AHEAD of the
-      // allocator (a skew-fast writer's rows). Lift the allocator to the seed
-      // BEFORE the seed can reach this.version — and through it, client
-      // cursors — so no later allocation lands below a seeded cursor.
       if (this.dbAssignedVersions && !syncEventsDisabled()) {
         await this.alignVersionAllocator(seedMax);
       }
-      // Seed version — never decrease an already-set value
       this.version = Math.max(this.version, seedMax);
 
-      // Set baselines so checkExternalDbChanges detects future writes
       this.lastAppStateTs = appTs;
       this.lastSettingsTs = settingsTs;
       this.lastExtensionsTs = extensionsTs;
       this.lastExtensionsUpdatedAt = sqlWatermarkValue(extensionsMaxUpdatedAt);
       this.lastExtensionMarkerTs = extensionMarkerTs;
-      // Action markers are durable specifically so a web server can observe work
-      // performed by a separate action process. Do not baseline past an existing
-      // marker on cold start, or the first poll after the action will miss it.
-      //
-      // Bounded to a replay window rather than rewound to 0. At 0 the filter
-      // below (`updated_at > lastActionMarkerTs`) passes EVERY row, and the
-      // marker table is one never-pruned row per identity that has ever run a
-      // mutating action — so every cold start re-emitted the entire history.
-      // On one production app that was 2,188 rows replayed ~32 times a minute:
-      // 1,169 sync events/sec, none of it real traffic, against ~1.7/sec that
-      // was. A `> 0` first-run guard like the sibling detectors use would be
-      // wrong here — it would discard the cross-process wakeup this rewind
-      // exists for. Bounding the window keeps that and drops the history.
       this.lastActionMarkerTs = Math.max(
         0,
         actionMarkerTs - ACTION_MARKER_REPLAY_WINDOW_MS,
@@ -1819,18 +1428,12 @@ export class AppSyncState {
           : "";
       this.screenRefreshHasMore = false;
       this.screenRefreshInitialized = true;
-      // Skip the redundant cold-start recheck unless there is an existing durable
-      // action marker that the first poll still needs to emit.
       this.lastDbCheck = actionMarkerTs > 0 ? 0 : Date.now();
     } catch {
       // Tables may not exist yet — ignore
     }
   }
 
-  /**
-   * Check for cross-process DB writes by comparing updated_at timestamps.
-   * Throttled per instance.
-   */
   async checkExternalDbChanges(options: {
     durableEvents: boolean;
   }): Promise<void> {
@@ -1839,17 +1442,10 @@ export class AppSyncState {
       ? DURABLE_LEGACY_DB_CHECK_INTERVAL_MS
       : LEGACY_DB_CHECK_INTERVAL_MS;
     if (now - this.lastDbCheck < interval) return;
-    // Coalesce: if a check is already running, await it instead of starting a
-    // second overlapping run that would double-advance the watermarks.
     if (this.checkPromise) return this.checkPromise;
     this.lastDbCheck = now;
     this.checkPromise = this.doCheckExternalDbChanges()
       .then(() => {
-        // Gated: the detector's recordChange calls only SCHEDULED allocations.
-        // The poll handler awaits this check so detected cross-process writes
-        // land in the same response — drain the chain here to keep that
-        // contract (and so a serverless instance frozen after responding
-        // can't strand them). The chain never rejects (backstopped).
         if (this.dbAssignedVersions && !syncEventsDisabled()) {
           return this.recordChain;
         }
@@ -1864,20 +1460,6 @@ export class AppSyncState {
     try {
       const db = this.getDb();
 
-      // These reads are independent — each compares the DB against instance
-      // high-water marks rather than another query's result. Run them
-      // concurrently to shave stacked latency; results are still processed in
-      // the original sequential order, and conditional follow-up queries stay
-      // sequential within their branch.
-      //
-      // `lastAppStateTs` is maintained as MAX(updated_at) over the whole
-      // `application_state` table (seeded in `seedVersionFromDb`, advanced by
-      // the scan below over every key, not just the ones that emit events).
-      // The application-state row scan and screen/extension marker reads only
-      // report rows strictly newer than a watermark that is itself <=
-      // `lastAppStateTs`, so an unadvanced MAX proves those reads are no-ops.
-      // The action marker keeps its own max probe because its watermark must
-      // remain independent under cross-process clock skew.
       const [
         appStateMaxTs,
         actionMarkerTs,
@@ -1890,10 +1472,6 @@ export class AppSyncState {
         readMaxUpdatedAtRaw(db, "tools"),
       ]);
 
-      // The seed deliberately rewinds `lastActionMarkerTs` to 0 so a marker
-      // written before this process booted still reaches the first poll. That
-      // replay is invisible to the MAX probe (the row is already counted in the
-      // seeded max), so it gets one forced full read.
       const replayActionMarker = this.replayActionMarkerOnce;
       this.replayActionMarkerOnce = false;
       const appStateChanged =
@@ -1932,10 +1510,6 @@ export class AppSyncState {
               this.lastExtensionMarkerTs,
             ] as const);
 
-      // Check application_state for external writes. Preserve the changed key so
-      // clients can invalidate one-shot command queries (`navigate`, `__set_url__`)
-      // only when those command rows actually change; noisy keys such as
-      // `slide-fit-check` should not wake navigation readers.
       if (appResult.rows.length > 0) {
         const appTs = appResult.rows.reduce(
           (max, row) => Math.max(max, timestampValue(row.updated_at)),
@@ -1966,13 +1540,7 @@ export class AppSyncState {
         this.lastAppStateTs = appTs;
       }
 
-      // Mutating actions write a durable marker in addition to the in-process
-      // event. This lets dev-mode `pnpm action ...` child processes and
-      // serverless action invocations wake the web server's SSE/poll loop as a
-      // first-class source:"action" event rather than a generic app-state bump.
       if (actionMarkerTs > this.lastActionMarkerTs) {
-        // Bounded by the same watermark the filter below applies, so a cold
-        // start reads its replay window instead of every marker ever written.
         const actionMarkerResult = await db.execute({
           sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? AND updated_at > ? ORDER BY updated_at ASC",
           args: [ACTION_CHANGE_MARKER_KEY, this.lastActionMarkerTs],
@@ -1983,12 +1551,6 @@ export class AppSyncState {
         for (const row of changedActionMarkers) {
           const target = parseActionChangeMarker(row.session_id, row.value);
           if (!target) continue;
-          // Keyed on the ROW's own timestamp, not the table-wide max: every
-          // process replaying the same marker must produce the same id so
-          // `ON CONFLICT (id) DO NOTHING` collapses them. Keyed on the max,
-          // two processes booting a moment apart hash the same row
-          // differently and each writes its own copy. Matches the extension
-          // marker path.
           this.recordActionChanges(
             [target],
             target.nonce
@@ -1999,13 +1561,6 @@ export class AppSyncState {
         this.lastActionMarkerTs = actionMarkerTs;
       }
 
-      // Check for screen-refresh requests from the agent. The `refresh-screen`
-      // tool writes to application_state under a well-known key; when its
-      // updated_at bumps, emit a distinct event so the client invalidates
-      // all queries (not just the ones matching its default queryKey prefix).
-      // `refreshResult` is null exactly when the MAX probe proved no
-      // application_state row moved, which is also exactly when this block
-      // could not emit anything.
       if (refreshResult) {
         if (!this.screenRefreshInitialized) {
           const lastRow = refreshResult.rows.at(-1);
@@ -2016,9 +1571,6 @@ export class AppSyncState {
             refreshResult.rows.length >= SCREEN_REFRESH_QUERY_LIMIT;
           this.screenRefreshInitialized = true;
         } else {
-          // Emit a per-user event only for the session(s) whose row actually
-          // advanced, scoped with `owner` so canSeeChangeForUser delivers it only
-          // to that user — not every authenticated poller.
           for (const row of refreshResult.rows) {
             const owner =
               typeof row.session_id === "string" ? row.session_id : undefined;
@@ -2050,15 +1602,7 @@ export class AppSyncState {
         }
       }
 
-      // Extension mutations write a durable marker row so delete and hide/unhide
-      // operations are visible across serverless invocations. Translate those
-      // marker rows back into extension-source events for targeted client
-      // invalidation while preserving user/org scope.
       if (extensionMarkerTs > this.lastExtensionMarkerTs) {
-        // Bound the scan by the watermark instead of reading every marker row
-        // ever written and filtering in memory: this table keeps one row per
-        // session that has ever mutated an extension, so the unbounded read
-        // grows with lifetime users rather than with pending work.
         const extensionMarkerResult = await db.execute({
           sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? AND updated_at > ? ORDER BY updated_at ASC",
           args: [EXTENSION_CHANGE_MARKER_KEY, this.lastExtensionMarkerTs],
@@ -2077,7 +1621,6 @@ export class AppSyncState {
         this.lastExtensionMarkerTs = extensionMarkerTs;
       }
 
-      // Check settings for external writes.
       if (settingsTs > this.lastSettingsTs) {
         if (this.lastSettingsTs > 0) {
           this.recordChange(
@@ -2088,9 +1631,6 @@ export class AppSyncState {
         this.lastSettingsTs = settingsTs;
       }
 
-      // Extension rows live in the legacy physical `tools` table. Keep this as a
-      // compatibility fallback for direct table writes, but scope events to the
-      // resource owner/share targets instead of broadcasting deployment-wide.
       const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
       if (extensionsTs > this.lastExtensionsTs) {
         const since = this.lastExtensionsUpdatedAt;
@@ -2132,54 +1672,24 @@ export class AppSyncState {
 
 let _defaultState: AppSyncState | undefined;
 
-/**
- * Hosted-realtime gate for the default instance, env-only. Mirrors the gate in
- * `sentry-config.ts`'s `resolveRealtimeClientConfig` and the worker emitter in
- * `deploy/build.ts` (not imported — poll.ts is import-cycle sensitive). Hosted
- * apps are multi-writer (their own serverless instances plus gateway instances
- * share one DB), so THEY must DB-allocate versions too — gating only the
- * gateway would leave the app's user-event writes clock-versioned and the
- * cross-writer skew hole open.
- *
- * The gateway URL is deliberately NOT part of this test any more. It is derived
- * when unset, so requiring it here while the other two derive it would make
- * this the one gate that says "local" while the client is on the gateway —
- * precisely the skew this exists to prevent. `realtime-transport-gate.spec.ts`
- * asserts all three still agree.
- */
 function hostedRealtimeTransportEnabled(): boolean {
   // config-ok: one of three copies that must agree byte-for-byte; the other
-  // two are in `sentry-config.ts` and in generated worker source, and this
-  // file cannot import either way without a cycle.
   return process.env.AGENT_NATIVE_REALTIME_TRANSPORT?.trim() === "hosted";
 }
 
-/** Test seam for `realtime-transport-gate.spec.ts`, which compares this gate
- * against its two uninmportable copies. */
 export const __hostedRealtimeTransportEnabledForTests =
   hostedRealtimeTransportEnabled;
 
-/**
- * The process-wide default instance, bound to the global DB. All module-level
- * exports delegate here so self-hosted apps run exactly one code path.
- */
 export function getDefaultAppSyncState(): AppSyncState {
   if (!_defaultState) {
     _defaultState = new AppSyncState({
       dbAssignedVersions: hostedRealtimeTransportEnabled(),
-      // Only the out-of-band detectors (action markers, extensions, app-state)
-      // pass a dedupeKey, so this changes nothing for ordinary writes — they
-      // keep unique ids. It exists so N processes detecting the SAME external
-      // write collapse to one row via `ON CONFLICT (id) DO NOTHING`. Left off,
-      // it never once executed in production: every dedupeKey threaded through
-      // this file was inert, and each cold start wrote its own duplicate set.
       deterministicEventIds: true,
     });
   }
   return _defaultState;
 }
 
-/** Get the current global version counter. */
 export function getVersion(): number {
   return getDefaultAppSyncState().getVersion();
 }
@@ -2198,10 +1708,6 @@ export function invalidateCollabAccessCache(
   );
 }
 
-/**
- * Test-only: clear the default instance's access cache. Underscore-prefixed and
- * intentionally NOT part of the public API — do not rely on it outside tests.
- */
 export function __resetCollabAccessCacheForTests(): void {
   getDefaultAppSyncState().__resetAccessCacheForTests();
 }
@@ -2217,7 +1723,6 @@ export function canSeeChangeForUser(
   return getDefaultAppSyncState().canSeeChangeForUser(event, userEmail, orgId);
 }
 
-/** Record a change event. Called by emitter listeners. */
 export function recordChange(event: {
   source: string;
   type: string;
@@ -2252,7 +1757,6 @@ setActionChangeFastPath((target) => {
   );
 });
 
-/** Get all changes after a given version. */
 export function getChangesSince(since: number): {
   version: number;
   events: ChangeEvent[];
@@ -2260,10 +1764,6 @@ export function getChangesSince(since: number): {
   return getDefaultAppSyncState().getChangesSince(since);
 }
 
-/**
- * Get changes after a given version, filtered to events the caller is
- * allowed to see.
- */
 export function getChangesSinceForUser(
   since: number,
   userEmail: string,
@@ -2276,22 +1776,9 @@ export function getChangesSinceForUser(
   );
 }
 
-/**
- * Create an H3 handler for the poll endpoint.
- *
- * GET /_agent-native/poll?since=N[&cursor=N.id] → { version, events[] }
- *
- * Requires an authenticated session. Events are filtered to the caller's
- * tenant — global events (owner-less, table-level pings) reach every
- * authenticated caller; owned events reach only the matching user/org.
- * Without auth + filtering, an anonymous attacker could poll the deployment
- * and infer cross-tenant activity from the global event stream.
- */
 export function createPollHandler(
   state: AppSyncState = getDefaultAppSyncState(),
 ) {
-  // Only the default (in-process) instance wires the local emitters; a gateway
-  // per-app instance learns of changes by tailing its own DB.
   if (state === getDefaultAppSyncState()) state.wireLocalEmitters();
   return defineEventHandler(async (event) => {
     // coercion-ok: polling must fail closed when session resolution is unavailable.
@@ -2302,12 +1789,8 @@ export function createPollHandler(
       setResponseStatus(event, 401);
       return { error: "Unauthenticated" };
     }
-    // On cold start, seed version from DB so we don't return version: 0
     await state.seedVersionFromDb();
     const durableEvents = await state.ensureSyncEventsTable();
-    // Durable sync_events rows are the cheap cross-process path. Keep the
-    // legacy watermark scan as a slower safety net for direct SQL writes and
-    // older processes that have not started writing durable events yet.
     await state.checkExternalDbChanges({ durableEvents });
 
     const query = getQuery(event);

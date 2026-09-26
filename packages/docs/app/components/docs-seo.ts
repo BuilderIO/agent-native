@@ -24,12 +24,6 @@ function normalizePath(pathname: string) {
   return pathname.replace(/\/$/, "") || "/";
 }
 
-/**
- * The canonical URL for any page path: the single form that answers 200.
- * `sitePathForLocale` owns the shape for both docs and non-docs paths, so this
- * resolves the alias and the locale and then defers to it rather than
- * re-deriving the shape and drifting from it.
- */
 export function canonicalPathForPath(pathname: string) {
   const path = normalizePath(pathname);
   const aliased = CANONICAL_ALIASES[path] ?? path;
@@ -78,12 +72,6 @@ export function docsAlternateLinksForPath(
 
   for (const locale of DOCS_LOCALES) {
     if (locale === DEFAULT_DOCS_LOCALE) continue;
-    // Every locale route resolves and is indexable even without a
-    // translation — `loadDocRespectingDraftVisibility` falls back to the
-    // canonical English doc rather than 404ing (see docs-localization.test).
-    // Skipping untranslated locales here left those pages with no
-    // self-referencing hreflang, which Ahrefs flagged as a broken hreflang
-    // annotation on every fallback page.
     links.push({
       hrefLang: locale,
       path: canonicalDocsPathForSlug(slug, locale),

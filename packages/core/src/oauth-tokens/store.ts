@@ -9,13 +9,6 @@ import {
 
 let _initPromise: Promise<void> | undefined;
 
-/**
- * Encrypt the token bundle (AES-256-GCM) before it goes to the `tokens`
- * column. OAuth access/refresh tokens are long-lived, high-value credentials;
- * encrypting at rest means a leaked DB backup / pg_dump / read replica no
- * longer exposes them in plaintext. {@link parseStoredTokens} decrypts
- * transparently on read.
- */
 function serializeTokens(tokens: Record<string, unknown>): string {
   return encryptSecretValue(JSON.stringify(tokens));
 }
@@ -68,27 +61,12 @@ export async function ensureTable(): Promise<void> {
       `;
 
       {
-        // Hot path: the `oauth_tokens` table and its additive columns are
-        // virtually always already present in production. Issuing `CREATE
-        // TABLE`/`ALTER TABLE` still takes an ACCESS EXCLUSIVE lock that, in a
-        // fresh background-worker process behind a concurrent connection on the
-        // shared Neon DB, can block ~indefinitely. The ensure* wrappers probe
-        // `information_schema` first (plain reads, no lock) and run DDL ONLY for
-        // what is actually missing, bounded by a transaction-scoped
-        // `lock_timeout`. If a swallowed lock-timeout leaves the schema still
-        // missing they RE-PROBE and THROW rather than letting init memoize
-        // success against absent schema. `oauthTokensTable()` is
-        // `public.oauth_tokens` on Postgres; the wrappers take the unqualified
-        // table name.
         await ensureTableExists("oauth_tokens", createSql);
-        // Migration: add owner column to existing tables — guarded so the hot
-        // path (column already present) skips the ACCESS EXCLUSIVE ALTER.
         await ensureColumnExists(
           "oauth_tokens",
           "owner",
           `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS owner TEXT`,
         );
-        // Migration: add display_name column
         await ensureColumnExists(
           "oauth_tokens",
           "display_name",
@@ -99,7 +77,6 @@ export async function ensureTable(): Promise<void> {
           "revision",
           `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS revision BIGINT`,
         );
-        // Backfill: set owner = account_id for existing rows without an owner
         await client.execute(
           `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
         );
@@ -110,7 +87,6 @@ export async function ensureTable(): Promise<void> {
         return;
       }
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -144,10 +120,6 @@ export interface OAuthTokenSnapshot {
   storageVersion: string;
 }
 
-/**
- * Read one credential bundle together with the row revision used by
- * refresh/revocation compare-and-swap writes.
- */
 export async function getOAuthTokenSnapshot(
   provider: string,
   accountId: string,
@@ -170,7 +142,6 @@ export async function getOAuthTokenSnapshot(
   };
 }
 
-/** Read a legacy user-owned row without treating organization ids as case-insensitive. */
 export async function getOAuthTokenSnapshotForUserOwner(
   provider: string,
   accountId: string,
@@ -256,15 +227,6 @@ export async function deleteOAuthTokensIfRevision(
   return deleted;
 }
 
-/**
- * Thrown when an OAuth save would re-bind an `(provider, account_id)` row
- * to a different owner than already holds it. Callers should catch this and
- * surface a clean "this account is already linked to another user" message
- * to the requester rather than letting it propagate as a 500.
- *
- * Carries `statusCode = 409` so route handlers using h3's `createError` can
- * pass it straight through.
- */
 export class OAuthAccountOwnedByOtherUserError extends Error {
   readonly statusCode = 409;
   readonly provider: string;
@@ -300,20 +262,6 @@ function ownersRepresentSameUser(
   );
 }
 
-/**
- * Save OAuth tokens. The `owner` parameter specifies which user owns this
- * account — defaults to `accountId` (the account itself is the owner).
- * For multi-account support, pass the logged-in user's email as owner.
- *
- * If the account already exists and is owned by a different user, throws
- * `OAuthAccountOwnedByOtherUserError` (statusCode 409) to prevent silently
- * stealing another user's linked account.
- *
- * Read + write happen as a single linearised Postgres batch. The per-row PK
- * serialises concurrent writes for the same `(provider, account_id)` so the
- * owner check cannot be raced by an attacker calling saveOAuthTokens twice in
- * flight — the second caller sees the first caller's owner row and raises 409.
- */
 export async function saveOAuthTokens(
   provider: string,
   accountId: string,
@@ -324,10 +272,6 @@ export async function saveOAuthTokens(
   const client = getDbExec();
   const table = oauthTokensTable();
 
-  // Read the current row before deciding what to write. We use this to
-  // (a) preserve owner / display_name when this is a token refresh (no
-  // owner argument), and (b) reject the write when the caller is trying
-  // to overwrite a row owned by someone else.
   let resolvedOwner = owner ?? accountId;
   let existingDisplayName: string | null = null;
   let existingOwner: string | null = null;
@@ -343,17 +287,12 @@ export async function saveOAuthTokens(
   }
 
   if (!owner) {
-    // Token-refresh path: keep the existing owner/displayName unchanged.
     if (existingOwner) resolvedOwner = existingOwner;
   } else if (
     existingOwner &&
     owner &&
     !ownersRepresentSameUser(existingOwner, owner)
   ) {
-    // Refuse to silently re-bind an account from one user to another.
-    // This is the case the docstring promised but the previous
-    // implementation didn't enforce — `ON CONFLICT DO UPDATE SET
-    // owner=EXCLUDED.owner` would have overwritten the prior owner.
     throw new OAuthAccountOwnedByOtherUserError({
       provider,
       accountId,
@@ -458,10 +397,6 @@ export async function listOAuthAccounts(provider: string): Promise<
   }));
 }
 
-/**
- * List all OAuth accounts owned by a specific user.
- * In multi-account mode, a user may have connected multiple Google accounts.
- */
 export async function listOAuthAccountsByOwner(
   provider: string,
   owner: string,
@@ -486,9 +421,6 @@ export async function listOAuthAccountsByOwner(
   }));
 }
 
-/**
- * Set the display name for an OAuth account (e.g. Google profile name).
- */
 export async function setOAuthDisplayName(
   provider: string,
   accountId: string,

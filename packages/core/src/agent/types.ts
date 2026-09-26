@@ -59,7 +59,6 @@ export type AgentActionScopeJsonValue =
   | AgentActionScopeJsonValue[]
   | { [key: string]: AgentActionScopeJsonValue };
 
-/** Opaque, request-specific data interpreted by an app's scoped actions. */
 export type AgentActionScope = Record<string, AgentActionScopeJsonValue>;
 
 export const AGENT_ACTION_SCOPE_MAX_BYTES = 8 * 1024;
@@ -134,7 +133,6 @@ function cloneAgentActionScopeValue(
   );
 }
 
-/** Validate and clone an untrusted action scope into bounded JSON data. */
 export function normalizeAgentActionScope(value: unknown): AgentActionScope {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new TypeError("actionScope must be a JSON object");
@@ -178,7 +176,6 @@ export type AgentChatStructuredContentPart =
   | {
       type: "tool-result";
       toolCallId: string;
-      /** Persisted for replay; omitted in older rows is backfilled server-side. */
       toolName?: string;
       toolInput?: string;
       content: string;
@@ -205,18 +202,13 @@ export interface AgentChatReference {
 export type MentionItemMedia =
   | {
       type: "text";
-      /** Short text shown inside the media frame, such as an emoji or initials. */
       text: string;
-      /** Optional CSS color used behind the text. */
       backgroundColor?: string;
     }
   | {
       type: "image";
-      /** Image URL shown inside the media frame. Relative URLs are supported. */
       src: string;
-      /** How the image fits the frame. Defaults to contain. */
       fit?: "contain" | "cover";
-      /** Optional CSS color visible behind contained images. */
       backgroundColor?: string;
     }
   | { type: "none" };
@@ -226,7 +218,6 @@ export interface MentionProviderItem {
   label: string;
   description?: string;
   icon?: string;
-  /** Optional presentation that takes precedence over the legacy icon. */
   media?: MentionItemMedia;
   refType: string;
   refId?: string;
@@ -241,7 +232,6 @@ export interface MentionProviderItem {
 export interface MentionProviderReference {
   label: string;
   icon?: string;
-  /** Optional presentation that takes precedence over the legacy icon. */
   media?: MentionItemMedia;
   source?: string;
   refType: string;
@@ -259,7 +249,6 @@ export interface MentionProvider {
   icon?: string;
   search: (
     query: string,
-    /** The H3 event for the current request — use to make internal API calls */
     event?: any,
   ) => MentionProviderItem[] | Promise<MentionProviderItem[]>;
 }
@@ -267,19 +256,13 @@ export interface MentionProvider {
 export interface AgentChatAttachment {
   type: string;
   name: string;
-  /** Keep a user-visible chip without sending the attachment as model input. */
   displayOnly?: boolean;
   data?: string;
-  /** Stable object-storage URL for this attachment, when uploaded. */
   url?: string;
-  /** Provider that owns `url` (for example Builder or S3). */
   uploadProvider?: string;
-  /** SVG and other unsafe files must stay references, never inline content. */
   referenceOnly?: boolean;
   securityNote?: string;
-  /** Set when the current turn could not create a durable object-storage URL. */
   storageRequired?: boolean;
-  /** Set when a configured object-storage provider rejected or failed the upload. */
   storageUploadFailed?: boolean;
   contentType?: string;
   text?: string;
@@ -292,44 +275,21 @@ export interface AgentChatScope {
 }
 
 export interface AgentChatHarnessRequest {
-  /** Hosted tools-only runtime selected in the production app picker. */
   runtime: "claude-code" | "codex" | "pi" | "opencode";
 }
 
 export interface AgentChatRequest {
   message: string;
-  /** Requested app-defined action scope. Authorization is resolved server-side. */
   actionScope?: AgentActionScope;
-  /** Stable identity of a durable queued message, used to reject replayed delivery. */
   queuedMessageId?: string;
-  /**
-   * User-visible text to persist in chat history. `message` may be normalized
-   * for the model (for example mention markup or internal continuation text).
-   */
   displayMessage?: string;
   history?: AgentMessage[];
-  /**
-   * Provider-neutral transcript used for run recovery. Unlike `history`,
-   * this preserves assistant tool calls and matching tool results so
-   * continuation turns do not re-run completed read-only tools.
-   */
   structuredHistory?: AgentChatStructuredMessage[];
   references?: AgentChatReference[];
   threadId?: string;
-  /** Parent message for assistant-ui sends and regenerations. */
   parentId?: string | null;
   attachments?: AgentChatAttachment[];
-  /** Internal retry/continuation requests should not create visible user turns. */
   internalContinuation?: boolean;
-  /**
-   * Internal marker set ONLY by the durable-background self-dispatch (see
-   * `AGENT_CHAT_BACKGROUND_RUN_FIELD`). Present when the agent-chat handler is
-   * re-entered as the background worker: it carries the pre-claimed `runId` and
-   * logical `turnId` so the worker runs the loop inline with the background
-   * soft-timeout instead of re-claiming the slot or re-dispatching. Untrusted
-   * on its own — the `_process-run` route HMAC-verifies the dispatch before
-   * invoking the handler. Absent on every normal client request.
-   */
   __backgroundRun?: {
     runId: string;
     turnId?: string;
@@ -343,36 +303,10 @@ export interface AgentChatRequest {
       | "network_interrupted"
       | "rate_limited";
     actionPreparationTool?: string;
-    /**
-     * Number of server-driven background→background continuations already
-     * chained into this logical turn (0 on the first chunk). The worker
-     * increments this when it re-fires `_process-run` at a soft-timeout
-     * boundary and refuses to chain past `MAX_BACKGROUND_RUN_CONTINUATIONS`.
-     */
     continuationCount?: number;
-    /**
-     * Terminal error code the previous chunk failed with, plus how many chunks
-     * in a row have now ended on that same code having emitted no assistant
-     * text and no tool activity. Carried on the marker because each chunk is a
-     * separate invocation with no memory of the last one — without it the
-     * no-progress circuit breaker in `shouldChainBackgroundContinuation`
-     * cannot see a repeat at all.
-     */
     noProgressErrorCode?: string;
     noProgressCount?: number;
-    /**
-     * True when the dispatcher expects the self-POST to land in a real
-     * Netlify `-background` function rather than the ~60s synchronous function.
-     * This is diagnostic only; the 15-minute budget is unlocked by the worker's
-     * actual runtime marker.
-     */
     backgroundFunctionRuntimeExpected?: boolean;
-    /**
-     * True when the dispatch body carries ONLY this marker and the worker
-     * must rehydrate the full request body from the run row's
-     * `dispatch_payload` column (`readRunDispatchPayload`). Keeps the
-     * self-POST under Netlify's 256KB background-function body cap.
-     */
     payloadRef?: boolean;
   };
   /**
@@ -390,66 +324,30 @@ export interface AgentChatRequest {
         orgId: string | null;
         mode: "default";
       };
-  /**
-   * Stable identity for the logical assistant turn this request belongs to.
-   * The client sends the SAME turnId for the initial POST and every
-   * auto-continuation re-POST of one turn, so the server can fold each
-   * continuation run's output onto a single durable assistant message instead
-   * of dropping the earlier chunks. Defaults to the run id when absent.
-   */
   turnId?: string;
-  /** Execution mode for this turn. Plan mode is read-only and proposes before acting. */
   mode?: "act" | "plan";
-  /** Per-request model override (ephemeral, from the composer model picker). */
   model?: string;
-  /** Per-request engine override (sent alongside model for cross-provider switches). */
   engine?: string;
-  /** Per-request effort override (ephemeral, from the composer picker). */
   effort?: ReasoningEffort;
-  /** Usage-tracking label for this call (e.g. "chat", "summarize"). Default: "chat". */
   usageLabel?: string;
-  /** Stable browser tab id so screen/url context and navigation commands are tab-scoped. */
   browserTabId?: string;
-  /** Resource scope for this chat thread, e.g. the deck currently bound to the tab. */
   scope?: AgentChatScope | null;
-  /** Optional hosted tools-only harness selection. */
   harness?: AgentChatHarnessRequest;
-  /** When true, expose this chat turn as a user-visible run in RunsTray. */
   trackInRunsTray?: boolean;
-  /**
-   * Approval grants for human-in-the-loop actions. Each entry is a stable
-   * approval key (see the `approval_required` event's `approvalKey`). When the
-   * agent calls an action declared `needsApproval`, the loop pauses and emits
-   * `approval_required`; the client re-issues the turn (typically an empty
-   * continuation) with the approved call's key here so the gate lets it run.
-   * Keys not present here keep the action paused. The model never sees or sets
-   * this — it is supplied by the human's approve affordance. Clients should
-   * preserve the original turnId; the server can recover one uniquely pending
-   * durable grant when a transport drops it, but refuses ambiguous matches.
-   */
   approvedToolCalls?: string[];
 }
 
 export type AgentToolInput = Record<string, unknown>;
 
 export interface AgentChatRichEventReference {
-  /** Reference class, for example action, audit, trace, context, or artifact. */
   kind: string;
-  /** Stable identifier in the owning system. Never place credentials here. */
   id: string;
   label?: string;
   uri?: string;
 }
 
-/**
- * Provider-neutral extension envelope for rich events not yet promoted into
- * the shared event union. Producers must keep `data` bounded and sanitized;
- * durable or sensitive values belong behind references, not in the stream.
- */
 export interface AgentChatRichEventEnvelope {
-  /** Reverse-DNS or package-style owner namespace. */
   namespace: string;
-  /** Event name within the owner namespace. */
   name: string;
   version?: number;
   data?: unknown;
@@ -475,35 +373,8 @@ export type AgentChatEvent =
   | { type: "tool_input_delta"; tool?: string; id?: string; text: string }
   | { type: "stream_keepalive" }
   | {
-      /**
-       * Lifecycle bracket around ONE engine (model) call, emitted by the agent
-       * loop when the stream is established and again — from a `finally` — when
-       * it ends, returns, or throws.
-       *
-       * Exists so the run manager's no-progress backstop can tell "the model is
-       * generating" from "nothing is happening". An extended-thinking phase
-       * emits frames that keep the loop's own 90s model-stream watchdog fresh
-       * without producing any forwarded event, so the backstop's clock saw pure
-       * silence and killed demonstrably-alive runs at 150s. `trackInFlightWork`
-       * counts this pair exactly like `tool_start`/`tool_done`: an engine call
-       * in flight suspends the backstop.
-       *
-       * WHAT BOUNDS THE SUSPENDED WINDOW, now that the in-loop watchdogs are
-       * gone: the engine's own first-event abort covers a call that never
-       * speaks, and the chunk/run budget covers everything after that. An
-       * in-stream wedge AFTER the first frame is therefore caught by the budget
-       * rather than by a dedicated clock — a deliberate trade, because no clock
-       * here could tell it apart from a model composing a large tool argument.
-       *
-       * Deliberately NOT a keepalive: a keepalive proves the transport is up,
-       * this proves the loop is inside a model call.
-       */
       type: "model_stream";
       status: "start" | "end";
-      /** Why the model stopped, on the closing event: `end_turn`, `tool_use`,
-       *  `max_tokens`, `stop_sequence`, `error`. Absent when the stream was cut
-       *  before the engine reported one — a truncated call and a call that
-       *  ended cleanly must stay distinguishable. */
       reason?:
         | "end_turn"
         | "tool_use"
@@ -526,33 +397,15 @@ export type AgentChatEvent =
       chatUI?: ActionChatUIConfig;
     }
   | {
-      /**
-       * The agent tried to call an action declared `needsApproval` and the loop
-       * paused instead of executing it. The client should surface an
-       * approve/deny affordance; on approve, re-issue the turn with
-       * `approvedToolCalls: [approvalKey]` so the gate lets this call run.
-       */
       type: "approval_required";
       tool: string;
       input: Record<string, string>;
-      /** Stable key the client echoes back in `approvedToolCalls` to approve. */
       approvalKey: string;
-      /** False when this action requires a fresh approval for every call. */
       allowPersistentApproval?: false;
-      /** The model-side tool-call id for this paused call, when available. */
       toolCallId?: string;
-      /**
-       * Identifies THIS gate hit, distinct from any earlier ask carrying the
-       * same `approvalKey`/`toolCallId`. A failed resume (expired grant,
-       * turn-id mismatch) re-emits `approval_required` for the same call with
-       * a fresh `askId`; the client uses the change to tell that apart from
-       * the same ask simply re-rendering, so a stale "approved" mark can't
-       * permanently hide Approve/Deny with no way to retry.
-       */
       askId?: string;
     }
   | {
-      /** Host-resolved provider setup required before this run can continue. */
       type: "connection_required";
       requestId: string;
       provider: string;
@@ -566,38 +419,15 @@ export type AgentChatEvent =
       agent: string;
       status: "start" | "done" | "pending" | "error";
       agentCallId?: string;
-      /** Remote task to resume when status is pending/input-required. */
       taskId?: string;
       durationMs?: number;
-      /**
-       * Why the call ended, on a terminal status. Already computed for
-       * telemetry; without it here the persisted event says only that a
-       * cross-app call failed after N ms and never why, so a failed A2A call
-       * cannot be diagnosed from the database without a repro.
-       */
       terminalCode?: string;
     }
   | {
-      /**
-       * Periodic liveness for an in-flight cross-app A2A call. Emitted by the
-       * `call-agent` action once per throttle window ONLY when a real poll
-       * round-trip to the remote agent succeeds and reports a non-terminal
-       * state — never on a timer, so a hung/dead remote emits nothing and the
-       * stuck-detector can still fire. Counts as real progress in
-       * `run-manager`'s `shouldBumpProgressForEvent` (any non-special event
-       * type does), which keeps `last_progress_at` fresh so a slow-but-healthy
-       * sub-agent call doesn't trip the client's stuck banner. A distinct
-       * event type (not an `agent_call` status) so existing `agent_call`
-       * consumers that treat "not start/done" as a failure don't render an
-       * in-flight tick as an error.
-       */
       type: "agent_call_progress";
       agent: string;
-      /** Remote A2A task state for this poll, e.g. "working" | "processing". */
       state: string;
-      /** Elapsed wall-clock seconds since the cross-app call began. */
       elapsedSeconds: number;
-      /** Optional short text surfaced from the remote poll, when present. */
       detail?: string;
       agentCallId?: string;
     }
@@ -633,32 +463,15 @@ export type AgentChatEvent =
     }
   | {
       type: "done";
-      /** Set when a human explicitly stopped the current turn. */
       reason?: "user";
     }
   | {
       type: "error";
       error: string;
-      /**
-       * Optional machine-readable error code. Builder gateway uses codes
-       * like "credits-limit-monthly" / "unauthorized" / "gateway_not_enabled"
-       * so the chat UI can render a structured CTA (e.g. upgrade button).
-       */
       errorCode?: string;
-      /** Optional link paired with errorCode — e.g. Builder billing page. */
       upgradeUrl?: string;
-      /** Optional details for expandable UI/debugging. */
       details?: string;
-      /** True when the user can reasonably continue/retry from partial work. */
       recoverable?: boolean;
-      /**
-       * The engine's own verdict that another attempt at the same request may
-       * succeed (`EngineError.providerRetryable`). Distinct from `recoverable`,
-       * which the server's continuation classifiers read as "this run ended at
-       * an internal boundary, fold it and chain the next chunk". A provider
-       * throttle is retryable without being a boundary — conflating them makes
-       * a rate limit self-chain background continuations.
-       */
       providerRetryable?: boolean;
     }
   /**
@@ -668,15 +481,8 @@ export type AgentChatEvent =
   | { type: "missing_api_key" }
   | { type: "loop_limit"; maxIterations?: number }
   | {
-      /**
-       * An in-loop `Processor` aborted the run via `abort()` (which throws a
-       * `TripWire`). The loop catches it, emits this event, stops cleanly, and
-       * surfaces the reason as a final assistant message. Structural hook for
-       * real-time guardrails and a proof-of-done / coverage gate.
-       */
       type: "tripwire";
       reason: string;
-      /** Name of the processor that aborted, when it declared one. */
       processor?: string;
     }
   | {
@@ -699,18 +505,6 @@ export const CONTINUATION_REASONS = [
 
 export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];
 
-/**
- * True when an `agent_runs.terminal_reason` marks a CHUNK boundary rather than
- * the end of the turn — i.e. the run was TRUNCATED at a budget/timeout/loop/
- * no-progress boundary and did not finish what it was asked to do.
- *
- * This is the single predicate for "the reason says this run did not finish".
- * `setRunTerminalReason` (run-store) uses it to record `status='truncated'`
- * instead of `'completed'`, so consumers should read the status rather than
- * re-deriving truncation from the reason. It stays exported for legacy
- * `status='completed'` rows written before the `truncated` status existed,
- * which linger for one retention window.
- */
 export function isContinuationTerminalReason(reason: unknown): boolean {
   return (
     reason === "auto_continue" ||
@@ -723,14 +517,6 @@ export interface RunEvent {
   event: AgentChatEvent;
 }
 
-/**
- * `agent_runs.status`. `completed` means the turn actually finished (terminal
- * reason `done`); `truncated` means it stopped at a budget/timeout/loop/
- * no-progress boundary with work still outstanding. Truncations were previously
- * filed as `completed`, which made them invisible to every success-rate query
- * and — because retention keys off status — deleted them a week before the
- * genuine failures they belong with.
- */
 export type RunStatus =
   | "running"
   | "completed"

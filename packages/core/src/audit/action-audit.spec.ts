@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Intercept the DB-touching recorder that the defineAction audit wrapper loads
-// lazily. Resolves to the same module the wrapper imports (`./audit/record.js`
-// from action.ts == this directory's record.js).
 const recordActionAudit = vi.fn(async () => {});
 vi.mock("./record.js", () => ({ recordActionAudit }));
 
@@ -23,7 +20,7 @@ describe("defineAction audit wrapper", () => {
       { caller: "tool", actionName: "delete-thing", userEmail: "a@x.com" },
     );
 
-    expect(result).toEqual({ deleted: "t1" }); // result preserved
+    expect(result).toEqual({ deleted: "t1" });
     expect(recordActionAudit).toHaveBeenCalledTimes(1);
     const call = recordActionAudit.mock.calls[0][0] as any;
     expect(call.status).toBe("success");

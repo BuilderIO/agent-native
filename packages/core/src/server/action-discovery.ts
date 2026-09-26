@@ -1,40 +1,11 @@
 import nodePath from "node:path";
 
 import "../authorization/check-action.js";
-/**
- * Auto-discover actions from a template's actions/ directory.
- *
- * Scans for .ts/.js files and builds an action registry suitable for
- * `createAgentChatPlugin({ actions })`.
- *
- * Supports two action conventions:
- *
- * 1. **Full interface** — exports `tool: ActionTool` and `run(args): Promise<string>`.
- *    These are used directly.
- *
- * 2. **CLI-style** — exports only `default async function(args: string[])`.
- *    These are wrapped: args are converted from `Record<string, string>` to
- *    `["--key", "value", ...]`, console output is captured, and a tool
- *    definition is synthesized from the action name.
- *
- * 3. **defineAction** — exports `default` from `defineAction()`. Has `tool` and `run`.
- *
- * Usage in agent-chat plugins:
- * ```ts
- * import { autoDiscoverActions } from "@agent-native/core/server";
- *
- * export default createAgentChatPlugin({
- *   actions: () => autoDiscoverActions(import.meta.url),
- * });
- * ```
- */
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
 import { captureCliOutput } from "./cli-capture.js";
 
-// Lazy fs — loaded via dynamic import() on first use.
-// Avoids require() which bundlers convert to createRequire() that crashes on CF Workers.
 let _fs: typeof import("fs") | undefined;
 async function getFs(): Promise<typeof import("fs")> {
   if (!_fs) {
@@ -46,7 +17,6 @@ import { fileURLToPath } from "node:url";
 
 import { importRuntimeSourceModule } from "./runtime-source-module.js";
 
-/** Files to skip during auto-discovery (no extension). */
 const SKIP_FILES = new Set([
   "helpers",
   "run",
@@ -63,16 +33,6 @@ function isRuntimeSourceFile(filename: string): boolean {
   return true;
 }
 
-/**
- * Global registry of actions contributed by published packages
- * (e.g. `@agent-native/dispatch`). Populated by `registerPackageActions()`
- * which the package calls from import side effects, then merged into
- * `autoDiscoverActions` after the template's local `actions/` directory.
- *
- * Ordering: template `actions/` files always win on name collision so
- * consumers can override a packaged action by dropping a same-named file
- * in their own `actions/` dir.
- */
 const PACKAGE_ACTION_REGISTRY_KEY = Symbol.for(
   "@agent-native/core.package-action-registry",
 );
@@ -91,20 +51,6 @@ function getPackageActionRegistry(): Record<string, ActionEntry> {
   return registry;
 }
 
-/**
- * Register a map of actions contributed by a published package.
- *
- * Called from a package's server entrypoint via import side effects:
- * ```ts
- * // packages/dispatch/src/server/index.ts
- * import { registerPackageActions } from "@agent-native/core/server";
- * import { actions } from "../actions/index.js";
- * registerPackageActions(actions);
- * ```
- *
- * Idempotent — re-registering the same name from the same import is a no-op
- * so HMR / repeated dynamic imports don't double-warn.
- */
 export function registerPackageActions(
   actions: Record<string, ActionEntry>,
 ): void {
@@ -115,13 +61,6 @@ export function registerPackageActions(
   }
 }
 
-/**
- * Merge package-contributed actions without replacing app-local actions.
- *
- * This is intentionally callable even when the app passes an explicit static
- * action registry. Published packages register through import side effects,
- * while generated app registries only contain app-local action files.
- */
 export function mergePackageActions(
   registry: Record<string, ActionEntry>,
 ): void {
@@ -131,10 +70,6 @@ export function mergePackageActions(
   }
 }
 
-/**
- * Split a string into shell-like tokens, handling double and single quotes.
- * `--title "My Page" --content ""` → `["--title", "My Page", "--content", ""]`
- */
 function splitShellArgs(input: string): string[] {
   const tokens: string[] = [];
   let current = "";
@@ -170,13 +105,6 @@ function splitShellArgs(input: string): string[] {
   return tokens;
 }
 
-/**
- * Wrap a CLI-style action (that writes to console.log) as an ActionEntry
- * by capturing stdout/stderr and intercepting process.exit. Uses the
- * shared AsyncLocalStorage-backed capture so concurrent invocations do
- * not corrupt the global `console.log` / `process.stdout.write` /
- * `process.exit` pointers (see `cli-capture.ts`).
- */
 function wrapDefaultExport(
   name: string,
   defaultFn: (args: string[]) => Promise<void>,
@@ -199,7 +127,6 @@ function wrapDefaultExport(
     tool,
     run: async (args: Record<string, string>): Promise<string> => {
       const cliArgs: string[] = [];
-      // If only an "args" key was provided, split it into CLI tokens
       if (args.args && Object.keys(args).length === 1) {
         cliArgs.push(...splitShellArgs(args.args));
       } else {
@@ -301,16 +228,6 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   return out;
 }
 
-/**
- * Resolve the actions directory from the caller's context.
- *
- * @param from - Either an `import.meta.url` (file:// URL from a plugin file),
- *   an absolute directory path, or "auto" to use `process.cwd() + "/actions"`.
- *   When an import.meta.url is provided, the actions directory is resolved as
- *   `../../actions/` relative to the caller (typically `server/plugins/agent-chat.ts`).
- *   If the resolved directory doesn't exist, falls back to `../../scripts/` for
- *   backwards compatibility, then to `process.cwd() + "/actions"`.
- */
 async function resolveActionsDir(from: string): Promise<string> {
   const fs = await getFs();
   const exists = (p: string) => {
@@ -320,8 +237,6 @@ async function resolveActionsDir(from: string): Promise<string> {
       return false;
     }
   };
-  // On edge runtimes (e.g. Cloudflare Workers), import.meta.url may be
-  // undefined after bundling. Fall back to cwd-based discovery.
   if (!from) {
     const cwdActions = nodePath.join(process.cwd(), "actions");
     if (exists(cwdActions)) return cwdActions;
@@ -346,12 +261,6 @@ async function resolveActionsDir(from: string): Promise<string> {
   return nodePath.resolve(from);
 }
 
-/**
- * Load actions from a single directory into the given registry. Shared by
- * both the template-actions discovery path and the workspace-core actions
- * layer. When `skipExisting` is true, an entry with the same name that's
- * already in the registry is left untouched (template-wins on collision).
- */
 async function loadActionsIntoRegistry(
   actionsDir: string,
   registry: Record<string, ActionEntry>,
@@ -405,12 +314,6 @@ async function loadActionsIntoRegistry(
         registry[name] = wrapDefaultExport(name, mod.default);
       }
     } catch (err) {
-      // CLI-style scripts (top-level execution) throw on import — expected,
-      // they're available via `pnpm action <name>` / shell instead. But a
-      // syntax error, bad import, or malformed defineAction in a real action
-      // file lands here too and would silently vanish from the agent's tools.
-      // Warn so a broken action file is diagnosable instead of mysteriously
-      // missing.
       const msg =
         err instanceof Error ? (err.stack ?? err.message) : String(err);
       console.warn(
@@ -421,15 +324,6 @@ async function loadActionsIntoRegistry(
   }
 }
 
-/**
- * Normalize a pre-bundled static action registry (name → raw module) into
- * the `Record<string, ActionEntry>` shape the agent-chat plugin expects.
- *
- * Used by `autoDiscoverActions` when `.generated/actions-registry.ts` is
- * present so that Nitro-bundled serverless functions (Netlify, Vercel,
- * AWS-Lambda) can serve `/_agent-native/actions/*` routes without relying
- * on a filesystem scan that doesn't work in bundled output.
- */
 export function loadActionsFromStaticRegistry(
   modules: Record<string, unknown>,
 ): Record<string, ActionEntry> {
@@ -471,35 +365,12 @@ export function loadActionsFromStaticRegistry(
   return registry;
 }
 
-/**
- * Auto-discover actions from a directory.
- *
- * Merges in any actions from the enterprise workspace core (if present in
- * the ancestor chain). Template actions take precedence over workspace-core
- * actions on name collision, so an app can override an enterprise-wide
- * action by dropping a same-named file under its own `actions/`.
- *
- * Note: this helper uses a filesystem scan, which works in dev and in
- * non-bundled Node deployments. In bundled serverless functions (Nitro's
- * netlify / vercel / aws-lambda presets) the `actions/` directory is not
- * on disk at runtime; templates should pass the static registry generated
- * by the Vite plugin to `createAgentChatPlugin({ actions })` instead, so
- * the bundler sees static imports and pulls every action into the bundle.
- *
- * @param from - The caller's `import.meta.url` or an absolute path to the
- *   actions directory.
- * @returns A record mapping action names to ActionEntry objects, suitable for
- *   passing to `createAgentChatPlugin({ actions })`.
- */
 export async function autoDiscoverActions(
   from: string,
 ): Promise<Record<string, ActionEntry>> {
   const actionsDir = await resolveActionsDir(from);
   const registry: Record<string, ActionEntry> = {};
 
-  // 1. Template actions first — these are the authoritative layer for the
-  //    current app and must override any workspace-core entry with the same
-  //    name.
   try {
     await loadActionsIntoRegistry(actionsDir, registry, false);
   } catch (err: any) {
@@ -508,16 +379,6 @@ export async function autoDiscoverActions(
     );
   }
 
-  // 1b. Fallback: if filesystem discovery found no template actions (common
-  //     in bundled serverless environments like Netlify/Vercel where the
-  //     actions/ directory doesn't exist on disk), try importing the
-  //     generated static registry at .generated/actions-registry.
-  //
-  //     This prevents the silent-empty-tools footgun where the agent has no
-  //     template actions and falls back to generic tools like web-request.
-  //     Prefer `loadActionsFromStaticRegistry` over `autoDiscoverActions` for
-  //     production reliability — this fallback is a safety net, not the
-  //     primary path.
   if (Object.keys(registry).length === 0 && from) {
     try {
       let registryPath: string;
@@ -547,7 +408,6 @@ export async function autoDiscoverActions(
     }
   }
 
-  // If still empty after all fallbacks, warn loudly.
   if (Object.keys(registry).length === 0) {
     console.warn(
       `[autoDiscoverActions] WARNING: No template actions found! ` +
@@ -557,14 +417,8 @@ export async function autoDiscoverActions(
     );
   }
 
-  // 1c. Package-registered actions — contributed by published packages
-  //     (e.g. @agent-native/dispatch) via `registerPackageActions()` from
-  //     import side effects. Merged with skip-existing so the template's
-  //     own actions/ files always win on name collision.
   mergePackageActions(registry);
 
-  // 2. Workspace-core actions — merged in with skipExisting so they can't
-  //    overwrite template entries.
   try {
     const { getWorkspaceCoreExports } =
       await import("../deploy/workspace-core.js");
@@ -576,9 +430,6 @@ export async function autoDiscoverActions(
     // workspace-core discovery unavailable (e.g. edge runtime) — skip.
   }
 
-  // 3. Framework-level sharing + file-upload actions — always available to any
-  //    template. Merged with skipExisting so templates can override by
-  //    providing a same-named file.
   try {
     await mergeCoreSharingActions(registry);
   } catch {
@@ -588,33 +439,12 @@ export async function autoDiscoverActions(
   return registry;
 }
 
-// `CORE_ACTION_GROUPS` lives in `framework-tools.ts` so the group filter can
-// resolve a kit by name without importing this module. Re-exported here
-// because this is where callers have always found it.
 export { CORE_ACTION_GROUPS };
 
-/**
- * Core actions with no `frameworkTools` switch, and why:
- *
- * - `upload-image` is load-bearing for ordinary work.
- * - MCP tools and the hosted-harness routes never enter the model's action
- *   surface at all (`agentTool: false`), so a switch would gate nothing.
- *
- * Membership is expensive in a way that is easy to miss: an untagged action is
- * also in every app's DEFAULT first-request tool list (see
- * `resolveInitialToolNames`), so each entry here is a schema every app pays for
- * on turn one whether or not it has the surface. The email catalog, the
- * workspace user groups, and the org service tokens each sat here for that
- * reason alone and now answer to `emailCatalog`, `workspaceUserGroups`, and
- * `orgServiceTokens` — all defaulting to on, so availability is unchanged, but
- * reachable through `tool-search` instead of riding along in every request.
- */
 export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
-  // Hosted harness capability/policy routes are UI-facing and deliberately
-  // never enter the model's action surface (`agentTool: false`).
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
   "set-tool-approval-policy",
@@ -688,8 +518,6 @@ export async function mergeCoreSharingActions(
       () =>
         import("../workspace-connections/actions/delete-workspace-user-group.js"),
     ],
-    // Transactional email catalog - mounted everywhere so Dispatch can ask any
-    // app what it sends without that app opting in.
     [
       "list-transactional-emails",
       () => import("../email-catalog/actions/list-transactional-emails.js"),
@@ -761,9 +589,6 @@ export async function mergeCoreSharingActions(
       "set-experiment",
       () => import("../experiments/actions/set-experiment.js"),
     ],
-    // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
-    // recurring jobs and personal automations. The agent-facing native tools
-    // remain the canonical conversational surface.
     [
       "list-recurring-jobs",
       () => import("../jobs/actions/list-recurring-jobs.js"),
@@ -870,7 +695,6 @@ export async function mergeCoreSharingActions(
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],
-    // Audit log — read surface (who changed what, when, agent vs human).
     [
       "list-audit-events",
       () => import("../audit/actions/list-audit-events.js"),
@@ -880,7 +704,6 @@ export async function mergeCoreSharingActions(
       "export-audit-events",
       () => import("../audit/actions/export-audit-events.js"),
     ],
-    // History kit — reusable version snapshots and restore surface.
     [
       "create-resource-version",
       () => import("../history/actions/create-resource-version.js"),
@@ -901,7 +724,6 @@ export async function mergeCoreSharingActions(
       "list-resource-history",
       () => import("../history/actions/list-resource-history.js"),
     ],
-    // Comments/review kit — reusable inline comments, feedback, and review status.
     [
       "list-review-comments",
       () => import("../review/actions/list-review-comments.js"),
@@ -986,8 +808,6 @@ export async function mergeCoreSharingActions(
       () =>
         import("../review/suggestions/actions/decide-resource-suggestion.js"),
     ],
-    // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
-    // are toolCallable:false — preserved via preserveActionFlags below.
     [
       "create-org-service-token",
       () => import("../mcp/actions/create-org-service-token.js"),
@@ -1013,14 +833,7 @@ export async function mergeCoreSharingActions(
           tool: def.tool,
           run: def.run,
           ...(def.http !== undefined ? { http: def.http } : {}),
-          // Carry security-relevant flags (toolCallable, publicAgent, link,
-          // mcpApp) plus readOnly/parallelSafe/dedupe. Without this, the sharing
-          // actions' `toolCallable: false` (audit-H5) is dropped and the
-          // tools-iframe bridge 403 in action-routes.ts never fires.
           ...preserveActionFlags(def),
-          // Pre-resolved copy of what `resolveFrameworkGroup` would compute
-          // from the name anyway. Kept so an entry read in isolation still
-          // reports its kit; the filters no longer depend on it.
           ...(CORE_ACTION_GROUPS[name]
             ? { frameworkGroup: CORE_ACTION_GROUPS[name] }
             : {}),

@@ -1,17 +1,3 @@
-/**
- * Tests for the per-resource sharing restrictions used by extensions:
- *
- *   - `allowPublic: false` — `set-resource-visibility` rejects `'public'`,
- *     and `accessFilter` / `resolveAccess` treat a stored `'public'` row as
- *     private (defense in depth against bad data).
- *   - `requireOrgMemberForUserShares: true` — `share-resource` rejects
- *     `principalType: "user"` shares whose principalId isn't an active member
- *     of the resource's org and isn't holding a pending invitation either.
- *
- * Extensions opt into both flags so a code-executing extension can never be
- * reached by an arbitrary authenticated user, and a malicious shared
- * extension can't re-share itself to an outsider email.
- */
 
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -110,9 +96,6 @@ beforeEach(async () => {
   `);
   db = drizzle(pglite.db);
 
-  // Point the framework `getDbExec()` mock at the same pglite instance so
-  // the share-resource org-membership lookup hits the seeded org_members /
-  // org_invitations rows above.
   sharedClient = {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
@@ -169,7 +152,6 @@ describe("allowPublic: false", () => {
       ).rejects.toBeInstanceOf(ForbiddenError);
     });
 
-    // The DB column should still be private — the action must not have run.
     const rows = (await pglite
       .prepare("SELECT visibility FROM restricted_docs WHERE id = ?")
       .all("doc-1")) as Array<{ visibility: string }>;
@@ -217,7 +199,6 @@ describe("allowPublic: false", () => {
       },
     );
 
-    // The owner still sees their own row even though it's flagged public.
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       const rows = await db
         .select()
@@ -297,9 +278,6 @@ describe("requireOrgMemberForUserShares: true", () => {
   });
 
   it("refuses cross-org org-principal shares", async () => {
-    // An extension shared to a different org would let that org's members
-    // run code with the viewer's credentials — same threat model as a
-    // public extension. Pin org-principal shares to the resource's own org.
     await insertDoc({ id: "doc-6" });
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await expect(
@@ -430,5 +408,4 @@ describe("requireOrgMemberForUserShares: true", () => {
   });
 });
 
-// Satisfy `noUnusedLocals` — used by drizzle's overload-resolution type narrowing.
 export type _RoleType = ShareRole;

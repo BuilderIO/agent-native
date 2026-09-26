@@ -294,9 +294,6 @@ describe("route chunk recovery", () => {
     );
     expect(fakeLocation.href).toBe("https://example.com/dispatch/new-app");
 
-    // React Router calls location.reload() after logging the route-module
-    // failure. If our best-effort reload patch sticks, it must not reload the
-    // old page; if it cannot stick in a real browser, the href is already fixed.
     fakeLocation.reload();
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
     expect(originalReload).not.toHaveBeenCalled();
@@ -573,12 +570,9 @@ describe("route chunk recovery", () => {
       "https://example.com/dispatch/apps",
     );
 
-    // Within the cooldown window: do not reload again, so genuinely
-    // unreachable assets surface to Sentry instead of thrashing.
     expect(reloadForStaleChunk(fakeWindow, 5_000)).toBe(false);
     expect(fakeLocation.assign).toHaveBeenCalledTimes(1);
 
-    // After the cooldown a later stale chunk can recover again.
     expect(reloadForStaleChunk(fakeWindow, 20_000)).toBe(true);
     expect(fakeLocation.assign).toHaveBeenCalledTimes(2);
   });

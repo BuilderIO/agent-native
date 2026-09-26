@@ -82,11 +82,6 @@ export function useShareMutations() {
   };
 }
 
-/**
- * Apply an optimistic change and return the exact cache value to restore if
- * the action fails. Keeping this snapshot at the mutation boundary prevents a
- * stale request from restoring a newer optimistic result.
- */
 export function optimisticallyUpdateShareCache<TData>(
   queryClient: QueryClient,
   queryKey: ShareQueryKey,

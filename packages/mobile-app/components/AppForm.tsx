@@ -36,7 +36,6 @@ interface AppFormProps {
   visible: boolean;
   onClose: () => void;
   onSave: (app: AppConfig) => void;
-  /** If provided, editing an existing app */
   editApp?: AppConfig;
 }
 
@@ -64,7 +63,6 @@ export default function AppForm({
       return;
     }
 
-    // Basic URL validation
     try {
       new URL(url.trim());
     } catch {

@@ -22,11 +22,6 @@ export type CodeAgentConversationTranscriptEventType =
   | "status"
   | "note";
 
-/**
- * Browser/UI transcript event shape used by Code-style hosts. It accepts both
- * the local Code UI field names (`type`, `text`) and the core transcript-store
- * field names (`kind`, `message`) so hosts can pass through either shape.
- */
 export interface CodeAgentConversationTranscriptEvent {
   id: string;
   runId: string;

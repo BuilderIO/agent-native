@@ -37,10 +37,6 @@ describe("buildDeepLink", () => {
 
   it("does not expose a `compose` field on DeepLinkInput", () => {
     // Security: the prior `compose` field base64-encoded the full draft
-    // (subject + recipients + body) into the URL query string. MCP host
-    // LLMs see and can remember query strings, and shared chat transcripts
-    // would leak draft content. Drafts now live in app-state and the deep
-    // link only carries the draft id.
     const url = buildDeepLink({
       app: "mail",
       view: "inbox",

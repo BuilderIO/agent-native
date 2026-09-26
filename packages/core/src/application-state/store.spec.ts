@@ -80,11 +80,6 @@ afterEach(async () => {
 
 describe("application-state store", () => {
   it("issues hot-path index DDL on init", async () => {
-    // ensureTable() is triggered by the first store call and issues CREATE
-    // TABLE + CREATE INDEX. Capture which SQL strings rawClient.execute
-    // receives and assert the two poll-path indexes are among them.
-    // Restore the original implementation immediately after so later tests
-    // in this file are not affected.
     const seen: string[] = [];
     const orig = rawClient.execute.getMockImplementation()!;
     rawClient.execute.mockImplementation(

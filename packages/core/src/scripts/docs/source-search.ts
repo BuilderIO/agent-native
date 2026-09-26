@@ -1,17 +1,3 @@
-/**
- * Core script: source-search
- *
- * Search and read version-matched framework source.
- * First-party templates are generated into @agent-native/core/corpus during
- * package build; Core and Toolkit source are read from their installed roots.
- *
- * Usage:
- *   pnpm action source-search --query "defineAction"
- *   pnpm action source-search --path templates/chat/actions/hello.ts
- *   pnpm action source-search --path core/src/action.ts
- *   pnpm action source-search --path templates/plan/AGENTS.md
- *   pnpm action source-search --list
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -67,9 +53,6 @@ const TEXT_EXTENSIONS = new Set([
 ]);
 
 function getCorpusRoot(): string {
-  // Resolve from the package root:
-  //   src/scripts/docs/source-search.ts -> corpus/
-  //   dist/scripts/docs/source-search.js -> corpus/
   return path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../../../corpus",
@@ -104,8 +87,6 @@ function getSourceRoots(): SourceRoot[] {
     },
   ];
 
-  // A monorepo checkout has the authored Core source. Published packages do
-  // not carry the whole source tree, so use their readable dist output.
   const coreSourceRoot = path.join(getPackageRoot(), "src");
   roots.push(
     fs.existsSync(path.join(coreSourceRoot, "server"))
@@ -123,12 +104,6 @@ function getSourceRoots(): SourceRoot[] {
   return roots;
 }
 
-/**
- * The corpus is a sibling of the package root, so a bundled serverless deploy
- * never carries it. Callers register this tool conditionally: advertising a
- * search tool whose only possible answer is "not found" costs the agent a turn
- * and reads to it like the code genuinely does not exist.
- */
 export function hasSourceCorpus(): boolean {
   return fs.existsSync(getCorpusRoot());
 }

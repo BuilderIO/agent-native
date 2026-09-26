@@ -704,15 +704,7 @@ describe("run recovery surfaces", () => {
     });
   });
 
-  // Prod, 2026-08-26 (slides): this exact shape — a 401 whose body is the
-  // gateway's absent-credential sentence — reached users whose own key was
   // fine, because the rejected credential belonged to the workspace. They got
-  // a setup panel for a connection already marked good and no way forward. The
-  // retry premise ("replays the same rejected credential") stopped being true
-  // once a 401 started fingerprinting and skipping that credential, so the
-  // setup flow and a retry now ship together.
-  //
-  // The setup state keeps the retry action available below the card.
   it("shows the AI setup flow AND a retry button for a rejected provider key", async () => {
     const onRetry = vi.fn();
     await act(async () => {
@@ -749,13 +741,6 @@ describe("run recovery surfaces", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  // Review feedback on #3721: the restored retry on a rejected-credential card
-  // can hand the reader straight into `missing_credentials` — the rejected
-  // credential is skipped for a backing-off window, so the very next run has
-  // nothing to use. Gating this card's retry on connecting a provider here
-  // assumed that was the only way out, which is false when the fix is an admin
-  // repairing the shared credential or the window simply expiring. That put the
-  // same dead end back, one step later.
   it("offers retry on the missing-provider card without connecting first", async () => {
     const onRetry = vi.fn();
 
@@ -789,8 +774,6 @@ describe("run recovery surfaces", () => {
     });
     expect(onRetry).toHaveBeenCalledTimes(1);
 
-    // Once per card: a retry that is always offered must still not be able to
-    // spam the run.
     await act(async () => {
       retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });

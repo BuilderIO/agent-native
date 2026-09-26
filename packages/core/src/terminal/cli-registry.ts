@@ -1,14 +1,7 @@
-/**
- * CLI Registry — known AI coding CLIs and their metadata.
- * Used by the embedded terminal in the agent panel.
- */
 
 export interface CliEntry {
-  /** Human-readable display name */
   label: string;
-  /** npm package name for npx fallback */
   installPackage: string;
-  /** Env vars to strip when spawning (prevents nesting) */
   stripEnv: string[];
 }
 
@@ -87,12 +80,10 @@ export const CLI_REGISTRY: Record<string, CliEntry> = {
   },
 };
 
-/** Check if a command name is in the CLI_REGISTRY allowlist */
 export function isAllowedCommand(cmd: string): boolean {
   return Object.prototype.hasOwnProperty.call(CLI_REGISTRY, cmd);
 }
 
-/** Resolve a CLI from the user's shell locations, including GUI launch paths. */
 export async function resolveCommandPath(
   cmd: string,
   environment: NodeJS.ProcessEnv = process.env,
@@ -109,7 +100,6 @@ export async function resolveCommandPath(
   return resolved || cmd;
 }
 
-/** Check if a CLI command exists on PATH (safe — no shell interpolation) */
 export async function commandExists(cmd: string): Promise<boolean> {
   return (await resolveCommandPath(cmd)) !== null;
 }

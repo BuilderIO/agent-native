@@ -25,19 +25,8 @@ import type {
 } from "./file-tree.config.js";
 import { FILE_TREE_CHANGES } from "./file-tree.config.js";
 
-/**
- * Read + Edit renderers for a `file-tree` block — a VS Code / GitHub-explorer
- * file and change tree. Lives in core so any app can register the dev-doc block
- * (no shadcn import; the editor's enum picker is the core `DevSelect`).
- */
 
-/* ── Theme-aware change tokens ─────────────────────────────────────────────── */
 
-/**
- * Change-badge palette. Tinted background + saturated text in BOTH the `.dark`
- * plan theme and light mode (never a dark-only palette). Each entry keeps legible
- * contrast against the plan surface via Tailwind `dark:` variants.
- */
 const CHANGE_BADGE: Record<FileTreeChange, string> = {
   added:
     "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -47,7 +36,6 @@ const CHANGE_BADGE: Record<FileTreeChange, string> = {
     "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
 };
 
-/** Single-letter glyph shown in the change badge (VS Code gutter convention). */
 const CHANGE_GLYPH: Record<FileTreeChange, string> = {
   added: "A",
   modified: "M",
@@ -55,7 +43,6 @@ const CHANGE_GLYPH: Record<FileTreeChange, string> = {
   renamed: "R",
 };
 
-/** Accent ink for the file name itself, echoing its change color. */
 const CHANGE_NAME_INK: Record<FileTreeChange, string> = {
   added: "text-emerald-700 dark:text-emerald-300",
   modified: "text-blue-700 dark:text-blue-300",
@@ -70,7 +57,6 @@ const CHANGE_LABEL: Record<FileTreeChange, string> = {
   renamed: "Renamed",
 };
 
-/** Infer a fence language for a file's snippet from its `language` or extension. */
 function fenceLanguage(entry: FileTreeEntry): string {
   if (entry.language?.trim()) return entry.language.trim();
   const ext = entry.path.split(".").pop()?.toLowerCase() ?? "";
@@ -100,34 +86,25 @@ function fenceLanguage(entry: FileTreeEntry): string {
   return byExt[ext] ?? "text";
 }
 
-/** Wrap a raw snippet in a fenced code block for `ctx.renderMarkdown`. */
 function fence(snippet: string, language: string): string {
-  // Never let the snippet's own content break out of the fence.
   const safe = snippet.replace(/```/g, "ʼʼʼ");
   return `\`\`\`${language}\n${safe.replace(/\s+$/, "")}\n\`\`\``;
 }
 
-/* ── Tree construction (flat paths → nested folders) ───────────────────────── */
 
 interface FileLeaf {
   kind: "file";
-  /** Last path segment. */
   name: string;
-  /** Full slash path, used as a stable key + anchor. */
   path: string;
   entry: FileTreeEntry;
-  /** Index in the original flat `entries` (stable per-file disclosure key). */
   index: number;
 }
 
 interface FolderNode {
   kind: "folder";
   name: string;
-  /** Full slash path of the folder, used as a stable key. */
   path: string;
   children: TreeNode[];
-  /** Present when the folder was authored as an explicit directory entry (a
-   * `path` ending in `/`), carrying its note/metadata + flat `entries` index. */
   entry?: FileTreeEntry;
   index?: number;
 }
@@ -139,16 +116,12 @@ interface VisibleTreeRow {
   depth: number;
 }
 
-/** A folder being assembled while we walk the paths (children keyed by name). */
 interface FolderBuild {
   name: string;
   path: string;
   folders: Map<string, FolderBuild>;
   files: FileLeaf[];
-  /** Insertion order of child names (folders + files) for stable rendering. */
   order: string[];
-  /** Set when an explicit directory entry (trailing slash) targets this folder,
-   * carrying its note/metadata + flat `entries` index. */
   entry?: FileTreeEntry;
   index?: number;
 }
@@ -157,12 +130,6 @@ function makeFolder(name: string, path: string): FolderBuild {
   return { name, path, folders: new Map(), files: [], order: [] };
 }
 
-/**
- * Build a nested folder tree from the flat `entries`. Folders are derived purely
- * from the slash segments of each `path`; a single-segment path is a root file.
- * Insertion order is preserved within each folder, with folders sorted before
- * files at each level (the conventional explorer ordering).
- */
 function buildTree(entries: FileTreeEntry[]): TreeNode[] {
   const root = makeFolder("", "");
 
@@ -170,12 +137,6 @@ function buildTree(entries: FileTreeEntry[]): TreeNode[] {
     const segments = entry.path.split("/").filter(Boolean);
     if (segments.length === 0) return;
 
-    // A trailing slash marks a DIRECTORY entry: every segment is a folder and
-    // the entry's note/metadata attaches to the deepest folder (the last segment
-    // does NOT become a file leaf). Because folders are keyed by name, this also
-    // merges with any folder the sibling file paths already implied — so
-    // `packages/shared/` and `packages/shared/src/…` collapse onto one `shared`
-    // folder instead of a duplicate folder + file pair.
     const isDir = /\/\s*$/.test(entry.path);
     const folderSegments = isDir ? segments : segments.slice(0, -1);
 
@@ -193,8 +154,6 @@ function buildTree(entries: FileTreeEntry[]): TreeNode[] {
     }
 
     if (isDir) {
-      // Attach metadata to the deepest folder (first declaration wins, so an
-      // explicit note isn't clobbered by a later bare prefix re-declaration).
       if (!cursor.entry) {
         cursor.entry = entry;
         cursor.index = index;
@@ -232,7 +191,6 @@ function buildTree(entries: FileTreeEntry[]): TreeNode[] {
         if (file) nodes.push(file);
       }
     }
-    // Folders before files at this level (standard explorer ordering).
     return [
       ...nodes.filter((node) => node.kind === "folder"),
       ...nodes.filter((node) => node.kind === "file"),
@@ -247,10 +205,6 @@ function compactFolderNode(folder: FolderNode): FolderNode {
   let path = folder.path;
   let children = folder.children;
 
-  // Collapse single-child folder chains (a/b/c) into one row — but never across
-  // a folder that carries its own directory note, so an explicitly authored
-  // directory (e.g. `packages/shared/` with a note) keeps its own row instead of
-  // being folded into its parent or child and losing the note.
   while (
     !folder.entry &&
     children.length === 1 &&
@@ -298,9 +252,8 @@ function flattenVisibleRows(
   return rows;
 }
 
-/* ── Read (IDE explorer) ───────────────────────────────────────────────────── */
 
-const INDENT_STEP = 14; // px per nesting level — the explorer guide spacing.
+const INDENT_STEP = 14;
 const DEFAULT_VISIBLE_TREE_ROWS = 10;
 const NOTE_TOOLTIP_DELAY_MS = 320;
 
@@ -379,16 +332,6 @@ function OverflowNoteTooltip({
   );
 }
 
-/**
- * Read-only renderer for a `file-tree` block — a VS Code / GitHub-explorer file
- * and change tree. The flat `entries` are folded into a nested tree of
- * collapsible folders (IconFolder + chevron) and files (IconFile) carrying a
- * single-letter change badge (A/M/D/R). A file with a `note` or `snippet` is
- * itself clickable and expands to show the note plus the snippet rendered as a
- * fenced code block via `ctx.renderMarkdown`. A summary header tallies the change
- * counts ("+N · ~M · −K"). Every color is theme-aware via Tailwind `dark:`
- * variants / plan CSS vars, so the tree reads correctly in both modes.
- */
 export function FileTreeRead({
   data,
   blockId,
@@ -399,14 +342,10 @@ export function FileTreeRead({
   const entries = data.entries ?? [];
   const tree = useMemo(() => compactTree(buildTree(entries)), [entries]);
 
-  // Folders default to fully expanded so the tree is useful at a glance.
   const [collapsedFolders, setCollapsedFolders] = useState<
     Record<string, boolean>
   >({});
   const [showAllRows, setShowAllRows] = useState(false);
-  // Files with snippets collapse their detail by default (progressive
-  // disclosure) — keyed by the flat entry index so duplicate names never clash.
-  // A note on its own stays inline; expanding it would only move the same text.
   const [openFiles, setOpenFiles] = useState<Record<number, boolean>>({});
 
   const toggleFolder = (path: string) =>
@@ -417,11 +356,6 @@ export function FileTreeRead({
   const toggleFile = (index: number) =>
     setOpenFiles((current) => ({ ...current, [index]: !current[index] }));
 
-  // The recap "Files touched" left rail (only) widens into the document as a
-  // flyout while the tree is the reader's active focus AND a file's detail is
-  // open, then collapses back to a slim rail when they click elsewhere or close
-  // the last open file. `data-files-expanded` on the root drives the rail width
-  // via CSS (`:has()`); it is inert anywhere the tree renders inline.
   const rootRef = useRef<HTMLElement>(null);
   const [active, setActive] = useState(false);
   const anyFileOpen = useMemo(
@@ -439,9 +373,6 @@ export function FileTreeRead({
         event.target instanceof Node &&
         !root.contains(event.target)
       ) {
-        // Clicking away collapses the rail and closes any open file detail, so
-        // it returns to the clean slim state rather than leaving notes open in
-        // the cramped width.
         setActive(false);
         setOpenFiles({});
       }
@@ -451,7 +382,6 @@ export function FileTreeRead({
       document.removeEventListener("pointerdown", onPointerDown, true);
   }, [railExpanded]);
 
-  // Change tally for the summary header.
   const counts = useMemo(() => {
     const tally = { added: 0, modified: 0, removed: 0, renamed: 0 };
     for (const entry of entries) {
@@ -476,9 +406,6 @@ export function FileTreeRead({
     const indent = depth * INDENT_STEP;
     if (node.kind === "folder") {
       const collapsed = collapsedFolders[node.path] ?? false;
-      // An explicit directory entry (trailing-slash path) can be a leaf folder
-      // with no children — e.g. `apps/mail/`. It still renders as a folder, just
-      // without a toggle chevron. Its authored note shows inline like a file's.
       const expandable = node.children.length > 0;
       const note = node.entry?.note?.trim();
       const open = expandable && !collapsed;
@@ -721,18 +648,9 @@ export function FileTreeRead({
   );
 }
 
-/* ── Edit (panel form) ─────────────────────────────────────────────────────── */
 
 const fieldLabelClass = "text-xs font-medium text-muted-foreground";
 
-/**
- * Panel editor for a `file-tree` block. A structured form: an optional title
- * Input plus a list of file rows (add/remove), each carrying a path Input, a
- * change Select, a note Input, an optional language Input, and a snippet
- * Textarea. The folder tree is derived from the paths in the Read render, so the
- * form stays flat and quick to edit. Renders BARE content (no `<section>`); the
- * registry's panel surface supplies the popover chrome.
- */
 export function FileTreeEdit({
   data,
   onChange,

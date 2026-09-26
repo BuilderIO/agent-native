@@ -9,20 +9,6 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
-/**
- * CustomFieldsEditor — add, remove, reorder, and configure custom form
- * fields shown on a booking page.
- *
- * The shape matches the calendar template's `CustomField`. The scheduling
- * template's event types also have `customFields` — both can use this
- * directly.
- *
- * All edits flow through `onChange` synchronously so the caller can
- * update the UI (and persist) optimistically.
- *
- * Shadcn primitives expected in the consumer: button, input, label,
- * textarea, switch. Icons from `@tabler/icons-react`.
- */
 import { useState } from "react";
 
 import { useSchedulingT } from "../../i18n.js";
@@ -50,7 +36,6 @@ export interface CustomField {
 export interface CustomFieldsEditorProps {
   fields: CustomField[];
   onChange: (fields: CustomField[]) => void;
-  /** Hide the outer label + add button (e.g. if rendered inside its own card). */
   hideLabel?: boolean;
 }
 

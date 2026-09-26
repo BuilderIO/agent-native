@@ -64,11 +64,6 @@ export function clearMcpConnectionPending(): void {
   writeStoredStartedAt(null);
 }
 
-/**
- * True while an authorization started recently enough that its result may not
- * be reflected in the cached server list yet. Expired markers are cleared so a
- * stale tab stops refetching on focus.
- */
 export function hasPendingMcpConnection(now = Date.now()): boolean {
   const startedAt = memoryPendingStartedAt ?? readStoredStartedAt();
   if (startedAt === null) return false;

@@ -28,11 +28,6 @@ import type {
 } from "./types";
 import { isTerminalWireEvent, messageText } from "./types";
 
-/**
- * Renders are throttled: wire deltas can arrive dozens of times per second,
- * so events fold into a mutable state buffer and flush to React on an
- * interval. Scroll/entering animations run on the UI thread regardless.
- */
 const FLUSH_INTERVAL_MS = 50;
 const NAVIGATE_POLL_INTERVAL_MS = 2000;
 const NAVIGATE_POLL_TIMEOUT_MS = Math.max(
@@ -65,7 +60,6 @@ export interface AgentChatSettings {
 
 export interface AgentChatController {
   threadId: string;
-  /** Origin app base URL of the active thread (defaults to the chat app). */
   baseUrl: string;
   messages: ChatMessage[];
   isStreaming: boolean;
@@ -84,10 +78,8 @@ export interface AgentChatController {
   deny: (approvalKey?: string) => void;
   retry: () => void;
   newChat: (baseUrl?: string) => void;
-  /** Open a thread; pass its origin app base URL for cross-app threads. */
   openThread: (threadId: string, baseUrl?: string) => void;
   clearAuthRequired: () => void;
-  /** Run id of the turn that produced this assistant message, if known. */
   getRunId: (messageId: string) => string | null;
 }
 
@@ -112,7 +104,6 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
 
   const stateRef = useRef(state);
   stateRef.current = state;
-  // Async turn/resume closures read the live value, not the render-time one.
   const baseUrlRef = useRef(baseUrl);
   baseUrlRef.current = baseUrl;
   const settingsRef = useRef(settings);
@@ -276,9 +267,6 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           applyEvent(event);
         }
 
-        // The server always closes a finished run with a terminal event. A
-        // stream that just stopped was dropped mid-run — reattach instead of
-        // presenting the truncated turn as finished with no feedback.
         if (
           !sawTerminal &&
           turn.runId &&
@@ -413,7 +401,6 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       }
       return { ...current, messages, error: null, errorCode: null };
     });
-    // Let the removal state land before re-sending so history is correct.
     setTimeout(() => void runTurn(prompt), 0);
   }, [runTurn]);
 
@@ -434,12 +421,6 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     });
   }, []);
 
-  /**
-   * Reattach to a run that is still executing server-side (app was closed or
-   * backgrounded mid-turn). Replays the run's events from seq 0 into a fresh
-   * assistant message — the persisted history never contains the in-flight
-   * assistant reply, so no duplication.
-   */
   const resumeRun = useCallback(
     async (runId: string, currentGeneration: number) => {
       const assistantId = nextLocalId("assistant");
@@ -565,8 +546,6 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       liveTurnRef.current?.abort();
       pendingApprovalTurnIdRef.current = null;
       const resolvedBaseUrl = nextBaseUrl ?? DEFAULT_CHAT_BASE_URL;
-      // Set synchronously so runTurn/reattach read the right app immediately,
-      // before the state update commits.
       baseUrlRef.current = resolvedBaseUrl;
       setBaseUrl(resolvedBaseUrl);
       setThreadId(nextThreadId);
@@ -626,26 +605,19 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     [resumeRun],
   );
 
-  // Poll for navigate commands from the agent
   useEffect(() => {
     if (!mountedRef.current) return;
     let active = AppState.currentState === "active";
     let inFlight = false;
     const tick = async () => {
-      // Don't poll while streaming, backgrounded, or a previous tick is still in flight
       if (stateRef.current.isStreaming || !active || inFlight) return;
       inFlight = true;
       try {
-        // Poll and acknowledge against the active thread's app — a command
-        // written by a Dispatch/Content/etc. thread lives on that origin, not
-        // the default Chat one.
         const origin = baseUrlRef.current;
         const command = await withPollTimeout(
           fetchNavigateCommand(origin),
           NAVIGATE_POLL_TIMEOUT_MS,
         ).catch((err: unknown) => {
-          // A failed or timed-out probe is not "no command pending" — the two
-          // are indistinguishable downstream, so say which one happened.
           console.warn("[agent-chat] navigate command poll failed:", err);
           return null;
         });

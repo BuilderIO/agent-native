@@ -54,10 +54,6 @@ describe("transcribeWithBuilder", () => {
     recordAuthFailure.mockClear();
   });
 
-  // The chat path records a rejected credential so it is not retried for
-  // BUILDER_AUTH_FAILURE_TTL_MS. Transcription did not, so one unusable
-  // credential re-sent the same doomed request on every attempt -- prod logged
-  // 24 identical "Missing Authentication header" 401s in a day.
   it("records the auth failure on a 401 so it is not retried forever", async () => {
     authState.auth = {
       authorization: "Bearer tok",
@@ -102,9 +98,6 @@ describe("transcribeWithBuilder", () => {
     expect(recordAuthFailure).not.toHaveBeenCalled();
   });
 
-  // Without the space id the gateway answers 403 "Space ID is required for
-  // personal access token authentication" before it consults any route policy,
-  // so a Builder-credits site's transcription would be dead on arrival.
   it("sends the gateway token with its space id", async () => {
     authState.auth = {
       authorization: "Bearer btk-site-token",
@@ -131,11 +124,6 @@ describe("transcribeWithBuilder", () => {
     expect(headers["x-builder-user-id"]).toBe("builder-user-1");
   });
 
-  // A legacy deployment that set only BUILDER_PRIVATE_KEY authenticates on the
-  // bearer token alone, and ai-services derives the ownerId from the key. It
-  // must NOT gain an x-builder-api-key here: the bpk- branch 403s
-  // "Private key does not match spaceId" whenever a supplied space id is not
-  // the key's own ownerId (ai-services auth.ts).
   it("omits x-builder-api-key for a single-key legacy deployment", async () => {
     authState.auth = {
       authorization: "Bearer bpk-legacy-only",

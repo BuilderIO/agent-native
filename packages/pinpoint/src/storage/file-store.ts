@@ -1,8 +1,3 @@
-// @agent-native/pinpoint — Server-side file storage adapter
-// MIT License
-//
-// Writes to data/pins/{uuid}.json — one file per annotation.
-// Atomic writes (temp + rename). Path traversal validation on all IDs.
 
 import { randomUUID } from "crypto";
 import {
@@ -36,7 +31,6 @@ export class FileStore implements PinStorage {
   private pinPath(id: string): string {
     this.validateId(id);
     const resolved = join(this.dir, `${id}.json`);
-    // Ensure resolved path is within the data directory
     if (!resolved.startsWith(this.dir)) {
       throw new Error("Path traversal detected");
     }
@@ -60,11 +54,6 @@ export class FileStore implements PinStorage {
 
   private async atomicWrite(filePath: string, data: string): Promise<void> {
     await this.ensureDir();
-    // Stage the temp file inside the data directory (not the OS tmpdir) so
-    // the final rename stays on the same filesystem. POSIX rename() is only
-    // atomic — and only works at all — across paths on the same mount; a
-    // separate /tmp mount (common in containers) makes rename() fail with
-    // EXDEV.
     const tempPath = join(this.dir, `.${randomUUID()}.tmp`);
     try {
       await writeFile(tempPath, data, "utf-8");

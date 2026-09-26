@@ -364,8 +364,6 @@ describe("buildChatModelGroups", () => {
 
   it("offers the Builder models on the gateway lane, with no connect step", () => {
     const groups = buildChatModelGroups({
-      // A Fusion preview / Builder-credits deploy: `/builder/status` answers for
-      // the identity lane only, so `builderConnected` is false here.
       builderConnected: false,
       currentEngineName: "anthropic",
       engines: [

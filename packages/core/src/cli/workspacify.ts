@@ -41,31 +41,17 @@ const REACT_ROUTER_BUILD_DEPENDENCIES = [
 ] as const;
 
 export interface WorkspacifyOptions {
-  /** Target app directory (already populated with the copied template) */
   appDir: string;
-  /** App name (e.g. "mail") */
   appName: string;
-  /** Source template name (e.g. "chat" when appName is "crm") */
   templateName?: string;
-  /** Workspace root directory */
   workspaceRoot: string;
-  /** Shared workspace package name (e.g. "@my-company/shared") */
   workspaceCoreName: string;
-  /** Version range to use for the published @agent-native/core package */
   coreDependencyVersion?: string;
-  /** Version range to use for the package-backed Dispatch app */
   dispatchDependencyVersion?: string;
-  /** Version range to use for the published @agent-native/toolkit package */
   toolkitDependencyVersion?: string;
-  /** Version range to use for the published @agent-native/agentkit package */
   agentKitDependencyVersion?: string;
 }
 
-/**
- * node-pty ships no Linux prebuild, so its install script falls back to
- * `node-gyp rebuild`. The dependency is missing from node-pty's manifest;
- * attach it where pnpm runs that script so every workspace gets the same fix.
- */
 export function ensureNodePtyBuildDependency(workspaceRoot: string): void {
   const workspacePath = path.join(workspaceRoot, "pnpm-workspace.yaml");
   if (!fs.existsSync(workspacePath)) {
@@ -139,11 +125,6 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     opts.agentKitDependencyVersion,
   );
 
-  // 1) Rewrite package.json to add the workspace core dep and resolve
-  //    published framework-package workspace:* refs to package ranges.
-  //    Other workspace:* deps (e.g. @agent-native/scheduling) stay as-is —
-  //    they resolve within the
-  //    workspace because the required package is scaffolded alongside the app.
   const pkgPath = path.join(appDir, "package.json");
   let hasNodePty = false;
   if (fs.existsSync(pkgPath)) {
@@ -173,12 +154,8 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
           }
         }
       }
-      // Ensure the dependency on the workspace shared package is present.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies[workspaceCoreName] = "workspace:*";
-      // Core loads postgres-js lazily when DATABASE_URL points at Postgres.
-      // Add the runtime package to workspace apps so production bundles do
-      // not fail only after a hosted Postgres database is configured.
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
       hasNodePty = [
@@ -187,18 +164,12 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
         pkg.peerDependencies,
         pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
-      // pnpm build-script approvals belong at the workspace root. Leaving the
-      // template's per-app setting in place makes pnpm warn on every install.
       if (pkg.pnpm && typeof pkg.pnpm === "object") {
         delete pkg.pnpm.onlyBuiltDependencies;
         if (Object.keys(pkg.pnpm).length === 0) {
           delete pkg.pnpm;
         }
       }
-      // Pin @assistant-ui/store and @assistant-ui/tap so pre-existing workspaces
-      // whose root pnpm-workspace.yaml pre-dates this fix are still protected.
-      // The constraints exclude the breaking store@0.2.14/tap@0.6.0 combination
-      // that causes Vite pre-bundling failures via a missing ./react-shim export.
       pkg.devDependencies = pkg.devDependencies ?? {};
       pkg.devDependencies["@assistant-ui/store"] ??= ">=0.2.9 <0.2.14";
       pkg.devDependencies["@assistant-ui/tap"] ??= "^0.5.14";
@@ -209,13 +180,8 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   }
   if (hasNodePty) ensureNodePtyBuildDependency(opts.workspaceRoot);
 
-  // 2) Remove standalone-only files that would confuse the workspace layout.
   for (const f of [
     "learnings.defaults.md",
-    // pnpm-workspace.yaml marks a directory as a pnpm workspace root.
-    // Leaving it in an app directory nested under a parent workspace causes
-    // ERR_PNPM_WORKSPACE_PKG_NOT_FOUND when the app depends on workspace:*
-    // packages (e.g. @<scope>/shared). Overrides belong at the workspace root.
     "pnpm-workspace.yaml",
   ]) {
     const p = path.join(appDir, f);
@@ -226,15 +192,8 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     }
   }
 
-  // Workspace-core owns framework skills. Keep only app-specific skill
-  // directories here, and expose the small inherited default set as symlinks
-  // so coding agents launched from this app see the same workspace guidance
-  // without another hard copy. Runtime agents inherit workspace-core directly.
   linkInheritedWorkspaceSkills(opts);
 
-  // 3) Templates document action commands from the framework repo layout.
-  //    Workspace apps live under apps/<name>, so point every agent at the
-  //    generated app directory instead.
   const agentsPath = path.join(appDir, "AGENTS.md");
   if (fs.existsSync(agentsPath)) {
     try {
@@ -381,23 +340,11 @@ export function linkDefaultWorkspaceSkills(
   return preserved;
 }
 
-/**
- * The version an existing workspace already pins for a framework package.
- *
- * Apps added months apart otherwise carry whatever version the CLI that
- * scaffolded them happened to be, and pnpm keeps one physical copy of core per
- * distinct spec — roughly 175 MB each. The workspace root manifest is the one
- * anchor; `agent-native upgrade` is what moves every manifest together.
- * Local (`file:`/`link:`/`workspace:`) and floating (`latest`, `catalog:`)
- * values are not pins, so they fall through to the caller's version.
- */
 function workspacePinnedVersion(
   workspaceRoot: string,
   name: string,
 ): string | null {
   const pkgPath = path.join(workspaceRoot, "package.json");
-  // A malformed root manifest is left to throw: silently scaffolding an app
-  // against an unreadable workspace is how the versions drift apart again.
   if (!fs.existsSync(pkgPath)) return null;
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
   for (const depType of ["dependencies", "devDependencies"] as const) {
@@ -496,11 +443,6 @@ function writeInheritedChatAgentChatPlugin(
   );
 }
 
-/**
- * Parse a workspace core package name into its npm scope.
- *   "@my-company/shared" → "my-company"
- *   "shared"             → ""  (no scope — shouldn't happen)
- */
 export function parseWorkspaceScope(workspaceCoreName: string): string {
   const m = workspaceCoreName.match(/^@([^/]+)\//);
   return m ? m[1] : "";

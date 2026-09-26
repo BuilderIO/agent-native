@@ -76,7 +76,6 @@ export function TableEditor({
   initialFilters,
   onNavigateToRow,
 }: TableEditorProps) {
-  // ─── Persisted view state ──────────────────────────────────────────────
   const persisted = useMemo(() => loadGridState(table), [table]);
 
   const [page, setPage] = useState(1);
@@ -93,7 +92,6 @@ export function TableEditor({
   const [selectedPks, setSelectedPks] = useState<Set<string>>(new Set());
   const [active, setActive] = useState<ActiveCell | null>(null);
 
-  // Reset transient state when switching tables.
   useEffect(() => {
     const p = loadGridState(table);
     setPage(1);
@@ -106,12 +104,10 @@ export function TableEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [table]);
 
-  // Persist view state.
   useEffect(() => {
     saveGridState(table, { columnWidths, sort, filters, pageSize });
   }, [table, columnWidths, sort, filters, pageSize]);
 
-  // ─── Data ────────────────────────────────────────────────────────────────
   const schemaState = useTableSchema(table, requestConfig);
   const rowsReq = useMemo(
     () => ({ page, pageSize, sort, filters }),
@@ -122,7 +118,6 @@ export function TableEditor({
   const schema = schemaState.data;
   const changeset = useChangeset(schema);
 
-  // ─── Toolbar UI state ──────────────────────────────────────────────────
   const [panel, setPanel] = useState<{
     mode: RowSidePanelMode;
     pk?: string;
@@ -138,7 +133,6 @@ export function TableEditor({
     window.setTimeout(() => setToast(null), 2500);
   }, []);
 
-  // ─── Original rows map (pk → fetched row) ──────────────────────────────
   const originalRows = useMemo(() => {
     const map = new Map<string, Record<string, unknown>>();
     for (const row of rowsState.data?.rows ?? []) {
@@ -147,10 +141,8 @@ export function TableEditor({
     return map;
   }, [rowsState.data, schema]);
 
-  // ─── Build grid rows with staged edits applied ──────────────────────────
   const gridRows = useMemo<GridRow[]>(() => {
     const out: GridRow[] = [];
-    // New rows first (top of grid, like Supabase).
     for (const nr of changeset.newRows) {
       out.push({
         pk: `new:${nr._localId}`,
@@ -177,7 +169,6 @@ export function TableEditor({
     changeset.deletedKeys,
   ]);
 
-  // ─── Cell commit routing (existing rows vs new rows) ────────────────────
   const onCellCommit = useCallback(
     (row: GridRow, col: string, value: unknown) => {
       if (row.isNew && row.localId) {
@@ -208,7 +199,6 @@ export function TableEditor({
     [changeset],
   );
 
-  // ─── FK navigation ───────────────────────────────────────────────────────
   const onFkNavigate = useCallback(
     (fk: DbAdminForeignKey, value: unknown) => {
       onNavigateToRow(fk.refTable, [{ column: fk.refColumn, op: "eq", value }]);
@@ -216,7 +206,6 @@ export function TableEditor({
     [onNavigateToRow],
   );
 
-  // ─── Commit / preview ──────────────────────────────────────────────────
   const runCommit = useCallback(
     async (dryRun: boolean) => {
       const mutation = changeset.buildMutation(originalRows, dryRun);
@@ -267,7 +256,6 @@ export function TableEditor({
     }
   }, [changeset, confirmDelete, runCommit, rowsState, schemaState, showToast]);
 
-  // ─── Cmd/Ctrl+S to commit ──────────────────────────────────────────────
   const commitRef = useRef(handleCommit);
   commitRef.current = handleCommit;
   useEffect(() => {
@@ -285,14 +273,12 @@ export function TableEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [changeset.isDirty]);
 
-  // ─── Bulk delete from selection ────────────────────────────────────────
   const onBulkDelete = useCallback(() => {
     const pks = [...selectedPks].filter((pk) => !pk.startsWith("new:"));
     changeset.deleteRows(pks);
     setSelectedPks(new Set());
   }, [selectedPks, changeset]);
 
-  // ─── Render ──────────────────────────────────────────────────────────────
   const total = rowsState.data?.total ?? schema?.rowCount ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -593,7 +579,6 @@ export function TableEditor({
   );
 }
 
-// ─── Small UI atoms ────────────────────────────────────────────────────────
 
 function ToolbarButton({
   icon,

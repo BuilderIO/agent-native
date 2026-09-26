@@ -1,16 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Durable-background run-store semantics:
- *  - `insertRun` stamps `dispatch_mode` so the reaper widens the stale window.
- *  - `claimBackgroundRun` is an atomic, idempotent, conditional claim (a second
- *    delivery no-ops — no double-execution).
- *  - the stale reaper is background-aware: a background run that has gone quiet
- *    for >15s (cold start) is NOT reaped, while a foreground run past 15s is.
- *
- * Backed by a small stateful in-memory `agent_runs` table that honors the real
- * conditional WHERE clauses, so we exercise the actual SQL, not a stub.
- */
 
 interface RunRow {
   id: string;
@@ -30,8 +19,6 @@ interface RunRow {
 
 let rows: RunRow[] = [];
 
-// Mirror the three constants used by `backgroundAwareStaleCutoffSql`. The SQL
-// inlines them as literals, so we evaluate the CASE in JS to decide reaping.
 const RUN_STALE_MS = 15_000;
 const BACKGROUND_RUN_STALE_MS = 90_000;
 const BACKGROUND_PROCESSING_RUN_STALE_MS = 45_000;
@@ -45,19 +32,16 @@ function rowStaleWindow(row: RunRow): number {
     : RUN_STALE_MS;
 }
 
-/** Heartbeat-only basis — used by unclaimed-worker reaper. */
 function heartbeatLiveness(row: RunRow): number {
   return row.heartbeat_at ?? row.started_at;
 }
 
-/** Effective liveness timestamp = max(heartbeat, progress, started). */
 function liveness(row: RunRow): number {
   const heartbeat = row.heartbeat_at ?? row.started_at;
   const progress = row.last_progress_at ?? row.started_at;
   return Math.max(heartbeat, progress);
 }
 
-/** Mark a producer dead for tests: both heartbeat and progress must go stale. */
 function markProducerDead(row: RunRow, at: number) {
   row.heartbeat_at = at;
   row.last_progress_at = at;
@@ -76,7 +60,6 @@ const mockDb: any = {
       return { rows: [], rowsAffected: 0 };
     }
 
-    // insertRun
     if (/^INSERT INTO agent_runs/i.test(sql)) {
       const [
         id,
@@ -88,7 +71,6 @@ const mockDb: any = {
         dispatch_mode,
       ] = args;
       if (rows.some((r) => r.id === id)) {
-        // Emulate a PK-collision throw so the .catch(() => {}) path is real.
         throw new Error(
           "duplicate key value violates unique constraint agent_runs_pkey",
         );
@@ -111,7 +93,6 @@ const mockDb: any = {
       return { rows: [], rowsAffected: 1 };
     }
 
-    // recordRunDiagnostic — UPDATE agent_runs SET diag_stage = ? WHERE id = ?
     if (/UPDATE agent_runs SET diag_stage = \?/i.test(sql)) {
       const [stage, id] = args;
       const row = rows.find((r) => r.id === id);
@@ -122,8 +103,6 @@ const mockDb: any = {
       return { rows: [], rowsAffected: 0 };
     }
 
-    // reapUnclaimedBackgroundRun — UPDATE ... WHERE id=? AND status='running'
-    // AND dispatch_mode='background' AND COALESCE(heartbeat_at,started_at) < ?
     if (
       /UPDATE agent_runs SET status = 'errored'/i.test(sql) &&
       /dispatch_mode = 'background'/i.test(sql) &&
@@ -150,7 +129,6 @@ const mockDb: any = {
       return { rows: [], rowsAffected: 0 };
     }
 
-    // claimBackgroundRun
     if (
       /UPDATE agent_runs SET dispatch_mode = 'background-processing'/i.test(sql)
     ) {
@@ -168,27 +146,21 @@ const mockDb: any = {
       return { rows: [], rowsAffected: 0 };
     }
 
-    // reapIfStale (UPDATE ... WHERE id = ? AND status='running' AND <stale>)
     if (
       /UPDATE agent_runs SET status = 'errored'/i.test(sql) &&
       /WHERE id = \?/i.test(sql)
     ) {
       const id = args[3] as string;
       const lastBound = args[4] as number;
-      // Default path inlines the background-aware CASE and binds `now`; the
-      // explicit-maxStaleMs path inlines a plain `?` and binds a pre-computed
-      // cutoff. Distinguish by the SQL fragment, not the arg type.
       const usesBackgroundAwareWindow =
         /WHEN dispatch_mode LIKE 'background%'/i.test(sql);
       const row = rows.find((r) => r.id === id && r.status === "running");
       if (!row) return { rows: [], rowsAffected: 0 };
       const cutoff = usesBackgroundAwareWindow
-        ? lastBound - rowStaleWindow(row) // lastBound === now
-        : lastBound; // already (now - maxStaleMs)
+        ? lastBound - rowStaleWindow(row)
+        : lastBound;
       if (liveness(row) < cutoff) {
         row.status = "errored";
-        // `completed_at = COALESCE(completed_at, <livenessBasis>)` — the reaper
-        // records when the run DIED, not when it was noticed.
         row.completed_at = row.completed_at ?? liveness(row);
         row.error_code = args[0] as string;
         row.error_detail = args[1] as string;
@@ -198,7 +170,6 @@ const mockDb: any = {
       return { rows: [], rowsAffected: 0 };
     }
 
-    // getRunStatus
     if (/SELECT status FROM agent_runs WHERE id = \?/i.test(sql)) {
       const row = rows.find((r) => r.id === args[0]);
       return {
@@ -207,7 +178,6 @@ const mockDb: any = {
       };
     }
 
-    // tryClaimRunSlot (default, background-aware) — SELECT a live running row.
     if (
       /SELECT id FROM agent_runs WHERE thread_id = \?/i.test(sql) &&
       />=/.test(sql)
@@ -228,7 +198,6 @@ const mockDb: any = {
       };
     }
 
-    // append-terminal-event read / insert paths used by safeAppendTerminalRunEvent
     if (
       /SELECT seq, event_data(?:, event_at)? FROM agent_run_events/i.test(sql)
     ) {
@@ -310,7 +279,6 @@ describe("run-store durable background", () => {
       "background-processing",
     );
 
-    // A duplicate Netlify delivery sees 'background-processing' and loses.
     const second = await claimBackgroundRun("r-claim");
     expect(second).toBe(false);
   });
@@ -327,8 +295,6 @@ describe("run-store durable background", () => {
     const now = Date.now();
     await insertRun("r-live-bg", "t1", "turn", { dispatchMode: "background" });
     const row = rows.find((r) => r.id === "r-live-bg")!;
-    // Heartbeat 30s ago: past the 15s foreground window, but within the 90s
-    // background window — must NOT be reaped.
     row.heartbeat_at = now - 30_000;
 
     const reaped = await reapIfStale("r-live-bg");
@@ -340,7 +306,7 @@ describe("run-store durable background", () => {
     const now = Date.now();
     await insertRun("r-dead-bg", "t1", "turn", { dispatchMode: "background" });
     const row = rows.find((r) => r.id === "r-dead-bg")!;
-    markProducerDead(row, now - 120_000); // > 90s — genuinely dead worker.
+    markProducerDead(row, now - 120_000);
 
     const reaped = await reapIfStale("r-dead-bg");
     expect(reaped).toBe(true);
@@ -363,9 +329,9 @@ describe("run-store durable background", () => {
 
   it("stale reaper still reaps a foreground run past the tight 15s window", async () => {
     const now = Date.now();
-    await insertRun("r-dead-fg", "t1"); // foreground (no dispatch_mode)
+    await insertRun("r-dead-fg", "t1");
     const row = rows.find((r) => r.id === "r-dead-fg")!;
-    markProducerDead(row, now - 30_000); // > 15s — foreground producer died.
+    markProducerDead(row, now - 30_000);
 
     const reaped = await reapIfStale("r-dead-fg");
     expect(reaped).toBe(true);
@@ -377,12 +343,9 @@ describe("run-store durable background", () => {
     await insertRun("r-hold-bg", "thread-bg", "turn", {
       dispatchMode: "background",
     });
-    // Quiet heartbeat only — progress may still be fresh / started_at is ok;
-    // background window still covers a 30s cold-start gap.
     rows.find((r) => r.id === "r-hold-bg")!.heartbeat_at = now - 30_000;
 
     const slot = await tryClaimRunSlot("thread-bg", "run-contender-bg");
-    // Background-aware window → the cold-starting run still holds the slot.
     expect(slot.claimed).toBe(false);
     expect(slot.activeRunId).toBe("r-hold-bg");
   });
@@ -397,7 +360,6 @@ describe("run-store durable background", () => {
     expect(slot.activeRunId).toBeNull();
   });
 
-  // ─── DIAGNOSTIC: recordRunDiagnostic writes the last reached stage ──────────
   describe("recordRunDiagnostic", () => {
     it("stamps the diag_stage JSON onto the run row", async () => {
       await insertRun("r-diag", "t1", "turn", { dispatchMode: "background" });
@@ -420,7 +382,6 @@ describe("run-store durable background", () => {
     });
 
     it("exposes the full ordered stage vocabulary", () => {
-      // The literal strings are the client-readable contract — pin them.
       expect(RUN_DIAG_STAGE).toMatchObject({
         routeEntered: "route_entered",
         authFailed: "auth_failed",
@@ -435,7 +396,6 @@ describe("run-store durable background", () => {
     });
   });
 
-  // ─── FALLBACK HARDENING: reapUnclaimedBackgroundRun ────────────────────────
   describe("reapUnclaimedBackgroundRun (202-acked but worker never started)", () => {
     it("exports a grace MUCH tighter than the claimed-worker window", () => {
       expect(UNCLAIMED_BACKGROUND_RUN_GRACE_MS).toBe(25_000);
@@ -453,7 +413,6 @@ describe("run-store durable background", () => {
       await insertRun("r-unclaimed", "t1", "turn", {
         dispatchMode: "background",
       });
-      // 30s with no claim/heartbeat: worker never started — the silent death.
       rows.find((r) => r.id === "r-unclaimed")!.heartbeat_at = now - 30_000;
 
       const reaped = await reapUnclaimedBackgroundRun("r-unclaimed");
@@ -468,7 +427,6 @@ describe("run-store durable background", () => {
       await insertRun("r-coldstart", "t1", "turn", {
         dispatchMode: "background",
       });
-      // 10s ago — a Netlify cold start may still claim it. Leave it alone.
       rows.find((r) => r.id === "r-coldstart")!.heartbeat_at = now - 10_000;
 
       expect(await reapUnclaimedBackgroundRun("r-coldstart")).toBe(false);
@@ -480,9 +438,7 @@ describe("run-store durable background", () => {
       await insertRun("r-claimed", "t1", "turn", {
         dispatchMode: "background",
       });
-      await claimBackgroundRun("r-claimed"); // → 'background-processing'
-      // Even if it goes quiet, a claimed worker is protected here (it has the
-      // wider window via reapIfStale, not this fast unclaimed path).
+      await claimBackgroundRun("r-claimed");
       rows.find((r) => r.id === "r-claimed")!.heartbeat_at = now - 60_000;
 
       expect(await reapUnclaimedBackgroundRun("r-claimed")).toBe(false);
@@ -491,7 +447,7 @@ describe("run-store durable background", () => {
 
     it("does NOT touch a plain foreground run", async () => {
       const now = Date.now();
-      await insertRun("r-fg2", "t1"); // no dispatch_mode
+      await insertRun("r-fg2", "t1");
       rows.find((r) => r.id === "r-fg2")!.heartbeat_at = now - 60_000;
       expect(await reapUnclaimedBackgroundRun("r-fg2")).toBe(false);
     });

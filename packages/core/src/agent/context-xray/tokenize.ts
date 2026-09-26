@@ -9,9 +9,6 @@ const TOKENIZER_MODULE_ID = "@anthropic-ai/tokenizer";
 async function loadTokenizer(): Promise<TokenCounter | null> {
   if (!tokenizerPromise) {
     // Token counting is server-only. Keep this optional dependency out of
-    // browser bundles: tiktoken's WASM entry cannot be loaded by Rolldown's
-    // browser fallback, while the documented estimate below is sufficient
-    // when an edge runtime cannot resolve the tokenizer.
     tokenizerPromise = import(/* @vite-ignore */ TOKENIZER_MODULE_ID)
       .then((mod) =>
         typeof mod.countTokens === "function"

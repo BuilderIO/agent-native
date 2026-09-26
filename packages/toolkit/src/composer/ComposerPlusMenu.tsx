@@ -47,19 +47,7 @@ interface ComposerPlusMenuProps {
   addAttachment?: (file: File) => Promise<unknown>;
   onAttachmentError?: (message: string) => void;
   attachmentAccept?: string;
-  /**
-   * Show the "Create Extension" entry. Extensions are optional and hidden
-   * unless the host explicitly enables their agent tool surface.
-   */
   extensionTools?: boolean;
-  /**
-   * "full" (default): full + menu with Upload File, Create Skill, Schedule Task,
-   * Automation, and MCP Server. Extension is included only when
-   * `extensionTools` is true. "upload-only": clicking + opens the file picker
-   * directly — no popover, no other modes. Use for prompt popovers where the
-   * only thing to attach is a file. "terminal": one new-terminal action plus
-   * the Terminal mode switch.
-   */
   mode?: "full" | "upload-only" | "terminal";
   terminalModeControl?: ComposerTerminalModeControl;
 }
@@ -438,8 +426,6 @@ function ComposerPlusMenuFull({
   const canCreateOrgMcp =
     !org?.orgId || org.role === "owner" || org.role === "admin";
   const hasOrg = !!org?.orgId;
-  // Composer connections belong to the person asking for them. Organization
-  // sharing remains an explicit choice for owners and admins in the dialog.
   const defaultMcpScope = "user" as const;
   const createMcp = resources.useCreateMcpServer!();
   const McpIntegrationDialog = resources.McpIntegrationDialog;

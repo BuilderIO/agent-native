@@ -71,8 +71,6 @@ afterEach(() => {
   shaderMount.mockClear();
 });
 
-// HeroBackground now waits for the root shell to stop remounting the page.
-// These cases are about GPU probing, so they run with the shell settled.
 function Settled({ children }: { children: React.ReactNode }) {
   return <ShellSettledProvider value>{children}</ShellSettledProvider>;
 }
@@ -96,9 +94,6 @@ describe("HeroBackground", () => {
       </Settled>,
     );
 
-    // The halftone is the fallback, not a placeholder. Painting it for the
-    // few hundred ms before the ocean arrives reads as a different background
-    // flashing up and being swapped out.
     expect(screen.queryByTestId("halftone")).toBeNull();
     await screen.findByTestId("ocean");
     expect(screen.queryByTestId("halftone")).toBeNull();
@@ -203,9 +198,6 @@ describe("HeroBackground shell gating", () => {
       </ShellSettledProvider>,
     );
 
-    // The shell remounts everything below it when the sidebar chunk resolves.
-    // Probing before that builds the GPU graph, throws it away, and builds it
-    // again -- the flash this gate exists to prevent.
     expect(requestAdapter).not.toHaveBeenCalled();
   });
 

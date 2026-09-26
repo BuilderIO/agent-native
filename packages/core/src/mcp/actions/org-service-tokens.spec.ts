@@ -20,10 +20,6 @@ vi.mock("../connect-store.js", () => ({
   revokeOrgServiceToken: (...a: any[]) => revokeOrgServiceTokenMock(...a),
 }));
 
-// org_members lookups used by the gating helper. Two distinct queries hit the
-// same mock: the role lookup (`SELECT role ...`) and the membership lookup
-// (`SELECT org_id ...`) used to auto-resolve an org when the token carries no
-// org context. Route by the selected column so each returns the right rows.
 const roleRows: Array<{ role: string }> = [];
 const memberOrgRows: Array<{ org_id: string }> = [];
 const dbExecuteMock = vi.fn(async (query: { sql: string }) =>
@@ -209,7 +205,6 @@ describe("list-org-service-tokens", () => {
       CTX({ userEmail: "member@example.com" }),
     );
     expect(listOrgServiceTokensMock).toHaveBeenCalledWith("org-1");
-    // Revoked tokens are excluded by default.
     expect(res.tokens.map((t: any) => t.id)).toEqual(["tok-1"]);
     expect(res.tokens[0]).toEqual({
       id: "tok-1",

@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// Regenerates src/server/og-fonts-data.ts by base64-encoding the bundled
-// OG image fonts. The fonts are embedded as base64 (rather than read
-// from disk at runtime) so that OG image text renders consistently regardless
-// of the host's system fonts or how the serverless bundle is traced — the
-// font bytes always travel with the compiled JS. Run after updating the .ttf
-// files in src/assets/fonts/:  node scripts/generate-og-font-data.mjs
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -21,15 +15,6 @@ const fonts = [
     constName: "NOTO_NASKH_ARABIC_BASE64",
     file: "../src/assets/fonts/NotoNaskhArabic-Variable.ttf",
   },
-  // The Geist faces are minimal subsets of the v1.7.2 release TTFs: every
-  // serverless function that bundles @agent-native/core/server carries these
-  // bytes (docs sits near its function size baseline), and they only draw the
-  // English sign-in copy; other glyphs fall back to Liberation Sans. Regenerate
-  // with `pyftsubset <ttf> --name-IDs='*' --name-languages='*' --name-legacy
-  // --no-hinting` plus:
-  //   Geist-Regular   --unicodes="U+0020-007E,U+2013-2014,U+2018-201D,U+2026" --layout-features=kern
-  //   Geist-SemiBold  --unicodes="U+0020-007E" --layout-features=kern
-  //   GeistMono-SemiBold  --unicodes="U+0020-005A" --layout-features=''
   {
     constName: "GEIST_REGULAR_BASE64",
     file: "../src/assets/fonts/Geist-Regular.ttf",

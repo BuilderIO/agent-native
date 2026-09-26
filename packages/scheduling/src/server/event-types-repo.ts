@@ -1,10 +1,4 @@
 import { accessFilter } from "@agent-native/core/sharing";
-/**
- * Data access for event types.
- *
- * All write paths funnel through here so ownership, slug uniqueness, and
- * redirect history are handled consistently.
- */
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -75,29 +69,15 @@ function parseJson<T = any>(str: string | null | undefined): T | undefined {
 }
 
 export async function listEventTypes(params: {
-  /**
-   * If provided and `useAccessFilter` is not true, narrow rows to this owner.
-   * For org-aware list calls, prefer `useAccessFilter: true` instead.
-   */
   ownerEmail?: string;
   teamId?: string;
   includeHidden?: boolean;
-  /**
-   * When true, apply the framework `accessFilter` (owner OR shared OR
-   * org-visibility OR public) instead of plain ownerEmail equality. This is
-   * the right mode for any UI/agent listing, since it admits org-shared and
-   * explicitly-shared event types in addition to the user's own.
-   */
   useAccessFilter?: boolean;
 }): Promise<EventType[]> {
   const { getDb, schema } = getSchedulingContext();
   const db = getDb();
   let rows: any[];
   if (params.teamId) {
-    // Team-scoped listings. Callers are responsible for asserting team
-    // membership before invoking — the repo does not (it runs without a
-    // request context in some paths, e.g. public booking pages that
-    // explicitly pass a teamId).
     rows = await db
       .select()
       .from(schema.eventTypes)
@@ -113,8 +93,6 @@ export async function listEventTypes(params: {
       .from(schema.eventTypes)
       .where(eq(schema.eventTypes.ownerEmail, params.ownerEmail));
   } else {
-    // Refuse to return unscoped results. Callers must supply at least
-    // one of: teamId, useAccessFilter, or ownerEmail.
     return [];
   }
   return rows
@@ -185,9 +163,6 @@ export async function createEventType(input: {
   const db = getDb();
   const now = new Date().toISOString();
   const id = nanoid();
-  // Default location: the user's `isDefault` conferencing credential if they
-  // have one installed (Zoom, Meet, Teams), otherwise no location — the
-  // editor will prompt them to pick.
   const defaultLocations: Location[] =
     input.locations ??
     (input.ownerEmail ? await resolveDefaultLocation(input.ownerEmail) : []);
@@ -242,7 +217,6 @@ export async function updateEventType(
   const dbPatch: Record<string, any> = {};
   if (patch.title != null) dbPatch.title = patch.title;
   if (patch.slug != null && patch.slug !== current.slug) {
-    // Record slug redirect
     const oldKey = keyFor(
       current.ownerEmail ?? null,
       current.teamId ?? null,
@@ -337,11 +311,6 @@ export async function deleteEventType(id: string): Promise<void> {
   await getDb().delete(schema.eventTypes).where(eq(schema.eventTypes.id, id));
 }
 
-/**
- * Return a sensible default location for a freshly-created event type.
- * Priority: the user's `isDefault` video conferencing credential → the
- * first installed video credential → an empty list (editor prompts user).
- */
 async function resolveDefaultLocation(ownerEmail: string): Promise<Location[]> {
   const { getDb, schema } = getSchedulingContext();
   const rows = await getDb()

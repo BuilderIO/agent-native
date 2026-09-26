@@ -1,10 +1,3 @@
-/**
- * Shared contract types for the dev-mode database admin (Supabase-Studio-like).
- *
- * The backend (operations / routes / agent tools) and the frontend both import
- * these so request/response shapes stay in lockstep. Keep this file free of any
- * runtime imports — it is a pure type module.
- */
 
 export interface DbAdminColumn {
   name: string;

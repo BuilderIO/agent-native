@@ -1,22 +1,3 @@
-/**
- * Web-search tool — agent tool for searching the public web.
- *
- * Pluggable backends resolved at call time based on which API key is
- * configured (env var or secrets/credentials store):
- *
- *   1. Brave Search API  (BRAVE_SEARCH_API_KEY)
- *   2. Tavily            (TAVILY_API_KEY)
- *   3. Exa               (EXA_API_KEY)
- *   4. Firecrawl         (FIRECRAWL_API_KEY)
- *   5. Builder.io        (connected Builder credentials)
- *
- * The first configured backend wins. If none is configured, the tool
- * returns a helpful message telling the user which keys to add.
- *
- * Connect Builder.io or register BRAVE_SEARCH_API_KEY, TAVILY_API_KEY,
- * EXA_API_KEY, or FIRECRAWL_API_KEY via app secrets settings or environment
- * variables.
- */
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { CredentialContext } from "../credentials/index.js";
@@ -33,29 +14,13 @@ export interface WebSearchToolOptions {
    * back to env-var lookup only.
    */
   resolveSecret?: (key: string) => Promise<string | null>;
-  /**
-   * Legacy credential resolver retained for older callers.
-   */
   resolveCredential?: (
     key: string,
     ctx: CredentialContext,
   ) => Promise<string | undefined>;
-  /**
-   * Legacy credential context callback retained for older callers.
-   */
   getCredentialContext?: () => CredentialContext | null;
-  /**
-   * Resolve connected Builder gateway auth for managed web search. Null means
-   * no usable credential (no connection, no deploy fallback, nothing).
-   */
   resolveBuilderCredentials?: () => Promise<BuilderWebSearchAuth | null>;
-  /**
-   * Base URL for Builder-managed web search.
-   */
   getBuilderWebSearchBaseUrl?: () => string;
-  /**
-   * Stable attribution headers for Builder-managed API calls.
-   */
   getBuilderRequestHeaders?: () => Record<string, string>;
 }
 
@@ -73,7 +38,6 @@ async function resolveSearchKey(
   opts: WebSearchToolOptions,
 ): Promise<string | undefined> {
   let usedRequestScopedResolver = false;
-  // 1. Try request-scoped app secrets (user/org/workspace stored key).
   if (opts.resolveSecret) {
     usedRequestScopedResolver = true;
     try {
@@ -84,7 +48,6 @@ async function resolveSearchKey(
     }
   }
 
-  // 2. Try legacy per-request credential context.
   if (opts.resolveCredential && opts.getCredentialContext) {
     const ctx = opts.getCredentialContext();
     if (ctx) {
@@ -99,7 +62,6 @@ async function resolveSearchKey(
 
   if (usedRequestScopedResolver) return undefined;
 
-  // 3. Fall back to env var.
   return process.env[key] || undefined;
 }
 
@@ -111,14 +73,10 @@ async function resolveBuilderSearchCredentials(
     return await opts.resolveBuilderCredentials();
   } catch {
     // coercion-ok: Builder credential lookup failures are non-fatal; BYOK
-    // backends or the setup hint below can still handle the tool call.
     return null;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Backend implementations
-// ---------------------------------------------------------------------------
 
 async function searchBrave(
   query: string,
@@ -244,8 +202,6 @@ async function searchFirecrawl(
   if (!res.ok) {
     throw new Error(`Firecrawl error ${res.status}: ${await res.text()}`);
   }
-  // v2 groups results by source ({ data: { web: [...] } }); older shapes
-  // return a flat array ({ data: [...] }). Accept both defensively.
   type FirecrawlResult = { title?: string; url?: string; description?: string };
   const data = (await res.json()) as {
     data?: FirecrawlResult[] | { web?: FirecrawlResult[] };
@@ -311,13 +267,7 @@ async function searchBuilderManaged(
   return text;
 }
 
-// ---------------------------------------------------------------------------
-// Tool entry factory
-// ---------------------------------------------------------------------------
 
-/**
- * Create the web-search tool entry for the agent tool registry.
- */
 export function createWebSearchToolEntry(
   opts: WebSearchToolOptions = {},
 ): Record<string, ActionEntry> {
@@ -352,7 +302,6 @@ export function createWebSearchToolEntry(
             ? Math.min(Math.floor(rawCount), MAX_COUNT)
             : DEFAULT_COUNT;
 
-        // Backend selection — first configured wins.
         const braveKey = await resolveSearchKey("BRAVE_SEARCH_API_KEY", opts);
         const tavilyKey = await resolveSearchKey("TAVILY_API_KEY", opts);
         const exaKey = await resolveSearchKey("EXA_API_KEY", opts);

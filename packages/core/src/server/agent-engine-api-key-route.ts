@@ -381,9 +381,6 @@ export function createAgentEngineApiKeyHandler() {
       });
     }
 
-    // Organization keys are the only keys the framework UI creates now. Clear
-    // a legacy personal row after the organization write succeeds, otherwise
-    // the resolver's user-first precedence would keep silently shadowing it.
     if (resolved.target.scope === "org") {
       let session: Awaited<ReturnType<typeof getSession>> | null = null;
       try {

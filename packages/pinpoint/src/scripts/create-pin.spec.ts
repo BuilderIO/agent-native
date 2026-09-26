@@ -1,12 +1,3 @@
-// @agent-native/pinpoint — create-pin script tests
-// MIT License
-//
-// createPin() always constructs `new FileStore()` with no explicit data
-// directory, which resolves the storage path relative to `process.cwd()`.
-// To exercise it against a throwaway directory (matching file-store.spec.ts's
-// temp-dir style) without touching source, each test chdirs into a fresh
-// temp directory before invoking the script and restores the original cwd
-// afterward.
 
 import fs from "node:fs";
 import os from "node:os";

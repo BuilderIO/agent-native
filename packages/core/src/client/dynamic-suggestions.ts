@@ -19,15 +19,10 @@ export interface AgentDynamicSuggestionContext {
 }
 
 export interface AgentDynamicSuggestionsConfig {
-  /** Enable/disable dynamic suggestions. Defaults to true. */
   enabled?: boolean;
-  /** Maximum number of suggestion chips after merging dynamic + static. */
   max?: number;
-  /** Keep the caller-provided static suggestions after dynamic ones. Default true. */
   includeStatic?: boolean;
-  /** Optional app-specific deterministic suggestion builder. */
   getSuggestions?: (context: AgentDynamicSuggestionContext) => string[];
-  /** Safety-net refresh cadence in ms, for updates that don't bump app-state version. Default 30_000. */
   pollMs?: number;
 }
 
@@ -101,8 +96,6 @@ function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
 }
 
 async function readAppState(key: string): Promise<unknown> {
-  // Reads issued in the same tick coalesce into one batched request, so the
-  // four keys below cost one round trip rather than four.
   return readClientAppState(key).catch(() => null);
 }
 
@@ -375,8 +368,6 @@ export function useAgentDynamicSuggestionsResult(
   );
   const [isLoading, setIsLoading] = useState(false);
   // Invalidates in-flight loads from a stale scope/browserTabId/enabled
-  // generation — shared between the leading load below and the safety-net
-  // poll so a slow response from an old generation can't clobber a newer one.
   const loadGenerationRef = useRef(0);
 
   const load = useCallback(
@@ -421,9 +412,6 @@ export function useAgentDynamicSuggestionsResult(
     void load(true);
   }, [appStateVersion, enabled, load, scopeKey, config]);
 
-  // Slow safety net for app-state updates that don't bump `appStateVersion`
-  // (the effect above already handles the event-driven case). `pollMs <= 0`
-  // disables it.
   usePollLoop(() => load(false), {
     intervalMs: config.pollMs,
     leading: false,

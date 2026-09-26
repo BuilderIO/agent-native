@@ -73,7 +73,6 @@ export async function ensureTable(): Promise<void> {
       await ensureIndexExists(A2A_IDEMPOTENCY_INDEX, createIdempotencyIndexSql);
       await ensureTableExists("a2a_approvals", createApprovalsSql);
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -474,14 +473,6 @@ export interface A2ATaskOwnership {
   ownerScope: string | null;
 }
 
-/**
- * Fetch the verified owner email recorded against a task at creation time.
- * Returns null when the task has no owner (legacy rows or unauthenticated
- * deployments) or when the task is missing.
- *
- * Used by `handleGet` / `handleCancel` to reject IDOR access — the JWT-
- * verified caller's email must match `owner_email` to read or cancel.
- */
 export async function getTaskOwner(id: string): Promise<string | null> {
   return (await getTaskOwnership(id)).ownerEmail;
 }
@@ -504,15 +495,6 @@ export async function getTaskOwnership(id: string): Promise<A2ATaskOwnership> {
   };
 }
 
-/**
- * Atomically claim a task for processing. Only succeeds when the task is in
- * state 'submitted' or 'working' — flipping it to 'processing' so concurrent
- * processors can't pick it up twice. Returns the task if claimed, null if it
- * was already claimed/completed/missing.
- *
- * Used by the cross-platform async processor (`_process-task` route) to avoid
- * duplicate handler runs when retries fire.
- */
 export async function claimA2ATaskForProcessing(
   id: string,
 ): Promise<Task | null> {
@@ -617,16 +599,6 @@ export async function resetStuckA2ATaskForRetry(
   return affected !== 0;
 }
 
-/**
- * Fail a processing task once it is stuck. Two independent conditions can
- * trigger this, either of which alone is sufficient:
- *   - `updated_at <= processingCutoff`: no heartbeat/progress touch in a
- *     while — the processor likely died.
- *   - `created_at <= createdAtCutoff` — a hard wall on total run time. A
- *     hung await inside a still-alive process keeps `updated_at` fresh via
- *     the liveness heartbeat forever, so staleness alone never trips; age
- *     since creation is the only bound that catches it.
- */
 export async function failStuckA2ATask(
   id: string,
   processingCutoff: number,
@@ -670,13 +642,6 @@ export async function failStuckA2ATask(
   return affected !== 0;
 }
 
-/**
- * Fail a queued (submitted/working) task whose age since creation exceeds
- * `createdAtCutoff` — the dispatch-retry loop kept throttling/refiring
- * without ever reaching `processing`. Mirrors `failStuckA2ATask` but is
- * gated on the queued state set and on `created_at` (queued tasks have no
- * heartbeat, so staleness of `updated_at` isn't a meaningful signal here).
- */
 export async function failStuckQueuedA2ATask(
   id: string,
   createdAtCutoff: number,
@@ -727,7 +692,6 @@ export async function updateTask(
   await ensureTable();
   const client = getDbExec();
 
-  // Read current task
   const { rows } = await client.execute({
     sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
     args: [id],
@@ -769,13 +733,6 @@ export async function updateTask(
   return task;
 }
 
-/**
- * Persist the terminal result produced by the async processor, but only while
- * that processor still owns a task in `processing`. A tasks/get request may
- * fail an over-lifetime processor while its handler is still running; the
- * handler cannot be canceled reliably, so this compare-and-set is what keeps
- * its eventual completion (or error) from overwriting the timeout result.
- */
 export async function settleProcessingA2ATask(
   id: string,
   update: {

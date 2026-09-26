@@ -4,20 +4,6 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 
 const mockTrackInviteAccepted = vi.fn();
 
-/**
- * Regression coverage for the `acceptPendingInvitationsForEmail` TOCTOU race
- * (packages/core/src/org/accept-pending.ts): a SELECT-then-INSERT check with
- * no unique constraint standing behind the case-insensitive comparison every
- * reader uses. Two concurrent acceptances of the same pending invitation
- * (e.g. a retried Better Auth signup hook) used to both pass the SELECT and
- * both INSERT, producing a duplicate `org_members` row.
- *
- * Unlike storage.spec.ts's mocked-`execute` fixture, this uses a real
- * in-memory PGlite database — including the unique expression index
- * added in migrations.ts (org-members-unique-lower-email-idx) — so the
- * `ON CONFLICT (org_id, LOWER(email)) DO NOTHING` insert is exercised
- * against genuine constraint enforcement, not a captured-SQL mock.
- */
 
 function createPgliteExec(
   pglite: Awaited<ReturnType<typeof createTestPglite>>,
@@ -112,15 +98,11 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
     const { acceptPendingInvitationsForEmail } =
       await loadAcceptPendingWithPglite(pglite);
 
-    // Simulates a retried signup hook calling the acceptance path twice for
-    // the same email before either has committed its INSERT.
     const results = await Promise.all([
       acceptPendingInvitationsForEmail("a@b.com"),
       acceptPendingInvitationsForEmail("a@b.com"),
     ]);
 
-    // A conditional status update makes the row transition, result, and
-    // telemetry single-winner even when both callers read it as pending.
     expect(
       results.filter((result) => result.accepted.length === 1),
     ).toHaveLength(1);
@@ -163,9 +145,6 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
         "pending",
         "member",
       );
-    // Pre-existing legacy row with different casing — the exact-string
-    // UNIQUE(org_id, email) constraint never caught this, only the new
-    // expression index does.
     await pglite
       .prepare(
         `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,

@@ -1,12 +1,3 @@
-/**
- * Framework secrets registry.
- *
- * Lets templates declaratively register required API keys / credentials so
- * they appear in the sidebar settings UI and the onboarding checklist, and
- * so actions can read them by a stable key.
- *
- * See `.agents/skills/secrets/SKILL.md` for usage.
- */
 
 export {
   registerRequiredSecret,
@@ -37,10 +28,6 @@ export {
 
 export { APP_SECRETS_CREATE_SQL, appSecrets } from "./schema.js";
 
-// AES-256-GCM helpers for column-level encryption of per-row secret values
-// (e.g. a per-record share password) that don't fit the keyed app_secrets /
-// credentials stores. These use the app-local key, unlike the workspace-shared
-// app_secrets storage layer.
 export {
   encryptSecretValue,
   decryptSecretValue,

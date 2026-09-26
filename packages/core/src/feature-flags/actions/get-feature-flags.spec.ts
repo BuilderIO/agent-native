@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Exercises the real feature-flags store and registry (not mocked), so a
-// single settings query genuinely proves the batching rather than just that a
-// mock was asked to return one. Only the settings table itself is faked.
 const chain = () => {
   const value: Record<string, unknown> = {};
   for (const method of ["min", "max", "email", "int", "optional"]) {
@@ -36,10 +33,6 @@ const getSettingsMock = vi.fn(async (keys: readonly string[]) => {
   }
   return result;
 });
-// getFeatureFlagRules' per-flag fallback path reads through getSetting (and,
-// for an org-scoped read, getOrgSetting -> getSetting on the org-prefixed
-// key), so it needs its own per-key failure knob independent of the batched
-// getSettings mock above.
 const getSettingMock = vi.fn(async (key: string) => {
   if (failingGlobalKeys.has(key)) throw new Error(`corrupt setting: ${key}`);
   const match = ORG_KEY_RE.exec(key);
@@ -54,9 +47,6 @@ vi.mock("../../settings/store.js", () => ({
   mutateSetting: vi.fn(),
   putSetting: vi.fn(),
 }));
-// feature-flags/store.ts also imports getDbExec directly (for
-// hasActiveFeatureFlagRollout, unused here); stub it so the real db/client.js
-// — and the zod-heavy app-config graph it pulls in — never loads.
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
 }));
@@ -113,9 +103,6 @@ describe("get-feature-flags action", () => {
   it("falls back to per-flag reads, isolating one corrupt flag, when the batched read fails", async () => {
     registry.registerFeatureFlags([{ key: "flag-a" }, { key: "flag-b" }]);
     globalSettings.set("feature-flag:flag-b", { mode: "on" });
-    // "flag-a" is the one corrupt/unreadable value; the batch call itself
-    // still fails wholesale (e.g. the underlying query errored), so the
-    // per-flag fallback is what has to isolate flag-a from flag-b.
     failingGlobalKeys.add("feature-flag:flag-a");
     const dbError = new Error("db down");
     getSettingsMock.mockRejectedValueOnce(dbError);
@@ -123,8 +110,6 @@ describe("get-feature-flags action", () => {
     await expect(
       action.run({}, { userEmail: "a@b.com", orgId: "org-1" }),
     ).resolves.toEqual({ "flag-a": false, "flag-b": true });
-    // The fail-closed fallback must stay loud: a DB outage silently turning
-    // off every flag with no signal is the trap this test pins shut.
     expect(captureErrorMock).toHaveBeenCalledWith(
       dbError,
       expect.objectContaining({

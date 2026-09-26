@@ -69,7 +69,6 @@ describe("TemplateCard copy", () => {
     const paragraphs = Array.from(container.querySelectorAll("article p"));
     expect(paragraphs).toHaveLength(1);
     expect(paragraphs[0]?.textContent).toContain(clipsCopy.s008);
-    // The card is description-only; the landing headline must not leak in.
     expect(container.textContent).not.toContain(clipsCopy.s007Secondary);
   });
 });

@@ -74,8 +74,6 @@ import {
   type ReactNode,
 } from "react";
 
-// Type-only: erased at build time, so declaring app roles pulls no server or
-// database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
 import { isFreeEmailProvider } from "../../org/free-email-providers.js";
 import { canInviteOrgMembers } from "../../org/permissions.js";
@@ -165,40 +163,11 @@ const Button = forwardRef<
 Button.displayName = "TeamPrimitiveButton";
 
 export interface TeamPageProps {
-  /**
-   * Optional wrapper around the page contents. Templates pass their own Layout
-   * component so the Team page renders inside the template's chrome.
-   */
   layout?: (children: ReactNode) => ReactNode;
-  /**
-   * Title shown at the top of the page. Defaults to "Team".
-   */
   title?: string;
-  /**
-   * Hide the page title when this is rendered inside another titled surface,
-   * such as the Settings > Team tab.
-   */
   showTitle?: boolean;
-  /**
-   * Description shown on the "Create an Organization" card. Defaults to
-   * "Set up a team to collaborate with your colleagues."
-   */
   createOrgDescription?: string;
-  /**
-   * Class applied to the outer max-width container. Templates can use this to
-   * tweak page width.
-   */
   className?: string;
-  /**
-   * Opt in to an app-role column on the members table, using the same
-   * descriptor the app passes to `defineAppRoles`. Pass it explicitly rather
-   * than letting the page discover registered apps: a workspace can host
-   * several, and a members table that silently grows a column when some
-   * unrelated module registers itself is a surprise, not a feature.
-   *
-   * Only org owners/admins can change assignments; everyone else sees the
-   * column read-only.
-   */
   appRoles?: AppRolesDescriptor;
 }
 
@@ -1985,8 +1954,6 @@ function AppRoleControl({
     if (!setAppRoles.isPending) setDraftRoles(assignedRoles);
   }, [assignedRoles, setAppRoles.isPending]);
 
-  // An unassigned member shows the app's default only as a hint. The default
-  // never satisfies a server guard, so it must not read as a granted role.
   const display = draftRoles.length ? (
     <span className="inline-flex min-h-8 items-center rounded border border-border px-2 py-1 text-xs text-muted-foreground">
       {draftRoles.map(labelFor).join(", ")}
@@ -2529,9 +2496,6 @@ function parseEmailList(input: string): string[] {
 }
 
 function parseCsvEmails(text: string): string[] {
-  // Tolerant CSV parse — split on lines, then on commas, take any cell
-  // that looks like an email. Handles "name,email,role" rows or just
-  // "email" per line. A robust full CSV parser would be overkill here.
   const cells: string[] = [];
   for (const line of text.split(/\r?\n/)) {
     for (const cell of line.split(",")) {
@@ -2652,7 +2616,6 @@ function BulkInviteForm({
           existing.add(e);
         }
       }
-      // If the only existing row is an empty placeholder, drop it.
       const cleaned = prev.filter(
         (d, i) => !(i === 0 && !d.email.trim() && prev.length === 1),
       );
@@ -2678,9 +2641,6 @@ function BulkInviteForm({
     setResultBanner(null);
     const dedup = new Map<string, DraftInvite>();
     for (const d of validDrafts) {
-      // canSetAdmin guard mirrors server-side enforcement so an admin-only
-      // user editing the form can't even attempt to grant admin (they'd
-      // get a 403 anyway).
       const role = canSetAdmin ? d.role : "member";
       dedup.set(d.email, { ...d, role });
     }
@@ -2697,8 +2657,6 @@ function BulkInviteForm({
       failed: result.failed,
     });
 
-    // Wipe drafts that succeeded; leave failed ones so the user can fix
-    // and retry. If everything succeeded, reset to a single blank row.
     const failedEmails = new Set(result.failed.map((f) => f.email));
     setDrafts((prev) => {
       const remaining = prev.filter((d) =>
@@ -2707,7 +2665,6 @@ function BulkInviteForm({
       return remaining.length > 0 ? remaining : [{ email: "", role: "member" }];
     });
 
-    // Auto-close on full success.
     if (result.failed.length === 0 && result.succeeded.length > 0) {
       setTimeout(() => onClose(), 1200);
     }
@@ -2813,7 +2770,6 @@ function BulkInviteForm({
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) handleFile(file);
-            // reset so re-uploading the same file re-fires onChange
             e.target.value = "";
           }}
         />
@@ -2954,9 +2910,6 @@ export function DomainSettingsSection({
   const [draft, setDraft] = useState(domain ?? "");
 
   const ownDomain = ownerEmail.split("@")[1]?.toLowerCase() ?? "";
-  // The server only ever accepts the caller's own domain (handlers.ts
-  // setDomainHandler), so a free-text field has exactly one legal value here.
-  // Skip the typing ceremony and enable it directly when that value is usable.
   const canEnableOwnDomain = !!ownDomain && !isFreeEmailProvider(ownDomain);
 
   function save() {
@@ -3717,9 +3670,6 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
     });
   }
 
-  // Push the current secret to all connected apps. Optionally pass the
-  // PREVIOUS secret as `signSecret` so the receiving apps (which still
-  // hold the previous value) can verify the JWT.
   function syncToApps(signSecret?: string) {
     setSyncResult(null);
     syncA2ASecret.mutate(signSecret ? { signSecret } : undefined, {
@@ -3733,9 +3683,6 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
     setA2ASecret.mutate(undefined, {
       onSuccess: (result) => {
         setSecret(null);
-        // Auto-sync the new secret to all connected apps. Sign with the
-        // PREVIOUS secret (which peers still hold) so verification on
-        // their side succeeds and they accept the new value.
         syncToApps(result.previousSecret ?? undefined);
       },
     });
@@ -3748,8 +3695,6 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
       onSuccess: (result) => {
         setPasteMode(false);
         setPasteValue("");
-        // Same auto-sync flow as regenerate: peers verify with the
-        // previous secret, then update to the new pasted value.
         syncToApps(result.previousSecret ?? undefined);
       },
     });
@@ -3987,10 +3932,6 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
   );
 }
 
-/**
- * Default Team management page. Templates can route directly to this component
- * or wrap it with their own Layout via the `layout` prop.
- */
 export function TeamPage({
   layout,
   title,

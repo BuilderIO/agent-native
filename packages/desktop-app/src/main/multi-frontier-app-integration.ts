@@ -72,11 +72,6 @@ export interface MultiFrontierAppIntegrationOptions {
   pauseRecoveredRuns?: () => readonly unknown[];
 }
 
-/**
- * Installs the one main-process Multi-Frontier stack. It is deliberately lazy:
- * recovery writes only durable pause records and no provider process starts
- * before a status or collaboration request needs one.
- */
 export function initializeMultiFrontierAppIntegration(
   options: MultiFrontierAppIntegrationOptions,
 ): MultiFrontierAppIntegration {

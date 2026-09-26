@@ -1,7 +1,3 @@
-/**
- * Wire-level types shared between server, actions, and React client.
- * These are the primary stable contract of the package.
- */
 
 export type SchedulingType =
   | "personal"
@@ -30,28 +26,19 @@ export type LocationKind =
 
 export interface Location {
   kind: LocationKind;
-  /** Provider credential id, if applicable */
   credentialId?: string;
-  /** Meeting link override */
   link?: string;
-  /** Street address for in-person */
   address?: string;
-  /** Phone number for phone/organizer-phone */
   phone?: string;
-  /** Display name shown in booking UI */
   label?: string;
 }
 
 export type PeriodType = "unlimited" | "rolling" | "range";
 
 export interface BookingLimits {
-  /** Max bookings in one day */
   perDay?: number;
-  /** Max bookings in one week (starting on user's configured start of week) */
   perWeek?: number;
-  /** Max bookings in one month */
   perMonth?: number;
-  /** Max bookings in one year */
   perYear?: number;
 }
 
@@ -71,18 +58,13 @@ export interface CustomField {
   placeholder?: string;
   required: boolean;
   options?: string[];
-  /** Default/preset value for this field */
   defaultValue?: string | number | boolean;
-  /** Internal identifier stored on booking responses */
   name: string;
 }
 
 export interface RecurringEventRule {
-  /** iCal RRULE format, e.g. "FREQ=WEEKLY;COUNT=4" */
   rrule: string;
-  /** Max number of occurrences */
   count?: number;
-  /** How occurrences are labeled on the booker ("Weekly for 4 weeks") */
   description?: string;
 }
 
@@ -92,15 +74,12 @@ export interface EventType {
   slug: string;
   description?: string;
   length: number;
-  /** Optional additional duration choices */
   durations?: number[];
   hidden: boolean;
   position: number;
   schedulingType: SchedulingType;
-  /** If personal, the owner; if team, null (team event types) */
   ownerEmail?: string;
   teamId?: string;
-  /** Default schedule ID if not set at event level */
   scheduleId?: string;
   locations: Location[];
   customFields: CustomField[];
@@ -128,35 +107,25 @@ export interface EventType {
 }
 
 export interface Slot {
-  /** ISO 8601 start time in UTC */
   start: string;
-  /** ISO 8601 end time in UTC */
   end: string;
-  /** True if this slot can still be booked (not full for seated events) */
   available: boolean;
-  /** Seats remaining, for seated events */
   seatsRemaining?: number;
-  /** Assigned host for round-robin events (email) */
   hostEmail?: string;
 }
 
 export interface AvailabilityInterval {
-  /** "HH:MM" in schedule's timezone */
   startTime: string;
-  /** "HH:MM" in schedule's timezone */
   endTime: string;
 }
 
 export interface WeeklyAvailability {
-  /** 0=Sunday … 6=Saturday, ISO-like */
   day: number;
   intervals: AvailabilityInterval[];
 }
 
 export interface DateOverride {
-  /** YYYY-MM-DD in schedule's timezone */
   date: string;
-  /** Empty array = fully blocked */
   intervals: AvailabilityInterval[];
 }
 
@@ -227,9 +196,7 @@ export interface Host {
 }
 
 export interface BusyInterval {
-  /** ISO 8601 UTC */
   start: string;
-  /** ISO 8601 UTC */
   end: string;
   source?: string;
 }
@@ -279,7 +246,6 @@ export interface WorkflowStep {
   id: string;
   order: number;
   action: WorkflowStepAction;
-  /** Minutes from trigger; negative = before (for before-event), positive = after */
   offsetMinutes: number;
   sendTo?: string;
   emailSubject?: string;
@@ -321,7 +287,6 @@ export interface RoutingFormField {
 
 export interface RoutingFormRule {
   id: string;
-  /** Array of `{fieldId, op, value}` expressions ANDed together */
   conditions: {
     fieldId: string;
     op: "equals" | "not-equals" | "contains" | "starts-with" | "in";
@@ -341,7 +306,6 @@ export interface RoutingForm {
   teamId?: string;
   fields: RoutingFormField[];
   rules: RoutingFormRule[];
-  /** Action taken when no rules match */
   fallback:
     | { kind: "event-type"; eventTypeId: string }
     | { kind: "external-url"; url: string }
@@ -359,7 +323,6 @@ export interface HashedLink {
   usedAt?: string;
 }
 
-/** Round-robin assignment strategy */
 export type RoundRobinStrategy =
   | "lowest-recent-bookings"
   | "weighted"

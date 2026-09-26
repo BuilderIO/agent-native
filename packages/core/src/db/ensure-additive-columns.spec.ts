@@ -6,7 +6,6 @@ import {
 } from "drizzle-orm/pg-core";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Tests pass a fake `DbExec`, so no real database is required.
 
 describe("ensureAdditiveColumns", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -19,11 +18,6 @@ describe("ensureAdditiveColumns", () => {
     vi.resetModules();
   });
 
-  // A tiny Postgres table: an existing `id` column, a NOT NULL column with a
-  // literal default (`count`), a nullable column with no default (`note`), a
-  // NOT NULL column with a `now()` sql default (`created_at`), and a NOT NULL
-  // column with NO renderable default (`required_no_default`) to exercise the
-  // skip path.
   const pgSessionRecordings = pgTable("session_recordings", {
     id: pgText("id").primaryKey(),
     networkErrorCount: pgInteger("network_error_count").notNull().default(0),
@@ -234,8 +228,6 @@ describe("ensureAdditiveColumns", () => {
         tables: [pgSessionRecordings, pgErrors],
       });
 
-      // The whole point: a clean result here would be indistinguishable from
-      // "every declared column already exists".
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0].error).toMatch(/connection terminated/);
       expect(calls.some((c) => /ALTER TABLE/i.test(c))).toBe(false);
@@ -278,7 +270,6 @@ describe("ensureAdditiveColumns", () => {
         db: client,
         tables: [pgSessionRecordings],
       });
-      // network_error_count fails, created_at still gets applied.
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0].column).toBe(
         "session_recordings.network_error_count",

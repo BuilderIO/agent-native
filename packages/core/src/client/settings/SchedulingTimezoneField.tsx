@@ -12,14 +12,6 @@ interface LocalizationPreferenceResult {
 
 const SYSTEM = "system";
 
-/**
- * Timezone used when the agent schedules work for this user.
- *
- * This is deliberately a stored preference rather than a per-request read of
- * the browser zone: automations are created and run by callers that have no
- * browser at all (cron ticks, chat integrations, A2A), and those callers would
- * otherwise fall back to the host zone and schedule the user's 8am job in UTC.
- */
 export function SchedulingTimezoneField({
   compact = false,
 }: {
@@ -35,7 +27,6 @@ export function SchedulingTimezoneField({
     { timezone: string }
   >("set-localization-preference");
 
-  // Selecting a zone commits it, matching the language picker beside it.
   const stored = preference.data?.timezone ?? SYSTEM;
   const pending = save.isPending ? save.variables?.timezone : undefined;
   const value = pending ?? stored;

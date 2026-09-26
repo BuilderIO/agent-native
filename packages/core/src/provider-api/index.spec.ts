@@ -489,11 +489,6 @@ describe("provider API runtime", () => {
   });
 
   it("reports a Slack send as failed when the body says ok:false, even though the HTTP status is 200", async () => {
-    // Slack's Web API always answers HTTP 200, success or failure — the real
-    // outcome lives in the JSON body's `ok` field (api.slack.com/web#evaluating).
-    // A caller checking only the transport-level `response.ok`, the same
-    // signal every other provider uses for success, must not see this as a
-    // delivered message.
     resolveCredential.mockImplementation(async (key: string) =>
       key === "SLACK_BOT_TOKEN" ? "xoxb-test-token" : null,
     );

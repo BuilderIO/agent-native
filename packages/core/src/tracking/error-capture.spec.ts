@@ -51,8 +51,6 @@ describe("tracking captureException", () => {
     registerTrackingProvider({ name: "qa-exception", track });
 
     captureException(new Error("boom"), {
-      // `undefined` sits before the rest — a `break` here silently lost every
-      // following tag, including route/method.
       tags: { first: "kept", missing: undefined, second: "also-kept" },
       route: "/api/things",
       method: "POST",

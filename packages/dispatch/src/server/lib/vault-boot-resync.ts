@@ -1,14 +1,7 @@
 import { resyncAllVaultSecretsToCredentialStore } from "./vault-store.js";
 
-/**
- * Give the process a moment to finish booting (migrations, DB pool warmup,
- * etc.) before touching every vault secret. This is a self-heal, not a
- * hot-path dependency, so there is no urgency to run it immediately.
- */
 const BOOT_RESYNC_DELAY_MS = 8000;
 
-/** Guards against scheduling more than one resync per process — see
- * `scheduleVaultBootResync` below. */
 let scheduled = false;
 
 /**
@@ -44,7 +37,6 @@ export function scheduleVaultBootResync(): void {
   }, BOOT_RESYNC_DELAY_MS);
 }
 
-/** Test-only: reset the once-per-process guard between spec runs. */
 export function __resetVaultBootResyncGuardForTests(): void {
   scheduled = false;
 }

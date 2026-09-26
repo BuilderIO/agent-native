@@ -13,10 +13,6 @@ import {
 } from "../../mcp-client/index.js";
 import { getH3App } from "../framework-request-handler.js";
 
-// ---------------------------------------------------------------------------
-// MCP client glue — a shared manager reference + a /_agent-native/mcp/status
-// route so onboarding / settings UIs can see which MCP servers are live.
-// ---------------------------------------------------------------------------
 
 let _globalMcpManager: McpClientManager | null = null;
 let _globalMcpManagerReady: (() => Promise<void>) | null = null;
@@ -40,12 +36,10 @@ export function setGlobalMcpManager(
   _globalMcpManagerReady = manager ? (ready ?? null) : null;
 }
 
-/** Internal: access the current process's MCP client manager, if any. */
 export function getGlobalMcpManager(): McpClientManager | null {
   return _globalMcpManager;
 }
 
-/** Wait for lazy serverless MCP hydration before an app-visible call. */
 export async function waitForGlobalMcpManager(): Promise<McpClientManager | null> {
   while (true) {
     const manager = getGlobalMcpManager();
@@ -64,7 +58,6 @@ export async function waitForGlobalMcpManager(): Promise<McpClientManager | null
   }
 }
 
-/** Internal: reload the process's MCP client manager after persisted settings change. */
 export async function refreshGlobalMcpManager(): Promise<boolean> {
   const refresh = _globalMcpRefreshQueue.then(async () => {
     const manager = getGlobalMcpManager();
@@ -135,7 +128,6 @@ export function mountMcpStatusRoute(
   nitroApp: any,
   manager: McpClientManager,
 ): void {
-  // Idempotent per Nitro app; dev-all may host multiple templates in one process.
   const mountedApps: WeakSet<object> = ((
     globalThis as any
   ).__agentNativeMcpStatusMountedApps ??= new WeakSet<object>());

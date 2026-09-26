@@ -10,13 +10,6 @@ import {
   mcpServerUrlMatchesProvider,
 } from "./mcp-provider-hosts.js";
 
-/**
- * The server-side matcher duplicates the catalog's endpoint list so a server
- * path can resolve provider connections without importing the catalog's inlined
- * logo data. These tests are what keeps the duplicate honest: adding a catalog
- * integration without updating `MCP_PROVIDER_ENDPOINTS` fails here rather than
- * silently reporting that provider disconnected at runtime.
- */
 describe("shared MCP provider matcher parity with the catalog", () => {
   const integrations = getDefaultMcpIntegrations().filter((integration) =>
     integration.url.trim(),

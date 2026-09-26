@@ -31,22 +31,15 @@ export interface CompleteTextUsage {
 }
 
 export interface CompleteTextOptions {
-  /** Optional system prompt for the single model call. */
   systemPrompt?: string;
-  /** Convenience final user message. Appended after `messages` when both are set. */
   input?: string;
-  /** Optional prior messages for narrow multi-turn transforms. */
   messages?: CompleteTextMessage[];
-  /** Explicit engine name or instance. Omit to use the normal request/default engine. */
   engine?:
     | string
     | AgentEngine
     | { name: string; config: Record<string, unknown> };
-  /** Explicit model. Omit to honor app/user default, then engine default. */
   model?: string;
-  /** App/template id used for org-scoped model defaults. */
   appId?: string;
-  /** Optional direct API key. Prefer request secrets/env resolution when possible. */
   apiKey?: string;
   maxOutputTokens?: number;
   temperature?: number;
@@ -139,8 +132,6 @@ function createCompletionAbortSignal(
 async function resolveCompletionApiKey(
   options: CompleteTextOptions,
 ): Promise<ResolvedOwnerApiKey> {
-  // A caller-supplied key is opaque: `CompleteTextOptions.apiKey` names no
-  // provider, so it keeps the caller's contract and is passed through untagged.
   if (options.apiKey) {
     return { apiKey: options.apiKey, apiKeyEnvVar: undefined };
   }
@@ -154,13 +145,6 @@ async function resolveCompletionApiKey(
   }
 }
 
-/**
- * Run a single server-side model completion through the framework engine layer.
- *
- * Prefer `sendToAgentChat()` or actions for product workflows where the user
- * should see, steer, or audit the agent. Use this helper only for narrow text
- * transforms that intentionally do not need tools, chat history, or run state.
- */
 export async function completeText(
   options: CompleteTextOptions,
 ): Promise<CompleteTextResult> {

@@ -17,7 +17,6 @@ export function inferWorkspaceAppRootHomePath(appDir: string): "/" | undefined {
 }
 
 // ponytail: one process-global queue is the smallest safe isolation; replace
-// it with per-app loaders only if discovery throughput becomes measurable.
 const workspaceAppConfigGlobals = globalThis as typeof globalThis & {
   __agentNativeWorkspaceAppConfigReadQueue?: Promise<void>;
 };

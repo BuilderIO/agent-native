@@ -21,7 +21,6 @@ export const MCP_OAUTH_DEFAULT_SCOPE = MCP_OAUTH_SCOPES.join(" ");
 
 export interface McpOAuthAccessTokenClaims {
   sub: string;
-  /** Omitted means no recorded scope; null means explicit Personal scope. */
   org_id?: string | null;
   org_domain?: string;
   scope: string;
@@ -31,18 +30,12 @@ export interface McpOAuthAccessTokenClaims {
   typ: "agent-native-mcp-oauth";
 }
 
-/** Primary signing secret: A2A_SECRET when set, else the better-auth secret. */
 function signingSecret(): Uint8Array {
   return new TextEncoder().encode(
     process.env.A2A_SECRET?.trim() || getAuthSecret(),
   );
 }
 
-/**
- * All candidate verify secrets in priority order.
- * Mint always uses the primary; verify tries all to survive secret rotation
- * (e.g. A2A_SECRET being added or removed from a deploy without a redeploy).
- */
 function verifySecrets(): Uint8Array[] {
   const enc = new TextEncoder();
   const a2a = process.env.A2A_SECRET?.trim();
@@ -82,7 +75,6 @@ export function hasMcpOAuthScope(
   return scopes.includes(scope);
 }
 
-/** Return null for a malformed present claim so auth callers fail closed. */
 export function parseMcpOAuthOrgIdClaim(
   payload: Record<string, unknown>,
 ): { orgId: string | null | undefined } | null {
@@ -105,12 +97,6 @@ export async function signMcpOAuthAccessToken(params: {
   issuer: string;
   jti?: string;
   expiresIn?: string | number;
-  /**
-   * When `"full"`, embed a `catalog_scope: "full"` custom claim so this token
-   * bypasses the compact/connector-catalog tier filter (active by default
-   * whenever a `connectorCatalog` is declared). Used when the connect flow is
-   * initiated with `--full-catalog`.
-   */
   catalogScope?: "full";
 }): Promise<string> {
   return new jose.SignJWT({
@@ -132,19 +118,10 @@ export async function signMcpOAuthAccessToken(params: {
     .sign(signingSecret());
 }
 
-/**
- * Normalise a trailing slash so that audience comparisons are not sensitive to
- * whether the resource URL was written with or without a trailing slash.
- */
 function normaliseResource(r: string): string {
   return r.replace(/\/+$/, "");
 }
 
-/**
- * Deduplicate an audience list after normalising trailing slashes.
- * Accepts a single string or an array; always returns a non-empty array or
- * `null` when the input was empty / undefined.
- */
 function buildAudienceList(
   resource: string | string[] | undefined,
 ): string[] | null {
@@ -172,17 +149,12 @@ export async function verifyMcpOAuthAccessToken(
   scopes: string[];
   clientId: string;
   jti?: string;
-  /** Present when the token was minted with `--full-catalog`; bypasses the
-   *  compact/connector-catalog tier filter (active by default whenever a
-   *  `connectorCatalog` is declared) for this caller. */
   catalogScope?: "full";
 } | null> {
   const audiences = buildAudienceList(resource);
   if (!audiences) return null;
 
   // Try each candidate secret in priority order.  We only fall through to the
-  // next secret on a signature failure (JWSSignatureVerificationFailed /
-  // JWSInvalid).  Expired or wrong-audience errors are definitive — no retry.
   const secrets = verifySecrets();
   let payload: jose.JWTPayload | null = null;
 
@@ -194,15 +166,12 @@ export async function verifyMcpOAuthAccessToken(
         break outer;
       } catch (err: any) {
         const code: string = err?.code ?? "";
-        // Signature failures → try next secret; all other errors → bail.
         if (
           code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED" ||
           code === "ERR_JWS_INVALID"
         ) {
           continue;
         }
-        // Expired, wrong audience, or malformed → this audience+secret pair is
-        // structurally incompatible; try the next audience.
         break;
       }
     }
@@ -212,7 +181,6 @@ export async function verifyMcpOAuthAccessToken(
 
   try {
     if (payload.typ !== "agent-native-mcp-oauth") return null;
-    // The embedded `resource` claim must match one of the accepted audiences.
     if (typeof payload.resource !== "string") return null;
     const embeddedResource = normaliseResource(payload.resource);
     if (!audiences.includes(embeddedResource)) return null;

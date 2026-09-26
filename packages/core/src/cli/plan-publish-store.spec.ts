@@ -49,9 +49,6 @@ describe("isFirstPartyPlanHost", () => {
   });
 
   it("rejects other first-party subdomains to prevent last-write-wins token clobber", () => {
-    // connect --all iterates every first-party app; only the Plans app should
-    // update plan-publish.json — other apps (assets, mail, …) must not overwrite
-    // the canonical Plans token.
     expect(isFirstPartyPlanHost("https://mail.agent-native.com")).toBe(false);
     expect(isFirstPartyPlanHost("https://assets.agent-native.com")).toBe(false);
     expect(isFirstPartyPlanHost("https://agent-native.com")).toBe(false);
@@ -60,7 +57,6 @@ describe("isFirstPartyPlanHost", () => {
   it("rejects custom, look-alike, and invalid hosts", () => {
     expect(isFirstPartyPlanHost("https://my-app.ngrok-free.dev")).toBe(false);
     expect(isFirstPartyPlanHost("http://localhost:8100")).toBe(false);
-    // Look-alike domain must not match the suffix check.
     expect(isFirstPartyPlanHost("https://evil-agent-native.com")).toBe(false);
     expect(isFirstPartyPlanHost("not-a-url")).toBe(false);
   });

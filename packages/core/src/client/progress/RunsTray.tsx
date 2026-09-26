@@ -60,28 +60,14 @@ type BackgroundAgentRunDto = {
 };
 type RunsTrayTriggerVariant = "icon" | "pill";
 const RUN_CHANGE_SETTLE_MS = 250;
-/**
- * Cadence used while a run still reads as active, even for hosts that opted
- * out of idle polling with `pollMs={0}`. Those hosts only refresh on mount and
- * on a `runs` change event, and a run abandoned mid-flight (budget exhausted,
- * dead worker) emits neither — so the spinner has no path back to a terminal
- * status. Polling only while something looks active keeps the idle cost at
- * zero and still lets the server's stale sweep terminalize the row.
- */
 const ACTIVE_RUN_POLL_MS = 5000;
 
 interface RunsTrayProps {
-  /** Poll interval in ms. 0 disables. Default 3000. */
   pollMs?: number;
-  /** Max runs to show in the dropdown. Default 5. */
   limit?: number;
-  /** Hide the trigger entirely when no active runs. Default true. */
   hideWhenIdle?: boolean;
-  /** Include recent terminal runs instead of active runs only. Defaults to !hideWhenIdle. */
   showRecent?: boolean;
-  /** Compact icon for app headers, or a labeled pill for the agent panel. */
   triggerVariant?: RunsTrayTriggerVariant;
-  /** Called when a run can open a related agent chat thread. */
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
   align?: "start" | "center" | "end";
   className?: string;
@@ -202,7 +188,6 @@ function useRunsTrayState({
 
   const stopRun = useCallback(
     async (runId: string) => {
-      // Optimistic: mark as cancelled immediately so the UI is responsive.
       setRuns((current) =>
         current.map((run) =>
           run.id === runId
@@ -220,7 +205,6 @@ function useRunsTrayState({
         );
         if (!res.ok) throw new Error(`Stop failed (${res.status})`);
       } catch {
-        // Reconcile from server on failure
         void refresh();
       }
     },
@@ -272,12 +256,6 @@ function useRunsTrayState({
   };
 }
 
-/**
- * Header-bar progress indicator. Shows a spinner icon or labeled Runs pill
- * with a count badge when runs are active; opens a popover with live progress.
- * Same inline-header pattern as <NotificationsBell /> — drop it into the
- * header, no floating overlay over the main content.
- */
 export function RunsTray({
   pollMs = 3000,
   limit = 5,
@@ -874,7 +852,6 @@ function isBackgroundStatus(
 }
 
 // dark: variants only where there's no semantic token for the colour
-// (e.g. success green isn't in shadcn's default palette).
 const STATUS_GLYPHS: Record<
   ProgressStatus,
   { Icon: typeof IconLoader2; className: string }

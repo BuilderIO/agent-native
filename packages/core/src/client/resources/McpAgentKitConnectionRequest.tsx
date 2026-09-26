@@ -26,11 +26,6 @@ export interface McpAgentKitConnectionRequestCardProps {
   fallback?: ReactNode;
 }
 
-/**
- * Resolves a structured AgentKit provider request through Core's trusted MCP
- * catalog and standard connection dialog. Agent-authored URLs and scopes never
- * cross this boundary.
- */
 export function McpAgentKitConnectionRequestCard({
   provider,
   detail,
@@ -88,7 +83,6 @@ export interface McpAgentKitConnectionResumeProps {
   ) => void | Promise<void>;
 }
 
-/** Resolves a paused AgentKit run after an OAuth round trip returns to Chat. */
 export function McpAgentKitConnectionResume({
   onResume,
   onMessageResume,

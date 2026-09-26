@@ -1255,8 +1255,6 @@ describe("dedupeReconnectContentAgainstMessages", () => {
         ],
       },
     ];
-    // Reconnect overlay spinner: no args yet (no fingerprint) and a reader-local
-    // id that never matches the server-scoped id above.
     const spinnerDuplicate = {
       type: "tool-call" as const,
       toolCallId: "tc_0",
@@ -1463,8 +1461,6 @@ describe("dedupeReconnectContentAgainstMessages", () => {
         ],
       },
     ];
-    // Overlay is strictly ahead (completed) of the rendered spinner and has a
-    // fingerprint, so the name fallback must not hide it when not in handoff.
     const completedOverlay = {
       type: "tool-call" as const,
       toolCallId: "tc_0",
@@ -1528,9 +1524,6 @@ describe("dedupeReconnectContentAgainstMessages", () => {
   });
 
   it("drops a pending reconnect duplicate whose call already completed in messages (fingerprint fallback)", () => {
-    // Two readers of the same run assign unrelated synthetic ids until the
-    // server id converges — a pending copy of an already-completed call is a
-    // replay artifact (the "one spinning, one done" duplicate pair).
     const persistedMessages = [
       {
         role: "assistant",
@@ -1616,8 +1609,6 @@ describe("dedupeReconnectContentAgainstMessages", () => {
         ],
       },
     ];
-    // Activity placeholder (no args yet) — an empty-args fingerprint would
-    // over-match, so it must be exempt.
     const activityPlaceholder = {
       type: "tool-call" as const,
       toolCallId: "reconnect-activity:edit-screen",
@@ -1626,8 +1617,6 @@ describe("dedupeReconnectContentAgainstMessages", () => {
       args: {},
       activity: true as const,
     };
-    // Completed-with-different-id stays: a legitimately repeated identical
-    // call must not be hidden (strict id match only for completed parts).
     const completedRepeat = {
       type: "tool-call" as const,
       toolCallId: "toolu_2",
@@ -2461,7 +2450,6 @@ describe("useAutoResumeStatus", () => {
     dispatchStreamProgress("tab-2");
     expect(apiRef.current?.isAutoResuming).toBe(true);
 
-    // The matching tab still clears it.
     dispatchStreamProgress("tab-1");
     expect(apiRef.current?.isAutoResuming).toBe(false);
   });
@@ -2519,11 +2507,8 @@ describe("ensureMessageMetadata", () => {
     const persisted = ensureMessageMetadata(repo);
     const saved = persisted.messages[0].message;
 
-    // The snapshot is settled for storage...
     expect(saved.status).toEqual({ type: "complete", reason: "stop" });
     expect(saved.content[1].outcome).toBe("unknown");
-    // ...but the message assistant-ui is still streaming into is untouched, so
-    // the thread keeps running and the tool result can still land cleanly.
     expect(liveMessage.status).toEqual({ type: "running" });
     expect(liveTool).not.toHaveProperty("outcome");
     expect(liveTool).not.toHaveProperty("result");
@@ -3183,8 +3168,6 @@ describe("chat submit and stop hardening", () => {
       encoding: "utf8",
     });
 
-    // A readiness check that timed out is not evidence that no provider is
-    // configured; disabling on it left an inert box that swallowed keystrokes.
     expect(source).toContain("const isComposerDisabled = composerDisabled;");
     expect(source).not.toContain("isProviderStatusUnavailable");
   });
@@ -3440,9 +3423,6 @@ describe("waitForThreadRunToClear", () => {
 
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
-    // The no-progress decision must be a sliding idle deadline that resets on
-    // streamed events — never a one-shot `setTimeout(..., THRESHOLD)` that caps
-    // total reconnect duration and falsely fails a healthy long run.
     expect(helperSource).toContain("markReconnectProgress");
     expect(helperSource).toContain("reconnectProgressTimedOut");
     expect(helperSource).toContain("thresholdMs: reconnectStuckThresholdMs");
@@ -3634,8 +3614,6 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("visibleReconnectContent.length > 0");
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
-    // The overlay is a second fold of the run; it may only render while no
-    // adapter runtime owns the turn. See the showReconnectOverlay tests below.
     expect(renderSource).toContain("showReconnectOverlay");
     expect(renderSource.replace(/\s+/g, "")).toContain(
       "allowActivitySpinner={!reconnectFrozen}",
@@ -3820,10 +3798,6 @@ describe("server thread snapshot caching", () => {
 });
 
 describe("shouldShowReconnectOverlay", () => {
-  // The reconnect overlay is a second, independent fold of the same run. Every
-  // duplicate-render report traces back to it being on screen at the same time
-  // as the adapter's own message. Ownership decides visibility here, so these
-  // assert behavior rather than grepping the render source.
   it("hides the overlay whenever a runtime owns the turn", () => {
     expect(
       shouldShowReconnectOverlay({
@@ -3839,7 +3813,6 @@ describe("shouldShowReconnectOverlay", () => {
         reconnectFrozen: true,
       }),
     ).toBe(false);
-    // Both readers claiming the turn at once is the exact duplicate-render case.
     expect(
       shouldShowReconnectOverlay({
         isRuntimeRunning: true,
@@ -3892,11 +3865,6 @@ describe("reconnectProgressTimedOut", () => {
   const threshold = 90_000;
 
   it("never times out a run that keeps streaming heartbeats", () => {
-    // Simulate a long image generation that emits an activity heartbeat every
-    // 8s over 5 minutes of reconnect wall-clock. Each event resets the idle
-    // deadline, so the gap is always 8s — far under the 90s stuck threshold.
-    // A one-shot total-duration cap (the prior behaviour) would have fired at
-    // 90s and falsely surfaced `reconnect_no_progress`.
     let lastProgressAt = 0;
     for (let now = 0; now <= 300_000; now += 8_000) {
       expect(
@@ -3906,7 +3874,7 @@ describe("reconnectProgressTimedOut", () => {
           thresholdMs: threshold,
         }),
       ).toBe(false);
-      lastProgressAt = now; // event arrived → markReconnectProgress()
+      lastProgressAt = now;
     }
   });
 

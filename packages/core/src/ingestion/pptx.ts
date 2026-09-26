@@ -22,7 +22,6 @@ export interface ParsedPptxParagraph {
   lineSpacing?: number;
   spaceBeforePt?: number;
   spaceAfterPt?: number;
-  /** `a:pPr/@_rtl` — the paragraph's base writing direction is right-to-left. Only set when the source states it; absent means inherit (LTR). */
   rtl?: boolean;
 }
 
@@ -36,21 +35,15 @@ export interface ParsedPptxElement {
   width: number;
   height: number;
   rotation?: number;
-  /** `a:xfrm/@_flipH` — the shape's geometry is mirrored across its own vertical axis before rotation. */
   flipH?: boolean;
-  /** `a:xfrm/@_flipV` — the shape's geometry is mirrored across its own horizontal axis before rotation. */
   flipV?: boolean;
   shapeType?: string;
-  /** `a:prstGeom/a:avLst` adjustment values keyed by guide name (`adj`, `adj1`, ...), in the preset's own units. Absent when the deck accepts the preset's defaults. */
   shapeAdjustments?: Record<string, number>;
-  /** `a:custGeom`'s authored outline, when the shape declares one instead of a preset. */
   geometry?: ParsedPptxGeometry;
   fill?: string;
   lineColor?: string;
   lineWidth?: number;
-  /** `a:ln/a:headEnd` — the decoration drawn where the line starts. */
   lineHeadEnd?: ParsedPptxLineEnd;
-  /** `a:ln/a:tailEnd` — the decoration drawn where the line ends. */
   lineTailEnd?: ParsedPptxLineEnd;
   padding?: {
     left: number;
@@ -64,22 +57,12 @@ export interface ParsedPptxElement {
   table?: ParsedPptxTable;
 }
 
-/**
- * One end of a line or connector — the round dots a chevron timeline's
- * connectors terminate in (`<a:headEnd type="oval"/>`), an arrowhead, a
- * diamond. Recorded whatever the type, including the ones a consumer cannot
- * draw, so an end a renderer skips stays distinguishable from a line the
- * source drew bare and an export can still round-trip it.
- */
 export interface ParsedPptxLineEnd {
-  /** `@_type`: `none`, `triangle`, `stealth`, `diamond`, `oval`, or `arrow`. */
   type: string;
-  /** `@_w`/`@_len` — the end's size across and along the line, as `sm`/`med`/`lg` multiples of the line's own width, not absolute units. Absent means the OOXML default (`med`). */
   w?: string;
   len?: string;
 }
 
-/** A single `a:path` command, in the path's own `w`/`h` coordinate space. `arcTo` keeps OOXML's radii-and-angles form because converting it needs the current point, which only a consumer walking the whole command list knows. */
 export type ParsedPptxPathCommand =
   | {
       kind: "moveTo" | "lnTo" | "quadBezTo" | "cubicBezTo";
@@ -87,16 +70,13 @@ export type ParsedPptxPathCommand =
     }
   | {
       kind: "arcTo";
-      /** Ellipse radii in path units. */
       wR: number;
       hR: number;
-      /** Start angle and swing, in 60000ths of a degree, clockwise from the +x axis. */
       stAng: number;
       swAng: number;
     }
   | { kind: "close" };
 
-/** One `a:custGeom/a:pathLst/a:path`. `w`/`h` define the coordinate space its points are expressed in; the shape's own box is what they scale onto. */
 export interface ParsedPptxPath {
   w: number;
   h: number;
@@ -108,12 +88,9 @@ export interface ParsedPptxGeometry {
   paths: ParsedPptxPath[];
 }
 
-/** A `p:graphicFrame`'s `a:tbl` flattened into a simple row/cell grid. `hMerge`/`vMerge` continuation cells are omitted — their content is already represented once, by the spanning cell's `colSpan`/`rowSpan`. */
 export interface ParsedPptxTable {
   rows: ParsedPptxTableCell[][];
-  /** Authored `a:tblGrid/a:gridCol/@_w` values, in EMUs, when present. */
   columnWidthsEmu?: number[];
-  /** Authored `a:tr/@_h` values, in EMUs, when present. */
   rowHeightsEmu?: number[];
 }
 
@@ -122,7 +99,6 @@ export interface ParsedPptxTableCell {
   colSpan?: number;
   rowSpan?: number;
   fill?: string;
-  /** Resolved cell edges. A side is present only when the cell's own `a:tcPr/a:lnL|R|T|B` or the deck table style's `a:tcBdr` draws a line there — a cell the source leaves borderless stays borderless. */
   borders?: ParsedPptxTableCellBorders;
 }
 
@@ -133,12 +109,9 @@ export interface ParsedPptxTableCellBorders {
   bottom?: ParsedPptxTableBorder;
 }
 
-/** One resolved table cell edge, from an `a:ln`. */
 export interface ParsedPptxTableBorder {
   color: string;
-  /** `a:ln/@_w`, in EMU. Absent when the line declares no width. */
   widthEmu?: number;
-  /** `a:prstDash/@_val`, collapsed onto the CSS border styles that can draw it. Absent for a solid line. */
   dash?: "dashed" | "dotted";
 }
 
@@ -153,9 +126,7 @@ export interface ParsedPptxImage {
   data: Uint8Array;
   mimeType: string;
   name: string;
-  /** Width / height of the picture shape on the slide, from its own placed size (not the source file's pixel dimensions). */
   aspectRatio?: number;
-  /** True when the picture shape covers at least ~85% of the slide's width and height — a full-bleed background photo rather than an inset card image. */
   fullBleed?: boolean;
   crop?: {
     left: number;
@@ -172,13 +143,11 @@ export interface ParsedPptxSlide {
   widthEmu?: number;
   heightEmu?: number;
   backgroundColor?: string;
-  /** A decorative grid inherited from the slide master, when one is present. */
   backgroundGrid?: ParsedPptxGrid;
   notes?: string;
   layoutHint?: string;
   transition?: ParsedPptxTransition;
   splitByParagraph?: boolean;
-  /** Count of this slide's `graphicFrame` shapes that could not be converted into a `"table"` element (charts, SmartArt, embedded OLE objects, or a malformed/empty `a:tbl`) — a fidelity signal for `buildSourceImportMetadata`, the same way `imagesSkipped` already works. */
   tablesDegraded?: number;
 }
 
@@ -200,7 +169,6 @@ export interface ParsedPptxPresentation {
   title: string;
   slides: ParsedPptxSlide[];
   theme?: { colors: string[]; fonts: string[] };
-  /** Slides the source deck marked `show="0"` and this import deliberately left out — the only legitimate reason `slides.length` is short of the deck's `p:sldId` count, so callers can say so instead of reporting a silently shorter deck. */
   hiddenSlideCount?: number;
 }
 
@@ -265,8 +233,6 @@ export async function parsePptxPresentation(
     ];
   });
   if (slidePaths.length === 0) {
-    // Scanning the package recovers every slide the rels could not name, so
-    // the unresolved ids above are no longer missing content.
     droppedSlides.length = 0;
     slidePaths.push(
       ...Object.keys(zip.files)
@@ -275,10 +241,6 @@ export async function parsePptxPresentation(
     );
   }
   const unresolvedSlideIdCount = droppedSlides.length;
-  // Deck-wide fallback, used when a slide's own layout→master chain can't be
-  // resolved (missing rels, unusual authoring tools) — see
-  // `resolveSlideMasterContext` below for the per-slide resolution that
-  // presentations with more than one slide master actually need.
   const theme = await parseTheme(zip, parseXml, slideMasterRelationship);
   const tableStyles = await parseTableStyles(zip, parseXml);
   const masterColorInfo = slideMasterRelationship
@@ -355,9 +317,6 @@ export async function parsePptxPresentation(
       );
       continue;
     }
-    // `show="0"` is the author having removed this slide from the deck's own
-    // flow. Importing it anyway hands every deck back slides its presenter
-    // had already cut.
     if (stringValue(record(record(slide)?.["p:sld"])?.["@_show"]) === "0") {
       hiddenSlideCount += 1;
       continue;
@@ -376,11 +335,6 @@ export async function parsePptxPresentation(
     const slideRelationships = slideRelationshipsXml
       ? parseRelationships(parseXml(slideRelationshipsXml))
       : new Map<string, { target: string; type: string }>();
-    // Presentations can mix multiple masters (e.g. combined templates), each
-    // with its own color map / theme / placeholder defaults — resolve this
-    // slide's own layout→master chain instead of reusing whichever master
-    // happened to be first in the presentation, falling back to the
-    // deck-wide default above only when that chain can't be resolved.
     const slideMasterContext =
       (await resolveSlideMasterContext({
         zip,
@@ -408,9 +362,6 @@ export async function parsePptxPresentation(
       slideNumber: slides.length + 1,
       tableStyles,
     });
-    // The template layer sits behind the slide's own scene graph: it is the
-    // background band, brand mark and silhouette the layout draws under
-    // everything the slide itself places.
     images.unshift(...slideMasterContext.layerImages);
     elements.unshift(
       ...substituteSlideNumber(
@@ -450,9 +401,6 @@ export async function parsePptxPresentation(
       ...metadata,
     });
   }
-  // A short import must never come back looking complete: every slide the deck
-  // still presents has to survive, and slides the author hid are the only
-  // legitimate shortfall.
   const expectedSlideCount =
     slidePaths.length + unresolvedSlideIdCount - hiddenSlideCount;
   if (slides.length !== expectedSlideCount) {
@@ -480,12 +428,6 @@ export async function parsePptxPresentation(
   };
 }
 
-/**
- * Google Slides exports decorative grids as connector shapes on the slide
- * master instead of as a slide background. Preserve the repeated geometry as
- * metadata so the HTML renderer can reproduce it without making the lines
- * editable slide objects.
- */
 async function parseMasterGrid(args: {
   zip: ZipArchive;
   target: string;
@@ -557,10 +499,6 @@ async function parseMasterGrid(args: {
     ),
   );
 
-  // The same repeated connector lattice is used for both axes in the Google
-  // export. Its horizontal phase is the master group's first repeated offset.
-  // Keeping the phase relative to the detected step also works for custom
-  // slide sizes that preserve the source grid's square-cell geometry.
   const stepYEmu = stepXEmu;
   const offsetYEmu = Math.round(stepYEmu * 0.9);
 
@@ -574,7 +512,6 @@ async function parseMasterGrid(args: {
   };
 }
 
-/** Resolves an OOXML relationship `Target` (package-absolute like "/ppt/foo.xml", or relative like "../slideMasters/slideMaster1.xml") against the directory of the part that declared it. */
 function resolvePptxRelationshipPath(baseDir: string, target: string): string {
   if (target.startsWith("/")) return target.slice(1);
   const segments = `${baseDir}/${target}`.split("/");
@@ -587,7 +524,6 @@ function resolvePptxRelationshipPath(baseDir: string, target: string): string {
   return resolved.join("/");
 }
 
-/** The `_rels/<file>.rels` part that carries relationships for a given OOXML part path. */
 function relsPathForPptxPart(path: string): string {
   const slashIndex = path.lastIndexOf("/");
   const dir = slashIndex >= 0 ? path.slice(0, slashIndex) : "";
@@ -595,20 +531,10 @@ function relsPathForPptxPart(path: string): string {
   return `${dir ? `${dir}/` : ""}_rels/${file}.rels`;
 }
 
-/**
- * Walks this slide's own `slideLayout` → `slideMaster` → `theme` relationship
- * chain so slides that belong to a different master than the deck's first
- * one (a presentation with more than one master) resolve `schemeClr`
- * aliases and placeholder defaults against their own palette instead of an
- * unrelated master's. Returns `undefined` when any hop in that chain is
- * missing, letting the caller fall back to the deck-wide default.
- */
 interface SlideTemplateContext {
   colorContext: ColorContext;
   placeholderDefaults: PlaceholderDefaults;
-  /** The layout's own `<p:bg>`, else the master's, already resolved to a CSS `background` value. A slide's own `<p:bg>` still wins over this. */
   background?: string;
-  /** The layout's (and, unless it sets `showMasterSp="0"`, the master's) non-placeholder shapes and pictures, ordered back-to-front, ready to sit underneath the slide's own elements. */
   layerElements: ParsedPptxElement[];
   layerImages: ParsedPptxImage[];
 }
@@ -713,9 +639,6 @@ async function buildSlideTemplateContext(args: {
       colorContext,
     ) ?? parseBackgroundNode(masterInfo.background, colorContext);
 
-  // `showMasterSp="0"` is a layout opting out of the master's own decoration;
-  // honouring it is the difference between reproducing a template and
-  // stamping the master's furniture onto slides that deliberately hid it.
   const layerImages: ParsedPptxImage[] = [];
   const layerElements: ParsedPptxElement[] = [];
   const layerSources: { xml: string; path: string; prefix: string }[] = [];
@@ -775,16 +698,6 @@ async function buildSlideTemplateContext(args: {
   };
 }
 
-/**
- * A slideLayout's and slideMaster's *non*-placeholder `<p:sp>`/`<p:pic>`/
- * `<p:cxnSp>`/`<p:grpSp>` are where a template's visual identity actually
- * lives — full-bleed bands, brand marks, logos, silhouettes. Reading only
- * placeholder shapes for their inherited defaults threw all of it away, so
- * slides whose entire design came from the layout imported as blank white
- * cards. Placeholder shapes are skipped here: their content is prompt text,
- * and their geometry/colors already reach the slide through
- * `PlaceholderDefaults`.
- */
 async function parseTemplateLayerElements(args: {
   zip: ZipArchive;
   parseXml: (xml: string) => unknown;
@@ -821,11 +734,6 @@ async function parseTemplateLayerElements(args: {
       })),
     );
   }
-  // A template layer's icons and logos are frequently EMF/WMF vector art,
-  // which no browser can render and which the import boundary rejects for the
-  // whole deck. Dropping the deck's every other slide over a layout logo is
-  // strictly worse than importing without it, so unrenderable *layer* art is
-  // left out; a slide's own images still fail loudly.
   const renderable = new Set(images.filter(isBrowserRenderableImage));
   args.images.push(...renderable);
   return elements
@@ -846,7 +754,6 @@ function isBrowserRenderableImage(image: ParsedPptxImage): boolean {
   return BROWSER_RENDERABLE_IMAGE_MIME_TYPES.has(image.mimeType);
 }
 
-/** Resolves a slide master's color-alias mapping plus its title/body default text-color fills (from p:txStyles), so placeholder text without its own explicit color can inherit the right one. */
 async function parseMasterColorInfo(args: {
   zip: ZipArchive;
   target: string;
@@ -857,9 +764,7 @@ async function parseMasterColorInfo(args: {
   bodyDefaultsByLevel: Record<number, Record<string, unknown> | null>;
   otherDefaultsByLevel: Record<number, Record<string, unknown> | null>;
   placeholderDefaults: RawPlaceholderShapeDefaults[];
-  /** The master's own `<p:cSld><p:bg>` node, unresolved — the theme it needs to resolve `schemeClr` against isn't known here. */
   background: Record<string, unknown> | null;
-  /** The master's own non-placeholder `<p:spTree>` XML, for the shapes and pictures that carry a template's actual visual identity. */
   xml?: string;
 }> {
   const empty = {
@@ -896,7 +801,6 @@ async function parseMasterColorInfo(args: {
   };
 }
 
-/** Reads a `<p:titleStyle>`/`<p:bodyStyle>`/`<a:lstStyle>` node's per-level (`a:lvl1pPr`..`a:lvl9pPr`) `<a:defRPr>`, keyed 0-indexed to match `ParsedPptxParagraph.level` (`a:lvl1pPr` is level 0, `a:lvl2pPr` is level 1, etc.) — using only the first level's default for every nested bullet level silently drops the distinct styling PowerPoint themes commonly assign to deeper levels. The whole `defRPr` is kept, not just its fill: size, typeface and bold/italic are inherited by exactly the same chain the color is, and a placeholder run that declares none of them is the common case, not the exception. */
 function levelDefaultsFromTextStyle(
   style: Record<string, unknown> | null,
 ): Record<number, Record<string, unknown> | null> {
@@ -909,7 +813,6 @@ function levelDefaultsFromTextStyle(
   return defaults;
 }
 
-/** Every run property a placeholder can inherit from its layout/master, in the same shape a parsed run carries them. */
 type InheritedRunProperties = Omit<ParsedPptxTextRun, "content">;
 
 function resolveRunDefaultsByLevel(
@@ -924,16 +827,13 @@ function resolveRunDefaultsByLevel(
   );
 }
 
-/** A slideLayout's or slideMaster's own placeholder shape (a `<p:sp>` carrying a `<p:ph>`) and its per-level `<a:lstStyle>` default run properties — this is where a placeholder type's *real* defaults usually live; Google Slides exports still emit a `<p:txStyles>` bucket, but only as an unused boilerplate stub with its own (often wrong) values, so this shape-level default has to be tried first. */
 interface RawPlaceholderShapeDefaults {
   type?: string;
   idx?: string;
   defaultsByLevel: Record<number, Record<string, unknown> | null>;
-  /** This placeholder shape's own `<p:spPr><a:xfrm>`, when the layout/master author gave it explicit position/size — absent for placeholder types (commonly Google Slides' `idx="4294967295"` sentinel) that inherit geometry from further up the chain, or nowhere at all. */
   transform?: ParsedShapeTransform;
 }
 
-/** Parses every direct placeholder shape out of a slideLayout's or slideMaster's `p:spTree`, keyed by that shape's own `<p:ph>` `type`/`idx` — reuses `extractDirectShapeFragments`, since layouts and masters share the same `spTree` structure slides do. */
 function parsePlaceholderShapeDefaults(
   xml: string,
   parseXml: (xml: string) => unknown,
@@ -956,7 +856,6 @@ function parsePlaceholderShapeDefaults(
   return placeholders;
 }
 
-/** Resolves a set of raw placeholder-shape defaults' `schemeClr` references against the slide's theme/clrMap (the raw nodes are cached before the theme is known, so resolution happens per-call instead). */
 function resolvePlaceholderShapeDefaults(
   raw: RawPlaceholderShapeDefaults[],
   colorContext: ColorContext,
@@ -982,7 +881,6 @@ interface ParsedShapeTransform {
   rotation?: number;
 }
 
-/** A 2D affine transform (translate + scale + rotation, no shear), composed as nested `grpSp` levels are recursed into. Composing full matrices — rather than summing scale factors and rotation degrees separately, as before — is what lets a rotated group correctly sweep its children's positions around the group's own pivot instead of only spinning each child in place. */
 interface Mat2d {
   a: number;
   b: number;
@@ -994,7 +892,6 @@ interface Mat2d {
 
 const IDENTITY_MAT: Mat2d = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
 
-/** Composes two transforms so `inner` is applied to a point first, then `outer`. */
 function composeMat(outer: Mat2d, inner: Mat2d): Mat2d {
   return {
     a: outer.a * inner.a + outer.c * inner.b,
@@ -1034,9 +931,7 @@ function applyMatPoint(
 }
 
 interface ShapeTransformContext {
-  /** Maps a point in this level's local (un-rotated placement) coordinate space into slide-absolute EMU coordinates, including every ancestor group's own rotation sweep. */
   matrix: Mat2d;
-  /** Sum of every ancestor's own rotation, in degrees — applied to a leaf's *own* box via CSS `rotate()` around its own center, independent of the positional sweep `matrix` already accounts for. */
   rotation: number;
 }
 
@@ -1048,7 +943,6 @@ const SHAPE_ELEMENT_NAMES = new Set([
   "graphicFrame",
 ]);
 
-/** Standard 16:9 widescreen slide size — a last-resort content box for a placeholder shape whose own `<a:xfrm>` is missing and the deck's own slide size wasn't determinable either. */
 const FALLBACK_SLIDE_WIDTH_EMU = 12192000;
 const FALLBACK_SLIDE_HEIGHT_EMU = 6858000;
 
@@ -1082,8 +976,6 @@ async function parseSlideElements(args: {
     if (parsed.length > 0) elements.push(...parsed);
   }
 
-  // Some authors use a picture fill on the slide background instead of a
-  // picture shape. Keep it in the same ordered scene graph at the back.
   const backgroundEmbedId = extractBackgroundFillEmbedId(args.slide);
   if (backgroundEmbedId) {
     const backgroundRelationship =
@@ -1140,18 +1032,11 @@ async function parseShapeFragment(
     const groupTransform = readTransform(node, "p:grpSpPr");
     const groupXfrm = record(record(node["p:grpSpPr"])?.["a:xfrm"]);
     const childOffset = readPoint(groupXfrm?.["a:chOff"]);
-    // `a:chExt` carries `cx`/`cy` attributes like `a:ext`, not `x`/`y` like
-    // `a:off`/`a:chOff` — using `readPoint` here silently read 0, which made
-    // every scaled group (chExt != ext) fall back to an identity scale and
-    // rendered children at their unscaled local size (e.g. a connector/line
-    // shape's width/height came out too large, overflowing the canvas).
     const childExtent = readExtent(groupXfrm?.["a:chExt"]);
     const groupScaleX =
       childExtent.x > 0 ? groupTransform.width / childExtent.x : 1;
     const groupScaleY =
       childExtent.y > 0 ? groupTransform.height / childExtent.y : 1;
-    // Places this group's children into the parent's coordinate space,
-    // ignoring the group's own rotation for now.
     let localToParent = composeMat(
       translateMat(
         groupTransform.x - childOffset.x * groupScaleX,
@@ -1159,12 +1044,6 @@ async function parseShapeFragment(
       ),
       scaleMat(groupScaleX, groupScaleY),
     );
-    // PowerPoint rotates the entire *placed* group box — every child already
-    // positioned by `localToParent` above — as a rigid body around that
-    // box's own center, not each child around its own center. Composing this
-    // rotation on top of the placement (instead of only summing `rotation`
-    // degrees, as before) is what makes children actually orbit the group's
-    // pivot instead of just spinning in place.
     if (groupTransform.rotation) {
       localToParent = composeMat(
         rotateAroundMat(
@@ -1203,15 +1082,6 @@ async function parseShapeFragment(
   );
   const placeholderType = stringValue(placeholder?.["@_type"]);
   const placeholderIdx = stringValue(placeholder?.["@_idx"]);
-  // A placeholder shape (`<p:ph>`) commonly omits its own `<a:xfrm>` on the
-  // slide, inheriting position/size from the matching placeholder on the
-  // slide layout/master instead. Try the layout's own placeholder shape
-  // first, then the master's — same order as the color inheritance chain
-  // above — and only fall back to the slide's own content box when neither
-  // defines explicit geometry for this placeholder either (real for
-  // `idx="4294967295"` sentinel placeholders in some Google Slides exports).
-  // Without that last-resort fallback the shape would land at a literal 0×0
-  // box, making real title/body text invisible instead of just mispositioned.
   const hasOwnSize = localTransform.width > 0 && localTransform.height > 0;
   const inheritedTransform =
     entry === "sp" && !hasOwnSize && placeholder && args.placeholderDefaults
@@ -1292,9 +1162,6 @@ async function parseShapeFragment(
         name,
         kind: "image",
         ...transform,
-        // A picture is painted inside its `p:spPr` geometry, not its bounding
-        // box: dropping the shape here is what turns a portrait cropped to an
-        // `ellipse` frame back into the hard square its box happens to be.
         shapeType,
         ...(shapeAdjustments ? { shapeAdjustments } : {}),
         ...(geometry ? { geometry } : {}),
@@ -1356,14 +1223,6 @@ async function parseShapeFragment(
   return [];
 }
 
-/**
- * `p:graphicFrame` has no `p:spPr` (its transform lives at `p:xfrm` directly)
- * and its content is `a:graphic/a:graphicData` rather than `p:txBody` — most
- * commonly a table, but also charts, SmartArt, and embedded OLE objects that
- * have no shape structure we can reconstruct. Only tables convert; anything
- * else is counted as a dropped-content fidelity signal instead of silently
- * vanishing with no signal at all.
- */
 function parseGraphicFrameFragment(
   node: Record<string, unknown>,
   args: {
@@ -1388,11 +1247,6 @@ function parseGraphicFrameFragment(
     args.tablesDegraded.count += 1;
     return [];
   }
-  // Google Slides always writes the sentinel `3000000x3000000` into a table
-  // graphicFrame's `<a:ext>`; the authored `<a:tblGrid>`/`<a:tr h>` is the
-  // real geometry, and PowerPoint sizes tables from it too. Trusting the ext
-  // rendered an 88%-wide grid at 33% and perfectly square, wrapping every
-  // header one character per line.
   const frameTransform = transformFromXfrmNode(record(node["p:xfrm"]));
   const gridWidth = sumOf(table.columnWidthsEmu);
   const gridHeight = sumOf(table.rowHeightsEmu);
@@ -1415,7 +1269,6 @@ function parseGraphicFrameFragment(
   ];
 }
 
-/** Reads a graphicFrame's `a:graphic/a:graphicData/a:tbl` into a row/cell grid. Returns `undefined` for a non-table graphicFrame (chart/SmartArt/OLE) or a table with no rows. */
 function parseGraphicFrameTable(
   node: Record<string, unknown>,
   context?: ColorContext,
@@ -1455,8 +1308,6 @@ function parseGraphicFrameTable(
     for (const [columnIndex, rawCell] of asArray(row?.["a:tc"]).entries()) {
       const cell = record(rawCell);
       if (!cell) continue;
-      // A merge-continuation cell's content is already represented once, by
-      // the spanning cell's gridSpan/rowSpan below.
       if (xmlBoolean(cell["@_hMerge"]) || xmlBoolean(cell["@_vMerge"]))
         continue;
       const gridSpan = Number(cell["@_gridSpan"]);
@@ -1507,18 +1358,6 @@ function parseGraphicFrameTable(
     : undefined;
 }
 
-/**
- * `ppt/tableStyles.xml`'s `a:tblStyle` records, keyed by normalized `styleId`
- * (the deck's `@def` default is also stored under `""`). Kept as raw XML
- * records rather than pre-resolved values because a style's `schemeClr`
- * references only mean something against the slide's own color map, and a
- * deck can mix masters.
- *
- * This is where most real-world table borders live: a Google Slides export
- * writes bare `a:tcPr` cells and puts the whole grid's rules in the style's
- * `wholeTbl/a:tcBdr`, so a parser that reads only `a:tcPr` sees no borders at
- * all.
- */
 type PptxTableStyles = Map<string, Record<string, unknown>>;
 
 async function parseTableStyles(
@@ -1555,12 +1394,6 @@ interface TableBandingFlags {
   bandCol: boolean;
 }
 
-/**
- * The table style parts that apply to one cell, lowest precedence first
- * (ECMA-376 §20.1.4.2). The corner parts (`nwCell`, `seCell`, ...) are not
- * resolved — no table style shipped by the decks this parser was built
- * against defines them.
- */
 function tableStyleParts(
   banding: TableBandingFlags,
   rowIndex: number,
@@ -1580,7 +1413,6 @@ function tableStyleParts(
   return parts;
 }
 
-/** `a:tcPr`'s own fill elements. Their presence — not the color they resolve to — is what makes a cell's fill an override, since `a:noFill` is an explicit "no fill" that has to beat the table style. */
 const TABLE_CELL_FILL_ELEMENTS = ["a:noFill", "a:solidFill", "a:gradFill"];
 
 const TABLE_BORDER_SIDES = [
@@ -1613,9 +1445,6 @@ function resolveTableCellBorders(args: {
   };
   const borders: ParsedPptxTableCellBorders = {};
   for (const { side, cellElement, edge, inside } of TABLE_BORDER_SIDES) {
-    // A cell that declares the side at all decides it, including
-    // `<a:lnL><a:noFill/></a:lnL>` — that is the author switching the style's
-    // rule off for this cell, not a missing value to fall back from.
     const declared = record(args.tcPr?.[cellElement]);
     const border = declared
       ? parseTableBorderLine(declared, args.context)
@@ -1630,7 +1459,6 @@ function resolveTableCellBorders(args: {
   return Object.keys(borders).length > 0 ? borders : undefined;
 }
 
-/** Walks the cell's style parts highest precedence first, stopping at the first part that declares this side — including one that declares it as `a:noFill`. */
 function tableStylePartBorder(
   style: Record<string, unknown> | undefined,
   parts: string[],
@@ -1662,7 +1490,6 @@ function tableStylePartFill(
   return undefined;
 }
 
-/** An `a:ln` cell edge. `undefined` means "draws nothing here": either the line declares `a:noFill`, or its fill is one this parser cannot resolve to a color. */
 function parseTableBorderLine(
   line: Record<string, unknown> | null,
   context?: ColorContext,
@@ -1741,7 +1568,6 @@ function findMatchingXmlTag(
   return -1;
 }
 
-/** Every shape flavour carries its `<p:cNvPr>` under its own non-visual wrapper. Missing one (`p:cxnSpPr`, for connectors) means that shape gets a fresh random id on every import, breaking the `data-slide-object-id` stability contract. */
 function readNonVisualProperties(
   node: Record<string, unknown>,
 ): Record<string, unknown> | null {
@@ -1788,7 +1614,6 @@ function readTransform(
   return transformFromXfrmNode(record(record(node[key])?.["a:xfrm"]));
 }
 
-/** Shared by `readTransform` (a wrapper-nested `a:xfrm`, e.g. `p:spPr/a:xfrm`) and `graphicFrame`, whose `p:xfrm` sits directly on the node instead of inside a wrapper element. */
 function transformFromXfrmNode(
   xfrm: Record<string, unknown> | null,
 ): ParsedShapeTransform {
@@ -1820,10 +1645,6 @@ function applyTransform(
   const scaleY = Math.hypot(context.matrix.c, context.matrix.d);
   const width = transform.width * scaleX;
   const height = transform.height * scaleY;
-  // Map the shape's own (un-rotated) box center through the accumulated
-  // group matrix so a child inside a rotated group orbits the group's pivot
-  // — the box's own visual spin is applied separately below via `rotation`,
-  // so only the center (not the whole box) needs to go through the matrix.
   const center = applyMatPoint(
     context.matrix,
     transform.x + transform.width / 2,
@@ -1844,7 +1665,6 @@ function applyTransform(
 /** A slide-number field on a slideLayout/slideMaster is parsed once and shared by every slide using that layout, so its value cannot be known at parse time. This token stands in until `substituteSlideNumber` resolves it per slide — the alternative, keeping the cached "‹#›" glyph, is the literal placeholder text showing up on 36 of 36 slides. */
 const SLIDE_NUMBER_TOKEN = "\u0001slidenum\u0001";
 
-/** Replaces `SLIDE_NUMBER_TOKEN` in shared template-layer elements, cloning only the elements that actually carry one. */
 function substituteSlideNumber(
   elements: ParsedPptxElement[],
   slideNumber: number,
@@ -1873,7 +1693,6 @@ function substituteSlideNumber(
   });
 }
 
-/** Everything a run needs beyond color resolution: the part's relationships (for `<a:hlinkClick r:id>`) and this slide's own 1-based number (for `<a:fld type="slidenum">`). */
 interface TextResolutionContext {
   relationships?: Map<string, { target: string; type: string }>;
   slideNumber?: number;
@@ -1887,22 +1706,16 @@ function parseTextBody(
   return parseTextBodyParagraphs(record(node["p:txBody"]), context, text);
 }
 
-/** PowerPoint's `buAutoNum` variants (arabicPeriod, alphaLcPeriod, romanUcPeriod, ...) all number the same underlying sequence — approximating every variant with arabic digits keeps list order/grouping correct even though the glyph style doesn't match `type` exactly. */
 function formatAutoNumBullet(n: number): string {
   return `${n}.`;
 }
 
-/** Core `a:p` paragraph parsing, shared by a shape's `p:txBody` and a table cell's `a:txBody` (which sit at different paths in their parent node, so the caller resolves the `txBody` record itself). */
 function parseTextBodyParagraphs(
   txBody: Record<string, unknown> | null,
   context?: ColorContext,
   text?: TextResolutionContext,
 ): ParsedPptxParagraph[] {
   if (!txBody) return [];
-  // `a:buAutoNum` carries no explicit number — PowerPoint derives it from
-  // paragraph order — so the sequence has to be tracked per nesting level as
-  // paragraphs are walked in document order, restarting whenever a deeper
-  // level's own sequence begins or a non-auto-numbered paragraph interrupts it.
   const autoNumCounters = new Map<number, number>();
   return asArray(txBody["a:p"]).map((rawParagraph) => {
     const paragraph = record(rawParagraph);
@@ -1925,9 +1738,6 @@ function parseTextBodyParagraphs(
     }
     for (const rawField of asArray(paragraph?.["a:fld"])) {
       const field = record(rawField);
-      // A slide-number field caches the authoring tool's placeholder glyph
-      // ("‹#›") in its `<a:t>`; importing that literally puts the glyph on
-      // the slide instead of the number it stands for.
       const content =
         stringValue(field?.["@_type"]) === "slidenum"
           ? (text?.slideNumber?.toString() ?? SLIDE_NUMBER_TOKEN)
@@ -1944,9 +1754,6 @@ function parseTextBodyParagraphs(
         });
       }
     }
-    // `<a:br/>` was rewritten into a bare newline run before parsing, so it
-    // carries none of its neighbours' styling and would otherwise collapse to
-    // the default font size mid-paragraph.
     for (const [index, run] of runs.entries()) {
       if (run.content !== "\n" || run.fontSize !== undefined) continue;
       const source = runs[index - 1] ?? runs[index + 1];
@@ -2011,14 +1818,6 @@ function parseTextBodyParagraphs(
   });
 }
 
-/**
- * `<a:normAutofit fontScale="90000" lnSpcReduction="10000"/>` is the shrink
- * PowerPoint already computed and baked into the file when the author's text
- * overflowed its shape. Ignoring it renders that text at its nominal size,
- * spilling out of the box the author saw it fit into. A bare `<a:normAutofit/>`
- * carries no scale — computing one ourselves would need text measurement, so
- * it is left alone rather than guessed at.
- */
 function applyAutofitScale(
   paragraphs: ParsedPptxParagraph[],
   bodyPr: Record<string, unknown> | null,
@@ -2067,7 +1866,6 @@ function parseTextBoxProperties(
   };
 }
 
-/** Point count each straight/curve command carries, keyed by tag. `a:arcTo` and `a:close` carry none and are read separately. */
 const PATH_COMMAND_POINTS: Record<string, number> = {
   "a:moveTo": 1,
   "a:lnTo": 1,
@@ -2075,7 +1873,6 @@ const PATH_COMMAND_POINTS: Record<string, number> = {
   "a:cubicBezTo": 3,
 };
 
-/** `a:prstGeom/a:avLst` adjustments, keyed by guide name. A deck that overrides a preset's `adj` (a 50%-radius pill, a block arc's start and sweep) records it here and nowhere else, so a consumer reproducing the preset from its defaults alone draws the wrong shape. */
 function parseShapeAdjustments(
   shapeProperties: Record<string, unknown> | null,
 ): Record<string, number> | undefined {
@@ -2086,9 +1883,6 @@ function parseShapeAdjustments(
   for (const raw of guides) {
     const guide = record(raw);
     const name = stringValue(guide?.["@_name"]);
-    // Only the literal `val <n>` form is a value; anything else is a formula
-    // referencing other guides, which reproducing here would mean shipping
-    // OOXML's whole guide language.
     const value = Number(
       stringValue(guide?.["@_fmla"])?.match(/^val\s+(-?\d+)$/)?.[1],
     );
@@ -2097,11 +1891,6 @@ function parseShapeAdjustments(
   return Object.keys(adjustments).length > 0 ? adjustments : undefined;
 }
 
-/**
- * `a:custGeom`'s authored outline. Every command maps 1:1 onto an SVG path
- * segment, so the shape can be reproduced exactly rather than flattened to
- * the rectangle its bounding box happens to be.
- */
 function parseCustomGeometry(
   shapeProperties: Record<string, unknown> | null,
   shapeBox: { width: number; height: number },
@@ -2115,7 +1904,6 @@ function parseCustomGeometry(
       if (!node) continue;
       const commands = readPathCommands(node);
       if (!commands) continue;
-      // A path with no `w`/`h` states its points in the shape's own EMU space.
       const w = Number(node["@_w"]) || shapeBox.width;
       const h = Number(node["@_h"]) || shapeBox.height;
       if (!(w > 0) || !(h > 0)) continue;
@@ -2125,13 +1913,6 @@ function parseCustomGeometry(
   return paths.length > 0 ? { kind: "custom", paths } : undefined;
 }
 
-/**
- * Rebuilds one `a:path`'s command sequence from the order stamped on by
- * `annotatePathCommandOrder`. Returns `undefined` — not a partial list — when
- * any command is unreadable: a path missing a segment is not a simpler path,
- * it is a different and wrong one, and the caller's fallback (the shape's
- * plain box) is at least a state a reader can recognize as unreproduced.
- */
 function readPathCommands(
   path: Record<string, unknown>,
 ): ParsedPptxPathCommand[] | undefined {
@@ -2238,25 +2019,15 @@ function parseLineEnd(node: unknown): ParsedPptxLineEnd | undefined {
   return { type, ...(w ? { w } : {}), ...(len ? { len } : {}) };
 }
 
-/**
- * A slide's `schemeClr` references (`tx1`, `bg1`, `accent2`, ...) only mean
- * something once resolved against the presentation's actual theme palette
- * and the active `bg1`/`tx1`-style alias mapping — without this, every
- * scheme-referenced color (which is how most professionally authored decks
- * set placeholder text color, rather than a literal `srgbClr`) was
- * unresolvable and silently dropped.
- */
 interface ColorContext {
   themeColorsByName: Record<string, string>;
   clrMap: Record<string, string>;
 }
 
-/** A resolved slideLayout/slideMaster placeholder shape's per-level default run properties — see `RawPlaceholderShapeDefaults` for where these come from. */
 interface PlaceholderShapeDefaults {
   type?: string;
   idx?: string;
   runDefaultsByLevel: Record<number, InheritedRunProperties>;
-  /** Carried through from `RawPlaceholderShapeDefaults.transform` — see there for when it's absent. */
   transform?: ParsedShapeTransform;
 }
 
@@ -2264,13 +2035,10 @@ interface PlaceholderDefaults {
   title: Record<number, InheritedRunProperties>;
   body: Record<number, InheritedRunProperties>;
   other: Record<number, InheritedRunProperties>;
-  /** This slide's own layout's placeholder shapes — checked first, since a layout's placeholder is more specific than its master's. */
   layoutPlaceholders: PlaceholderShapeDefaults[];
-  /** The slide master's own placeholder shapes (its actual `<p:sp><p:ph>` shapes, not `<p:txStyles>`) — checked before the `title`/`body`/`other` txStyles fallback below, since that's where a placeholder type's real defaults usually live. `<p:txStyles>` is the last resort PowerPoint/Google Slides falls back to only when neither the layout nor the master defines the placeholder shape itself. */
   masterPlaceholders: PlaceholderShapeDefaults[];
 }
 
-/** Placeholder types that inherit from each other: a slide's `ctrTitle` falls back to the layout/master's `title` shape, a `subTitle` to its `body` shape. Matching the type as a literal string instead sent every title slide past the shape that actually defines its look, down to the `<p:txStyles>` boilerplate that `PlaceholderDefaults.masterPlaceholders` documents as the last resort. */
 const PLACEHOLDER_TYPE_GROUPS = [
   ["title", "ctrTitle"],
   ["body", "subTitle", "obj"],
@@ -2281,7 +2049,6 @@ function placeholderTypeCandidates(type: string): string[] {
   return group ? [type, ...group.filter((name) => name !== type)] : [type];
 }
 
-/** Finds the layout/master placeholder shape a slide's own `<p:ph>` inherits from: an exact `type`+`idx` match first, then `type` alone (a title's `idx` is commonly a sentinel like `4294967295` that won't match anything real), then the same two passes for that type's aliases, then — for a slide placeholder with no `type` at all, a generic content placeholder — `idx` alone. */
 function findMatchingPlaceholderShape(
   placeholders: PlaceholderShapeDefaults[],
   type: string | undefined,
@@ -2299,7 +2066,6 @@ function findMatchingPlaceholderShape(
   return placeholders.find((p) => p.idx === idx);
 }
 
-/** `<p:txStyles>` groups its per-level defaults into three buckets by placeholder type — `titleStyle` for title-ish placeholders, `bodyStyle` for body/content-ish ones (including a bare `<p:ph/>` with no `type`, which the schema defaults to `"body"`), and `otherStyle` for everything else (`dt`, `ftr`, `sldNum`, ...). */
 function txStylesTierForType(
   type: string | undefined,
 ): "title" | "body" | "other" {
@@ -2314,7 +2080,6 @@ function txStylesTierForType(
   return "other";
 }
 
-/** Resolves a placeholder run's inherited property chain — this slide's own layout placeholder shape, then the slide master's own placeholder shape, then the master's generic `<p:txStyles>` bucket for this placeholder's type — per nesting level, so a paragraph at level N gets level N's own defaults instead of only ever level 0's. Merging is per-property, not per-tier: a layout that declares only a size still inherits the master's color. */
 function resolvePlaceholderRunDefaults(args: {
   type: string | undefined;
   idx: string | undefined;
@@ -2345,7 +2110,6 @@ function resolvePlaceholderRunDefaults(args: {
   return any ? merged : undefined;
 }
 
-/** Resolves a placeholder shape's inherited position/size — this slide's own layout placeholder shape's own `<a:xfrm>` first, then the slide master's, mirroring `resolvePlaceholderColorsByLevel`'s layout-before-master order. Returns `undefined` when neither defines explicit geometry for this placeholder type either (real for `idx="4294967295"` sentinel placeholders in some Google Slides exports), letting the caller fall back to a full-slide content box. */
 function resolvePlaceholderTransform(args: {
   type: string | undefined;
   idx: string | undefined;
@@ -2364,7 +2128,6 @@ function resolvePlaceholderTransform(args: {
   return layoutMatch?.transform ?? masterMatch?.transform;
 }
 
-/** Placeholder text commonly declares no color, size or typeface of its own, relying entirely on the layout/master defaults — apply those to any property a run didn't resolve itself, using each paragraph's own nested-bullet level (falling back to level 0 when a deeper level has no default of its own). */
 function applyPlaceholderRunDefaults(
   paragraphs: ParsedPptxParagraph[],
   defaultsByLevel: Record<number, InheritedRunProperties> | undefined,
@@ -2383,7 +2146,6 @@ function applyPlaceholderRunDefaults(
   });
 }
 
-/** PowerPoint's default `bg1`/`tx1`-style alias mapping, used whenever a master doesn't declare its own `<p:clrMap>`. */
 const IDENTITY_CLR_MAP: Record<string, string> = {
   bg1: "lt1",
   tx1: "dk1",
@@ -2401,7 +2163,6 @@ const IDENTITY_CLR_MAP: Record<string, string> = {
 
 const CLR_MAP_ALIASES = Object.keys(IDENTITY_CLR_MAP);
 
-/** Reads a `<p:clrMap .../>` or `<a:overrideClrMapping .../>` node's alias attributes into an alias→theme-slot map. */
 function parseClrMapNode(
   node: Record<string, unknown> | null,
 ): Record<string, string> {
@@ -2474,19 +2235,11 @@ function hslToHex(h: number, s: number, l: number): string {
   return `#${toByte(r)}${toByte(g)}${toByte(b)}`;
 }
 
-/**
- * DrawingML's `lumMod`/`lumOff`/`tint`/`shade` are the standard way authors
- * derive palette variants ("Accent 1, Lighter 40%", etc.) from a base
- * `srgbClr`/`schemeClr` — resolving the base color alone and ignoring these
- * child transforms silently reverts every such variant back to the
- * unmodified base color.
- */
 interface ColorTransforms {
   lumMod?: number;
   lumOff?: number;
   tint?: number;
   shade?: number;
-  /** 0-100 opacity from `<a:alpha val="..."/>` (OOXML stores 0-100000). */
   alphaPercent?: number;
 }
 
@@ -2510,7 +2263,6 @@ function readColorTransforms(
   };
 }
 
-/** Colors flow through the parser as plain `#rrggbb` hex strings, and every consumer just drops that string straight into CSS — an 8-digit `#rrggbbaa` hex is valid CSS and needs no consumer changes, so alpha rides along as extra hex digits instead of a new color shape. */
 function applyColorTransforms(
   hex: string,
   transforms: ColorTransforms,
@@ -2557,10 +2309,6 @@ function parseColor(
   const transforms = readColorTransforms(schemeNode);
   const resolved = resolveSchemeColorName(scheme, context);
   if (resolved) return applyColorTransforms(resolved, transforms);
-  // No theme/clrMap available for this slot (or the theme didn't define
-  // it) — fall back to a coarse dark/light guess along the standard
-  // identity mapping, so tx1/dk1/bg1/lt1 text stays visible rather than
-  // silently vanishing.
   const pptxDarkColor = "#000000"; // guard:allow-raw-color - PPTX dark scheme fallback
   const pptxLightColor = "#ffffff"; // guard:allow-raw-color - PPTX light scheme fallback
   const fallback: Record<string, string> = {
@@ -2579,39 +2327,12 @@ function parseColor(
     : undefined;
 }
 
-// `a:lnSpc` is either a unitless percent (`a:spcPct`, e.g. 100% = single
-// spacing) or an absolute point size (`a:spcPts`, e.g. "52pt line height").
-// Every consumer of the returned `lineSpacing` (html-converter.ts, and our
-// own PPTX export re-imported through this same parser) treats it as a
-// unitless ratio multiplied by the run's font size — so an absolute
-// `spcPts` value must be normalized to that same ratio here, by dividing by
-// the paragraph's own font size, or a 52pt line spacing on 52pt text
-// silently becomes a ~52x line-height and pushes the paragraph thousands of
-// pixels off the slide instead of the intended single-spaced line.
-// No real deck design intentionally sets exact line spacing under ~0.8x a
-// paragraph's own font size — anything tighter reads as overlapping text,
-// not a stylistic choice. Below that floor is a strong signal the exporting
-// tool (including our own dom-to-pptx-based export, whose line-height
-// pixel measurement isn't always attached to the same element it read the
-// font size from) wrote a spcPts value that doesn't correspond to this
-// paragraph's actual font size, so clamp rather than render it unreadable.
 const MIN_LINE_SPACING_RATIO = 0.8;
 const MAX_LINE_SPACING_RATIO = 3;
 
-// `a:spcPct` is a percentage of *single* line spacing, and single spacing in
-// PowerPoint and Google Slides is the font's own line height (ascent +
-// descent + line gap), not its em size — the same quantity CSS calls
-// `line-height: normal`. Treating `100%` as CSS `line-height: 1` therefore
-// shipped every body paragraph ~17% tighter than the source, which is what
-// five unrelated decks were independently reported for. CSS cannot scale
-// `normal`, so a constant stands in for it.
 // ponytail: one constant for every font; per-font ascent/descent metrics if a
-// specific deck's leading still reads off.
 const SINGLE_LINE_SPACING_RATIO = 1.2;
 
-// Must match html-converter's `DEFAULT_PPTX_FONT_SIZE_PT`: the ratio returned
-// here is divided out again against whatever font size that renderer puts on
-// the paragraph, so guessing a different default silently scales the line box.
 const DEFAULT_FONT_SIZE_PT = 18;
 
 function parseParagraphSpacing(
@@ -2633,7 +2354,6 @@ function parseParagraphSpacing(
   );
 }
 
-/** `<a:spcBef>`/`<a:spcAft>` nest the value one level down (`<a:spcBef><a:spcPts val="1600"/></a:spcBef>`), while `<a:lnSpc>`'s caller unwraps `a:spcPts` itself — reading `@_val` off the outer node alone silently produced NaN for every paragraph spacing in every deck. */
 function parsePoints(value: unknown): number | undefined {
   const node = record(value);
   const target = record(node?.["a:spcPts"]) ?? node;
@@ -2756,7 +2476,6 @@ function extractSlideBackground(
   return parseBackgroundNode(cSld?.["p:bg"], context);
 }
 
-/** Resolves a `<p:bg>` into a CSS `background` value. Reading only `a:solidFill` left every gradient-backed deck rendering white — which, on a template whose text is white by design, is an entirely invisible slide. */
 function parseBackgroundNode(
   value: unknown,
   context?: ColorContext,
@@ -2769,8 +2488,6 @@ function parseBackgroundNode(
     if (solid) return solid;
     const gradient = parseGradientFill(record(bgPr["a:gradFill"]), context);
     if (gradient) return gradient;
-    // `<a:pattFill>` is a two-color hatch we can't reproduce as a single CSS
-    // value; its background color is still far closer than white.
     const pattern = record(bgPr["a:pattFill"]);
     if (pattern) {
       return (
@@ -2780,20 +2497,9 @@ function parseBackgroundNode(
     }
     return undefined;
   }
-  // `<p:bgRef idx="1001"><a:schemeClr val="lt1"/></p:bgRef>` references the
-  // theme's fill-style list; the referenced color is the whole of it for the
-  // solid styles that idx 1001-1003 resolve to in practice.
   return parseColor(record(bg["p:bgRef"]), context);
 }
 
-/**
- * Converts an `<a:gradFill>` into a CSS gradient. Collapsing to the first
- * stop, as before, flattened four-stop brand gradients into one flat block.
- *
- * OOXML's `<a:lin ang>` is measured clockwise from the positive x-axis in
- * screen coordinates (y down); CSS measures clockwise from "up". The two
- * differ by exactly 90°.
- */
 function parseGradientFill(
   gradFill: Record<string, unknown> | null,
   context?: ColorContext,
@@ -2836,7 +2542,6 @@ function parseGradientFill(
   return `linear-gradient(${roundTo(cssAngle, 2)}deg, ${stopList})`;
 }
 
-/** `<a:fillToRect>` gives inset percentages from each edge; the focus point is the center of the rect they collapse to. */
 function fillToRectCenter(
   rect: Record<string, unknown> | null,
   nearAttribute: string,
@@ -2847,7 +2552,6 @@ function fillToRectCenter(
   return roundTo((near + (100 - far)) / 2, 2);
 }
 
-/** DrawingML writes these as either `"50%"` or the 1000ths-of-a-percent integer `50000`. */
 function percentAttribute(
   node: Record<string, unknown> | null,
   attribute: string,
@@ -2882,13 +2586,6 @@ interface ThemeInfo {
   fonts: string[];
 }
 
-/**
- * The deck's exposed palette is the *slide* master's theme, not
- * `ppt/theme/theme1.xml`. In every Google Slides export theme1 belongs to the
- * notes master, so hardcoding that path persisted a stock scheme that appears
- * nowhere in the deck and poisoned every restyle, generated slide and export
- * that reads it.
- */
 async function parseTheme(
   zip: ZipArchive,
   parseXml: (xml: string) => unknown,
@@ -3036,7 +2733,6 @@ function detectSplitByParagraph(value: unknown): boolean {
   }
 }
 
-/** Read the embed relationship id of a slide's background picture fill (`p:cSld/p:bg/p:bgPr/a:blipFill/a:blip`), if any. */
 function extractBackgroundFillEmbedId(slide: unknown): string | undefined {
   const root = record(slide);
   const cSld = record(record(root?.["p:sld"])?.["p:cSld"] ?? root?.["p:cSld"]);
@@ -3053,9 +2749,6 @@ function runProperties(
 ): Omit<ParsedPptxTextRun, "content"> {
   if (!value) return inherited;
   const size = Number(value["@_sz"]);
-  // `<a:hlinkClick r:id>` points at an external relationship whose Target is
-  // the URL; without it, a deck's own "click here" instructions import as
-  // styled but inert text.
   const linkId = stringValue(record(value["a:hlinkClick"])?.["@_r:id"]);
   const href = linkId ? relationships?.get(linkId)?.target : undefined;
   const color = parseColor(record(value["a:solidFill"]), context);
@@ -3144,10 +2837,6 @@ async function loadPptxDependencies(): Promise<{
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
       trimValues: false,
-      // A numeric-looking `<a:t>` body is still text: fast-xml-parser's default
-      // `parseTagValue: true` turns a type specimen "0123456789" into the
-      // number 123456789 and a spec line "CMYK: 00, 00, 00, 00" loses its
-      // leading zeros — content corruption, not a styling loss.
       parseTagValue: false,
     });
     return {
@@ -3162,15 +2851,6 @@ async function loadPptxDependencies(): Promise<{
   }
 }
 
-/**
- * `<a:br/>` is a hard line break sitting *between* `<a:r>` runs, but the
- * parser is not built with `preserveOrder`, so that interleaving is absent
- * from the parsed tree — an `a:br` array with no position in it is
- * unrecoverable. Rewriting each break into an ordinary run carrying a newline
- * keeps it in document order, which is the one thing a position-less tree
- * cannot reconstruct later. (A global `preserveOrder: true` would instead
- * rewrite every accessor in this file.)
- */
 function normalizeHardLineBreaks(xml: string): string {
   return xml.replace(
     /<a:br(?:\s[^>]*?)?\/>|<a:br(?:\s[^>]*?)?>[\s\S]*?<\/a:br>/g,
@@ -3178,17 +2858,8 @@ function normalizeHardLineBreaks(xml: string): string {
   );
 }
 
-/** Attribute `annotatePathCommandOrder` stamps on, as the parser exposes it. */
 const PATH_COMMAND_ORDER_ATTRIBUTE = "@_an-order";
 
-/**
- * An `<a:path>`'s children are a *sequence* — `moveTo`, `lnTo`, `cubicBezTo`,
- * `close` — and, exactly as with `<a:br/>` above, a tree built without
- * `preserveOrder` groups them by tag name and loses the one property a path
- * is made of. Stamping document order onto each command before parsing keeps
- * it recoverable; these six tag names appear nowhere else in the format, so
- * the global rewrite cannot touch anything but a path.
- */
 function annotatePathCommandOrder(xml: string): string {
   let order = 0;
   return xml.replace(

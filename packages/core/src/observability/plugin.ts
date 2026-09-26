@@ -15,9 +15,6 @@ export function createObservabilityPlugin() {
       `${FRAMEWORK_ROUTE_PREFIX}/observability`,
       createObservabilityHandler(),
     );
-    // Start the daily trace-retention cleanup. Idempotent — repeated
-    // plugin loads (Vite HMR) reuse the same schedule. See cleanup-job.ts
-    // for the AGENT_NATIVE_TRACE_RETENTION_DAYS env-var contract.
     try {
       startTraceCleanupJob();
     } catch (err) {

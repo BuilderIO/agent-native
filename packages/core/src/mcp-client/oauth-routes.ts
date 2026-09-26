@@ -186,12 +186,6 @@ export function bindMcpOAuthAuthorizationScope(
     : credentials;
 }
 
-/**
- * h3 hands a returned web `Response` straight back without merging the
- * `Set-Cookie` headers staged earlier on `event.res`. The callback stages the
- * flow-cookie deletion before it validates anything, so a `Response` that drops
- * those headers leaves the encrypted PKCE/state cookie in the browser.
- */
 export function withStagedCookies(
   event: H3Event,
   response: Response,
@@ -478,12 +472,6 @@ async function handleMcpOAuthStart(
 export const MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE =
   "Managed MCP OAuth is not configured for this workspace. A workspace owner must register the OAuth client once; after that, any workspace member can connect a personal account.";
 
-/**
- * Why a start failed, in the terms a person can act on. The two specific cases
- * are the ones a retry can never fix, so collapsing them into the generic
- * message is what left users re-clicking Connect against a provider that was
- * never going to work.
- */
 export type McpOAuthStartErrorBody = {
   error: string;
   errorCode?: string;
@@ -549,11 +537,6 @@ function authorizationServerLabel(
   }
 }
 
-/**
- * The start route is only ever reached by a browser navigation (a popup or a
- * Desktop OAuth window), so a failure has to render as a page. Returning the
- * JSON body painted the raw error object across the popup.
- */
 export function mcpOAuthStartFailureResponse(
   event: H3Event,
   failure: { status: number; body: McpOAuthStartErrorBody },
@@ -568,7 +551,6 @@ export function mcpOAuthStartFailureResponse(
   );
 }
 
-/** Shorthand for the single-message refusals in the browser-facing routes. */
 function refuse(
   event: H3Event,
   status: number,

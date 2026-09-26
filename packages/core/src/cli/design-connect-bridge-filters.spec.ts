@@ -13,11 +13,6 @@ import {
   startDesignConnectBridge,
 } from "./design-connect.js";
 
-/**
- * Focused tests for the /list-files ignore/secret-path filter logic and the
- * bridge's new list-files endpoint + hardened extension/secret blocklists.
- * Bridge lifecycle helpers mirror design-connect.spec.ts.
- */
 
 const tmpRoots: string[] = [];
 
@@ -108,7 +103,6 @@ describe("parseGitignore + isIgnoredByGitignore", () => {
 
   it("ignores comment and blank lines and negation patterns", () => {
     const rules = parseGitignore("# comment\n\n!kept.log\n*.log\n");
-    // Negation is unsupported in this subset — only the plain *.log rule is kept.
     expect(rules).toEqual([
       { pattern: "*.log", anchored: false, dirOnly: false },
     ]);
@@ -170,8 +164,6 @@ describe("shouldExcludeFromListing", () => {
   });
 
   it("blocks uppercase/mixed-case variants of secret-looking paths", () => {
-    // macOS's default filesystem (and Windows) is case-insensitive, so these
-    // must be blocked identically to their lowercase form.
     expect(
       shouldExcludeFromListing(".ENV", { gitignore: emptyGitignore }),
     ).toBe(true);
@@ -651,7 +643,6 @@ describe("design connect bridge version conflict handling", () => {
       const base = `http://127.0.0.1:${port}`;
       const authHeader = { "x-bridge-token": bridgeToken };
 
-      // Someone else changes the file on disk after the client "read" it.
       await new Promise((resolve) => setTimeout(resolve, 5));
       fs.writeFileSync(
         path.join(root, "index.html"),
@@ -670,7 +661,6 @@ describe("design connect bridge version conflict handling", () => {
       expect(result.status).toBe(409);
       expect(result.body["error"]).toBe("version conflict");
       expect(typeof result.body["currentVersionHash"]).toBe("string");
-      // The concurrent change must not have been overwritten.
       expect(fs.readFileSync(path.join(root, "index.html"), "utf8")).toBe(
         "<h1>changed underneath you</h1>",
       );

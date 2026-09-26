@@ -40,12 +40,6 @@ let unclaimedBackgroundRunRowsWithStartedAt: Array<{
 }> = [];
 let runCountRows: Array<{ run_count: number }> = [];
 let prunedRunRows: Array<Record<string, unknown>> = [];
-// claimBackgroundRun CAS simulation: the real DB row only has `dispatch_mode
-// = 'background'` ONCE, so only the FIRST `claimBackgroundRun` UPDATE for a
-// given runId can match the WHERE clause; every subsequent attempt (a
-// concurrent redispatch, a duplicate delivery, ...) must see rowsAffected=0.
-// Modeled as a Set of already-claimed run ids rather than a single counter so
-// a test can prove per-row independence too.
 const claimedBackgroundRunIds = new Set<string>();
 
 const mockDb: any = {
@@ -64,10 +58,6 @@ const mockDb: any = {
     ) {
       return { rows: latestEventRows, rowsAffected: 0 };
     }
-    // tryClaimRunSlot: SELECT id FROM agent_runs WHERE thread_id = ? AND ...
-    // Must come before the broader stale-run SELECT check since both match
-    // "SELECT id FROM agent_runs ... status = 'running'". Matches both the
-    // livenessBasisSql CASE expression and any legacy heartbeat-only form.
     if (
       /SELECT id,\s*EXISTS \(/i.test(rawSql) &&
       /WHERE thread_id = \? AND turn_id = \?/i.test(rawSql)
@@ -87,10 +77,6 @@ const mockDb: any = {
     ) {
       return { rows: claimSlotRows, rowsAffected: 0 };
     }
-    // listUnclaimedBackgroundRunRows: SELECT id, started_at FROM agent_runs
-    // WHERE status = 'running' AND dispatch_mode = 'background' AND ... Must
-    // come before the narrower id-only variant below (both match
-    // "dispatch_mode = 'background'").
     if (
       /SELECT id, started_at.*FROM agent_runs\s*WHERE status = 'running'/is.test(
         rawSql,
@@ -99,19 +85,12 @@ const mockDb: any = {
     ) {
       return { rows: unclaimedBackgroundRunRowsWithStartedAt, rowsAffected: 0 };
     }
-    // listUnclaimedBackgroundRunIds: SELECT id FROM agent_runs WHERE status =
-    // 'running' AND dispatch_mode = 'background' AND ... Must also come before
-    // the broader stale-run SELECT check below, which matches the same shape.
     if (
       /SELECT id FROM agent_runs\s*WHERE status = 'running'/i.test(rawSql) &&
       /dispatch_mode = 'background'/i.test(rawSql)
     ) {
       return { rows: unclaimedBackgroundRunRows, rowsAffected: 0 };
     }
-    // hasRunningRuns probe. `status = 'running'` is a superset of every sweep
-    // fixture below, so the double must report a row whenever ANY of them is
-    // populated — a probe that disagrees with the fixture it guards would
-    // short-circuit the very sweep the test is exercising.
     if (
       /SELECT id FROM agent_runs WHERE status = 'running' LIMIT 1/i.test(rawSql)
     ) {
@@ -125,7 +104,6 @@ const mockDb: any = {
     if (/SELECT id FROM agent_runs[\s\S]*status = 'running'/i.test(rawSql)) {
       return { rows: staleSelectRows, rowsAffected: 0 };
     }
-    // getRunStatus: SELECT status FROM agent_runs WHERE id = ?
     if (/SELECT status FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: runStatusRows, rowsAffected: 0 };
     }
@@ -143,7 +121,6 @@ const mockDb: any = {
       runListSelectCount++;
       return { rows, rowsAffected: 0 };
     }
-    // readBackgroundRunClaim: SELECT dispatch_mode, status, diag_stage, started_at, heartbeat_at FROM agent_runs WHERE id = ?
     if (
       /SELECT dispatch_mode, status, diag_stage.*FROM agent_runs WHERE id/i.test(
         rawSql,
@@ -151,7 +128,6 @@ const mockDb: any = {
     ) {
       return { rows: claimStateRows, rowsAffected: 0 };
     }
-    // getRunOwnerEmail: SELECT t.owner_email FROM agent_runs r JOIN chat_threads t ...
     if (/JOIN chat_threads/i.test(rawSql)) {
       return { rows: runOwnerRows, rowsAffected: 0 };
     }
@@ -162,7 +138,6 @@ const mockDb: any = {
     if (/UPDATE agent_runs SET status = 'aborted'/i.test(rawSql)) {
       return { rows: [], rowsAffected: abortRowsAffected };
     }
-    // Tool-call result ledger: SELECT result_summary, artifacts_json FROM ...
     if (
       /SELECT result_summary, artifacts_json FROM agent_tool_ledger/i.test(
         rawSql,
@@ -170,21 +145,15 @@ const mockDb: any = {
     ) {
       return { rows: ledgerRows, rowsAffected: 0 };
     }
-    // readRunDispatchPayload: SELECT dispatch_payload FROM agent_runs WHERE id = ?
     if (/SELECT dispatch_payload FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: dispatchPayloadRows, rowsAffected: 0 };
     }
     if (/DELETE FROM agent_runs[\s\S]*RETURNING/i.test(rawSql)) {
       return { rows: prunedRunRows, rowsAffected: prunedRunRows.length };
     }
-    // countRunsForTurn: SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND turn_id = ?
     if (/SELECT COUNT\(\*\) AS run_count FROM agent_runs/i.test(rawSql)) {
       return { rows: runCountRows, rowsAffected: 0 };
     }
-    // claimBackgroundRun: UPDATE agent_runs SET dispatch_mode =
-    // 'background-processing' WHERE id = ? AND status = 'running' AND
-    // dispatch_mode = 'background'. Stateful CAS simulation — see
-    // `claimedBackgroundRunIds`.
     if (
       /UPDATE agent_runs\s*SET dispatch_mode = 'background-processing'/i.test(
         rawSql,
@@ -267,7 +236,6 @@ const {
   resolveErroredRunTerminalEvent,
 } = await import("./run-store.js");
 
-// Mock storage for ledger SELECT responses, keyed by toolKey
 let ledgerRows: Array<{
   result_summary: string;
   artifacts_json?: string | null;
@@ -354,8 +322,6 @@ describe("run store", () => {
   it("getRunOwnerEmail resolves the thread owner for a run, or null when missing", async () => {
     runOwnerRows = [{ owner_email: "owner@example.com" }];
     expect(await getRunOwnerEmail("run-1")).toBe("owner@example.com");
-    // resolves by joining agent_runs to chat_threads, keyed by the runId only —
-    // the caller cannot supply the owner, only select the HMAC-signed run row.
     const joinCall = execCalls.find((c) => /JOIN chat_threads/i.test(c.sql));
     expect(joinCall).toBeTruthy();
     expect(joinCall?.args).toEqual(["run-1"]);
@@ -384,9 +350,6 @@ describe("run store", () => {
   });
 
   it("persists a reason-shaped terminal event for a recovery abort", async () => {
-    // A synthetic `done` is indistinguishable from a real finish on the wire —
-    // 45 of 49 prod no_progress runs ended on one, and the client rendered
-    // every one as "the agent stopped without sending a final message".
     await markRunAborted("run-abort-no-progress", "no_progress");
 
     const insert = execCalls.find((call) =>
@@ -414,7 +377,6 @@ describe("run store", () => {
       type: "done",
       reason: "user",
     });
-    // The displacing writer already recorded the row's real terminal state.
     expect(terminalEventForAbortReason("displaced")).toEqual({ type: "done" });
     expect(terminalEventForAbortReason("background_worker_died")).toEqual({
       type: "error",
@@ -451,8 +413,6 @@ describe("run store", () => {
   });
 
   it("hides the reserved checkpoint band from the live event feed", async () => {
-    // Streaming the checkpoint to a live subscriber would close the SSE stream
-    // at the chunk boundary before onComplete has made thread_data durable.
     await getRunEventsSince("run-feed", 3);
 
     const select = execCalls.find((call) =>
@@ -579,8 +539,6 @@ describe("run store", () => {
     expect(update?.sql).toContain("error_code = ?");
     expect(update?.sql).toContain("error_detail = ?");
     expect(update?.sql).toContain("terminal_reason = ?");
-    // `completed_at` is no longer bound — it comes from the row's liveness
-    // basis, so the SET list binds exactly these three.
     expect(update?.args[0]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
     expect(update?.args[1]).toBe(STALE_RUN_ERROR_EVENT.details);
     expect(update?.args[2]).toBe(STALE_RUN_TERMINAL_REASON);
@@ -873,8 +831,6 @@ describe("run store", () => {
 
     expect(runs).toHaveLength(2);
     expect(runs.every((run) => run.status === "completed")).toBe(true);
-    // Only one refetch of the row list, no matter how many candidates were
-    // reconciled — the reconciliations run concurrently, not per-row.
     expect(runListSelectCount).toBe(2);
     const repairCalls = execCalls.filter(
       (call) =>
@@ -894,11 +850,6 @@ describe("run store", () => {
         call.sql,
       ),
     );
-    // The stale predicate must key off the MOST RECENT of heartbeat_at (process
-    // timer) and last_progress_at (real work — a long tool's activity every 8s),
-    // not heartbeat_at alone. Otherwise a run that is demonstrably generating is
-    // reaped when the process-liveness write lags, aborting the in-flight tool
-    // ("Run aborted").
     expect(update?.sql).toContain("last_progress_at");
     expect(update?.sql).toMatch(
       /CASE WHEN COALESCE\(last_progress_at, started_at\) > COALESCE\(heartbeat_at, started_at\)/,
@@ -910,18 +861,9 @@ describe("run store", () => {
 
     await cleanupOldRuns(24 * 60 * 60 * 1000);
 
-    // The broadened SELECT — both predicates in one query — is what catches
-    // a 24h-old row whose heartbeat somehow stayed fresh. The older
-    // heartbeat-only SELECT would have left it without a terminal event.
     const select = execCalls.find(
       (call) =>
         /SELECT id FROM agent_runs/i.test(call.sql) &&
-        // The heartbeat predicate keys on the liveness basis (most recent of
-        // heartbeat_at and last_progress_at) against the background-aware cutoff
-        // fragment `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE
-        // 'background%' THEN ... END)`, so a progressing run isn't reaped and a
-        // slow background cold-start isn't reaped early. Still one query, still
-        // covering both predicates.
         /CASE WHEN COALESCE\(last_progress_at, started_at\) > COALESCE\(heartbeat_at, started_at\)/.test(
           call.sql,
         ) &&
@@ -1004,9 +946,8 @@ describe("run store", () => {
     expect(lock?.args).toEqual(["agent-native:run-outcome-prune"]);
   });
 
-  // Fix 2: atomic run lease
   it("tryClaimRunSlot grants the slot when no live running row exists", async () => {
-    claimSlotRows = []; // no current runner
+    claimSlotRows = [];
     const result = await tryClaimRunSlot("thread-free", "run-free");
     expect(result.claimed).toBe(true);
     expect(result.activeRunId).toBeNull();
@@ -1077,7 +1018,7 @@ describe("run store", () => {
   });
 
   it("tryClaimRunSlot uses a liveness cutoff to exclude stale rows", async () => {
-    claimSlotRows = []; // stale row was filtered by liveness cutoff in SQL
+    claimSlotRows = [];
     const result = await tryClaimRunSlot("thread-stale", "run-replacement");
     expect(result.claimed).toBe(true);
 
@@ -1088,15 +1029,10 @@ describe("run store", () => {
         /COALESCE\(heartbeat_at, started_at\)/i.test(call.sql),
     );
     expect(select).toBeDefined();
-    // The liveness cutoff arg must be a recent timestamp
     expect(Number(select?.args[1])).toBeGreaterThan(Date.now() - 60_000);
   });
 
   it("tryClaimRunSlot casts the now param to BIGINT so a ms epoch can't be typed as int4", async () => {
-    // Regression: the default (background-aware) cutoff does `? - <int4
-    // literal>` in SQL. Without an explicit cast Postgres infers the parameter
-    // as int4 from the literal windows, and Date.now() overflows with
-    // `value "…" is out of range for type integer`, failing every chat turn.
     claimSlotRows = [];
     await tryClaimRunSlot("thread-cast", "run-cast");
     const select = execCalls.find(
@@ -1105,14 +1041,11 @@ describe("run store", () => {
         /COALESCE\(last_progress_at, started_at\)/i.test(call.sql),
     );
     expect(select?.sql).toMatch(/CAST\(\?\s+AS\s+BIGINT\)\s*-\s*CASE/i);
-    // And the bound value is a full ms epoch (would overflow int4).
     expect(Number(select?.args[1])).toBeGreaterThan(2_147_483_647);
   });
 
-  // Fix 1c: conditional terminal status write
   it("updateRunStatusIfRunning only updates rows still status=running", async () => {
     const result = await updateRunStatusIfRunning("run-alive", "completed");
-    // The mock returns rowsAffected=1 for any UPDATE — truthy return
     expect(result).toBe(true);
 
     const update = execCalls.find(
@@ -1142,7 +1075,6 @@ describe("run store", () => {
     expect(status).toBeNull();
   });
 
-  // ─── Tool-call result ledger ───────────────────────────────────────────────
 
   it("writeLedgerEntry persists result via INSERT with UPSERT semantics", async () => {
     await writeLedgerEntry("thread-abc", "my-tool:{}", "the result");
@@ -1189,7 +1121,7 @@ describe("run store", () => {
       /INSERT INTO agent_tool_ledger/i.test(call.sql),
     );
     const stored = insert?.args[2] as string;
-    expect(stored.length).toBeLessThanOrEqual(8_050); // 8000 + truncation marker
+    expect(stored.length).toBeLessThanOrEqual(8_050);
     expect(stored).toContain("ledger truncated");
     expect(stored.startsWith("X".repeat(8_000))).toBe(true);
   });
@@ -1316,7 +1248,6 @@ describe("run store", () => {
     await expect(clearLedgerForThread("thread-err")).resolves.toBeUndefined();
   });
 
-  // ─── dispatch_payload persistence (payload-ref rehydration) ────────────────
 
   it("insertRun persists dispatchPayload into the dispatch_payload column", async () => {
     await insertRun("run-payload", "thread-1", "turn-1", {
@@ -1424,7 +1355,6 @@ describe("run store", () => {
     ]);
   });
 
-  // ─── countRunsForTurn (durable per-turn ledger) ─────────────────────────────
 
   it("countRunsForTurn returns the SQL count, scoped by thread_id AND turn_id", async () => {
     runCountRows = [{ run_count: 7 }];
@@ -1447,7 +1377,6 @@ describe("run store", () => {
     expect(await countRunsForTurn("thread-x", "turn-nan")).toBe(0);
   });
 
-  // ─── listUnclaimedBackgroundRunIds (lost-handoff sweep) ────────────────────
 
   it("listUnclaimedBackgroundRunIds filters running+background rows past the grace window", async () => {
     unclaimedBackgroundRunRows = [{ id: "run-lost-1" }, { id: "run-lost-2" }];
@@ -1486,9 +1415,6 @@ describe("run store", () => {
   });
 
   it("listUnclaimedBackgroundRunIds casts the now param to BIGINT and binds a full ms epoch", async () => {
-    // Regression guard mirroring the tryClaimRunSlot BIGINT-cast test: without
-    // an explicit cast, Postgres can infer the parameter as int4 from the
-    // literal grace-window subtraction, and a ms epoch overflows int4.
     unclaimedBackgroundRunRows = [];
     await listUnclaimedBackgroundRunIds();
 
@@ -1511,7 +1437,6 @@ describe("run store", () => {
     expect(ids).toEqual(["run-ok"]);
   });
 
-  // ─── listUnclaimedBackgroundRunRows (sweep redispatch bound) ───────────────
 
   it("listUnclaimedBackgroundRunRows returns each row's original started_at alongside its id", async () => {
     unclaimedBackgroundRunRowsWithStartedAt = [
@@ -1549,8 +1474,6 @@ describe("run store", () => {
     expect(select?.sql).toMatch(
       /ORDER BY COALESCE\(heartbeat_at, started_at\) ASC, started_at ASC/i,
     );
-    // `started_at` remains the original handoff time used by the five-minute
-    // redispatch bound; the ordering clock is the mutable heartbeat.
     expect(select?.sql).toContain("SELECT id, started_at");
   });
 
@@ -1566,10 +1489,6 @@ describe("run store", () => {
     ]);
   });
 
-  // Sweep eligibility does not imply the row can be redispatched. A row with no
-  // `dispatch_payload` sent to a worker under `payloadRef: true` dies as
-  // `dispatch_payload_missing` — 98 production runs did exactly that — so the
-  // sweep has to be able to tell the two apart.
   it("listUnclaimedBackgroundRunRows reports whether the row can still be rehydrated", async () => {
     unclaimedBackgroundRunRowsWithStartedAt = [
       { id: "run-with-payload", started_at: 1, has_dispatch_payload: true },
@@ -1584,13 +1503,8 @@ describe("run store", () => {
     ]);
   });
 
-  // ─── Idle sweep cost ──────────────────────────────────────────────────────
 
   it("an idle fast-sweep tick costs one query, not one per sweep", async () => {
-    // agent-chat-plugin's 20s fast sweep runs these two back to back. On an
-    // idle app both scan for rows that do not exist, which on a remote database
-    // is a round trip each, per app, forever. One shared `status='running'`
-    // probe must answer both.
     await reapAllStaleRuns();
     await listUnclaimedBackgroundRunRows();
 
@@ -1625,10 +1539,6 @@ describe("run store", () => {
   });
 
   it("UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS is a real bound wider than the grace window — never zero, never infinite", () => {
-    // The sweep must get more than one redispatch attempt (grace window is
-    // 25s, sweep tick is ~2min) but the bound must still be finite so a
-    // permanently-dead handoff eventually fails loud instead of retrying
-    // forever.
     expect(UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS).toBeGreaterThan(
       2 * 60_000,
     );
@@ -1637,7 +1547,6 @@ describe("run store", () => {
     );
   });
 
-  // ─── shouldRedispatchUnclaimedBackgroundRun (bounded recovery backstop) ────
 
   it("shouldRedispatchUnclaimedBackgroundRun allows redispatch while inside the bound", () => {
     const now = 1_000_000;
@@ -1649,14 +1558,11 @@ describe("run store", () => {
 
   it("shouldRedispatchUnclaimedBackgroundRun falls back to the reap once the bound is exceeded — the loud backstop", () => {
     const now = 1_000_000;
-    // Exactly at the bound: no longer "within" it (strict <).
     const atBound = {
       startedAt: now - UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
     };
     expect(shouldRedispatchUnclaimedBackgroundRun(atBound, now)).toBe(false);
 
-    // Well past the bound — a genuinely dead handoff must stop being
-    // redispatched forever and go to the reap instead.
     const wayPast = {
       startedAt: now - UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS * 10,
     };
@@ -1664,20 +1570,14 @@ describe("run store", () => {
   });
 
   it("shouldRedispatchUnclaimedBackgroundRun defaults `now` to the real clock", () => {
-    // A row that just started is always within the bound right now.
     expect(
       shouldRedispatchUnclaimedBackgroundRun({ startedAt: Date.now() }),
     ).toBe(true);
-    // A row from a very long time ago is not.
     expect(shouldRedispatchUnclaimedBackgroundRun({ startedAt: 0 })).toBe(
       false,
     );
   });
 
-  // ─── UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS (derived timing budget) ───────
-  // See this constant's doc comment for the full derivation. These assertions
-  // pin the DERIVED relationship, not the exact numbers, so the budget stays
-  // self-consistent if any one constant is retuned later.
 
   it("the fast sweep is a real, finite, short interval — strictly tighter than the redispatch bound", () => {
     expect(UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS).toBeGreaterThan(0);
@@ -1687,12 +1587,6 @@ describe("run store", () => {
     );
   });
 
-  // ─── claimBackgroundRun CAS (no-double-execution invariant) ───────────────
-  // Adding a tighter fast sweep alongside the existing slow sweep means two
-  // independent timers can now both try to redispatch the SAME unclaimed row
-  // around the same time, and a client-poll reap could interleave too. The
-  // CAS on `claimBackgroundRun` — not any sweep-level locking — is what makes
-  // that safe: only the FIRST claim attempt for a row can win.
 
   it("claimBackgroundRun's CAS rejects a second claimer racing the same row (fast sweep vs slow sweep vs a real worker)", async () => {
     const first = await claimBackgroundRun("run-race");
@@ -1717,14 +1611,6 @@ describe("run store", () => {
   });
 
   it("worst-case time-to-first-redispatch-attempt (grace + one fast-sweep tick, plus one retry) still leaves real headroom before the redispatch bound", () => {
-    // The full inequality against the CLIENT's
-    // BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS is asserted in
-    // agent-chat-adapter.spec.ts, which imports these same run-store
-    // constants (safe direction — a client test importing pure server
-    // constants) rather than the reverse (this server spec importing a
-    // browser-surface client module). This test proves the server-side half
-    // of the budget stands on its own: even with room for a full failed
-    // first attempt, recovery is a small fraction of the outer hard bound.
     const worstCaseFirstAttemptMs =
       UNCLAIMED_BACKGROUND_RUN_GRACE_MS +
       UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS;
@@ -1829,17 +1715,11 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
       const update = execCalls.find((call) =>
         /UPDATE agent_runs/i.test(call.sql),
       );
-      // The SET clause is what must leave status alone — the WHERE clause reads
-      // it deliberately, to keep the write once-only (see the guard below).
       const setClause = update?.sql.split(/\bWHERE\b/i)[0] ?? "";
       expect(setClause).not.toContain("status");
     }
   });
 
-  // Three writers in three isolates race on terminal_reason with no ordering.
-  // Last-writer-wins let a late mid-run checkpoint relabel a row another
-  // isolate had already finalized, producing rows whose reason names a failure
-  // the run never hit.
   it("setRunTerminalReason will not relabel a row that already recorded one", async () => {
     for (const reason of ["done", "no_progress", "dispatch_payload_missing"]) {
       execCalls.length = 0;
@@ -1858,10 +1738,6 @@ describe("stale-reap forensics", () => {
   const BASE = 1_000_000;
 
   it("picks the same window the reap SQL does, for all three cases", () => {
-    // Mirrors `backgroundAwareStaleCutoffSql`. A background row WITH a
-    // dispatch payload has a successor to reach, so it gets the tight
-    // post-claim window; one without has nothing to recover and gets the
-    // wider background window; foreground keeps the tight default.
     expect(
       staleWindowMsForRow({
         dispatchMode: "background-processing",
@@ -1890,7 +1766,6 @@ describe("stale-reap forensics", () => {
   });
 
   it("separates a dead worker from a live worker that stopped producing", () => {
-    // Dead worker: heartbeat and progress stop together.
     const dead = describeStaleReap({
       startedAt: BASE,
       heartbeatAt: BASE + 300_000,
@@ -1902,9 +1777,6 @@ describe("stale-reap forensics", () => {
     });
     expect(dead).toContain("hbAheadOfProgress=0");
 
-    // Live worker, wedged loop: the heartbeat runs on for the better part of an
-    // hour past the last real progress. This is the shape one production run
-    // showed and that nothing recorded.
     const wedged = describeStaleReap({
       startedAt: BASE,
       heartbeatAt: BASE + 3_309_000,
@@ -1934,8 +1806,6 @@ describe("stale-reap forensics", () => {
     expect(detail).toContain("sinceProgress=115000");
     expect(detail).toContain("inFlight=1");
     expect(detail).toContain("inFlightFor=112000");
-    // `runAge` is measured to the liveness basis, not to the reap — the reap
-    // time is detection latency, not run duration.
     expect(detail).toContain("runAge=10000");
   });
 
@@ -1949,7 +1819,6 @@ describe("stale-reap forensics", () => {
       hasDispatchPayload: true,
       now: BASE + 2,
     });
-    // Every token is `key=<number|enum>`; nothing free-form can reach it.
     for (const part of detail.split(" ")) {
       expect(part).toMatch(
         /^[a-zA-Z]+=(-?\d+|none|background[a-z-]*|foreground)$/,

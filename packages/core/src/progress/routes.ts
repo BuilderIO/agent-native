@@ -1,16 +1,3 @@
-/**
- * H3 event handlers for the agent-runs progress primitive.
- *
- * Mounted under `/_agent-native/runs/*` by `core-routes-plugin`.
- *
- *   GET    /_agent-native/runs?active=true&limit=50
- *   GET    /_agent-native/runs/:id
- *   DELETE /_agent-native/runs/:id
- *
- * Writes happen through the `manage-progress` agent tool, not HTTP —
- * the agent is the canonical writer, the UI only reads. (We can add write
- * routes later if a non-agent producer needs them.)
- */
 
 import {
   defineEventHandler,
@@ -53,7 +40,6 @@ export function createProgressHandler() {
     const parts = pathname ? pathname.split("/") : [];
     const owner = await resolveOwner(event);
 
-    // GET /  — list
     if (method === "GET" && parts.length === 0) {
       const q = getQuery(event);
       return listRuns(owner, {
@@ -63,7 +49,6 @@ export function createProgressHandler() {
       });
     }
 
-    // GET /:id
     if (method === "GET" && parts.length === 1) {
       const row = await getRun(parts[0], owner);
       if (!row) {
@@ -73,7 +58,6 @@ export function createProgressHandler() {
       return row;
     }
 
-    // DELETE /:id
     if (method === "DELETE" && parts.length === 1) {
       const ok = await deleteRun(parts[0], owner);
       if (!ok) {

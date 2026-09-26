@@ -1,10 +1,3 @@
-/**
- * AgentKit semantic tokens.
- *
- * These are role tokens rather than a second generic spacing or color scale.
- * Applications can override any value at their theme boundary while AgentKit
- * components keep one density, geometry, motion, and status vocabulary.
- */
 :root {
   --agent-kit-conversation-max-width: 46.875rem;
   --agent-kit-composer-adjacent-inline-inset: 1.5rem;
@@ -98,7 +91,6 @@
 
 @supports (background: color-mix(in srgb, white, black)) {
   :root {
-    /* Keep the depth order explicit: nav < canvas < raised content. */
     --agent-kit-recessed-surface: hsl(var(--background));
     --agent-kit-nav-surface: hsl(var(--sidebar-background, var(--background)));
   }

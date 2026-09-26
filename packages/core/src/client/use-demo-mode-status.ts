@@ -11,10 +11,6 @@ export interface DemoModeStatus {
   isLoading: boolean;
 }
 
-/**
- * Reads the browser-local Demo mode presentation preference. This deliberately
- * has no backend request: the server and agent always operate on real data.
- */
 export function useDemoModeStatus(): DemoModeStatus {
   const enabled = useSyncExternalStore(
     subscribeToBrowserDemoMode,

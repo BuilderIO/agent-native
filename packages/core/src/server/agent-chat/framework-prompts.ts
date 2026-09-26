@@ -17,21 +17,7 @@ import {
 } from "./context-tools.js";
 import { lazyFs } from "./lazy-fs.js";
 
-// ---------------------------------------------------------------------------
-// Framework-level system prompt assembly (production/dev, full/compact),
-// the "Available Actions" and corpus-tools prompt sections, the SQL schema
-// block, and the codebase file-tree walker used by a few dev-mode tools.
-// ---------------------------------------------------------------------------
 
-/**
- * Framework-level instructions injected into every agent's system prompt.
- * Prompt text lives in packages/core/src/server/prompts/ so this file stays
- * focused on routing and assembly logic.
- *
- * buildFrameworkPrompts() is called once per plugin instantiation (not per
- * request) with the template's promptExamples, producing the four assembled
- * prompt strings used at request time.
- */
 export function buildFrameworkPrompts(
   examples?: PromptExamples,
   options?: {
@@ -49,8 +35,6 @@ export function buildFrameworkPrompts(
 } {
   const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
   const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
-  // Dev agents edit source directly, so their copy of the core drops the
-  // production-only "hand code changes to Builder" sentence.
   const devCoreOptions = { ...options, canEditSource: true };
   const DEV_FRAMEWORK_CORE = buildFrameworkCore(examples, devCoreOptions);
   const DEV_FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(
@@ -193,7 +177,6 @@ ${DEV_FRAMEWORK_CORE_COMPACT}`;
 }
 
 export const _agentChatPromptSectionsForTests = (() => {
-  // Built with default (no template-specific) examples for test stability.
   const {
     FRAMEWORK_CORE: frameworkCore,
     FRAMEWORK_CORE_COMPACT: frameworkCoreCompact,
@@ -209,11 +192,6 @@ export const _agentChatPromptSectionsForTests = (() => {
   };
 })();
 
-/**
- * Build the per-request SQL-schema context block. Reads AGENT_ORG_ID live
- * from the environment so scheduler/A2A/HTTP call sites all see whatever
- * org was just resolved for this request.
- */
 export async function buildSchemaBlock(
   owner: string,
   databaseTools: DatabaseToolsOption = "read",
@@ -229,23 +207,6 @@ export async function buildSchemaBlock(
   }
 }
 
-/**
- * Generates a system prompt section describing registered template actions.
- *
- * Two output modes:
- *
- *   - `"tool"` — used in production, where template actions are registered
- *     as native Anthropic tools. The native tool schema already carries each
- *     action's name, full description, and parameters, so this mode does NOT
- *     re-list every action — it only surfaces what the tool list can't:
- *     native-chat-widget annotations and a `tool-search` pointer for actions
- *     omitted from the initial tool set.
- *   - `"cli"` — used in dev, where template actions are NOT registered as
- *     native tools and must be invoked via `bash(command="pnpm action ...")`.
- *     This listing is load-bearing here (there is no tool schema to fall
- *     back on), so it still emits the full
- *     `pnpm action name --arg <type> [--opt <type>] — desc` line per action.
- */
 export function generateActionsPrompt(
   registry: Record<string, ActionEntry>,
   mode: "cli" | "tool" = "tool",
@@ -265,10 +226,6 @@ export function generateActionsPrompt(
       : "";
 
   if (mode === "tool") {
-    // Native tool schemas already carry name + full description + params
-    // for every action, so this section only needs to surface what the tool
-    // list itself can't: which actions render a native chat widget, and
-    // which actions exist but aren't loaded as initial tools yet.
     const widgetLines = actionEntries
       .filter(([, entry]) => typeof entry.chatUI?.renderer === "string")
       .map(
@@ -297,12 +254,10 @@ export function generateActionsPrompt(
     const params = entry.tool.parameters?.properties;
     const requiredFields = new Set(entry.tool.parameters?.required ?? []);
 
-    // CLI mode: emit `pnpm action <name> --required <type> [--optional <type>]`
     if (!params || Object.keys(params).length === 0) {
       return `- \`pnpm action ${name}\` — ${desc}${nativeWidgetNote(entry)}`;
     }
     const entries = Object.entries(params);
-    // Required first (alphabetical), then optional (alphabetical)
     entries.sort(([a], [b]) => {
       const ar = requiredFields.has(a) ? 0 : 1;
       const br = requiredFields.has(b) ? 0 : 1;
@@ -337,15 +292,6 @@ Do NOT try to call these by name as if they were tools — they will not exist i
 ${lines.join("\n")}`;
 }
 
-/**
- * Tool names `generateCorpusToolsPrompt` teaches BY NAME, in the same order
- * it lists them. Exported so callers that build a request's initial
- * engine-tool set can fold in exactly the subset present in a given
- * registry — keeping "what the prompt just told the model exists" and
- * "what tools are actually callable on the first request" in sync. See the
- * corpus-prompt/initial-tools note at this function's call site in
- * agent-chat-plugin.ts.
- */
 const CORPUS_TOOL_NAMES = [
   "provider-api-catalog",
   "provider-api-docs",
@@ -399,10 +345,6 @@ For broad provider searches, raw API access, multi-page cohorts, cross-source jo
 When \`provider-corpus-job\` is available, prefer it for transcript/message/ticket/issue/document scans that may exceed one turn, need provider-side backoff, or need a defensible "not found" conclusion. Use operation="start" with mode="paginated-search" for any paginated provider endpoint, or mode="batch-search" when a prior cohort of ids/records must feed a second provider endpoint. Continue paused jobs with operation="continue" until status is completed or quota_wait, then read operation="results". In run-code, prefer providerFetchAll() for short cursor/page/offset pagination and providerRequest() when response status, headers, or truncation metadata matters. Report source, filters, row counts, pagination/truncation, failed pages, quota_wait times, and remaining gaps.`;
 }
 
-/**
- * Walks the local filesystem (dev mode only) to build a bounded file/folder
- * tree, used by a couple of dev-mode workspace-inspection tools.
- */
 export async function collectFiles(
   dir: string,
   prefix: string,

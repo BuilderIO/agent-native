@@ -40,7 +40,6 @@ export interface ResolveWorkspaceConnectionCredentialForAppOptions {
   connectionId?: string | null;
   userEmail?: string | null;
   orgId?: string | null;
-  /** Default true. Read-only readiness checks pass false so page loads do not write last_used_at. */
   recordUsage?: boolean;
 }
 

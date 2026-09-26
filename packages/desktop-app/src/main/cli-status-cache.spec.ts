@@ -28,7 +28,6 @@ describe("cachedCliStatus", () => {
     expect(first).toBe("codex");
     expect(syncProbes).toBe(1);
 
-    // The 5s host-metadata poll must not spawn a process again inside the TTL.
     for (let i = 0; i < 20; i += 1) {
       clock += 10;
       expect(
@@ -51,7 +50,6 @@ describe("cachedCliStatus", () => {
     cachedCliStatus(cache, probeSync, probeAsync, () => clock, 1000);
     clock = 5000;
 
-    // The stale read still returns immediately with the last known value.
     expect(
       cachedCliStatus(cache, probeSync, probeAsync, () => clock, 1000),
     ).toBe("stale");

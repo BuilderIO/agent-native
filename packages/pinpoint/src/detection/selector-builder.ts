@@ -1,12 +1,8 @@
-// @agent-native/pinpoint — CSS selector generation using @medv/finder
-// MIT License
 
 import { finder } from "@medv/finder";
 
 export interface SelectorOptions {
-  /** Timeout for selector generation (ms) */
   timeoutMs?: number;
-  /** Additional class names to skip */
   skipClassPatterns?: RegExp[];
 }
 
@@ -25,10 +21,6 @@ const DEFAULT_SKIP_IDS = [
   /^headlessui-/, // HeadlessUI auto IDs
 ];
 
-/**
- * Generate a unique, human-readable CSS selector for an element.
- * Uses @medv/finder (MIT) with configuration to skip CSS-in-JS hashes.
- */
 export function buildSelector(
   element: Element,
   options: SelectorOptions = {},
@@ -48,7 +40,6 @@ export function buildSelector(
       timeoutMs,
     });
   } catch {
-    // Fallback: build a basic selector from tag + classes
     return buildFallbackSelector(element);
   }
 }
@@ -62,13 +53,11 @@ function buildFallbackSelector(element: Element): string {
 
   parts.push(element.tagName.toLowerCase());
 
-  // Use data-testid if available
   const testId = element.getAttribute("data-testid");
   if (testId) {
     return `[data-testid="${CSS.escape(testId)}"]`;
   }
 
-  // Add meaningful class names
   const classes = Array.from(element.classList).filter(
     (name) => !DEFAULT_SKIP_CLASSES.some((pattern) => pattern.test(name)),
   );
@@ -76,7 +65,6 @@ function buildFallbackSelector(element: Element): string {
     parts.push(`.${classes.map((c) => CSS.escape(c)).join(".")}`);
   }
 
-  // Add nth-child for uniqueness
   const parent = element.parentElement;
   if (parent) {
     const siblings = Array.from(parent.children).filter(

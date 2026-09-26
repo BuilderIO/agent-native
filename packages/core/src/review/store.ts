@@ -24,7 +24,6 @@ let reviewTablesInitPromise: Promise<void> | undefined;
 type ReviewThreadStatus = "open" | "resolved";
 
 export interface InsertReviewCommentInput {
-  /** A caller-provided, stable identifier used to make a submission replay-safe. */
   id?: string;
   resourceType: string;
   resourceId: string;
@@ -344,7 +343,6 @@ export async function setReviewThreadUnreadPreferences(input: {
   }));
 }
 
-// The caller supplies comments already authorized by the resource access check.
 export async function getReviewDiscussionStateForComments(
   comments: Pick<ReviewComment, "id" | "threadId">[],
   userEmail: string | null,
@@ -410,11 +408,6 @@ export async function insertReviewComment(
   return insertReviewCommentWithClient(input, getDbExec());
 }
 
-/**
- * Uses the submission ID as a durable receipt. A receipt can only be replayed
- * by the same immutable comment payload; a reused ID must never redirect a
- * comment to another resource or thread.
- */
 export async function insertReviewCommentIdempotently(
   input: InsertReviewCommentInput & { id: string },
 ): Promise<InsertReviewCommentResult> {

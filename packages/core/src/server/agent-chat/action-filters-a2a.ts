@@ -31,11 +31,6 @@ import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
 import type { AgentChatPluginOptions } from "./plugin-options.js";
 
-// ---------------------------------------------------------------------------
-// Action-visibility filters (read-only / agent-exposed / public-agent-safe)
-// and the A2A (agent-to-agent) final-response assembly + delegated-run
-// helpers that share those filters.
-// ---------------------------------------------------------------------------
 
 export function filterReadOnlyActions(
   actions: Record<string, ActionEntry>,
@@ -45,11 +40,6 @@ export function filterReadOnlyActions(
   );
 }
 
-/** Drop actions that opted out of agent exposure via `agentTool: false`. They
- *  remain callable from the frontend / HTTP (mounted separately from this
- *  agent tool surface — see `httpActions`) but never appear in any agent tool
- *  list (in-app assistant, MCP, A2A, job/trigger runners) or actions prompt.
- *  Default-allow: only an explicit `false` is excluded. */
 export function filterAgentTools(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -60,17 +50,6 @@ export function filterAgentTools(
   );
 }
 
-/**
- * The MCP-only actions: `agentTool: false` paired with an explicit
- * `mcpTool: true`.
- *
- * `filterAgentTools` drops these, which is right for every in-app surface and
- * wrong for the two external ones. Rather than have the MCP and A2A mounts
- * read the unfiltered registry — and re-derive which agent-hidden actions are
- * safe to serve — the plugin re-merges exactly this set into those two mounts.
- * A caller that wants "everything external" merges this with the agent surface;
- * nobody has to remember which raw fields make an action MCP-only.
- */
 export function filterMcpOnlyActions(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -100,28 +79,8 @@ export function filterPublicAgentActions(
   );
 }
 
-/**
- * Input fields that unambiguously carry a program the receiver executes.
- *
- * Deliberately excludes `query`: across the templates that field is nearly
- * always natural-language search text (Brain's `search-everything`,
- * `search-knowledge`), and blocking it would break exactly the ask-don't-instruct
- * calls this rule exists to encourage.
- */
 const RAW_QUERY_INPUT_FIELDS = new Set(["sql", "code", "script", "expression"]);
 
-/**
- * True when an action takes a free-form query or program as input — raw SQL, a
- * code body, an arbitrary expression.
- *
- * Such an action must not be sibling-invocable over A2A. The app that owns the
- * data owns its schema, data dictionary, skills, and reference queries; a
- * calling app has none of that, so letting it pass SQL means every caller
- * reimplements the owner's schema knowledge badly and silently rots when the
- * owner's shape changes. Callers ask the owning app a question; the owner
- * forms the query. Set `publicAgent.allowRawQueryInput` to opt a specific
- * action out of this rule.
- */
 export function hasRawQueryInput(entry: ActionEntry): boolean {
   const parameters = entry.tool?.parameters as
     | { properties?: Record<string, { type?: unknown }> }
@@ -138,24 +97,11 @@ export function hasRawQueryInput(entry: ActionEntry): boolean {
   });
 }
 
-/**
- * The two policy fields A2A shares with the MCP mount. Structural rather than
- * `Pick<AgentChatPluginOptions, …>` so callers pass the *resolved* MCP options:
- * reading the raw plugin options here would leave A2A on the deprecated
- * top-level keys, so `mcp: { connectorCatalog }` would narrow the MCP surface
- * while A2A kept serving the old one.
- */
 export interface A2AExternalAgentSurface {
   connectorCatalog?: string[];
   externalAgents?: ExternalAgentPolicy;
 }
 
-/**
- * Direct A2A action calls share the authenticated external-agent policy with
- * MCP, but remain stricter: only explicitly exposed, authenticated read-only
- * actions can skip the receiver's model loop, and never one that takes a raw
- * query the caller wrote.
- */
 export function filterDirectA2AActions(
   actions: Record<string, ActionEntry>,
   options: A2AExternalAgentSurface,
@@ -167,8 +113,6 @@ export function filterDirectA2AActions(
   return Object.fromEntries(
     Object.entries(actions).filter(([name, entry]) => {
       const exposure = entry.publicAgent;
-      // `mcpTool: true` is catalog membership declared beside the action; the
-      // exposure resolver below is the veto no config list can re-open.
       const selected =
         entry.mcpTool === true ||
         catalog.has(name) ||
@@ -193,12 +137,6 @@ export function filterDirectA2AActions(
   );
 }
 
-/**
- * Authenticated write capabilities that a sibling may delegate to this app's
- * agent, but never invoke directly. `publicAgent` is the action-owned opt-in;
- * keeping this projection independent of `connectorCatalog` avoids making apps
- * maintain a second capability registry. The deny list remains a final veto.
- */
 export function filterDelegatedA2ACapabilityActions(
   actions: Record<string, ActionEntry>,
   options: A2AExternalAgentSurface,
@@ -247,13 +185,6 @@ export function buildPublicAgentA2ASkills(
   );
 }
 
-/**
- * Skills for a caller with a verified A2A identity. Exact bounded reads carry
- * schemas and may be invoked directly; explicitly exposed writes carry no
- * schema and are discoverable only as natural-language delegation targets.
- * Kept separate from `buildPublicAgentA2ASkills` because neither authenticated
- * surface may be disclosed by the anonymous card.
- */
 export function buildAuthenticatedAgentA2ASkills(
   actions: Record<string, ActionEntry>,
   options: A2AExternalAgentSurface,
@@ -275,12 +206,7 @@ export function buildAuthenticatedAgentA2ASkills(
         name,
         description: entry.tool.description,
         publicAgent: entry.publicAgent,
-        // Every action in this set is read-only by construction. Omitting the
-        // flag made discovery label all of them "(mutating)", which pushes a
-        // caller away from invoking them and back into open-ended delegation.
         readOnly: true,
-        // Naming a directly callable action without its parameters is what
-        // makes a caller invoke it with `{}` and fail on a required field.
         ...(entry.tool.parameters
           ? {
               inputSchema: entry.tool.parameters as unknown as Record<
@@ -297,17 +223,12 @@ export function buildAuthenticatedAgentA2ASkills(
       name,
       description: entry.tool.description,
       publicAgent: entry.publicAgent,
-      // No input schema: the sibling sends an objective to the receiving app,
-      // whose agent chooses and validates its own local actions.
       readOnly: false,
     };
   });
 }
 
 export function resolveArtifactBaseUrl(event: any): string | undefined {
-  // An artifact link is user-facing, so the canonical URL wins; the platform's
-  // per-deploy URLs are the fallback, not the other way round (that ordering
-  // belongs to self-dispatch, which has to reach *this* deploy).
   const fromEnv =
     getAppConfig().app.url ?? process.env.URL ?? process.env.DEPLOY_URL;
   if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
@@ -447,38 +368,10 @@ function formatA2ATerminalError(
 
 type A2AAgentLoopRunner = typeof runAgentLoopDirectWithSoftTimeout;
 
-/**
- * Delegated turns should do specialist work with the receiver's own tools,
- * but must return a bounded caller-ready result. Interactive defaults allow
- * extremely deep work (400 iterations / 20M cumulative input tokens), which
- * made healthy Slides -> Analytics calls take 4-13 minutes and consume up to
- * millions of input tokens as tool results accumulated. These defaults leave
- * ample room for multi-source analysis while failing before a delegated turn
- * can silently become an unbounded research session.
- *
- * This also gates `runMCPAgentLoop`, the same-app `ask_app` path, so it bounds
- * ordinary requests to an app's own agent. The whole prompt, including every
- * tool schema (~50k tokens for a large app), is re-sent each step, so the cap
- * must leave room for a normal multi-step turn, not just a single call.
- */
 export const DEFAULT_DELEGATED_MAX_ITERATIONS = 80;
 export const DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS = 5_000_000;
 export const DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS = 20_000;
 
-/**
- * A sentence naming the wall clock this delegated step actually gets, or "" when
- * there is no enforced budget (local dev returns 0 from the resolver).
- *
- * "I ran out of time before finishing this step" was 39% of all failed inbound
- * A2A tasks in one measured week, clustered at 35-46s against a 40s foreground
- * serverless wall. The callee was never told that wall exists: it is handed a
- * nominal 80 iterations and 750k tokens and plans accordingly, while production
- * iterations measure ~34s each — so a foreground chunk affords roughly one.
- *
- * The clock is already enforced correctly; a second, cruder cap on iterations
- * would only waste budget. What was missing is that the agent could not see it.
- * An agent that knows it has forty seconds scopes to forty seconds.
- */
 function delegatedTimeBudgetNote(
   runSoftTimeoutMs: number | undefined,
   backgroundFunction: boolean,
@@ -553,11 +446,6 @@ async function runDelegatedAgentLoop(
         pluginOptions.runSoftTimeoutMs,
         timeoutOptions?.backgroundFunction === true,
       ),
-    // Delegated runs resolve their own model and do not pass through the
-    // interactive request handler's output-token setup. Use the same
-    // model-aware headroom here so reasoning models (notably GPT-5.x) do
-    // not spend the small internal default entirely on reasoning before
-    // emitting a tool call or answer. Preserve explicit test/caller values.
     maxOutputTokens:
       runOptions.maxOutputTokens ??
       resolveMainChatMaxOutputTokens(runOptions.model),
@@ -608,21 +496,11 @@ async function runDelegatedAgentLoop(
       });
     }
   } catch (error) {
-    // Match interactive chat: setup failures fall through, but a failure from
-    // inside an instrumented agent loop is the real run failure and rethrows.
     if (instrumented) throw error;
   }
   return execute();
 }
 
-/**
- * Run an A2A-delegated agent turn with the same final-response guard used by
- * the app's interactive chat surface.
- *
- * Keeping this in one helper prevents delegated calls from silently bypassing
- * template guarantees such as Analytics' requirement to query real data
- * before presenting metrics or exhaustive provider conclusions.
- */
 export function runA2AAgentLoop(
   runOptions: Parameters<A2AAgentLoopRunner>[0],
   pluginOptions: Pick<
@@ -640,11 +518,6 @@ export function runA2AAgentLoop(
   );
 }
 
-/**
- * Run the MCP-local ask_app turn with the same app-level response guard as
- * A2A. Keeping this seam shared prevents hosted MCP callers from bypassing
- * template guarantees when the request cannot use the self-A2A route.
- */
 export function runMCPAgentLoop(
   runOptions: Parameters<A2AAgentLoopRunner>[0],
   pluginOptions: Pick<
@@ -662,12 +535,6 @@ export function runMCPAgentLoop(
   );
 }
 
-/**
- * Keep delegated A2A turns on the same compact initial tool surface as
- * interactive chat. `tool-search` remains in the initial set, while the
- * complete registry is supplied separately so the run loop can load a matched
- * schema after a tool-search result.
- */
 export function createA2AEngineToolSurface(
   availableTools: EngineTool[],
   initialToolNames?: string[],
@@ -734,37 +601,11 @@ The caller already selected this app to own the current objective. Start with th
 </selected-a2a-receiver>`;
 }
 
-/**
- * The first-request tool catalog, in precedence order:
- *
- *  1. An explicit `initialToolNames`, plus every action that declares
- *     `deferLoading: false`. The configured list stays authoritative — an
- *     action it names is never dropped by a `deferLoading: true` — so a
- *     template can annotate its actions before deleting the array, not after.
- *  2. Otherwise, the actions that declared `deferLoading: false`, if any did.
- *  3. Otherwise, the app's OWN actions, minus any marked `deferLoading: true`.
- *
- * Step 2 is what makes `deferLoading` a replacement for the array rather than
- * a second copy of it: opting a few starter actions out of deferral on an app
- * with no configured list defers everything else, instead of leaving the whole
- * registry in and the annotation decorative.
- *
- * "Its own actions" excludes the framework kits. They arrive in this same
- * registry through `autoDiscoverActions` -> `mergeCoreSharingActions`, so the
- * plain `Object.keys` default promoted ~45 sharing/review/history/flag schemas
- * into every app's first request whether or not the app had those surfaces. They
- * remain in `availableTools` and are still found by `tool-search`; an app that
- * wants one on turn one sets `deferLoading: false` or names it in
- * `initialToolNames`.
- */
 export function resolveInitialToolNames(
   templateActions: Record<string, ActionEntry>,
   configured?: string[],
 ): string[] {
   const entries = Object.entries(templateActions);
-  // A framework-grouped action stays out of the DERIVED set, but an explicit
-  // `deferLoading: false` on one is a declaration, not a leak: it is the same
-  // opt-in `initialToolNames` already gave apps for these names.
   const eager = entries
     .filter(([, entry]) => entry.deferLoading === false)
     .map(([name]) => name);

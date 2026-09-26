@@ -17,9 +17,6 @@ vi.mock("./use-session.js", () => ({
 
 import { AgentNativeWebMcpActionRegistration } from "./app-providers.js";
 
-// Registration ownership is local to each mount: two coexisting provider
-// surfaces each create their own registration, and unmounting one stops only
-// the registration its own effect created — never the other surface's.
 describe("WebMCP registration lifecycle ownership", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -143,15 +140,11 @@ describe("WebMCP registration lifecycle ownership", () => {
     act(() => {
       root.render(<AgentNativeWebMcpActionRegistration requireSession />);
     });
-    // The session-gated variant defers its start past first paint; the
-    // fallback timer bounds that wait at 250ms.
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
     });
     expect(registrationFactory).toHaveBeenCalledTimes(1);
 
-    // A transient revalidation (loading/unavailable) must not stop the live
-    // registration — only a confirmed sign-out does.
     sessionStatus.value = "loading";
     act(() => {
       root.render(<AgentNativeWebMcpActionRegistration requireSession />);
@@ -165,8 +158,6 @@ describe("WebMCP registration lifecycle ownership", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
     });
-    // The session settled back to authenticated: the original registration
-    // is still live and no duplicate was created.
     expect(registrationFactory).toHaveBeenCalledTimes(1);
     expect(stops[0]).not.toHaveBeenCalled();
 

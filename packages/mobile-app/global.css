@@ -1,10 +1,6 @@
 @import "tailwindcss";
 @import "uniwind";
 
-/* Keep native utilities on the same semantic palette as Electron and the web
-   templates. The raw variables change with Uniwind's resolved theme; the
-   aliases below preserve the mobile app's existing class names while the
-   surfaces move onto the shared light/dark contract. */
 @theme inline {
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
@@ -34,7 +30,6 @@
   --color-sidebar-border: hsl(var(--sidebar-border));
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
-  /* Existing mobile names, now backed by semantic variables. */
   --color-background-dark: hsl(var(--background));
   --color-background-pure: hsl(var(--background));
   --color-card-dark: hsl(var(--card));
@@ -66,8 +61,6 @@
   --color-accent-neutral-medium-dark: hsl(var(--muted));
   --color-accent-lime-bright: hsl(var(--accent-lime-bright));
   --color-white: hsl(var(--foreground));
-  /* Keep black as a true overlay/photo color; semantic button surfaces use
-     primary explicitly and their text uses primary-foreground. */
   --color-black: hsl(0 0% 0%);
   --color-white-pure: #ffffff;
   --color-zinc-300: hsl(var(--foreground));
@@ -79,8 +72,6 @@
   --color-zinc-900: hsl(var(--card));
   --color-zinc-950: hsl(var(--background));
 
-  /* Stable accents and feedback use semantic aliases so status surfaces stay
-     legible in both modes without changing the product's accent language. */
   --color-accent-green: hsl(var(--accent-green));
   --color-accent-blue: hsl(var(--accent-blue));
   --color-accent-pink: hsl(var(--accent-pink));
@@ -116,7 +107,6 @@
 }
 
 :root {
-  /* Electron/templates' light palette. */
   --background: 0 0% 100%;
   --foreground: 0 0% 10%;
   --card: 0 0% 100%;
@@ -177,8 +167,6 @@
   --banner-error-border: 9 55% 78%;
 }
 
-/* Declare both adaptive variants so Uniwind can resolve every token on the
-   native runtime and on Expo web. */
 @variant light {
   --background: 0 0% 100%;
   --foreground: 0 0% 10%;
@@ -240,7 +228,6 @@
 }
 
 @variant dark {
-  /* Electron/templates' dark palette. */
   --background: 0 0% 13%;
   --foreground: 0 0% 90%;
   --card: 0 0% 15%;

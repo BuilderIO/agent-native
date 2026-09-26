@@ -261,7 +261,6 @@ describe("AgentJobsTab organization automations", () => {
     );
   });
 
-  // A pending status must not accuse a working deploy of being broken.
   it("shows no warning while the scheduler status is still loading", () => {
     jobMocks.useScheduledTriggerState.mockReturnValue({ kind: "loading" });
 
@@ -274,9 +273,6 @@ describe("AgentJobsTab organization automations", () => {
     ).toBeNull();
   });
 
-  // A loading check and a FAILED check used to be the same thing to this page:
-  // both left `data` undefined, and `data?.available !== false` read both as
-  // healthy. A failure never resolves, so that silence was permanent.
   it("says the check failed rather than silently vouching for the deploy", () => {
     jobMocks.useScheduledTriggerState.mockReturnValue({
       kind: "unknown",

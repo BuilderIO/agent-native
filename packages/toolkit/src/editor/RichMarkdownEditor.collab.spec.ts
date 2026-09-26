@@ -6,13 +6,6 @@ import * as Y from "yjs";
 
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 
-/**
- * The optional collaboration wiring on the shared rich-markdown editor must be
- * strictly additive: with no `ydoc`, the editor behaves exactly as the existing
- * controlled single-user editor (no Collaboration extensions, undo/redo on);
- * with a `ydoc`, it binds Collaboration (+ a CollaborationCaret when awareness
- * is present) and disables StarterKit's undo/redo so Yjs owns history.
- */
 function extensionNames(
   opts?: Parameters<typeof createRichMarkdownExtensions>[0],
 ): string[] {
@@ -31,7 +24,6 @@ describe("createRichMarkdownExtensions collaboration wiring", () => {
     try {
       const names = extensionNames({ ydoc });
       expect(names).toContain("collaboration");
-      // No awareness → no caret extension, but core collab still binds.
       expect(names).not.toContain("collaborationCaret");
     } finally {
       ydoc.destroy();

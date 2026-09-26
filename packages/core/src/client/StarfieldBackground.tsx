@@ -7,10 +7,6 @@ void main() {
 }
 `;
 
-// Gentle travelling waves of light, domain-warped with hash noise, attenuated
-// by a radial falloff around the focus point and resolved through a Ben-Day
-// halftone dot grid. Keep this in the shared component so public app pages can
-// use the same WebGL field as the docs homepage.
 const fragmentShader = `
 precision highp float;
 
@@ -131,8 +127,6 @@ export function StarfieldBackground({
     const canvasRaw = canvasRef.current;
     const containerRaw = containerRef.current;
     if (!canvasRaw || !containerRaw) return;
-    // Non-null assertions: null branches exited above and these are
-    // referenced inside closures where TypeScript loses the narrowing.
     const canvas: HTMLCanvasElement = canvasRaw;
     const container: HTMLElement = containerRaw;
 

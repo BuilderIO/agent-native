@@ -222,7 +222,6 @@ const englishCoreMessages = {
   },
 };
 
-// Non-English chat and settings catalogs load with the app locale.
 export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
   if (locale === DEFAULT_LOCALE || !isLocaleCode(locale)) {
     return englishCoreMessages;

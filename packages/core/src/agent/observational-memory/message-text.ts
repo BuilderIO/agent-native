@@ -1,13 +1,7 @@
-/**
- * Render engine messages to a compact plain-text transcript for the compactor
- * window, and account their tokens. Reuses the existing context-xray token
- * accounting so OM thresholds match what the rest of the framework counts.
- */
 
 import { countMessageTokens } from "../context-xray/tokenize.js";
 import type { EngineMessage } from "../engine/types.js";
 
-/** Flatten one engine message to a single labeled line block. */
 export function messageToText(message: EngineMessage): string {
   const parts: string[] = [];
   for (const part of message.content) {
@@ -24,7 +18,6 @@ export function messageToText(message: EngineMessage): string {
   return body ? `${message.role}: ${body}` : "";
 }
 
-/** Render a contiguous window of messages to one text blob. */
 export function windowToText(messages: EngineMessage[]): string {
   return messages
     .map(messageToText)
@@ -32,7 +25,6 @@ export function windowToText(messages: EngineMessage[]): string {
     .join("\n\n");
 }
 
-/** Token count for a window of messages (reuses framework tokenizer). */
 export async function countWindowTokens(
   messages: EngineMessage[],
 ): Promise<number> {

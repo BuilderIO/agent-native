@@ -25,15 +25,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-/** Matches the env override read by `templates/plan/server/lib/plan-publish.ts`. */
 const CONFIG_PATH_ENV = "PLAN_PUBLISH_CONFIG_PATH";
 
-/**
- * Absolute path to the canonical publish-token file. Honors
- * `PLAN_PUBLISH_CONFIG_PATH` so connect and the local server agree on the
- * location in tests and custom setups; defaults to
- * `~/.agent-native/plan-publish.json`.
- */
 export function planPublishConfigPath(): string {
   return path.resolve(
     process.env[CONFIG_PATH_ENV] ??
@@ -64,14 +57,6 @@ function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-/**
- * Merge `{ url, token }` into the canonical publish file without clobbering any
- * other keys the file already holds. Best-effort: returns the written path on
- * success, or `null` if the write failed or the inputs were unusable.
- *
- * `filePath` is injectable for tests; production callers omit it and get the
- * env-overridable home-dir path.
- */
 export function writePlanPublishAuth(
   params: { url: string; token: string },
   filePath: string = planPublishConfigPath(),
@@ -106,17 +91,10 @@ export function writePlanPublishAuth(
     fs.renameSync(tmp, filePath);
     return filePath;
   } catch {
-    // Best-effort: the per-client MCP config is the primary write. A failed
-    // canonical write must never fail the connect flow.
     return null;
   }
 }
 
-/**
- * Read the canonical Plans publish auth written by `agent-native connect`.
- * Returns `null` for missing/corrupt/incomplete files so callers can treat the
- * publish token as optional and guide the user to reconnect.
- */
 export function readPlanPublishAuth(
   filePath: string = planPublishConfigPath(),
 ): { url: string; token: string } | null {

@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// Minimal in-memory stand-in for the framework DB exec client. Stores rows in
 // a Map keyed by token so the store's save → token → get round-trip can be
-// exercised without a real database, mirroring the observability store spec
-// pattern (mock `../db/client.js`).
 const rows = new Map<string, Record<string, unknown>>();
 
 function createMemoryDb() {
@@ -46,7 +43,6 @@ function createMemoryDb() {
         }
         return { rows: [], rowsAffected: removed };
       }
-      // CREATE TABLE and anything else just succeeds.
       return { rows: [], rowsAffected: 0 };
     }),
   };
@@ -127,7 +123,6 @@ describe("recap-image store", () => {
   });
 
   it("prunes images older than the TTL on the next write", async () => {
-    // A leftover image from a previous PR cycle, past the retention window.
     rows.set("staleimagetoken", {
       token: "staleimagetoken",
       png_base64: PNG.toString("base64"),
@@ -139,8 +134,8 @@ describe("recap-image store", () => {
 
     const { token } = await saveRecapImage(PNG);
 
-    expect(rows.has("staleimagetoken")).toBe(false); // expired → pruned
-    expect(rows.has(token)).toBe(true); // fresh upload kept
+    expect(rows.has("staleimagetoken")).toBe(false);
+    expect(rows.has(token)).toBe(true);
   });
 
   it("pruneExpiredRecapImages removes only rows past the TTL", async () => {

@@ -26,9 +26,6 @@ function createPgliteExec(pglite: Pglite) {
   };
   return {
     execute: run,
-    // PGlite is single-connection, so the callback runs against the same
-    // session the BEGIN opened. That is what makes FOR UPDATE and the advisory
-    // lock in the transaction meaningful here.
     async transaction<T>(fn: (tx: { execute: typeof run }) => Promise<T>) {
       await pglite.exec("BEGIN");
       try {

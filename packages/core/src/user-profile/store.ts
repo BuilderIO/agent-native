@@ -46,7 +46,6 @@ function profileFromAuthUser(
   };
 }
 
-/** Pure merge step shared by the single-email and batched lookup paths. */
 function storedProfileFrom(
   email: string,
   stored: Record<string, unknown> | null,
@@ -64,7 +63,6 @@ function storedProfileFrom(
   };
 }
 
-/** Pure merge step: an auth-user profile layered with an already-fetched stored profile. */
 function profileFromAuthUserAndStoredProfile(
   email: string,
   user: {
@@ -108,10 +106,6 @@ async function getStoredUserProfile(email: string): Promise<UserProfile> {
   return storedProfileFrom(email, stored);
 }
 
-// Diagnostic-only; a batch degrading is an expected fallback, not a crash, so
-// this stays a warn rather than surfacing through the action. One line per
-// process is enough to catch a production regression in the adapter or the
-// settings batch without spamming logs under sustained load.
 let didWarnUserProfilesListUsersFailed = false;
 let didWarnUserProfilesStoredNameBatchFailed = false;
 
@@ -152,10 +146,6 @@ export async function getUserProfiles(
   let storedProfiles: Map<string, Record<string, unknown> | null> | null = null;
 
   if (adapter?.listUsers) {
-    // Independent reads (the roster and each user's stored display-name
-    // override), so running them together costs one round trip on the
-    // 2-slot serverless pool instead of a settings query per user after the
-    // roster comes back.
     const [usersResult, storedResult] = await Promise.allSettled([
       adapter.listUsers(uniqueEmails.length, undefined, undefined, [
         {
@@ -180,11 +170,6 @@ export async function getUserProfiles(
 
     if (usersResult.status === "fulfilled") {
       batchLookupSucceeded = true;
-      // storedProfiles is only unavailable when the settings batch above
-      // failed; that must not drop every roster user's stored name/role
-      // override for the call, so retry each one individually here — the
-      // same per-user resilience profileFromAuthUserWithStoredName gave
-      // every caller before batching.
       const rosterEntries = await Promise.all(
         usersResult.value.map(async (user) => {
           const email = user.email.trim().toLowerCase();
@@ -205,8 +190,6 @@ export async function getUserProfiles(
     } else if (!didWarnUserProfilesListUsersFailed) {
       didWarnUserProfilesListUsersFailed = true;
       // coercion-ok: older or custom adapters use the established per-user
-      // fallback below. Loud so the degrade shows up in logs instead of only
-      // as an unexplained per-request query-count spike.
       console.warn(
         "[user-profile] batched listUsers failed; falling back to per-email lookups",
         usersResult.reason,
@@ -216,9 +199,6 @@ export async function getUserProfiles(
 
   const missingEmails = uniqueEmails.filter((email) => !profiles.has(email));
   if (batchLookupSucceeded && storedProfiles) {
-    // The roster batch succeeded, so these emails genuinely have no auth
-    // user. Reuse the settings batch already fetched above instead of one
-    // getStoredUserProfile call per missing email.
     for (const email of missingEmails) {
       profiles.set(
         email,
@@ -226,11 +206,6 @@ export async function getUserProfiles(
       );
     }
   } else if (batchLookupSucceeded) {
-    // The settings batch itself failed (storedProfiles stayed null): these
-    // stored-only emails still deserve the same per-email retry the pre-batch
-    // code gave every missing email, so a transient blip on just that batch
-    // call doesn't drop them from the result the way the comment above used
-    // to assume it safely could.
     const results = await Promise.allSettled(
       missingEmails.map(
         async (email) => [email, await getStoredUserProfile(email)] as const,

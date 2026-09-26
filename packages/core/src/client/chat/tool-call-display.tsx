@@ -1,5 +1,3 @@
-// Owns: tool-payload formatting helpers, ToolCallDisplay, ToolCallFallback,
-// and ReconnectStreamMessage used by AssistantChat.
 
 import { CubeLoader } from "@agent-native/toolkit/ui/cube-loader";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
@@ -76,7 +74,6 @@ import {
   resolveBuiltinFallbackToolRenderer,
 } from "./widgets/builtin-tool-renderers.js";
 
-// Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);
 export const ChatRunningRunIdContext = React.createContext<string | null>(null);
 export const ChatRunningTurnIdContext = React.createContext<string | null>(
@@ -85,10 +82,6 @@ export const ChatRunningTurnIdContext = React.createContext<string | null>(
 export const ChatRunDurationContext = React.createContext<number | null>(null);
 export const SuppressInlineOpenAppContext = React.createContext(false);
 export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
-/**
- * Keeps the tool-call stack layout-transparent. Tool-entry motion is disabled
- * until it can stay stable while streaming calls are added and summarized.
- */
 export function ToolCallStackMotion({
   children,
   className,
@@ -101,51 +94,22 @@ export function ToolCallStackMotion({
   );
 }
 
-/**
- * Human-in-the-loop approval bridge. `AssistantChatInner` provides a value that
- * re-issues the turn approving a specific paused tool call (opt-in
- * `needsApproval` actions). When null, the Approve button is not rendered.
- * Deny defaults to local-only (the action stays un-run) unless `onDeny` is
- * provided. The chevron menu persists an action-type policy before approving
- * the current call.
- */
 export type ApprovalResolution = "approved" | "denied";
 
 export type ApprovalContextValue = {
-  /** Re-issue the turn so the server runs the approved call. */
   onApprove: (approvalKey: string) => void;
-  /**
-   * Keep the visible resolution stable while the chat repository refreshes or
-   * remounts the message containing this approval card.
-   */
   onApprovalResolved?: (
     approvalKey: string,
     resolution: ApprovalResolution,
     toolCallId?: string,
-    /**
-     * Identifies the specific `approval_required` ask being resolved. A
-     * remount that replays the SAME ask (e.g. a chat repository refresh)
-     * omits nothing new here, so the retained resolution still matches; a
-     * fresh ask after a failed resume carries a different `askId` and so
-     * looks up as unresolved. See `ApprovalAffordance` below.
-     */
     askId?: string,
   ) => void;
-  /** Read a resolution retained by the owning chat surface. */
   getApprovalResolution?: (
     approvalKey: string,
     toolCallId?: string,
     askId?: string,
   ) => ApprovalResolution | null;
-  /**
-   * Optional host hook invoked in addition to the local "denied" state, e.g.
-   * so a Code session can also resolve its own pending approval as denied.
-   */
   onDeny?: (approvalKey: string) => void;
-  /**
-   * Optional host hook that persists this action type and resolves the current
-   * call. The default AssistantChat implementation uses the shared policy.
-   */
   onAlwaysAllow?: (
     approvalKey: string,
     toolName: string,
@@ -155,7 +119,6 @@ export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
   null,
 );
 
-/** Pending human-in-the-loop gate still waiting for Approve/Deny. */
 export function toolCallHasPendingApproval(part: {
   approval?: { approvalKey?: string; dismissed?: boolean } | null;
 }): boolean {
@@ -214,7 +177,6 @@ export function ToolActivityPresentation({
   );
 }
 
-// ─── Tool-payload formatting ──────────────────────────────────────────────────
 
 type ToolDetailSection = "input" | "result";
 export type ToolDetailPayload = {
@@ -343,7 +305,6 @@ export function toolResultPayload(
   };
 }
 
-// ─── Tool icon helpers ────────────────────────────────────────────────────────
 
 type ToolIconComponent = React.ComponentType<{
   className?: string;
@@ -417,7 +378,6 @@ function resolveToolIcon(toolName: string): ToolIconComponent {
   return IconCode;
 }
 
-// ─── Simple code viewer (Codex-style gray box) ────────────────────────────────
 
 function SimpleCodeViewer({
   text,
@@ -518,7 +478,6 @@ function ToolOutputPopover({
   );
 }
 
-// ─── Collapsible height animation ─────────────────────────────────────────────
 
 export function AnimatedCollapse({
   open,
@@ -555,13 +514,7 @@ export function AnimatedCollapse({
   );
 }
 
-// ─── Human-in-the-loop approval affordance ────────────────────────────────────
 
-/**
- * Inline Approve/Deny prompt rendered when a `needsApproval` action paused the
- * turn. Approve re-issues the turn with the call's `approvalKey`; Deny dismisses
- * the prompt locally (the action stays un-run).
- */
 function ApprovalAffordance({
   toolName,
   toolCallId,
@@ -595,8 +548,6 @@ function ApprovalAffordance({
     localResolution ??
     (approval.dismissed === true ? "denied" : null);
 
-  // Once resolved, collapse to a quiet note so a repository refresh cannot
-  // restore the action buttons while the continuation is running.
   if (resolution === "approved") {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
@@ -604,9 +555,6 @@ function ApprovalAffordance({
       </div>
     );
   }
-  // Deny defaults to local-only (the action simply stays un-run). When the
-  // host also provided `onDeny` (e.g. a Code session resolving its own
-  // pending approval), it fires alongside the local state.
   if (resolution === "denied") {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
@@ -675,7 +623,6 @@ function ApprovalAffordance({
   );
 }
 
-// ─── ToolCallDisplay ──────────────────────────────────────────────────────────
 
 export function ToolCallDisplay({
   toolName,
@@ -702,7 +649,6 @@ export function ToolCallDisplay({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
-  /** "unknown": the stream ended mid-flight, so the side effect may have landed. */
   outcome?: "unknown";
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
@@ -713,7 +659,6 @@ export function ToolCallDisplay({
     allowPersistentApproval?: false;
   };
   repeatCount?: number;
-  /** The latest tool shown while the overall chat turn is still active. */
   isActiveTail?: boolean;
   /** @deprecated Use isActiveTail. */
   isLatestRunning?: boolean;
@@ -739,9 +684,6 @@ export function ToolCallDisplay({
         structuredMeta,
       }));
   const showActiveTail = isActiveTail ?? isLatestRunning;
-  // Delegate to bespoke cells when structured metadata is present.
-  // These must be separate components so hook order in ToolCallDisplayGeneric
-  // is always stable (no conditional hook calls).
   const toolKind = structuredMeta?.toolKind as string | undefined;
   const wrapToolDisplay = (children: React.ReactNode) => (
     <ToolActivityPresentation
@@ -872,7 +814,6 @@ function ToolCallDisplayGeneric({
   const hasStreamText = agentStreamText.length > 0;
   const hasArgs = !isAgentCall && Object.keys(args).length > 0;
 
-  // Render connect-builder as ConnectBuilderCard once the result is available
   if (toolName === "connect-builder" && result) {
     try {
       const parsed = JSON.parse(result);
@@ -881,8 +822,6 @@ function ToolCallDisplayGeneric({
           <ConnectBuilderCard
             configured={!!parsed.configured}
             builderEnabled={parsed.builderEnabled !== false}
-            // Ignore obsolete direct-auth URLs from older tool results. The
-            // card fetches a fresh app-local connect URL on mount and click.
             connectUrl={parsed.connectUrl || ""}
             orgName={parsed.orgName ?? null}
             prompt={typeof parsed.prompt === "string" ? parsed.prompt : ""}
@@ -908,7 +847,6 @@ function ToolCallDisplayGeneric({
     }
   }
 
-  // Render agent-teams spawn as AgentTaskCard once the result is available
   if (
     toolName === "agent-teams" &&
     (args as Record<string, string>)?.action === "spawn" &&
@@ -1135,14 +1073,6 @@ function ToolCallDisplayGeneric({
       )}
       {approval && (
         <ApprovalAffordance
-          // A changed `askId` means the server re-emitted approval_required
-          // for this same call (e.g. a failed resume never consumed the
-          // prior grant) rather than the same ask re-rendering. Keying on it
-          // forces a fresh mount so a stale local "approved" state from the
-          // earlier ask can't linger and hide Approve/Deny with no way to
-          // retry. Falls back to approvalKey when askId is absent (older
-          // events, non-production-agent approval sources) to keep the
-          // existing remount-safe behavior unchanged there.
           key={approval.askId ?? approval.approvalKey}
           toolName={toolName}
           toolCallId={toolCallId}
@@ -1177,10 +1107,6 @@ function AgentCallCell({
   const [open, setOpen] = useState(true);
   const responseKey = toolCallId ?? agentName;
   const toolCount = activity?.toolCalls?.length ?? 0;
-  // Response segments are ordered against the tool calls that preceded them, so
-  // they render in the timeline where the remote agent actually said them.
-  // Once the authoritative result text arrives, its segment moves to the
-  // bottom block instead of being rendered twice.
   const segments = activity?.response ?? [];
   const inlineSegments =
     responseText && !isRunning ? segments.slice(0, toolCount) : segments;
@@ -1358,7 +1284,6 @@ function AgentActivityToolCallRow({
   );
 }
 
-// ─── ToolCallFallback ──────────────────────────────────────────────────────────
 
 export function ToolCallFallback({
   toolName,
@@ -1384,9 +1309,6 @@ export function ToolCallFallback({
   isActiveTail?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
-  // `chatRunning` covers ordinary live activity. An unresolved tool or a
-  // delegated-agent row is also explicit work evidence, while a generic
-  // activity placeholder alone must stay frozen when history is rehydrated.
   const isRunning =
     rest.outcome !== "unknown" &&
     ((result === undefined && chatRunning) ||
@@ -1425,16 +1347,12 @@ export function ToolCallFallback({
   );
 }
 
-// ─── ReconnectStreamMessage ────────────────────────────────────────────────────
-// Renders the agent's in-progress response during reconnection (outside
-// assistant-ui's runtime). Uses the same visual styling as normal messages.
 
 export function ReconnectStreamMessage({
   content,
   allowActivitySpinner = true,
 }: {
   content: ContentPart[];
-  /** Activity-only cards are live during reconnect, but static once frozen. */
   allowActivitySpinner?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
@@ -1625,14 +1543,7 @@ function isReconnectToolSummaryPart(
     .some((candidate) => candidate.type === "tool-call");
 }
 
-// ─── Reasoning / Thinking cell ────────────────────────────────────────────────
 
-/**
- * Completed reasoning and tool calls share one outer "Worked for…"
- * disclosure. Inside it a reasoning cell keeps its own disclosure — the tool
- * calls it sits between are collapsible there, and reasoning that could not be
- * collapsed was the longest thing in an opened summary by far.
- */
 export function ReasoningCell({
   text,
   isStreaming = false,
@@ -1643,29 +1554,16 @@ export function ReasoningCell({
 }: {
   text: string;
   isStreaming?: boolean;
-  /** Stable identity retained for callers; reasoning renders chunk-natively. */
   resetKey?: string;
   defaultOpen?: boolean;
-  /** Animate closed when a live reasoning segment finishes during a run. */
   autoCollapse?: boolean;
-  /** Animate closed when a newer reasoning segment replaces this one. */
   collapseWhenReplaced?: boolean;
-  /**
-   * Elapsed thinking time in ms, once known. Only meaningful once streaming
-   * has finished — callers that track live timing (see ReasoningMessagePart)
-   * pass this so the label can read "Thought for Xs" instead of "Thought".
-   * Historical messages with no live timing simply omit it.
-   */
   durationMs?: number | null;
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
   const display = useThinkingDisplay();
   const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
-  // Only "expanded" honours a caller's request to start open. "collapsed"
-  // keeps every cell shut until the reader asks for it, which is the point of
-  // the mode — a live cell that opens itself is what pushes the answer off
-  // screen mid-turn.
   const startOpen = display === "expanded" ? (defaultOpen ?? true) : false;
   const [open, setOpen] = useState(startOpen);
   const wasStreamingRef = useRef(isStreaming);
@@ -1687,9 +1585,6 @@ export function ReasoningCell({
     wasReplacedRef.current = collapseWhenReplaced;
   }, [collapseWhenReplaced]);
 
-  // Switching the preference re-applies it to cells already on screen, so the
-  // change is visible on the turn the reader is looking at rather than only on
-  // the next one.
   useEffect(() => {
     if (previousDisplayRef.current === display) return;
     previousDisplayRef.current = display;
@@ -1706,8 +1601,6 @@ export function ReasoningCell({
           duration: formatDuration(durationMs),
         })
       : t("agentChat.tool.thought");
-  // Only clamp to a scroll-free "tail" view while actively streaming and
-  // expanded — once the run finishes the full text is shown, unclamped.
   const showTail = isStreaming && open;
 
   return (
@@ -1739,10 +1632,6 @@ export function ReasoningCell({
           )}
         >
           {trimmed ? (
-            // Reasoning summaries arrive as markdown — OpenAI's carry `**bold**`
-            // headers — so a pre-wrap block shows the source characters. Smoothing
-            // stays off: a second character-level queue lags the model and makes
-            // the surrounding chat jump.
             <div className="agent-reasoning-markdown agent-kit-density leading-relaxed text-muted-foreground">
               <SmoothMarkdownText
                 text={trimmed}
@@ -1763,7 +1652,6 @@ export function ReasoningCell({
   );
 }
 
-// ─── Worked-for duration helpers ──────────────────────────────────────────────
 
 export function formatWorkedDuration(
   ms: number,
@@ -1819,18 +1707,13 @@ export function WorkedForSummary({
   children,
 }: {
   durationMs?: number | null;
-  /** Show a live work label while the owning assistant turn streams. */
   isRunning?: boolean;
-  /** Keep completed work visible when the turn contains interactive UI. */
   defaultOpen?: boolean;
-  /** When true, close the summary after a run has completed. */
   autoCollapse?: boolean;
   children: React.ReactNode;
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
-  // Ordinary completed work starts closed so a remount never flashes details
-  // while auto-collapse settles. Interactive UI opts into an open summary.
   const [open, setOpen] = useState(defaultOpen);
 
   useEffect(() => {
@@ -1915,7 +1798,4 @@ export function RanToolsSummary({
   );
 }
 
-// ─── Re-export for AssistantMessage ───────────────────────────────────────────
-// AssistantMessage in AssistantChat.tsx uses FilesChangedSummary directly, so
-// re-export it so AssistantChat.tsx can import from one place.
 export { FilesChangedSummary };

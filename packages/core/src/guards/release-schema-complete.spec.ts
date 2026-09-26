@@ -14,7 +14,6 @@ afterEach(() => {
   }
 });
 
-/** A miniature core package: the release list plus whatever stores are given. */
 function makeCore(files: Record<string, string>): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "release-schema-guard-"));
   tempRoots.push(root);
@@ -47,8 +46,6 @@ describe("scanReleaseSchemaCoverage", () => {
     expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
   });
 
-  // The bug this guard exists for: a store whose tables nothing can create on a
-  // hosted deploy, because production serverless never runs `ensureTable()`.
   it("flags a store that defines schema and is not in the list", () => {
     const root = makeCore({
       "src/server/release-schema.ts": listWith(["../widgets/store.js"]),
@@ -65,8 +62,6 @@ describe("scanReleaseSchemaCoverage", () => {
     });
   });
 
-  // extensions/slots/store.ts creates its tables by executing named SQL
-  // constants, so the ensureTableExists check alone could not see it.
   it("flags a store that runs DDL held in a named constant", () => {
     const root = makeCore({
       "src/server/release-schema.ts": listWith([]),
@@ -86,9 +81,6 @@ describe("scanReleaseSchemaCoverage", () => {
     expect(findings[0].file).toBe("src/slots/store.ts");
   });
 
-  // The commonest shape in the codebase: DDL built into a local variable and
-  // executed directly, with no `ensureTableExists` and no recognisable constant
-  // name. A guard keyed on the executed expression's NAME would miss this.
   it("flags a store that executes DDL from a local variable", () => {
     const root = makeCore({
       "src/server/release-schema.ts": listWith([]),
@@ -108,7 +100,6 @@ describe("scanReleaseSchemaCoverage", () => {
   });
 
   // Reached through the migration half of the release path rather than the
-  // ensure list, so it is created at release either way.
   it("treats a module imported by release-migrations.ts as covered", () => {
     const root = makeCore({
       "src/server/release-schema.ts": listWith([]),
@@ -125,8 +116,6 @@ describe("scanReleaseSchemaCoverage", () => {
     expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
   });
 
-  // A `schema.ts` holding the SQL is not the thing that runs it, and a migration
-  // list is applied by runMigrations. Flagging either is pure noise.
   it("ignores modules that hold DDL without executing it", () => {
     const root = makeCore({
       "src/server/release-schema.ts": listWith([]),
@@ -139,7 +128,6 @@ describe("scanReleaseSchemaCoverage", () => {
     expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
   });
 
-  // A plain SELECT held in a constant is not schema.
   it("ignores a non-DDL constant that happens to be executed", () => {
     const root = makeCore({
       "src/server/release-schema.ts": listWith([]),
@@ -186,8 +174,6 @@ describe("scanReleaseSchemaCoverage", () => {
     expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
   });
 
-  // A missing list is the one failure that must not read as "nothing to check":
-  // deleting it would stop every framework table from being created at release.
   it("fails loudly when the release list itself is gone", () => {
     const root = makeCore({ "src/widgets/store.ts": STORE });
 

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Mock the store module
 const mockAppStateGet = vi.fn();
 const mockAppStatePut = vi.fn();
 const mockAppStateDelete = vi.fn();
@@ -33,7 +32,6 @@ describe("application-state script-helpers", () => {
   beforeEach(() => {
     originalEnv = { ...process.env };
     vi.clearAllMocks();
-    // Reset modules to clear the cached _resolvedSessionId
     vi.resetModules();
   });
 

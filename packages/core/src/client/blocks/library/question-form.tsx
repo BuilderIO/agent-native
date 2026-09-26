@@ -30,42 +30,11 @@ import {
   type VisualQuestionsData,
 } from "./question-form.config.js";
 
-/**
- * Shared `question-form` and `visual-questions` blocks. A respondent-facing
- * intake form: single/multi/freeform questions, recommended options, optional
- * write-in answers, and optional inline wireframe/diagram previews per option.
- * Lives in core so any app can register it (it originated in the plan template).
- *
- * The block stays app-agnostic:
- * - It is shadcn-free. The "Send to agent" affordance uses `ctx.renderEditSurface`
- *   (the app-provided popover primitive); when no surface is wired it falls back
- *   to a plain button that submits directly.
- * - Submission routes through `ctx.onQuestionFormSubmit` so each app wires its own
- *   destination (plan posts the summary into the side agent). The readable summary
- *   string is built generically here from questions + collected answers.
- * - Per-option `wireframe`/`diagram` previews render through `ctx.renderBlock`
- *   (the same nested-block seam tabs/columns use), so core never imports an app's
- *   wireframe or diagram renderer.
- * - Colors map to shadcn theme tokens (`text-muted-foreground`, `border-border`,
- *   `bg-background`, `bg-card`, `primary`). The root section carries BOTH the
- *   app-neutral `an-questions-block` class and the legacy `plan-questions-block`
- *   class so plan renders byte-identically while other apps get the theme treatment.
- */
 
-/**
- * `ctx.onQuestionFormSubmit` is the documented submit hook. It is read off the
- * render context as an optional extra so a host that has not yet added it to its
- * provider degrades to a no-op (the button disables) rather than throwing.
- */
 type QuestionFormSubmitCtx = BlockRenderContext & {
   onQuestionFormSubmit?: (summary: string) => void;
 };
 
-/**
- * Reviewer answers are transient and never persisted on block data — they live
- * in local component state keyed by question id. `freeform` → a string;
- * `single`/`multi` → selected option ids (with an optional write-in `text`).
- */
 type QuestionAnswer = { text?: string; selected?: string[] };
 type QuestionAnswers = Record<string, QuestionAnswer>;
 type QuestionFormHandoffMode = "copy" | "submit";
@@ -111,10 +80,6 @@ function isAnswered(
   return Boolean(answer?.selected?.length || answer?.text?.trim());
 }
 
-/**
- * Build a readable, agent-ready summary string from the questions + collected
- * answers. Generic replacement for the plan-specific `summarizeQuestionForm`.
- */
 function summarizeAnswers(
   blockId: string | undefined,
   blockTitle: string | undefined,
@@ -143,7 +108,6 @@ function summarizeAnswers(
   return lines.join("\n");
 }
 
-/** Render an inline preview (wireframe or diagram) through the app's dispatcher. */
 function OptionVisual({
   type,
   data,
@@ -277,11 +241,6 @@ function QuestionView({
                   </div>
                   {hasVisualOptions &&
                     !!(option.wireframe || option.diagram) && (
-                      // Stop click/keyboard propagation so interactions inside the
-                      // preview (expand button, lightbox close) don't toggle the
-                      // option. Nested interactive elements inside a <button> are
-                      // invalid HTML, so this also keeps the outer button's
-                      // keyboard behaviour clean.
                       // eslint-disable-next-line jsx-a11y/no-static-element-interactions
                       <div
                         className="ml-8 grid min-w-0 max-w-full gap-4"
@@ -338,7 +297,6 @@ function QuestionView({
   );
 }
 
-/** The "Send to agent" affordance: a popover (via the app surface) when wired. */
 function SubmitMenu({
   ctx,
   onSubmit,
@@ -410,9 +368,6 @@ function SubmitMenu({
     </div>
   );
 
-  // Prefer the app-provided popover surface (shadcn Popover in plan/content);
-  // core stays shadcn-free. Without a surface, fall back to a single button that
-  // submits directly so the form still works.
   const surface = ctx.renderEditSurface?.({
     title: "Send to agent",
     open,
@@ -477,7 +432,6 @@ function QuestionFormHandoffSummary({
   );
 }
 
-/** Shared read renderer for both `question-form` and `visual-questions`. */
 function QuestionFormReadInner({
   data,
   blockId,
@@ -588,7 +542,6 @@ function newLocalId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** Shared editor for both `question-form` and `visual-questions`. */
 export function QuestionFormEdit({
   data,
   onChange,
@@ -905,11 +858,6 @@ export function QuestionFormEdit({
   );
 }
 
-/**
- * Full client spec for the shared `question-form` block. A respondent-facing
- * intake form edited from the block panel (the schema-ish question shape lives
- * behind the edit surface, not inline).
- */
 export const questionFormBlock = defineBlock<QuestionFormData>({
   type: "question-form",
   schema: questionFormSchema,
@@ -934,12 +882,6 @@ export const questionFormBlock = defineBlock<QuestionFormData>({
   }),
 });
 
-/**
- * Full client spec for the shared `visual-questions` block — the same form UI
- * and data shape as `question-form`, branded for explicit visual intake before a
- * plan. Shares the Read/Edit internals; only the type, MDX tag, label, and seed
- * differ.
- */
 export const visualQuestionsBlock = defineBlock<VisualQuestionsData>({
   type: "visual-questions",
   schema: visualQuestionsSchema,

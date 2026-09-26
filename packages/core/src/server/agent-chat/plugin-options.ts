@@ -12,31 +12,21 @@ import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import type { PromptExamples } from "../prompts/index.js";
 import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 
-/** Shape of a Nitro plugin function: receives the Nitro app instance at
- * startup and may register routes/hooks synchronously or asynchronously. */
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
-  /** Best-effort app checkpoint taken before the first model generation. */
   onAgentTurnStart?: (
     scope: AgentChatScope,
     run: Pick<ActiveRun, "threadId" | "runId">,
   ) => void | Promise<void>;
-  /**
-   * Best-effort app autosave hook. It runs after the chat thread has been
-   * persisted and only when the run completed a side effect. Errors are
-   * reported by the framework without failing the completed chat turn.
-   */
   onAgentTurnComplete?: (
     scope: AgentChatScope,
     run: ActiveRun,
   ) => void | Promise<void>;
-  /** Best-effort observer called after thread persistence for every completed agent run, including read-only runs. */
   onAgentRunComplete?: (
     scope: AgentChatScope | null | undefined,
     run: ActiveRun,
   ) => void | Promise<void>;
-  /** Template-specific actions (email ops, booking ops, etc.) */
   actions?:
     | Record<string, ActionEntry>
     | (() =>
@@ -48,9 +38,7 @@ export interface AgentChatPluginOptions {
     | (() =>
         | Record<string, ActionEntry>
         | Promise<Record<string, ActionEntry>>);
-  /** System prompt for the agent. A sensible default is provided. */
   systemPrompt?: string;
-  /** Additional system prompt prepended in dev mode */
   devSystemPrompt?: string;
   /**
    * Model to use. Defaults to the resolved engine's default model.
@@ -61,12 +49,7 @@ export interface AgentChatPluginOptions {
    * model from the rest of the process, which no first-party app does.
    */
   model?: string;
-  /** Optional per-app agent run chunk budget in milliseconds. Defaults to
-   * AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
-   * timeout. When reached, long runs continue through the hidden continuation
-   * path instead of surfacing a timeout warning. */
   runSoftTimeoutMs?: number;
-  /** Optional per-app run-manager no-progress watchdog in milliseconds. */
   runNoProgressTimeoutMs?: number;
   /**
    * Opt this app into Netlify durable background-function agent-chat runs. This
@@ -85,28 +68,18 @@ export interface AgentChatPluginOptions {
    * `deploy/build.ts` can also see — this option is invisible to it.
    */
   durableBackgroundRuns?: boolean;
-  /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var */
   apiKey?: string;
-  /**
-   * Agent engine to use. Can be a pre-constructed AgentEngine, a registered
-   * engine name (e.g. "anthropic", "ai-sdk:openai"), or an object with name
-   * and config. Defaults to the "anthropic" engine using ANTHROPIC_API_KEY.
-   */
   engine?:
     | import("../../agent/engine/types.js").AgentEngine
     | string
     | { name: string; config: Record<string, unknown> };
-  /** Route path. Default: /_agent-native/agent-chat */
   path?: string;
-  /** Custom mention providers for @-tagging template entities */
   mentionProviders?:
     | Record<string, MentionProvider>
     | (() =>
         | Record<string, MentionProvider>
         | Promise<Record<string, MentionProvider>>);
-  /** App ID used to exclude self from agent discovery (e.g., "mail", "calendar") */
   appId?: string;
-  /** Advertise the existing identity-hub connect handoff in the A2A card. */
   connectApps?: boolean;
   /**
    * Controls connected MCP tools available to unattended recurring and trigger
@@ -115,22 +88,7 @@ export interface AgentChatPluginOptions {
    * the per-request scope gate when a tool is called.
    */
   backgroundMcpTools?: "requested" | "all";
-  /**
-   * Resolve approval metadata for connected MCP tools as they enter the agent
-   * action registry. This can require approval for selected tools and disable
-   * persistent approval for actions that must be confirmed on every call.
-   */
   resolveMcpActionEntry?: McpActionEntryOptions["resolveActionEntry"];
-  /**
-   * Everything about this app's MCP mount — whether it is mounted, which tools
-   * external callers see, and the branding sent during the `initialize`
-   * handshake. See `AgentChatMcpOptions`.
-   *
-   * Replaces the top-level `disableMcp`, `mcpServerInfo`, `connectorCatalog`,
-   * and `externalAgents`, which stay accepted for one minor. Setting both
-   * forms to disagreeing values throws at plugin init rather than silently
-   * picking one.
-   */
   mcp?: AgentChatMcpOptions;
 
   /** @deprecated Use `mcp.title` / `mcp.description` / `mcp.websiteUrl` / `mcp.icons`. */
@@ -151,19 +109,7 @@ export interface AgentChatPluginOptions {
    * need custom org resolution logic (e.g., Atlassian org mapping).
    */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
-  /**
-   * Optional owner resolver for public/anonymous chat surfaces. When the
-   * normal app session is missing, this callback may return a synthetic
-   * owner id for a narrowly-scoped public request (for example, a public
-   * shared document page). Anonymous requests use a read-only tool set by
-   * default so public viewers cannot mutate app data through the agent.
-   */
   anonymousOwner?: (event: any) => string | null | Promise<string | null>;
-  /**
-   * Keep anonymous-owner requests on read-only template actions. Defaults to
-   * true. Only disable for single-tenant apps that intentionally allow public
-   * agent mutations.
-   */
   anonymousReadOnly?: boolean;
   /**
    * Optional auth adapter for the HTTP action route
@@ -186,91 +132,16 @@ export interface AgentChatPluginOptions {
    * session guard. The route handler still owns credential verification.
    */
   actionRoutePublicPaths?: string[];
-  /**
-   * Optional callback to append template-specific context to the system
-   * prompt on each request. Runs after AGENTS.md / skills / memory are
-   * loaded and before the schema block — use it to inject dynamic SQL
-   * context like a data dictionary, active feature flags, or whatever
-   * the agent should know about *right now* for this user/org.
-   *
-   * Return `null` or an empty string to skip. The string you return is
-   * appended verbatim, so wrap it in your own XML tags (e.g.
-   * `<data-dictionary>…</data-dictionary>`) to keep the prompt scannable.
-   *
-   * Called on every request in every prompt variant (lean, lazy, full).
-   * Templates that want to suppress it in a particular mode should return
-   * `null` from the callback based on their own logic.
-   */
   extraContext?: (
     event: any,
     owner: string,
   ) => string | null | Promise<string | null>;
-  /**
-   * Optional final-answer guard. Templates can use this to require a
-   * corrective retry before accepting a text-only final answer, e.g. forcing
-   * real data-source tool calls for analytics requests.
-   */
   finalResponseGuard?: AgentLoopFinalResponseGuard;
-  /**
-   * Optional per-template request normalizer. Runs after authentication and
-   * before the model sees the message, so apps can translate chat attachments
-   * into template-native file handles while preserving the user's visible text.
-   */
   prepareRequest?: ProductionAgentOptions["prepareRequest"];
-  /**
-   * Resolve the exact native action surface for each interactive chat request.
-   * Omitted allowlist names are not sent to the model or discoverable through
-   * tool-search. Return `{ mode: "default" }` to keep the normal initial-tool
-   * and discovery behavior for a request instead.
-   */
   resolveActionSurface?: ProductionAgentOptions["resolveActionSurface"];
-  /**
-   * Use ONLY the template's `systemPrompt` and the actions list — skip the
-   * framework prompt wrapper, resource loading (AGENTS.md/LEARNINGS.md/
-   * memory), the SQL schema block, and the workspace files/skills/agents
-   * inventory. Intended for minimal or voice-first apps where a long,
-   * generic preamble adds latency and iteration noise without adding value.
-   *
-   * When set, the same lean prompt is used in both dev and prod modes. In
-   * dev mode the tool registry is ALSO swapped to the template's actions
-   * (same set as prod) — the dev-only bash/db-exec/file-system tools
-   * and the resource/docs/chat/team/job/browser scripts are dropped. The
-   * lean system prompt has no bash-usage guidance, so routing actions
-   * through bash would break. If you need the full dev tool surface,
-   * leave this off.
-   */
   leanPrompt?: boolean;
-  /**
-   * Skip auto-injecting the workspace files/skills/agents inventory on the
-   * first message of a conversation while keeping the normal prompt, resources,
-   * and tool surface. Use this for domain-focused apps where broad workspace
-   * inventory is mostly latency/noise unless the user explicitly references it.
-   *
-   * `leanPrompt: true` and the default `lazyContext` mode imply this because
-   * those catalogs are already discoverable through resources, docs-search,
-   * tool-search, and the compact resource indexes. Set `false` explicitly only
-   * when a workspace-wide inventory is central to the app's first-turn job.
-   */
   skipFilesContext?: boolean;
-  /**
-   * Initial native tool schemas to send to the LLM provider. When set, the
-   * agent starts with only these tools plus `tool-search`; the live registry
-   * remains searchable, and matching schemas from `tool-search` results are
-   * loaded into the next model request. Use this for domain-focused apps that
-   * have a few common actions and many rare framework utilities. Common
-   * discovery and resource-reading tools are promoted automatically when
-   * present. Provider, MCP, extension, and code-execution schemas stay behind
-   * tool-search unless the app explicitly includes them in this list.
-   */
   initialToolNames?: string[];
-  /**
-   * Controls whether broad provider/corpus tools and their workflow prompt are
-   * loaded into the first model request. Use `"lazy"` for apps that can answer
-   * ordinary lookups from a compact curated tool set; corpus tools remain
-   * discoverable through tool-search and the full retry surface.
-   *
-   * @default "initial"
-   */
   corpusTools?: "initial" | "lazy";
   /**
    * Use a compact system prompt with on-demand context loading. The system
@@ -287,48 +158,7 @@ export interface AgentChatPluginOptions {
    * Ignored when `leanPrompt` is set (lean mode is even more minimal).
    */
   lazyContext?: boolean;
-  /**
-   * In dev mode, register the template's actions as native tools the agent
-   * can call directly with structured JSON args — skipping the default
-   * `bash(command="pnpm action <name> ...")` indirection.
-   *
-   * The default dev behavior shells out because it "mirrors how Claude Code
-   * works locally" and reduces empty-object tool calls for templates with
-   * simple string args. But templates whose actions take structured data
-   * (objects, arrays, nested JSON) can't round-trip those cleanly through
-   * the CLI parser — stringified JSON on the way in, loss of type fidelity
-   * on the way out.
-   *
-   * Set to `true` to get the same tool surface in dev that production uses.
-   * `leanPrompt: true` implies this already (lean mode has no bash-usage
-   * guidance, so actions must be native). Set this flag without
-   * `leanPrompt` when you want native actions AND the full system prompt.
-   *
-   * Defaults to `false`.
-   */
   nativeActionsInDev?: boolean;
-  /**
-   * Which of the framework's OWN agent tools this app exposes — raw SQL,
-   * extensions, sharing, review comments, version history, feature flags,
-   * localization, audit, context X-Ray, profile, automations, docs, resources,
-   * browser-session controls, web, cross-app delegation, chat, email.
-   *
-   * Every group defaults to today's behavior, so omitting this leaves the tool
-   * surface unchanged. `"minimal"` (or `{ preset: "minimal" }`) turns them all
-   * off for voice-first and single-purpose apps; an explicit group key wins over
-   * the preset.
-   *
-   * Disabling a group removes it from the AGENT surfaces only — chat, MCP, A2A,
-   * background runs. The matching HTTP action routes stay mounted because the UI
-   * reaches them through client hooks. Weigh the parity cost first: the
-   * framework's contract is that anything the UI can do, the agent can do, so
-   * `sharing: false` alongside a visible `ShareButton` is a deliberate break and
-   * only makes sense when the app has no such surface.
-   *
-   * Independent of this option, framework tools are no longer promoted into the
-   * first model request by default — they are reachable through `tool-search`,
-   * or by naming them in `initialToolNames`.
-   */
   frameworkTools?: FrameworkToolsConfig;
   /**
    * Expose raw SQL/native database tools to the app agent.
@@ -354,12 +184,6 @@ export interface AgentChatPluginOptions {
    * minor; setting both to conflicting values throws at plugin init.
    */
   extensionTools?: boolean;
-  /**
-   * Optional A2A-only deterministic response path. Runs after inbound A2A text
-   * and user context are resolved, but before an agent engine/model is loaded.
-   * Return a message to complete the A2A task without invoking the LLM, or
-   * null/undefined to continue through the normal agent loop.
-   */
   a2aMessageFallback?: (details: {
     message: import("../../a2a/types.js").Message;
     text: string;
@@ -371,17 +195,6 @@ export interface AgentChatPluginOptions {
     | null
     | undefined
     | Promise<import("../../a2a/types.js").Message | string | null | undefined>;
-  /**
-   * Optional injectable prompt examples for core rules (rule 5 auto-refresh
-   * examples and rule 8 external provider names). When absent, generic
-   * placeholders are used so no template-specific names appear in the core
-   * prompt by default.
-   *
-   * - `providerActions`: external provider action names this template exposes
-   *   (e.g. `["warehouse-query", "crm-records"]` for a template).
-   * - `appActions`: representative template action names for rule 5's refresh
-   *   examples (e.g. `["log-meal", "update-form"]` for a forms template).
-   */
   promptExamples?: PromptExamples;
   /**
    * Curated allow-list of action names to serve external **connector** clients
@@ -412,13 +225,6 @@ export interface AgentChatPluginOptions {
   /** @deprecated Use `mcp.externalAgents`. */
   externalAgents?: ExternalAgentPolicy;
 
-  /**
-   * Allow this app's A2A agent to delegate to a different app through the
-   * built-in `call-agent` tool. Enabled by default so a receiver keeps the
-   * same cross-app capability as its interactive agent. Set false only for an
-   * intentionally isolated app. Core enforces a bounded delegation path so
-   * cycle safety does not depend on removing the tool.
-   */
   a2aAgentDelegation?: boolean;
 
   /**
@@ -428,18 +234,8 @@ export interface AgentChatPluginOptions {
    */
   a2aReceiverOwnershipFlag?: string;
 
-  /**
-   * Keep a delegated objective on this app when trusted A2A metadata already
-   * selected it as the receiver. This is app behavior, not rollout state.
-   */
   selectedA2AReceiverOwnsObjective?: boolean;
 
-  /**
-   * Resource budget for delegated A2A/MCP agent turns. Defaults are stricter
-   * than interactive chat because every retained tool result is re-sent on
-   * later iterations and delegated callers need a compact answer, not a raw
-   * transcript. Apps may raise one limit deliberately for proven workloads.
-   */
   delegatedRunPolicy?: {
     maxIterations?: number;
     maxRunInputTokens?: number;
@@ -449,48 +245,18 @@ export interface AgentChatPluginOptions {
   /** @deprecated Use `mcp: { enabled: false }`. */
   disableMcp?: boolean;
 
-  /**
-   * Code-execution capability for the production agent.
-   *
-   * - `"off"` (default) — no code-execution tools in production.
-   * - `"sandboxed"` — registers the `run-code` tool (hardened QuickJS
-   *   evaluator with a bridge to allowlisted registered tools). Safe for
-   *   shared or hosted deployments.
-   * - `"trusted"` — registers both the full coding tool registry
-   *   (bash / read / edit / write) and the `run-code` sandbox. Only use in
-   *   single-tenant or operator-controlled deployments where full shell access
-   *   to the host machine is intentional.
-   *
-   * The `AGENT_PROD_CODE_EXECUTION` environment variable (`"trusted"`,
-   * `"sandboxed"`, or `"off"`) takes precedence over this option, allowing
-   * per-deployment overrides without code changes.
-   *
-   * Dev-mode behavior is unchanged — both the coding tools and `run-code` are
-   * always available when the environment allows toggling.
-   */
   codeExecution?: {
     production?: "off" | "sandboxed" | "trusted";
-    /**
-     * Extra registered-tool names the sandbox bridge may forward (beyond the
-     * default allowlist: provider-api-request, provider-api-docs,
-     * provider-api-catalog, web-request).
-     */
     bridgeTools?: string[];
   };
 
-  /**
-   * App-level default tool-call limits. Individual actions override these with
-   * their own `timeoutMs` / `maxResultChars` declarations.
-   */
   toolLimits?: {
     timeoutMs?: number;
     maxResultChars?: number;
-    /** Absolute cap applied even when an individual action declares more. */
     hardMaxResultChars?: number;
   };
 }
 
-/** Cross-app agent delegation is a workspace default; false is an isolation opt-out. */
 export function resolveA2AAgentDelegationEnabled(
   options?: Pick<AgentChatPluginOptions, "a2aAgentDelegation">,
 ): boolean {

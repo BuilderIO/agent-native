@@ -10,14 +10,7 @@ export type McpIntegrationDefaultsConfig =
 export type McpIntegrationsConfigInput =
   | boolean
   | {
-      /**
-       * Built-in remote MCP presets shown in the integration catalog.
-       *
-       * Set to `false` to hide all defaults while keeping custom server setup.
-       * Use `include` or `exclude` to allow/block individual preset ids.
-       */
       defaults?: McpIntegrationDefaultsConfig;
-      /** Whether users can add an arbitrary remote MCP endpoint. Defaults to true. */
       custom?: boolean;
     };
 

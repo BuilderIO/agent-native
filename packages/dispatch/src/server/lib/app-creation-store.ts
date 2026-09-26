@@ -41,7 +41,6 @@ import {
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 
-// Register the workspace-app shareable resource before any access lookup.
 import "../../db/index.js";
 import { isWorkspaceSsoAppUrl } from "../../shared/workspace-sso.js";
 import { identityKeyForIncoming } from "./dispatch-integrations.js";
@@ -119,7 +118,6 @@ class WorkspaceAppsGatewayAuthorizationError extends Error {
   statusCode: 401 | 403;
 }
 
-/** A denied gateway read is visible in logs even when a fallback can answer. */
 function warnWorkspaceAppsGatewayDenial(
   denial: WorkspaceAppsGatewayAuthorizationError | null,
   source: string,
@@ -159,14 +157,11 @@ export interface WorkspaceAppSummary {
   agentName?: string | null;
   agentSkillsCount?: number | null;
   archived?: boolean;
-  /** Safe server-side eligibility projection for the workspace SSO action. */
   workspaceSso?: boolean;
-  /** Organization admins can keep a row visible while disabling app access. */
   orgEnabled?: boolean;
 }
 
 interface FinalizeWorkspaceAppsOptions {
-  /** Write registry rows. False for a source the caller could not authenticate. */
   persist?: boolean;
 }
 
@@ -176,11 +171,6 @@ interface WorkspaceAppDiscovery {
 
 export interface ListWorkspaceAppsOptions {
   includeAgentCards?: boolean;
-  /**
-   * Include apps the current viewer has hidden (archived). Defaults to false
-   * so polling/UI callers see only the visible set; the apps page passes true
-   * when rendering the "Hidden apps" expander.
-   */
   includeArchived?: boolean;
   audience?: WorkspaceAppAudience | "all";
 }
@@ -204,13 +194,9 @@ export interface AppCreationSettings {
 }
 
 export interface WorkspaceInfo {
-  /** Slug from the workspace root package.json `name` (e.g. "on-call-todo-manager"). */
   name: string | null;
-  /** Title-cased version for display (e.g. "On Call Todo Manager"). */
   displayName: string | null;
-  /** Absolute path to the workspace root, if detected. */
   rootPath: string | null;
-  /** Number of apps currently scaffolded under apps/. */
   appCount: number;
 }
 
@@ -508,11 +494,7 @@ function applyWorkspaceAppMetadataOverride(
   };
 }
 
-// Workspace apps are mounted beneath the Dispatch gateway origin. That makes
-// them same-origin with Dispatch, so a mounted pane runs with the signed-in
 // user's session cookie (`path: "/"`). Only trusted, workspace-owner-authored
-// code belongs here; changes to authorship, content trust, or sharing require
-// an explicit auth, origin, or sandbox boundary before this invariant changes.
 function workspaceAppUrl(appPath: string): string | null {
   const base = resolveAppRuntimeUrl();
   if (!base) return null;
@@ -919,11 +901,6 @@ async function assertPendingWorkspaceAppCreationAvailable(
   }
 }
 
-/**
- * A requested app id is already taken. Typed so reservation failures the caller
- * can fix stay separable from the registry/storage failures these same helpers
- * throw: only this one may be reported back as a normal result.
- */
 export class WorkspaceAppIdTakenError extends Error {
   readonly appId: string;
   readonly conflict: "registered" | "pending";
@@ -1312,11 +1289,6 @@ function appRecordTimestamp(value: string | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
-/**
- * Persist creator and visibility separately from the deploy manifest. The
- * manifest describes code; this SQL record is the access-control source of
- * truth shared by Dispatch and the mounted app's auth guard.
- */
 async function ensureWorkspaceAppRecords(
   apps: WorkspaceAppSummary[],
   options: { persist?: boolean } = {},
@@ -1324,9 +1296,7 @@ async function ensureWorkspaceAppRecords(
   const readyApps = apps.filter(
     (app) => app.status !== "pending" && !app.isDispatch,
   );
-  // A source the caller could not authenticate annotates from existing rows
   // only. Minting a row here would create the very authorization the access
-  // filter then checks.
   const shouldPersist = options.persist !== false;
   if (readyApps.length === 0) {
     return apps;
@@ -1383,9 +1353,6 @@ async function ensureWorkspaceAppRecords(
           continue;
         }
         const override = metadata.apps[app.id];
-        // Never infer ownership from the person who happened to list apps.
-        // Legacy manifests without trusted creation metadata remain
-        // ownerless until an admin-controlled migration/claim flow exists.
         const ownerEmail = cleanOptionalText(override?.createdBy) ?? "";
         const visibility: WorkspaceAppVisibility =
           override?.visibility === "private"
@@ -1422,8 +1389,6 @@ async function ensureWorkspaceAppRecords(
         const existingOwnerEmail =
           cleanOptionalText(existing.owner_email) ?? "";
         const existingOrgId = cleanOptionalText(existing.org_id) ?? null;
-        // A registry row belongs to the org that created it. Never reassign a
-        // row from another org just because a caller listed the same manifest.
         if (!shouldPersist || (existingOrgId && existingOrgId !== orgId)) {
           records.set(app.id, {
             ownerEmail: existingOwnerEmail,
@@ -1439,12 +1404,8 @@ async function ensureWorkspaceAppRecords(
         }
 
         const override = metadata.apps[app.id];
-        // A stored creation override is the only trusted source that can
-        // repair an owner. The deploy manifest itself is caller-controlled.
         const ownerEmail =
           cleanOptionalText(override?.createdBy) ?? existingOwnerEmail;
-        // A personal row is owner-bound. Listing the same manifest from an
-        // organization must not turn it into that organization's app.
         const nextOrgId = existingOrgId;
         const nextDescription = app.description || null;
         const existingName =
@@ -1526,8 +1487,6 @@ async function filterWorkspaceAppsByAccess(
     userEmail = currentOwnerEmail();
   } catch {
     // coercion-ok: anonymous requests fail closed by receiving no app metadata.
-    // App metadata is access-controlled. An anonymous request must not receive
-    // the full registry simply because there is no caller to resolve.
     return [];
   }
   const orgId = currentOrgId() ?? undefined;
@@ -1535,8 +1494,6 @@ async function filterWorkspaceAppsByAccess(
   const candidates: WorkspaceAppSummary[] = [];
   for (const app of apps) {
     if (app.orgEnabled === false) {
-      // Keep disabled rows visible to their owner so they can understand and
-      // re-enable the app; no other member should discover its metadata.
       if (app.owner?.trim().toLowerCase() === userEmail.toLowerCase()) {
         visibleIds.add(app.id);
       }
@@ -1586,14 +1543,8 @@ async function filterWorkspaceAppsByAccess(
             { userEmail, orgId },
             { skipResourceBody: true },
           );
-          // A missing row is not an authorization result. This remains
-          // fail-closed when a denied registry read falls back to a manifest.
           return { app, allowed: Boolean(access) };
         } catch (error) {
-          // Rolling deployments may discover an app before the additive access
-          // migrations have run. A missing schema is not an authorization
-          // result: returning the candidate would expose private metadata
-          // during a migration failure.
           console.warn("[dispatch] workspace app access lookup failed", error);
           return { app, allowed: false };
         }
@@ -1709,7 +1660,6 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     baseUrl = new URL(base);
   } catch {
     // coercion-ok: malformed gateway configuration is an unavailable registry
-    // and falls back to local sources.
     return null;
   }
   if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
@@ -1744,13 +1694,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         usableOrgSecret ? orgSecret.trim() : undefined,
         {
           expiresIn: "1m",
-          // The workspace registry is an authenticated read. Prefer the
-          // shared deployment secret so a registry read does not depend on
-          // every app having the same org row.
           preferGlobalSecret: true,
-          // Keep the exact request scope even when the org-domain lookup is
-          // unavailable. The receiver must never infer a different org from
-          // the caller's email in that case.
           ...(requestContext.orgId
             ? { extraClaims: { org_id: requestContext.orgId } }
             : {}),
@@ -1802,7 +1746,6 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       if (localResponse.ok) {
         const apps = parseWorkspaceAppsManifest(
           // coercion-ok: malformed gateway JSON is an unavailable registry and
-          // must fall through to the local manifest sources.
           await localResponse.json().catch(() => null),
         );
         return apps ? { apps } : null;
@@ -1835,7 +1778,6 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     if (!actionResponse.ok) return null;
     const apps = parseWorkspaceAppsManifest(
       // coercion-ok: malformed gateway JSON is an unavailable registry and
-      // must fall through to the local manifest sources.
       await actionResponse.json().catch(() => null),
     );
     return apps ? { apps } : null;
@@ -1902,8 +1844,6 @@ async function readWorkspaceAppsFromFilesystem(
         inferredHomePath = inferWorkspaceAppRootHomePath(appDir);
       }
     } catch (error) {
-      // A broken app or route tree must not hide healthy sibling apps from
-      // Dispatch. The next discovery pass can recover after it is fixed.
       console.warn(
         `[dispatch] Could not discover workspace app ${entry.name}; skipping app`,
         error,
@@ -1943,12 +1883,6 @@ export function getEnvBuilderProjectId(): string | null {
   );
 }
 
-/**
- * Read the workspace's identity from the workspace root's package.json. Used to
- * surface "Workspace: <name>" in the Dispatch UI so first-time users can see
- * the container their apps live inside (rather than only seeing app names like
- * "starter" / "dispatch" with no parent context).
- */
 export function getWorkspaceInfo(): WorkspaceInfo {
   const rootPath = findWorkspaceRoot();
   if (!rootPath) {
@@ -1956,12 +1890,7 @@ export function getWorkspaceInfo(): WorkspaceInfo {
   }
   const pkg = readJson(path.join(rootPath, "package.json"));
   const rawName = typeof pkg?.name === "string" ? pkg.name.trim() : "";
-  // Strip a leading "@scope/" if the workspace root happens to be scoped.
   const name = rawName.replace(/^@[^/]+\//, "") || null;
-  // Honor an explicit `displayName` in the workspace package.json before
-  // falling back to a title-cased version of the slug. Users naming a
-  // workspace "On-Call Todo Manager" via `displayName` should see that
-  // exact label rather than `On Call Todo Manager`.
   const rawDisplay =
     typeof pkg?.displayName === "string" ? pkg.displayName.trim() : "";
   const displayName = rawDisplay || (name ? titleCase(name) : null);
@@ -2038,10 +1967,6 @@ export async function updateWorkspaceAppMetadata(input: {
   const app = apps.find((candidate) => candidate.id === appId);
   if (!app) throw new Error(`Workspace app "${appId}" was not found.`);
 
-  // Treat undefined/null as "field omitted, leave existing value alone"; an
-  // explicit empty string clears the override (the app reverts to its
-  // built-in name / no description). Without this, a partial update that
-  // only touches one field silently wipes the other.
   const name = input.name == null ? app.name : input.name.trim();
   const description =
     input.description == null
@@ -2082,8 +2007,6 @@ export async function listWorkspaceApps(
     apps: WorkspaceAppSummary[],
     { persist = true }: FinalizeWorkspaceAppsOptions = {},
   ) => {
-    // Record rows from the complete manifest. Archive and audience filters
-    // only control the response.
     const annotated = await applyArchivedAndPending(apps);
     const recorded = await ensureWorkspaceAppRecords(annotated, { persist });
     const listed = options.includeArchived
@@ -2100,9 +2023,6 @@ export async function listWorkspaceApps(
     gatewayApps = await readWorkspaceAppsFromGateway();
   } catch (error) {
     if (!(error instanceof WorkspaceAppsGatewayAuthorizationError)) throw error;
-    // A denial answers for the gateway hop, not for what this caller may see.
-    // Serve deployment manifests below, but keep the degraded read read-only
-    // because an unauthenticated manifest must not mint access rows.
     gatewayDenial = error;
   }
   if (gatewayApps) {
@@ -2152,13 +2072,6 @@ export async function listWorkspaceApps(
   return finalize([]);
 }
 
-/**
- * First-party templates the user can scaffold into this workspace via the
- * Apps page tiles. Inlined here (rather than importing from
- * `@agent-native/shared-app-config`) because the published `@agent-native/dispatch`
- * package has no `workspace:*` runtime dependencies. Keep in sync with
- * `packages/core/src/cli/templates-meta.ts`.
- */
 const ADDABLE_TEMPLATES: AvailableWorkspaceTemplate[] = [
   {
     name: "mail",
@@ -2444,9 +2357,6 @@ async function persistProvisionedBuilderProjectId(
 ): Promise<void> {
   const raw = await readSettingsRecord();
 
-  // This is an internal consequence of an authorized app-creation request,
-  // not a user-controlled settings update. Persist the project before the
-  // branch run so later members reuse the same Builder project.
   await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
   await recordAudit({
     action: "settings.updated",
@@ -2796,12 +2706,6 @@ async function grantSelectedWorkspaceResources(input: {
   await grantWorkspaceResourcesToApp(input);
 }
 
-/**
- * Builder authorization failures arrive as a generic throw from the Builder
- * API helpers. Left unclassified they all became `builder-error` ("try again
- * in a moment"), which is wrong for the one cause the user can actually fix,
- * and left the `builder-not-connected` Connect control unreachable.
- */
 const BUILDER_NOT_CONNECTED_ERROR_CODES = new Set([
   "builder_not_connected",
   "builder_oauth_reauthorization_required",
@@ -2868,10 +2772,6 @@ function builderUnavailable(input: {
   return { ...base, reason, message: input.builderErrorMessage };
 }
 
-/**
- * Discriminates why `startWorkspaceAppCreation` could not hand off to Builder.
- * UIs and agents should branch on this instead of parsing `message` text.
- */
 export type AppCreationUnavailableReason =
   | "identity-not-linked"
   | "settings-management-required"
@@ -2891,11 +2791,8 @@ export interface AppCreationBuilderUnavailableResult {
   appId: string;
   reason: Exclude<AppCreationUnavailableReason, "identity-not-linked">;
   message: string;
-  /** Raw underlying error text for agents/operators debugging the deployment. */
   detail?: string;
   projectId: string;
-  /** Present only for `builder-not-connected`, so chat and the create-app UI
-   *  render a Connect control instead of restating the blocker. */
   connectRequired?: ConnectRequiredCard;
 }
 
@@ -2912,17 +2809,10 @@ export interface AppCreationComingSoonResult {
   message: string;
 }
 
-/**
- * The requested app id collides with an existing app or an in-flight creation.
- * Distinct from `builder-unavailable`: nothing is wrong with the deployment,
- * and the caller fixes it by choosing another name.
- */
 export interface AppCreationAppIdTakenResult {
   mode: "app-id-taken";
   appId: string;
-  /** `registered` = a live workspace app; `pending` = a creation in flight. */
   conflict: "registered" | "pending";
-  /** Who is already creating it, when the conflict is a pending creation. */
   owner: string | null;
   message: string;
 }
@@ -3068,9 +2958,6 @@ export async function startWorkspaceAppCreation(input: {
       visibility: creationVisibility,
     });
   } catch (err) {
-    // Narrow on purpose: reservation also fails when the app registry cannot
-    // be read, and that must keep propagating rather than be reported as a
-    // name the caller can simply change.
     if (err instanceof WorkspaceAppIdTakenError) return appIdTakenResult(err);
     throw err;
   }

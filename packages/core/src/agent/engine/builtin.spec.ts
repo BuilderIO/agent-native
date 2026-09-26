@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The engine registry and the applied-selection memo are both module-level, so
-// every case re-imports through a fresh module graph.
 async function load() {
   vi.resetModules();
   const appConfig = await import("../../app-config/index.js");
@@ -55,7 +53,6 @@ describe("registerBuiltinEngines selection", () => {
   it("keeps declared registration order, not selection order", async () => {
     const { defineAppConfig, registerBuiltinEngines, listAgentEngines } =
       await load();
-    // Builder is last in the selection but must still be detected first.
     defineAppConfig({
       agent: { builtInEngines: ["ai-sdk:openai", "builder"] },
     });
@@ -111,8 +108,6 @@ describe("registerBuiltinEngines selection", () => {
   it("drops built-ins a later defineAppConfig deselected", async () => {
     const { defineAppConfig, registerBuiltinEngines, listAgentEngines } =
       await load();
-    // A module-level registerBuiltinEngines() can run before the app's config
-    // plugin is loaded; the late selection still has to win.
     registerBuiltinEngines();
     expect(listAgentEngines().length).toBeGreaterThan(1);
 

@@ -164,7 +164,6 @@ describe("reshapeTrackedExceptionProperties", () => {
         mechanism: { handled: false },
       },
     ]);
-    // The camelCase originals are replaced, not duplicated alongside.
     expect(reshaped).not.toHaveProperty("exceptionType");
     expect(reshaped).not.toHaveProperty("exceptionStack");
   });

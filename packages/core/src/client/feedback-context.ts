@@ -6,7 +6,6 @@ export interface FeedbackClientContext {
   chatSessionIds: string[];
   activeRunId?: string;
   pageUrl?: string;
-  /** Runtime shell the feedback was sent from: web, electron, or tauri. */
   clientSurface?: ClientSurface;
 }
 

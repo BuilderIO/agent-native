@@ -76,10 +76,6 @@ export function useSyncExternalStoreWithSelector<Snapshot, Selection>(
   return value;
 }
 
-// The upstream package is CommonJS. ESM consumers such as Zustand import its
-// namespace through a default binding, while other consumers use named
-// exports. Preserve both shapes so Rolldown can replace either entry without
-// synthesizing CommonJS interop at runtime.
 export default {
   useSyncExternalStore,
   useSyncExternalStoreWithSelector,

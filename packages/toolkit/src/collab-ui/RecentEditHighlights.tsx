@@ -1,28 +1,3 @@
-/**
- * RecentEditHighlights — lingering, fading highlights over regions another
- * participant (human or agent) just edited, with their name/avatar flag.
- *
- * The Google-Docs/Figma feel: when a collaborator or the AI edits something,
- * the changed region glows in their color and the flag identifies them; the
- * highlight fades out over the last portion of its lifetime instead of
- * vanishing.
- *
- * Feed it `useRecentEdits(others)` (which reads participants' `recentEdits`
- * awareness rings) and a `resolveRect` that maps an edit descriptor to a
- * viewport DOMRect for your surface:
- *
- *   const others = usePresence(awareness, ydoc?.clientID).others;
- *   const edits = useRecentEdits(others);
- *   <RecentEditHighlights
- *     edits={edits}
- *     resolveRect={(edit) =>
- *       edit.descriptor.kind === "selector"
- *         ? container.querySelector(edit.descriptor.selector)?.getBoundingClientRect() ?? null
- *         : null
- *     }
- *     containerRef={containerRef}
- *   />
- */
 
 import {
   memo,
@@ -36,20 +11,11 @@ import {
 import { RECENT_EDIT_TTL_MS, type AttributedRecentEdit } from "./types.js";
 
 export interface RecentEditHighlightsProps {
-  /** Attributed recent edits (from `useRecentEdits`). */
   edits: AttributedRecentEdit[];
-  /**
-   * Resolver: maps an edit to a viewport-relative DOMRect, or null when the
-   * region can't be located (the edit is skipped).
-   */
   resolveRect: (edit: AttributedRecentEdit) => DOMRect | null;
-  /** Container the highlights are positioned within (position: relative). */
   containerRef: RefObject<HTMLElement | null>;
-  /** Highlight lifetime; should match useRecentEdits ttlMs. Default 6000. */
   ttlMs?: number;
-  /** Render the compact outline treatment used by the Slides editor. */
   outlineOnly?: boolean;
-  /** Additional CSS class for the overlay div. */
   className?: string;
 }
 
@@ -169,7 +135,6 @@ export function RecentEditHighlights({
         continue;
       }
 
-      // Fade over the final 40% of the lifetime.
       const age = now - edit.at;
       const fadeStart = ttlMs * 0.6;
       const opacity =

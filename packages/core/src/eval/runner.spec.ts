@@ -5,15 +5,7 @@ import type { AgentChatEvent } from "../agent/types.js";
 import type { AgentRunner } from "./agent-runner.js";
 import type { AgentRunOutput } from "./types.js";
 
-// The runner has two halves:
-//  1. Pure orchestration (scoreEval/runEvals) over an injected AgentRunner —
-//     fully testable with NO model and NO real agent loop.
-//  2. createAgentRunner, which wraps the real runAgentLoop. We mock
-//     production-agent + the engine registry + the observability store so we
-//     can drive it end-to-end (incl. the LLM-judge path) without a model.
 
-// Mock production-agent: actionsToEngineTools is a no-op, runAgentLoop is
-// injected per-test via the runLoop seam so this default is never hit.
 const productionMod = vi.hoisted(() => ({
   actionsToEngineTools: vi.fn(() => []),
   runAgentLoop: vi.fn(),
@@ -52,7 +44,6 @@ const { scoreEval, runEvals, runEvalSuite } = await import("./runner.js");
 const { formatReport } = await import("./report.js");
 const { createAgentRunner } = await import("./agent-runner.js");
 
-/** A fake runner that returns a fixed output and supplies a judge stub. */
 function fakeRunner(
   out: Partial<AgentRunOutput>,
   judgeText = '{"score": 1, "reasoning": "ok"}',
@@ -111,7 +102,6 @@ describe("scoreEval with a JS scorer", () => {
     expect(row.scores).toHaveLength(1);
     expect(row.scores[0].scorer).toBe("contains");
     expect(row.scores[0].score).toBe(1);
-    // Stores both the number AND a reason.
     expect(row.scores[0].reason).toContain("present");
     expect(row.avgScore).toBe(1);
   });
@@ -126,7 +116,6 @@ describe("scoreEval with a JS scorer", () => {
     const report = await runEvals([e], fakeRunner({ text: "no match here" }));
     expect(report.results[0].passed).toBe(false);
     expect(report.results[0].scores[0].score).toBe(0);
-    // This is the CI gate signal the CLI maps to a non-zero exit code.
     expect(report.failed).toBe(1);
     expect(report.passed).toBe(0);
   });
@@ -141,9 +130,7 @@ describe("scoreEval with a JS scorer", () => {
       e,
       fakeRunner({ text: "  done  ", toolCalls: ["send-email"] }),
     );
-    // case-insensitive + trimmed exact match
     expect(row.scores[0].score).toBe(1);
-    // tool was used
     expect(row.scores[1].score).toBe(1);
     expect(row.passed).toBe(true);
   });
@@ -184,7 +171,6 @@ describe("scoreEval with a JS scorer", () => {
     const e = defineEval({
       name: "partial contains",
       input: { prompt: "x" },
-      // 1 of 2 phrases => score 0.5
       scorers: [contains(["a", "z"])],
     });
     const passing = await scoreEval(e, fakeRunner({ text: "a only" }), {
@@ -252,7 +238,7 @@ describe("llmJudge scorer via the analyze context (mocked engine)", () => {
       fakeRunner({ text: "x" }, '{"score": 6, "reasoning": "mid"}'),
     );
     expect(row.scores[0].score).toBeCloseTo(0.6, 5);
-    expect(row.passed).toBe(false); // 0.6 < 0.8
+    expect(row.passed).toBe(false);
   });
 
   it("treats an unparseable judge verdict as score 0", async () => {
@@ -272,7 +258,6 @@ describe("llmJudge scorer via the analyze context (mocked engine)", () => {
 
 describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
   it("collects assistant text + tool calls off the send stream", async () => {
-    // Inject a fake loop that emits a couple of text + tool events.
     const runLoop = vi.fn(
       async (opts: { send: (e: AgentChatEvent) => void }) => {
         opts.send({ type: "text", text: "Hello " });
@@ -348,7 +333,6 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     ]);
     expect(out.ok).toBe(true);
 
-    // End-to-end: a contains scorer over the real collected text.
     const e = defineEval({
       name: "e2e",
       input: { prompt: "hi" },
@@ -432,7 +416,6 @@ describe("persistence to the observability store", () => {
       scorers: [contains("a"), exactMatch("a")],
     });
     await runEvals([e], fakeRunner({ text: "a" }), { persist: true });
-    // 2 scorers => 2 rows.
     expect(storeMod.insertEvalResult).toHaveBeenCalledTimes(2);
     const firstRow = storeMod.insertEvalResult.mock.calls[0][0];
     expect(firstRow.evalType).toBe("automated");

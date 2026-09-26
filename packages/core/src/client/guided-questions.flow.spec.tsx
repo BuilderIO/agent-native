@@ -16,12 +16,6 @@ import {
   _resetChangeVersionStoreForTests,
 } from "./use-change-version.js";
 
-// The agent's `ask-question` action writes the guided-questions payload to a
-// per-tab application-state key (`guided-questions:<tabId>`) whenever the run
-// carries a browser tab id, which it almost always does. The client hook must
-// therefore read the scoped key first (falling back to the bare key) and clear
-// whichever key actually held the payload. These tests lock that contract so
-// the clarifying-question card cannot silently stop rendering again.
 
 vi.mock("./agent-chat.js", () => ({
   sendToAgentChat: vi.fn(),
@@ -37,7 +31,6 @@ function keyFromUrl(url: string): string {
   return idx >= 0 ? url.slice(idx + STATE_PREFIX.length) : url;
 }
 
-/** Keys a read touched — one per single-key URL, several per batched URL. */
 function keysFromUrl(url: string): string[] {
   const idx = url.indexOf(BATCH_PREFIX);
   if (idx < 0) return [keyFromUrl(url)];
@@ -47,11 +40,6 @@ function keysFromUrl(url: string): string[] {
     .map(decodeURIComponent);
 }
 
-/**
- * Batched-read response. `lookup` returns the stored JSON string, or "" when
- * the key has never been written — which lands the key in `missing` rather
- * than in `values`, exactly as the server does.
- */
 function readResponse(url: string, lookup: (key: string) => string): Response {
   const values: Record<string, unknown> = {};
   const missing: string[] = [];
@@ -125,8 +113,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
         </QueryClientProvider>,
       );
     });
-    // The query resolves asynchronously and then `setPayload` triggers a
-    // re-render; pump microtasks/timers until the hook reports its questions.
     for (let i = 0; i < 20 && !latest?.questions; i += 1) {
       await flush();
     }
@@ -139,7 +125,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         seen.push(...keysFromUrl(String(input)));
-        // Only the scoped key holds the payload; the bare key is empty.
         return readResponse(String(input), (key) =>
           key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
         );
@@ -173,8 +158,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       refetchInterval: false,
     });
 
-    // The question renders from the bare key, and the hook must never probe a
-    // malformed `guided-questions:undefined` key when there is no tab id.
     expect(result.current().questions?.length).toBe(1);
     expect(fetchMock).toHaveBeenCalled();
     const requestedKeys = fetchMock.mock.calls.flatMap((call) =>
@@ -184,9 +167,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(requestedKeys).not.toContain("guided-questions:undefined");
   });
 
-  // The per-tab key is shared by every chat in that browser tab, so an
-  // agent-written payload names the thread that asked. Without this the same
-  // card followed the user into every other conversation.
   it("hides a question asked in another chat", async () => {
     vi.stubGlobal(
       "fetch",
@@ -235,8 +215,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
   });
 
   it("renders a payload with no threadId in any chat", async () => {
-    // Client-initiated `askUserQuestion` and deterministic writes are not
-    // thread-bound; they must keep rendering wherever the flow is mounted.
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) =>
@@ -300,11 +278,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(fetchMock.mock.calls.length).toBe(initialReads + 1);
   });
 
-  // A caller can stop trusting the reactive `questions` value earlier than
-  // the DB-sync wakeup that would otherwise refresh it — e.g. dropping run
-  // correlation the moment its own chat-stop signal fires. `refetchPending
-  // Question` exists for exactly that: a forced read that does not wait for
-  // `bumpChangeVersion`.
   it("confirms a question written after the caller's own trigger, without a DB-sync wakeup", async () => {
     let hasQuestion = false;
     vi.stubGlobal(
@@ -358,7 +331,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
     await act(async () => {
       bumpChangeVersion("app-state:guided-questions", 10);
-      // Reads are batched on a macrotask, so pump timers, not just microtasks.
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -408,11 +380,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(deleted).toContain("guided-questions:tab123");
   });
 
-  // The agent ids every question it asks `q1`, so an answer that travels as
-  // `q1: 7d` only means something while the turn that asked it survives
-  // history trimming alongside it. When it did not, the agent re-asked the
   // same scope questions instead of proceeding. The submitted context must
-  // carry the question itself.
   it("sends the question text and a settled marker with the answer", async () => {
     vi.stubGlobal(
       "fetch",
@@ -474,10 +442,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     );
   });
 
-  // askUserQuestion() is the client-side twin of the agent's `ask-question`
-  // tool: it writes a payload carrying a `clientResolveId`, and the mounted
-  // hook resolves the caller's promise with the answer instead of forwarding
-  // it to the agent chat. These lock that round-trip.
   function appStateFetchMock(store: Map<string, string>) {
     return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const key = keyFromUrl(String(input));
@@ -505,7 +469,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       ],
       allowFreeText: false,
     });
-    await flush(); // let the PUT land in the store
+    await flush();
 
     const result = await renderFlow({
       stateKey: "guided-questions",
@@ -651,9 +615,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
   });
 
   it("forwards the payload's submitContext to the continuation turn", async () => {
-    // The answer opens a fresh turn that inherits nothing from the turn that
-    // posed the card, so context the follow-up work needs (a linked design
-    // system, the original brief) has to travel on the payload itself.
     vi.stubGlobal(
       "fetch",
       appStateFetchMock(

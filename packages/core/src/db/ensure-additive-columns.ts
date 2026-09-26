@@ -72,9 +72,6 @@ const defaultLogger: EnsureAdditiveColumnsLogger = {
   error: (message) => console.error(message),
 };
 
-/**
- * Minimal shape this module needs from a Drizzle Postgres column.
- */
 interface DeclaredColumnLike {
   name: string;
   notNull: boolean;
@@ -91,19 +88,14 @@ interface DeclaredTableLike {
 
 export interface EnsureAdditiveColumnsOptions {
   db: DbExec;
-  /** Drizzle table objects from `pgTable` or the shared Postgres table helper. */
   tables: unknown[];
   logger?: EnsureAdditiveColumnsLogger;
 }
 
 export interface EnsureAdditiveColumnsResult {
-  /** Whether this invocation actually inspected the live schema. */
   mode: "checked" | "skipped-serverless";
-  /** `"table.column"` entries that were successfully added. */
   applied: string[];
-  /** Declared columns that were intentionally left unpatched, with why. */
   skipped: Array<{ column: string; reason: string }>;
-  /** `"table.column"` entries whose ALTER failed unexpectedly (logged, non-fatal). */
   errors: Array<{ column: string; error: string }>;
 }
 
@@ -118,11 +110,6 @@ async function loadGetTableConfig(): Promise<
   return getTableConfig as unknown as (table: unknown) => DeclaredTableLike;
 }
 
-/**
- * Load every requested Postgres table's live columns in one round trip.
- * Calling information_schema separately for each table adds dozens of
- * serialized network requests to every serverless cold start.
- */
 async function introspectPostgresColumns(
   db: DbExec,
   tables: DeclaredTableLike[],
@@ -141,9 +128,6 @@ async function introspectPostgresColumns(
     args.push(schema, table);
     return `(table_schema = ? AND table_name = ?)`;
   });
-  // Deliberately not caught: this one query now covers every table, so
-  // swallowing a failure here would skip the entire safety net while
-  // reporting a clean result. The caller records it as an error instead.
   const { rows } = await db.execute({
     sql: `SELECT table_schema, table_name, column_name
           FROM information_schema.columns
@@ -160,18 +144,10 @@ async function introspectPostgresColumns(
   return columns;
 }
 
-/** Quote a validated identifier for use in generated SQL. */
 function quoteIdent(name: string): string {
   return `"${name}"`;
 }
 
-/**
- * Render a column's declared default as a SQL literal, or `undefined` if it
- * can't be rendered safely. Only numbers, strings, booleans, and a small
- * allow-list of `sql` template defaults that stringify to a known-safe
- * constant are supported — anything else is deliberately left unrendered so
- * we never interpolate arbitrary SQL.
- */
 function renderDefaultLiteral(column: DeclaredColumnLike): string | undefined {
   if (!column.hasDefault) return undefined;
   const value = column.default;
@@ -184,14 +160,9 @@ function renderDefaultLiteral(column: DeclaredColumnLike): string | undefined {
     return value ? "true" : "false";
   }
   if (typeof value === "string") {
-    // Escape single quotes for a plain string literal.
     return `'${value.replace(/'/g, "''")}'`;
   }
 
-  // Drizzle `sql` template defaults (for example `now()`) carry
-  // a `queryChunks`/`toQuery`-style object rather than a plain scalar. Only
-  // render the handful of known-safe constants used by this codebase's
-  // `now()` helper (see ./schema.ts) — never stringify arbitrary SQL.
   const raw = sqlDefaultText(value);
   if (raw == null) return undefined;
   const normalized = raw.trim().toLowerCase();
@@ -207,15 +178,6 @@ function renderDefaultLiteral(column: DeclaredColumnLike): string | undefined {
   return undefined;
 }
 
-/**
- * Best-effort extraction of the raw SQL text from a drizzle `SQL` default
- * object (e.g. the value produced by `` sql`now()` ``). Drizzle's `SQL`
- * class publicly exposes `readonly queryChunks: SQLChunk[]`, where a plain
- * literal chunk is a `StringChunk` with a `.value: string[]`. Only accept the
- * text when EVERY chunk is a plain string literal — if the default embeds any
- * dynamic piece (a bound param, column reference, nested table, etc.) we
- * refuse to stringify it, since that could contain unsafe or unbounded SQL.
- */
 function sqlDefaultText(value: unknown): string | undefined {
   if (typeof value === "string") return value;
   const chunks = (value as { queryChunks?: unknown } | null)?.queryChunks;
@@ -235,7 +197,6 @@ function sqlDefaultText(value: unknown): string | undefined {
   return text || undefined;
 }
 
-/** True when an ALTER ... ADD COLUMN failure indicates the column already exists (race with a concurrent boot). */
 function isDuplicateColumnError(err: unknown): boolean {
   const msg = (err as { message?: string } | undefined)?.message ?? "";
   return (
@@ -244,7 +205,6 @@ function isDuplicateColumnError(err: unknown): boolean {
   );
 }
 
-/** Annotate a schema-drift-shaped Postgres error (42703/42P01) so logs read plainly. */
 function describeSchemaDriftError(err: unknown): string {
   const code = (err as { code?: string } | undefined)?.code;
   const message =
@@ -258,15 +218,6 @@ function describeSchemaDriftError(err: unknown): string {
   return message;
 }
 
-/**
- * Diff each declared Drizzle table's columns against the live database and
- * additively `ALTER TABLE ... ADD COLUMN` any that are missing. See the
- * module docstring for the full safety-rule contract.
- *
- * Call this once at boot, immediately after the authoritative hand-written
- * migrations have run. Never throws — every failure path is captured in the
- * returned summary instead so a boot-time caller can log-and-continue.
- */
 export async function ensureAdditiveColumns(
   options: EnsureAdditiveColumnsOptions,
 ): Promise<EnsureAdditiveColumnsResult> {
@@ -295,9 +246,6 @@ export async function ensureAdditiveColumns(
         declaredTables.push(config);
       }
     } catch (err) {
-      // Not a table the getTableConfig helper understands (for example a stray
-      // export that isn't a Drizzle table) — skip quietly rather than
-      // erroring the whole run over one bad entry.
       logger.warn(
         `[ensure-additive-columns] skipping non-table export: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -308,9 +256,6 @@ export async function ensureAdditiveColumns(
   try {
     postgresColumns = await introspectPostgresColumns(db, declaredTables);
   } catch (err) {
-    // One batch probe now covers every table, so its failure means nothing
-    // was checked. Returning an empty-but-clean result here would be
-    // indistinguishable from "schema already correct".
     result.errors.push({
       column: "*",
       error: describeSchemaDriftError(err),
@@ -333,15 +278,12 @@ export async function ensureAdditiveColumns(
       continue;
     }
 
-    // Table doesn't exist yet — the creation path (CREATE TABLE IF NOT
-    // EXISTS / a real migration) owns bringing every declared column into
-    // existence. Nothing to do here.
     if (liveColumns == null) continue;
 
     for (const column of config.columns) {
       const columnName = column.name;
       if (!columnName || !PLAIN_IDENTIFIER.test(columnName)) continue;
-      if (liveColumns.has(columnName)) continue; // untouched — already present
+      if (liveColumns.has(columnName)) continue;
 
       const label = `${tableName}.${columnName}`;
       const sqlType = safeSQLType(column, label, logger);
@@ -359,11 +301,6 @@ export async function ensureAdditiveColumns(
         if (defaultLiteral != null) {
           notNullClause = " NOT NULL";
         } else {
-          // Can't safely backfill existing rows — adding NOT NULL without a
-          // default would fail immediately on any existing row. Skip the
-          // whole column rather than add a nullable column that silently
-          // disagrees with the Drizzle declaration's NOT NULL contract in
-          // a way that could surprise a future safe-default addition.
           result.skipped.push({
             column: label,
             reason:
@@ -386,7 +323,6 @@ export async function ensureAdditiveColumns(
         logger.info(`[ensure-additive-columns] added ${label}`);
       } catch (err) {
         if (isDuplicateColumnError(err)) {
-          // A concurrent boot already added it — treat as success.
           result.applied.push(label);
           continue;
         }
@@ -404,12 +340,6 @@ export async function ensureAdditiveColumns(
   return result;
 }
 
-/**
- * Resolve the SQL type to use for a new column. Prefers the column's own
- * `getSQLType()` (the exact type Drizzle would have used in a fresh CREATE
- * TABLE); falls back to skipping (returns `undefined`) if it throws or
- * returns something empty.
- */
 function safeSQLType(
   column: DeclaredColumnLike,
   label: string,

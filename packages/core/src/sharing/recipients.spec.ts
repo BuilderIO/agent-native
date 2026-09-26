@@ -45,7 +45,6 @@ describe("filterRecipientsByResourceAccess", () => {
       orgId: "org_1",
     });
 
-    // Only the no-org probe runs: a non-member never gets an org-scoped check.
     expect(mocks.resolveAccess).toHaveBeenCalledTimes(1);
     expect(mocks.resolveAccess.mock.calls[0][2]).toEqual({
       userEmail: "outsider@evil.test",

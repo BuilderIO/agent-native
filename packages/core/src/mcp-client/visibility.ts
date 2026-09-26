@@ -42,13 +42,10 @@ export function isMcpToolAllowedForRequest(toolName: string): boolean {
   const inProduction = process.env.NODE_ENV === "production";
   if (parsed.scope === "user") {
     if (!email) {
-      // No identity in this call chain — block in production, allow in dev
-      // where this commonly happens during startup tool enumeration.
       return !inProduction;
     }
     return hashEmail(email) === parsed.owner;
   }
-  // scope === "org"
   if (!orgId) {
     return !inProduction;
   }

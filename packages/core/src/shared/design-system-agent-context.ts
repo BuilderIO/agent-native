@@ -4,7 +4,6 @@ export interface AgentDesignSystemContextAvailable {
   id: string;
   title: string;
   agentContext: string;
-  /** Present when scope is "summary": the one call that returns the full context. */
   next?: string;
 }
 
@@ -18,12 +17,6 @@ export type AgentDesignSystemContext =
   | AgentDesignSystemContextAvailable
   | AgentDesignSystemContextUnavailable;
 
-// `ActionDefinition["run"]` (packages/core/src/action.ts) is typed as
-// `(args) => Promise<TReturn> | TReturn` — sync returns are allowed at the
-// type level even though every real action is async. `Promise<unknown>` here
-// would reject that union on every call site that passes an action's default
-// export directly, so this accepts the same "sync or async" shape the loader
-// already awaits either way.
 export interface AgentDesignSystemReader {
   run(args: { id: string; compact?: "true" | "false" }): unknown;
 }

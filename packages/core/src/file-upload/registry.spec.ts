@@ -36,8 +36,6 @@ describe("file-upload registry", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    // Drop any providers a prior test (or import side effect) left on the
-    // globalThis-pinned map so each case starts clean.
     for (const p of listFileUploadProviders()) {
       unregisterFileUploadProvider(p.id);
     }
@@ -222,8 +220,6 @@ describe("file-upload registry", () => {
     });
 
     it("does NOT swallow a real upload failure as a fallback", async () => {
-      // Creds resolve fine, so an upload error must propagate to the caller
-      // rather than being treated as a missing-provider null.
       canAuthorizeBuilderApiRequestMock.mockResolvedValue(true);
       const uploadSpy = vi
         .spyOn(builderFileUploadProvider, "upload")

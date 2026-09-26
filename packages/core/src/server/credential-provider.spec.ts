@@ -65,8 +65,6 @@ vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: (...args: any[]) => mockResolveOrgIdForEmail(...args),
 }));
 vi.mock("../db/client.js", async (importOriginal) => ({
-  // Real isTransientDatabaseError: "unreadable vs absent" is the behavior
-  // under test here, so the classifier must not be stubbed.
   ...(await importOriginal<typeof import("../db/client.js")>()),
   isLocalDatabase: () => mockIsLocalDatabase(),
   getDbExec: () => mockGetDbExec(),
@@ -321,8 +319,6 @@ describe("writeBuilderCredentials", () => {
   });
 
   it("clears stale optional keys at target scope before writing the new connection", async () => {
-    // Reconnecting with a Builder space that doesn't carry orgName/orgKind
-    // must not leave the previous connection's metadata in place.
     await writeBuilderCredentials(
       "owner@b.com",
       { privateKey: "bpk-second-private", publicKey: "pub2" },
@@ -336,11 +332,7 @@ describe("writeBuilderCredentials", () => {
   });
 
   it("clears the writer's user-scope override when writing at org scope so the new connection wins resolution", async () => {
-    // Without this, a user who previously connected as a member (writing
-    // at user scope) and is now an admin/owner reconnecting (writing at
     // org scope) would still see their stale personal credentials win on
-    // the next chat call — `resolveScopedBuilderCredential` checks user
-    // scope before org scope by design.
     await writeBuilderCredentials(
       "owner@b.com",
       { privateKey: "bpk-new-private", publicKey: "pub-new" },
@@ -365,8 +357,6 @@ describe("writeBuilderCredentials", () => {
   });
 
   it("writes happen AFTER deletes (so the cleanup doesn't race the new values)", async () => {
-    // Capture call order across both mocks. We must see every delete
-    // before any write, otherwise the cleanup could clobber the fresh row.
     const order: Array<"delete" | "write"> = [];
     mockDeleteAppSecret.mockImplementation(async () => {
       order.push("delete");
@@ -517,17 +507,9 @@ describe("Builder credential auth failure markers", () => {
     });
 
     expect(failure).toBeNull();
-    // The row deliberately outlives its TTL: deleting it here reset the strike
-    // count, so a credential that is simply wrong was re-admitted on the same
-    // flat cadence forever, spending one real user's turn on a 401 each time.
     expect(mockDeleteSetting).not.toHaveBeenCalled();
   });
 
-  // Prod, 2026-08-26 (slides): two users got "The saved provider key was
-  // rejected" minutes apart, each on their first prompt, each followed by the
-  // run succeeding on its own once the marker armed and the next lane served
-  // the turn. 15 minutes later the same credential was re-admitted and the
-  // next person paid for the same rediscovery.
   it("backs off re-admission for a credential that keeps failing", async () => {
     const staleByBaseTtl = {
       message: "Missing Authentication header",
@@ -544,8 +526,6 @@ describe("Builder credential auth failure markers", () => {
       }),
     ).not.toBeNull();
 
-    // A first-strike marker still releases on the base TTL, so a genuinely
-    // transient 401 is not punished.
     mockGetSetting.mockResolvedValue({ ...staleByBaseTtl, strikes: 1 });
     expect(
       await getBuilderCredentialAuthFailure({
@@ -555,10 +535,6 @@ describe("Builder credential auth failure markers", () => {
     ).toBeNull();
   });
 
-  // The back-off is exponential, so without a ceiling a credential that failed
-  // enough times would be pinned for weeks and a server-side recovery (plan
-  // upgrade, gateway re-enabled) would never be noticed. A corrupt strike count
-  // must not be a way to pin one forever either.
   it("never pins a credential beyond the 24h ceiling", async () => {
     const dayAndAHalfAgo = Date.now() - 36 * 60 * 60 * 1000;
 
@@ -572,8 +548,6 @@ describe("Builder credential auth failure markers", () => {
       ).toBeNull();
     }
 
-    // Still armed just inside the ceiling, so the ceiling is real rather than
-    // the back-off silently collapsing to "always expired".
     mockGetSetting.mockResolvedValue({
       strikes: 8,
       at: Date.now() - 23 * 60 * 60 * 1000,
@@ -603,7 +577,6 @@ describe("Builder credential auth failure markers", () => {
     expect(mockPutSetting.mock.calls.at(-1)?.[1]).toMatchObject({ strikes: 3 });
 
     // First failure for a credential we have never rejected before starts at 1,
-    // so a one-off transient 401 still releases on the base TTL.
     mockGetSetting.mockResolvedValue(null);
     await recordProviderCredentialAuthFailure({
       key: "OPENAI_API_KEY",
@@ -694,8 +667,6 @@ describe("provider credential auth failure markers", () => {
         value: "sk-example-invalid",
       }),
     ).resolves.toBeNull();
-    // Retained on purpose — see the Builder-side twin: the row carries the
-    // strike count that makes re-admission back off.
     expect(mockDeleteSetting).not.toHaveBeenCalled();
   });
 });
@@ -764,7 +735,6 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
       "deploy-key",
     );
-    // user, org, workspace/orgId, and the always-on workspace/solo fallback.
     expect(mockReadAppSecret).toHaveBeenCalledTimes(4);
   });
 
@@ -805,8 +775,6 @@ describe("resolveBuilderCredential", () => {
     process.env.OPENAI_API_KEY = "openai-deploy-key";
     process.env.SLACK_BOT_TOKEN = "slack-deploy-token";
     process.env.GITHUB_TOKEN = "github-deploy-token";
-    // Fusion/workspace dev servers can still look "local" to DB detection
-    // during startup, but deployment model keys must not pay for user requests.
     mockIsLocalDatabase.mockReturnValue(true);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
@@ -946,7 +914,7 @@ describe("resolveBuilderCredential", () => {
     mockGetRequestUserEmail.mockReturnValue("member@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
     mockReadAppSecret
-      .mockResolvedValueOnce(null) // user scope miss
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ value: "org-key", last4: "-key", updatedAt: 1 });
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
       "org-key",
@@ -968,8 +936,8 @@ describe("resolveBuilderCredential", () => {
     mockGetRequestUserEmail.mockReturnValue("member@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
     mockReadAppSecret
-      .mockResolvedValueOnce(null) // user scope miss
-      .mockResolvedValueOnce(null) // org scope miss
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         value: "workspace-key",
         last4: "-key",
@@ -1030,7 +998,7 @@ describe("resolveBuilderCredential", () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
     mockReadAppSecret
-      .mockResolvedValueOnce(null) // user scope miss
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         value: "solo-workspace-key",
         last4: "-key",
@@ -1259,8 +1227,6 @@ describe("resolveBuilderCredentialsDetailed", () => {
   });
 
   it("skips a user-scoped credential the gateway already rejected and falls through to a working org-scoped one", async () => {
-    // Root-cause regression: once a Builder credential is marked bad, every
-    // subsequent resolution must skip it instead of resending it forever.
     mockGetRequestUserEmail.mockReturnValue("member@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
     mockReadAppSecret.mockImplementation(async ({ key, scope }) => {
@@ -1378,8 +1344,8 @@ describe("resolveSecret (generic)", () => {
     mockGetRequestUserEmail.mockReturnValue("teammate@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
     mockReadAppSecret
-      .mockResolvedValueOnce(null) // user scope miss
-      .mockResolvedValueOnce(null) // org scope miss
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         value: "workspace-secret",
         last4: "cret",
@@ -1441,7 +1407,7 @@ describe("resolveSecret (generic)", () => {
     mockGetRequestUserEmail.mockReturnValue("solo@b.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
     mockReadAppSecret
-      .mockResolvedValueOnce(null) // user scope miss
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         value: "solo-workspace-secret",
         last4: "cret",
@@ -2072,8 +2038,6 @@ describe("Builder gateway credential lane", () => {
     expect(isBuilderGatewayDeployConfigured()).toBe(false);
   });
 
-  // Deprecated, but an external caller built against the old export must
-  // keep working until it migrates.
   it("keeps the deprecated resolveBuilderGatewayCredentials alias working", async () => {
     hostedVisitor();
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
@@ -2099,13 +2063,7 @@ describe("Builder gateway credential lane", () => {
     expect(await resolveBuilderCredentialSource()).toBeNull();
   });
 
-  // The engine registry treats an owner-configured legacy pair as non-injected and
-  // gives it priority, so the resolver has to agree: picking `builder` on the
-  // customer's own pair and then billing the call to the project's gateway space
-  // moves an existing customer's spend without them changing anything.
   it("lets a complete legacy pair in env outrank the deploy gateway pair", async () => {
-    // Deliberately not `hostedVisitor()`: that runtime refuses env legacy
-    // credentials outright, so the conflict only exists where they do resolve.
     mockGetRequestUserEmail.mockReturnValue(undefined);
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
     process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
@@ -2121,8 +2079,6 @@ describe("Builder gateway credential lane", () => {
     });
   });
 
-  // Half a legacy pair cannot authenticate anything, so it must not shadow a
-  // usable gateway pair.
   it("still uses the gateway pair when only half a legacy pair is set", async () => {
     mockGetRequestUserEmail.mockReturnValue(undefined);
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
@@ -2372,10 +2328,6 @@ describe("Builder gateway credential lane", () => {
     expect(mockHasBuilderOAuthSession).not.toHaveBeenCalled();
   });
 
-  // OAuth custody wins outright, same as resolveBuilderRequestAuthorization in
-  // builder-api-auth.ts: falling through here would silently authenticate the
-  // request with a key-based credential that could belong to a different
-  // Builder identity than the one the owner explicitly connected.
   it("reports not configured, rather than falling back, when OAuth custody exists but the session is unusable", async () => {
     hostedVisitor();
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
@@ -2421,8 +2373,6 @@ describe("Builder gateway credential lane", () => {
         status: 403,
       }),
     );
-    // The legacy pair marker is a no-op without both legacy keys, so it must
-    // not be the one this lane writes.
     expect(builderCredentialFingerprint("btk-site-token", null)).toBeNull();
   });
 
@@ -2466,10 +2416,7 @@ describe("Builder gateway credential lane", () => {
     );
   });
 
-  // A LEGACY env deployment now gets an x-builder-api-key it did not send
   // before. That is only safe because the token and the space id always come
-  // from ONE scope, so the space id is the key's own ownerId: ai-services' bpk-
-  // branch 403s "Private key does not match spaceId" for any other combination.
   it("pairs a legacy env deployment's key with its own space id", async () => {
     process.env.BUILDER_PRIVATE_KEY = "bpk-legacy";
     process.env.BUILDER_PUBLIC_KEY = "space-legacy";
@@ -2487,7 +2434,6 @@ describe("Builder gateway credential lane", () => {
     process.env.BUILDER_PUBLIC_KEY = "space-deploy";
     mockGetRequestUserEmail.mockReturnValue("owner@example.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
-    // A partial user row is a miss, so the complete deploy scope answers whole.
     mockReadAppSecret.mockImplementation(async ({ key, scope }: any) =>
       scope === "user" && key === "BUILDER_PRIVATE_KEY"
         ? { key, value: "bpk-user-only" }
@@ -2501,8 +2447,6 @@ describe("Builder gateway credential lane", () => {
     });
   });
 
-  // The gate for every gateway-lane feature. Answering the identity-only
-  // question here is what left transcription dead on credits-only sites.
   it("does not report a hosted deploy Builder credential as usable", async () => {
     hostedVisitor();
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
@@ -2528,9 +2472,7 @@ describe("Builder gateway credential lane", () => {
     );
   });
 
-  // The dev-preview pod is injected with the SAME gateway token as the published
   // site, so a token-only test cannot tell the two apart — and the reader there
-  // is the project owner in the Fusion editor, who needs the real reason.
   it("keeps owner-facing copy in the dev-preview runtime", () => {
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
     process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";

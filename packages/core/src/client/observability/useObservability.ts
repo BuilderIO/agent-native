@@ -19,7 +19,6 @@ function fetchJson<T>(url: string): Promise<T> {
   });
 }
 
-// ─── Overview ──────────────────────────────────────────────────────────
 
 export interface ObservabilityOverview {
   totalRuns: number;
@@ -40,7 +39,6 @@ export function useObservabilityOverview(sinceDays = 7) {
   });
 }
 
-// ─── Traces ────────────────────────────────────────────────────────────
 
 export interface TraceSummary {
   runId: string;
@@ -153,7 +151,6 @@ export function useTraceDetail(runId: string | null) {
   });
 }
 
-// ─── Feedback ──────────────────────────────────────────────────────────
 
 export interface FeedbackEntry {
   id: string;
@@ -253,7 +250,6 @@ export function useSaveReviewFeedback() {
   >("save-observability-review-feedback");
 }
 
-// ─── Satisfaction ──────────────────────────────────────────────────────
 
 export interface SatisfactionScore {
   id: string;
@@ -276,7 +272,6 @@ export function useSatisfaction(sinceDays = 7) {
   });
 }
 
-// ─── Evals ─────────────────────────────────────────────────────────────
 
 export interface EvalStats {
   totalEvals: number;
@@ -293,7 +288,6 @@ export function useEvalStats(sinceDays = 7) {
   });
 }
 
-// ─── Experiments ───────────────────────────────────────────────────────
 
 export interface Experiment {
   id: string;

@@ -1,50 +1,21 @@
-/**
- * LiveCursorOverlay — renders remote users' cursors over an absolutely-
- * positioned container.
- *
- * Cursor positions are expected as normalized coordinates (0–1 relative to
- * the container's content size) so different zoom/scroll positions map
- * correctly. Pass a `mapCoords` prop to handle non-identity transforms
- * (e.g. a zoomed canvas).
- *
- * The agent uses the same pointer shape with an "AI" label.
- *
- * Cursors fade out after 10 seconds of no movement.
- */
 
 import { useState, useEffect, useRef, memo, type RefObject } from "react";
 
 import type { OtherPresence, NormalizedPoint } from "./types.js";
 
 export interface CursorMapFn {
-  /** Convert normalized coords to pixel offsets within the overlay container. */
   (norm: NormalizedPoint): { x: number; y: number };
 }
 
 export interface LiveCursorOverlayProps {
-  /** Remote participants with presence payload. */
   others: OtherPresence[];
-  /**
-   * Key inside presence payload that carries the cursor position.
-   * Default: "cursor"
-   * Expected shape: { x: number; y: number } (normalized 0–1).
-   */
   cursorKey?: string;
-  /**
-   * Override coordinate mapping. Default: scale by container clientWidth/Height.
-   * Pass this when the container uses transform: scale() or has virtual scroll.
-   */
   mapCoords?: CursorMapFn;
-  /**
-   * Container element ref. Required when mapCoords is not provided —
-   * used to compute pixel positions from normalized coords.
-   */
   containerRef?: RefObject<HTMLElement | null>;
-  /** Additional CSS class for the overlay div. */
   className?: string;
 }
 
-const STALE_MS = 10_000; // Fade out cursors older than 10s
+const STALE_MS = 10_000;
 
 function CursorPointer({ color }: { color: string }) {
   return (
@@ -153,16 +124,14 @@ export function LiveCursorOverlay({
   className,
 }: LiveCursorOverlayProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const [, tick] = useState(0); // Force re-render to prune stale cursors
+  const [, tick] = useState(0);
   const entriesRef = useRef<Map<number, CursorEntry>>(new Map());
 
-  // Tick every 5s to prune stale cursors (no re-render storm).
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 5_000);
     return () => clearInterval(id);
   }, []);
 
-  // Build entries from others, computing pixel positions.
   const now = Date.now();
   const visible: CursorEntry[] = [];
 
@@ -171,7 +140,6 @@ export function LiveCursorOverlay({
     if (!pos || typeof pos.x !== "number" || typeof pos.y !== "number")
       continue;
 
-    // Compute pixel position.
     let px: number;
     let py: number;
     if (mapCoords) {
@@ -198,7 +166,6 @@ export function LiveCursorOverlay({
     }
   }
 
-  // Remove entries for participants who left.
   for (const clientId of entriesRef.current.keys()) {
     if (!others.find((o) => o.clientId === clientId)) {
       entriesRef.current.delete(clientId);

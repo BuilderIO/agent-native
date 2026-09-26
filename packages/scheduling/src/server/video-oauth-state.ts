@@ -18,7 +18,7 @@
 import crypto from "node:crypto";
 
 const SEPARATOR = ".";
-const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const STATE_TTL_MS = 10 * 60 * 1000;
 
 function getStateSecret(): string {
   const secret =
@@ -46,16 +46,9 @@ function hmac(message: string, secret: string): string {
 }
 
 function safeFragment(value: string): string {
-  // The encoded payload uses dots as separators, so any literal dot in the
-  // user email would corrupt parsing. Replace dots and any non-printable
-  // characters before signing.
   return value.replace(/[^A-Za-z0-9_@-]/g, "_");
 }
 
-/**
- * Mint a fresh signed state value bound to the current authenticated user
- * and the requested OAuth `kind`.
- */
 export function signVideoOAuthState(opts: {
   kind: string;
   userEmail: string;
@@ -85,7 +78,6 @@ export function verifyVideoOAuthState(opts: {
   state: string | undefined | null;
   kind: string;
   userEmail: string;
-  /** Override default 10-minute TTL (for tests). */
   ttlMs?: number;
 }): boolean {
   if (!opts.state || typeof opts.state !== "string") return false;
@@ -106,7 +98,6 @@ export function verifyVideoOAuthState(opts: {
   if (a.length !== b.length) return false;
   if (!crypto.timingSafeEqual(a, b)) return false;
 
-  // Freshness check.
   const ttl = opts.ttlMs ?? STATE_TTL_MS;
   const issuedAt = Number.parseInt(timestamp, 36);
   if (!Number.isFinite(issuedAt)) return false;

@@ -15,13 +15,9 @@ export type AgentNativeExtensionMessageType =
 export type AgentNativeExtensionStorageScope = string;
 
 export interface AgentNativeExtensionManifest {
-  /** Slot IDs this extension may render into. Omit to let the host decide. */
   slots?: readonly string[];
-  /** Host action names this extension is allowed to call. Omit to inherit the slot policy. */
   requestedActions?: readonly string[];
-  /** Host command names this extension is allowed to call. Omit to inherit the slot policy. */
   requestedCommands?: readonly string[];
-  /** Storage scopes this extension is allowed to use. Omit to inherit the slot policy. */
   storageScopes?: readonly AgentNativeExtensionStorageScope[];
 }
 
@@ -97,7 +93,6 @@ export interface AgentNativeExtensionStorage {
 }
 
 export interface CreateHttpAgentNativeExtensionStorageOptions {
-  /** Endpoint that receives storage operation POSTs. */
   endpoint: string;
   fetch?: typeof fetch;
   headers?:

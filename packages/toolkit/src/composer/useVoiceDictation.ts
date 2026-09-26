@@ -1,22 +1,3 @@
-/**
- * Voice dictation hook for the agent composer.
- *
- * Wires voice providers behind a single state machine:
- *   - "auto" / "openai" / "builder" / "builder-gemini" / "gemini" / "groq"
- *     — MediaRecorder → POST /_agent-native/transcribe-voice
- *   - "google-realtime"
- *     — MediaRecorder chunks → POST /_agent-native/transcribe-stream/session
- *       → managed WebSocket → Google Speech-to-Text streaming
- *   - "browser" — Web Speech API (low quality, offline capable)
- *
- * Provider preference lives in application_state under
- * `voice-transcription-prefs` (`{ transcriptionMode, provider, instructions }`).
- * The composer reads it on every start so settings changes take effect
- * immediately without unmounting the composer.
- *
- * The hook exposes amplitude (0..1) and duration (ms) so the composer can
- * render the Lovable-style live waveform + MM:SS timer.
- */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -108,7 +89,6 @@ export type VoiceState =
 export interface UseVoiceDictationOptions {
   onTranscript: (text: string) => void;
   onError?: (message: string) => void;
-  /** Called with (accumulatedFinalText, currentInterimText) as speech is recognized in real time. */
   onLiveUpdate?: (finalText: string, interimText: string) => void;
   contextPack?: VoiceContextPackSource;
 }
@@ -348,7 +328,6 @@ export function voiceDictationStartErrorMessage(error: unknown): string {
   return message || "Could not start recording";
 }
 
-/** Retrying these through another provider re-prompts and fails the same way. */
 function isMicPermissionError(error: string | undefined): boolean {
   return (
     error === "not-allowed" ||
@@ -401,7 +380,6 @@ export function useVoiceDictation(
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [provider, setProvider] = useState<VoiceProvider>("auto");
 
-  // Keep refs for teardown / cross-branch access.
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -414,7 +392,6 @@ export function useVoiceDictation(
   const speechRef = useRef<any>(null);
   const speechTranscriptRef = useRef<string>("");
   const activeProviderRef = useRef<VoiceProvider>("browser");
-  // Parallel live recognition for OpenAI mode (provides instant preview while MediaRecorder captures)
   const liveSpeechRef = useRef<any>(null);
   const liveTextRef = useRef<string>("");
   const realtimeSocketRef = useRef<WebSocket | null>(null);
@@ -450,10 +427,6 @@ export function useVoiceDictation(
       audioContextRef.current = null;
     }
     if (speechRef.current) {
-      // Stop the Web Speech session before dropping the ref so the browser
-      // releases the mic and stops dispatching onresult events into a stale
-      // closure. abort() is fire-and-forget (no final result); stop() would
-      // deliver remaining partials but we've already cleared state.
       try {
         speechRef.current.abort?.();
       } catch {
@@ -554,8 +527,6 @@ export function useVoiceDictation(
   const startOpenAi = useCallback(
     async (providerPref: VoiceProvider, instructions?: string) => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // User may have pressed Escape (cancel) while the permission prompt was
-      // open. If so, stop the stream and bail before we start recording.
       if (cancelledRef.current) {
         for (const track of stream.getTracks()) track.stop();
         cancelledRef.current = false;
@@ -648,9 +619,6 @@ export function useVoiceDictation(
       setState("recording");
       recorder.start();
 
-      // Start parallel Web Speech recognition for live preview text.
-      // This runs alongside MediaRecorder so the user sees words appear
-      // immediately while the server provider processes the full recording later.
       const SpeechCtor = getSpeechRecognitionCtor();
       if (SpeechCtor) {
         const liveSpeech = new SpeechCtor();
@@ -707,9 +675,6 @@ export function useVoiceDictation(
   const startBrowser = useCallback(
     async (
       prefs: VoicePrefs,
-      /** Return true to take over when the recognizer never opened the mic.
-       * Brave ships `webkitSpeechRecognition` with no speech backend, so
-       * feature detection alone cannot tell dictation will work. */
       onUnavailable?: (error: string | undefined) => boolean,
     ) => {
       const Ctor = getSpeechRecognitionCtor();
@@ -736,9 +701,6 @@ export function useVoiceDictation(
       let fatal = false;
       let lastError: string | undefined;
 
-      // Opening our own capture before the speech service has claimed the
-      // device makes Chrome abort the session outright. Attach the meter only
-      // once recognition is actually listening.
       recognition.onaudiostart = () => {
         capturing = true;
         if (cancelledRef.current) return;
@@ -772,8 +734,6 @@ export function useVoiceDictation(
         }
         onLiveUpdateRef.current?.(speechTranscriptRef.current, interim);
       };
-      // `end` always follows `error`, so every outcome is decided there. Acting
-      // here too would either pre-empt the fallback or be overwritten by it.
       recognition.onerror = (event: any) => {
         lastError = event?.error;
         if (event?.error === "no-speech" || event?.error === "aborted") return;
@@ -789,8 +749,6 @@ export function useVoiceDictation(
           return;
         }
         if (!text) {
-          // A recognizer that failed, or that ended before the mic ever opened,
-          // produced nothing usable — that is not the same as hearing silence.
           if (fatal || !capturing) {
             if (onUnavailable?.(lastError)) return;
             failWith(voiceDictationSpeechErrorMessage(lastError));
@@ -1098,12 +1056,6 @@ export function useVoiceDictation(
     const pref = prefs.provider;
     setProvider(pref);
 
-    // In "auto" mode, prefer browser-native SpeechRecognition when available.
-    // It requires no server-side API key, streams words incrementally into the
-    // composer and matches the native record-button experience. Fall back
-    // to the server upload path only when SpeechRecognition isn't supported.
-    // Explicit server providers (builder, gemini, groq, openai) always use the
-    // MediaRecorder → server upload path regardless.
     const resolvedProvider: VoiceProvider =
       pref === "auto" && speechSupported
         ? "browser"
@@ -1132,8 +1084,6 @@ export function useVoiceDictation(
         }
         await startGoogleRealtime(prefs);
       } else {
-        // Only "auto" promised a working recognizer of any kind; an explicit
-        // browser preference must surface its own failure instead.
         await startBrowser(
           prefs,
           pref === "auto" && mediaRecorderSupported
@@ -1224,9 +1174,6 @@ export function useVoiceDictation(
     setState("idle");
   }, [state, teardown]);
 
-  // Auto-dismiss error after 8s so a stale "permission denied" message doesn't
-  // sit forever after the user fixes the underlying permission. Manual dismiss
-  // (via dismissError) and click-to-retry both also clear the error sooner.
   useEffect(() => {
     if (state !== "error") return;
     const handle = setTimeout(() => {

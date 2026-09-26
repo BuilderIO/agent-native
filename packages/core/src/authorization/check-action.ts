@@ -24,11 +24,8 @@ export interface ActionResourceAccess {
 }
 
 interface ActionAccessConfigBase {
-  /** Which shared boundary must be present before the action can run. */
   scope?: Exclude<ActionAccessScope, "resource">;
-  /** App-declared permission required for this action. */
   permission?: string;
-  /** Optional resource share/ownership check. */
   resource?: ActionResourceAccess;
 }
 

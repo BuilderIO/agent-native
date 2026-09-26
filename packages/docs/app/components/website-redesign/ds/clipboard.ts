@@ -1,6 +1,3 @@
-// navigator.clipboard is missing or rejects in an iframe that wasn't granted
-// clipboard-write (the preview host is one), so fall back to the legacy
-// selection-based copy instead of silently doing nothing there.
 export async function copyText(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {

@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import type { Message } from "./types.js";
 
-// In-memory SQL mock
 let tables: Record<string, any[]> = {};
 let onIdempotentInsert: ((args: any[]) => void) | null = null;
 
@@ -12,13 +11,11 @@ function createMockDb() {
       const rawSql = typeof sql === "string" ? sql : sql.sql;
       const args = typeof sql === "string" ? [] : sql.args || [];
 
-      // CREATE TABLE
       if (rawSql.includes("CREATE TABLE")) {
         tables["a2a_tasks"] = tables["a2a_tasks"] || [];
         return { rows: [], rowsAffected: 0 };
       }
 
-      // INSERT
       if (rawSql.includes("INSERT INTO a2a_tasks")) {
         if (rawSql.includes("ON CONFLICT")) {
           onIdempotentInsert?.(args);
@@ -68,7 +65,6 @@ function createMockDb() {
         return { rows: row ? [row] : [], rowsAffected: 0 };
       }
 
-      // SELECT * ... WHERE id = ?
       if (rawSql.includes("SELECT * FROM a2a_tasks WHERE id")) {
         const rows = (tables["a2a_tasks"] || []).filter(
           (r) => r.id === args[0],
@@ -76,7 +72,6 @@ function createMockDb() {
         return { rows, rowsAffected: 0 };
       }
 
-      // SELECT * ... WHERE context_id = ?
       if (rawSql.includes("WHERE context_id")) {
         const rows = (tables["a2a_tasks"] || []).filter(
           (r) => r.context_id === args[0],
@@ -84,12 +79,10 @@ function createMockDb() {
         return { rows, rowsAffected: 0 };
       }
 
-      // SELECT * ... ORDER BY (list all)
       if (rawSql.includes("SELECT * FROM a2a_tasks ORDER BY")) {
         return { rows: tables["a2a_tasks"] || [], rowsAffected: 0 };
       }
 
-      // UPDATE
       if (rawSql.includes("UPDATE a2a_tasks SET")) {
         if (rawSql.includes("SET idempotency_key = NULL")) {
           const row = (tables["a2a_tasks"] || []).find(
@@ -103,7 +96,7 @@ function createMockDb() {
           row.updated_at = args[0];
           return { rows: [], rowsAffected: 1 };
         }
-        const id = args[6]; // last arg
+        const id = args[6];
         const row = (tables["a2a_tasks"] || []).find((r) => r.id === id);
         if (row) {
           row.status_state = args[0];
@@ -185,7 +178,6 @@ describe("task-store (SQL)", () => {
     it("generates a UUID for the task ID", async () => {
       const { createTask } = await loadStore();
       const task = await createTask(makeMessage("Test"));
-      // UUID v4 format
       expect(task.id).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
       );

@@ -1,5 +1,3 @@
-// @agent-native/pinpoint — Create annotation script
-// MIT License
 
 import { randomUUID } from "crypto";
 

@@ -5,34 +5,15 @@ import type {
   DbAdminMutation,
 } from "../../db-admin/types.js";
 
-/**
- * The staged-changeset model — the production-grade core of the table editor.
- *
- * Edits are NOT committed on blur. Instead every cell edit, new row, and
- * deletion accumulates here until the user explicitly commits (Cmd/Ctrl+S or
- * the Commit button), at which point {@link buildMutation} maps the staged
- * state into a single {@link DbAdminMutation}. Until then the grid renders the
- * staged values overlaid on the fetched rows, and the user can discard
- * everything.
- *
- * Rows are keyed by a stable primary-key string (the table's PK column values
- * joined). If a table has no primary key, edits target a full-row `where`
- * match instead, and the consumer should warn / disable editing.
- */
 
-/** New rows get a temporary client id so the grid can track them pre-insert. */
 export interface NewRow {
-  /** Stable client-only id, e.g. `new:0`. Never sent to the server. */
   _localId: string;
   values: Record<string, unknown>;
 }
 
 export interface Changeset {
-  /** rowPkString → { column → newValue }. */
   edits: Map<string, Record<string, unknown>>;
-  /** Staged inserts. */
   newRows: NewRow[];
-  /** rowPkString of rows staged for deletion. */
   deletedKeys: Set<string>;
 }
 
@@ -41,50 +22,31 @@ export interface UseChangesetResult {
   newRows: NewRow[];
   deletedKeys: Set<string>;
 
-  /** Whether editing is possible (requires a primary key on the table). */
   canEdit: boolean;
 
-  /** Stage a single cell edit on an existing row. */
   setCell: (pk: string, col: string, value: unknown) => void;
-  /** Stage many cell edits on one existing row at once. */
   setCells: (pk: string, values: Record<string, unknown>) => void;
-  /** Append a blank new row (optionally seeded) and return its local id. */
   addRow: (seed?: Record<string, unknown>) => string;
-  /** Patch a staged new row's values. */
   setNewRowCell: (localId: string, col: string, value: unknown) => void;
-  /** Remove a staged new row entirely. */
   removeNewRow: (localId: string) => void;
-  /** Stage existing rows for deletion (by pk string). Toggles off if re-staged. */
   deleteRows: (pks: string[]) => void;
-  /** Un-stage a deletion. */
   undeleteRows: (pks: string[]) => void;
-  /** Clear a single staged cell edit (revert to original). */
   revertCell: (pk: string, col: string) => void;
-  /** Drop everything. */
   discardAll: () => void;
 
-  /** Whether a given existing-row cell is dirty. */
   isCellDirty: (pk: string, col: string) => boolean;
-  /** The staged value for a cell, if any. */
   getStagedCell: (pk: string, col: string) => { value: unknown } | undefined;
-  /** Whether an existing row is staged for deletion. */
   isDeleted: (pk: string) => boolean;
 
   isDirty: boolean;
-  /** Total count of pending changes (edited rows + new rows + deletions). */
   pendingCount: number;
 
-  /**
-   * Build the mutation payload. `originalRows` maps pk string → the original
-   * fetched row, used to construct the `where` clause for updates/deletes.
-   */
   buildMutation: (
     originalRows: Map<string, Record<string, unknown>>,
     dryRun?: boolean,
   ) => DbAdminMutation;
 }
 
-/** Compute the stable pk string for a row given the schema's primary key. */
 export function pkStringFor(
   schema: DbAdminTableSchema | undefined,
   row: Record<string, unknown>,
@@ -92,12 +54,11 @@ export function pkStringFor(
   const cols =
     schema && schema.primaryKey.length > 0
       ? schema.primaryKey
-      : // No PK: fall back to a full-row signature so each row is distinct.
+      :
         Object.keys(row).sort();
   return JSON.stringify(cols.map((c) => row[c] ?? null));
 }
 
-/** Build the `where` object that uniquely identifies an existing row. */
 function whereFor(
   schema: DbAdminTableSchema | undefined,
   row: Record<string, unknown>,
@@ -107,7 +68,6 @@ function whereFor(
     for (const col of schema.primaryKey) where[col] = row[col] ?? null;
     return where;
   }
-  // No PK — match the full original row.
   return { ...row };
 }
 
@@ -227,7 +187,6 @@ export function useChangeset(
   );
 
   const pendingCount = useMemo(() => {
-    // An edited row that is also deleted only counts once (as a deletion).
     let editedNotDeleted = 0;
     for (const pk of edits.keys()) {
       if (!deletedKeys.has(pk)) editedNotDeleted += 1;
@@ -248,7 +207,7 @@ export function useChangeset(
 
       const updates: DbAdminMutation["updates"] = [];
       for (const [pk, set] of edits.entries()) {
-        if (deletedKeys.has(pk)) continue; // deletion supersedes edit
+        if (deletedKeys.has(pk)) continue;
         const original = originalRows.get(pk);
         if (!original) continue;
         if (Object.keys(set).length === 0) continue;

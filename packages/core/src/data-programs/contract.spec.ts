@@ -164,7 +164,6 @@ describe("data-programs/contract", () => {
       const bigString = "x".repeat(1000);
       const rows = Array.from({ length: 10 }, (_, i) => ({ i, bigString }));
       const stdout = DATA_PROGRAM_SENTINEL + JSON.stringify({ rows });
-      // Cap small enough that only a few rows fit.
       const result = parseDataProgramResult(stdout, {
         maxRows: 10_000,
         maxBytes: 3_000,

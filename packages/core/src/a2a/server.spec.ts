@@ -220,9 +220,6 @@ describe("mountA2A auth", () => {
     ]);
   });
 
-  // The anonymous card cannot disclose authenticated capabilities. A verified
-  // caller needs both exact direct reads and message-only writes so it can
-  // choose delegation without learning a mutation schema.
   it("shows a verified caller its direct and delegated capabilities", async () => {
     delete process.env.APP_URL;
     delete process.env.URL;
@@ -664,7 +661,6 @@ describe("verifyA2AToken (exported)", () => {
       sub: "alice@builder.io",
     });
 
-    // Event is optional: no audience claim, no org lookup needed here.
     const result = await verifyA2AToken(token);
 
     expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
@@ -736,9 +732,6 @@ describe("verifyA2AToken (exported)", () => {
   });
 
   it("rejects a correctly-signed token whose aud targets another service (no derivable audience)", async () => {
-    // The signature is valid, but the token was minted for a different
-    // receiver. With no APP_URL/URL and no request event, this receiver can't
-    // derive its own audience — it must fail closed rather than accept a
     // foreign-audience token just because the shared secret matches.
     process.env.A2A_SECRET = "shared-global-secret";
     delete process.env.APP_URL;
@@ -757,9 +750,6 @@ describe("verifyA2AToken (exported)", () => {
   });
 
   it("still accepts a token WITHOUT an aud claim when no audience can be derived", async () => {
-    // Backward-compat: tokens minted before the audience claim shipped (and
-    // internal callers that don't set one) carry no `aud`, so there is nothing
-    // to check — the secret + exp checks still gate them.
     process.env.A2A_SECRET = "shared-global-secret";
     delete process.env.APP_URL;
     delete process.env.URL;

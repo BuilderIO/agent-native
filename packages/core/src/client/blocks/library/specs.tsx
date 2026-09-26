@@ -13,7 +13,6 @@ import {
 } from "./api-endpoint.config.js";
 import { ApiEndpointRead, ApiEndpointEdit } from "./ApiEndpointBlock.js";
 import { calloutBlock } from "./callout.js";
-// Pre-built standard library specs (schema + mdx + React Read/Edit all bundled).
 import { checklistBlock } from "./checklist.js";
 import { codeTabsBlock } from "./code-tabs.js";
 import { codeBlock } from "./code.js";
@@ -41,8 +40,6 @@ import {
   type JsonExplorerData,
 } from "./json-explorer.config.js";
 import { JsonExplorerRead, JsonExplorerEdit } from "./JsonExplorerBlock.js";
-// Dev-doc blocks: React-free schema + MDX config paired with the shared React
-// Read/Edit renderers. Composed into full specs below with canonical metadata.
 import {
   mermaidSchema,
   mermaidMdx,
@@ -60,23 +57,6 @@ import { tableBlock } from "./table.js";
 import { tabsBlock } from "./tabs.js";
 import { wireframeBlock } from "./wireframe.js";
 
-/**
- * Canonical specs for the standard library's dev-doc blocks (Mermaid, API
- * endpoint, OpenAPI spec, data model, diff, file tree, JSON explorer,
- * annotated code).
- * Each pairs the shared React-free schema/MDX config
- * with the shared React `Read`/`Edit` renderers and the canonical
- * label/description/editSurface/empty metadata. Apps that need a slightly
- * different label/description/empty for a block pass an override to
- * {@link registerLibraryBlocks} rather than re-authoring the whole spec.
- *
- * The six fully pre-built standard specs (checklist, table, code-tabs, html,
- * tabs, columns) already bundle their metadata in their own modules, so they are appended
- * by {@link libraryBlockSpecs} rather than re-declared here.
- */
-// Typed `BlockSpec<any>[]` (not `BlockSpec<unknown>[]`) so the per-block generic
-// data types coexist in one array — mirroring `registerBlocks`' own signature,
-// where `childrenField: keyof TData` would otherwise collapse to `never`.
 const devDocBlockSpecs: BlockSpec<any>[] = [
   defineBlock<MermaidData>({
     type: "mermaid",
@@ -253,12 +233,6 @@ const devDocBlockSpecs: BlockSpec<any>[] = [
   }),
 ];
 
-/**
- * The full standard library spec set, in registration order: the fully pre-built
- * specs (checklist, table, code-tabs, html, tabs, columns) followed by the eight
- * dev-doc specs. This is the single list both the plan and content browser
- * registries register — adding a library block here lands in both apps.
- */
 export const libraryBlockSpecs: BlockSpec<any>[] = [
   checklistBlock,
   tableBlock,
@@ -275,26 +249,11 @@ export const libraryBlockSpecs: BlockSpec<any>[] = [
   ...devDocBlockSpecs,
 ];
 
-/**
- * Per-block metadata overrides for {@link registerLibraryBlocks}, keyed by the
- * canonical block `type`. Lets an app tweak the few fields that legitimately
- * differ (a `type` rename, a tweaked `description` or `empty` seed) without
- * re-authoring the spec. Anything omitted keeps the canonical value, so the
- * schema / MDX config and the React `Read`/`Edit` renderers always stay shared.
- */
 export type LibraryBlockOverrides = Record<
   string,
   Partial<Pick<BlockSpec<any>, "type" | "label" | "description" | "empty">>
 >;
 
-/**
- * Register the standard library block specs into a {@link BlockRegistry}. Both
- * the plan and content browser registries call this, then register only their
- * own app-specific blocks on top — so the shared library lives in exactly one
- * place. Pass `overrides` (keyed by canonical `type`) for the small per-app
- * differences (content re-types `table` → `table-block`; each app phrases the
- * Mermaid description and seeds the OpenAPI example a little differently).
- */
 export function registerLibraryBlocks(
   registry: BlockRegistry,
   options: { overrides?: LibraryBlockOverrides } = {},

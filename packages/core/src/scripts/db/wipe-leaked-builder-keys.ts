@@ -1,8 +1,3 @@
-/**
- * Core script: db-wipe-leaked-builder-keys
- *
- * Remove legacy BUILDER_* values from the persisted-env-vars settings row.
- */
 
 import path from "node:path";
 

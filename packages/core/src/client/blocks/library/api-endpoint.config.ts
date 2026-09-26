@@ -2,23 +2,6 @@ import { z } from "zod";
 
 import type { BlockMdxConfig } from "../types.js";
 
-/**
- * Pure (React-free) part of the PLAN-SPECIFIC `api-endpoint` block: its data
- * schema and MDX round-trip config. Shared by the server MDX adapter
- * (`plan-mdx.ts` via `plan-block-registry.ts`) and the client spec
- * (`planBlocks.tsx`). Keeping this React-free means importing it into a server
- * module never pulls React into the Nitro/SSR bundle.
- *
- * The block renders a Swagger / Stripe-style API reference row: a colored method
- * pill + monospace path + summary, collapsed by default, expanding to a params
- * table, a request body example, and per-status response examples.
- *
- * The schema MUST stay data-compatible with the `api-endpoint` branch of
- * `planBlockSchema` (`plan-content.ts`), and the MDX `tag` (`Endpoint`) +
- * attribute/children shape MUST match the inline planBlockSchema member so
- * stored `.mdx` round-trips. `description` is MDX *children* (prose body);
- * every other field is an attribute.
- */
 
 export type ApiEndpointMethod =
   | "GET"
@@ -48,12 +31,6 @@ export const API_PARAM_LOCATIONS: ApiParamLocation[] = [
   "body",
 ];
 
-/**
- * Diff state for a route / param / response, shared with the `file-tree` and
- * `data-model` blocks so a recap reads consistently across all three. Drives the
- * same change chips (Added / Modified / Removed / Renamed). Absent ⇒ no chip,
- * rendered exactly as before diff support existed.
- */
 export type ApiEndpointChange = "added" | "modified" | "removed" | "renamed";
 
 export const API_ENDPOINT_CHANGES: ApiEndpointChange[] = [
@@ -69,13 +46,7 @@ export interface ApiEndpointParam {
   type?: string;
   required?: boolean;
   description?: string;
-  /** Diff state for this parameter (drives the change chip). */
   change?: ApiEndpointChange;
-  /**
-   * Prior value when `change === "modified"` — e.g. the old type (`string`) or
-   * the old required flag (`optional`). Shown struck-through before the current
-   * value so a reviewer can see the before/after at a glance.
-   */
   was?: string;
 }
 
@@ -88,7 +59,6 @@ export interface ApiEndpointResponse {
   status: string;
   description?: string;
   example?: string;
-  /** Diff state for this response (e.g. a new `409` is "added"). */
   change?: ApiEndpointChange;
 }
 
@@ -96,11 +66,9 @@ export interface ApiEndpointData {
   method: ApiEndpointMethod;
   path: string;
   summary?: string;
-  /** Markdown prose body. Serialized as MDX children, not an attribute. */
   description?: string;
   auth?: string;
   deprecated?: boolean;
-  /** Diff state for the whole route (added/removed/renamed endpoint). */
   change?: ApiEndpointChange;
   params?: ApiEndpointParam[];
   request?: ApiEndpointRequest;
@@ -131,12 +99,6 @@ const apiResponseSchema = z.object({
   change: apiChangeSchema.optional(),
 }) as z.ZodType<ApiEndpointResponse>;
 
-/**
- * Data-compatible with the inline `api-endpoint` member of `planBlockSchema`
- * (`plan-content.ts`). `method` + `path` are required; everything else is
- * optional and defaults to omitted so a fresh endpoint validates from
- * `{ method: "GET", path: "/api/resource" }`.
- */
 export const apiEndpointSchema = z.object({
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]),
   path: z.string().trim().min(1).max(500),
@@ -150,29 +112,12 @@ export const apiEndpointSchema = z.object({
   responses: z.array(apiResponseSchema).max(40).optional(),
 }) as unknown as z.ZodType<ApiEndpointData>;
 
-/** Coerce a serialized `change` attribute back to the enum (drops garbage). */
 function readChange(value: string | undefined): ApiEndpointChange | undefined {
   return value && API_ENDPOINT_CHANGES.includes(value as ApiEndpointChange)
     ? (value as ApiEndpointChange)
     : undefined;
 }
 
-/**
- * MDX config: `<Endpoint method path summary auth deprecated change params
- * request responses>\n\n{description}\n\n</Endpoint>`. `description` is the prose
- * body (`childrenField`), so it is excluded from the attribute bag and survives
- * as real inline-editable MDX prose. The remaining keys are emitted in a STABLE
- * order (method, path, summary, auth, deprecated, change, params, request,
- * responses); `undefined` values are dropped by the shared `prop()` encoder.
- *
- * The root `change` is a flat string attribute; the per-param `change` + `was`
- * and per-response `change` ride along inside the `params` / `responses` JSON
- * props (the whole arrays are serialized verbatim), so all three diff levels
- * round-trip without extra encoding.
- *
- * `fromAttrs` tolerates missing/partial attributes for backward-compat, mirrors
- * the schema defaults, and reads the prose `children` into `description`.
- */
 export const apiEndpointMdx: BlockMdxConfig<ApiEndpointData> = {
   tag: "Endpoint",
   childrenField: "description",

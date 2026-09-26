@@ -11,9 +11,6 @@ const mockResolveDevUserEmail = vi.hoisted(() =>
   vi.fn(async () => undefined as string | undefined),
 );
 
-// Same mocking shape as action-routes.spec.ts: a fake h3 event is a plain
-// object with `_headers`/`_body`/`_status`, and `defineEventHandler` is the
-// identity function so the registered handler can be called directly.
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
@@ -575,10 +572,6 @@ describe("mountDevDbQueryForwardRoute", () => {
 });
 
 describe("auth guard exemption", () => {
-  // The template auth middleware (`runAuthGuard`) 401s anonymous
-  // /_agent-native/* requests before any route runs. The dev routes must be
-  // let through for loopback, non-production requests or `pnpm action`
-  // forwarding silently degrades to "Unauthorized".
   function expectLoopbackBypass(route: string) {
     const source = fs.readFileSync(
       path.join(import.meta.dirname, "auth.ts"),

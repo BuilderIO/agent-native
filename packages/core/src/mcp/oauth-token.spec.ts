@@ -212,7 +212,6 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
   it("prefers A2A_SECRET over the better-auth secret for signing+verify", async () => {
     process.env.A2A_SECRET = "a2a-strong-secret";
     const token = await signMcpOAuthAccessToken(baseSign);
-    // Verifies with the same A2A_SECRET active.
     expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).not.toBeNull();
     // A token signed under A2A_SECRET must fail once the secret changes.
     delete process.env.A2A_SECRET;
@@ -245,7 +244,6 @@ describe("verifyMcpOAuthAccessToken — audience array (host-drift tolerance)", 
       resource: ALT_RESOURCE,
       issuer: "https://plan.agent-native.com",
     });
-    // Token was minted for ALT_RESOURCE; request now arrives via RESOURCE.
     // Passing both as an array must accept the token.
     const result = await verifyMcpOAuthAccessToken(token, [
       RESOURCE,
@@ -257,7 +255,6 @@ describe("verifyMcpOAuthAccessToken — audience array (host-drift tolerance)", 
 
   it("verifies when the request-derived resource is the minted audience", async () => {
     const token = await signMcpOAuthAccessToken(baseSign);
-    // Primary resource is RESOURCE; alt is something else entirely.
     const result = await verifyMcpOAuthAccessToken(token, [
       RESOURCE,
       "https://other.agent-native.com/_agent-native/mcp",
@@ -267,7 +264,6 @@ describe("verifyMcpOAuthAccessToken — audience array (host-drift tolerance)", 
 
   it("normalises trailing slashes when comparing resource claims", async () => {
     const token = await signMcpOAuthAccessToken(baseSign);
-    // Add a trailing slash — must still match.
     const result = await verifyMcpOAuthAccessToken(token, [`${RESOURCE}/`]);
     expect(result).not.toBeNull();
   });
@@ -284,21 +280,15 @@ describe("verifyMcpOAuthAccessToken — audience array (host-drift tolerance)", 
 
 describe("verifyMcpOAuthAccessToken — secret rotation tolerance", () => {
   it("verifies a token signed with A2A_SECRET when A2A_SECRET is later removed (fallback to auth secret would fail, but secret-with-A2A was primary)", async () => {
-    // This assertion remains: removing A2A_SECRET means only fallback is tried.
-    // A token signed under a *different* A2A_SECRET is rejected.
     process.env.A2A_SECRET = "unique-a2a-secret";
     const token = await signMcpOAuthAccessToken(baseSign);
     delete process.env.A2A_SECRET;
-    // "fallback-auth-secret" != "unique-a2a-secret" → still rejected.
     expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).toBeNull();
   });
 
   it("verifies a token signed with fallback-auth-secret after A2A_SECRET is later added", async () => {
-    // Token minted without A2A_SECRET (uses fallback-auth-secret).
     delete process.env.A2A_SECRET;
     const token = await signMcpOAuthAccessToken(baseSign);
-    // Now A2A_SECRET is added to the deploy — the old token (signed with
-    // fallback) must still be accepted because we try both secrets.
     process.env.A2A_SECRET = "newly-added-a2a-secret";
     const result = await verifyMcpOAuthAccessToken(token, RESOURCE);
     expect(result).not.toBeNull();
@@ -390,8 +380,6 @@ describe("verifyMcpOAuthAccessToken rejection branches", () => {
   });
 
   it("rejects a token whose embedded resource claim mismatches the audience", async () => {
-    // aud matches the requested resource (so jose passes), but the inner
-    // `resource` claim was forged to a different value — must be rejected.
     const token = await new jose.SignJWT({
       typ: "agent-native-mcp-oauth",
       sub: "owner@example.com",

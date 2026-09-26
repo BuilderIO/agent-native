@@ -1,5 +1,3 @@
-// @agent-native/pinpoint — Resolve annotation script
-// MIT License
 
 import { parseArgs, fail } from "@agent-native/core/scripts";
 

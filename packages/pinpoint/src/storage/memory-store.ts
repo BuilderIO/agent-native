@@ -1,9 +1,3 @@
-// @agent-native/pinpoint — In-memory storage adapter
-// MIT License
-//
-// Used for standalone/clipboard-only mode. Pins live in memory for
-// the current session. NOT localStorage (violates agent-native Rule 1).
-// Pins are lost on page reload — intentional. Connect to a server for persistence.
 
 import type { Pin, PinStatus, PinStorage } from "../types/index.js";
 

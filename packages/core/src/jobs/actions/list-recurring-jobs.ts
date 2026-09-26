@@ -22,11 +22,6 @@ function jobName(path: string): string {
   return path.replace(/^jobs\//, "").replace(/\.md$/, "");
 }
 
-/**
- * A stored `nextRun` in the past means the scheduler kept declining to run the
- * job, not that it is due two days ago. Report the real next occurrence and
- * let `lastError` carry the reason it keeps being passed over.
- */
 function nextRun(
   meta: ReturnType<typeof parseJobFrontmatter>["meta"],
 ): string | null {

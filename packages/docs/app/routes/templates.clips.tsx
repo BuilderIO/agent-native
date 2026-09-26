@@ -52,8 +52,6 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "clips")!;
 
-// Which side carries the text is data rather than row parity, since it no
-// longer alternates strictly by index.
 const USE_CASES = [
   {
     id: "act-on-feedback",
@@ -140,11 +138,6 @@ const FAQ_ITEMS = [
   { id: "who-can-access", question: "question5", answer: "answer5" },
 ] as const;
 
-// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
-// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
-// below draws its grid lines flush to that same max-w-site edge, so this
-// wrapper must match exactly (no px-* here) or the hero's border-x box ends
-// up narrower than the rest of the page.
 const HERO_WRAPPER_CLASS =
   "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
@@ -173,10 +166,6 @@ export default function ClipsTemplate() {
               target="_blank"
               rel="noopener noreferrer"
               className="primary-button"
-              // The diagonal arrow's ink sits toward its own top-right corner,
-              // so the button's symmetric 8px gap still reads as extra space
-              // after the icon. Tightening just the gap (not the padding)
-              // corrects that without touching the shared .primary-button rule.
               style={{ gap: "4px" }}
               onClick={(event) => {
                 applyFirstTouchAttributionToLink(event.currentTarget);
@@ -236,8 +225,6 @@ export default function ClipsTemplate() {
                 <div
                   key="media"
                   className={`order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)] ${
-                    // The recording-page art is a crop that runs off its left
-                    // edge under a fade, so it takes the full cell width.
                     useCase.id === "act-on-feedback" ? "ps-0 lg:ps-0" : ""
                   }`}
                 >
@@ -390,12 +377,6 @@ export default function ClipsTemplate() {
             href={firstPartyAppUrl("https://clips.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            // Same optical fix as the hero CTA: the trailing arrow's ink
-            // sits top-right in its box, so the default 6px gap still reads
-            // as extra space after the icon. fontSize/textTransform match
-            // the hero's .primary-button (uppercase 12px mono, via the
-            // .template-detail-page CSS rule), which only applies inside
-            // the hero wrapper — this button sits outside it.
             style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
             onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);

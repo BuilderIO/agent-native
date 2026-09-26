@@ -27,21 +27,13 @@ export interface EditableCellProps {
   column: DbAdminColumn;
   kind: EditorKind;
   value: unknown;
-  /** Whether this cell holds a staged (uncommitted) edit. */
   dirty?: boolean;
-  /** Whether editing is allowed (false when the table has no PK). */
   editable?: boolean;
-  /** Whether this cell is the keyboard-focused/active cell in the grid. */
   active?: boolean;
-  /** True if the editor should open immediately (e.g. typing began). */
   editing?: boolean;
-  /** Commit a new value into the changeset. */
   onCommit: (value: unknown) => void;
-  /** Request entering edit mode. */
   onStartEdit?: () => void;
-  /** Request leaving edit mode without committing. */
   onCancelEdit?: () => void;
-  /** Move focus after Enter ("down") or Tab ("right"). */
   onNavigate?: (dir: "up" | "down" | "left" | "right") => void;
   className?: string;
 }
@@ -66,7 +58,6 @@ export function EditableCell({
 }: EditableCellProps) {
   const display = formatCellValue(value, kind);
 
-  // Boolean cells toggle in place rather than opening a text editor.
   if (kind === "boolean") {
     return (
       <BooleanCell
@@ -157,7 +148,6 @@ export function EditableCell({
   );
 }
 
-// ─── Boolean (tri-state) ─────────────────────────────────────────────────────
 
 function BooleanCell({
   value,
@@ -207,7 +197,6 @@ function BooleanCell({
   );
 }
 
-// ─── Inline text / number / timestamp / uuid editor ──────────────────────────
 
 function InlineTextEditor({
   kind,
@@ -294,7 +283,6 @@ function InlineTextEditor({
   );
 }
 
-// ─── Enum (select) editor ────────────────────────────────────────────────────
 
 function EnumEditor({
   column,
@@ -341,7 +329,6 @@ function EnumEditor({
   );
 }
 
-// ─── JSON / long-text expanding editor ───────────────────────────────────────
 
 function JsonEditor({
   value,

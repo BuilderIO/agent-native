@@ -78,8 +78,6 @@ describe("desktop chat relay URL", () => {
 
 describe("desktop chat relay with no app mounted", () => {
   afterEach(async () => {
-    // Resolving a base resets the backoff for the next test, same as a real
-    // app mount would.
     setDesktopChatRelayBase(
       "reset",
       "http://127.0.0.1:1/desktop-chat/s/reset/_agent-native/agent-chat",
@@ -101,9 +99,6 @@ describe("desktop chat relay with no app mounted", () => {
 
   it("backs off instead of hot-looping at ~350 req/s", async () => {
     vi.useFakeTimers();
-    // A caller retrying immediately on every rejection — the worst case
-    // that produced the measured storm — issues these back to back with no
-    // awaited delay of its own.
     const rejections: unknown[] = [];
     const settle = (n: number) =>
       Array.from({ length: n }, () =>
@@ -114,7 +109,7 @@ describe("desktop chat relay with no app mounted", () => {
 
     const promises = [...settle(4)];
     await Promise.resolve();
-    expect(rejections).toHaveLength(0); // not synchronous
+    expect(rejections).toHaveLength(0);
 
     await vi.advanceTimersByTimeAsync(250);
     expect(rejections).toHaveLength(1);
@@ -137,7 +132,7 @@ describe("desktop chat relay with no app mounted", () => {
     const first = window
       .fetch("/_agent-native/application-state/foo")
       .catch(() => {});
-    await vi.advanceTimersByTimeAsync(250); // first attempt clears at 250ms
+    await vi.advanceTimersByTimeAsync(250);
     await first;
 
     setDesktopChatRelayBase(
@@ -151,8 +146,6 @@ describe("desktop chat relay with no app mounted", () => {
       .fetch("/_agent-native/application-state/foo")
       .catch((e) => rejections.push(e));
 
-    // Backoff restarted at the base delay, not the grown 500ms it would be
-    // without the reset.
     await vi.advanceTimersByTimeAsync(249);
     expect(rejections).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(1);

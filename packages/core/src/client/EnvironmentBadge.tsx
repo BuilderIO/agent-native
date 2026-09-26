@@ -355,8 +355,6 @@ function LocalEnvironmentBadge({
       className={cn(
         environmentBadgePlacementClasses[placement],
         environmentBadgeFontClass(badgeText, collapsed),
-        // Fixed placement parks this over app chrome; without this the pill
-        // silently swallows clicks on whatever sits beneath it.
         "pointer-events-none inline-flex select-none items-center justify-center border border-border/80 bg-background/95 text-foreground",
         className,
       )}
@@ -395,8 +393,6 @@ function ProductionEnvironmentBadge({
       return;
     }
 
-    // Desktop child sessions are minted against their configured production
-    // origin. Do not move that WebView to beta after the session is created.
     if (isAgentNativeDesktopUserAgent(window.navigator.userAgent)) return;
 
     if (readBetaOptOutUntil() !== null) return;
@@ -439,12 +435,6 @@ export interface EnvironmentBadgeProps {
   className?: string;
 }
 
-/**
- * Environment indicator and first-party hosted lane switcher. Beta is
- * intentionally visible before authentication so a visitor can always leave
- * beta from the sign-in page. Production remains an internal auto-redirect
- * lane for authenticated staff.
- */
 export function EnvironmentBadge({
   placement = "fixed",
   showProduction = true,

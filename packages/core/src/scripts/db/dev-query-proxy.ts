@@ -1,11 +1,3 @@
-/**
- * Forward `pnpm action db-query` to a running local dev server when the
- * discovery file says one is holding the same PGlite database open. Mirrors
- * `tryForwardToDevServer` in `../runner.js`, but targets the dedicated
- * `db-query` route instead of the app-action registry: `db-query` isn't a
- * registered action, so the generic route always 404s it (see
- * `dev-action-bridge.ts`).
- */
 
 import { Agent } from "undici";
 
@@ -29,8 +21,6 @@ export interface TryForwardDbQueryOptions {
   params: unknown[];
   limit?: number;
   format?: string;
-  /** The CLI's own resolved identity, forwarded so the server applies the
-   * same row scoping the local path would instead of running unscoped. */
   userEmail?: string;
   orgId?: string;
   print: (
@@ -40,7 +30,6 @@ export interface TryForwardDbQueryOptions {
   ) => void;
 }
 
-/** Returns true when the query ran through the dev server. */
 export async function tryForwardDbQueryToDevServer(
   options: TryForwardDbQueryOptions,
 ): Promise<boolean> {
@@ -48,18 +37,13 @@ export async function tryForwardDbQueryToDevServer(
   if (!discovery || !isProcessAlive(discovery.pid)) return false;
   if (!isLoopbackDevActionOrigin(discovery.origin)) return false;
 
-  // Same resolver the running server's request-time clients use, so an app
-  // configured with a runtime/unpooled URL still produces a matching key.
   const runtimeUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");
   if (!isPgliteUrl(runtimeUrl)) return false;
   const databaseKey = hashDatabaseKey(runtimeUrl);
   if (discovery.databaseKey !== databaseKey) return false;
 
   let response: Response;
-  // Vite's local HTTPS mode commonly uses a self-signed certificate. This
-  // dispatcher is created only after the strict loopback-origin check above,
   // so certificate bypass cannot send the dev token to a remote host. Same
-  // pattern as `tryForwardToDevServer` (runner.ts).
   const tlsDispatcher = discovery.origin.startsWith("https:")
     ? new Agent({ connect: { rejectUnauthorized: false } })
     : undefined;
@@ -85,9 +69,6 @@ export async function tryForwardDbQueryToDevServer(
   } catch {
     await tlsDispatcher?.destroy();
     // coercion-ok: a network failure here isn't hidden — it routes to the
-    // in-process path below, which has its own explicit success/failure
-    // signaling (including PGlite's own loud lock error). Same reasoning as
-    // the identical catch in `tryForwardToDevServer` (runner.ts).
     return false;
   }
 
@@ -107,9 +88,6 @@ export async function tryForwardDbQueryToDevServer(
   }
 
   // coercion-ok: an unparseable body isn't distinguished from a well-formed
-  // one missing `ok` — both fail the explicit `!body?.ok` check right below
-  // with a thrown, loud error, so collapsing to `null` here loses no
-  // information the caller could otherwise act on.
   const body = (await response.json().catch(() => null)) as {
     ok?: boolean;
     error?: string;

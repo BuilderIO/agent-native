@@ -40,10 +40,6 @@ class SimpleAppStateEmitter implements AppStateEmitter {
   }
 }
 
-/**
- * Singleton emitter for application-state DB changes.
- * The SSE handler subscribes to this via extraEmitters.
- */
 const _emitter = new SimpleAppStateEmitter();
 
 export function getAppStateEmitter(): AppStateEmitter {

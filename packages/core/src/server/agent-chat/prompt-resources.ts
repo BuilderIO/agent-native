@@ -40,12 +40,6 @@ import {
   parseSkillFrontmatter,
 } from "./skill-frontmatter.js";
 
-// ---------------------------------------------------------------------------
-// System-prompt resource loading: AGENTS.md, instructions/*.md, skills
-// summaries, and the shared/workspace resource index. Assembled by
-// `loadResourcesForPrompt`, the top-level orchestrator called once per
-// request to build the "here's what you should know" context block.
-// ---------------------------------------------------------------------------
 
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
 export const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 6_000;
@@ -81,7 +75,6 @@ export interface PromptContextProvider {
 
 const promptContextProviders = new Map<string, PromptContextProvider>();
 
-/** Register a package-owned, request-scoped system-context contribution. */
 export function registerPromptContextProvider(
   provider: PromptContextProvider,
 ): () => void {
@@ -256,11 +249,6 @@ function resourceManifestClassification(
   return { provenance: "template", governance: "inherited" };
 }
 
-/**
- * Extracts bounded-in-memory metadata from the already-composed resource
- * prompt. The caller turns these inputs into hashed/previews before anything
- * is persisted; this helper never writes or returns the full manifest.
- */
 export function promptResourceManifestSections(
   prompt: string,
 ): PromptResourceManifestSection[] {
@@ -473,24 +461,10 @@ export function promptResourceBlock(input: {
   const pathAttr = normalizedPath
     ? ` path="${escapeXmlAttribute(normalizedPath)}"`
     : "";
-  // Neutralize both halves of the fence in the body. These files (AGENTS.md,
-  // LEARNINGS.md, shared memory) hold text the agent wrote from emails, web
-  // pages and tool output. Escaping only the closing tag is not enough: a
-  // forged OPENING tag survives verbatim and the real trailing `</resource>`
-  // closes it, so the smuggled text still reads as its own framework-issued
-  // block. Neutralize the `<` of anything that could read as the fence tag, in
-  // any spacing a model would still parse (`< /resource >` closes it just as
-  // convincingly), so the body cannot address the fence at all.
   const fenced = content.replace(/<(?=\s*\/?\s*resource\b)/gi, "&lt;");
   return `<resource name="${escapeXmlAttribute(input.name)}" scope="${escapeXmlAttribute(input.scope)}"${pathAttr}>\n${fenced}\n</resource>`;
 }
 
-/**
- * One assembled startup-context block plus the governance tier the context
- * manifest reports for it (`ContextGovernanceTier`). `required` is the tier
- * that already meant "not opt-out-able" in the manifest; the budget fitter
- * honours it as "reserve before anything else competes".
- */
 export interface PromptSection {
   content: string;
   governance: ContextGovernanceTier;
@@ -504,7 +478,6 @@ export interface SkippedPromptSection {
 export interface PromptSectionBudgetResult {
   sections: string[];
   skipped: SkippedPromptSection[];
-  /** Chars by which required sections alone exceeded `maxChars`, else 0. */
   overflowChars: number;
 }
 
@@ -533,17 +506,6 @@ function promptBudgetTrimNote(
   return `<context-budget-note>Your startup context was trimmed: ${skipped.length} section(s) did not fit the ${maxChars.toLocaleString()}-character first-request budget and were omitted (${labels}). Treat them as unread, not as absent — use \`resources\` with \`action: "list"\` or \`"read"\`, \`docs-search\`, and \`tool-search\` before telling the user something does not exist.</context-budget-note>`;
 }
 
-/**
- * Fits assembled startup context into `maxChars`, reserving `required`
- * sections before discretionary ones compete for the remainder, and reporting
- * every omission so an over-budget request is never silent.
- *
- * Required sections are never truncated and never dropped: a half-rendered
- * list of workspace apps or governance rules reads to the model as a complete
- * one, which is worse than an explicit note that a section is missing. If they
- * alone exceed the budget, the budget is exceeded deliberately, every
- * discretionary section is dropped, and `overflowChars` reports by how much.
- */
 export function selectPromptSectionsWithinBudget(
   sections: PromptSection[],
   maxChars: number,
@@ -892,11 +854,6 @@ async function loadResourceIndexForPrompt(
 async function collectJevPromptCandidates(
   signal: AbortSignal,
 ): Promise<JevPromptCandidate[]> {
-  // Jev receives the current request and recent user turns, short skill and
-  // memory summaries, and bounded Analytics labels with metric definitions,
-  // source/table names, or dashboard/panel details. These may be sensitive
-  // user-authored metadata. Keep assistant text/results, tool payloads,
-  // resource IDs/paths, memory/skill bodies, and full query SQL out of ranking.
   const candidates: JevPromptCandidate[] = [];
   let nextId = 0;
   const add = (
@@ -1218,7 +1175,6 @@ function recordAnalyticsPreloadedReferenceCount(input: {
   };
 }
 
-/** Rank and inline a few optional context sources before the first model call. */
 export async function preloadJevContextForPrompt(options: {
   request: string;
   appId?: string;
@@ -1560,13 +1516,11 @@ export async function loadResourcesForPrompt(
     ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
     : SHARED_PROMPT_RESOURCE_MAX_CHARS;
 
-  // 1. Workspace AGENTS.md + skills merged into the template bundle.
   try {
     const { loadAgentsBundle, generateSkillsPromptBlock, getRuntimeSkills } =
       await import("../agents-bundle.js");
     const bundle = await loadAgentsBundle();
 
-    // Workspace-core AGENTS.md (enterprise-wide instructions), if present.
     if (bundle.workspaceAgentsMd && bundle.workspaceAgentsMd.trim()) {
       const block = promptResourceBlock({
         name: "AGENTS.md",
@@ -1580,7 +1534,6 @@ export async function loadResourcesForPrompt(
       addSection(block, "required");
     }
 
-    // 2. Runtime instruction file — always included when configured.
     const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
     if (runtimeAgentsMd.trim()) {
       const block = promptResourceBlock({
@@ -1595,9 +1548,6 @@ export async function loadResourcesForPrompt(
       addSection(block);
     }
 
-    // In compact mode, skip the full skills block — the agent can use
-    // `docs-search` to find skills when it needs them. Either way, `scope: dev`
-    // skills are excluded: they're for the human's coding agent, not runtime.
     const runtimeSkills = getRuntimeSkills(bundle);
     if (!compact) {
       const skillsBlock = generateSkillsPromptBlock(bundle);
@@ -1621,10 +1571,6 @@ export async function loadResourcesForPrompt(
     }
   } catch {}
 
-  // 3. Runtime workspace resources. These are global defaults inherited by
-  // every app in the workspace, not copied into app scopes. They may come from
-  // SQL, Dispatch, or local file mode, and Dispatch keeps one copy per
-  // organization.
   const workspaceOwner = workspaceResourceOwner(orgId);
   const workspaceAgents = await loadAgentsResourceForPrompt(
     workspaceOwner,
@@ -1645,9 +1591,6 @@ export async function loadResourcesForPrompt(
 
   const organizationOwner = sharedResourceOwner(orgId);
 
-  // 4. Legacy app-wide defaults. Existing deployments keep their seeded
-  // shared guidance as an inherited fallback; organization writes never
-  // mutate this owner.
   const appDefaultAgents = await loadAgentsResourceForPrompt(
     SHARED_OWNER,
     organizationOwner === SHARED_OWNER ? "shared" : "app-default",
@@ -1667,8 +1610,6 @@ export async function loadResourcesForPrompt(
     ),
   );
 
-  // 5. Active organization resources. These are the durable team rules and
-  // learnings that Slack/integration runs share with interactive app chat.
   if (organizationOwner !== SHARED_OWNER) {
     const organizationAgents = await loadAgentsResourceForPrompt(
       organizationOwner,
@@ -1688,8 +1629,6 @@ export async function loadResourcesForPrompt(
     );
   }
 
-  // 6. Personal SQL resources. These come last in the instruction stack so a
-  // user can narrow or override organization/app and workspace defaults.
   if (owner !== SHARED_OWNER && !isWorkspaceResourceOwner(owner)) {
     const personalAgents = await loadAgentsResourceForPrompt(
       owner,
@@ -1725,11 +1664,6 @@ export async function loadResourcesForPrompt(
   } catch {}
 
   if (compact) {
-    // Integration/Slack turns use compact context, but organization learnings
-    // are operational routing input, not optional background. Preload the
-    // bounded shared file so canonical destinations/fields are available on
-    // the first turn; keep personal memory on-demand to preserve the compact
-    // budget.
     if (sharedLearnings?.content?.trim()) {
       const block = promptResourceBlock({
         name: "LEARNINGS.md",
@@ -1740,16 +1674,11 @@ export async function loadResourcesForPrompt(
       });
       addSection(block);
     }
-    // The pointer to on-demand learnings/memory must survive trimming: without
-    // it the agent has no way to learn those scopes exist at all.
     addSection(
       `<context-note>Organization learnings above and your personal memory (memory/MEMORY.md) are available via the \`resources\` tool. Save durable team facts and routing conventions to shared LEARNINGS.md; keep personal preferences in save-memory.</context-note>`,
       "required",
     );
   } else {
-    // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md
-    // above). Capped like every other prompt resource — an unbounded team
-    // notes file would otherwise inline in full on every non-lazy request.
     if (sharedLearnings?.content?.trim()) {
       const block = promptResourceBlock({
         name: "LEARNINGS.md",
@@ -1761,10 +1690,6 @@ export async function loadResourcesForPrompt(
       addSection(block);
     }
 
-    // 3. Personal memory index (skip if owner is the shared sentinel).
-    // Same cap as LEARNINGS.md — a large personal MEMORY.md index must not
-    // inline without bound just because this request opted out of lazy
-    // context.
     if (owner !== SHARED_OWNER) {
       try {
         const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md", {
@@ -1816,9 +1741,6 @@ export async function loadResourcesForPrompt(
   );
 
   try {
-    // Both tools this block names by name come from the `workspaceApps` group.
-    // With that group off there is no `call-agent` to delegate through, so the
-    // block would only teach a capability the request cannot carry.
     const agents = frameworkGroupEnabled(
       opts?.disabledFrameworkGroups,
       "workspaceApps",
@@ -1830,9 +1752,6 @@ export async function loadResourcesForPrompt(
         (agent) =>
           `- ${agent.name} (${agent.id}) — ${agent.description || "Connected A2A app"}`,
       );
-      // Nothing else in the prompt or the initial tool surface tells the agent
-      // which peer apps exist, so this block is not droppable: without it the
-      // agent reports cross-app work as impossible instead of delegating.
       addSection(
         `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nWhen another app owns the work or data, use \`call-agent\` with the app id and a natural-language message. The receiving specialist owns source selection, schema interpretation, queries, joins, and use of its local tools. Direct action invocation is only for an explicitly read-only bounded action with a fully known schema. Never put creates, updates, deletes, sends, saves, publishes, or other side effects in direct action mode; put those objectives in the natural-language message.\n\nThese one-liners are the only cross-app detail in this prompt. Before building a capability another app may already own, before telling the user what is or is not possible across apps, and whenever the user asks which app to use, call \`describe-workspace-apps\` - it reads each peer's live agent card for current purpose and optional capability details. Never hand-maintain a list of workspace apps in code or docs; it goes stale silently.\n</available-apps>`,
         "required",

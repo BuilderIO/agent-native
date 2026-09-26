@@ -12,13 +12,6 @@ import { scheduleAfterPaint } from "./use-after-paint.js";
 
 const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
 
-/**
- * Three distinct situations, never collapsed:
- * - `configured` / `missing` are authoritative answers from the status routes.
- * - `unknown` (first check in flight) and `unavailable` (the check failed, a
- *   retry is scheduled) both mean *we do not know*. Neither is evidence that
- *   no provider is configured, so neither may gate the composer.
- */
 export type AgentEngineConfiguredState =
   | "unknown"
   | "configured"
@@ -26,17 +19,11 @@ export type AgentEngineConfiguredState =
   | "unavailable";
 
 export interface UseAgentEngineConfiguredResult {
-  /** True once we know nothing can run the agent (no key / Builder / BYOK). */
   missing: boolean;
   state: AgentEngineConfiguredState;
 }
 
 export interface FetchAgentEngineConfiguredStateOptions {
-  /**
-   * Legacy hint from explicit missing-key stream events. Kept for API
-   * compatibility, but missing state still requires authoritative status
-   * responses so transient endpoint failures do not clobber connected state.
-   */
   missingFallback?: boolean;
   timeoutMs?: number;
 }
@@ -60,7 +47,6 @@ async function waitForStatus<T>(
   const timeout = new Promise<ClientStatusResult<T>>((resolve) => {
     timeoutId = setTimeout(() => {
       // A request that loses this race may never settle. Evict and abort the
-      // shared probe so the scheduled retry starts a genuinely new request.
       invalidateClientStatusRequest(path);
       resolve({ state: "unavailable" });
     }, timeoutMs);
@@ -126,8 +112,6 @@ export async function fetchAgentEngineConfiguredState(
     return engineResult.value.configured ? "configured" : "missing";
   }
 
-  // Older hosts may not expose the canonical route. Only then pay for the two
-  // legacy probes; current hosts answer readiness with one request.
   const [envResult, builderResult] = await Promise.all([
     waitForStatus(
       fetchEnvironmentStatus(),
@@ -157,18 +141,9 @@ export async function fetchAgentEngineConfiguredState(
     (builderStatusKnown && builderStatus.configured);
   if (anyConfigured) return "configured";
 
-  // Compatibility fallback for older hosts without the canonical route.
   return envKeysKnown && builderStatusKnown ? "missing" : "unavailable";
 }
 
-/**
- * Shared "can the agent run?" gate — the single source of truth for the sidebar
- * composer and app prompt boxes. Checks the env-key / Builder / BYOK status
- * endpoints on mount, re-checks on `agent-engine:configured-changed`, and folds
- * in the adapter's `agent-chat:missing-api-key` signal. Pass `enabled = false`
- * to short-circuit to configured. A check that cannot reach an authoritative
- * answer retries on a backoff until it does, so the gate can never latch.
- */
 export function useAgentEngineConfigured(
   enabled = true,
   options?: UseAgentEngineConfiguredOptions,
@@ -177,18 +152,12 @@ export function useAgentEngineConfigured(
 
   useEffect(() => {
     let cancelled = false;
-    // Monotonic call counter: overlapping checks (mount + a
-    // `agent-engine:configured-changed` fired right after a key is saved) can
-    // resolve out of order; only the latest call may write state, or a slow
-    // stale "missing" response would overwrite the fresh "configured" one.
     let requestSeq = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let retryAttempt = 0;
     const scheduleRetry = (delay: number) => {
       retryTimer = setTimeout(() => {
         if (document.hidden) {
-          // Tab is backgrounded — keep the same backoff instead of hitting
-          // the network; the visibilitychange listener below recovers fast.
           scheduleRetry(delay);
           return;
         }
@@ -208,24 +177,15 @@ export function useAgentEngineConfigured(
         retryAttempt = 0;
         return;
       }
-      // No authoritative answer yet. Keep asking: a failed probe that latched
-      // permanently is what left users staring at a dead composer with no way
-      // back short of a reload.
       const delay = Math.min(RETRY_BASE_MS * 2 ** retryAttempt, RETRY_MAX_MS);
       retryAttempt += 1;
       scheduleRetry(delay);
     };
-    // The composer gate is not visible during first paint; defer the initial
-    // probe so it does not compete in the startup window. Event-driven
-    // re-checks below stay immediate.
     let initialCheckRan = false;
     const cancelInitialCheck = scheduleAfterPaint(() => {
       initialCheckRan = true;
       if (!cancelled) void check();
     });
-    // An event inside the deferral window consumes the scheduled initial
-    // probe, so one client-status request lands immediately instead of two
-    // when the window elapses.
     const checkNow: typeof check = (options) => {
       if (!initialCheckRan) {
         initialCheckRan = true;
@@ -256,8 +216,6 @@ export function useAgentEngineConfigured(
       "agent-engine:configured-changed",
       onConfiguredChanged,
     );
-    // A stale failed stream can arrive after a reconnect succeeds. Re-check the
-    // current status before pinning the composer in setup.
     window.addEventListener("agent-chat:missing-api-key", onMissing);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {

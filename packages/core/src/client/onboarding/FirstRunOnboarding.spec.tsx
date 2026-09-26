@@ -1237,7 +1237,6 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  // Keep the final-step identity until completion succeeds so retry records it.
   it("preserves the completed step when first-run completion succeeds on retry", async () => {
     mocks.completeFirstRun
       .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
@@ -1310,8 +1309,6 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(mocks.completeFirstRun).toHaveBeenCalledTimes(1);
-    // Stays on the same step — no crash, no misleading full-screen bounce —
-    // and the failure is visible with a way forward.
     expect(document.body.textContent).toContain("Extension Complete");
     expect(document.body.textContent).toContain(
       "first-run completion failed: 500",
@@ -1364,9 +1361,6 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toMatch(/\bProduct\b/);
   });
 
-  // A failed initial status read must not leave the create-account CTA inert.
-  // The click still starts the provisioning flow, which performs its own
-  // fresh status read.
   it("keeps the create-account CTA actionable after a failed status read", () => {
     const start = vi.fn();
     const retry = vi.fn();

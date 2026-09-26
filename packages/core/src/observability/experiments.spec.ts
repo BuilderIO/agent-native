@@ -2,13 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import type { Experiment, ExperimentVariant } from "./types.js";
 
-// experiments.ts holds the deterministic A/B bucketing logic and the
-// metric aggregation (mean / stddev / 95% CI). Those are the high-value
-// targets: a non-deterministic bucketer would silently reassign users
-// mid-experiment, and broken stats would mislead every readout. We mock
-// the store (assignment lookups, experiment CRUD) and the raw DB client
-// (used by computeExperimentResults) so we can shape inputs precisely and
-// no network/DB is hit.
 
 const store = vi.hoisted(() => ({
   insertExperiment: vi.fn(),
@@ -118,9 +111,6 @@ describe("resolveVariant bucketing", () => {
     store.getExperiment.mockResolvedValue(makeExperiment());
 
     const first = await resolveVariant("exp-1", "user-42");
-    // Clear the fire-and-forget assignment so the second call re-buckets
-    // from the hash, not from a stored assignment — proving the hash
-    // itself is stable.
     store.getAssignment.mockResolvedValue(null);
     const second = await resolveVariant("exp-1", "user-42");
 
@@ -138,7 +128,6 @@ describe("resolveVariant bucketing", () => {
 
     const variant = await resolveVariant("exp-1", "user-1");
     expect(variant.id).toBe("treatment");
-    // No new assignment write when one already exists.
     expect(store.upsertAssignment).not.toHaveBeenCalled();
   });
 
@@ -150,7 +139,6 @@ describe("resolveVariant bucketing", () => {
       const v = await resolveVariant("exp-1", `user-${i}`);
       counts[v.id]++;
     }
-    // 50/50 split — allow generous slack but both must get a real share.
     expect(counts.control).toBeGreaterThan(700);
     expect(counts.treatment).toBeGreaterThan(700);
     expect(counts.control + counts.treatment).toBe(2000);
@@ -178,7 +166,6 @@ describe("resolveVariant bucketing", () => {
     store.getExperiment.mockResolvedValue(makeExperiment());
 
     const v = await resolveVariant("exp-1", "user-7");
-    // upsertAssignment is fire-and-forget; await a microtask flush.
     await Promise.resolve();
     expect(store.upsertAssignment).toHaveBeenCalledTimes(1);
     const written = store.upsertAssignment.mock.calls[0][0];
@@ -230,9 +217,6 @@ describe("resolveActiveExperimentConfig", () => {
   });
 
   it("merges configs from all running experiments for the user", async () => {
-    // getActiveExperiments has a 5s in-module TTL cache; the previous test
-    // may have cached an empty active-list. invalidateCache is only reachable
-    // through a lifecycle call, so clear it via pauseExperiment first.
     await pauseExperiment("exp-x");
     const expA = makeExperiment({
       id: "expA",
@@ -260,12 +244,10 @@ describe("resolveActiveExperimentConfig", () => {
 describe("computeExperimentResults stats", () => {
   it("emits zeroed metrics for a variant with no assignments", async () => {
     store.getExperiment.mockResolvedValue(makeExperiment());
-    // Both variants: assignment query returns no rows.
     dbExecute.mockResolvedValue({ rows: [] });
 
     const results = await computeExperimentResults("exp-1");
 
-    // 6 empty metrics per variant, 2 variants.
     expect(results).toHaveLength(12);
     expect(results.every((r) => r.value === 0 && r.sampleSize === 0)).toBe(
       true,
@@ -290,11 +272,6 @@ describe("computeExperimentResults stats", () => {
       }),
     );
 
-    // Queue the sequence of execute() calls for the single variant:
-    //  1) assignment user_ids
-    //  2) trace summaries
-    //  3) eval scores
-    //  4) satisfaction (frustration) scores
     dbExecute
       .mockResolvedValueOnce({ rows: [{ user_id: "u1" }, { user_id: "u2" }] })
       .mockResolvedValueOnce({
@@ -321,21 +298,18 @@ describe("computeExperimentResults stats", () => {
     const results = await computeExperimentResults("exp-1");
     const byMetric = Object.fromEntries(results.map((r) => [r.metric, r]));
 
-    expect(byMetric.avg_cost.value).toBeCloseTo(2.0, 5); // mean of 1,3
+    expect(byMetric.avg_cost.value).toBeCloseTo(2.0, 5);
     expect(byMetric.avg_latency.value).toBeCloseTo(2000, 5);
-    expect(byMetric.tool_success_rate.value).toBeCloseTo(0.75, 5); // (.5+1)/2
-    expect(byMetric.avg_eval_score.value).toBeCloseTo(0.7, 5); // (.8+.6)/2
-    expect(byMetric.satisfaction.value).toBeCloseTo(0.8, 5); // 1 - 20/100
+    expect(byMetric.tool_success_rate.value).toBeCloseTo(0.75, 5);
+    expect(byMetric.avg_eval_score.value).toBeCloseTo(0.7, 5);
+    expect(byMetric.satisfaction.value).toBeCloseTo(0.8, 5);
     expect(byMetric.sample_size.value).toBe(2);
 
-    // With n=2 the CI must straddle the mean (margin = 1.96*std/sqrt(2)).
     expect(byMetric.avg_cost.confidenceLow).toBeLessThan(2.0);
     expect(byMetric.avg_cost.confidenceHigh).toBeGreaterThan(2.0);
-    // sample_size metric has std 0 => CI collapses to the point value.
     expect(byMetric.sample_size.confidenceLow).toBe(2);
     expect(byMetric.sample_size.confidenceHigh).toBe(2);
 
-    // Each metric was persisted.
     expect(store.insertExperimentResult).toHaveBeenCalledTimes(6);
   });
 
@@ -350,22 +324,17 @@ describe("computeExperimentResults stats", () => {
       .mockResolvedValueOnce({
         rows: [{ user_id: "alice" }, { user_id: "bob" }],
       })
-      .mockResolvedValueOnce({ rows: [] }) // no traces -> eval query skipped
-      .mockResolvedValueOnce({ rows: [] }); // satisfaction (3rd call)
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
 
     await computeExperimentResults("exp-1");
 
-    // 2nd call = trace summaries; must filter user_id IN (?, ?) and the
-    // startedAt cutoff, with the user ids + cutoff bound in order.
     const traceCall = dbExecute.mock.calls[1][0];
     expect(traceCall.sql).toMatch(/s\.user_id IN \(\?, \?\)/);
     expect(traceCall.sql).toMatch(/s\.created_at >= \?/);
     expect(traceCall.args).toEqual(["alice", "bob", 5000]);
 
-    // Because no traces matched, runIds is empty and the eval query is
-    // skipped — so the satisfaction read is the very next (3rd) call. It
     // must likewise scope to the variant's users via the feedback subquery
-    // (f.user_id IN (?, ?)), never leaking another variant's frustration.
     expect(dbExecute.mock.calls).toHaveLength(3);
     const satCall = dbExecute.mock.calls[2][0];
     expect(satCall.sql).toMatch(/f\.user_id IN \(\?, \?\)/);

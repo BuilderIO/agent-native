@@ -1,30 +1,10 @@
-/**
- * Pure, dependency-free, deterministic demo-mode redactor.
- *
- * Replaces every email with one canonical anonymous address and free numbers
- * with stable fake substitutes. Crucially, it NEVER rewrites identifiers,
- * structural tokens, or timestamps. Names and other free text are deliberately
- * left alone because guessing whether arbitrary text is a person's name is too
- * inaccurate. The string redactor uses a protect-first strategy (mask IDs with
- * opaque placeholders before any transform runs, restore them byte-identical
- * afterwards), and the structure-aware walker additionally protects leaf
- * values by key name.
- */
 
 export interface RedactOptions {
   salt?: string;
-  /** Redact numeric values. Defaults to true for backward compatibility. */
   redactNumbers?: boolean;
-  /**
-   * Redact emails stored in otherwise protected structural fields such as
-   * `userId` and `userKey`. Intended for display-only frontend responses.
-   */
   redactProtectedEmails?: boolean;
 }
 
-/* ------------------------------------------------------------------ *
- * Seeded hash + PRNG (xmur3 seed → mulberry32 stream)
- * ------------------------------------------------------------------ */
 
 function xmur3(str: string): () => number {
   let h = 1779033703 ^ str.length;
@@ -51,40 +31,16 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/** Deterministic PRNG seeded by `value + salt`. */
 function seededRng(value: string, salt: string): () => number {
   const seedFn = xmur3(`${value}${salt}`);
   return mulberry32(seedFn());
 }
 
-/* ------------------------------------------------------------------ *
- * Stable mapping cache (bounded, TTL, leak-free)
- *
- * The fake values are already a pure deterministic function of
- * (kind, salt, original), so identical input is always stable. This cache
- * adds two things on top:
- *
- *   1. A consistent forward map so the same original keeps the same fake for
- *      the life of the entry, even if the algorithm/salt is ever tuned.
- *   2. Idempotency: every fake we emit is remembered, so when a fake value
- *      round-trips back through redaction (e.g. you edit a draft that's
- *      already showing fake text, it autosaves, then refetches) it is passed
- *      through UNCHANGED instead of being re-faked into something new. This
- *      is what stops emails drifting on every edit.
- *
- * Leak-free by construction: no timers, a hard size cap, and lazy TTL purge
- * on write. Works the same per-tab in the browser and per-process on the
- * server. Memoizing a pure function across users is safe — output depends
- * only on input.
- * ------------------------------------------------------------------ */
 
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL_MS = 60 * 60 * 1000;
 const CACHE_MAX = 5000;
 
-// original-key → { fake, at }. Insertion-ordered (Map) so the oldest key is
-// first — used for cap eviction.
 const forwardCache = new Map<string, { value: string; at: number }>();
-// produced fake → last-seen timestamp (same bound/TTL policy).
 const producedFakes = new Map<string, number>();
 
 function purge(map: Map<string, { at: number } | number>): void {
@@ -92,7 +48,7 @@ function purge(map: Map<string, { at: number } | number>): void {
   for (const [k, v] of map) {
     const at = typeof v === "number" ? v : v.at;
     if (now - at > CACHE_TTL_MS) map.delete(k);
-    else break; // insertion-ordered: first fresh entry ⇒ rest are fresher
+    else break;
   }
   while (map.size > CACHE_MAX) {
     const oldest = map.keys().next().value as string | undefined;
@@ -119,21 +75,13 @@ function isProducedFake(value: string): boolean {
   return true;
 }
 
-/**
- * Memoize a deterministic fake by (kind, salt, original). On a hit, the
- * entry's recency is refreshed (LRU-ish). The generated value is also
- * registered as a produced fake so it survives a round-trip unchanged.
- */
 function memoFake(
   kind: string,
   original: string,
   salt: string,
   gen: () => string,
-  // Numbers opt out: a fake number collides with real numbers far too often
-  // to safely treat "looks like one we emitted" as "leave it alone".
   idempotent = true,
 ): string {
-  // Already one of our fakes? Leave it exactly as-is (round-trip stable).
   if (idempotent && isProducedFake(original)) return original;
 
   const key = `${kind}${salt}${original}`;
@@ -152,9 +100,6 @@ function memoFake(
   return value;
 }
 
-/* ------------------------------------------------------------------ *
- * Fake value generators (deterministic in value + salt)
- * ------------------------------------------------------------------ */
 
 export const DEMO_ANONYMOUS_EMAIL = "anonymous@builder.io";
 
@@ -167,18 +112,11 @@ function fakeEmail(original: string, salt: string): string {
   );
 }
 
-/**
- * Replace every digit in `numericBody` with a freshly-generated digit while
- * preserving non-digit characters (grouping commas, decimal points) exactly.
- * The first digit is forced non-zero so the digit count is observable.
- */
 function fakeNumberBody(
   numericBody: string,
   original: string,
   salt: string,
 ): string {
-  // Stable per original token, but NOT registered as a produced fake — a
-  // fake number coincides with real numbers too often to skip on round-trip.
   return memoFake(
     "num",
     original,
@@ -191,7 +129,6 @@ function fakeNumberBody(
         if (ch >= "0" && ch <= "9") {
           let d: number;
           if (!seenDigit) {
-            // Leading digit: 1-9 so length is preserved.
             d = 1 + Math.floor(rng() * 9);
             seenDigit = true;
           } else {
@@ -208,32 +145,15 @@ function fakeNumberBody(
   );
 }
 
-/* ------------------------------------------------------------------ *
- * Protect-first tokenizer (ID-safety core)
- * ------------------------------------------------------------------ */
 
-/**
- * Patterns whose matches must be protected from ANY transform. Order matters:
- * the most structural / specific shapes come first so they win the scan.
- */
 const PROTECT_PATTERNS: RegExp[] = [
-  // URLs / URIs with a scheme.
   /\b[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s]+/g,
   /\b(?:mailto|data|tel|urn):[^\s]+/gi,
-  // UUID.
   /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g,
-  // JWT — three base64url segments separated by dots.
   /\b[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\b/g,
-  // ISO datetime / date.
   /\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?)?\b/g,
-  // Bare clock time.
   /\b\d{1,2}:\d{2}(?::\d{2})?\b/g,
-  // Path-like tokens containing a slash (but not bare prose with slashes —
-  // require no spaces and at least one slash with adjacent non-space).
   /(?:\S*\/\S+)+/g,
-  // nanoid / hex / base64-ish blobs: an unbroken [A-Za-z0-9_-] run that is
-  // either long-with-a-digit, mixes letters AND digits at length >= 10, or
-  // contains a `_`/`-` inside the run (real names/numbers never look so).
   /[A-Za-z0-9_-]+/g,
 ];
 
@@ -244,26 +164,17 @@ function makePlaceholder(index: number): string {
   return `${PLACEHOLDER_PREFIX}${index}${PLACEHOLDER_SUFFIX}`;
 }
 
-/** True if a `[A-Za-z0-9_-]+` run is identifier-shaped (must be protected). */
 function looksLikeIdentifierToken(tok: string): boolean {
   if (tok.length < 3) return false;
   const hasLetter = /[A-Za-z]/.test(tok);
   const hasDigit = /[0-9]/.test(tok);
   const hasSep = /[_-]/.test(tok);
 
-  // A pure number (optionally with separators handled elsewhere) is NOT an
-  // identifier here — the number rule handles those.
   if (!hasLetter && !hasSep) return false;
 
-  // Long hex/base64-ish blob with a digit.
   if (tok.length >= 16 && hasDigit) return true;
-  // nanoid-ish: length >= 10 mixing letters AND digits.
   if (tok.length >= 10 && hasLetter && hasDigit) return true;
-  // Any token that has a `_`/`-` joined inside an unbroken run AND also
-  // contains a digit or is long — e.g. `order-2024-abc`, `api_key_v2`.
   if (hasSep && (hasDigit || tok.length >= 10)) return true;
-  // Mixed letters+digits adjacency (e.g. `abc123`, `v2`, `step3`) — protect so
-  // the number rule never bites an embedded number.
   if (hasLetter && hasDigit) return true;
 
   return false;
@@ -274,17 +185,10 @@ interface Protection {
   restore: Map<string, string>;
 }
 
-/**
- * Walk `text`, replace every protected substring with an opaque placeholder,
- * and return the masked text plus a restore map. Non-overlapping, left-to-right
- * earliest-match-wins so a transform literally cannot see a protected value.
- */
 function protect(text: string): Protection {
   const restore = new Map<string, string>();
   let counter = 0;
 
-  // Collect all candidate matches across patterns, then resolve overlaps by
-  // earliest start (and longest on tie).
   interface Span {
     start: number;
     end: number;
@@ -321,7 +225,7 @@ function protect(text: string): Protection {
   let out = "";
   let cursor = 0;
   for (const span of spans) {
-    if (span.start < cursor) continue; // overlapped by an earlier protection
+    if (span.start < cursor) continue;
     out += text.slice(cursor, span.start);
     const ph = makePlaceholder(counter++);
     restore.set(ph, span.value);
@@ -342,16 +246,9 @@ function unprotect(text: string, restore: Map<string, string>): string {
   return out;
 }
 
-/* ------------------------------------------------------------------ *
- * Transforms (run only on protected text)
- * ------------------------------------------------------------------ */
 
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 
-// A standalone numeric token: optional currency + sign, digits with optional
-// comma grouping and a single optional decimal part. Bounded so it is NOT
-// adjacent to a letter (placeholders already removed letter-mixed tokens, but
-// this keeps the rule self-contained and safe on raw structured values too).
 const NUMBER_RE =
   /(^|[^A-Za-z0-9_])([$€£]?)([+-]?)(\d[\d,]*(?:\.\d+)?)(?![A-Za-z0-9_])/g;
 
@@ -373,7 +270,6 @@ function transformNumbers(text: string, salt: string): string {
       const hasDecimal = body.includes(".");
       const digitsOnly = body.replace(/[^0-9]/g, "");
 
-      // Skip bare years like 2026.
       if (
         !currency &&
         !sign &&
@@ -384,8 +280,6 @@ function transformNumbers(text: string, salt: string): string {
         return `${pre}${currency}${sign}${body}`;
       }
 
-      // Skip standalone integers < 1000 with no currency and no grouping
-      // (rewriting "3 unread" / "page 2" looks broken and isn't sensitive).
       if (!currency && !hasGrouping && !hasDecimal) {
         const n = Number(digitsOnly);
         if (Number.isFinite(n) && n < 1000) {
@@ -399,9 +293,6 @@ function transformNumbers(text: string, salt: string): string {
   );
 }
 
-/* ------------------------------------------------------------------ *
- * Public: string redactor
- * ------------------------------------------------------------------ */
 
 function redactDemoStringInternal(
   text: string,
@@ -428,16 +319,7 @@ export function redactDemoString(text: string, opts?: RedactOptions): string {
   );
 }
 
-/* ------------------------------------------------------------------ *
- * Public: structure-aware redactor
- * ------------------------------------------------------------------ */
 
-// Keys whose leaf values must NEVER be transformed (still recurse into nested
-// objects/arrays under them). Besides ids/urls/timestamps this also covers
-// code/query-bearing keys (`sql`, `query`, `expression`, `formula`, `code`):
-// redacting a SQL string mutates literals and can make the query semantically
-// wrong or invalid. The query must run untouched; its RESULTS are what get
-// redacted so the chart still shows fake values.
 const PROTECTED_KEY_RE =
   /^id$|(^|_)id$|Id$|Ids$|uuid|guid|slug|token|secret|password|passwd|apikey|api_key|hash|sha\d*|etag|cursor|nonce|sessionid|messageid|threadid|nodeid|(^|_)key$|keyid|(^|_)ref$|url$|uri$|href$|src$|path$|filename$|mimetype|mime|^sql$|sql$|query|expression|formula|^code$|createdat|updatedat|deletedat|expiresat|timestamp|.+at$|.+_at$/i;
 
@@ -454,8 +336,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function redactNumberLeaf(value: number, salt: string): number {
   if (!Number.isFinite(value)) return value;
   const repr = String(value);
-  // Re-use the string number transform but only if the representation is a
-  // clean numeric token we can round-trip back to a JS number.
   const redacted = transformNumbers(repr, salt);
   if (redacted === repr) return value;
   const n = Number(redacted);
@@ -513,8 +393,6 @@ function walk(
           typeof entry === "object" &&
           !(entry instanceof Date)
         ) {
-          // Still recurse into nested structures, but the protected key does
-          // not transform its own leaf value.
           out[key] = walk(
             entry,
             salt,
@@ -530,7 +408,6 @@ function walk(
         ) {
           out[key] = redactDemoStringInternal(entry, salt, false);
         } else {
-          // Leaf under a protected key: pass through completely untouched.
           out[key] = entry;
         }
         continue;
@@ -548,7 +425,6 @@ function walk(
     return out;
   }
 
-  // Unknown object kind (Map, Set, class instance, etc.) — leave untouched.
   return value;
 }
 
@@ -564,11 +440,6 @@ export function redactDemoData<T>(value: T, opts?: RedactOptions): T {
   ) as T;
 }
 
-/**
- * Clear the stable-mapping caches. Test-only — the caches are process-global
- * (intentionally, so mappings stay stable for a tab's session), which would
- * otherwise let one test's produced fakes leak into another's assertions.
- */
 export function __resetDemoRedactCacheForTests(): void {
   forwardCache.clear();
   producedFakes.clear();

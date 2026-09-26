@@ -43,8 +43,6 @@ describe("scanEnvCredentials", () => {
   });
 
   it("does not flag the platform database and Fusion deploy vars the scaffold generates", () => {
-    // The Builder database scaffold writes both of these files verbatim, so
-    // flagging them fails the build of every hosted app that has a database.
     const root = makeTempAppRoot({
       "drizzle.config.ts": [
         'import { defineConfig } from "drizzle-kit";',
@@ -66,7 +64,6 @@ describe("scanEnvCredentials", () => {
   });
 
   it("still flags an app secret that merely starts with a platform name", () => {
-    // FUSION_BRANCH_KIND is allowlisted exactly, never as a FUSION_ prefix, so a
     // credential cannot smuggle itself through by borrowing the platform's name.
     const root = makeTempAppRoot({
       "actions/charge.ts": [

@@ -125,10 +125,6 @@ function setupWebMcpManifest() {
     configurable: true,
     value: modelContext,
   });
-  // A fresh Response per call: a Response body can only be read once, and
-  // more than one surface (RuntimeConfigNotice, the deferred WebMCP
-  // registration) consumes this mock after the WebMCP start is deferred
-  // past first paint.
   const fetchMock = vi.fn(
     async () =>
       new Response(
@@ -149,9 +145,6 @@ function setupWebMcpManifest() {
   return { fetchMock, modelContext };
 }
 
-// `RequireSession` branches on `useSession().status`, not just `isLoading` —
-// every mock here must supply a status or the gate can neither redirect nor
-// hold the fallback consistently with the real hook.
 const SIGNED_OUT_SESSION = {
   session: null,
   isLoading: false,
@@ -222,8 +215,6 @@ describe("AppProviders session gate", () => {
     expect(
       container.querySelector('script[data-agent-native-beta-redirect="1"]'),
     ).toBeNull();
-    // WebMCP registration reads the session to skip signed-out visitors, but
-    // no gate here redirects and no RequireSession fallback holds content.
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
@@ -266,8 +257,6 @@ describe("AppProviders session gate", () => {
     expect(
       container.querySelector('[data-testid="app-content"]'),
     ).not.toBeNull();
-    // The non-persisting runtime never mounts the session hook, and with
-    // WebMCP disabled nothing else resolves the session on a public path.
     expect(useSessionMock).not.toHaveBeenCalled();
   });
 
@@ -298,8 +287,6 @@ describe("AppProviders session gate", () => {
     renderProviders({ isPublicPath: true });
 
     await vi.waitFor(() => {
-      // The registration resolves the shared session first, so a signed-out
-      // visitor never logs the manifest 401.
       expect(useSessionMock).toHaveBeenCalled();
     });
     expect(fetchMock).not.toHaveBeenCalledWith(
@@ -340,9 +327,6 @@ describe("AppProviders session gate", () => {
 
     renderProviders({ isPublicPath: true });
 
-    // Wait past the paint-aligned window: the manifest route needs a
-    // session, so an unreadable session waits instead of firing a request
-    // that can only fail.
     await new Promise((resolve) => setTimeout(resolve, 400));
 
     expect(fetchMock).not.toHaveBeenCalledWith(
@@ -434,9 +418,6 @@ describe("AppProviders session gate", () => {
 
     renderProviders({ sessionBypass: true });
 
-    // Bypass surfaces register immediately: a token-authenticated MCP embed's
-    // host may call tools right away, so the manifest fetch must not wait out
-    // the paint-aligned window (only the session-gated variant defers).
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/_agent-native/webmcp/manifest",

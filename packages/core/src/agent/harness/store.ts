@@ -64,9 +64,7 @@ export interface SaveAgentHarnessSessionInput {
   ownerEmail?: string | null;
   orgId?: string | null;
   stoppedAt?: number | null;
-  /** Internal optimistic-concurrency token used by updateAgentHarnessSession. */
   expectedGeneration?: number;
-  /** Snapshot used by updateAgentHarnessSession so merge and CAS share a read. */
   existingSession?: StoredAgentHarnessSession | null;
 }
 
@@ -97,8 +95,6 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
       `;
 
       {
-        // PG-guard: probe information_schema / pg_indexes before issuing DDL to
-        // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
         await ensureTableExists("agent_harness_sessions", createSql);
         for (const col of [
           "run_id",

@@ -1,5 +1,3 @@
-// @agent-native/pinpoint — Floating label near hovered element
-// MIT License
 
 import { Show, type Component } from "solid-js";
 

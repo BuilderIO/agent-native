@@ -100,17 +100,10 @@ export interface AgentNativeI18nCatalog {
   sourceLocale?: LocaleCode;
   messages?: LocaleMessages;
   loadMessages?: (locale: LocaleCode) => Promise<LocaleMessages | null>;
-  /** Metadata for app-registered locales shown in the language picker. */
   locales?: readonly LocaleMetadata[];
-  /** Optional partial framework translations for app-registered locales. */
   coreMessageOverrides?: Partial<
     Record<LocaleCode, AgentNativeI18nLocaleLoader>
   >;
-  /**
-   * Locales this app actually ships translations for. Defaults to every
-   * framework-supported locale when omitted, which only matches apps whose
-   * `loadMessages` covers all of them.
-   */
   supportedLocales?: readonly LocaleCode[];
 }
 
@@ -371,12 +364,6 @@ function createI18nInstance(args: {
   return instance;
 }
 
-/**
- * Runtime half of the i18n provider. `sessionAuthenticated` only matters when
- * `persistPreference` is true: the preference read and the app-state write
- * are authenticated server calls, so a signed-out visitor skips them instead
- * of logging 401 console errors on every load.
- */
 function I18nRuntime({
   children,
   catalog,
@@ -707,15 +694,6 @@ function I18nRuntime({
   );
 }
 
-/**
- * Session-aware variant: only mounts the session hook (and therefore only
- * ever resolves the shared session) on surfaces that persist preferences.
- * AppProviders defaults public paths to the non-persisting variant, so a
- * public page never resolves the session for localization; a persisting
- * surface pays one deduped session probe and skips the preference read and
- * app-state write until the session confirms, which is what keeps anonymous
- * visits free of localization 401s.
- */
 function SessionAwareI18nRuntime(
   props: Omit<AgentNativeI18nProviderProps, "persistPreference"> & {
     persistPreference: true;

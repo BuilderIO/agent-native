@@ -24,28 +24,8 @@
   --an-callout-warning: 25 95% 48%;
   --an-callout-success: 142 71% 38%;
 
-  /* Standardized small code-body size for every monospace code surface in the
-     core block library (diffs, annotated-code, JSON explorer, Mermaid source,
-     etc.). The block components reference this via `[font-size:var(--plan-code-size)]`;
-     without a definition the declaration is invalid and code falls back to the
-     large prose size. The plan template overrides this var in its own
-     `global.css`; this is the cross-app default. */
   --plan-code-size: 0.7rem;
 
-  /* AUTHORITATIVE code-body size for DENSE in-document code surfaces (diff rows,
-     annotated-code lines, API JSON examples, code-tabs, the `code` primitive
-     read surface). The catch-all below forces every such surface to this size
-     with `!important`, so dense document code is sized from ONE place no matter
-     which component renders it or what inline/utility/template size it would
-     otherwise pick up.
-
-     This is deliberately DECOUPLED from `--plan-code-size`: the plan template
-     raises `--plan-code-size` to 1rem for its free-standing prose-scale code,
-     which made dense surfaces (annotated diffs, API JSON) read far too large —
-     the user's recurring complaint. By pinning dense code to its own small,
-     comfortable size here, those surfaces stay compact and scannable in every
-     app while a free-standing snippet can still follow `--plan-code-size`.
-     Resize ALL dense document code at once by overriding this var. */
   --plan-doc-code-size: 0.7rem;
 }
 
@@ -139,20 +119,11 @@
   font-size: inherit !important;
 }
 
-/* COMPREHENSIVE NET — the final backstop so "code is too big" can't reappear in
-   a NEW place. Every code/data/JSON component opts into monospace via the
-   `.font-mono` utility (12+ block components, incl. the JSON-explorer tree which
-   renders as div/span — NOT pre/code — and so escaped every earlier rule). Force
-   the dense doc-code size on any `.font-mono` inside plan content, and on the
-   code-block component hooks wherever they render. Annotation marker pips are NOT
-   font-mono, so they keep their tiny size; inline prose `code` is styled by the
-   prose plugin (no `.font-mono` class), so body copy is unaffected. */
 :where(.plan-document-flow, .plan-block, .plan-block-node) .font-mono,
 :is([data-code-surface], .an-code-block) .font-mono {
   font-size: var(--plan-doc-code-size, 0.7rem) !important;
 }
 
-/* Small, muted eyebrow label above a block (block title). */
 .an-block-label {
   margin: 0 0 1rem;
   color: hsl(var(--muted-foreground));
@@ -162,7 +133,6 @@
   line-height: 1.3;
 }
 
-/* Callout: a self-contained tinted box with an inline-start accent bar and a tone. */
 .an-callout {
   max-width: 860px;
   border-inline-start: 3px solid hsl(var(--border));
@@ -174,8 +144,6 @@
   padding-inline-start: 1.25rem;
 }
 
-/* The body editor/reader may carry a leading margin; the box padding owns the
-   top rhythm, so drop it (a label, when present, keeps its own margin-bottom). */
 .an-callout > .an-rich-md-wrapper {
   margin-top: 0;
 }
@@ -250,7 +218,6 @@
      --plan-code-text  → --foreground
    ════════════════════════════════════════════════════════════════════════ */
 
-/* ── Color utilities (layered so plan's later copy wins) ─────────────────── */
 @layer utilities {
   .bg-plan-block {
     background-color: hsl(var(--muted));
@@ -277,9 +244,7 @@
   }
 }
 
-/* ── Block label + per-column header (structural) ────────────────────────── */
 
-/* Small, muted eyebrow label above a block (block title). */
 .plan-block-label {
   margin: 0 0 1rem;
   color: hsl(var(--muted-foreground));
@@ -289,7 +254,6 @@
   line-height: 1.3;
 }
 
-/* Per-column header for `columns` comparison blocks (e.g. Before / After). */
 .plan-columns-label {
   margin: 0 0 0.6rem;
   color: hsl(var(--foreground));
@@ -299,7 +263,6 @@
   line-height: 1.3;
 }
 
-/* Nested block spacing (a block inside another block). */
 .plan-block .plan-block {
   margin-top: 1.75rem;
   padding-top: 0;
@@ -310,13 +273,11 @@
   margin-bottom: 0.75rem;
 }
 
-/* Canonical document body / lede text size. */
 .plan-doc-body {
   font-size: 1.0625rem;
   line-height: 1.75;
 }
 
-/* ── Notion-like rich-text block prose ───────────────────────────────────── */
 .plan-rich-markdown-editor {
   max-width: 820px;
   color: hsl(var(--foreground));
@@ -373,7 +334,6 @@
   margin-bottom: 0;
 }
 
-/* Annotated-code side notes: compact prose so a note matches its small card. */
 .plan-annotation-note > .plan-rich-markdown-editor {
   margin-top: 0;
 }
@@ -459,7 +419,6 @@
   border-top-color: hsl(var(--border));
 }
 
-/* Inline code only — never the block code inside <pre>. */
 .plan-rich-markdown-editor .an-rich-md-prose :not(pre) > code {
   background: hsl(var(--muted));
   color: hsl(var(--foreground));
@@ -467,7 +426,6 @@
   unicode-bidi: isolate;
 }
 
-/* Block code surface fallback for any stray bare <pre>. */
 .plan-rich-markdown-editor .an-rich-md-prose pre {
   border: 1px solid hsl(var(--border));
   background: hsl(var(--muted));
@@ -492,9 +450,7 @@
   accent-color: hsl(var(--ring));
 }
 
-/* ── Code block — shared read/edit surface (structural) ──────────────────── */
 
-/* Read-only surface (Shiki-highlighted, collapses past `--plan-code-max-lines`). */
 .plan-code-surface {
   border-radius: 12px;
   overflow: hidden;
@@ -525,7 +481,6 @@
   line-height: 1.6;
 }
 
-/* Collapsed: clamp to N lines (+ the pre's top padding) and hide the rest. */
 .plan-code-surface[data-collapsed="true"] .plan-code-surface-scroll {
   max-height: calc(var(--plan-code-max-lines, 30) * 1lh + 0.85rem);
   overflow: hidden;
@@ -596,8 +551,6 @@
   color: var(--shiki-dark);
 }
 
-/* `code` primitive block: read wraps the surface with a borderless filename
-   header + hover chrome; edit is a single-bordered auto-growing surface. */
 .plan-code {
   position: relative;
 }
@@ -683,12 +636,10 @@
   color: hsl(var(--foreground));
 }
 
-/* Editable surface: ONE border, auto-grows to content (no drag-to-resize). */
 .plan-code-editing {
   overflow: visible;
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
-  /* Sit on the page background like the diff block — no distinct surface fill. */
   background: transparent;
 }
 
@@ -702,8 +653,6 @@
   opacity: 1;
 }
 
-/* Read view of the `code` block reuses the shared CodeSurface — flatten it for
-   the `code` primitive only so the snippet sits on the page (no gray box). */
 .plan-code .plan-code-surface {
   background: transparent;
 }
@@ -746,8 +695,6 @@
   overflow: hidden;
   pointer-events: none;
   color: hsl(var(--foreground));
-  /* This is a <pre>; a base `pre {}` style would leak in a bg + border + larger
-     font-size. Override so it's flat and lines up exactly with the textarea. */
   margin: 0 !important;
   padding: 0.85rem 1.1rem !important;
   background: transparent !important;
@@ -789,7 +736,6 @@
   color: hsl(var(--muted-foreground));
 }
 
-/* Collapsed long snippet: fade the clipped bottom into the page background. */
 .plan-code-editor-fade {
   position: absolute;
   inset: auto 0 0 0;
@@ -818,7 +764,6 @@
   outline: none;
 }
 
-/* ── Editor node view (Tiptap): language picker header + highlighted <pre> ─── */
 .an-code-block {
   position: relative;
   margin: 1.1rem 0;
@@ -866,8 +811,6 @@
   color: hsl(var(--muted-foreground));
 }
 
-/* The node-view wrapper owns the surface (border + bg), so the inner <pre> is
-   transparent. Scoped via `.an-rich-md-prose` so it applies in every editor. */
 .an-rich-md-prose .an-code-block pre {
   margin: 0;
   padding: 0.85rem 1.1rem;
@@ -888,7 +831,6 @@
   font-size: inherit;
 }
 
-/* Language picker popover (rendered in a portal by the shared Popover). */
 .an-code-block__search {
   width: 100%;
   padding: 0.5rem 0.65rem;
@@ -929,19 +871,7 @@
   color: hsl(var(--primary));
 }
 
-/* ════════════════════════════════════════════════════════════════════════
-   Wireframe kit + inline diagram + HTML-artboard styling.
 
-   Copied verbatim from the plan template's wireframe CSS
-   (wireframe/html-artboard.css + wireframe/kit/plan-wireframe-tokens.css).
-   These already reference plan palette vars with shadcn theme-token
-   FALLBACKS — e.g. var(--plan-text, hsl(var(--foreground))) — so in plan
-   they resolve to plan's palette (unchanged) and in any other app they
-   resolve to that app's theme tokens. Loaded globally here so the shared
-   wireframe + diagram blocks render in any app, not just plan.
-   ════════════════════════════════════════════════════════════════════════ */
-
-/* Question form / visual questions: respondent-facing intake block. */
 .an-questions-block {
   max-width: 860px;
 }
@@ -964,13 +894,6 @@
   --wf-ink: var(--plan-text, hsl(var(--foreground)));
   --wf-muted: var(--plan-muted, hsl(var(--muted-foreground)));
   --wf-line: var(--plan-line, hsl(var(--border)));
-  /* Hand-drawn sketch stroke. Separate from --wf-ink (text) so the rough.js
-     overlay can run a touch softer than the body text — most important in dark
-     mode, where near-white text ink as a stroke makes harsh, eye-straining
-     borders. In light mode it matches the ink. */
-  /* Sketch stroke = a soft gray a step more pronounced than the hairline
-     --wf-line, so rough (broken) strokes still read clearly. Gentle, not hard
-     ink; text stays the dark --wf-ink above. */
   --wf-sketch: var(--plan-muted-line, hsl(var(--border)));
   --wf-paper: var(--plan-document, hsl(var(--background)));
   --wf-card: var(--plan-block, hsl(var(--card)));
@@ -988,10 +911,6 @@
 
   position: relative;
   width: 100%;
-  /* `min-height` (not a fixed `height: 100%`) so an HTML mockup fills the
-     auto-height artboard's floor yet grows with its content instead of clipping.
-     The frame shell (ArtboardFrame) owns the height policy; the prototype-live
-     scroll mode below pins to 100% for an internally-scrolling canvas. */
   min-height: 100%;
   overflow: hidden;
   box-sizing: border-box;
@@ -1059,7 +978,6 @@
   min-width: 0;
 }
 
-/* Bare semantic elements get the wireframe look from tokens. */
 .plan-html-frame:not([data-render-mode="design"]) h1 {
   font-size: 22px;
   font-weight: 700;
@@ -1124,9 +1042,6 @@
   font: inherit;
   font-weight: 700;
   color: var(--wf-ink);
-  /* Opaque paper fill (not transparent) so a floating / overlapping button —
-     a FAB, a sticky toolbar action like "+ Add habit" — never shows the
-     content behind it through its body. */
   background: var(--wf-paper);
   border: 1.4px solid var(--wf-line);
   border-radius: var(--wf-radius);
@@ -1214,9 +1129,6 @@
   background: var(--wf-accent-soft);
 }
 
-/* Once rough has drawn, hide crisp borders on the standard wireframe primitives
-   that rough.js redraws. Fills and text stay in CSS; only outlines switch to
-   the hand-drawn overlay. */
 .plan-html-frame[data-rough-ready]
   :is(
     button,
@@ -1240,7 +1152,6 @@
   border-color: transparent !important;
 }
 
-/* Skeleton register: neutral textless geometry. */
 .plan-html-frame[data-skeleton="true"] {
   --wf-ink: var(--plan-muted-line, hsl(var(--border)));
   --wf-muted: var(--plan-muted-line, hsl(var(--border)));
@@ -1253,13 +1164,6 @@
   color: transparent !important;
 }
 
-/*
- * Inline architecture/code diagrams.
- *
- * These are document-local HTML/SVG fragments, not top-canvas wireframes. They
- * share the wireframe sketch preference so the same viewer toggle can switch
- * authored diagrams between crisp and hand-drawn presentation.
- */
 
 .plan-diagram-shell {
   position: relative;
@@ -1333,8 +1237,6 @@
   direction: inherit;
 }
 
-/* Diagram arrows are geometry, not text glyphs. The clean path draws these
-   shapes with CSS; sketchy mode replaces them with the rough.js paths below. */
 .plan-diagram-frame :is(.diagram-arrow[data-arrow]) {
   position: relative;
   display: inline-block;
@@ -1566,11 +1468,6 @@
   white-space: normal !important;
 }
 
-/* Base padding so primitive text never touches the box edge, even when an author
- * diagram omits its own padding. The wildcard selectors mirror the theme-color
- * rules above so every box/card/panel variant authors use is covered. Author CSS
- * (higher specificity, scoped to the diagram instance) still overrides this when
- * it sets padding explicitly. */
 .plan-diagram-frame :is(.diagram-node, .diagram-box, [class*="box"]) {
   padding: 8px 12px;
 }
@@ -1630,11 +1527,6 @@
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  /* A pill hugs its label. `fit-content` is a definite cross size, so a flex
-   * column with the default `align-items: stretch` no longer blows the pill out
-   * to full width (the number chips and short status labels stay pill-shaped).
-   * The wildcard selectors match the theme-color rules so every pill/badge/chip
-   * variant used across the docs diagrams stays pill-shaped, not a full bar. */
   width: fit-content;
   max-width: 100%;
   border: 1px solid var(--wf-diagram-line);
@@ -1719,15 +1611,11 @@
  * or colors.
  */
 
-/* Hand-drawn fonts. Excalifont is served by the app; no remote font dependency. */
 
 .plan-wf {
-  /* ---- Theme palette ----------------------------------------------------- */
   --ink: var(--plan-text, hsl(var(--foreground)));
   --ink-soft: var(--plan-muted, hsl(var(--muted-foreground)));
   --line: var(--plan-line, hsl(var(--border)));
-  /* Sketch stroke = a soft gray a step more pronounced than --line so rough
-     strokes read clearly; matches the HTML artboard. Text stays the dark --ink. */
   --wf-sketch: var(--plan-muted-line, hsl(var(--border)));
   --paper: var(--plan-document, hsl(var(--background)));
   --card: var(--plan-block, hsl(var(--card)));
@@ -1738,10 +1626,8 @@
   --ok: var(--accent);
   --ok-soft: color-mix(in srgb, var(--ok) 15%, transparent);
 
-  /* Page backdrop behind artboards (board surface, not the screen paper). */
   --plan-wf-page-bg: var(--plan-canvas, hsl(var(--background)));
 
-  /* ---- Fonts ------------------------------------------------------------- */
   --font-hand:
     "Excalifont", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
   --font-script:
@@ -1749,20 +1635,15 @@
   --font-clean:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
 
-  /* ---- Density (regular default) ----------------------------------------- */
-  /* Density is selected via [data-density]; individual tokens below. */
   --gap: 11px;
   --pad: 12px;
   --fs: 14px;
   --radius: 7px;
   --stroke: 1.4px;
 
-  /* ---- Sketch wobble ----------------------------------------------------- */
-  /* Default crisp (low sketch). setSketch() helper overrides these inline. */
   --wobble: none;
 }
 
-/* Density variants. Match the reference DENSITY map exactly. */
 .plan-wf[data-density="compact"] {
   --gap: 7px;
   --pad: 9px;
@@ -1787,27 +1668,15 @@
   --stroke: 1.6px;
 }
 
-/* ---- Clean style: drop the hand-drawn font for a normal sans ------------- */
-/* In clean mode the rough overlay is off and frames get crisp CSS borders, so
-   the handwriting font reads as out of place — switch to the sans stack. */
 .plan-wf[data-style="clean"] {
   --font-hand: var(--font-clean);
   --font-script: var(--font-clean);
 }
 
-/* ---- Rough sketch layer -------------------------------------------------- */
-/* The hand-drawn outlines are drawn by the rough.js overlay (kit/rough.tsx).
-   Once it has measured + drawn, hide the crisp CSS borders so there is never a
-   doubled border — fills and text stay, only the outline is replaced. */
 .plan-wf[data-rough-ready] [data-rough] {
   border-color: transparent !important;
 }
 
-/* ---- Skeleton / neutral loading register --------------------------------- */
-/* One block flips the WHOLE kit to a textless skeleton: no ink, no rough, no
-   color — every primitive already reads these vars, so nothing else changes.
-   A skeleton is boxes + bars only; real labels collapse to transparent so the
-   silhouette is preserved without readable copy. */
 .plan-wf[data-skeleton="true"] {
   --ink: var(--skeleton-fill);
   --ink-soft: var(--skeleton-fill);
@@ -1823,12 +1692,10 @@
   --skeleton-fill: var(--plan-muted-line, hsl(var(--border)));
   --skeleton-block: var(--plan-block, hsl(var(--card)));
 }
-/* Textless: hide real labels but keep their layout footprint. */
 .plan-wf[data-skeleton="true"] * {
   color: transparent !important;
   border-color: transparent !important;
 }
-/* Soft rounded placeholder bars in skeleton mode. */
 .plan-wf[data-skeleton="true"] {
   --radius: 7px;
 }

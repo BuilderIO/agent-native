@@ -18,8 +18,6 @@ import {
   rememberLiveWorkspaceAppSession,
 } from "./workspace-app-auth";
 
-// Mirrors the source module's own TTL/reuse windows so the boundary tests
-// below read as "one tick past the window" rather than a magic number.
 const SSO_FLAG_TTL_MS = 10 * 60 * 1000;
 const EMBED_SESSION_REUSE_MS = 55 * 60 * 1000;
 
@@ -234,7 +232,6 @@ describe("peekWorkspaceSsoEnabled / readWorkspaceSsoEnabled caching", () => {
     gate.resolve({ "dispatch.workspace-sso": true });
     await Promise.all([mine, theirs]);
 
-    // Two distinct owners means two reads, not one shared answer.
     expect(actionApi.callAppActionGet).toHaveBeenCalledTimes(2);
   });
 
@@ -245,7 +242,6 @@ describe("peekWorkspaceSsoEnabled / readWorkspaceSsoEnabled caching", () => {
     await readWorkspaceSsoEnabled("parent-token", "https://dispatch.example");
     expect(peekWorkspaceSsoEnabled("parent-token")).toBe(true);
 
-    // A different signed-in parent must re-ask rather than inherit.
     expect(peekWorkspaceSsoEnabled("another-parent-token")).toBeNull();
     await readWorkspaceSsoEnabled(
       "another-parent-token",
@@ -320,16 +316,10 @@ describe("live workspace app session reuse cache", () => {
     ).toBe(false);
   });
 
-  // The map is keyed by a hash fingerprint (embedSessionKey), and the module
   // exposes no getter that returns a stored token — reuse only ever answers
-  // true/false for a token the caller already holds. The "different token"
-  // case above is the honest form of this assertion: a near-miss token gets
-  // no reuse, so there is nothing recoverable to read back.
 
   it("does not let one account reuse a marker after another signed in", async () => {
-    // The React Native cookie jar is shared per origin, so B signing in
     // overwrote A's child cookie in place. If A's marker survived, A would be
-    // reusing B's cookie and reading B's data.
     rememberLiveWorkspaceAppSession("mail", "token-a", 1_000);
     expect(hasLiveWorkspaceAppSession("mail", "token-a", 2_000)).toBe(true);
 

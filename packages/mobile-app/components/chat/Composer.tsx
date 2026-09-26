@@ -350,7 +350,6 @@ export function Composer({
     (text.trim().length > 0 || attachments.length > 0 || actionTag !== null) &&
     !isStreaming;
 
-  // A mention is being typed only when the caret is a collapsed cursor.
   const activeMention = useMemo(
     () =>
       selection.start === selection.end
@@ -373,7 +372,6 @@ export function Composer({
         void fetchMentions(mentionQuery, {
           signal: controller.signal,
           baseUrl,
-          // Surface each batch as it arrives so fast sources show immediately.
           onItems: (items) => {
             if (!controller.signal.aborted) setMentionItems(items);
           },

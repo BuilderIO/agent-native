@@ -85,18 +85,13 @@ import {
 } from "./oauth-token.js";
 import { MCP_PUBLIC_ROUTE_PREFIX } from "./route-paths.js";
 
-/** Device-flow poll interval hint (seconds). */
 const DEVICE_POLL_INTERVAL_S = 3;
 
-// Human-typable user code: 8 base32 chars, dashed XXXX-XXXX.
 const USER_CODE_RE = /^[A-Z2-7]{4}-[A-Z2-7]{4}$/;
 
 export interface McpConnectRouteOptions {
-  /** App id (directory under apps/, e.g. `mail`). Used for the server name. */
   appId?: string;
-  /** Human app name shown on the connect page. */
   appName?: string;
-  /** Explicit MCP server id to return in copyable config/device-flow grants. */
   serverName?: string;
 }
 
@@ -114,8 +109,6 @@ function html(body: string, status = 200): Response {
   });
 }
 
-/** Derive the running app's origin from request headers (same logic mountMCP
- *  uses) — `https` in prod / for non-loopback hosts, `http` for localhost. */
 function deriveOrigin(event: H3Event): string {
   const forwardedProto = getHeader(event, "x-forwarded-proto");
   const host = getHeader(event, "x-forwarded-host") || getHeader(event, "host");
@@ -159,16 +152,6 @@ function joinAppPath(basePath: string, path: string): string {
   return `${basePath}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-/**
- * Which app this deployment is, for naming its MCP server.
- *
- * The hostname is the LAST resort, not the first: every beta deployment is
- * `beta.<app>.agent-native.com`, so the leading label is `beta` for all of
- * them and every beta app advertised itself as `agent-native-beta`. A client
- * keys its config by that name, so connecting a second beta app overwrote the
- * first. Declared identity comes first now, and `app.slug` covers every
- * first-party template with no configuration at all.
- */
 function appLabel(origin: string, options: McpConnectRouteOptions): string {
   const app = getAppConfig().app;
   const declared = options.appId ?? app.id ?? app.template ?? app.slug;
@@ -188,11 +171,7 @@ function serverName(origin: string, options: McpConnectRouteOptions): string {
 }
 
 function canUseDevOpenConnect(event: H3Event): boolean {
-  // Loopback determined from the real socket peer (isLoopbackRequest →
-  // getRequestIP without xForwardedFor), NOT a parsed `Host` header — the
-  // header is client-controlled, and it also handles IPv6 `::1`. A
   // misconfigured public deploy with no secret thus can't unlock dev-open
-  // by spoofing `Host: localhost`.
   return (
     isLoopbackRequest(event) &&
     isLoopbackOrigin(deriveOrigin(event)) &&
@@ -210,11 +189,6 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * Resolve the org domain for a session. Used as the JWT `org_domain` claim so
- * the receiving MCP endpoint can map it back to an org id (same as A2A). Best
- * effort — a missing org just yields a user-scoped (no-org) token.
- */
 async function resolveOrgDomain(
   orgId: string | undefined,
 ): Promise<string | undefined> {
@@ -246,9 +220,6 @@ async function mintConnectToken(params: {
   label: string | null;
   ttlDays: number;
   appUrl: string;
-  /** When `"full"`, embed `catalog_scope: "full"` in the JWT so this token
-   *  bypasses the compact/connector-catalog tier (active by default whenever a
-   *  `connectorCatalog` is declared) and gets the complete action surface. */
   catalogScope?: "full";
 }): Promise<{ token: string; jti: string }> {
   const orgDomain = await resolveOrgDomain(params.orgId);
@@ -278,20 +249,7 @@ async function signConnectToken(params: {
   appUrl: string;
   expiresIn: string;
   jti: string;
-  /**
-   * When true, embed the org id directly as an `org_id` claim on the
-   * A2A-signed path (the OAuth-signed path already carries `params.orgId`).
-   * Used for org SERVICE tokens, whose synthetic identity must resolve to the
-   * org even when the org has no domain mapping. Personal tokens keep the
-   * original domain-based resolution — behavior unchanged.
-   */
   includeOrgIdClaim?: boolean;
-  /**
-   * When `"full"`, embed a `catalog_scope: "full"` claim so this token
-   * bypasses the compact/connector-catalog tier filter (active by default
-   * whenever a `connectorCatalog` is declared) and gets the complete action
-   * surface. Minted when the user connects with `agent-native connect --full-catalog`.
-   */
   catalogScope?: "full";
 }): Promise<string> {
   if (process.env.A2A_SECRET?.trim()) {
@@ -340,15 +298,11 @@ async function signConnectToken(params: {
  * owner/admin before calling it.
  */
 export async function mintOrgServiceToken(params: {
-  /** Human-readable service principal name, e.g. "ci" or "pr-recap". */
   serviceName: string;
-  /** Org the service token acts for; becomes the resolved session orgId. */
   orgId: string;
   /** The human minting the token — stored for audit, never used as identity. */
   createdBy: string;
-  /** 1–365 days; clamped. Defaults to DEFAULT_TOKEN_TTL_DAYS. */
   ttlDays?: number;
-  /** App origin used for OAuth-signed tokens (resource/issuer binding). */
   appUrl: string;
 }): Promise<{
   token: string;
@@ -403,8 +357,6 @@ function mcpResultPayload(
       headers["X-Agent-Native-MCP-Full-Catalog"] = "1";
     }
   }
-  // Token-backed scope lives in the signed token; dev-open has no token, so
-  // preserve its explicitly requested scope in connector metadata.
   return {
     token: auth.token ?? "",
     mcpUrl,
@@ -422,9 +374,6 @@ function mcpResourceUrl(appUrl: string): string {
   return `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}`;
 }
 
-// ---------------------------------------------------------------------------
-// Connect page (server-rendered HTML string)
-// ---------------------------------------------------------------------------
 
 function agentNativeMarkSvg(className: string, gradientId: string): string {
   return `<svg class="${className}" width="114" height="66" viewBox="0 0 114 66" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
@@ -1250,9 +1199,6 @@ function renderConnectPage(params: {
 </html>`;
 }
 
-// ---------------------------------------------------------------------------
-// Handler — single entry point; core-routes-plugin dispatches the subpath.
-// ---------------------------------------------------------------------------
 
 /**
  * Handle a `/mcp/connect[...]` request. The legacy
@@ -1291,18 +1237,14 @@ export async function handleMcpConnect(
     "",
   );
 
-  // ---- The connect page (GET) ------------------------------------------
   if (sub === "") {
     if (method !== "GET" && method !== "HEAD") {
       return json({ error: "Method not allowed" }, 405);
     }
     const session = await getSession(event);
     if (!session?.email) {
-      // Serve the SAME login form the guard would, at this same URL — the
-      // login form reloads window.location so we re-enter here authed.
       const loginHtml = getConfiguredLoginHtml(event);
       if (loginHtml) return html(loginHtml, 200);
-      // Fully-open app (no auth guard): nothing to scope a mint to.
       return html(
         renderConnectPage({
           connectBasePath: basePath,
@@ -1344,7 +1286,6 @@ export async function handleMcpConnect(
     );
   }
 
-  // ---- POST /token  (session-required) ---------------------------------
   if (sub === "/token") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
@@ -1383,7 +1324,6 @@ export async function handleMcpConnect(
     }
   }
 
-  // ---- POST /device/start  (UNAUTH) ------------------------------------
   if (sub === "/device/start") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     try {
@@ -1426,7 +1366,6 @@ export async function handleMcpConnect(
     }
   }
 
-  // ---- POST /device/authorize  (session-required) ----------------------
   if (sub === "/device/authorize") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
@@ -1456,7 +1395,6 @@ export async function handleMcpConnect(
     return json({ status: "approved" });
   }
 
-  // ---- POST /device/poll  (UNAUTH) -------------------------------------
   if (sub === "/device/poll") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
@@ -1482,7 +1420,6 @@ export async function handleMcpConnect(
     ) {
       return json({ status: "pending" });
     }
-    // status === "approved" && ownerEmail bound → mint exactly once.
     if (!process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event)) {
       const consumed = await consumeDeviceCode(
         deviceCode,
@@ -1503,8 +1440,6 @@ export async function handleMcpConnect(
     }
     try {
       const jti = randomUUID();
-      // Claim a retryable minting state first. If signing or recording fails,
-      // release the row back to approved so the CLI can poll again.
       const claimed = await claimDeviceCodeForMint(deviceCode, jti);
       if (!claimed) {
         const fresh = await getDeviceCode(deviceCode);
@@ -1547,7 +1482,6 @@ export async function handleMcpConnect(
     }
   }
 
-  // ---- GET /tokens  (session-required) ---------------------------------
   if (sub === "/tokens") {
     if (method !== "GET") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
@@ -1564,7 +1498,6 @@ export async function handleMcpConnect(
     });
   }
 
-  // ---- POST /tokens/revoke  (session-required) -------------------------
   if (sub === "/tokens/revoke") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);

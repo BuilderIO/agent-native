@@ -261,8 +261,6 @@ describe("callAction", () => {
         server_boot_ms: 2400,
         server_init_ms: 900,
         cold_start: true,
-        // Number(null) is 0 — an absent header must read as "unknown", not
-        // as a real zero-byte body.
         response_bytes: undefined,
         timeout_ms: 60_000,
       }),
@@ -296,11 +294,6 @@ describe("callAction", () => {
   });
 
   it("leaves cold_start absent for a shared-cacheable response's origin-only Server-Timing, instead of guessing warm", async () => {
-    // A CDN-cacheable response gets one `origin` snapshot entry and never the
-    // `app` phase a live response reports (see http-response-telemetry.ts's
-    // isSharedCacheable branch). Keying cold_start on "any Server-Timing
-    // entry present" read this as a confident `false`; it has to stay
-    // undefined instead, since this response never reported boot state at all.
     vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
     vi.stubGlobal(
       "fetch",
@@ -367,7 +360,6 @@ describe("callAction", () => {
       vi.fn().mockResolvedValue(jsonResponse({ ok: true }, { status: 200 })),
     );
 
-    // This spec file runs in the default (Node, no DOM) vitest environment.
     await callAction("list-plans", {}, { method: "GET" });
 
     expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
@@ -441,10 +433,6 @@ describe("callAction", () => {
   });
 
   it("re-resolves the session when an action is refused as unauthenticated", async () => {
-    // 401 means the server stopped recognising this browser. Without telling
-    // the session gate, the shell stays mounted on its last "authenticated"
-    // read and this failure surfaces as a generic load error instead of a
-    // redirect to sign-in - the screen reported after the logout race.
     vi.stubGlobal(
       "fetch",
       vi
@@ -464,9 +452,6 @@ describe("callAction", () => {
   });
 
   it("leaves the session alone when an action is refused as forbidden", async () => {
-    // 403 is an authenticated caller being refused one thing. Re-reading the
-    // session here would be noise, and treating it as signed-out would sign a
-    // working session out.
     vi.stubGlobal(
       "fetch",
       vi
@@ -503,7 +488,6 @@ describe("callAction", () => {
         }),
         cache: "no-store",
         body: JSON.stringify({ name: "Salad" }),
-        // Every action fetch carries a timeout AbortController signal.
         signal: expect.any(AbortSignal),
       }),
     );
@@ -593,8 +577,6 @@ describe("callAction", () => {
   it("times out hung requests with a typed, non-retryable error", async () => {
     vi.useFakeTimers();
     try {
-      // Simulate a hung server: the fetch promise only settles when the
-      // request's abort signal fires (matching real fetch semantics).
       const fetchMock = vi.fn(
         (_url: string, init?: RequestInit) =>
           new Promise<Response>((_resolve, reject) => {
@@ -608,8 +590,6 @@ describe("callAction", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       const promise = callAction("slow-action", {}, { timeoutMs: 1_000 });
-      // Attach the rejection assertion BEFORE advancing timers so the
-      // rejection is never unhandled.
       const assertion = expect(promise).rejects.toMatchObject({
         message: expect.stringContaining("slow-action timed out after 1s"),
         timedOut: true,
@@ -617,8 +597,6 @@ describe("callAction", () => {
       });
       await vi.advanceTimersByTimeAsync(1_001);
       await assertion;
-      // The timeout error must be classified as non-retryable, or the user
-      // waits the full window again for each silent retry.
       const timeoutError = await promise.catch((err) => err);
       expect(defaultActionQueryRetry(0, timeoutError)).toBe(false);
     } finally {
@@ -629,8 +607,6 @@ describe("callAction", () => {
   it("times out when the response body hangs after headers arrive", async () => {
     vi.useFakeTimers();
     try {
-      // Headers arrive immediately, but the body stream never ends and
-      // res.text() only rejects when the request is aborted.
       const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
         Promise.resolve({
           ok: true,
@@ -679,14 +655,11 @@ describe("callAction", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const promise = callAction("any-action", {}, { signal: controller.signal });
-    // Attach before aborting so the rejection is handled.
     const assertion = expect(promise).rejects.toMatchObject({
       name: "AbortError",
     });
     controller.abort();
     await assertion;
-    // Must NOT be wrapped into the "Action X failed: ..." error shape —
-    // React Query relies on recognizing the original cancellation.
     const error = await promise.catch((err) => err);
     expect(String(error.message)).not.toContain("Action any-action failed");
     expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
@@ -703,9 +676,6 @@ describe("callAction", () => {
   });
 
   it("surfaces a transport-level abort as a retryable error, not a cancellation", async () => {
-    // Nobody asked for this: no caller signal, no timeout. The browser killed
-    // the request (connection reset, bfcache eviction, exhausted socket pool)
-    // while the user was still waiting on it.
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -717,9 +687,6 @@ describe("callAction", () => {
 
     const error = await callAction("list-meetings").catch((err) => err);
 
-    // Must be a renderable, retryable failure — rethrowing the raw AbortError
-    // would let React Query treat it as a cancellation and park the query in
-    // `pending` behind a loading skeleton forever.
     expect(String(error.message)).toContain("Action list-meetings failed");
     expect(defaultActionQueryRetry(0, error)).toBe(true);
   });
@@ -727,9 +694,6 @@ describe("callAction", () => {
   it("times out a transport that never settles and ignores the abort signal", async () => {
     vi.useFakeTimers();
     try {
-      // A patched fetch, a wedged service worker, or a browser that drops the
-      // promise: aborting the controller accomplishes nothing, so the timeout
-      // has to reject the caller itself.
       vi.stubGlobal(
         "fetch",
         vi.fn(() => new Promise<Response>(() => {})),
@@ -748,12 +712,6 @@ describe("callAction", () => {
   });
 
   it("sends the caller's default POST even when the action declares DELETE, then fails loudly naming the fix", async () => {
-    // Reproduces the exact repro Alex Bridgeman reported (Slack C0ATH3CCZT4,
-    // 1785293830688019): an action registered as
-    // `defineAction({ http: { method: "DELETE" } })`, called without an
-    // explicit `{ method: "DELETE" }`. The client has no way to look up the
-    // declared method, so it silently sends its POST default — mirroring
-    // mountActionRoutes' real 405 body for a non-frontend-tolerated mismatch.
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
@@ -768,14 +726,10 @@ describe("callAction", () => {
       (err) => err,
     );
 
-    // The client did in fact send POST, not the declared DELETE.
     expect(fetchMock).toHaveBeenCalledWith(
       "/_agent-native/actions/delete-todo",
       expect.objectContaining({ method: "POST" }),
     );
-    // The failure must be loud and typed — naming the action, what was sent,
-    // and what the action actually requires — not a bare 405 the caller has
-    // to reverse-engineer.
     expect(error).toMatchObject({
       status: 405,
       code: "action_method_mismatch",
@@ -784,7 +738,6 @@ describe("callAction", () => {
     });
     expect(String(error.message)).toContain("delete-todo");
     expect(String(error.message)).toContain('{ method: "DELETE" }');
-    // Deterministic failure — retrying would just resend the wrong verb.
     expect(defaultActionQueryRetry(0, error)).toBe(false);
   });
 
@@ -881,16 +834,11 @@ describe("callActionWithRetry", () => {
       );
       const assertion = expect(promise).rejects.toMatchObject({ status: 503 });
 
-      // Flush only microtasks: the first 503 lands and the 500ms backoff is
-      // armed, but no timer has fired.
       for (let tick = 0; tick < 10; tick++) {
         await vi.advanceTimersByTimeAsync(0);
       }
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      // Settling this without advancing the backoff timer is the whole point:
-      // an uncancellable delay leaves the call pending for the full 500ms and
-      // then spends another attempt on a dead signal.
       controller.abort();
       await assertion;
 
@@ -1069,16 +1017,12 @@ describe("actionErrorMessage", () => {
 
     const error: any = await callAction("get-meeting").catch((err) => err);
 
-    // The framing stays on `message` for the console.
     expect(error.message).toBe("Action get-meeting failed: No such meeting");
-    // A toast wants only what the action wrote.
     expect(actionErrorMessage(error)).toBe("No such meeting");
     expect(error.errorCode).toBe("not_found");
   });
 
   it("returns undefined when nothing authored a message", async () => {
-    // An HTML error page from a proxy is transport noise, not copy a UI can
-    // show. Absent must stay distinguishable from "the action said this".
     vi.stubGlobal(
       "fetch",
       async () =>
@@ -1121,9 +1065,6 @@ describe("action query retry defaults", () => {
   });
 
   it("does not retry deterministic failures, 500 included", () => {
-    // The old deny-list retried every status nobody had listed, so an action
-    // refusing a read cost four executions for one unchanging answer — and a
-    // 500 cost four error-tracking reports on top.
     for (const status of [400, 404, 405, 409, 422, 500, 501]) {
       const refusal = Object.assign(new Error("nope"), { status });
       expect(defaultActionQueryRetry(0, refusal)).toBe(false);
@@ -1137,7 +1078,6 @@ describe("action query retry defaults", () => {
     expect(defaultActionQueryRetry(2, rateLimited)).toBe(true);
     expect(defaultActionQueryRetry(3, rateLimited)).toBe(false);
 
-    // Gateway/infrastructure 5xx — the origin can be healthy on the next try.
     for (const status of [502, 503, 504]) {
       const transient = Object.assign(new Error("down"), { status });
       expect(defaultActionQueryRetry(0, transient)).toBe(true);
@@ -1175,9 +1115,6 @@ describe("shouldRetryActionQueryForError", () => {
   });
 
   it("keeps three retries for transient errors that reached the server", () => {
-    // Contrast with the network-level case above: reaching the server earns
-    // the full budget, but only for a status a retry can actually change. A
-    // 500 is the action's own throw, so it gets none.
     const gatewayError = Object.assign(
       new Error("Action list-documents failed: HTTP 503"),
       { status: 503 },
@@ -1253,10 +1190,6 @@ describe("computePageHidden", () => {
   });
 
   it("is true when the call started already hidden even if no transition fires and it is visible again by completion", () => {
-    // The epoch only bumps on a transition INTO hidden. A call that starts in
-    // an already-backgrounded tab (cmd-click, session restore, a hidden
-    // desktop webview) never sees that transition, so `hiddenAtStart` alone
-    // has to carry it.
     expect(computePageHidden(true, 4, 4, "visible")).toBe(true);
   });
 });

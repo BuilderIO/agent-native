@@ -38,27 +38,18 @@ export const MCP_CONNECT_SCOPE = "mcp-connect";
  */
 export const MCP_CONNECT_OAUTH_CLIENT_ID = "agent-native-connect";
 
-/** Device codes are valid for 10 minutes. */
 export const DEVICE_CODE_TTL_MS = 10 * 60_000;
 
-/** Default minted-token lifetime. Configurable per-request 1–365 days. */
 export const DEFAULT_TOKEN_TTL_DAYS = 365;
 export const MIN_TOKEN_TTL_DAYS = 1;
 export const MAX_TOKEN_TTL_DAYS = 365;
 
-/**
- * Rate limit for `device/start`: at most this many device codes may be created
- * within `DEVICE_START_WINDOW_MS`. Unauthenticated endpoint — keep it tight so
- * a hostile client can't flood the table or brute-force user codes.
- */
 export const DEVICE_START_MAX = 20;
 export const DEVICE_START_WINDOW_MS = 60_000;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      // Additive only. Never DROP / ALTER — this DB is shared across every
-      // deploy context (preview/branch/prod) for hosted templates.
       const createTokensSql = `
         CREATE TABLE IF NOT EXISTS mcp_connect_tokens (
           id TEXT PRIMARY KEY,
@@ -112,8 +103,6 @@ export async function ensureTable(): Promise<void> {
         `ALTER TABLE mcp_device_codes ADD COLUMN IF NOT EXISTS catalog_scope TEXT`,
       );
     })().catch((err) => {
-      // Don't cache a rejected init. A transient DB blip should let the next
-      // connect/mint/revoke call retry rather than wedging the process.
       _initPromise = undefined;
       throw err;
     });
@@ -121,9 +110,6 @@ export async function ensureTable(): Promise<void> {
   return _initPromise;
 }
 
-// ---------------------------------------------------------------------------
-// Minted-token records
-// ---------------------------------------------------------------------------
 
 export interface MintedTokenRow {
   id: string;
@@ -134,22 +120,12 @@ export interface MintedTokenRow {
   createdAt: number | null;
   lastUsedAt: number | null;
   revokedAt: number | null;
-  /** `'personal'` (default) or `'service'` for org service tokens. */
   kind: "personal" | "service";
-  /** Human-readable service principal name, e.g. `"ci"`. Only set when `kind === 'service'`. */
   serviceName: string | null;
   /** Email of the human who minted a service token. Only set when `kind === 'service'`. */
   createdBy: string | null;
 }
 
-/**
- * Synthetic identity for an org service token: `svc-<name>@service.<orgId>`.
- * It is email-shaped so the entire existing identity plumbing (JWT `sub`,
- * `runWithRequestContext({ userEmail })`, ownable-row `owner_email` columns,
- * display surfaces that render an email) works unchanged, while remaining
- * clearly distinguishable from a human account. Ownable rows created under
- * this identity carry the org's `orgId`, so org members can see them.
- */
 export function serviceIdentityEmail(
   serviceName: string,
   orgId: string,
@@ -157,16 +133,10 @@ export function serviceIdentityEmail(
   return `svc-${normalizeServiceName(serviceName)}@service.${orgId}`;
 }
 
-/** True when an email is a synthetic org-service-token identity. */
 export function isServiceIdentityEmail(email: string | undefined): boolean {
   return !!email && /^svc-[a-z0-9-]+@service\./.test(email);
 }
 
-/**
- * Normalize a user-supplied service name to a DNS-label-ish slug so the
- * synthetic identity stays a valid email local part: lowercase, `a-z0-9-`,
- * max 48 chars. Throws on names that normalize to nothing.
- */
 export function normalizeServiceName(raw: string): string {
   const slug = (raw ?? "")
     .trim()
@@ -190,11 +160,8 @@ export async function recordMintedToken(params: {
   ownerEmail: string;
   orgId?: string | null;
   label?: string | null;
-  /** Defaults to `'personal'`. Pass `'service'` for org service tokens. */
   kind?: "personal" | "service";
-  /** Service principal name — required semantics when kind === 'service'. */
   serviceName?: string | null;
-  /** The human who minted a service token (audit trail). */
   createdBy?: string | null;
 }): Promise<string> {
   await ensureTable();
@@ -238,7 +205,6 @@ export async function isJtiRevoked(jti: string): Promise<boolean> {
     return revokedAt != null;
   } catch (err) {
     // Fail open: a DB blip must not turn every minted token into a 401.
-    // (Signature checks already passed; this only gates explicit revokes.)
     if (isConnectionError(err)) return false;
     return false;
   }
@@ -249,11 +215,6 @@ export type ConnectTokenOrgLookup =
   | { status: "missing" }
   | { status: "unavailable" };
 
-/**
- * Look up the org bound to a verified connect token. Older tokens recorded
- * `org_id` in SQL but did not carry it in their JWT, so this restores their
- * org scope without trusting any request-provided identity.
- */
 export async function lookupConnectTokenOrg(
   jti: string,
 ): Promise<ConnectTokenOrgLookup> {
@@ -311,11 +272,6 @@ export async function listTokens(
   }
 }
 
-/**
- * List the org's service tokens (kind = 'service'), newest first. Scoped by
- * `org_id` — callers must already have established the caller is a member of
- * `orgId` (the actions in `mcp/actions/` gate on org role).
- */
 export async function listOrgServiceTokens(
   orgId: string,
 ): Promise<MintedTokenRow[]> {
@@ -389,9 +345,6 @@ export async function touchTokenUsed(jti: string): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Device-code flow (OAuth 2.0 device-authorization style)
-// ---------------------------------------------------------------------------
 
 export interface DeviceCodeRow {
   deviceCode: string;
@@ -406,9 +359,8 @@ export interface DeviceCodeRow {
   consumedAt: number | null;
 }
 
-const USER_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"; // Crockford-ish base32, no 0/1/O/I
+const USER_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-/** Crypto-random short human-typable code, formatted `XXXX-XXXX`. */
 function generateUserCode(): string {
   const bytes = randomBytes(8);
   let out = "";
@@ -423,15 +375,6 @@ function generateDeviceCode(): string {
   return randomBytes(32).toString("base64url");
 }
 
-/**
- * Create a new device+user code pair. Rate-limited: at most
- * `DEVICE_START_MAX` codes within `DEVICE_START_WINDOW_MS`. The window count
- * is a coarse global cap (this endpoint is unauthenticated) — enough to stop
- * table flooding / user-code brute force without per-IP plumbing.
- *
- * Throws `RATE_LIMITED` when the cap is exceeded so the route can map it to a
- * 429.
- */
 export async function createDeviceCode(
   catalogScope: "full" | null = null,
 ): Promise<DeviceCodeRow> {
@@ -528,14 +471,6 @@ export async function getDeviceCodeByUserCode(
   return mapDeviceRow(rows[0]);
 }
 
-/**
- * Bind the logged-in user (email + org) to a pending device code, identified
- * by its human-typable `user_code`. Only transitions a non-expired, still
- * `pending` row. Returns the bound row, or a string error code:
- *   - `not_found`  — no such user_code
- *   - `expired`    — past its TTL
- *   - `already`    — already approved/consumed (not re-bindable)
- */
 export async function approveDeviceCode(
   userCode: string,
   ownerEmail: string,
@@ -553,7 +488,6 @@ export async function approveDeviceCode(
     args: [ownerEmail, orgId, userCode],
   });
   if (result.rowsAffected === 0) {
-    // Lost a race with another approve — re-read to report the real state.
     const fresh = await getDeviceCodeByUserCode(userCode);
     return fresh && fresh.status !== "pending" ? "already" : "not_found";
   }
@@ -585,7 +519,7 @@ export async function consumeDeviceCode(
     sql: `UPDATE mcp_device_codes SET status = 'consumed', token_jti = ?, consumed_at = ? WHERE device_code = ? AND status = 'approved'`,
     args: [tokenJti, Date.now(), deviceCode],
   });
-  if (result.rowsAffected === 0) return null; // lost the single-use race
+  if (result.rowsAffected === 0) return null;
   return row;
 }
 
@@ -640,10 +574,6 @@ export async function releaseDeviceCodeMint(
   }
 }
 
-/**
- * Best-effort: flip an expired, still-pending/approved row to `expired` so
- * the poll endpoint can report a clean terminal state. Swallows errors.
- */
 export async function expireDeviceCode(deviceCode: string): Promise<void> {
   try {
     await ensureTable();

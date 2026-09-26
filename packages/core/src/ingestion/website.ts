@@ -18,11 +18,6 @@ export interface WebsiteDesignTokens {
   spacing: string[];
   radii: string[];
   cssVariables: Record<string, string>;
-  /**
-   * Semantic roles are inferred from visible rendered elements, not from
-   * variable names. They are optional so static HTML callers can keep their
-   * smaller result without inventing values that were never observed.
-   */
   semanticColors?: Partial<
     Record<
       | "primary"

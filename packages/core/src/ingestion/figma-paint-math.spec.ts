@@ -15,9 +15,6 @@ import {
   type Mat2x3Array,
 } from "./figma-paint-math.js";
 
-// ---------------------------------------------------------------------------
-// invert2x3
-// ---------------------------------------------------------------------------
 
 describe("invert2x3", () => {
   it("returns null for a singular matrix", () => {
@@ -38,7 +35,6 @@ describe("invert2x3", () => {
   });
 
   it("inverts a pure translation matrix so the translation negates", () => {
-    // M = [[1, 0, 3], [0, 1, 7]]  => inv = [[1, 0, -3], [0, 1, -7]]
     const inv = invert2x3({ m00: 1, m01: 0, m02: 3, m10: 0, m11: 1, m12: 7 });
     expect(inv).not.toBeNull();
     expect(inv!.m02).toBeCloseTo(-3);
@@ -50,18 +46,12 @@ describe("invert2x3", () => {
     const inv = invert2x3(m);
     expect(inv).not.toBeNull();
     const i = inv!;
-    // (M * inv)_00 = m00*i.m00 + m01*i.m10 ~ 1
     expect(m.m00 * i.m00 + m.m01 * i.m10).toBeCloseTo(1);
-    // (M * inv)_01 = m00*i.m01 + m01*i.m11 ~ 0
     expect(m.m00 * i.m01 + m.m01 * i.m11).toBeCloseTo(0);
-    // (M * inv)_11 = m10*i.m01 + m11*i.m11 ~ 1
     expect(m.m10 * i.m01 + m.m11 * i.m11).toBeCloseTo(1);
   });
 });
 
-// ---------------------------------------------------------------------------
-// mat2x3FromArray
-// ---------------------------------------------------------------------------
 
 describe("mat2x3FromArray", () => {
   it("converts REST nested-array form to object form", () => {
@@ -74,9 +64,6 @@ describe("mat2x3FromArray", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// handlePositionsFromObjectTransform / handlePositionsFromArrayTransform
-// ---------------------------------------------------------------------------
 
 describe("handlePositionsFromObjectTransform", () => {
   it("returns null for a singular transform", () => {
@@ -93,7 +80,6 @@ describe("handlePositionsFromObjectTransform", () => {
   });
 
   it("identity transform produces canonical handle positions", () => {
-    // Identity node-to-gradient: gradient fills the whole [0,1]² box.
     const handles = handlePositionsFromObjectTransform({
       m00: 1,
       m01: 0,
@@ -109,16 +95,6 @@ describe("handlePositionsFromObjectTransform", () => {
   });
 
   it("recovers start=(0,0.5) end=(1,0.5) from the REST left-to-right gradient transform", () => {
-    // For a left-to-right linear gradient in a box:
-    // The gradient transform (node-to-gradient) for start=(0,0.5),end=(1,0.5)
-    // maps y=0.5 to gradient_y=0 and x goes 0->1 linearly:
-    //   u = x  (gradient x = node x)
-    //   v = y - 0.5  (gradient y = node y - 0.5, so gradient center is at y=0.5)
-    // Inverse (gradient-to-node):
-    //   x = u, y = v + 0.5
-    // So the transform (node-to-gradient) M satisfies:
-    //   [m00, m01, m02] [x] = [u]  => m00=1, m01=0, m02=0
-    //   [m10, m11, m12] [y] = [v]  => m10=0, m11=1, m12=-0.5
     const handles = handlePositionsFromObjectTransform({
       m00: 1,
       m01: 0,
@@ -154,9 +130,6 @@ describe("handlePositionsFromArrayTransform", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveGradientHandles
-// ---------------------------------------------------------------------------
 
 describe("resolveGradientHandles", () => {
   it("returns null when handles are missing", () => {
@@ -186,9 +159,6 @@ describe("resolveGradientHandles", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// gradientAngleDegrees  (public compat surface)
-// ---------------------------------------------------------------------------
 
 describe("gradientAngleDegrees", () => {
   it("resolves identity left-to-right handles to 90 deg (CSS 'to right')", () => {
@@ -237,13 +207,6 @@ describe("gradientAngleDegrees", () => {
   });
 
   it("corrects for non-square box aspect ratio", () => {
-    // Tall narrow box. Figma's gradient parameter is linear in NORMALIZED
-    // coordinates, so the CSS angle follows the iso-line normal
-    // grad(t) = (du/w, dv/h), scaled to (du*h, dv*w) = (200, 50):
-    // atan2(50, 200) ~= 14.04 -> +90 ~= 104.04.
-    // Scaling the handle vector instead (du*w, dv*h) would give 165.96, which
-    // is what this mapper emitted until a plane fit of Figma's own render
-    // showed it 39deg off (see gradientAngleDegrees in figma-paint-math.ts).
     const angle = gradientAngleDegrees(
       {
         gradientHandlePositions: [
@@ -259,8 +222,6 @@ describe("gradientAngleDegrees", () => {
   });
 
   it("matches the plane fit of Figma's own render of the fills-effects frame", () => {
-    // 180x90 rect, handles running diagonally up-right in normalized space.
-    // A least-squares fit of Figma's PNG render measures 27.0deg.
     const angle = gradientAngleDegrees(
       {
         gradientHandlePositions: [
@@ -279,9 +240,6 @@ describe("gradientAngleDegrees", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// gradientAngleDegreesFromHandles
-// ---------------------------------------------------------------------------
 
 describe("gradientAngleDegreesFromHandles", () => {
   it("matches gradientAngleDegrees for the same handle data", () => {
@@ -295,9 +253,6 @@ describe("gradientAngleDegreesFromHandles", () => {
   });
 
   it("is the inverse-scale twin of gradientRayAngleDegreesFromHandles", () => {
-    // Same handles, non-square box: the iso-line normal and the centre->end
-    // ray point in genuinely different directions, and conflating them is the
-    // bug this pair exists to keep separated.
     const handles = {
       start: { x: 0, y: 0 },
       end: { x: 1, y: 1 },
@@ -339,16 +294,9 @@ describe("gradientAngleDegreesFromHandles", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// remapLinearStopPosition
-// ---------------------------------------------------------------------------
 
 describe("remapLinearStopPosition", () => {
   it("returns the identity mapping for a gradient whose handles exactly span the CSS line", () => {
-    // A horizontal gradient on a 100x100 box: handles from (0,0.5) to (1,0.5).
-    // The CSS line at 90 deg has length 100 (box width). The start handle
-    // projects to 0% and the end handle to 100%, so stop positions are
-    // unchanged.
     const handles = {
       start: { x: 0, y: 0.5 },
       end: { x: 1, y: 0.5 },
@@ -362,10 +310,6 @@ describe("remapLinearStopPosition", () => {
   });
 
   it("shifts stops when the gradient handles don't span the full box", () => {
-    // Handles span only the middle 50% of a 100x100 box: start=(0.25,0.5)
-    // end=(0.75,0.5). The CSS line (90 deg, 100px) goes 0..100px;
-    // handle start projects to 25px and end to 75px. A stop at position=0
-    // (the start handle) should map to 0.25 and one at position=1 to 0.75.
     const handles = {
       start: { x: 0.25, y: 0.5 },
       end: { x: 0.75, y: 0.5 },
@@ -378,7 +322,6 @@ describe("remapLinearStopPosition", () => {
   });
 
   it("returns identity when lineLength is near zero", () => {
-    // 0-degree angle in a zero-width box -> lineLength ~ 0
     const handles = {
       start: { x: 0, y: 0 },
       end: { x: 1, y: 0 },
@@ -389,30 +332,21 @@ describe("remapLinearStopPosition", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// vectorLength
-// ---------------------------------------------------------------------------
 
 describe("vectorLength", () => {
   it("returns pixel-space length between two normalized points", () => {
-    // (0,0) -> (1,0) on a 100x50 box = 100px
     expect(
       vectorLength({ x: 0, y: 0 }, { x: 1, y: 0 }, { width: 100, height: 50 }),
     ).toBeCloseTo(100);
-    // (0,0) -> (0,1) on a 100x50 box = 50px
     expect(
       vectorLength({ x: 0, y: 0 }, { x: 0, y: 1 }, { width: 100, height: 50 }),
     ).toBeCloseTo(50);
-    // (0,0) -> (1,1) on a 100x100 box = 100*sqrt(2)
     expect(
       vectorLength({ x: 0, y: 0 }, { x: 1, y: 1 }, { width: 100, height: 100 }),
     ).toBeCloseTo(100 * Math.sqrt(2));
   });
 });
 
-// ---------------------------------------------------------------------------
-// cssBlendMode
-// ---------------------------------------------------------------------------
 
 describe("cssBlendMode", () => {
   it("returns null for PASS_THROUGH and NORMAL", () => {

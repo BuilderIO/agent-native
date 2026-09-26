@@ -3,20 +3,6 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import * as jose from "jose";
-/**
- * Regression coverage for the production blocker: `/_agent-native/mcp` must
- * work on the web-standard Nitro runtime (Netlify web runtime, Cloudflare,
- * Deno, Bun) where there is NO Node `http` req/res. Before the fix the
- * handler returned `501 {"error":"MCP requires Node runtime"}` on every
- * deployed app, breaking the headline `agent-native connect <hosted-url>`
- * feature.
- *
- * These tests drive the REAL SDK web-standard transport + the REAL
- * `createMCPServerForRequest` so they prove the full JSON-RPC lifecycle
- * (`initialize` → `tools/list` → `tools/call`) — including the deep-link
- * `_meta` / markdown block — works without a Node runtime, and that the
- * Node fast-path is still taken (and unchanged) when `event.node` is present.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -70,8 +56,6 @@ vi.mock("./approval-store.js", () => ({
   consumeMcpApprovalGrant: approvalStoreMocks.consume,
 }));
 
-// Heavy/irrelevant deps mocked so importing build-server.ts is cheap. The
-// MCP SDK itself is REAL — that's the whole point of these tests.
 vi.mock("./builtin-tools.js", () => ({
   getBuiltinCrossAppTools: () => ({
     list_apps: {
@@ -212,14 +196,12 @@ vi.mock("./oauth-store.js", () => ({
 
 const { handleMcpRequest } = await import("./server.js");
 
-// --- minimal h3 event doubles -------------------------------------------------
 
 interface MakeEventOpts {
   method?: string;
   path?: string;
   headers?: Record<string, string>;
   body?: unknown;
-  /** When true, attach a Node req/res pair (Node fast-path). */
   node?: boolean;
   ip?: string;
 }
@@ -230,15 +212,11 @@ function makeWebEvent(opts: MakeEventOpts): any {
     "x-forwarded-proto": "https",
     accept: "application/json, text/event-stream",
     "content-type": "application/json",
-    // A deployed app (non-loopback host) is authenticated — header-only
     // dev-open is loopback-only now (security: a public deploy with no
     // secret must not be impersonable via X-Agent-Native-Owner-Email).
-    // Tests that exercise the unauthenticated path override this.
     authorization: "Bearer test-access-token",
     ...(opts.headers ?? {}),
   };
-  // h3 v2 web runtime: `event.req` IS the web Request. We hand a real one so
-  // buildWebRequest's preferred path is exercised.
   const reqUrl = `https://mail.agent-native.com${opts.path ?? "/"}`;
   const webReq = new Request(reqUrl, {
     method: opts.method ?? "POST",
@@ -249,25 +227,18 @@ function makeWebEvent(opts: MakeEventOpts): any {
     url: { pathname: (opts.path ?? "/").split("?")[0] },
     path: opts.path ?? "/",
     req: webReq,
-    // Used by readBody mock + getRequestHeader/getMethod h3 mock.
     _headers: headers,
     _body: opts.body,
     _status: 200,
     _ip: opts.ip,
   };
   if (opts.node) {
-    // Node fast-path: a fake req + a capturing res. We only assert the
-    // handler routes here (and sets `_handled`) — the SDK Node transport's
-    // own behavior is its own concern and unchanged by this fix.
     const chunks: any[] = [];
     event.node = {
       req: {
         method: opts.method ?? "POST",
         url: opts.path ?? "/",
         headers,
-        // The SDK Node transport pipes the request via @hono/node-server's
-        // getRequestListener; an EventEmitter-ish stub is enough for it to
-        // resolve the (pre-parsed) body path without hanging.
         on: () => {},
         once: () => {},
         removeListener: () => {},
@@ -298,7 +269,6 @@ function makeWebEvent(opts: MakeEventOpts): any {
   return event;
 }
 
-// h3 helpers used by server.ts — match how sibling specs mock them.
 vi.mock("h3", () => ({
   defineEventHandler: (fn: any) => fn,
   getMethod: (event: any) => event.method ?? "GET",
@@ -320,13 +290,10 @@ vi.mock("../server/h3-helpers.js", () => ({
   readBody: vi.fn(async (event: any) => event._body ?? {}),
 }));
 
-// getH3App is only used by mountMCP (not handleMcpRequest); stub it so the
-// module import never reaches Nitro internals.
 vi.mock("../server/framework-request-handler.js", () => ({
   getH3App: () => ({ use: () => {} }),
 }));
 
-// --- test config: one action with a deep-link builder ------------------------
 
 const config = {
   name: "agent-native-mail",
@@ -482,11 +449,6 @@ const compactSurfaceDefaultConfig = {
   },
 };
 
-/**
- * Drive a single JSON-RPC call through the web fallback and return the parsed
- * JSON-RPC response object. Proves the web `Response` path works with no Node
- * runtime present.
- */
 async function callWeb(
   rpc: Record<string, unknown>,
   opts: {
@@ -502,14 +464,9 @@ async function callWeb(
   const res = await handleMcpRequest(event, (opts.config ?? config) as any);
   expect(res).toBeInstanceOf(Response);
   const response = res as Response;
-  // The SDK web transport returns application/json for request/response when
-  // it can satisfy the call without streaming (our handlers resolve
-  // synchronously), or an SSE stream otherwise. Handle both so the assertion
-  // is about the JSON-RPC payload, not the framing.
   const ct = response.headers.get("content-type") || "";
   const text = await response.text();
   if (ct.includes("text/event-stream")) {
-    // Parse the first `data:` line of the SSE frame.
     const line = text
       .split("\n")
       .find((l) => l.startsWith("data:"))
@@ -634,8 +591,6 @@ async function mcpAppsFullCatalogHeaders(
 
 describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)", () => {
   beforeEach(() => {
-    // A deployed app has a real token; the default makeWebEvent bearer
-    // matches it so these runtime-mechanics tests run as an authenticated
     // caller (header-only dev-open is loopback-only — see security note).
     process.env.ACCESS_TOKEN = "test-access-token";
     delete process.env.ACCESS_TOKENS;
@@ -645,8 +600,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
-    // Inline MCP App embeds are off by default; these tests assert the embed
-    // surface, so opt in. The dedicated "off" test below clears this.
     process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
     mockOAuthClients.clear();
@@ -784,8 +737,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         {
           name: "publish-draft",
           arguments: { draftId: "draft-1" },
-          // A caller cannot self-approve the first round by pre-populating
-          // inputResponses without a server-minted requestState.
           inputResponses: {
             actionApproval: {
               action: "accept",
@@ -1184,21 +1135,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const names = out.result.tools.map((t: any) => t.name);
     expect(names).toContain("echo-thing");
     const echo = out.result.tools.find((t: any) => t.name === "echo-thing");
-    // Actions with a `link` builder advertise the producesOpenLink annotation
-    // and a description nudge — identical on both runtimes.
     expect(echo.annotations?.readOnlyHint).toBe(true);
     expect(echo.annotations?.title).toBe("Echo thing");
     expect(echo.annotations?.["agent-native/producesOpenLink"]).toBe(true);
     expect(echo.description).toContain("Open in");
-    // Anthropic MCP-Apps linkage (Claude.ai / Claude Desktop): the tool→`ui://`
-    // resource binding lives on the tool DESCRIPTOR, here and in `_meta.ui`
-    // below — NOT on the tools/call result. Hosts read
-    // `tool._meta.ui.resourceUri ?? tool._meta["ui/resourceUri"]` from the
-    // cached tools/list entry and render that resource when the tool is called
-    // (see @modelcontextprotocol/ext-apps app.d.ts `RESOURCE_URI_META_KEY` +
-    // host-side example, and spec.types.d.ts `McpUiToolMeta`). `outputTemplate`
-    // is the OpenAI/ChatGPT equivalent and is the only one that also rides on
-    // the result — MCP Apps has no result-level linkage key.
     expect(echo._meta?.["ui/resourceUri"]).toBe(
       "ui://mail/echo-thing/shell-v65",
     );
@@ -1675,8 +1615,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
   it("gives an external agent the code a fail() chose", async () => {
     const { fail } = await import("../action.js");
-    // Config local to this test: the shared ones carry exact tools/list
-    // assertions that a new action name would break.
     const failingConfig = {
       ...compactSurfaceConfig,
       actions: {
@@ -1716,7 +1654,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "Error: No such meeting (errorCode: not_found)",
     );
 
-    // `action_failed` is fail()'s stand-in for "the author picked none".
     const uncoded = await callWeb(
       {
         jsonrpc: "2.0",
@@ -1986,11 +1923,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("advertises `tool-search` in the compact catalog when it is a registered action", async () => {
-    // Regression guard: `tool-search` is a COMPACT_MCP_APP_CATALOG_BUILTINS
-    // member, so when a template registers a `tool-search` action it must show
-    // up in the default/compact catalog (no full-catalog header). That keeps
-    // the small-by-default catalog non-opaque — the agent can always discover
-    // every other tool on demand via tool-search.
     const toolSearchConfig = {
       ...compactSurfaceDefaultConfig,
       actions: {
@@ -2016,15 +1948,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      // Default/compact caller: no full-catalog header.
       { config: toolSearchConfig },
     );
 
     expect(toolsOut.error).toBeUndefined();
     const names = toolsOut.result.tools.map((t: any) => t.name);
     expect(names).toContain("tool-search");
-    // It rides alongside the core compact builtins, and the bulky internal
-    // tools are still excluded by the compact catalog.
     expect(names).toEqual(
       expect.arrayContaining([
         "list_apps",
@@ -2331,8 +2260,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([]);
 
-    // Tool descriptors must carry no inline-embed reference either, so hosts
-    // fall back to the deep-link text instead of trying to render an iframe.
     const tools = await callWeb(
       { jsonrpc: "2.0", id: 42, method: "tools/list", params: {} },
       { headers: await mcpAppsFullCatalogHeaders() },
@@ -2340,7 +2267,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(tools)).not.toContain("openai/outputTemplate");
     expect(JSON.stringify(tools)).not.toContain("ui://mail/");
 
-    // A tool *call* result must not carry the render trigger either.
     const call = await callWeb(
       {
         jsonrpc: "2.0",
@@ -2381,8 +2307,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
   it("serves inline MCP App resources to allow-listed emails while the global switch is off", async () => {
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
-    // The signed test token is owned by oauth@example.com — the bypass lets
-    // that account keep verifying inline embeds in prod with the global off.
     process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS =
       "someone@else.com, oauth@example.com";
     const list = await callWeb(
@@ -2990,16 +2914,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(out.error).toBeUndefined();
     const content = out.result.content;
-    // First block: concise model-visible status; the full app opens through
-    // metadata/structuredContent instead of dumping app data into chat.
     expect(content[0].type).toBe("text");
     expect(content[0].text).toBe("echo-thing completed for thing-42.");
-    // Second block: the appended markdown deep link, absolutized to the
-    // request origin derived from the inbound Host header.
     expect(content[1].text).toContain(
       "[Open in Mail →](https://mail.agent-native.com/_agent-native/open?view=thing&id=thing-42&agentSidebar=closed)",
     );
-    // Structured `_meta` so a desktop client can open it natively.
     expect(out.result._meta["agent-native/openLink"]).toMatchObject({
       label: "Open in Mail",
       view: "thing",
@@ -3012,15 +2931,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result._meta["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],
     });
-    // The tools/call RESULT deliberately carries NO `_meta.ui` resource
-    // linkage. MCP Apps binds the `ui://` window on the tool
-    // DESCRIPTOR (`_meta.ui.resourceUri`, asserted in the tools/list test
-    // above); `ui/notifications/tool-result` delivers a plain CallToolResult,
-    // so Claude.ai / Claude Desktop render inline from the descriptor binding
-    // regardless of the result `_meta`. `openai/outputTemplate` above is the
-    // ChatGPT-only result key. Do NOT add a result-level `ui` /
-    // `io.modelcontextprotocol/ui` key here — no such linkage exists in the
-    // spec and hosts ignore it.
     expect(out.result._meta.ui).toBeUndefined();
     expect(out.result.structuredContent).toMatchObject({
       echoed: "hello",
@@ -3767,12 +3677,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("redacts embed-ticket URLs from JSON.stringify text for actions without mcpApp.resource", async () => {
-    // Regression: even when an action does NOT declare `mcpApp.resource`, a
-    // result containing `embedStartUrl` (or any string holding a
-    // /_agent-native/embed/start?ticket=… URL) must NEVER leak into the
-    // model-visible `content[0].text`. The mcpApp.resource path strips embed
-    // fields via mcpAppStructuredContent; the JSON.stringify fallback now
-    // applies the same purge as a generic safety net.
     const noResourceConfig = {
       ...config,
       actions: {
@@ -3808,14 +3712,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(text).not.toContain("raw-leak-ticket");
     expect(text).not.toContain("/_agent-native/embed/start");
     expect(text).not.toContain("embedStartUrl");
-    // Non-sensitive fields are still visible.
     expect(text).toContain("should still appear");
   });
 
   it("redacts embed-ticket URLs from string-typed results without mcpApp.resource", async () => {
-    // Sibling regression: when the action returns a raw string that happens to
-    // include the embed-start URL inline, that substring must be hidden too —
-    // the LLM should never receive a usable embed-ticket URL.
     const noResourceConfig = {
       ...config,
       actions: {
@@ -3852,16 +3752,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("surfaces app-only-visibility tool results via structuredContent so the embed iframe can read them", async () => {
-    // Regression: PR #875's `purgeEmbedStartUrls` strips the embed start URL
-    // from non-MCP-App action text — but `create_embed_session` is an
-    // **app-only** helper called by the embed iframe, and the iframe needs
-    // the `startUrl` to actually mount the app. Without surfacing the raw
-    // result through `structuredContent` (which the iframe prefers in
-    // `parseToolResult`), the iframe falls back to parsing the purged text
-    // and reports "This app can be opened, but not embedded". The
-    // `_meta.ui.visibility: ["app"]` hint already tells compliant hosts not
-    // to leak the result into LLM context, so the structuredContent path is
-    // safe for these tools and unbreaks the embed.
     const embedConfig = {
       ...config,
       actions: {
@@ -3893,17 +3783,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    // Iframe-readable: full raw result preserved on structuredContent so
-    // `parseToolResult` (in `embed-app.ts`) returns `startUrl` and the
-    // iframe can actually mount the embedded app.
     expect(out.result.structuredContent).toMatchObject({
       startUrl: "/_agent-native/embed/start?ticket=embed-session-ticket",
       targetPath: "/inbox",
       expiresAt: 1735689600,
     });
-    // Text content is still purged of the embed-start URL so non-compliant
-    // hosts that ignore the `visibility: ["app"]` hint don't leak the
-    // ticket via the chat transcript or text fallback.
     expect(out.result.content[0].text).not.toContain("embed-session-ticket");
   });
 
@@ -4181,12 +4065,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("strips embedTargetPath, embedExpiresAt, and ticket fields from structuredContent", async () => {
-    // Regression: internal embed-routing fields are carried in
-    // `_meta["agent-native/embedStart"]` for the embed runtime. They must NOT
-    // double-up in `structuredContent` (read by the LLM), where
-    // `embedTargetPath` would reveal the exact route + thread/draft id the
-    // user is looking at, `embedExpiresAt` would leak a timestamp, and
-    // `ticket`/`*Ticket` would surface single-use credentials.
     const embedConfig = {
       ...config,
       actions: {
@@ -4196,9 +4074,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           },
           run: async () => ({
             app: "mail",
-            // `embedTargetPath` carries the exact route + thread id the
-            // user is viewing. It belongs in `_meta` (embed runtime) and
-            // MUST be stripped from structuredContent / text content.
             embedStartUrl:
               "/_agent-native/embed/start?ticket=open-thread-ticket",
             embedTargetPath: "/inbox?threadId=embedded-thread-id-123",
@@ -4240,19 +4115,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(sc.ticket).toBeUndefined();
     expect(sc.embedTicket).toBeUndefined();
     expect(sc.uploadTicket).toBeUndefined();
-    // Make sure none of those sensitive strings leak into the JSON
-    // representation of structuredContent either.
     const scJson = JSON.stringify(sc);
     expect(scJson).not.toContain("open-thread-ticket");
     expect(scJson).not.toContain("embedded-thread-id-123");
     expect(scJson).not.toContain("1735689600");
     expect(scJson).not.toContain("secret-upload-token");
-    // The _meta carrier is the legitimate home for the embed URL.
     expect(out.result._meta["agent-native/embedStart"].startUrl).toContain(
       "open-thread-ticket",
     );
-    // The content text payload also stays clean (the embed routing fields
-    // would otherwise round-trip through conciseMcpAppToolText).
     expect(JSON.stringify(out.result.content)).not.toContain(
       "open-thread-ticket",
     );
@@ -4262,12 +4132,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("omits openLink when the only available 'view' is a bare name, not a route path", async () => {
-    // Regression: previously `safeViewOpenUrl = view` would turn a view name
-    // like "deck" into `${origin}/deck`, which 404s for apps that route
-    // `view: "deck"` at `/deck/:id`. The fix omits `openLink` entirely when
-    // there's no real path-like URL to open; the embedStart meta still
-    // carries the embed reference, so the host can launch the app inline
-    // without a bogus open URL.
     const embedConfig = {
       ...config,
       actions: {
@@ -4306,15 +4170,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    // openLink must be absent — there is no real path to open.
     expect(out.result._meta["agent-native/openLink"]).toBeUndefined();
     expect(out.result.structuredContent.openLink).toBeUndefined();
-    // The embedStart meta still carries the reference to launch the app.
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
         "https://mail.agent-native.com/_agent-native/embed/start?ticket=deck-name-ticket&__an_mcp_chat_bridge=1",
     });
-    // No fabricated origin-relative URL leaks into the response.
     expect(JSON.stringify(out.result.content)).not.toContain(
       "https://mail.agent-native.com/deck",
     );
@@ -4421,8 +4282,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(event._responseHeaders?.["www-authenticate"]).toContain(
       'scope="mcp:read mcp:write mcp:apps"',
     );
-    // The legacy `error` field is preserved, plus an actionable message and the
-    // exact remediation (connect command + authorize/metadata/MCP URLs).
     expect(res).toMatchObject({
       error: "Unauthorized",
       authenticate: {
@@ -4548,8 +4407,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(event._responseHeaders?.["www-authenticate"]).toContain(
       'resource_metadata="https://assets-local.trycloudflare.com/assets/.well-known/oauth-protected-resource"',
     );
-    // The actionable body uses the forwarded host + base path for the connect
-    // command and authorize/metadata URLs.
     expect(res).toMatchObject({
       error: "Unauthorized",
       authenticate: {
@@ -4588,10 +4445,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("returns 405 for GET (no standalone SSE stream on a stateless serverless server)", async () => {
-    // A stateless, per-request transport on serverless cannot keep the GET
-    // server->client SSE stream alive across invocations; offering it makes the
-    // client latch onto a stream that dies ("session expired"/"not connected").
-    // Answering 405 tells the client to use plain POST request/response.
     const event = makeWebEvent({ method: "GET" });
     const res = await handleMcpRequest(event, config as any);
     expect(res).toBeInstanceOf(Response);
@@ -4631,8 +4484,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
 describe("handleMcpRequest — Node request objects use the v2 web handler", () => {
   beforeEach(() => {
-    // Authenticated deployed-app caller (default makeWebEvent bearer matches);
-    // header-only dev-open is loopback-only now.
     process.env.ACCESS_TOKEN = "test-access-token";
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;

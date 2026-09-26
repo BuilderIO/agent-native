@@ -72,10 +72,6 @@ export const UserMessage = memo(function UserMessage({
   );
 });
 
-/**
- * Web-parity reasoning cell: open and labelled "Thinking" while the thought
- * streams, auto-collapses to "Thought" when the stream moves on.
- */
 function ReasoningPart({
   text,
   streaming,
@@ -147,7 +143,6 @@ function AssistantPart({
   onDeny,
 }: {
   part: ChatContentPart;
-  /** True while this part is the live tail of a streaming message. */
   streaming: boolean;
   durationMs?: number | null;
   embedded?: boolean;
@@ -256,9 +251,7 @@ export const AssistantMessage = memo(function AssistantMessage({
 }: {
   message: ChatMessage;
   animateIn: boolean;
-  /** Hidden while this message is still streaming in. */
   showFooter: boolean;
-  /** True when this is the live message of an in-flight turn. */
   isStreamingMessage?: boolean;
   onApprove?: (approvalKey: string) => void;
   onDeny?: (approvalKey?: string) => void;

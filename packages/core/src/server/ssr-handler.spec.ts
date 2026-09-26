@@ -155,10 +155,6 @@ describe("createH3SSRHandler", () => {
   });
 
   it("keeps the dev 500 body printable when the error names a Vite virtual module", async () => {
-    // Vite ids virtual modules with a leading NUL, and module-resolution errors
-    // carry that id verbatim. A raw NUL in the body makes curl (and some proxies)
-    // treat the only useful line as binary — but the NUL is part of the real id,
-    // so it has to survive as a visible escape rather than be dropped.
     const error = new Error(
       "Failed to load url /app/routes/chat.$threadId.tsx in \0virtual:react-router/server-build. Does the file exist?",
     );
@@ -305,8 +301,6 @@ describe("createH3SSRHandler", () => {
   });
 
   it("keeps a root-only workspace app at its root instead of bouncing to /home", async () => {
-    // The workspace deploy records `/` for an app with only a root route, and
-    // the launcher links there; the app must not redirect to a missing /home.
     resetAppConfigForTests();
     process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "adoption";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
@@ -511,8 +505,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Auth makes no difference: SSR .data is hard-cached for everyone, so an
-    // authenticated request gets the exact same public SWR headers as anonymous.
     expectDefaultSsrCacheHeaders(response);
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
@@ -543,8 +535,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // The framework hard-caches SSR .data for everyone: a route can no longer
-    // opt .data into private/no-store, even when the request is authenticated.
     expectDefaultSsrCacheHeaders(response);
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
@@ -629,8 +619,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Auth makes no difference: SSR HTML is hard-cached for everyone, so a
-    // request with a session cookie gets the same public SWR headers as anonymous.
     expectDefaultSsrCacheHeaders(response);
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
@@ -662,9 +650,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // The SSR handler does not read the request session, so a loader that calls
-    // getRequestUserEmail() sees undefined — the HTML is impersonal and safe to
-    // hard-cache for everyone.
     expect(await response.text()).toContain("anonymous");
     expect(mocks.getSession).not.toHaveBeenCalled();
     expectDefaultSsrCacheHeaders(response);
@@ -693,8 +678,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // No per-user data is baked into the .data response — getRequestUserEmail()
-    // returns undefined even with a session cookie — so it is publicly cached.
     expect(await response.text()).toContain('"email":null');
     expect(mocks.getSession).not.toHaveBeenCalled();
     expectDefaultSsrCacheHeaders(response);
@@ -753,8 +736,6 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(
       createEvent("/docs", "GET", {
-        // Even with an auth cookie alongside anonymous ones, SSR is still the
-        // impersonal public shell — no cookie combination changes the policy.
         headers: { cookie: "an_docs_session=anon; an_session=1" },
       }),
     );
@@ -779,16 +760,12 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/"));
 
-    // Anonymous: enforce the public SWR default even if the route said private.
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
     );
   });
 
   it("overrides a route-provided Cache-Control on authenticated HTML with the public SWR policy", async () => {
-    // A route may try to set its own Cache-Control even when the request carries
-    // an auth cookie, but the framework hard-caches SSR HTML for everyone, so
-    // the route-provided policy is overridden with the public SWR default.
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>shared</body></html>", {
         headers: {
@@ -805,7 +782,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Route tried to opt out; the framework still enforces the public SWR policy.
     expectDefaultSsrCacheHeaders(response);
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
@@ -840,8 +816,6 @@ describe("createH3SSRHandler", () => {
       createEvent("/", "GET", { headers: { cookie: "an_session=1" } }),
     );
 
-    // SSR never reads the request session: getSession is not called and a loader
-    // that reads getRequestUserEmail() sees undefined despite the auth cookie.
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(await response.text()).toContain("anonymous");
   });
@@ -862,7 +836,6 @@ describe("createH3SSRHandler", () => {
       createEvent("/inbox?embedded=1&__an_embed_token=signed"),
     );
 
-    // An embed token in the request does not pin a session for SSR.
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(await response.text()).toContain("anonymous");
   });
@@ -884,7 +857,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // An Authorization header in the request does not pin a session for SSR.
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(await response.text()).toContain("anonymous");
   });
@@ -902,7 +874,6 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/inbox?_session=mobile-token"));
 
-    // A mobile session query credential does not pin a session for SSR.
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(await response.text()).toContain("anonymous");
   });
@@ -1089,8 +1060,6 @@ describe("createH3SSRHandler", () => {
       const response = await handler(createEvent("/"));
 
       expectCacheHeaders(response, DISABLED_SSR_CACHE_HEADERS["cache-control"]);
-      // Opting out of caching must not turn the shell personal: cookies are
-      // still stripped and the response still cannot vary by credentials.
       expect(response.headers.get("set-cookie")).toBeNull();
       expect(response.headers.get("vary")).toBe("Accept-Encoding");
     });
@@ -1166,10 +1135,6 @@ describe("createH3SSRHandler", () => {
     });
 
     it("caches a 404 shell so dead links stop re-invoking the function", async () => {
-      // These carried `no-cache` and were never stored, so the SAME dead URL
-      // cost a full cold render every time. Netlify runs one request per
-      // container, so a crawler walking dead links drained the concurrency
-      // pool every other site on the account shares.
       mocks.requestHandler.mockResolvedValueOnce(
         new Response("<html><body>not found</body></html>", {
           status: 404,
@@ -1185,8 +1150,6 @@ describe("createH3SSRHandler", () => {
     });
 
     it("never caches a 5xx shell", async () => {
-      // A transient failure pinned at the edge for the stale-while-revalidate
-      // window turns a blip into an outage.
       mocks.requestHandler.mockResolvedValueOnce(
         new Response("<html><body>boom</body></html>", {
           status: 503,
@@ -1230,7 +1193,6 @@ describe("createH3SSRHandler", () => {
 
         const response = await handler(createEvent("/"));
 
-        // Fail safe: a typo must not silently disable the CDN.
         expectDefaultSsrCacheHeaders(response);
         expect(response.headers.get("cache-control")).not.toBe(
           DISABLED_SSR_CACHE_HEADERS["cache-control"],

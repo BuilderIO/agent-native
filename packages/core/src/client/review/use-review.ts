@@ -61,7 +61,6 @@ export interface CreateReviewCommentInput {
   resolutionTarget?: ReviewResolutionTarget | null;
   mentions?: ReviewMention[];
   metadata?: Record<string, unknown>;
-  /** Reuse when retrying one logical submission so create is idempotent. */
   clientOperationId?: string;
 }
 
@@ -74,7 +73,6 @@ export interface ReplyReviewCommentInput {
   resolutionTarget?: ReviewResolutionTarget | null;
   mentions?: ReviewMention[];
   metadata?: Record<string, unknown>;
-  /** Reuse when retrying one logical submission so reply is idempotent. */
   clientOperationId?: string;
 }
 
@@ -296,10 +294,6 @@ export interface ReviewOptimisticMutationContext {
   queryHashes: string[];
 }
 
-/**
- * Review writes can settle out of order. Keep each pending intent as an
- * overlay rather than restoring a whole cache snapshot when one fails.
- */
 export class ReviewOptimisticCache {
   private readonly queries = new Map<string, OptimisticQueryState>();
   private readonly resourceOperations = new Map<string, Set<string>>();

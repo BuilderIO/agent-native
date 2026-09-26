@@ -1,8 +1,3 @@
-/**
- * Client entry for the framework onboarding system.
- *
- * Subpath: `@agent-native/core/client/onboarding`
- */
 
 export { useOnboarding, type UseOnboardingResult } from "./use-onboarding.js";
 export { isFirstRunOnboardingEnabled } from "./first-run-enabled.js";

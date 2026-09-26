@@ -8,13 +8,11 @@ import {
 describe("assertNoSchemaQualifiedTables", () => {
   describe("rejects schema-qualified table references (scoping bypass)", () => {
     const blocked = [
-      // Postgres prod: base tables live in `public`.
       "SELECT * FROM public.notes",
       "SELECT value FROM public.settings WHERE key = 'x'",
       "UPDATE public.notes SET body = 'x'",
       "DELETE FROM public.notes",
       "INSERT INTO public.notes (id) VALUES ('x')",
-      // Variations that must not slip through.
       "select * from PUBLIC.notes",
       "SELECT * FROM ONLY public.notes",
       'SELECT * FROM "public"."notes"',
@@ -24,7 +22,6 @@ describe("assertNoSchemaQualifiedTables", () => {
       "SELECT * FROM public /* c */ . notes",
       "SELECT * FROM information_schema.tables",
       "SELECT * FROM pg_catalog.pg_tables",
-      // Cross-database qualification.
       "SELECT * FROM mydb.notes",
     ];
     for (const sql of blocked) {
@@ -46,13 +43,9 @@ describe("assertNoSchemaQualifiedTables", () => {
       "UPDATE notes SET body = ? WHERE id = ?",
       "DELETE FROM notes WHERE id = ?",
       "INSERT INTO notes (id, body) VALUES (?, ?)",
-      // A column literally named after a schema keyword is fine (it's on the
-      // RIGHT of the dot, i.e. <alias>.<column>).
       "SELECT forms.public FROM forms",
       "SELECT t.main FROM things t",
-      // Table whose name contains a dot (single quoted identifier).
       'SELECT * FROM "my.table"',
-      // Numbers / string literals with dots are not table references.
       "SELECT 1.5 AS x FROM notes",
       "SELECT * FROM notes WHERE name = 'a.b.c'",
       "SELECT * FROM notes WHERE created_at > '2020-01-01'",
@@ -65,7 +58,6 @@ describe("assertNoSchemaQualifiedTables", () => {
   });
 
   it("does not regress the sensitive-framework-table guard", () => {
-    // Still blocks framework credential/identity tables (qualified or not).
     expect(() =>
       assertNoSensitiveFrameworkTables("SELECT * FROM oauth_tokens", "read"),
     ).toThrow();

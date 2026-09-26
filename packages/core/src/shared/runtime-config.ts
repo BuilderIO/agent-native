@@ -22,11 +22,8 @@ export type RuntimeConfigIssueCode =
   | "missing-required-env";
 
 export interface RuntimeConfigRequirements {
-  /** Whether the app's default or custom auth layer is expected to run. */
   authEnabled?: boolean;
-  /** Whether the app needs a persistent database outside local development. */
   databaseRequired?: boolean;
-  /** Additional non-secret keys the app declares as required. */
   requiredEnv?: readonly string[];
 }
 
@@ -53,7 +50,6 @@ export interface RuntimeConfigReportOptions {
   appName?: string;
 }
 
-/** Parse the truthy spellings accepted by typed runtime configuration flags. */
 export function isTruthyRuntimeValue(
   value: string | boolean | undefined,
 ): boolean {

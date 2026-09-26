@@ -4,8 +4,6 @@ import { clipsSessionOwnerKey } from "./clips-session";
 import { OAUTH_STATE_KEY } from "./oauth-storage";
 import { saveSessionToken } from "./session-token-store";
 
-// Custom-scheme callback URLs (agentnative://oauth-complete?…) don't parse
-// reliably via `new URL` in React Native, so read the query string directly.
 export function redirectParam(url: string, name: string): string | null {
   const queryStart = url.indexOf("?");
   if (queryStart < 0) return null;
@@ -13,7 +11,6 @@ export function redirectParam(url: string, name: string): string | null {
   return value && value.length > 0 ? value : null;
 }
 
-/** Persist the server-minted state before handing the URL to the browser. */
 export async function rememberOAuthState(url: string): Promise<void> {
   const state = redirectParam(url, "state");
   if (!state) return;
@@ -24,26 +21,17 @@ export async function rememberOAuthState(url: string): Promise<void> {
   await AsyncStorage.setItem(OAUTH_STATE_KEY, state);
 }
 
-// Validate a callback `state` against the one stored before the browser opened,
-// consuming it so it can't be replayed. A custom URL scheme is not
-// origin-authenticated, so without this a mismatched or forged callback could
-// replace the active session. Both the iOS inline path and the deep-link
 // handler must gate token acceptance on this.
 export async function consumeOAuthStateMatches(
   state: string | null,
 ): Promise<boolean> {
   const expected = await AsyncStorage.getItem(OAUTH_STATE_KEY);
   const matches = Boolean(expected) && state === expected;
-  // Only consume on a match. A stale or forged callback must not clear the
-  // pending state, or the legitimate redirect that follows would fail to
-  // validate and leave the user signed out.
   if (matches) await AsyncStorage.removeItem(OAUTH_STATE_KEY);
   return matches;
 }
 
-// Clips needs an owner key (derived from email/orgId) alongside the token
 // before its session counts as connected. The token alone can't produce it, so
-// resolve the owner from the app's session endpoint using the saved token.
 export async function resolveAndStoreOwnerKey(
   token: string,
   ownerKeyName: string | null,
@@ -73,19 +61,11 @@ export async function resolveAndStoreOwnerKey(
 }
 
 export interface OAuthCompletionContext {
-  /** Session-token storage key (Clips uses its own; others the default). */
   tokenKey: string | null;
-  /** Owner-key storage key, set only for Clips. */
   ownerKeyName: string | null;
-  /** App origin, used to resolve the owner's email/orgId. */
   baseUrl: string | null;
 }
 
-// The single validated completion for an OAuth callback URL, shared by the iOS
-// inline auth-session path and the Android deep-link handler. Validates the
-// callback state, saves the session token under the given key, and resolves the
-// Clips owner key. Returns the token on success, or null if the callback is
-// invalid (no token or state mismatch).
 export async function completeOAuthCallback(
   callbackUrl: string,
   ctx: OAuthCompletionContext,

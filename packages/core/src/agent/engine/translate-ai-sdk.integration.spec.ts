@@ -1,18 +1,5 @@
 import { streamText } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
-/**
- * Integration test for the AI SDK translator.
- *
- * Unlike translate-ai-sdk.spec.ts — which tests the translator against
- * synthetic TextStreamPart objects in isolation — this spec drives real
- * `streamText` with `MockLanguageModelV3` from `ai/test`. It exercises the
- * full pipeline: mock LM parts → streamText transformation → our translator.
- *
- * This is our insurance against AI SDK minor-version drift: if Vercel changes
- * the fullStream event shapes subtly between v6 patches, these tests fail
- * loudly, unlike the unit specs which would happily keep passing against
- * stale fixtures.
- */
 import { describe, it, expect } from "vitest";
 
 import { aiSdkPartToEngineEvents } from "./translate-ai-sdk.js";
@@ -34,7 +21,6 @@ async function collect(result: {
   return events;
 }
 
-/** Build a LanguageModelV3Usage with the common fields set. */
 function usage(
   input: number,
   output: number,
@@ -55,7 +41,6 @@ function usage(
   };
 }
 
-/** Build a finish stream-part. */
 function finish(
   reason:
     | "stop"

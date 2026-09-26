@@ -1,5 +1,3 @@
-// @agent-native/pinpoint — Plugin exports
-// MIT License
 
 export {
   registerPlugin,

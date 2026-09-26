@@ -16,7 +16,6 @@ import {
 
 export { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION };
 
-/** Reads the current markdown out of the tiptap-markdown storage. */
 export function getEditorMarkdown(editor: Editor): string {
   const markdownStorage = editor.storage as unknown as {
     markdown?: { getMarkdown?: () => string };
@@ -24,20 +23,7 @@ export function getEditorMarkdown(editor: Editor): string {
   return markdownStorage.markdown?.getMarkdown?.() ?? "";
 }
 
-/**
- * Push a value onto the bounded ring of recently-emitted markdown (most recent
- * last, deduped, capped). The reconcile uses this to recognize a stale-but-recent
- * echo of OUR OWN edits: a debounced autosave can persist a PARTIAL burst, and
- * the next poll re-supplies that partial value with a newer timestamp — applying
- * it would clobber the freshly-typed tail. An external change (agent/peer) never
- * byte-matches one of our own recent emissions, and if it somehow did the content
- * is identical, so skipping it is safe by construction.
- */
 const EMITTED_RING_MAX = 16;
-// The hosted awareness transport polls every 2s when its SSE gateway cannot
-// forward presence. Give that first snapshot one poll plus margin before an
-// empty SQL value is allowed to clear a nonempty Y.Doc. This is the same settle
-// window used below when a known peer may deliver an edit through Yjs.
 const PEER_SETTLE_MS = 2500;
 function pushEmittedRing(ring: string[], value: string): void {
   if (!value) return;
@@ -49,44 +35,24 @@ function pushEmittedRing(ring: string[], value: string): void {
 }
 
 export interface UseCollabReconcileOptions {
-  /** The live editor, or null until it mounts. */
   editor: Editor | null;
-  /** Shared Y.Doc when collaborating; null disables all collab paths. */
   ydoc?: YDoc | null;
-  /** True after the collab provider has loaded the persisted initial Y.Doc state. */
   collabSynced?: boolean;
-  /** Shared awareness; null keeps the sole-client lead path. */
   awareness?: Awareness | null;
-  /** Authoritative markdown value (SQL source of truth). */
   value: string;
-  /** Timestamp of the authoritative value; gates newer-than reconcile. */
   contentUpdatedAt?: string | null;
-  /** Opaque authoritative body revision. Enables base-aware reconciliation. */
   contentRevision?: string | null;
-  /**
-   * Orders two revision identities when their timestamps tie. Return a positive
-   * number when the first revision is newer, zero when equivalent, a negative
-   * number when older, or null when this revision format cannot be ordered.
-   */
   compareContentRevisions?: (first: string, second: string) => number | null;
-  /**
-   * A server-confirmed snapshot written by this editor. This is deliberately
-   * separate from `registerEmitted`: an emitted value may still fail to save,
-   * while an acknowledged revision is safe to adopt as the next merge base.
-   */
   acknowledgedLocalSnapshot?: {
     value: string;
     revision: string;
     updatedAt: string;
     sequence: number;
   } | null;
-  /** This exact body revision is already represented in durable Yjs state. */
   collabContentRevision?: string | null;
-  /** Resolves as synced only after a fresh provider response is applied. */
   requestCollabSync?: () => Promise<{
     status: "synced" | "failed" | "unavailable";
   }>;
-  /** Reports an automatic merge to persist, or a conflict whose local draft was preserved. */
   onBaseAwareReconcile?: (result: {
     status: "merged" | "conflict" | "failed";
     content: string;
@@ -94,123 +60,34 @@ export interface UseCollabReconcileOptions {
     baseRevision: string;
     serverRevision: string;
   }) => void;
-  /** Controls how overlapping live and server hunks are reconciled. */
   overlapPolicy?: "conflict" | "prefer-live";
-  /** Whether the editor accepts edits. Reconcile/seed only run for the live editor. */
   editable: boolean;
-  /**
-   * Reports whether focus is inside any editing surface owned by this editor.
-   * Defaults to TipTap's contenteditable focus. Apps with editable NodeView
-   * controls outside the contenteditable surface can include those controls so
-   * a partial save echo cannot interrupt an active edit.
-   */
   isEditorFocused?: (editor: Editor) => boolean;
-  /**
-   * Reads the current markdown from the editor. Injected so a dialect could
-   * swap serializers; defaults to the tiptap-markdown storage reader. For an app
-   * with a custom serializer (e.g. Content's `docToNfm(editor.getJSON())`), pass
-   * it here so the seed/reconcile equality checks compare like-for-like.
-   */
   getMarkdown?: (editor: Editor) => string;
-  /**
-   * Applies the authoritative `value` into the editor. Defaults to passing the
-   * raw markdown string to `editor.commands.setContent`. Apps whose serializer
-   * is NOT tiptap-markdown (Content parses `nfmToDoc(value)` into a PM doc)
-   * override this so seed + reconcile write the correct content shape. The
-   * supplied `options` carry the history/whitespace flags the default path uses;
-   * a custom implementation should forward them when relevant.
-   */
   setContent?: (
     editor: Editor,
     value: string,
     options: { emitUpdate?: boolean; addToHistory?: boolean },
   ) => void;
-  /**
-   * Parses the authoritative `value` into a full ProseMirror document for the
-   * SURGICAL reconcile path: instead of a whole-document `setContent` (which
-   * under Collaboration rewrites the entire Y.XmlFragment and tears down every
-   * block NodeView), the reconcile diffs the parsed doc against the live doc
-   * and replaces only the changed top-level run. Return null to skip the
-   * surgical path for a given value (falls back to `setContent`).
-   *
-   * Defaults to a best-effort tiptap-markdown parse; apps with their own
-   * serializers (Content's NFM, Plan's blocks[] doc) should supply the exact
-   * doc their `setContent` would write. Pass `false` to disable surgical
-   * application entirely.
-   */
   parseValue?:
     | ((editor: Editor, value: string) => ProseMirrorNode | null)
     | false;
-  /**
-   * Normalizes the authoritative `value` to the canonical markdown the editor
-   * would emit, so the "already in sync / our own echo" equality checks match a
-   * serializer that re-canonicalizes (Content's `canonicalizeNfm`). Defaults to
-   * identity (GFM already round-trips byte-stably).
-   */
   normalizeValue?: (value: string) => string;
-  /**
-   * Decides whether the empty-doc seed should run for the current shared
-   * fragment. Defaults to "fragment has no nodes, or the editor holds no
-   * semantic markdown". Apps with sentinel-empty content (Content's
-   * `<empty-block/>` filler) override this. Receives the live fragment length
-   * and the editor's current markdown.
-   */
   shouldSeed?: (info: {
     value: string;
     currentMarkdown: string;
     fragmentLength: number;
   }) => boolean;
-  /**
-   * The initial "applied" watermark. Default mirrors `contentUpdatedAt`, so a
-   * fresh mount whose Y.Doc already matches SQL doesn't re-apply. Pass `null`
-   * to force the first reconcile pass to adopt authoritative SQL even at the
-   * same timestamp — Content does this so a stale persisted Y.Doc (an agent that
-   * edited the CLOSED doc) is corrected on open. The editor is keyed per
-   * document upstream, so this only affects the first mount of each doc.
-   */
   initialAppliedUpdatedAt?: string | null;
 }
 
 export interface UseCollabReconcileResult {
-  /** True when a Y.Doc is bound (collaborative editing active). */
   collab: boolean;
-  /**
-   * Set true around any programmatic `setContent` so the editor's `onUpdate`
-   * can ignore the resulting transaction (it isn't a user edit).
-   */
   isSettingContentRef: MutableRefObject<boolean>;
-  /**
-   * Call from `onUpdate` BEFORE serializing. Returns true when the update must
-   * be ignored: editor not editable, mid-programmatic-setContent, or (in collab
-   * mode) a remote-origin transaction. Also records the local typing time.
-   */
   shouldIgnoreUpdate: (transaction: Transaction) => boolean;
-  /**
-   * Call from `onUpdate` AFTER computing the markdown to emit. Returns false
-   * when the value must NOT be persisted yet (an empty collab doc before the
-   * seed has run); records it as the last-emitted value otherwise.
-   */
   registerEmitted: (markdown: string) => boolean;
 }
 
-/**
- * The subtle seed / reconcile / lead-client logic for the shared markdown
- * editor, extracted once so it can never be duplicated across embedders.
- *
- * Responsibilities (reproducing the Plan editor's behavior exactly):
- *  - Track whether THIS client is the reconcile lead (sole client always leads;
- *    otherwise elected via {@link isReconcileLeadClient}) and how many other
- *    visible human peers are present.
- *  - Seed an empty shared Y.Doc once from `value` — lead client only — so two
- *    clients opening a brand-new block don't both insert the content.
- *  - Reconcile authoritative external markdown (agent edit, source patch, peer
- *    edit mirrored to SQL) into the editor: in collab mode only the lead client
- *    applies it through `setContent` and Yjs propagates; in non-collab mode this
- *    is the original controlled-value reconcile.
- *  - Provide the `onUpdate` guards (`shouldIgnoreUpdate`, `registerEmitted`) so
- *    the component never persists remote-origin or pre-seed empty content.
- */
-/** Default seed predicate: seed only when the shared doc is genuinely empty. */
 function defaultShouldSeed({
   currentMarkdown,
   fragmentLength,
@@ -222,22 +99,6 @@ function defaultShouldSeed({
   return fragmentLength === 0 || !currentMarkdown.trim();
 }
 
-/**
- * Default content writer: hand the raw markdown string to `setContent`, which
- * tiptap-markdown overrides to parse the markdown into a ProseMirror doc.
- *
- * IMPORTANT: do NOT pass `parseOptions: { preserveWhitespace: "full" }` here.
- * In tiptap v3 the core `setContent` command routes `preserveWhitespace: "full"`
- * through `insertContentAt`, which tiptap-markdown ALSO overrides to re-run its
- * markdown parser. That double-parse stringifies the already-parsed PM doc and
- * re-parses it as HTML, so a clean heading/list/code block comes back as the
- * escaped, non-idempotent `&lt;h1&gt;…` — which then escalates every reconcile
- * cycle (`<p>` → `&lt;p&gt;` → `&amp;lt;p&amp;gt;` …). Letting the markdown
- * override parse the string directly (no `parseOptions`) round-trips byte-stably
- * for the GFM corpus, including code-block and empty-line whitespace. Content's
- * NFM path supplies its own `setContent` (it passes a pre-parsed PM doc) and is
- * unaffected by this default.
- */
 function defaultSetContent(
   editor: Editor,
   value: string,
@@ -247,8 +108,6 @@ function defaultSetContent(
     editor
       .chain()
       .command(({ tr }) => {
-        // addToHistory:false so cmd+z (or Yjs undo) doesn't erase
-        // externally-loaded content.
         tr.setMeta("addToHistory", false);
         return true;
       })
@@ -293,26 +152,9 @@ export function useCollabReconcile({
   const isSettingContentRef = useRef(false);
   const lastEmittedRef = useRef("");
   const lastRegisteredLocalEmissionRef = useRef<string | null>(null);
-  // Ring of recent local emissions (see pushEmittedRing). Lets the reconcile
-  // recognize a stale-but-recent echo of our OWN (possibly partial, debounced)
-  // save so a lagging poll never clobbers freshly-typed text.
   const recentEmittedRef = useRef<string[]>([]);
   const lastTypedAtRef = useRef(0);
-  // The raw authoritative `value` string the reconcile last applied. When the
-  // SAME raw string is re-fetched (a lagging poll, or a source-sync that keeps
-  // re-supplying the same stored markdown), applying it again would only
-  // reproduce the doc we already hold — and if `value` is NON-idempotent
-  // (serialize(parse(value)) !== value) re-applying compounds the divergence
-  // every cycle (`<p>` → `&lt;p&gt;` → `&amp;lt;p&amp;gt;` …). Tracked so the
-  // identical re-fetch is recognized and skipped.
   const lastAppliedValueRef = useRef<string | null>(null);
-  // The editor's SERIALIZED output captured right AFTER the last reconcile/seed
-  // apply (`getMarkdown(editor)` once the content settled). For non-idempotent
-  // input this is what autosave actually persists, so the NEXT poll hands it
-  // back as the new `value`. Comparing the incoming value against this lets the
-  // reconcile recognize its own echo even when the raw string changed once, so
-  // it never re-parses content the editor already represents. This is the
-  // doc-equivalence guard that breaks the escalation loop.
   const lastAppliedSerializedRef = useRef<string | null>(null);
   const lastAppliedUpdatedAtRef = useRef<string | null>(
     initialAppliedUpdatedAt !== undefined
@@ -386,9 +228,6 @@ export function useCollabReconcile({
         retry = setTimeout(() => void sync(), 2000);
         return;
       }
-      // The fetched CRDT includes this canonical revision even when unsynced
-      // local edits make the editor differ from its SQL body. Advance only the
-      // merge base, never rewrite those local edits to manufacture equality.
       authoritativeBaseRef.current = {
         value: pendingCollabSnapshot.value,
         revision: pendingCollabSnapshot.revision,
@@ -406,18 +245,8 @@ export function useCollabReconcile({
     };
   }, [pendingCollabSnapshot, requestCollabSync, ydoc]);
 
-  // Whether THIS client is the one that seeds the empty shared doc / applies an
-  // authoritative external snapshot into it. Exactly one client does, so the
-  // content isn't inserted once per open editor. A sole client always leads.
   const [isLeadClient, setIsLeadClient] = useState(true);
-  // Count of OTHER visible human collaborators. When >0, a peer's edit also
-  // arrives via Yjs, so external markdown reconcile must defer (avoid applying
-  // the same change through both Yjs and setContent).
   const peerCountRef = useRef(0);
-  // Briefly gates the first empty-SQL reconcile while Collaboration projects
-  // a nonempty fragment. `seededRef` is still released immediately so a real
-  // first keystroke can persist; this ref only postpones the ambiguous clear
-  // decision until we can distinguish an active/local edit from stale CRDT.
   const emptySnapshotDecisionPendingRef = useRef(false);
   useEffect(() => {
     if (!collab || !awareness || !ydoc) {
@@ -429,16 +258,13 @@ export function useCollabReconcile({
       setIsLeadClient(isReconcileLeadClient(awareness, ydoc.clientID));
       let peers = 0;
       awareness.getStates().forEach((state, clientId) => {
-        if (clientId === ydoc.clientID) return; // self
-        if (clientId === AGENT_CLIENT_ID) return; // agent isn't a Yjs editor
+        if (clientId === ydoc.clientID) return;
+        if (clientId === AGENT_CLIENT_ID) return;
         const s = state as {
           user?: unknown;
           visible?: boolean;
           canFlushDocument?: boolean;
         };
-        // A read-only viewer binds no Y.Doc, so counting it as a peer lets
-        // stale CRDT content stand in for live collaboration and be written
-        // back over canonical SQL — resurrecting deleted content.
         if (s?.canFlushDocument === false) return;
         if (s && s.user && s.visible !== false) peers += 1;
       });
@@ -453,10 +279,6 @@ export function useCollabReconcile({
     };
   }, [collab, awareness, ydoc]);
 
-  // Collab seed: populate an empty shared Y.Doc from the markdown `value` once.
-  // The Collaboration extension does NOT auto-seed; only the lead client does,
-  // so two clients opening a brand-new block at once don't both seed (which
-  // would duplicate the content via concurrent inserts at the same position).
   const seededRef = useRef(false);
   useEffect(() => {
     if (!collab || !editor || editor.isDestroyed || !ydoc) return;
@@ -470,11 +292,6 @@ export function useCollabReconcile({
       authoritativeBaseRef.current = { value, revision: contentRevision };
       reportedConflictRevisionRef.current = null;
     }
-    // An empty SQL value has nothing to seed. Release the first real keystroke
-    // immediately, but when a fragment already exists defer the ambiguous
-    // reconcile decision for one task: active-peer or just-emitted local content
-    // is live and must be adopted; stale persisted CRDT with no active writer is
-    // cleared by the canonical SQL snapshot.
     if (!value.trim()) {
       seededRef.current = true;
       const fragment = ydoc.getXmlFragment("default");
@@ -511,10 +328,6 @@ export function useCollabReconcile({
         emptySnapshotDecisionPendingRef.current = false;
       };
     }
-    // A non-lead client must never seed (two clients inserting the same content
-    // duplicates it), but `seededRef` also gates persistence and reconcile — so
-    // release it here anyway, or this client's own typing is dropped before it
-    // ever reaches SQL while its peers still see it through Yjs.
     if (!isLeadClient) {
       const releaseTimer = setTimeout(() => {
         seededRef.current = true;
@@ -522,20 +335,10 @@ export function useCollabReconcile({
       return () => clearTimeout(releaseTimer);
     }
     let cancelled = false;
-    // Defer via a timer task (NOT a microtask — microtasks can still run
-    // inside React's commit and trigger flushSync-from-lifecycle warnings).
-    // Read the editor and fragment INSIDE that task. The collaboration
-    // extension can finish projecting an already-populated Y.Doc into
-    // ProseMirror after this effect is scheduled. Capturing the pre-projection
-    // empty editor here would incorrectly seed the SQL snapshot alongside the
-    // existing CRDT content, duplicating the whole document after reload.
     const seedTimer = setTimeout(() => {
       if (cancelled || editor.isDestroyed) return;
       const fragment = ydoc.getXmlFragment("default");
       const currentMarkdown = getMarkdown(editor);
-      // Seed only when the shared doc is genuinely empty — either the fragment
-      // has no nodes yet, or it holds no semantic markdown (an empty paragraph,
-      // or an app's sentinel-empty filler via a custom `shouldSeed`).
       if (
         !shouldSeed({
           value,
@@ -591,11 +394,6 @@ export function useCollabReconcile({
     deadline: number | null;
   } | null>(null);
 
-  // Reconcile authoritative external markdown (agent edit, source patch, or a
-  // peer edit mirrored to SQL) into the live editor. In collab mode only the
-  // lead client applies it through setContent; Yjs propagates the result to
-  // every other client. In non-collab mode this is the original controlled-value
-  // reconcile, unchanged.
   useEffect(() => {
     if (!editor || editor.isDestroyed) {
       peerReconcileWaitRef.current = null;
@@ -629,9 +427,6 @@ export function useCollabReconcile({
     const peerWait = peerReconcileWaitRef.current!;
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
-    // With peers present, a peer's edit also arrives via Yjs. Defer one poll
-    // cycle (+margin) and re-check before applying via setContent so the same
-    // change isn't inserted twice (Yjs + setContent → duplicated region).
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
       if (contentUpdatedAt) {
@@ -648,10 +443,6 @@ export function useCollabReconcile({
           if (order !== undefined && order !== null && order <= 0) {
             return;
           }
-          // The acknowledgement advanced our base before its SQL snapshot was
-          // observed, but another revision won at the same timestamp. Restore
-          // the common base and treat this first canonical winner as the
-          // authoritative revision for that otherwise unordered timestamp.
           if (
             authoritativeBaseRef.current?.revision ===
             rollback.acknowledgementRevision
@@ -682,9 +473,6 @@ export function useCollabReconcile({
           if (order !== undefined && order !== null && order <= 0) {
             return;
           }
-          // Legacy opaque revisions cannot be ordered. Preserve their existing
-          // reconcile behavior; ordered body revisions retain the newest
-          // identity so a delayed snapshot cannot roll it back.
           latestObservedRevisionRef.current =
             order !== undefined && order !== null ? contentRevision : null;
         }
@@ -792,16 +580,10 @@ export function useCollabReconcile({
       ) {
         return;
       }
-      // In collab mode, defer all reconcile until the shared doc is seeded so we
-      // never setContent over an unseeded fragment.
       if (collab && !collabSynced) {
         retry = setTimeout(() => apply(deferred), 300);
         return;
       }
-      // The seed decision itself is deferred one task so Collaboration can
-      // project persisted Y.Doc state before we inspect it. Poll that short
-      // handoff promptly: waiting the full provider cadence here makes a newer
-      // canonical SQL snapshot visibly stale after reload.
       if (collab && !seededRef.current) {
         retry = setTimeout(() => apply(deferred), 25);
         return;
@@ -810,9 +592,6 @@ export function useCollabReconcile({
         retry = setTimeout(() => apply(deferred), 50);
         return;
       }
-      // SQL and Yjs describe the same committed operation here. Reapplying SQL
-      // would create different CRDT insert identities and duplicate the text.
-      // Provider retries, not a timed SQL fallback, own delayed delivery.
       if (
         collabBackedSnapshot ||
         (collab && pendingCollabSnapshot?.ydoc === ydoc)
@@ -821,14 +600,7 @@ export function useCollabReconcile({
         return;
       }
       const currentMarkdown = getMarkdown(editor);
-      // Compare against the canonical form the editor would emit so a serializer
-      // that re-normalizes (Content's NFM) still recognizes "already in sync".
       const normalizedValue = normalizeValue(value);
-      // Whether the editor still holds exactly what THIS hook last applied (the
-      // user hasn't edited since). Only then are the round-trip echo guards
-      // below safe: if the user has since edited away from the applied content,
-      // an external snapshot equal to a previously-applied value is a real
-      // revert and must NOT be swallowed as an echo.
       const editorUnchangedSinceApply =
         lastAppliedSerializedRef.current !== null &&
         currentMarkdown === lastAppliedSerializedRef.current;
@@ -836,34 +608,10 @@ export function useCollabReconcile({
       const typingRecently =
         editorFocused && Date.now() - lastTypedAtRef.current < 1500;
 
-      // Doc-equivalence skip. Never re-apply content the editor already
-      // represents — comparing by DOC EQUIVALENCE, not raw strings/timestamps:
-      //   1. `currentMarkdown === normalizedValue` — the editor's CURRENT
-      //      serialized doc already equals the (normalized) incoming value.
-      //   2. `value === lastEmittedRef.current` — the incoming value is our own
-      //      just-emitted markdown echoing back.
-      //   3. `value === lastAppliedValueRef.current` — the SAME raw value we
-      //      already applied is being re-supplied (a lagging poll or a
-      //      source-sync re-handing the same stored markdown). Applying it again
-      //      would only reproduce the doc we hold; for NON-idempotent input it
-      //      would compound divergence. Guarded by `editorUnchangedSinceApply`
-      //      so a deliberate revert-to-previous after a local edit still lands.
-      //   4. `normalizedValue === lastAppliedSerializedRef.current` — the
-      //      incoming value round-trips to the serialized output we last
-      //      produced (our own autosaved echo coming back from SQL). For
-      //      non-idempotent input the raw string differs from what we were
-      //      handed, but it is doc-equivalent to what the editor already shows,
-      //      so re-parsing it must be skipped. This is the guard that stops the
-      //      `<p>` → `&lt;p&gt;` → `&amp;lt;p&amp;gt;` escalation.
       if (
         currentMarkdown === normalizedValue ||
         (typingRecently &&
           !contentRevision &&
-          // A stale echo of our own (possibly partial) save while the user is
-          // actively typing would clobber the fresh tail. Outside active
-          // typing, the same bytes can be a deliberate newer external revert
-          // (history restore / provider conflict choice) and must be allowed
-          // through even if mount-time normalization emitted them.
           (value === lastEmittedRef.current ||
             recentEmittedRef.current.includes(value) ||
             recentEmittedRef.current.includes(normalizedValue))) ||
@@ -872,10 +620,6 @@ export function useCollabReconcile({
             normalizedValue === lastAppliedSerializedRef.current))
       ) {
         peerWait.deadline = null;
-        // Equality on the first controlled render is also a successful apply:
-        // useEditor may already have initialized from `value`. Record that
-        // baseline so a same-revision parent render cannot restore stale props
-        // over a local edit made while a toolbar or popover owns focus.
         if (currentMarkdown === normalizedValue) {
           lastAppliedValueRef.current = value;
           lastAppliedSerializedRef.current = currentMarkdown;
@@ -902,8 +646,6 @@ export function useCollabReconcile({
         !contentUpdatedAt ||
         contentUpdatedAt > lastAppliedUpdatedAtRef.current;
 
-      // Only the lead client applies an authoritative snapshot into the shared
-      // Y.Doc; peers receive it through Yjs sync.
       if (collab && !isLeadClient) {
         peerWait.deadline = null;
         if (contentUpdatedAt && !externalNewer) {
@@ -912,12 +654,6 @@ export function useCollabReconcile({
         return;
       }
 
-      // Never clobber an in-progress edit. While the user is actively typing
-      // (focused and a keystroke landed within the window) defer and re-check —
-      // applying external content now would yank text out from under them and,
-      // for non-idempotent input, fight every keystroke. Newer external content
-      // retries so it still lands once they pause; older-or-equal content is a
-      // stale poll and is dropped outright while focused.
       if (typingRecently) {
         if (externalNewer) {
           retry = setTimeout(() => apply(deferred), 700);
@@ -926,10 +662,6 @@ export function useCollabReconcile({
         }
         return;
       }
-      // Once an authoritative snapshot has been applied, an unchanged or older
-      // SQL echo cannot overwrite subsequent local OR remote Yjs edits. The
-      // idle lead can receive a peer's edit before that peer's SQL save arrives.
-      // A fresh mount still reconciles stale CRDT state before it has a baseline.
       const hasAppliedSnapshot = lastAppliedSerializedRef.current !== null;
       const currentIsRegisteredLocalEmission =
         lastRegisteredLocalEmissionRef.current !== null &&
@@ -944,12 +676,7 @@ export function useCollabReconcile({
         return;
       }
 
-      // Race guard: with peers present, let Yjs deliver a peer's edit first.
-      // Defer once and re-check — a peer edit makes the equality check above
-      // no-op next pass; an agent/source edit still differs and applies.
       if (collab && externalNewer && !deferred && peerCountRef.current > 0) {
-        // Inline serializers can change on every presence/poll render. Keep
-        // this snapshot's deadline while the effect refreshes its callbacks.
         peerWait.deadline ??= Date.now() + PEER_SETTLE_MS;
         const remaining = peerWait.deadline - Date.now();
         if (remaining > 0) {
@@ -961,12 +688,6 @@ export function useCollabReconcile({
       const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
         peerWait.deadline = null;
-        // Re-check doc-equivalence at apply time. Between the decision above and
-        // this task a peer/Yjs edit (or our own prior apply) may have made
-        // the editor already represent this value — re-applying would be a
-        // wasted setContent that, for non-idempotent input, re-triggers the
-        // loop. Skip when the editor's current serialization already matches the
-        // normalized value, or the value round-trips to what we last produced.
         const beforeMarkdown = getMarkdown(editor);
         const normalized = normalizeValue(value);
         const unchangedSinceApply =
@@ -1058,11 +779,6 @@ export function useCollabReconcile({
           }
           return;
         }
-        // Surgical path first: replace only the changed top-level run so
-        // unchanged block NodeViews are never torn down and (under
-        // Collaboration) Yjs sees a minimal edit instead of a full-fragment
-        // rewrite. Falls back to the classic whole-document setContent when no
-        // parser is available or the targeted transaction cannot be applied.
         let appliedSurgically = false;
         if (parseValue !== false) {
           const parse = parseValue ?? defaultParseValue;
@@ -1076,10 +792,6 @@ export function useCollabReconcile({
           setContent(editor, value, { emitUpdate: false, addToHistory: false });
         }
         isSettingContentRef.current = false;
-        // Capture the SERIALIZED result, not the raw value. For non-idempotent
-        // input these differ; recording the serialized output is what lets the
-        // next poll (which returns this serialized form) be recognized as our
-        // own echo and skipped — stabilizing the doc after exactly one apply.
         const serialized = getMarkdown(editor);
         lastEmittedRef.current = serialized;
         pushEmittedRing(recentEmittedRef.current, serialized);
@@ -1126,17 +838,7 @@ export function useCollabReconcile({
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
     if (!editable || isSettingContentRef.current) return true;
-    // Collaboration can emit schema/default-paragraph transactions while the
-    // persisted Y.Doc is still loading and before the authoritative value has
-    // seeded/reconciled. Never let those transient pre-seed updates reach an
-    // app's local mirror or autosave path (Content serializes an empty paragraph
-    // as `<empty-block/>`, which is non-empty text and bypasses the generic
-    // registerEmitted empty-string guard).
     if (collab && !seededRef.current) {
-      // Passive effects normally mark a synced empty document initialized
-      // before a person can type. Keep the event boundary correct too: if a
-      // genuine local edit wins that tiny race, it is itself proof that the
-      // synced empty document is ready. Remote Yjs transactions stay ignored.
       const firstSyncedEmptyUserEdit =
         collabSynced &&
         !value.trim() &&
@@ -1149,18 +851,12 @@ export function useCollabReconcile({
     if (transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION)) {
       return true;
     }
-    // In collab mode, never persist remote-originated changes (the initial Yjs
-    // state load or a peer's edit arriving via sync). Each client saves only its
-    // OWN local edits; a peer's edit is saved by that peer. Without this, a
-    // lagging Y.Doc load would write stale markdown over newer SQL.
     if (collab && transaction && isChangeOrigin(transaction)) return true;
     lastTypedAtRef.current = Date.now();
     return false;
   };
 
   const registerEmitted = (markdown: string): boolean => {
-    // Don't persist an empty doc before Collaboration has seeded — that would
-    // clobber the saved block content with an empty string.
     if (collab && !markdown.trim()) return false;
     lastEmittedRef.current = markdown;
     pushEmittedRing(recentEmittedRef.current, markdown);

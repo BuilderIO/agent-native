@@ -2,10 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSyncState } from "./poll.js";
 
-/**
- * Records every DELETE issued against sync_events and lets a test decide how
- * many rows each one removed, so batching and stop conditions are observable.
- */
 function makeDb(
   options: {
     deletedPerBatch?: number[];
@@ -98,8 +94,6 @@ describe("sync_events prune", () => {
     vi.restoreAllMocks();
   });
 
-  // The retention timestamp is indexed additively, so this stays an indexed
-  // range scan without treating the monotonic version cursor as wall time.
   it("prunes by the indexed retention timestamp, oldest first, in bounded batches", async () => {
     const db = makeDb({ deletedPerBatch: [10_000, 3] });
     await stateWith(db).persistSyncEvent({
@@ -116,7 +110,6 @@ describe("sync_events prune", () => {
       "ORDER BY sync_events.created_at, sync_events.id",
     );
     expect(first.sql).not.toContain("version <");
-    // Bounded: a LIMIT argument, and a cutoff 24h behind the clock.
     expect(first.args).toEqual([
       "agent-native:sync-events-prune",
       1_800_000_000_000 - 86_400_000,
@@ -157,7 +150,6 @@ describe("sync_events prune", () => {
   });
 
   it("caps how long one prune call can run when there is a backlog", async () => {
-    // Every batch comes back full, i.e. the table is far behind.
     const db = makeDb({ deletedPerBatch: Array(50).fill(10_000) });
     await stateWith(db).persistSyncEvent({
       version: 1,
@@ -168,9 +160,6 @@ describe("sync_events prune", () => {
     expect(db.deletes).toHaveLength(40);
   });
 
-  // The previous `.catch(() => {})` is why a table could reach 47 GB with
-  // nobody finding out: a prune that never succeeded looked exactly like a
-  // prune with nothing to do.
   it("warns when the prune fails instead of swallowing it", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const db = makeDb({ failDeletes: true });

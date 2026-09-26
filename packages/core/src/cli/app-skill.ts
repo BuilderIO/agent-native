@@ -1,11 +1,3 @@
-/**
- * `agent-native app-skill` packages an agent-native app as a distributable
- * skill bundle: instructions + MCP connector + embeddable app surfaces.
- *
- * The manifest intentionally contains no user secrets. Hosted installs write
- * URL-only MCP entries; clients that need auth complete OAuth/device setup in
- * the host. Local installs point at a developer-owned app process.
- */
 
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -57,11 +49,6 @@ export interface AppSkillManifest {
   id: string;
   displayName: string;
   description: string;
-  /**
-   * Optional semver base for generated plugin manifests. Codex keys its plugin
-   * cache on the version string, so the packer appends a content hash to this
-   * base; leave it unset to default to "1.0.0".
-   */
   version?: string;
   hosted: {
     url: string;
@@ -706,9 +693,6 @@ export function exportedSkillContentHash(
   const parts = skills
     .map((skill) => {
       const skillDir = path.join(manifestDir, skill.path);
-      // Hash SKILL.md plus every sibling file under the skill dir (e.g.
-      // references/*), so a progressive-disclosure reference edit still changes
-      // the content hash and bumps the Codex plugin version for auto-upgrade.
       const body = collectSkillFiles(skillDir)
         .map(
           (rel) =>
@@ -727,11 +711,6 @@ export function exportedSkillContentHash(
     .slice(0, 12);
 }
 
-/**
- * List a skill dir's files (SKILL.md + any siblings like references/*) as
- * skill-relative POSIX paths, sorted for a stable content hash. A bare SKILL.md
- * source (file, not dir) falls back to just "SKILL.md".
- */
 function collectSkillFiles(skillDir: string): string[] {
   const out: string[] = [];
   const walk = (dir: string, prefix: string): void => {
@@ -744,21 +723,11 @@ function collectSkillFiles(skillDir: string): string[] {
   };
   walk(skillDir, "");
   if (out.length === 0) {
-    // Source resolved to a single SKILL.md file rather than a dir, or is empty.
     return ["SKILL.md"];
   }
   return out.sort();
 }
 
-/**
- * Plugin version embeds a content hash of the exported skills + MCP server
- * identity/endpoint.
- * Codex keys its plugin cache on the version string, so a changed skill or MCP
- * URL yields a new version and `codex plugin marketplace upgrade` (which runs
- * on startup) delivers the update automatically — no manual semver bump per
- * edit. Claude Code uses commit-SHA versioning instead (plugin.json omits
- * version), so it auto-updates on every push.
- */
 export function resolvePluginVersion(
   manifest: AppSkillManifest,
   manifestDir: string,
@@ -1308,11 +1277,6 @@ export async function ensureAppSkill(
     return result;
   }
 
-  // Aliases are intentionally NOT written as separate entries. Instead,
-  // repurpose the alias list as a cleanup list: remove any other entries in
-  // the same config files that point at the same URL (covers legacy alias
-  // names, old default names like 'agent-native-<slug>', and any stale
-  // custom names left from previous installs).
   const allRemovedNames: string[] = [];
   for (const client of writableClients) {
     const removed = removeSameUrlDuplicatesForClient(

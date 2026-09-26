@@ -43,10 +43,6 @@ type GlobalWithDatabaseTelemetry = typeof globalThis & {
 
 const globalRef = globalThis as GlobalWithDatabaseTelemetry;
 
-// AsyncLocalStorage is resolved lazily, never at module load: this module can
-// land in the browser dev graph, where a top-level `new AsyncLocalStorage()`
-// would throw against Vite's externalized `node:async_hooks` stub. On non-Node
-// runtimes telemetry no-ops.
 const NOOP_STORAGE: TelemetryStorage = {
   getStore: () => undefined,
   run: (_store, fn) => fn(),

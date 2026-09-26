@@ -42,22 +42,15 @@ export interface MessageQueueDrawerLabels {
 export type MessageQueueDrawerVariant = "default" | "recessed";
 
 export interface MessageQueueDrawerProps {
-  /** Messages waiting to be sent, in the order they will be processed. */
   items: readonly MessageQueueItem[];
-  /** Promote one queued message onto the active run's stack. */
   onSteer?: (item: MessageQueueItem) => void;
-  /** Remove a message without sending it. */
   onRemove: (item: MessageQueueItem) => void;
-  /** Host-owned overflow actions for each queued message. */
   getItemActions?: (
     item: MessageQueueItem,
   ) => readonly MessageQueueItemAction[];
-  /** Optional host rendering for the message text. */
   renderText?: (item: MessageQueueItem) => ReactNode;
   labels: MessageQueueDrawerLabels;
-  /** Visual treatment for the queue's relationship to the composer. */
   variant?: MessageQueueDrawerVariant;
-  /** Prevents queue mutations while a host command is pending. */
   disabled?: boolean;
   className?: string;
 }
@@ -76,10 +69,6 @@ function recessedQueueHeight(items: readonly MessageQueueItem[]): number {
   return Math.min(contentHeight, RECESSED_QUEUE_MAX_HEIGHT_PX);
 }
 
-/**
- * Compact queue surface attached to the composer instead of the transcript.
- * The drawer owns presentation; hosts own queue semantics and extra actions.
- */
 export function MessageQueueDrawer({
   items,
   onSteer,

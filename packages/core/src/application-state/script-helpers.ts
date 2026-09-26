@@ -1,17 +1,3 @@
-/**
- * Application state helpers for use in scripts and actions.
- *
- * The session ID determines which user's application state is read/written.
- * Resolution order:
- *   1. Per-request context (AsyncLocalStorage) — set by the HTTP handler
- *   2. Verified request capability — scoped public/embed sessions
- *   3. AGENT_USER_EMAIL env var — CLI scripts only
- *
- * The per-request context is critical in multi-user deployments: the env var
- * is process-global and gets overwritten by concurrent requests, so it cannot
- * reliably identify the caller. Only CLI scripts (single-user, no HTTP
- * context) should fall through to the env var.
- */
 
 import {
   getAmbientUserEmail,
@@ -29,15 +15,6 @@ import {
   type AppStateCompareAndSetOperation,
 } from "./store.js";
 
-/**
- * Resolve session ID for the current caller.
- *
- * In an HTTP/action context, uses the per-request user email from
- * AsyncLocalStorage so concurrent users don't collide. In a CLI context
- * (no request), falls back to AGENT_USER_EMAIL. Capability-only requests use
- * the verified capability as their isolated session key. Throws when neither
- * is present — application state must be scoped to a real identity or grant.
- */
 async function resolveSessionId(): Promise<string> {
   try {
     const { getRequestUserEmail } =
@@ -157,7 +134,6 @@ export function getCurrentRequestBrowserTabId(): string | null {
   }
 }
 
-/** `key:<tabId>` when a browser tab id is present, otherwise `key`. */
 export function appStateKeyForBrowserTab(
   key: string,
   browserTabId: unknown,
@@ -178,11 +154,6 @@ async function readUnscopedAppState(
   return appStateGet(sessionId, key);
 }
 
-/**
- * Read application state scoped to the requesting browser tab. Reads the
- * tab-scoped key first. Global fallback is opt-in when a browser tab is
- * present, so a missing tab snapshot cannot silently expose another tab.
- */
 export async function readAppStateForCurrentTab(
   key: string,
   options?: { fallbackToGlobal?: boolean },
@@ -197,7 +168,6 @@ export async function readAppStateForCurrentTab(
   return readUnscopedAppState(key);
 }
 
-/** Write application state scoped to the requesting browser tab. */
 export async function writeAppStateForCurrentTab(
   key: string,
   value: Record<string, unknown>,

@@ -26,7 +26,6 @@ import type {
 
 export interface BuildObservationalContextOptions extends ObservationalMemoryOwner {
   threadId: string;
-  /** The full, ordered thread messages — the recent tail is taken from here. */
   messages: EngineMessage[];
   config?: Partial<ObservationalMemoryConfig>;
 }
@@ -35,30 +34,10 @@ function sumTokens(entries: ObservationalMemoryEntry[]): number {
   return entries.reduce((acc, entry) => acc + (entry.tokenEstimate || 0), 0);
 }
 
-/**
- * Build the three-tier Observational Memory context for a thread. The returned
- * tiers are ready to be injected into the turn's prompt assembly.
- *
- * This is consumed by the agent loop (`production-agent.ts`): when a thread has
- * persisted observations/reflections, the older raw-message prefix (everything
- * before `recentMessages`) is replaced with the `reflections` + `observations`
- * text, `recentMessages` is kept verbatim, and a short "Observational Memory"
- * block is prepended. Threads with no OM entries are left unchanged.
- */
-/** True when this thread has at least one persisted observation or reflection. */
 export function hasObservationalMemory(context: ObservationalContext): boolean {
   return context.reflections.length > 0 || context.observations.length > 0;
 }
 
-/**
- * Serialize the reflections + observations tiers into a single, clearly
- * delimited prompt block. The recent-raw-message tail is NOT serialized here —
- * it stays as verbatim engine messages — so this block represents only the
- * compacted older history that replaces the raw prefix.
- *
- * Returns an empty string when there is nothing compacted yet, so callers can
- * cheaply skip injection for short threads.
- */
 export function serializeObservationalMemoryBlock(
   context: ObservationalContext,
 ): string {

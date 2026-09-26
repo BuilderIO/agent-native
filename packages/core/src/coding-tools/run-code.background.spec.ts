@@ -4,11 +4,6 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 
-// Real in-memory PGlite behind getDbExec so run-code's background param and
-// executionId polling exercise the genuine enqueue → claim → execute →
-// finalize path (including a REAL sandbox child process for the end-to-end
-// case). Self-dispatch is mocked; the runtime is treated as long-lived Node so
-// drives run in-process.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let serverless = false;
 
@@ -81,7 +76,6 @@ beforeEach(async () => {
   resetSandboxBackgroundForTests();
   resetSandboxAdapterForTests();
   fireInternalDispatch.mockClear();
-  // Keep the CLI env fallback out of identity assertions.
   vi.stubEnv("AGENT_USER_EMAIL", "");
 });
 
@@ -130,19 +124,16 @@ describe("run-code background param", () => {
     const enqueued = JSON.parse(enqueueResult);
     expect(enqueued.status).toBe("queued");
     expect(enqueued.executionId).toMatch(/^sbx_/);
-    // Generous background default budget, not the 120s foreground default.
     expect(enqueued.timeoutMs).toBe(600_000);
     expect(enqueued.guidance).toContain(enqueued.executionId);
     expect(enqueued.guidance).toMatch(/continue other/i);
     expect(enqueued.guidance).toContain("run-code");
 
-    // Row is owner-scoped and carries the raw code.
     const row = await getSandboxExecutionInternal(enqueued.executionId);
     expect(row!.owner).toBe(OWNER);
     expect(row!.orgId).toBe("org-1");
     expect(row!.code).toContain("40 + 2");
 
-    // The in-process drive runs the code through the real local sandbox.
     await vi.waitFor(
       async () => {
         const updated = await getSandboxExecutionInternal(enqueued.executionId);
@@ -200,7 +191,7 @@ describe("run-code background param", () => {
   });
 
   it("queues every call when AGENT_NATIVE_SANDBOX=background", async () => {
-    serverless = true; // keep the drive as a mocked dispatch (no real exec)
+    serverless = true;
     vi.stubEnv("AGENT_NATIVE_SANDBOX", "background");
     resetSandboxAdapterForTests();
     const entry = createRunCodeEntry(makeActions);

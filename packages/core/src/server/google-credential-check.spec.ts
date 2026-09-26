@@ -155,8 +155,6 @@ describe("checkGoogleSignInCredential", () => {
 
     const result = await checkGoogleSignInCredential();
 
-    // The exact shape that hid the 2026-08-20 outage: sign-in works off
-    // client-a while every repair aimed at client-b changed nothing.
     expect(result.mismatchedPairs).toBe(true);
     expect(result.clientId).toBe("client-a");
   });
@@ -172,9 +170,7 @@ describe("checkGoogleSignInCredential", () => {
     expect(result.clientId).toBe("client-b");
   });
   it("probes the pair Better Auth actually wired, not the preferred one", async () => {
-    // A scoped template (mail/calendar) runs on GOOGLE_CLIENT_*, so probing the
     // preferred GOOGLE_SIGN_IN_* pair would verify a credential the callback
-    // never uses and report healthy while sign-in is broken.
     process.env.GOOGLE_SIGN_IN_CLIENT_ID = "preferred-client";
     process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "preferred-secret";
     process.env.GOOGLE_CLIENT_ID = "scoped-client";
@@ -343,9 +339,6 @@ describe("probeGoogleRedirectUri", () => {
   });
 
   it("classifies a mismatched redirect URI and decodes the authError detail", async () => {
-    // "redirect_uri_mismatch" base64url-encoded, matching the shape of
-    // Google's opaque (protobuf, not JSON) authError param closely enough
-    // for the decoded text to remain readable.
     const authError = Buffer.from("redirect_uri_mismatch", "utf-8").toString(
       "base64url",
     );

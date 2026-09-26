@@ -1,10 +1,6 @@
-// Browser-safe entry — only client & shared exports (no Node/Express/chokidar).
 
-// Public app configuration is serializable and safe to expose to browser
-// consumers alongside the resolved config injected by the Vite preset.
 export * from "./config.js";
 
-// Client
 export {
   addContextToAgentChat,
   appendAgentChatContextToMessage,
@@ -84,10 +80,8 @@ export {
   type LocalizationPreference,
 } from "./client/index.js";
 
-// Shared (isomorphic)
 export { agentChat } from "./shared/index.js";
 
-// Pure utilities (no Node.js deps — safe for browser and SSR)
 export { parseArgs, camelCaseArgs } from "./scripts/parse-args.js";
 
 export {
@@ -108,7 +102,6 @@ export {
   type AgentNativeWebMcpToolResult,
 } from "./client/webmcp.js";
 
-// defineAction — used by template actions, no Node.js deps
 export {
   defineAction,
   fail,

@@ -127,7 +127,6 @@ describe("automation domain service", () => {
     });
 
     expect(definition.meta.timezone).toBe("America/New_York");
-    // 8am Eastern is 12:00 or 13:00 UTC depending on DST, never 08:00 UTC.
     expect(definition.meta.nextRun).toBeTruthy();
     expect(new Date(definition.meta.nextRun as string).getUTCHours()).not.toBe(
       8,

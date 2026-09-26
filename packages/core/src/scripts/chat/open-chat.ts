@@ -1,12 +1,3 @@
-/**
- * Core script: open-chat
- *
- * Open a chat thread in the UI as a new tab and focus it.
- * Writes a one-shot command to application-state that the UI picks up.
- *
- * Usage:
- *   pnpm action open-chat --id <thread-id>
- */
 
 import { writeAppState } from "../../application-state/script-helpers.js";
 import { getThread } from "../../chat-threads/store.js";
@@ -37,13 +28,11 @@ Examples:
     );
   }
 
-  // Verify the thread exists
   const thread = await getThread(threadId);
   if (!thread) {
     fail(`Chat thread "${threadId}" not found.`);
   }
 
-  // Write the open-chat command to application-state
   await writeAppState("chat-command", {
     command: "open-thread",
     threadId,

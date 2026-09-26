@@ -1,13 +1,3 @@
-/**
- * Shared plumbing for collaboration emails (comments, replies, reactions,
- * mentions).
- *
- * Two things every app was about to reimplement live here: resolving who
- * should receive an activity email, and reporting delivery honestly. A
- * workspace with no email provider is a *different* outcome from "nobody
- * wanted this email" — collapsing both into an empty success is what let a
- * dead notification toggle ship unnoticed.
- */
 
 import { getUserSetting } from "../settings/user-settings.js";
 import { isEmailConfigured } from "./email.js";
@@ -25,21 +15,15 @@ export type ActivityNotificationResult = {
   status: ActivityNotificationStatus;
   sent: string[];
   failed: ActivityDeliveryFailure[];
-  /** Set only on `notification-error`: why recipients could not be resolved. */
   error?: string;
 };
 
-/** Default field read from an app's per-user preference blob. */
 const DEFAULT_PREFERENCE_FIELD = "emailNotifications";
 
 export interface ResolveActivityRecipientsInput {
-  /** Owner, thread participants, mentions — duplicates and blanks are fine. */
   candidates: (string | null | undefined)[];
-  /** The person who caused the activity. Never emailed about their own action. */
   actorEmail?: string | null;
-  /** App-owned user settings key, e.g. `clips-user-prefs`. */
   preferenceKey: string;
-  /** Field inside that blob. Absent or non-`false` means opted in. */
   preferenceField?: string;
 }
 
@@ -53,15 +37,9 @@ async function wantsActivityEmail(
   preferenceField: string,
 ): Promise<boolean> {
   const prefs = await getUserSetting(email, preferenceKey);
-  // A user who never opened settings has no stored blob; treat that as opted
-  // in rather than silently dropping their notifications.
   return prefs?.[preferenceField] !== false;
 }
 
-/**
- * Normalize, dedupe, drop the actor, and filter by each recipient's stored
- * preference. Order follows first appearance in `candidates`.
- */
 export async function resolveActivityRecipients({
   candidates,
   actorEmail,
@@ -87,16 +65,10 @@ export async function resolveActivityRecipients({
 }
 
 export interface NotifyActivityInput extends ResolveActivityRecipientsInput {
-  /** Sends one email. Throwing marks that recipient failed, not the batch. */
   send: (to: string) => Promise<unknown>;
-  /** Prefix for the delivery-failure log line, e.g. `[slides]`. */
   logLabel?: string;
 }
 
-/**
- * Resolve recipients and deliver one email each. Returns a status that
- * distinguishes "no email provider" from "nobody to email" from a real send.
- */
 export async function notifyActivity({
   send,
   logLabel,
@@ -133,8 +105,6 @@ export async function notifyActivity({
     );
   }
 
-  // Every recipient failing is an outage, not a delivery. Callers that log or
-  // surface this must not see it as the same outcome as a successful send.
   return {
     status: sent.length === 0 ? "delivery-failed" : "delivered",
     sent,
@@ -142,13 +112,6 @@ export async function notifyActivity({
   };
 }
 
-/**
- * Run an activity notification without letting it fail the write that caused
- * it. The comment/reaction is already persisted by the time notification runs;
- * rejecting here makes the client roll back and retry, which duplicates the
- * row. The error still surfaces — as a distinct `notification-error` status,
- * never as a silent success.
- */
 export async function runActivityNotification<
   T extends {
     status: string;

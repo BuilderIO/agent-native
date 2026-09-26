@@ -73,9 +73,6 @@ export async function resolveVersionedResourceAccess(
     };
   }
 
-  // Fail closed: unregistered types, and registered types without an access
-  // resolver that aren't shareable, never invent ownership. bypassScope on
-  // history queries is only safe after a real resource ACL.
   return null;
 }
 

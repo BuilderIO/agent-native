@@ -1,11 +1,3 @@
-/**
- * Core script: search-chats
- *
- * Search or list past agent chat threads.
- *
- * Usage:
- *   pnpm action search-chats [--query "search term"] [--limit N] [--format json] [--includeArchived]
- */
 
 import { searchThreads, listThreads } from "../../chat-threads/store.js";
 import {

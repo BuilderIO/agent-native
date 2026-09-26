@@ -6,9 +6,6 @@ import { runAgentLoop } from "./production-agent.js";
 import type { ActionEntry as ProductionActionEntry } from "./production-agent.js";
 import type { AgentChatEvent } from "./types.js";
 
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
 
 const capabilities = {
   thinking: false,
@@ -18,7 +15,6 @@ const capabilities = {
   parallelToolCalls: true,
 } as const;
 
-/** A mock engine that replays a fixed script of event arrays, one per stream() call. */
 function scriptedEngine(scripts: EngineEvent[][]): AgentEngine {
   let call = 0;
   return {
@@ -86,9 +82,6 @@ function baseOpts(
   };
 }
 
-// ---------------------------------------------------------------------------
-// (a) No processors → loop unchanged, normal completion
-// ---------------------------------------------------------------------------
 
 describe("processor seam — no processors", () => {
   it("completes normally and emits no tripwire when no processors are passed", async () => {
@@ -115,9 +108,6 @@ describe("processor seam — no processors", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// (b) processOutputStream calls abort() → run halts + emits tripwire
-// ---------------------------------------------------------------------------
 
 describe("processor seam — processOutputStream abort", () => {
   it("halts the run and emits a tripwire when a stream processor aborts", async () => {
@@ -149,24 +139,17 @@ describe("processor seam — processOutputStream abort", () => {
       reason: "Blocked: secret detected",
       processor: "no-secrets",
     });
-    // The reason is surfaced as a terminal error message. Keeping the
-    // tripwire telemetry separate from the terminal event lets run-manager
-    // persist the failed status instead of synthesizing `done`.
     expect(events).toContainEqual({
       type: "error",
       error: "Blocked: secret detected",
       errorCode: "guardrail:no-secrets",
       recoverable: false,
     });
-    // A tripwired run does NOT end with a normal `done`.
     expect(events.some((e) => e.type === "done")).toBe(false);
     expect(resultText).toBe("Blocked: secret detected");
   });
 });
 
-// ---------------------------------------------------------------------------
-// (c) processOutputStep sees tool calls and can abort
-// ---------------------------------------------------------------------------
 
 describe("processor seam — processOutputStep abort", () => {
   it("sees the model's requested tool calls and can abort before they run", async () => {
@@ -201,7 +184,6 @@ describe("processor seam — processOutputStep abort", () => {
     expect(seenToolCalls).toEqual([
       { id: "call-1", name: "delete-everything", input: { confirm: true } },
     ]);
-    // Aborting in the step hook prevents the tool from ever executing.
     expect(run).not.toHaveBeenCalled();
     expect(events).toContainEqual({
       type: "tripwire",
@@ -248,13 +230,9 @@ describe("processor seam — processOutputStep abort", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// (d) per-processor state persists across chunks + is isolated between processors
-// ---------------------------------------------------------------------------
 
 describe("processor seam — per-processor state", () => {
   it("persists state across chunks and isolates it between processors", async () => {
-    // Two text deltas in one turn so processOutputStream fires twice.
     const engine = scriptedEngine([
       [
         { type: "text-delta", text: "aa" },
@@ -275,7 +253,6 @@ describe("processor seam — per-processor state", () => {
       name: "A",
       processOutputStream({ part, state }) {
         if (part.type !== "text-delta") return;
-        // State persists across chunks for this processor.
         state.count = ((state.count as number) ?? 0) + 1;
         counterA.push(state.count as number);
         state.charsA = ((state.charsA as string) ?? "") + part.text;
@@ -287,7 +264,6 @@ describe("processor seam — per-processor state", () => {
         if (part.type !== "text-delta") return;
         state.count = ((state.count as number) ?? 0) + 1;
         counterB.push(state.count as number);
-        // Processor B never sees Processor A's `charsA` key — state is isolated.
         sawOtherKey.push("charsA" in state);
       },
     };
@@ -296,10 +272,8 @@ describe("processor seam — per-processor state", () => {
       baseOpts(engine, () => {}, { processors: [procA, procB] }),
     );
 
-    // Each processor's own counter incremented independently across both chunks.
     expect(counterA).toEqual([1, 2]);
     expect(counterB).toEqual([1, 2]);
-    // Processor B never observed Processor A's state key.
     expect(sawOtherKey).toEqual([false, false]);
   });
 

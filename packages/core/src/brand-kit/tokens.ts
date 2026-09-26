@@ -1,11 +1,3 @@
-/**
- * `@agent-native/core/brand-kit/tokens`
- *
- * Pure helpers for the named-token vocabulary a Brand Kit stores alongside its
- * seven color roles. Kept on its own subpath (no `design-token-utils` re-export)
- * so browser code can import the CSS-safety predicates without pulling the
- * server-side extraction stack into the bundle.
- */
 
 import type { BrandKitToken, BrandKitTokenType } from "./types.js";
 
@@ -18,10 +10,6 @@ const BRAND_KIT_TOKEN_TYPES: readonly BrandKitTokenType[] = [
   "other",
 ];
 
-/**
- * Upper bound on a single kit's stored vocabulary. Large systems legitimately
- * define hundreds of tokens; this only stops an unbounded scrape landing in SQL.
- */
 export const MAX_BRAND_KIT_TOKENS = 500;
 
 const CSS_CUSTOM_PROPERTY_NAME = /^--[-_a-zA-Z0-9]+$/;
@@ -70,10 +58,6 @@ export function isSafeCssVarName(value: string): boolean {
   return CSS_CUSTOM_PROPERTY_NAME.test(value);
 }
 
-/**
- * Token values are spliced raw into `:root { … }` declarations, so anything that
- * could terminate a declaration or break out of a `<style>` element is unsafe.
- */
 export function isSafeCssTokenValue(value: string): boolean {
   return (
     value.length > 0 &&
@@ -111,8 +95,6 @@ export function classifyBrandKitToken(
   const n = name.toLowerCase();
   if (isColorTokenValue(value)) return "color";
   if (/radius|rounded/i.test(n)) return "radius";
-  // `line-?height` and `letter` run before the spacing check so
-  // `letter-spacing` is type metrics, not layout spacing.
   if (
     /font|size|leading|line-?height|letter|tracking|weight|heading|body|type/i.test(
       n,
@@ -128,7 +110,6 @@ export function classifyBrandKitToken(
   return "other";
 }
 
-/** Title-case display name derived from a CSS var, e.g. `--primary-color`. */
 export function friendlyTokenName(cssVar: string): string {
   return cssVar
     .replace(/^--/, "")
@@ -144,7 +125,6 @@ export type BrandKitTokenRejectionReason =
 
 export interface BrandKitTokenRejection {
   reason: BrandKitTokenRejectionReason;
-  /** Best-effort identifier for the offending entry, for error messages. */
   label: string;
 }
 
@@ -162,11 +142,6 @@ function readString(source: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/**
- * Coerce untrusted token JSON into storable tokens, reporting every entry it
- * could not accept. Later duplicates of a `cssVar` win, matching the overlay
- * order importers use.
- */
 export function normalizeBrandKitTokens(
   input: unknown,
 ): NormalizedBrandKitTokens {
@@ -225,7 +200,6 @@ export function normalizeBrandKitTokens(
   return { tokens: tokens.slice(0, MAX_BRAND_KIT_TOKENS), rejected };
 }
 
-/** Human-readable summary of why tokens were refused, for thrown errors. */
 export function describeBrandKitTokenRejections(
   rejected: readonly BrandKitTokenRejection[],
 ): string {
@@ -235,7 +209,6 @@ export function describeBrandKitTokenRejections(
     .join(", ");
 }
 
-/** The CSS variable each colour role is published under. */
 const BRAND_KIT_COLOR_ROLE_VARS: Record<string, string> = {
   primary: "--color-primary",
   secondary: "--color-secondary",
@@ -246,11 +219,6 @@ const BRAND_KIT_COLOR_ROLE_VARS: Record<string, string> = {
   textMuted: "--color-text-muted",
 };
 
-/**
- * The seven colour roles plus radius/spacing, as tokens. Derived from a kit's
- * summary fields rather than named by the source system, so they carry no
- * `group`.
- */
 export function brandKitRoleTokens(
   data:
     | {
@@ -292,11 +260,6 @@ export function brandKitRoleTokens(
 const CSS_CUSTOM_PROPERTY_DECLARATION =
   /(--[-_a-zA-Z0-9]+)\s*:\s*([^;{}]+)[;}]/g;
 
-/**
- * Read a kit's named tokens out of a raw CSS block. A kit's `customCSS` already
- * spells out the source system's real token names. Declaration order wins on
- * duplicates, matching the cascade.
- */
 export function parseBrandKitTokensFromCss(
   css: string,
   source?: string,
@@ -319,11 +282,6 @@ export function parseBrandKitTokensFromCss(
   return [...byCssVar.values()].slice(0, MAX_BRAND_KIT_TOKENS);
 }
 
-/**
- * The kit's named vocabulary: its stored `tokens` when it has them, else the
- * names its `customCSS` declares. Kits predating `tokens` still carry real names
- * in CSS, so reading only `tokens` would report them as having none.
- */
 export function resolveBrandKitTokens(
   data: { tokens?: unknown; customCSS?: unknown } | null | undefined,
   cssSource?: string,
@@ -337,16 +295,11 @@ export function resolveBrandKitTokens(
 }
 
 export interface BrandKitTokenGroup {
-  /** The source's own group path when it has one, else the token type. */
   label: string;
   type: BrandKitTokenType;
   tokens: BrandKitToken[];
 }
 
-/**
- * Group tokens for display, preserving the source's collection paths. Groups sort
- * by token type so colors lead, then alphabetically within a type.
- */
 export function groupBrandKitTokens(
   tokens: readonly BrandKitToken[],
 ): BrandKitTokenGroup[] {

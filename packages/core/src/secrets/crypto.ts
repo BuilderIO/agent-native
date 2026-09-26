@@ -84,11 +84,6 @@ function appScopedEncryptionKey(): string | undefined {
     : undefined;
 }
 
-/**
- * Preserve the generic/app-local key precedence. Generic encrypted values are
- * not a cross-app boundary, and changing their preferred key would strand
- * existing OAuth tokens and credentials.
- */
 function genericEncryptionKeyMaterial(): string | undefined {
   if (typeof process === "undefined") return undefined;
   return (
@@ -110,13 +105,6 @@ function previousWorkspaceSharedEncryptionKeyMaterial(): string | undefined {
   );
 }
 
-/**
- * Vault sharing follows configured A2A trust even on independently deployed
- * sibling apps that are not launched by the workspace wrapper. The wrapper's
- * `AGENT_NATIVE_WORKSPACE` flag remains required for auth/OAuth-derived
- * secrets, but it must not be a hidden prerequisite for decrypting vault rows
- * when every app already has the same explicit `A2A_SECRET`.
- */
 function a2aSharedEncryptionKeyMaterial(): string | undefined {
   const workspaceDerived = getWorkspaceA2ADerivedSecret("secrets-encryption");
   if (workspaceDerived) return workspaceDerived;
@@ -127,14 +115,6 @@ function a2aSharedEncryptionKeyMaterial(): string | undefined {
     : undefined;
 }
 
-/**
- * Stable materials that may be used for workspace-shared vault rows, ordered
- * from current preference to legacy compatibility fallbacks.
- *
- * `BETTER_AUTH_SECRET` deliberately comes after the workspace and A2A-derived
- * materials: sibling apps normally have different auth secrets but share
- * workspace trust.
- */
 function sharedEncryptionKeyMaterials(): string[] {
   if (typeof process === "undefined") return [];
   const candidates = [
@@ -184,11 +164,6 @@ function deriveSecretEncryptionKey(
   return hashSecretEncryptionKey(material);
 }
 
-/**
- * Derive the key used by generic encrypted values such as credentials and
- * OAuth tokens. App-specific key material is allowed for these app-local
- * values.
- */
 export function getSecretEncryptionKey(): Buffer {
   const appName =
     typeof process === "undefined"
@@ -232,7 +207,6 @@ export function getSharedSecretEncryptionKey(): Buffer {
   );
 }
 
-/** Whether this deployment has stable workspace-shared key material. */
 export function hasSharedSecretEncryptionKeyMaterial(): boolean {
   if (typeof process === "undefined") return false;
   return Boolean(
@@ -274,33 +248,24 @@ function decryptWithKey(encrypted: string, key: Buffer): string {
   return pt.toString("utf8");
 }
 
-/** Encrypt a plain-text value with the generic app-local key. */
 export function encryptSecretValue(plaintext: string): string {
   return encryptWithKey(plaintext, getSecretEncryptionKey());
 }
 
-/** Decrypt a value produced by `encryptSecretValue`. Throws on tampering. */
 export function decryptSecretValue(encrypted: string): string {
   return decryptWithKey(encrypted, getSecretEncryptionKey());
 }
 
-/** Encrypt a workspace-shared `app_secrets` value. */
 export function encryptSharedSecretValue(plaintext: string): string {
   return encryptWithKey(plaintext, getSharedSecretEncryptionKey());
 }
 
-/** Decrypt a workspace-shared `app_secrets` value. */
 export function decryptSharedSecretValue(encrypted: string): string {
   return decryptSharedSecretValueDetailed(encrypted).value;
 }
 
 export interface DecryptedSharedSecretValue {
   value: string;
-  /**
-   * True when a legacy app-local candidate decrypted the value. Callers that
-   * own the row should opportunistically re-encrypt it with the preferred
-   * workspace key.
-   */
   needsReencrypt: boolean;
 }
 

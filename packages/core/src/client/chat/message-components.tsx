@@ -1,7 +1,3 @@
-// Owns: message-timestamp helpers, SelectionAttachedPill, UserMessage,
-// AssistantMessage, AssistantMessageActionBar,
-// CheckpointContext, MessageActionsContext, UserStoppedRunContext,
-// RunningActivityStatus, ThinkingIndicator, and displayableUserMessageText.
 
 import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
 import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
@@ -141,11 +137,8 @@ import {
 
 export { toolCallHasPendingApproval };
 
-// ─── Pending selection context key ───────────────────────────────────────────
-// Mirrored from AssistantChat to avoid a cross-import on a private constant.
 const PENDING_SELECTION_KEY = "pending-selection-context";
 
-// ─── displayableUserMessageText ───────────────────────────────────────────────
 
 export function displayableUserMessageText(text: string): string {
   return splitAgentChatContextFromMessage(text).message;
@@ -167,7 +160,6 @@ export function isHiddenUserMessage(message: unknown): boolean {
   );
 }
 
-// ─── Message timestamp helpers ────────────────────────────────────────────────
 
 export interface FormattedMessageTimestamp {
   short: string;
@@ -296,7 +288,6 @@ export interface AssistantMessageActionBarProps {
   className?: string;
 }
 
-/** Compact, hover-revealed actions for a completed assistant response. */
 export function AssistantMessageActionBar({
   timestamp,
   threadId,
@@ -380,7 +371,6 @@ export function AssistantMessageActionBar({
   );
 }
 
-// ─── SelectionAttachedPill ────────────────────────────────────────────────────
 
 export function SelectionAttachedPill() {
   const t = useT();
@@ -442,7 +432,6 @@ export function SelectionAttachedPill() {
           aria-label={t("agentChat.selection.clear")}
           onClick={() => {
             setLength(null);
-            // Dispatch clear event; AssistantChat owns the DELETE call.
             window.dispatchEvent(
               new CustomEvent("agent-panel:selection-clear-requested"),
             );
@@ -456,16 +445,11 @@ export function SelectionAttachedPill() {
   );
 }
 
-// ─── CheckpointContext / MessageActionsContext ────────────────────────────────
 
 export const CheckpointContext = React.createContext<{
   apiUrl: string;
   devMode: boolean;
   threadId?: string;
-  // Run ids that actually have a saved checkpoint. Restore is only offered for
-  // these — auto-checkpointing skips turns that started from a dirty tree or a
-  // non-git cwd, and without this the menu item appears on every turn and does
-  // nothing when clicked.
   checkpointRunIds?: ReadonlySet<string>;
 } | null>(null);
 
@@ -503,7 +487,6 @@ export interface AssistantChatHistoryConfig<
   TVersion extends AssistantChatHistoryVersion = AssistantChatHistoryVersion,
   TRestoreResult = unknown,
 > {
-  /** Flush host editor writes before an agent turn starts. */
   beforeStart?: () => void | Promise<void>;
   list: {
     action: string;
@@ -552,11 +535,6 @@ export const AssistantChatHistoryContext =
 export const MessageActionsContext = React.createContext<{
   onForkChat?: () => void | boolean | Promise<void | boolean>;
   onRetryRunError?: () => void;
-  /**
-   * Key of the run error the transient recovery banner is already showing. The
-   * turn that owns that run stays quiet so one failure is never announced
-   * twice; every other failed turn keeps its own inline marker.
-   */
   bannerRunErrorKey?: string | null;
 } | null>(null);
 
@@ -690,12 +668,6 @@ export function findAssistantChatHistoryBeginningVersion<
   return beginning;
 }
 
-/**
- * Restore rewrites the working tree, so only offer it when the server actually
- * has a checkpoint for this turn. Auto-checkpointing skips turns that started
- * from a dirty tree or a non-git cwd; gating on Code mode alone put a
- * "Revert to here" item on turns where clicking it could do nothing.
- */
 export function shouldOfferRestore(args: {
   devMode: boolean | undefined;
   isComplete: boolean;
@@ -714,10 +686,6 @@ export function shouldOfferRestore(args: {
   );
 }
 
-/**
- * Live yields put the run id at `metadata.custom.runId`; server-persisted
- * messages put it at `metadata.runId`.
- */
 export function assistantMessageRunId(message: unknown): string | undefined {
   const metadata = (message as { metadata?: unknown })?.metadata as
     | { custom?: { runId?: unknown }; runId?: unknown }
@@ -729,7 +697,6 @@ export function assistantMessageRunId(message: unknown): string | undefined {
       : undefined;
 }
 
-/** Stable logical-turn identity shared by chained continuation run IDs. */
 export function assistantMessageTurnId(message: unknown): string | undefined {
   const metadata = (message as { metadata?: unknown })?.metadata as
     | { custom?: { turnId?: unknown }; turnId?: unknown }
@@ -761,7 +728,6 @@ export function resolveAssistantRequestId(
   );
 }
 
-// ─── MessageBranchPicker ──────────────────────────────────────────────────────
 
 export function MessageBranchPicker() {
   const t = useT();
@@ -797,7 +763,6 @@ export function MessageBranchPicker() {
   );
 }
 
-// ─── Mention rendering ────────────────────────────────────────────────────────
 
 const mentionIconProps = {
   size: 14,
@@ -827,12 +792,10 @@ function MentionChipIcon({ icon }: { icon?: string }) {
   }
 }
 
-// Matches rich mention format: @[label|icon] or plain @word
 const richMentionPattern = /@\[([^\]|]+)\|([^\]]+)\]/g;
 const plainMentionPattern = /((?:^|(?<=\s))@(\w+))/g;
 
 function UserMessageText({ text }: { text: string }) {
-  // Strip injected <context>...</context> blocks before display
   const displayText = displayableUserMessageText(text);
 
   const parts: React.ReactNode[] = [];
@@ -840,7 +803,6 @@ function UserMessageText({ text }: { text: string }) {
   let match: RegExpExecArray | null;
   let hasRichMentions = false;
 
-  // First try rich mentions (@[label|icon])
   richMentionPattern.lastIndex = 0;
   while ((match = richMentionPattern.exec(displayText)) !== null) {
     hasRichMentions = true;
@@ -870,7 +832,6 @@ function UserMessageText({ text }: { text: string }) {
     return <>{parts}</>;
   }
 
-  // Fallback: plain @word mentions (for older messages)
   plainMentionPattern.lastIndex = 0;
   while ((match = plainMentionPattern.exec(displayText)) !== null) {
     const matchStart = match.index;
@@ -897,16 +858,10 @@ function UserMessageText({ text }: { text: string }) {
   return <>{parts.length > 0 ? parts : displayText}</>;
 }
 
-// ─── UserMessageAttachments ───────────────────────────────────────────────────
 
 function UserMessageAttachments() {
   const messageRuntime = useMessageRuntime();
   const msg = messageRuntime.getState();
-  // assistant-ui stores user attachments on msg.attachments (separate from content).
-  // Each attachment has: { id, type, name, contentType?, content: MessagePart[] }.
-  // Image adapters put a {type:"image", image:"data:..."} part in content; text
-  // adapters put a {type:"text", text:"<attachment>..."} part. Fall back to a
-  // file chip when there's no inline image.
   const attachments = (msg as { attachments?: readonly Attachment[] })
     .attachments;
   if (!attachments || attachments.length === 0) return null;
@@ -918,9 +873,6 @@ function UserMessageAttachments() {
           return <PastedTextChip key={att.id} attachment={att} compact />;
         }
 
-        // Prefer the hosted upload URL when available (set by the server after
-        // preUploadAttachments). This avoids re-shipping base64 in each poll
-        // and lets the browser cache the image via a stable URL.
         const uploadUrl = (
           att as unknown as { metadata?: { uploadUrl?: string } }
         ).metadata?.uploadUrl;
@@ -1015,7 +967,6 @@ export function ChatImageAttachmentPreview({
   );
 }
 
-// ─── UserMessageEditComposer ──────────────────────────────────────────────────
 
 function UserMessageEditComposer() {
   const t = useT();
@@ -1048,7 +999,6 @@ function UserMessageEditComposer() {
   );
 }
 
-// ─── MessageActionsMenu ────────────────────────────────────────────────────────
 
 export function MessageActionsMenu({
   onFork,
@@ -1291,7 +1241,6 @@ export function AssistantChatHistoryBeginningRevertButton() {
   );
 }
 
-// ─── UserMessage ──────────────────────────────────────────────────────────────
 
 export function UserMessage() {
   const t = useT();
@@ -1347,7 +1296,6 @@ export function UserMessage() {
 
   if (hidden) return null;
 
-  // When in edit mode, show the inline edit composer instead of the message bubble.
   if (isEditing) {
     return (
       <div className="flex justify-end">
@@ -1476,7 +1424,6 @@ export function UserMessage() {
   );
 }
 
-// ─── AssistantMessage ─────────────────────────────────────────────────────────
 
 function assistantMessageHasRenderableContent(message: {
   content?: unknown;
@@ -1530,7 +1477,6 @@ export function isMissingFinalResponseWarningText(text: string): boolean {
   return (
     normalized.includes("stopped before sending a final message") ||
     normalized.includes("stopped without sending a final message") ||
-    // "stopped after <action> failed, without sending a final message."
     (normalized.startsWith("The agent stopped after ") &&
       normalized.includes("without sending a final message"))
   );
@@ -1738,9 +1684,6 @@ export function assistantMessageHasCustomUi(content: unknown): boolean {
   });
 }
 
-// Only the last assistant message may shimmer as "the currently running
-// tool" — an older message's dangling unresolved tool-call must never
-// shimmer once a later run is active.
 export function computeActiveTailToolCallId(
   content: ContentPart[] | undefined,
   { chatRunning, isLast }: { chatRunning: boolean; isLast: boolean },
@@ -1788,9 +1731,6 @@ export function shouldShowAssistantMessageFooter({
   const ownsActiveTurn =
     activeTurnId != null &&
     (messageTurnId == null || activeTurnId === messageTurnId);
-  // Keep the run-id comparison only for legacy messages that predate the
-  // turn-id metadata. Once either side has a logical-turn identity, absent
-  // turn evidence must not be treated as proof of a different run.
   const ownsLegacyRun =
     activeTurnId == null &&
     messageTurnId == null &&
@@ -1805,12 +1745,6 @@ export function shouldShowAssistantMessageFooter({
   return statusIsTerminal;
 }
 
-/**
- * Server-authoritative "a run for this thread is still active and running".
- * Local `chatRunning` dips to not-running at every chunk boundary and transport
- * re-attach while the turn is alive server-side, so it cannot decide on its own
- * that the agent stopped.
- */
 export const ServerRunActiveContext = React.createContext(false);
 export const UserStoppedRunContext = React.createContext<
   (runId?: string, turnId?: string) => boolean
@@ -1838,8 +1772,6 @@ export function shouldShowMissingFinalResponse({
 }): boolean {
   if (userStoppedRun) return false;
   if (serverRunActive) return false;
-  // A completed tool can make the latest message look terminal before the
-  // active turn attaches its follow-up text.
   return (
     !isCurrentTurnRunning &&
     statusIsTerminal &&
@@ -1850,12 +1782,6 @@ export function shouldShowMissingFinalResponse({
   );
 }
 
-/**
- * "The agent stopped" is derived from local client state, which dips to
- * not-running at every chunk boundary and transport re-attach while the turn is
- * still alive server-side. Requiring the shape to hold for a beat keeps the
- * notice off the screen for those gaps without hiding a real stop for long.
- */
 export const MISSING_FINAL_RESPONSE_SETTLE_MS = 3_000;
 
 export function useSettledFlag(active: boolean, delayMs: number): boolean {
@@ -1888,16 +1814,9 @@ export function shouldShowAssistantWorkSummary({
 }): boolean {
   if (!hasCollapsibleWork) return false;
 
-  // Keep every work segment behind its disclosure while the current turn is
-  // streaming. Text parts still break the grouped-parts sequence, so a final
-  // response appears between separate work summaries instead of being buried
-  // with the tool calls that surround it.
   if (isLast && chatRunning) return true;
   if (hasActiveTool || hasUnresolvedTool) return true;
 
-  // Keep completed historical work grouped while a later turn is running.
-  // Removing the wrapper exposes/remounts ReasoningCell and resets its
-  // disclosure state to the default-open value on every new submission.
   return isComplete || !isLast;
 }
 
@@ -1923,10 +1842,6 @@ function ReasoningMessagePart() {
       messagePart.type === "reasoning" ? index : latestIndex,
     -1,
   );
-  // Time thinking client-side: record the moment streaming first starts and
-  // the moment it stops so the cell can show "Thought for Xs". Historical
-  // messages that were never observed streaming in this session never get a
-  // start time, so they correctly fall back to a plain "Thought" label.
   const startedAtRef = useRef<number | null>(null);
   const [durationMs, setDurationMs] = useState<number | null>(null);
   useEffect(() => {
@@ -1977,17 +1892,12 @@ export function isCollapsibleAssistantWorkPart(
   },
   thinkingDisplay: ThinkingDisplay = DEFAULT_THINKING_DISPLAY,
 ): boolean {
-  // Hidden reasoning renders nothing, so counting it as work would wrap a
-  // reasoning-only turn in an empty "Worked for…" disclosure.
   if (part.type === "reasoning") return thinkingDisplay !== "hidden";
   return (
     part.type === "tool-call" &&
     !isAlwaysVisibleAssistantTool(part) &&
     part.chatUI === undefined &&
     part.mcpApp === undefined &&
-    // Keep the Approve/Deny affordance outside "Worked for…" - needsApproval
-    // tools finish with a result string, so without this they collapse and the
-    // human gate disappears from the viewport.
     !toolCallHasPendingApproval(part)
   );
 }
@@ -2449,7 +2359,6 @@ export function AssistantMessage() {
     }
   }, [chatRunning, isLast]);
 
-  // Capture live run duration when this message finishes streaming.
   const runStartedAtRef = useRef<number | null>(null);
   const [capturedDurationMs, setCapturedDurationMs] = useState<number | null>(
     null,
@@ -2531,7 +2440,6 @@ export function AssistantMessage() {
     hostname: window.location.hostname,
   });
 
-  // Collect parts for the files-changed summary (code-agent turns only).
   const msgContent = msg.content as ContentPart[] | undefined;
   const assistantToolSummary = getAssistantToolSummaryInfo(
     Array.isArray(msgContent) ? msgContent : [],
@@ -2783,7 +2691,6 @@ export function AssistantMessage() {
   );
 }
 
-// ─── RunningActivityStatus / ThinkingIndicator ────────────────────────────────
 
 export function RunningActivityStatus({ label }: { label: string }) {
   return (

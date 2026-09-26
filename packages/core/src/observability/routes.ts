@@ -1,24 +1,3 @@
-/**
- * H3 event handlers for the agent observability system.
- *
- * Mounted under `/_agent-native/observability/*` by the observability plugin.
- *
- *   GET    /                           — overview stats
- *   GET    /traces?since=N&limit=N     — list trace summaries
- *   GET    /traces/:runId              — get trace detail (spans + summary)
- *   GET    /traces/:runId/evals        — get evals for a run
- *   POST   /feedback                   — submit feedback
- *   GET    /feedback?since=N&limit=N&feedbackType=text — list feedback entries
- *   GET    /feedback/stats?since=N     — feedback aggregation stats
- *   GET    /satisfaction?since=N       — satisfaction scores
- *   GET    /evals/stats?since=N        — eval stats
- *   GET    /experiments                — list experiments
- *   POST   /experiments                — create experiment
- *   GET    /experiments/:id            — get experiment detail
- *   PUT    /experiments/:id            — update experiment
- *   POST   /experiments/:id/results    — compute experiment results
- *   GET    /experiments/:id/results    — get experiment results
- */
 
 import {
   defineEventHandler,
@@ -101,9 +80,6 @@ async function feedbackReadScope(
 }
 
 function canManageExperiments(ownerEmail: string): boolean {
-  // Local development keeps the built-in dashboard usable without additional
-  // setup. Hosted deployments fail closed unless the operator supplies an
-  // explicit allowlist, because experiments affect every user in the app.
   if (process.env.NODE_ENV !== "production") return true;
   const admins = (process.env.AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS ?? "")
     .split(",")
@@ -141,17 +117,13 @@ export function createObservabilityHandler() {
 
     const owner = await resolveOwner(event);
 
-    // Every read endpoint passes `userId: owner` to the store. Omitting
-    // it returns rows from every user — load-bearing.
 
-    // GET / — overview stats
     if (method === "GET" && parts.length === 0) {
       const q = getQuery(event);
       const sinceMs = parseSince(q);
       return getObservabilityOverview(sinceMs, { userId: owner });
     }
 
-    // GET /traces — list trace summaries
     if (method === "GET" && parts.length === 1 && parts[0] === "traces") {
       const q = getQuery(event);
       return getTraceSummaries({
@@ -161,7 +133,6 @@ export function createObservabilityHandler() {
       });
     }
 
-    // GET /traces/:runId/evals — evals for a specific run
     if (
       method === "GET" &&
       parts.length === 3 &&
@@ -171,11 +142,6 @@ export function createObservabilityHandler() {
       return getEvalsForRun(decodeURIComponent(parts[1]), { userId: owner });
     }
 
-    // GET /traces/:runId — trace detail (summary + spans). Looking up by
-    // runId opens an IDOR vector if we don't ALSO scope to the owner —
-    // a user who knows or guesses another user's runId would otherwise
-    // get back the trace. The `userId: owner` filter on both lookups
-    // returns 404 instead.
     if (method === "GET" && parts.length === 2 && parts[0] === "traces") {
       const runId = decodeURIComponent(parts[1]);
       const [summary, spans] = await Promise.all([
@@ -189,7 +155,6 @@ export function createObservabilityHandler() {
       return { summary, spans };
     }
 
-    // GET /feedback/stats — feedback aggregation stats
     if (
       method === "GET" &&
       parts.length === 2 &&
@@ -204,7 +169,6 @@ export function createObservabilityHandler() {
       );
     }
 
-    // POST /feedback — submit feedback
     if (method === "POST" && parts.length === 1 && parts[0] === "feedback") {
       let body: any;
       try {
@@ -267,10 +231,6 @@ export function createObservabilityHandler() {
         const isThumb =
           feedbackType === "thumbs_up" || feedbackType === "thumbs_down";
 
-        // Every submission is reported, including `category` and `text`, which
-        // previously emitted nothing at all. Only thumbs carry `sentiment` —
-        // a category follow-up to a thumbs-down is extra detail about the same
-        // vote, so counting it as a second negative would inflate the metric.
         track(
           "$ai_feedback",
           {
@@ -293,19 +253,12 @@ export function createObservabilityHandler() {
           { userId: owner },
         );
 
-        // PostHog shows feedback in LLM analytics only via `survey sent`.
-        // No-ops unless a survey id is configured.
         emitAiFeedbackSurveyEvent({
           runId,
           threadId,
           userId: owner,
           feedbackType,
           value,
-          // One PostHog response per rated message, not per row: a thumbs-down
-          // and the free text it opens are two answers to the same survey, and
-          // a fresh id per row would file them as two unrelated responses.
-          // Falls back to the row id when there is no message to key on, which
-          // groups nothing — the honest outcome when nothing can be grouped.
           submissionId:
             runId && typeof body.messageSeq === "number"
               ? `${runId}:${body.messageSeq}`
@@ -314,7 +267,6 @@ export function createObservabilityHandler() {
           browserSessionId: getRequestContext()?.browserSessionId,
         });
       }
-      // Fire-and-forget: recompute satisfaction score for the thread.
       if (threadId) {
         import("./feedback.js")
           .then(({ computeSatisfactionScore }) =>
@@ -327,7 +279,6 @@ export function createObservabilityHandler() {
       return { id };
     }
 
-    // GET /feedback — list feedback entries
     if (method === "GET" && parts.length === 1 && parts[0] === "feedback") {
       setResponseHeader(event, "Cache-Control", "private, no-store");
       const q = getQuery(event);
@@ -342,7 +293,6 @@ export function createObservabilityHandler() {
       });
     }
 
-    // GET /satisfaction — satisfaction scores
     if (method === "GET" && parts.length === 1 && parts[0] === "satisfaction") {
       const q = getQuery(event);
       return getSatisfactionScores({
@@ -351,7 +301,6 @@ export function createObservabilityHandler() {
       });
     }
 
-    // GET /evals/stats — eval stats
     if (
       method === "GET" &&
       parts.length === 2 &&
@@ -367,8 +316,6 @@ export function createObservabilityHandler() {
       return { error: "Experiment administrator access required" };
     }
 
-    // POST /experiments — create experiment. Records the calling user as
-    // the owner so subsequent PUT / POST results require the same caller.
     if (method === "POST" && parts.length === 1 && parts[0] === "experiments") {
       let body: any;
       try {
@@ -402,20 +349,12 @@ export function createObservabilityHandler() {
       return { id };
     }
 
-    // Experiments are platform-wide A/B test configurations — they assign
-    // variants across all users, so reads are NOT per-user scoped. Writes
     // are gated by authentication above (only authenticated users or
-    // local-dev can reach this point).
 
-    // GET /experiments — list experiments
     if (method === "GET" && parts.length === 1 && parts[0] === "experiments") {
       return listExperiments();
     }
 
-    // POST /experiments/:id/results — compute experiment results. Only
-    // the experiment's owner may trigger a recomputation in a multi-tenant
-    // deployment; legacy rows (no owner) fall through to the
-    // authenticated-only gate above.
     if (
       method === "POST" &&
       parts.length === 3 &&
@@ -442,7 +381,6 @@ export function createObservabilityHandler() {
       }
     }
 
-    // GET /experiments/:id/results — experiment results
     if (
       method === "GET" &&
       parts.length === 3 &&
@@ -452,12 +390,6 @@ export function createObservabilityHandler() {
       return getExperimentResults(decodeURIComponent(parts[1]));
     }
 
-    // PUT /experiments/:id — update experiment. Restricted to the
-    // experiment owner; cross-user mutation would let one signed-in user
-    // silently end / reshape another user's experiment (variant
-    // assignments, status, metrics). Legacy rows without an owner remain
-    // updatable by any authenticated user — they're treated as
-    // platform-wide and operators should re-save them to lock down ownership.
     if (method === "PUT" && parts.length === 2 && parts[0] === "experiments") {
       const id = decodeURIComponent(parts[1]);
       const existing = await getExperiment(id);
@@ -493,7 +425,6 @@ export function createObservabilityHandler() {
       return { ok: true };
     }
 
-    // GET /experiments/:id — experiment detail
     if (method === "GET" && parts.length === 2 && parts[0] === "experiments") {
       const exp = await getExperiment(decodeURIComponent(parts[1]));
       if (!exp) {

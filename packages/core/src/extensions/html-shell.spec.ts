@@ -76,10 +76,6 @@ describe("buildExtensionHtml", () => {
   });
 
   it("hides x-cloak content until Alpine boots", () => {
-    // Extension content is a body snippet, so it cannot supply this rule
-    // itself. Without it an `x-cloak` overlay covers the whole extension
-    // until the deferred Alpine CDN script resolves — and forever if it
-    // never does.
     const html = buildExtensionHtml(
       '<div x-cloak class="fixed inset-0">Alerts</div>',
       ":root{}",
@@ -212,15 +208,12 @@ describe("buildExtensionHtml", () => {
 
   it("pins CDN scripts to exact versions with SRI integrity hashes", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "t");
-    // Tailwind: pinned to a patch version + SRI.
     expect(html).toMatch(
       /<script[^>]*src="https:\/\/cdn\.jsdelivr\.net\/npm\/@tailwindcss\/browser@\d+\.\d+\.\d+"[^>]*integrity="sha384-[A-Za-z0-9+/=]+"/,
     );
-    // Alpine: pinned to a patch version + SRI.
     expect(html).toMatch(
       /<script[^>]*src="https:\/\/cdn\.jsdelivr\.net\/npm\/alpinejs@\d+\.\d+\.\d+\/dist\/cdn\.min\.js"[^>]*integrity="sha384-[A-Za-z0-9+/=]+"/,
     );
-    // Refuse the old unpinned-major form.
     expect(html).not.toContain('@tailwindcss/browser@4"');
     expect(html).not.toContain("alpinejs@3/dist/cdn.min.js");
     expect(html).toContain("@rrweb/record@2.1.0/umd/record.min.js");
@@ -254,8 +247,6 @@ describe("buildExtensionHtml", () => {
 
 describe("extension iframe sandbox attribute (CI guard)", () => {
   // SECURITY: the host-side iframe MUST be rendered with a sandbox attribute
-  // that does NOT include `allow-same-origin`. Adding it would let the
-  // attacker-authored content reach the parent's DOM. See audit C1/H3.
   const HOST_FILES = [
     "ExtensionViewer.tsx",
     "EmbeddedExtension.tsx",

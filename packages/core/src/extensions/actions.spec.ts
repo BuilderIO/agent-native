@@ -268,10 +268,6 @@ describe("extensions/actions", () => {
   });
 
   it("does not re-send identical extension excerpts within a run", async () => {
-    // The whole-body read is deduped per run, but the contentQuery branch
-    // returned above that check, so repeated excerpt requests re-sent bytes
-    // already in context. Production thread 062ab179 spent 48 of its 110
-    // extension reads re-fetching spans it had already been given.
     const content =
       `<div>${"x".repeat(150_000)}` +
       "function tabMonthlyTableRows(activeTab) { return activeTab; }" +
@@ -306,7 +302,6 @@ describe("extensions/actions", () => {
         expect(repeat.extension.contentOmitted.reason).toBe(
           "identical-excerpt-already-returned-this-run",
         );
-        // A different area of the same body is new work, not a repeat.
         expect(other.extension.contentMatches.matches.length).toBeGreaterThan(
           0,
         );
@@ -893,9 +888,6 @@ describe("extensions/actions", () => {
       error = caught;
     }
 
-    // A text/marker mismatch must reach the model as a normal, retryable tool
-    // error (bounded by the identical-error and across-arguments breakers) —
-    // not an AgentActionStopError, which would end the turn on the first miss.
     expect(isAgentActionStopError(error)).toBe(false);
     expect(isActionContractError(error)).toBe(true);
     expect(error).toMatchObject({
@@ -1107,15 +1099,6 @@ describe("extensions/actions", () => {
     expect(result).toEqual({ ok: true, id: "ext-zoom" });
   });
 
-  // ---------------------------------------------------------------------------
-  // Hosting a pasted file by reference (contentFromAttachment).
-  //
-  // When the user pastes a large file, the composer sends it as a
-  // `pasted-text-*.txt` attachment that the agent loop hands to the action via
-  // `ctx.attachments`. The model passes `contentFromAttachment` (the name, or
-  // "latest") instead of re-emitting the whole file as the `content` argument —
-  // which frequently gets cut off mid-stream and triggers a continuation loop.
-  // ---------------------------------------------------------------------------
 
   it("create-extension hosts a pasted attachment by reference (named match)", async () => {
     const bigHtml = `<div x-data="dashboard()">${"<p>row</p>".repeat(5000)}</div>`;
@@ -1148,8 +1131,6 @@ describe("extensions/actions", () => {
     )) as any;
 
     expect(result.ok).toBe(true);
-    // Idempotency + create both run against the resolved content, never a
-    // re-typed copy the model had to emit.
     expect(findRecentDuplicateExtension).toHaveBeenCalledWith({
       name: "Pasted Dashboard",
       content: bigHtml,
@@ -1268,13 +1249,6 @@ describe("extensions/actions", () => {
     );
   });
 
-  // ---------------------------------------------------------------------------
-  // Hosting a workspace/shared resource file by reference
-  // (contentFromWorkspaceFile). This is the path for cloning a large extension
-  // body that already exists as a workspace resource — the model must NOT
-  // re-read it into context, paste it inline (it gets cut off mid-stream), or
-  // route it through run-code (mutating actions are blocked there).
-  // ---------------------------------------------------------------------------
 
   it("create-extension hosts a workspace resource file by reference", async () => {
     const bigHtml = `<div x-data="dashboard()">${"<p>row</p>".repeat(6000)}</div>`;
@@ -1302,15 +1276,12 @@ describe("extensions/actions", () => {
     )) as any;
 
     expect(result.ok).toBe(true);
-    // Full file body is hosted verbatim — never a re-typed copy.
     expect(createExtension).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Intuit Usage", content: bigHtml }),
     );
-    // The result must NOT echo the full body back — only a compact summary.
     expect(result.extension).not.toHaveProperty("content");
     expect(result.extension.contentLength).toBe(bigHtml.length);
     expect(result.extension.contentHash).toBeTruthy();
-    // Resolved across scopes (personal precedence first).
     expect(readResource).toHaveBeenCalledWith(
       "intuit-analytics-extension.html",
       expect.objectContaining({ scope: "personal" }),

@@ -1,13 +1,3 @@
-/**
- * Plan helper commands.
- *
- * The `plan local` commands are intentionally separate from the Plan app
- * actions. They do not call MCP, hosted write actions, or hosted
- * storage; they only read local files or serve them from a localhost bridge so
- * privacy-focused users have an auditable no-DB path. The top-level
- * `plan blocks` command is a schema-only, no-auth helper for fetching the
- * public block catalog before authoring local MDX; it never sends plan content.
- */
 
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -194,13 +184,10 @@ export type RendererValidationIssue = {
 };
 
 export type RendererValidation = {
-  /** Whether a loopback renderer validate endpoint was reachable and answered. */
   ran: boolean;
   endpoint: string;
-  /** Renderer verdict — present only when `ran` is true. */
   valid?: boolean;
   issues?: RendererValidationIssue[];
-  /** Transport/endpoint error when `ran` is false (unreachable, 404, old deploy). */
   error?: string;
 };
 
@@ -542,10 +529,6 @@ function localPlanBridgePageUrl(input: {
   bridgeUrl: string;
   appUrl?: string;
 }): string {
-  // Keep the real local folder name out of the hosted request path. The bridge
-  // payload supplies the actual slug after the browser connects on loopback.
-  // The opaque id keeps simultaneous bridge sessions distinct without
-  // disclosing the folder name or access token to the hosted request.
   const bridgeId = crypto
     .createHash("sha256")
     .update(input.bridgeUrl)
@@ -1400,10 +1383,6 @@ function hasRequiredEnumLiteral(
   return allowed.includes(trimmed.slice(1, -1).trim());
 }
 
-// Shared per-item checks so the top-level `<Checklist items={[…]} />` tag and
-// blocks authored as JSON inside a container's `tabs={[…]}` / `columns={[…]}`
-// array enforce the SAME required fields. `listBase` is the absolute offset of
-// the items array in the original source so line numbers point near the item.
 function checkChecklistItemList(
   items: Array<{ source: string; start: number }>,
   listBase: number,
@@ -1623,14 +1602,6 @@ function staticStringLiteralValue(
   return trimmed.slice(1, -1);
 }
 
-// Container blocks authored with a JSON attribute array (`<TabsBlock tabs={[…]}
-// />`) carry their children as nested block objects, not top-level JSX tags, so
-// the tag-based linters above never inspect them — the exact "false green" the
-// renderer catches because it validates the whole parsed block tree. Walk those
-// nested `blocks: [...]` arrays and enforce the same per-block required fields,
-// recursing through nested containers. This is still a subset of the renderer
-// schema (which is why `verify` is the authority), but it closes the common
-// nested checklist / question-form / missing-id case offline.
 const NESTED_CONTAINER_TAGS: ReadonlyArray<{ tag: string; attr: string }> = [
   { tag: "TabsBlock", attr: "tabs" },
   { tag: "Tabs", attr: "tabs" },
@@ -1697,7 +1668,6 @@ function lintNestedBlock(
     }
     return;
   }
-  // visual-questions shares question-form's schema; lint both.
   if (type === "question-form" || type === "visual-questions") {
     const questionsProp = readTopLevelObjectProperty(
       dataProp.value,
@@ -1768,12 +1738,6 @@ function lintNestedContainerBlocks(
   }
 }
 
-// Blank out fenced code blocks and inline code spans (preserving newlines and
-// length) so block-tag linters don't trip on documentation examples written in
-// prose — e.g. an inline `<WireframeBlock><Screen>...</Screen></WireframeBlock>`
-// example is not a real block to validate. Real blocks (outside code) are left
-// intact, so their offsets/line numbers stay correct. Without this the default
-// `plan local init` scaffold fails its own `plan local check`/`serve` lint.
 function maskCodeRegions(source: string): string {
   const blank = (s: string) => s.replace(/[^\n]/g, " ");
   return source.replace(/```[\s\S]*?```/g, blank).replace(/`[^`\n]*`/g, blank);
@@ -2118,8 +2082,6 @@ function buildLocalPlanBridgePayload(input: {
   kind?: LocalPlanKind;
   title?: string;
   brief?: string;
-  // `verify` brings the bridge up only to exercise transport + the authoritative
-  // renderer check, so it must not be short-circuited by the weaker offline lint.
   skipSourceValidation?: boolean;
 }): LocalPlanBridgePayload {
   const dir = path.resolve(input.dir);
@@ -2183,7 +2145,6 @@ function sendBridgeJson(
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, POST, OPTIONS",
     "access-control-allow-headers": "content-type",
-    // Required when the hosted HTTPS Plan UI fetches this localhost bridge.
     "access-control-allow-private-network": "true",
     "cache-control": "no-store",
     "content-type": "application/json; charset=utf-8",
@@ -2417,15 +2378,6 @@ function isLoopbackAppUrl(value: string): boolean {
   }
 }
 
-/**
- * Ask a loopback Plan app to validate the folder against its real renderer schema
- * (`parsePlanMdxFolder` + `planContentSchema`) via the public, no-DB
- * `validate-local-plan-source` action. This is what makes `verify`
- * authoritative without transmitting local plan source off-device. Remote app
- * URLs are intentionally skipped: local-files privacy mode must never POST MDX
- * or assets to a hosted validation action. Degrades gracefully (`ran: false`)
- * when no local Plan app is running or it predates the action.
- */
 export async function fetchRendererValidation(input: {
   appUrl: string;
   files: LocalPlanFiles;
@@ -2548,8 +2500,6 @@ export async function verifyLocalPlanBridge(input: {
     port: input.port,
     token: input.token,
     urlFile: input.urlFile,
-    // Don't let the weaker offline lint abort the bridge before the authoritative
-    // renderer check runs — verify reports the renderer's verdict, not the lint's.
     skipSourceValidation: true,
   });
 
@@ -2587,10 +2537,6 @@ export async function verifyLocalPlanBridge(input: {
       files,
       fetchFn,
     });
-    // The renderer's verdict is authoritative and gates `ok`. When it could not
-    // run (old/unreachable Plan app), fall back to the offline lint as the
-    // content signal so verify still catches the common cases offline instead
-    // of silently passing unvalidated content.
     const offlineIssues = validation.ran ? [] : validateLocalPlanFiles(files);
     const contentOk = validation.ran
       ? validation.valid === true
@@ -3135,8 +3081,6 @@ export async function runPlan(argv: string[]): Promise<void> {
     return;
   }
   if (area !== "local") {
-    // Bare `agent-native plan` / `plan help` / `plan --help` → show help on
-    // stdout and exit 0 (informational, not an error).
     if (
       area === undefined ||
       area === "help" ||
@@ -3146,16 +3090,10 @@ export async function runPlan(argv: string[]): Promise<void> {
       process.stdout.write(HELP);
       return;
     }
-    // A non-empty, unrecognised area (e.g. `agent-native plan lokal`) is an
-    // error: print to stderr so the CI log captures it, and exit 1 so callers
-    // can detect the failure. This mirrors the existing behaviour for unknown
-    // subcommands inside `plan local`.
     process.stderr.write(`Unknown plan area: ${area}\n${HELP}`);
     process.exit(1);
   }
   const args = parseArgs(rest);
-  // `plan local <sub> --help` / `-h` shows help instead of running the
-  // subcommand (e.g. `plan local init --help` must not scaffold a folder).
   if (args.help === true || args.h === true) {
     process.stdout.write(HELP);
     return;

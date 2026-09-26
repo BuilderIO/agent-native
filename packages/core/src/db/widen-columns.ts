@@ -1,10 +1,3 @@
-/**
- * In-place widening of legacy 32-bit `integer` columns to 64-bit `BIGINT` on
- * Postgres.
- *
- * Lives in its own module so stores can import it without every client mock
- * needing to stub the helper.
- */
 
 import { getDbExec, type DbExec } from "./client.js";
 
@@ -38,7 +31,6 @@ const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export async function widenIntColumnsToBigInt(
   table: string,
   columns: string[],
-  // Injectable for tests; production callers use the configured client.
   injectedClient?: DbExec,
 ): Promise<void> {
   if (!true || columns.length === 0) return;
@@ -53,7 +45,6 @@ export async function widenIntColumnsToBigInt(
     });
     int4Columns = new Set(rows.map((r) => String(r.column_name)));
   } catch {
-    // Leave the existing table unchanged when introspection is unavailable.
     return;
   }
   for (const col of columns) {

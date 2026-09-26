@@ -1,19 +1,7 @@
-/**
- * Shared file-walking / offset helpers used by every guard in this
- * directory. Ported (behavior-for-behavior) from the identical helpers
- * duplicated across `scripts/guard-*.mjs` — see each guard file for the
- * specific `scripts/guard-<name>.mjs` it was derived from.
- *
- * The original scripts walk directories with `fs/promises` async
- * generators. Guard functions here are synchronous pure functions (per the
- * plan's `scan<Name>(options): GuardResult` contract), so this module uses
- * `fs.readdirSync` instead — same skip-dir semantics, no behavior change.
- */
 
 import fs from "node:fs";
 import path from "node:path";
 
-/** Directories skipped by every guard's repo/app walk. */
 export const DEFAULT_SKIP_DIRS = new Set([
   "node_modules",
   ".git",
@@ -34,8 +22,6 @@ export const DEFAULT_SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-/** Recursively walk `dir`, yielding absolute file paths. Skips any
- * directory whose basename is in `skipDirs`. */
 export function* walk(
   dir: string,
   skipDirs: Set<string> = DEFAULT_SKIP_DIRS,
@@ -93,9 +79,6 @@ export function readFileSafe(file: string): string | null {
   }
 }
 
-/** True if `rel` matches an exact-path entry in `extraExemptPaths`
- * (posix-relative, exact string match — the same shape the exempt-path
- * sets used in the original monorepo guards). */
 export function isExtraExempt(
   rel: string,
   extraExemptPaths: string[] | undefined,

@@ -63,8 +63,6 @@ describe("sitePathForLocale", () => {
     expect(sitePathForLocale("/ar-SA/apps")).toBe("/apps/");
   });
 
-  // A language picker feeds its own output back in when the visitor switches
-  // twice; a non-idempotent builder silently doubles the slash or the prefix.
   it("is idempotent", () => {
     for (const locale of DOCS_LOCALES) {
       const once = sitePathForLocale("/apps", locale);
@@ -84,9 +82,6 @@ describe("localizeDocsHref", () => {
     );
   });
 
-  // Rendered doc bodies are where most internal links on the site come from.
-  // Passing the default locale through untouched left every one of them
-  // pointing at the redirecting form.
   it("canonicalizes a default-locale href", () => {
     expect(localizeDocsHref("/docs/client-data", "en-US")).toBe(
       "/docs/client-data/",
@@ -111,8 +106,6 @@ describe("localizeDocsHref", () => {
     );
   });
 
-  // A query would otherwise be read as part of the slug and end up inside the
-  // path, as `/docs/client-data?tab=api/`.
   it("keeps a query string after the trailing slash", () => {
     expect(localizeDocsHref("/docs/client-data?tab=api", "de-DE")).toBe(
       "/de-de/docs/client-data/?tab=api",
@@ -142,8 +135,6 @@ describe("localizeDocsHref", () => {
 });
 
 describe("localizeDocsMarkdownLinks", () => {
-  // The twins are served to agents verbatim, so an un-rewritten link hands out
-  // the redirecting URL.
   it("rewrites same-site docs links in a body", () => {
     const body =
       "See [actions](/docs/actions-overview) and [data](/docs/client-data#usedbsync).";
@@ -165,8 +156,6 @@ describe("localizeDocsMarkdownLinks", () => {
     expect(localizeDocsMarkdownLinks(body, "es-ES")).toBe(body);
   });
 
-  // Docs teach syntax by example. Rewriting a link inside a fence edits the
-  // sample the reader is meant to copy.
   it("leaves links inside fenced code alone", () => {
     const body = [
       "Prose [a](/docs/actions-overview).",
@@ -213,8 +202,6 @@ describe("docsMarkdownPathForSlug", () => {
     );
   });
 
-  // The route builder emits `/docs/`; appending onto it produced
-  // `/docs//getting-started.md`, which 404s.
   it("does not double the slash for getting-started", () => {
     expect(docsMarkdownPathForSlug("getting-started")).toBe(
       "/docs/getting-started.md",
@@ -238,8 +225,6 @@ describe("docsMarkdownPathForSlug", () => {
 });
 
 describe("comparableDocsPath", () => {
-  // This is an equality key, not a URL — every inbound form of one doc must
-  // collapse to the same token or every comparison against it silently fails.
   it("collapses every inbound form of one doc to a single key", () => {
     const forms = [
       "/docs/actions-overview",
@@ -259,8 +244,6 @@ describe("comparableDocsPath", () => {
 });
 
 describe("inbound path reading", () => {
-  // The reader must keep accepting every form that resolves today: external
-  // links point at the bare and mixed-case URLs.
   it.each([
     "/docs/actions-overview",
     "/docs/actions-overview/",
@@ -279,16 +262,11 @@ describe("inbound path reading", () => {
 });
 
 describe("docsLocaleFromSegment", () => {
-  // Emitted paths are lowercase, so route params arrive lowercase. Comparing
-  // them against the BCP-47 tag made every localized SSR route 404 -- which
-  // stayed invisible until prerendering started rendering those paths itself.
   it.each(DOCS_LOCALES)("resolves %s in either casing", (locale) => {
     expect(docsLocaleFromSegment(locale)).toBe(locale);
     expect(docsLocaleFromSegment(locale.toLowerCase())).toBe(locale);
   });
 
-  // A doc slug must never read as a locale, or the docs route redirects
-  // instead of rendering the page.
   it.each([
     "agent-surfaces",
     "actions-overview",

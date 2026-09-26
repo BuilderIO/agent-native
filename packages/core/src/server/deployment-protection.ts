@@ -17,7 +17,6 @@ function configuredOrigin(
     return url.origin;
   } catch {
     // coercion-ok: malformed optional target metadata cannot prove trust, so
-    // fail closed without sending the deployment bypass secret.
     return undefined;
   }
 }

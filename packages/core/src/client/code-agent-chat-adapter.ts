@@ -61,13 +61,6 @@ export interface CodeAgentChatController {
   }): Promise<CodeAgentChatControlResult>;
   control(input: {
     runId: string;
-    /**
-     * `"approve"` resolves the run's current pending `needsApproval` gate
-     * (see `requestCodeAgentApproval` in `cli/code-agent-executor.ts`) — the
-     * same effect as the host UI's "Approve" control. Deny / always-allow are
-     * intentionally NOT routed through this method; hosts wire those directly
-     * via `AssistantChatProps.approvalActions` instead (see CodeAgentsApp).
-     */
     command: "stop" | "approve";
   }): Promise<CodeAgentChatControlResult>;
 }
@@ -85,11 +78,6 @@ export interface CreateCodeAgentChatAdapterOptions {
   pollIntervalMs?: number;
   idlePollIntervalMs?: number;
   terminalIdlePolls?: number;
-  /**
-   * Assistant-ui may abort a run for UI lifecycle reasons, such as switching
-   * selected sessions. Code sessions keep running unless the host sends an
-   * explicit stop command.
-   */
   stopOnAbort?: boolean;
 }
 
@@ -116,12 +104,6 @@ export function createCodeAgentChatAdapter(
         return;
       }
 
-      // Human-in-the-loop: `ApprovalContext.onApprove` (tool-call-display.tsx)
-      // re-issues the turn carrying the pending approval's key in
-      // `approvedToolCalls`, the same mechanism regular SSE agent-chat
-      // approvals use. For Code sessions there is no server-side gate to
-      // notify — resolve the run's own pending approval directly instead of
-      // treating the accompanying "Approved..." text as a new prompt.
       const approvedToolCalls = extractApprovedToolCalls(runConfig);
       const isApprovalTurn = Boolean(
         approvedToolCalls && approvedToolCalls.length > 0,
@@ -260,14 +242,6 @@ function extractApprovedToolCalls(
   return keys.length > 0 ? keys : undefined;
 }
 
-/**
- * Whether any tool-call in this Code transcript currently carries an
- * unresolved approval (see `NormalizedCodeAgentToolEvent.pendingApprovalKey`).
- * Hosts (e.g. `CodeAgentsApp`) use this to keep their standalone approval
- * banner as a fallback only for transcripts where the inline
- * `ApprovalAffordance` cannot be joined to a tool-call part, instead of
- * showing both at once.
- */
 export function codeAgentTranscriptHasPendingApproval(
   events: readonly CodeAgentChatTranscriptEvent[],
 ): boolean {

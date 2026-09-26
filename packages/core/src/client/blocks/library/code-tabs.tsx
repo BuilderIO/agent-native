@@ -26,19 +26,7 @@ import {
 } from "./code-tabs.config.js";
 import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
 
-/**
- * Standard `code-tabs` block (STANDARD core library): a vertical file tab rail
- * with Shiki-highlighted code panes. Moved verbatim from the plan
- * `CodeTabsBlock` (`DocumentArea.tsx`) so its rendered output is unchanged, then
- * generalized to the registry `Read`/`Edit` contract. Shareable by any app that
- * registers the core block library.
- *
- * `Edit` is hybrid: each tab's `code` field renders as a code-style monospace
- * text area, while tab metadata (label/language/caption/add/remove) stays in a
- * settings popover so the document surface only exposes authored content.
- */
 
-/* ── Syntax highlighting helpers ──────────────────────────────────────────── */
 
 const lowlight = createLowlight(common);
 
@@ -185,7 +173,6 @@ function highlightCode(code: string, language?: string): ReactNode {
   }
 }
 
-/* ── Read (vertical tab rail + Shiki) ──────────────────────────────────────── */
 
 function CodeTabsRead({ data, blockId, title }: BlockReadProps<CodeTabsData>) {
   const [activeId, setActiveId] = useState(data.tabs[0]?.id ?? "");
@@ -248,12 +235,10 @@ function CodeTabsRead({ data, blockId, title }: BlockReadProps<CodeTabsData>) {
   );
 }
 
-/* ── Edit (code text areas per tab) ────────────────────────────────────────── */
 
 const inputClass =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
-/** Language options for the per-tab picker; "" is the Auto-detect sentinel. */
 const CODE_TAB_LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "", label: "Auto" },
   { value: "typescript", label: "TypeScript" },
@@ -274,7 +259,6 @@ const CODE_TAB_LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "diff", label: "Diff" },
 ];
 
-/** Mint a reasonably-unique code-tab id without pulling a dep into core. */
 function newCodeTabId(): string {
   return `code-tab-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -343,11 +327,6 @@ function HighlightedCodeTextarea({
   );
 }
 
-/**
- * Editor: a file-tab strip (one tab active at a time) with the active tab's code
- * editable inline. Tab metadata is edited from the settings popover, mirroring
- * the standard `tabs` block and keeping schema-ish controls out of the document.
- */
 function CodeTabsEdit({
   data,
   onChange,
@@ -365,13 +344,13 @@ function CodeTabsEdit({
 
   const removeTab = (id: string) => {
     const next = data.tabs.filter((tab) => tab.id !== id);
-    if (next.length === 0) return; // tabs must keep at least one (schema min 1)
+    if (next.length === 0) return;
     commit(next);
     if (activeId === id) setActiveId(next[0]?.id ?? "");
   };
 
   const addTab = () => {
-    if (data.tabs.length >= 12) return; // schema max
+    if (data.tabs.length >= 12) return;
     const id = newCodeTabId();
     commit([
       ...data.tabs,
@@ -589,7 +568,6 @@ function CodeTabsSettingsPopover({
   );
 }
 
-/* ── Spec ──────────────────────────────────────────────────────────────────── */
 
 export const codeTabsBlock = defineBlock<CodeTabsData>({
   type: "code-tabs",
@@ -603,8 +581,6 @@ export const codeTabsBlock = defineBlock<CodeTabsData>({
   icon: IconCode,
   description:
     "A vertical file tab rail of syntax-highlighted code snippets, one tab per file with an optional language and caption.",
-  // `tabs` has schema min(1), so a fresh insert needs one starter tab — same
-  // shape `addTab` mints for a second tab.
   empty: () => ({
     tabs: [{ id: newCodeTabId(), label: "file-1.ts", code: "" }],
   }),

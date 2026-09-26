@@ -1,12 +1,3 @@
-/**
- * Importing an app's own source module from the framework.
- *
- * The installed CLI runs `dist/` under plain Node, where a `.ts` file is
- * `ERR_UNKNOWN_FILE_EXTENSION` unless jiti picks it up. Action discovery needs
- * this, and so does anything else that loads app source outside the `tsx`
- * entry point — so it lives here rather than inside discovery, which pulls a
- * large server graph that a CLI bootstrap has no reason to load.
- */
 
 import { pathToFileURL } from "node:url";
 

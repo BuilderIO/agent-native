@@ -1,9 +1,3 @@
-// Test-only. Real, decodable image bytes for attachment specs.
-//
-// Synthetic base64 like `aW1hZ2U=` passed every test while the provider
-// rejected the whole request for exactly that shape. A spec that asserts an
-// image block is built has to start from bytes a decoder would accept, or it
-// proves nothing about the boundary it covers.
 
 import zlib from "node:zlib";
 
@@ -26,7 +20,6 @@ function pngChunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([len, typeBuf, data, crc]);
 }
 
-/** A structurally valid RGB PNG of `size` x `size`. */
 export function makePngBuffer(size: number): Buffer {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(size, 0);
@@ -45,7 +38,6 @@ export function makePngBuffer(size: number): Buffer {
 
 export const PNG_BASE64 = makePngBuffer(4).toString("base64");
 
-/** Valid PNG bytes whose base64 form is at least `targetChars` long. */
 export function pngBase64OfAtLeast(targetChars: number): string {
   let size = Math.max(4, Math.round(Math.sqrt((targetChars * 0.75) / 3)));
   let b64 = makePngBuffer(size).toString("base64");
@@ -56,11 +48,6 @@ export function pngBase64OfAtLeast(targetChars: number): string {
   return b64;
 }
 
-/**
- * A structurally valid baseline JPEG header (SOI, APP0/JFIF, EOI). It carries
- * the right signature but no scan data, so it exercises signature handling
- * only. Do not use it where something has to actually decode the image.
- */
 export const JPEG_BASE64 = Buffer.from([
   0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01,
   0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xd9,
@@ -92,7 +79,6 @@ export const WEBP_BASE64 = (() => {
   );
 })();
 
-/** A real one-page PDF that a provider will render. */
 export const PDF_BASE64 = Buffer.from(
   [
     "%PDF-1.4",

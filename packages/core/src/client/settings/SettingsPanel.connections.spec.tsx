@@ -29,10 +29,6 @@ vi.mock("../use-action.js", async (importOriginal) => ({
   callAction: (...args: unknown[]) => callActionMock(...args),
 }));
 
-// The integrations panel that owns the Builder row is behind
-// `<Suspense><lazy(IntegrationsPanel)/></Suspense>` — its dynamic import
-// needs real macrotask ticks to settle (more on a cold module cache), not
-// just queued microtasks.
 async function flushLazyImport(isReady: () => boolean) {
   for (let i = 0; i < 100; i++) {
     if (isReady()) return;

@@ -1,20 +1,9 @@
-// @agent-native/pinpoint — Element selection via document.elementFromPoint()
-// MIT License
-//
-// rAF-gated throttling (60fps). Target-identity short-circuit.
-// Two-tier hover: fast path (highlight rect) + deferred path (component info after 100ms).
-// Stash hovered element ref to prevent ghost-element race on click.
 
 export interface ElementPickerOptions {
-  /** Called on hover with the element under the cursor */
   onHover?: (element: Element | null, rect: DOMRect | null) => void;
-  /** Called after stable hover (100ms) with full element context */
   onStableHover?: (element: Element) => void;
-  /** Called when an element is clicked/selected */
   onSelect?: (element: Element) => void;
-  /** Elements to ignore (e.g., pinpoint's own UI) */
   ignoreSelector?: string;
-  /** Whether to block page interactions during selection */
   blockInteractions?: boolean;
 }
 
@@ -37,7 +26,6 @@ export class ElementPicker {
     this.handleMouseMove = (e: MouseEvent) => {
       if (!this.active || this.paused) return;
       if (this.isOwnUI(e)) return;
-      // rAF-gated throttling for 60fps
       if (this.rafId !== null) return;
       this.rafId = requestAnimationFrame(() => {
         this.rafId = null;
@@ -48,14 +36,12 @@ export class ElementPicker {
     this.handleClick = (e: MouseEvent) => {
       if (!this.active || this.paused) return;
 
-      // Don't intercept clicks on our own UI (Shadow DOM overlay)
       if (this.isOwnUI(e)) return;
 
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
 
-      // Use the stashed hovered element to prevent ghost-element race
       const target = this.hoveredElement;
       if (target && !this.shouldIgnore(target)) {
         this.options.onSelect?.(target);
@@ -70,10 +56,6 @@ export class ElementPicker {
     };
   }
 
-  /**
-   * Check if an event originates from Pinpoint's own UI.
-   * Uses composedPath() to cross Shadow DOM boundaries.
-   */
   private isOwnUI(e: Event): boolean {
     const path = e.composedPath();
     for (const node of path) {
@@ -86,14 +68,12 @@ export class ElementPicker {
   }
 
   private shouldIgnore(element: Element): boolean {
-    // Check if element is inside our Shadow DOM
     const root = element.getRootNode();
     if (root instanceof ShadowRoot) {
       const host = root.host;
       if (host.id === "pinpoint-root") return true;
     }
 
-    // Check if it's a pinpoint marker
     if (element.hasAttribute("data-pinpoint-marker")) return true;
     if (element.closest?.("[data-pinpoint-marker]")) return true;
 
@@ -108,7 +88,6 @@ export class ElementPicker {
     let element = document.elementFromPoint(x, y);
     if (!element) return null;
 
-    // Pierce through Shadow DOM
     while (element?.shadowRoot) {
       const inner = element.shadowRoot.elementFromPoint(x, y);
       if (!inner || inner === element) break;
@@ -131,16 +110,13 @@ export class ElementPicker {
       return;
     }
 
-    // Target-identity short-circuit: skip processing if same element
     if (element === this.lastTarget) return;
     this.lastTarget = element;
     this.hoveredElement = element;
 
-    // Fast path: immediate highlight rect
     const rect = element.getBoundingClientRect();
     this.options.onHover?.(element, rect);
 
-    // Deferred path: component info after 100ms stable hover
     this.clearStableTimeout();
     this.stableTimeout = setTimeout(() => {
       if (this.hoveredElement === element) {
@@ -160,14 +136,12 @@ export class ElementPicker {
     if (this.active) return;
     this.active = true;
 
-    // Use capture to intercept before any element handlers
     document.addEventListener("mousemove", this.handleMouseMove, true);
     document.addEventListener("click", this.handleClick, true);
     document.addEventListener("keydown", this.handleKeyDown, true);
 
     if (this.options.blockInteractions) {
       document.body.style.pointerEvents = "none";
-      // Re-enable pointer events on our own overlay
       const overlay = document.getElementById("pinpoint-root");
       if (overlay) overlay.style.pointerEvents = "auto";
     }
@@ -196,7 +170,6 @@ export class ElementPicker {
     this.options.onHover?.(null, null);
   }
 
-  /** Update blockInteractions at runtime (called from settings toggle) */
   setBlockInteractions(value: boolean): void {
     const wasBlocking = this.options.blockInteractions;
     this.options.blockInteractions = value;
@@ -212,7 +185,6 @@ export class ElementPicker {
     }
   }
 
-  /** Pause picking without removing listeners (e.g., while popup is open) */
   pause(): void {
     this.paused = true;
     this.hoveredElement = null;
@@ -221,7 +193,6 @@ export class ElementPicker {
     this.options.onHover?.(null, null);
   }
 
-  /** Resume picking after pause */
   resume(): void {
     this.paused = false;
   }
@@ -234,7 +205,6 @@ export class ElementPicker {
     return this.active;
   }
 
-  /** Get the currently hovered element */
   getHoveredElement(): Element | null {
     return this.hoveredElement;
   }

@@ -102,9 +102,6 @@ export const DEFAULT_REALTIME_VOICE_PREFERENCES: RealtimeVoicePreferences = {
 };
 
 export const REALTIME_VOICE_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  // Prefer the browser/OS-selected input instead of whichever physical device
-  // happens to be enumerated first. `ideal` keeps browsers without the
-  // synthetic `default` device from failing with OverconstrainedError.
   deviceId: { ideal: "default" },
   echoCancellation: true,
   noiseSuppression: true,
@@ -131,8 +128,6 @@ export interface RealtimeVoiceToolResult {
   output: string;
   approvalKey?: string;
   expandedTools?: RealtimeVoiceFunctionTool[];
-  /** Re-issued when discovery widens the manifest. Calls to the new names 404
-   * until this replaces the session's capability. */
   capability?: string;
 }
 
@@ -383,11 +378,6 @@ interface LiveRealtimeVoiceTranscriptBuffer {
   sequence: number;
 }
 
-/**
- * Input transcription is produced by a separate ASR model and can finish after
- * the assistant response. Reserve each message's position when OpenAI adds it
- * to the conversation, then publish only the contiguous completed prefix.
- */
 export function createRealtimeVoiceTranscriptSequencer(
   publish: (transcript: CompletedRealtimeVoiceTranscript) => void,
 ): RealtimeVoiceTranscriptSequencer {
@@ -517,8 +507,6 @@ export function createRealtimeVoiceTranscriptSequencer(
         const itemId =
           typeof event.item_id === "string" ? event.item_id : undefined;
         if (!itemId) {
-          // Older providers may omit item_id. Match the first reserved slot for
-          // that role so one incomplete legacy event cannot strand the queue.
           const reservedId = order.find((id) => {
             const entry = items.get(id);
             return (
@@ -727,11 +715,6 @@ export function createRealtimeVoiceResponseCoordinator(
   };
 }
 
-/**
- * Voice mode owns the chat only temporarily. Restore the captured transcript
- * when it is still the user's active thread (or the chat has no active thread)
- * but never pull them back after they deliberately selected another thread.
- */
 export function shouldRestoreRealtimeVoiceTranscriptThread(
   transcriptThreadId: string | undefined,
   activeThreadId: string | undefined,
@@ -806,8 +789,6 @@ export function createRealtimeVoiceConnectionGate(
 } {
   const cancel = createRealtimeVoiceConnectionTimeout(onTimeout, timeoutMs);
   return {
-    // RTC connectivity alone is not enough: the session may never finish its
-    // Realtime handshake. Keep the deadline armed until session.created.
     markTransportReady() {},
     markSessionCreated: cancel,
     cancel,
@@ -891,7 +872,6 @@ export async function createRealtimeVoiceSessionWithCapability(
   };
 }
 
-/** Backwards-compatible SDP-only session helper for existing client callers. */
 export async function createRealtimeVoiceSession(
   offerSdp: string,
   options: RealtimeVoiceSessionOptions = {},
@@ -1033,11 +1013,6 @@ function createRealtimeVoiceToolManifestUpdate(
   };
 }
 
-/**
- * Merge search-discovered schemas into the live manifest. Pinned navigation
- * and discovery tools stay available, then the newest discoveries take the
- * remaining slots ahead of lower-priority tools from the original manifest.
- */
 export function mergeRealtimeVoiceToolManifest(
   currentTools: readonly RealtimeVoiceFunctionTool[],
   expandedTools: readonly RealtimeVoiceFunctionTool[],
@@ -1116,11 +1091,6 @@ export interface RealtimeVoiceToolManifestCoordinator {
   getTools: () => readonly RealtimeVoiceFunctionTool[];
 }
 
-/**
- * Realtime treats `session.update.tools` as a full replacement. Serialize
- * discovery updates and wait for a confirming `session.updated` manifest
- * before returning the search result and allowing the next model response.
- */
 export function createRealtimeVoiceToolManifestCoordinator(
   send: (event: Record<string, unknown>) => void,
   timeoutMs = REALTIME_VOICE_TOOL_UPDATE_TIMEOUT_MS,
@@ -1249,8 +1219,6 @@ export function extractRealtimeVoiceFunctionCalls(
     ? (nestedEvent as RealtimeServerEvent)
     : event;
   if (source.type === "response.function_call_arguments.done") {
-    // GPT-Live forwards Responses events through an outer envelope. The
-    // arguments-done event is not authoritative there; wait for output_item.done.
     if (isNestedLiveEvent) return [];
     const name = typeof source.name === "string" ? source.name : "";
     const callId = typeof source.call_id === "string" ? source.call_id : "";
@@ -1793,7 +1761,6 @@ function useRealtimeVoiceModeController(
       setMicrophones(inputs);
       return inputs;
     } catch {
-      // Enumeration is progressive enhancement; system default remains usable.
       return null;
     }
   }, [t]);
@@ -2106,8 +2073,6 @@ function useRealtimeVoiceModeController(
         transition("working");
         if (protocolRef.current === "realtime") responseCoordinator.request();
       } else if (event.type === "response.created") {
-        // From this point onward the response is committed to audio output, so
-        // changing voices risks violating Realtime's per-session voice lock.
         hasOutputAudioRef.current = true;
         lastAssistantTextRef.current = "";
         transition("working");
@@ -2304,8 +2269,6 @@ function useRealtimeVoiceModeController(
           selected !== "default" &&
           !inputs.some((device) => device.deviceId === selected)
         ) {
-          // The persisted device was only an ideal preference, so getUserMedia
-          // already selected a usable fallback for this new session.
           writeRealtimeVoiceMicrophoneId("default");
           setMicrophoneDeviceId("default");
         }
@@ -2393,9 +2356,6 @@ function useRealtimeVoiceModeController(
       greetingStarter.setProtocol(protocolRef.current);
       await peer.setRemoteDescription({ type: "answer", sdp: answer.sdp });
     } catch (startError) {
-      // Ending a connection aborts the SDP request by design. A superseded
-      // attempt must never resurrect the dock or surface that cancellation as
-      // an error after cleanup.
       if (
         isRealtimeVoiceAbortError(startError) ||
         abortController.signal.aborted ||
@@ -2404,10 +2364,6 @@ function useRealtimeVoiceModeController(
         return;
       }
       if (isRealtimeVoiceSetupRequiredError(startError)) {
-        // Credentials can disappear after the entry-point status check. Treat
-        // the authoritative setup response as a gate, not as an active voice
-        // session failure: clean up the mic/RTC attempt, reopen chat, and
-        // refresh both the chat and voice provider setup surfaces.
         cleanupTransport();
         setError(null);
         startedAtRef.current = undefined;
@@ -2466,9 +2422,6 @@ function useRealtimeVoiceModeController(
       ) {
         adapters.agentChat!.requestThreadOpen!({
           threadId: transcriptThreadId,
-          // The request is delivered asynchronously. Re-checking this at the
-          // receiver prevents a navigation that happened during that gap from
-          // being overwritten.
           onlyIfActiveThreadId: transcriptThreadId,
         });
       } else {
@@ -2670,10 +2623,6 @@ export function RealtimeVoiceModeProvider({
   );
 }
 
-/**
- * Ensure standalone/full-page composers get realtime voice without nesting a
- * second session owner inside the persistent AgentSidebar provider.
- */
 export function RealtimeVoiceModeBoundary({
   children,
   browserTabId,
@@ -2695,7 +2644,6 @@ export function RealtimeVoiceModeBoundary({
   );
 }
 
-/** Hide a composer while voice owns input; the dock can reveal it on demand. */
 function RealtimeVoiceModeComposerSurface({
   children,
 }: Pick<RealtimeVoiceModeProviderProps, "children">) {

@@ -9,10 +9,6 @@ const mocks = vi.hoisted(() => {
       migration: { deployContext: undefined as string | undefined },
     })),
     identityRows,
-    // Faked against one shared in-memory row, not a pass-through stub: the
-    // behavior under test is whether `recordDatabaseIdentity`'s own updater
-    // preserves an existing record, which a stub that ignores prior state
-    // would never exercise.
     mutateSetting: vi.fn(
       async (
         key: string,
@@ -79,9 +75,6 @@ vi.mock("../db/migrations.js", () => ({
 vi.mock("../jobs/run-history.js", () => ({
   runAutomationRunMigrations: mocks.runAutomationRunMigrations,
 }));
-// `recordDatabaseIdentity` itself runs for real (not mocked) so the CAS
-// write-once behavior is exercised through the actual release step; only the
-// settings store underneath it is faked.
 vi.mock("../settings/store.js", () => ({
   mutateSetting: mocks.mutateSetting,
 }));
@@ -106,9 +99,6 @@ vi.mock("./identity-sso-migrations.js", () => ({
 vi.mock("./better-auth-migrations.js", () => ({
   runBetterAuthMigrations: mocks.runBetterAuthMigrations,
 }));
-// Mocked as a unit: `release-schema.ts` imports 60 stores, and stubbing each of
-// them here would test vitest's mock resolution rather than the release order.
-// `release-schema-complete` guards its contents; this file guards that it runs.
 vi.mock("./release-schema.js", () => ({
   runFrameworkSchemaEnsures: mocks.runFrameworkSchemaEnsures,
 }));
@@ -119,8 +109,6 @@ import { runFrameworkReleaseMigrations } from "./release-migrations.js";
 describe("runFrameworkReleaseMigrations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // clearAllMocks() resets calls but keeps implementations, so restore the
-    // healthy defaults or one test's masked url leaks into the next.
     mocks.getAppConfig.mockReturnValue({
       migration: { deployContext: undefined },
     });
@@ -137,9 +125,6 @@ describe("runFrameworkReleaseMigrations", () => {
   });
 
   // Most framework tables have no migration list at all — their only definition
-  // is the owning store's `ensureTable()`, which production serverless never
-  // runs. Without this call the release step creates a fraction of the schema
-  // and reports success.
   it("creates the stores' own schema, before the versioned migrations", async () => {
     await runFrameworkReleaseMigrations(null);
 
@@ -154,9 +139,6 @@ describe("runFrameworkReleaseMigrations", () => {
     expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
   });
 
-  // Nothing else records which app a shared database belongs to — this is
-  // that record, and it has to land right after the settings table exists
-  // and before anything else touches the database.
   describe("database identity", () => {
     it("records identity after schema ensures, before the versioned migrations", async () => {
       mocks.getAppConfig.mockReturnValue({
@@ -179,9 +161,6 @@ describe("runFrameworkReleaseMigrations", () => {
       ).toMatchObject({ app: "chat" });
     });
 
-    // The exact incident this exists to catch: a database already recorded
-    // for one app must never be repointed to a second app that also boots
-    // against it.
     it("never lets a second app overwrite the first app recorded for this database (CAS)", async () => {
       mocks.getAppConfig.mockReturnValue({
         migration: { deployContext: undefined },
@@ -256,9 +235,6 @@ describe("runFrameworkReleaseMigrations", () => {
     );
   });
 
-  // CRM published green for weeks while its release migrations were applied to
-  // a throwaway local database in the build container, so its `jwks`/`user` tables
-  // never existed on the database the deployed functions use.
   it("fails a production release migration that resolved to a local database", async () => {
     mocks.getAppConfig.mockReturnValue({
       migration: { deployContext: "production" },
@@ -273,8 +249,6 @@ describe("runFrameworkReleaseMigrations", () => {
     expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
   });
 
-  // The beta lane runs release migrations under a branch-deploy context against
-  // masked site secrets; its database is migrated by the beta publish step.
   it("allows a local database on a beta branch-deploy build", async () => {
     mocks.getAppConfig.mockReturnValue({
       migration: { deployContext: "branch-deploy" },
@@ -285,9 +259,6 @@ describe("runFrameworkReleaseMigrations", () => {
     expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
   });
 
-  // Netlify hands the CLI a masked secret outside its own build infra. That is
-  // neither empty nor a PGlite URL, so isLocalDatabase() calls it "not local"
-  // while it is unconnectable — factory published green off exactly this.
   it("fails when the production database url is a masked secret", async () => {
     mocks.getAppConfig.mockReturnValue({
       migration: { deployContext: "production" },

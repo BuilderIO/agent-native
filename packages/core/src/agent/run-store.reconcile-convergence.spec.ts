@@ -2,19 +2,6 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-/**
- * A run row that already carries its reconciled terminal values is converged,
- * and `reconcileTerminalRunFromEvents` must say so by returning false.
- *
- * The repair UPDATE still matches such a row (its WHERE admits
- * errored/stale_run so a real repair can re-run), and SQL counts an unchanged
- * rewrite as an affected row. Returning `rowsAffected > 0` therefore reported
- * "repaired" on every call for a row that never changed, and `getRunByThread`
- * re-reads and re-reconciles whenever reconciliation claims a repair — so a
- * single settled errored/stale_run row made every lookup for that thread
- * recurse without a fixed point, pinning the event loop and hanging the server
- * for every request, not just chat.
- */
 
 const pglite = await createTestPglite();
 
@@ -95,9 +82,6 @@ describe("reconcileTerminalRunFromEvents convergence", () => {
     const { runId } = await seedStaleRun("converged");
     await markReapedStale(runId);
 
-    // The reaper's own terminal_reason can differ from the one derived from
-    // the event, so the first pass may legitimately repair it. What must not
-    // happen is a repair being reported on a row that no longer changes.
     await reconcileTerminalRunFromEvents(runId);
 
     await expect(reconcileTerminalRunFromEvents(runId)).resolves.toBe(false);
@@ -113,8 +97,6 @@ describe("reconcileTerminalRunFromEvents convergence", () => {
 
     expect(run?.id).toBe(runId);
     expect(run?.status).toBe("errored");
-    // Bounded query count is the actual regression signal: the recursion had
-    // no fixed point, so an unfixed build never reaches this assertion.
     expect(client.execute.mock.calls.length - before).toBeLessThan(12);
   });
 });

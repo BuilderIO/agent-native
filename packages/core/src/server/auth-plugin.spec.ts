@@ -61,10 +61,6 @@ describe("createAuthPlugin", () => {
       nitroApp,
       "auth",
     );
-    // Regression guard for the cold-start fix: the default branch must mark
-    // its own routes ready — and must NOT serialize behind the shared
-    // default-plugin bootstrap promise the way it used to (there is no
-    // `awaitBootstrap` import left in auth-plugin.ts to call).
     expect(mocks.markFrameworkRoutesReadyBeforeBootstrap).toHaveBeenCalledWith(
       nitroApp,
       [
@@ -117,8 +113,6 @@ describe("createAuthPlugin", () => {
     createAuthPlugin()(nitroApp);
     const initPromise = mocks.trackPluginInit.mock.calls[0]?.[1];
 
-    // Routes are marked ready immediately, but the mount itself must not
-    // reach autoMountAuth until migrations settle.
     await Promise.resolve();
     await Promise.resolve();
     expect(mocks.autoMountAuth).not.toHaveBeenCalled();
@@ -193,15 +187,6 @@ describe("createAuthPlugin", () => {
   });
 });
 
-// Source-slice: the reviewed invariant (PR #4261) is that
-// `markFrameworkRoutesReadyBeforeBootstrap` — which lets these paths skip
-// the unrelated default-plugin bootstrap wait — must never be the ONLY thing
-// standing between a request and a not-yet-registered handler. It is only
-// safe because `trackPluginInit` is called with `initPromise` scoped to the
-// SAME `FRAMEWORK_AUTH_EARLY_PATHS`, so `awaitPluginsReady` still holds those
-// requests until the mount promise settles. Assert the source keeps both
-// halves of that pairing rather than re-deriving it from mocked call order,
-// which would not catch someone dropping the `paths` option later.
 describe("createAuthPlugin source: early-mark is paired with scoped trackPluginInit", () => {
   function pluginSource(): string {
     return readFileSync(new URL("./auth-plugin.ts", import.meta.url), "utf8");

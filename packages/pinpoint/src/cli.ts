@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// @agent-native/pinpoint — CLI for project setup
-// MIT License
-//
-// Usage: npx @agent-native/pinpoint@latest init
 
 import { existsSync, mkdirSync, cpSync, readdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -24,7 +20,6 @@ if (command === "init") {
 function init() {
   const projectRoot = process.cwd();
 
-  // 1. Copy agent scripts to scripts/
   const scriptsSource = resolve(__dirname, "../src/scripts");
   const scriptsDest = resolve(projectRoot, "scripts");
 
@@ -48,7 +43,6 @@ function init() {
     }
   }
 
-  // 2. Copy agent skill if .agents/ directory pattern exists
   const skillSource = resolve(__dirname, "../.agents/skills/pinpoint");
   const skillDest = resolve(projectRoot, ".agents/skills/pinpoint");
 

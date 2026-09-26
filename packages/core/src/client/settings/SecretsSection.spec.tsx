@@ -219,8 +219,6 @@ describe("SecretsSection", () => {
     expect(search).toBeTruthy();
 
     await act(async () => {
-      // React's value tracker ignores a plain assignment; go through the
-      // prototype setter so onChange actually fires.
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",

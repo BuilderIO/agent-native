@@ -3,24 +3,11 @@ import type { ZodType } from "zod";
 import { collectEnvAliases } from "./env-layer.js";
 import { appConfigSchema } from "./schema.js";
 
-/**
- * Reflection over the config schema, for generators.
- *
- * The point of declaring configuration in one schema is that the docs, the
- * documented-key sets, and the hosted-deploy allow-list can be derived from it
- * instead of hand-maintained in four places. This module is what makes that
- * derivation possible; `scripts/sync-config-docs.ts` is its first consumer.
- */
 export interface ConfigFieldDescription {
-  /** Dotted path, e.g. `agent.engine`. */
   path: string;
-  /** Declared environment aliases, in precedence order. Empty when none. */
   env: string[];
-  /** Base type after modifiers are peeled off, e.g. `string`, `boolean`. */
   type: string;
-  /** `doc` from `.meta()`, when the field declares one. */
   doc?: string;
-  /** Declared default, already resolved if it was a factory. */
   defaultValue?: unknown;
   required: boolean;
 }
@@ -46,7 +33,6 @@ const WRAPPER_TYPES = new Set([
   "readonly",
 ]);
 
-/** Every leaf field in the schema, in declaration order. */
 export function describeConfigFields(
   schema: ZodType = appConfigSchema,
 ): ConfigFieldDescription[] {
@@ -94,7 +80,6 @@ export function describeConfigFields(
   return fields;
 }
 
-/** Every environment key the schema declares, deduplicated and sorted. */
 export function declaredEnvKeys(schema: ZodType = appConfigSchema): string[] {
   const keys = new Set<string>();
   for (const alias of collectEnvAliases(schema)) {

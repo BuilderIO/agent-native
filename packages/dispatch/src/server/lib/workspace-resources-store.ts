@@ -53,7 +53,6 @@ export function requireWorkspaceResourceCtx(): WorkspaceResourceCtx {
   return { ownerEmail, orgId: currentOrgId() };
 }
 
-/** WHERE clause that limits a workspace-resource row to the caller's scope. */
 function ctxScope<T extends { ownerEmail: any; orgId: any }>(
   table: T,
   ctx: WorkspaceResourceCtx,
@@ -210,11 +209,6 @@ function parseResourceMetadata(metadata: string | null): Record<string, any> {
   }
 }
 
-/**
- * Owners a Dispatch row may have been materialized under before this row's
- * copy is (re)written: the organization-scoped owner first, then the bare
- * owner that rows written before organization scoping still live under.
- */
 function materializedOwners(
   resource: Pick<MaterializableWorkspaceResource, "orgId">,
 ): string[] {
@@ -254,9 +248,6 @@ async function materializeGlobalResourceWithMutations(
 
   const owner = workspaceResourceOwner(resource.orgId);
   const mimeType = mimeTypeForWorkspaceResource(resource);
-  // A failed read must not look like "not materialized yet": that would skip
-  // the legacy-copy cleanup below and leave the cross-organization row in
-  // place, which is the leak this owner split exists to close.
   const existing = await resourceGetByPath(owner, resource.path, {
     orgId: resource.orgId,
   });
@@ -334,9 +325,6 @@ async function removeMaterializedResourceFromOwner(
   >,
   mutations: MaterializationMutation[],
 ) {
-  // Legacy tenancy filtering hides a tagged bare row outside its organization,
-  // so scoped reads cannot identify the physical bare row during cleanup.
-  // Other owners retain their narrower scoped lookup.
   const exactResources = async () => {
     if (owner === WORKSPACE_OWNER) {
       return (
@@ -416,7 +404,6 @@ function orgFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
   return and(eq(table.ownerEmail, currentOwnerEmail()), isNull(table.orgId));
 }
 
-// ─── Workspace Resources CRUD ──────────────────────────────────
 
 export type WorkspaceResourceKind =
   | "skill"
@@ -1427,7 +1414,6 @@ export async function applyWorkspaceResourceDelete(
   const existing = await getWorkspaceResource(resourceId, ctx);
   if (!existing) throw new Error("Workspace resource not found");
 
-  // Revoke all grants
   const grants = await listResourceGrants({ resourceId });
   for (const grant of grants) {
     if (grant.status === "active") {
@@ -1482,7 +1468,6 @@ export async function deleteWorkspaceResource(resourceId: string) {
   return applyWorkspaceResourceDelete(resourceId);
 }
 
-// ─── Grants ──────────────────────────────────────────────────────
 
 export async function listResourceGrants(filter?: {
   resourceId?: string;
@@ -1630,7 +1615,6 @@ export async function revokeResourceGrant(
   return getResourceGrant(grantId, ctx);
 }
 
-// ─── Overview ──────────────────────────────────────────────────────
 
 export async function listWorkspaceResourcesOverview() {
   const [resources, grants] = await Promise.all([

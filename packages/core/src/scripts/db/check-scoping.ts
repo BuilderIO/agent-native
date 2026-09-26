@@ -1,9 +1,3 @@
-/**
- * Core script: db-check-scoping
- *
- * Validate that application tables expose owner_email and, when requested,
- * org_id for raw database-tool scoping.
- */
 
 import path from "node:path";
 

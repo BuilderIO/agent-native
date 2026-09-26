@@ -1,15 +1,3 @@
-/**
- * H3 event handlers for the notifications inbox.
- *
- * Mounted under `/_agent-native/notifications/*` by `core-routes-plugin`.
- *
- *   GET  /_agent-native/notifications?unread=true&limit=50&before=ISO
- *                                                   — list for the session owner
- *   GET  /_agent-native/notifications/count         — unread count
- *   POST /_agent-native/notifications/:id/read      — mark as read
- *   POST /_agent-native/notifications/read-all      — mark all read
- *   DELETE /_agent-native/notifications/:id         — delete
- */
 
 import {
   defineEventHandler,
@@ -58,7 +46,6 @@ export function createNotificationsHandler() {
     const parts = pathname ? pathname.split("/") : [];
     const owner = await resolveOwner(event);
 
-    // GET /  — list
     if (method === "GET" && parts.length === 0) {
       const q = getQuery(event);
       return listNotifications(owner, {
@@ -68,19 +55,16 @@ export function createNotificationsHandler() {
       });
     }
 
-    // GET /count
     if (method === "GET" && parts.length === 1 && parts[0] === "count") {
       const count = await countUnread(owner);
       return { count };
     }
 
-    // POST /read-all
     if (method === "POST" && parts.length === 1 && parts[0] === "read-all") {
       const updated = await markAllNotificationsRead(owner);
       return { updated };
     }
 
-    // POST /:id/read
     if (method === "POST" && parts.length === 2 && parts[1] === "read") {
       const ok = await markNotificationRead(parts[0], owner);
       if (!ok) {
@@ -90,7 +74,6 @@ export function createNotificationsHandler() {
       return { ok: true };
     }
 
-    // DELETE /:id
     if (method === "DELETE" && parts.length === 1) {
       const ok = await deleteNotification(parts[0], owner);
       if (!ok) {

@@ -1,8 +1,5 @@
 import { fail } from "../utils.js";
 
-// Credential and identity tables are deliberately off-limits to the generic
-// agent DB tools. They contain OAuth tokens, encrypted API keys, sessions, or
-// auth identity data; use the framework stores/actions instead.
 const SENSITIVE_FRAMEWORK_TABLE_RE =
   /\b(app_secrets|oauth_tokens|user|users|session|sessions|account|accounts|verification|jwks|organization|member|invitation|org_members|org_invitations|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
 
@@ -80,27 +77,6 @@ export function assertNoSensitiveFrameworkTables(
   );
 }
 
-// Schema/database-qualified table references (e.g. `public.notes`,
-// `pg_temp.notes`) BYPASS the per-user/per-org temporary views that scope
-// db-query / db-exec, because those views only shadow UNQUALIFIED table names.
-// A qualified reference resolves straight to the real base table, defeating the
-// owner_email / org_id scoping and exposing (or letting writes touch) every
-// tenant's rows. db-patch already rejects dotted identifiers via
-// isValidIdentifier; db-query / db-exec must reject them too.
-//
-// Two complementary detectors run on the comment/string-stripped SQL:
-//   1. The schemas that actually HOLD base tables and so defeat scoping when
-//      named explicitly: `public` (Postgres deployments),
-//      and the Postgres system catalogs. This fires in ANY position, so it also
-//      catches comma-joins (`FROM notes, public.other`) and `USING public.x`.
-//      `temp` / `pg_temp` are intentionally NOT listed — temporary objects (our
-//      scoping views) live there, so `temp.notes` resolves to the *scoped* view,
-//      not a bypass, and `temp` is a common table alias we must not reject.
-//      The schema may be bare or double-quoted (`"public"."notes"`).
-//   2. Any dotted reference in table position (FROM/JOIN/INTO/UPDATE, incl.
-//      ONLY/LATERAL), which also catches non-standard schema names. Column /
-//      alias references like `f.id` sit in select/where/on position, not table
-//      position, so they do not match — no false positives on ordinary joins.
 const DANGEROUS_SCHEMA_QUALIFIER_RE =
   /(?:\b|")(?:main|public|pg_catalog|pg_toast|information_schema)"?\s*\.\s*(?:"|`|\[|[A-Za-z_])/i;
 const TABLE_POSITION_QUALIFIED_RE =

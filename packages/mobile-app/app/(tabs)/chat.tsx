@@ -220,8 +220,6 @@ function ComputerMessages({
 
 export default function ChatTab() {
   const { foreground, mutedForeground } = useMobileThemeColors();
-  // The bar floats over the composer, so hold its space — and hand it back
-  // while the keyboard is already covering the bar.
   const { contentInset } = useTabBarLayout();
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
   const tabBarSpacerStyle = useAnimatedStyle(() => ({
@@ -268,13 +266,8 @@ export default function ChatTab() {
     chat.newChat();
   }, [chat]);
 
-  // A model/engine chosen for one app may not exist in another deployment.
-  // Reset to the shared Luna/high default when the active thread's app changes
-  // so we never submit a model selected for a different origin.
   const prevBaseUrlRef = useRef(chat.baseUrl);
   useEffect(() => {
-    // Guard makes re-runs on unrelated `settings` changes a no-op, so reading
-    // `settings` here is current without resetting the user's fresh pick.
     if (prevBaseUrlRef.current === chat.baseUrl) return;
     prevBaseUrlRef.current = chat.baseUrl;
     setSettings({ ...DEFAULT_CHAT_SETTINGS, mode: settings.mode });
@@ -288,8 +281,6 @@ export default function ChatTab() {
     const token = await getSessionToken().catch(() => null);
     if (!token) {
       // Keep the shared parent credential intact. A validation failure can be
-      // transient while another app is exchanging the same parent session;
-      // only an explicit native sign-out may clear it.
       setAuthState("signed-out");
       return;
     }
@@ -299,10 +290,6 @@ export default function ChatTab() {
     } else if (result.status === "invalid") {
       setAuthState("signed-out");
     } else {
-      // "Cannot read the session" is not "signed out" and not "still loading".
-      // Reporting it as either lies: one throws away a good token, the other
-      // spins forever with nothing the user can act on. Stay put once we have
-      // a confirmed session, so a dropped network never kicks anyone out.
       setAuthState((current) =>
         current === "connected" ? current : "unreachable",
       );
@@ -311,8 +298,6 @@ export default function ChatTab() {
 
   useEffect(() => {
     if (authState !== "checking" && authState !== "unreachable") return;
-    // Back off once we know the server is unreachable: the screen already says
-    // so and offers a retry, so hammering it every second buys nothing.
     const retry = setTimeout(
       () => void refreshAuth(),
       authState === "unreachable" ? 5_000 : 1_000,
@@ -326,8 +311,6 @@ export default function ChatTab() {
     }, [refreshAuth]),
   );
 
-  // While signed out we render the web app so its session bridge can hand us
-  // a token; poll until it lands, then switch to the Chat surface.
   useEffect(() => {
     if (authState !== "signed-out") return;
     let active = AppState.currentState === "active";
@@ -357,11 +340,6 @@ export default function ChatTab() {
     }
   }, [authRequired, clearAuthRequired]);
 
-  // A session can die mid-run: the request was already accepted, so it comes
-  // back as an auth-classified error rather than a 401, and nothing above
-  // notices. Without this the user keeps a composer that rejects every send.
-  // The ref fires once per failure — the error survives sign-in, and re-running
-  // this on the stale code would bounce the user straight back out.
   const handledAuthErrorRef = useRef(false);
   const chatErrorCode = chat.errorCode;
   useEffect(() => {

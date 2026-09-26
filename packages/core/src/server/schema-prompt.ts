@@ -1,18 +1,3 @@
-/**
- * Auto-introspected SQL schema context block for the agent's system prompt.
- *
- * On every chat turn, the framework appends a compact, always-fresh summary
- * of the app's SQL database — every table, every column, every foreign key —
- * so the agent knows exactly what data model it's working with. The schema
- * is pulled live from Postgres `information_schema`, cached briefly to keep
- * latency down but never hard-coded.
- *
- * The block also:
- *   - points at the enabled db-* tools for runtime access
- *   - lists Postgres column descriptions (`COMMENT ON COLUMN ...`) if present
- *   - explains the current user/org data scoping so the agent doesn't re-filter
- *     by hand (which would be redundant and easy to get wrong)
- */
 import { getDbExec, getDatabaseUrl, type DbExec } from "../db/client.js";
 import {
   normalizeDatabaseToolsMode,
@@ -40,8 +25,6 @@ interface TableSchema {
   comment: string | null;
 }
 
-// Short-lived in-memory cache — schema rarely changes between messages, but
-// we want new tables to show up within a few seconds during active dev.
 const CACHE_TTL_MS = 15_000;
 let _cache: {
   key: string;
@@ -53,7 +36,6 @@ function cacheKey(): string {
   return `postgres:${getDatabaseUrl() || ""}`;
 }
 
-// ─── Postgres introspection ─────────────────────────────────────────────────
 
 async function introspectPostgres(db: DbExec): Promise<TableSchema[]> {
   const tablesRes = await db.execute({
@@ -126,11 +108,7 @@ async function introspectPostgres(db: DbExec): Promise<TableSchema[]> {
   return tables;
 }
 
-// ─── Cached entry point ─────────────────────────────────────────────────────
 
-// Coalesces concurrent cache-miss introspections (same pattern as poll.ts's
-// _checkPromise): several chat turns starting inside one TTL window would
-// otherwise each run the full multi-query DB introspection in parallel.
 let _inflight: {
   key: string;
   promise: Promise<TableSchema[]>;
@@ -161,15 +139,12 @@ async function getSchema(): Promise<TableSchema[]> {
   }
 }
 
-/** Manually drop the cache — useful from tests or after running a migration. */
 export function invalidateSchemaPromptCache(): void {
   _cache = null;
 }
 
-// ─── Formatting ─────────────────────────────────────────────────────────────
 
 function shortType(type: string): string {
-  // Trim verbose Postgres type names for compactness in the prompt.
   const t = type.toLowerCase();
   if (t === "character varying") return "varchar";
   if (t === "timestamp without time zone") return "timestamp";
@@ -191,7 +166,6 @@ function formatTable(table: TableSchema): string {
     const fk = fkByCol.get(c.name);
     if (fk) flags.push(`→${fk}`);
 
-    // Flag scoping columns so the agent understands per-user/per-org filtering.
     if (c.name === "owner_email") flags.push("user-scope");
     if (c.name === "org_id") flags.push("org-scope");
 
@@ -207,19 +181,10 @@ function formatTable(table: TableSchema): string {
   return [header, ...cols].join("\n");
 }
 
-// ─── Public API ─────────────────────────────────────────────────────────────
 
-/**
- * Build the `<sql-database>` block appended to the system prompt on every turn.
- *
- * `owner` and `orgId` come from the per-request context (AGENT_USER_EMAIL /
- * AGENT_ORG_ID) and are surfaced so the agent knows who it is acting on behalf
- * of — and understands that rows are already filtered for that identity.
- */
 export async function loadSchemaPromptBlock(opts: {
   owner?: string | null;
   orgId?: string | null;
-  /** Controls which raw db-* tools are available to the agent. */
   databaseTools?: DatabaseToolsOption;
   /** @deprecated Use databaseTools instead. */
   hasRawDbTools?: boolean;
@@ -228,14 +193,11 @@ export async function loadSchemaPromptBlock(opts: {
   try {
     tables = await getSchema();
   } catch {
-    // DB not ready, or introspection blew up — don't take the chat down.
     return "";
   }
 
   if (tables.length === 0) return "";
 
-  // Partition framework-internal tables from template tables so the agent
-  // focuses on the data model it's most likely to touch.
   const CORE_TABLES = new Set([
     "application_state",
     "settings",
@@ -291,7 +253,6 @@ export async function loadSchemaPromptBlock(opts: {
   const hasRawDbTools = databaseToolsMode !== "off";
   const hasRawDbWriteTools = databaseToolsMode === "write";
 
-  // Tooling references.
   if (hasRawDbTools) {
     lines.push("## SQL tools");
     lines.push(
@@ -350,7 +311,6 @@ export async function loadSchemaPromptBlock(opts: {
     lines.push("");
   }
 
-  // Data scoping context.
   const ownerLine = opts.owner ? opts.owner : "(unresolved)";
   const orgLine = opts.orgId ? opts.orgId : "(none)";
   lines.push("## Data scoping (enforced at the SQL layer)");

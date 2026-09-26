@@ -21,26 +21,16 @@ export type RowSidePanelMode = "insert" | "edit";
 export interface RowSidePanelProps {
   schema: DbAdminTableSchema;
   mode: RowSidePanelMode;
-  /** For edit mode: the original row values. */
   row?: Record<string, unknown>;
-  /** For edit mode: staged overrides already in the changeset. */
   staged?: Record<string, unknown>;
   onClose: () => void;
-  /**
-   * Persist into the changeset. For insert mode `values` is the full new-row
-   * object; for edit mode it is only the changed columns.
-   */
   onSave: (values: Record<string, unknown>) => void;
 }
 
 type FieldState = {
-  /** Raw text in the input. */
   text: string;
-  /** Whether the field is explicitly set to NULL. */
   isNull: boolean;
-  /** Parse error, if any. */
   error?: string | null;
-  /** Whether the user has touched this field (insert) — drives "blank = skip". */
   touched: boolean;
 };
 
@@ -81,7 +71,6 @@ export function RowSidePanel({
     return init;
   });
 
-  // Close on Escape.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -107,12 +96,10 @@ export function RowSidePanel({
       const isGenerated = col.pk && col.autoIncrement;
 
       if (fs.isNull) {
-        // Explicit NULL.
         if (!isInsert || fs.touched) out[col.name] = null;
         continue;
       }
 
-      // Insert: blank, untouched, auto/pk/default columns are left out entirely.
       if (isInsert && fs.text === "" && !fs.touched) {
         continue;
       }
@@ -120,7 +107,6 @@ export function RowSidePanel({
         continue;
       }
 
-      // Edit: only include columns the user touched.
       if (!isInsert && !fs.touched) continue;
 
       try {

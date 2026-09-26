@@ -29,8 +29,6 @@ const netFetch = vi.fn(async (input: RequestInfo | URL) => {
   return new Response("{}", { status: 200 });
 });
 
-// The relay patches window.fetch once per module load, so the recorder has to
-// be in place before the first shell mounts and must survive later stubbing.
 window.fetch = netFetch as unknown as typeof window.fetch;
 
 const shellFetches = new Map<string, typeof fetch>();

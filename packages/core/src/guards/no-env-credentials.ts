@@ -42,14 +42,8 @@ import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
 
 const ALLOWLIST_EXACT = new Set([
   "DATABASE_URL",
-  // Direct (non-pooler) connection to the same database as DATABASE_URL, used by
-  // drizzle-kit for migrations. Builder-hosted apps get it unprefixed; the
-  // NETLIFY_DATABASE_URL_UNPOOLED spelling is covered by the NETLIFY_ prefix.
   "DATABASE_URL_UNPOOLED",
-  // Builder/Fusion deploy metadata: which branch kind the app was built for.
   // Exact, not a FUSION_ prefix — a prefix would let an app secret named
-  // FUSION_STRIPE_SECRET_KEY through, and this is the only FUSION_ key any
-  // generated app code reads.
   "FUSION_BRANCH_KIND",
   "NODE_ENV",
   "CI",
@@ -62,8 +56,6 @@ const ALLOWLIST_EXACT = new Set([
   "AWS_LAMBDA_FUNCTION_NAME",
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
-  // Public deployment identity/configuration. These select the app origin and
-  // explicitly registered SSO clients; they are not user credentials.
   "APP_URL",
   "IDENTITY_SSO_APP_REGISTRY_JSON",
   "NOTION_CLIENT_ID",
@@ -90,10 +82,6 @@ const ALLOWLIST_PREFIX = [
   "CF_",
 ];
 
-/** Dev-only paths where ANTHROPIC_API_KEY etc. may legitimately be read
- * from env (local dev tooling, scripts, tests). Portable subset of the
- * original — the monorepo-only `packages/core/src/dev` predicate is
- * dropped (see report 005's V1 guard set table). */
 const DEV_ONLY_PATH_PATTERNS = [
   /\.spec\.[tj]sx?$/,
   /\.test\.[tj]sx?$/,

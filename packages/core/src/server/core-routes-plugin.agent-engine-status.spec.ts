@@ -60,12 +60,6 @@ afterEach(() => {
 });
 
 describe("agent-engine/status route failure handling", () => {
-  // A 200 saying `configured: false` is an AUTHORITATIVE answer to the client:
-  // it maps to `missing`, which gates the composer and shows "connect an AI
-  // provider". So swallowing a lookup error into that shape tells a user with a
-  // perfectly good key that they have none — the exact report this route caused.
-  // 503 is the only response the client can distinguish, and it maps to the
-  // retryable `unavailable` state that leaves the composer usable.
   it("answers a failed lookup with 503, never a 200 that claims nothing is configured", () => {
     const source = readFileSync(
       new URL("./core-routes-plugin.ts", import.meta.url),
@@ -75,10 +69,7 @@ describe("agent-engine/status route failure handling", () => {
     const body = handler.slice(0, handler.indexOf("${P}/track"));
 
     expect(body).toContain("setResponseStatus(event, 503)");
-    // A process-global in-flight lookup can outlive a credential write on a
-    // different serverless function instance and return the pre-write answer.
     expect(body).not.toContain("shareAgentEngineStatusLookup");
-    // The catch must not fabricate an authoritative negative answer.
     expect(body).not.toMatch(
       /catch\s*(\([^)]*\))?\s*\{[^}]*\}\s*return\s*\{\s*configured:\s*false/,
     );
@@ -105,8 +96,6 @@ describe("resolveAgentEngineStatus", () => {
       }),
     );
 
-    // Both are in flight before either has answered: sequencing them is what
-    // made the probe slow enough for the composer to time out.
     expect(started).toEqual(["stored", "baseUrl"]);
 
     stored.resolve({ engine: "ai-sdk:openai" });

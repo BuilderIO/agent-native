@@ -58,9 +58,6 @@ const getA2ASecretByDomain: (typeof import("../org/context.js"))["getA2ASecretBy
       getA2ASecretByDomain(...args),
     );
 
-// Inlined to avoid pulling the entire core-routes-plugin (and its h3
-// transitive deps) into the a2a/handlers test boundary. Must stay in sync
-// with FRAMEWORK_ROUTE_PREFIX in `server/core-routes-plugin.ts`.
 const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";
 const PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS = 1_000;
 const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
@@ -75,9 +72,6 @@ function trustedApprovedActions(
   value: unknown,
   event: any,
 ): A2AApprovedAction[] | undefined {
-  // Static API keys and unsigned requests do not prove which user authorized
-  // a consequential action. Only a verified identity-bearing JWT may carry
-  // chat authorization across the A2A boundary.
   if (!event?.context?.__a2aVerifiedEmail || !Array.isArray(value)) {
     return undefined;
   }
@@ -195,12 +189,6 @@ async function trustedSourceContext(
   }
 }
 
-/**
- * Request origin is routing/link context, not an identity signal. Accept only
- * an absolute HTTP(S) origin from caller metadata so queued runs can preserve
- * custom-domain/workspace links without allowing arbitrary values to leak
- * into browser or artifact URLs.
- */
 function requestOriginFromMetadata(
   metadata: Record<string, unknown> | undefined,
 ): string | undefined {
@@ -274,25 +262,12 @@ function a2aQueuedLifetimeMaxMs(): number {
   return 3 * 60 * 1000;
 }
 
-/**
- * Hard cap on total time a task may spend in `processing`, independent of
- * the liveness heartbeat. `A2A_PROCESSING_STUCK_AFTER_MS` alone only catches
- * a dead process — a hung await inside a still-alive process keeps
- * `updated_at` fresh via the heartbeat forever. This bounds that case
- * without cutting off legitimately long runs under it. Override with
- * A2A_PROCESSING_LIFETIME_MAX_MS.
- */
 function a2aProcessingLifetimeMaxMs(): number {
   const raw = Number(process.env.A2A_PROCESSING_LIFETIME_MAX_MS);
   if (Number.isFinite(raw) && raw > 0) return raw;
   return 30 * 60 * 1000;
 }
 
-/**
- * Dispatch an async A2A task to a fresh function execution. Apps that opted
- * into durable background runs reuse the emitted Netlify 15-minute worker;
- * other hosts and apps retain the normal portable self-webhook route.
- */
 async function fireProcessTaskDispatch(
   event: any,
   taskId: string,
@@ -314,9 +289,6 @@ async function fireProcessTaskDispatch(
   }
 
   try {
-    // A real Netlify background function acknowledges the enqueue quickly.
-    // Await that acknowledgement so a missing or rejected worker can fall
-    // back before the task is left in `working` with no processor.
     await fireInternalDispatch({
       event,
       path: backgroundPath,
@@ -327,10 +299,6 @@ async function fireProcessTaskDispatch(
       awaitResponse: true,
     });
   } catch (backgroundError) {
-    // Deploys can retain a runtime env opt-in after the corresponding
-    // background function was removed from the build. Keep async A2A useful
-    // in that state by falling back to the portable processor route, which
-    // runs in the regular framework function with the same task/auth checks.
     console.error(
       "[a2a] Durable background dispatch failed; falling back to portable processor:",
       backgroundError,
@@ -339,26 +307,12 @@ async function fireProcessTaskDispatch(
       event,
       path: A2A_PROCESS_TASK_PATH,
       taskId,
-      // The caller is about to return after a failed background handoff.
-      // Await the portable route briefly so the request definitely leaves this
-      // invocation, but do not hold async message/send open for the full agent
-      // run. The target processor continues independently after this bounded
-      // client-side timeout if the handler takes longer.
       awaitResponse: true,
       responseTimeoutMs: PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS,
     });
   }
 }
 
-/**
- * Process a previously-enqueued A2A task. Called by the `_process-task`
- * route in `server.ts`, in a fresh function execution. Atomically claims the
- * task, reconstructs the caller's request context from the task's metadata,
- * runs the handler, and persists the outcome.
- *
- * Idempotent on duplicate dispatches: the atomic claim returns null if some
- * other invocation already picked the task up, in which case we no-op.
- */
 export async function processA2ATaskFromQueue(
   taskId: string,
   config: A2AConfig,
@@ -366,7 +320,6 @@ export async function processA2ATaskFromQueue(
 ): Promise<void> {
   const claimed = await claimA2ATaskForProcessing(taskId);
   if (!claimed) {
-    // Already in flight, terminal, or missing. Nothing to do.
     return;
   }
 
@@ -386,10 +339,6 @@ export async function processA2ATaskFromQueue(
   const processorMeta = (meta.__a2a_processor ?? {}) as Record<string, unknown>;
   const verifiedEmail = processorMeta.verifiedEmail as string | undefined;
   const orgDomainHint = processorMeta.orgDomainHint as string | undefined;
-  // The processor metadata was created by the authenticated inbound handler
-  // from that request's resolved origin. Prefer it over the processor event,
-  // whose host may be an internal worker/dispatch origin. Legacy tasks that
-  // predate this metadata fall back to the processor event.
   const requestOrigin =
     requestOriginFromMetadata(processorMeta) ?? requestOriginFromEvent(event);
   const contextId =
@@ -455,15 +404,10 @@ export async function processA2ATaskFromQueue(
   }
 }
 
-/**
- * Default A2A handler that delegates to agentChat.call().
- * Used when no custom handler is provided in A2AConfig.
- */
 const defaultHandler: A2AHandler = async (
   message: Message,
   context: A2AHandlerContext,
 ): Promise<A2AHandlerResult> => {
-  // Extract text from message parts
   const text = message.parts
     .filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => p.text)
@@ -478,14 +422,6 @@ const defaultHandler: A2AHandler = async (
     };
   }
 
-  // A2A note: this message arrived from a different app — the caller cannot
-  // see this app's local state (open deck, selected slide, etc.). They only
-  // see whatever this agent puts into the reply text. So:
-  //   1) include any concrete result (deck/document/dashboard URL, ID, value)
-  //      explicitly in the reply — the caller can't navigate locally.
-  //   2) URLs must be fully-qualified — relative paths resolve against the
-  //      caller's host and 404.
-  // We prepend a one-line hint to the user message so the agent knows.
   const baseUrl = process.env.APP_URL || process.env.URL || "";
   const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
   const augmentedText = baseUrl
@@ -585,10 +521,6 @@ function makeHandlerContext(
   return { context, artifacts };
 }
 
-/**
- * Resolve org context from A2A metadata / event context and wrap `fn`
- * inside `runWithRequestContext` so downstream actions see the org.
- */
 async function withA2ARequestContext<T>(
   metadata: Record<string, unknown> | undefined,
   event: any,
@@ -599,10 +531,6 @@ async function withA2ARequestContext<T>(
 
   const verifiedEmail =
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
-  // Only trust the org domain from the cryptographically verified JWT claim on
-  // the event context. metadata.orgDomain is caller-supplied and must not be
-  // used for org resolution — an unauthenticated caller could forge it and
-  // gain access to another org's data.
   const orgDomain =
     (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
 
@@ -645,11 +573,6 @@ async function resolveVerifiedA2AOrgId(
   return undefined;
 }
 
-/**
- * Run the handler against the message and persist the outcome to the task store.
- * Used in sync mode (awaited inline) and in async mode (called by the
- * `_process-task` processor route in a fresh function execution).
- */
 async function runHandlerAndPersist(
   taskId: string,
   message: Message,
@@ -755,11 +678,6 @@ async function handleSend(
     event,
   );
 
-  // The JWT-verified caller email (set by mountA2A in server.ts) is the
-  // single source of truth for task ownership — bound at creation, checked
-  // on every subsequent tasks/get and tasks/cancel call. Caller-supplied
-  // metadata.userEmail is NEVER used for ownership; that would re-introduce
-  // the IDOR class fixed here.
   const { ownerEmail: ownerEmailForTask, ownerScope: ownerScopeForTask } =
     verifiedTaskOwner(event);
   let idempotencyKey: string | undefined;
@@ -786,27 +704,12 @@ async function handleSend(
     }
   }
 
-  // Async mode: return the task immediately in `working` state, run the
-  // handler in the background, and let the caller poll `tasks/get`. This is
-  // the workaround for synchronous serverless request timeouts when the handler
-  // runs LLM + tool loops that can exceed a single HTTP invocation budget.
   // SECURITY: only honor the explicit top-level `params.async`. The
-  // metadata.async fallback was caller-controlled and could force async
-  // dispatch (which has weaker auth than the sync path) on otherwise sync
-  // requests. Async is also refused entirely when no auth is configured in
-  // production — see the additional gate below.
   const asyncMode =
     params.async === true || (event && event.context?.__a2aForceAsync === true);
   if (!asyncMode) idempotencyKey = undefined;
 
   if (asyncMode) {
-    // Refuse async mode entirely without the shared secret in production.
-    // The async dispatch path self-fires the `_process-task` route, which is
-    // authenticated with an internal HMAC signed by A2A_SECRET. A legacy
-    // apiKeyEnv can authenticate the JSON-RPC request, but it cannot
-    // authenticate that internal handoff. Accepting it here would create a
-    // working task that can never start and leaves the caller polling until
-    // its timeout.
     if (isA2AProductionRuntime() && !hasConfiguredA2ASecret()) {
       return {
         ...jsonRpcError(
@@ -817,17 +720,8 @@ async function handleSend(
         _id: 0,
       };
     }
-    // Resolve identity up front (cheap), bake it into the task's metadata,
-    // and dispatch the actual handler run to a SEPARATE function execution.
-    // On serverless hosts (Netlify, Vercel, Cloudflare) detached promises get
-    // killed when the response is flushed, so we self-fire a webhook to a
-    // dedicated processor route — same cross-platform pattern the integration
-    // webhook queue uses. The processor reconstructs the request context from
-    // the task metadata and runs the handler with its own full timeout.
     const verifiedEmail =
       (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
-    // Only trust the verified org domain from the JWT claim — do not fall back
-    // to metadata.orgDomain which is caller-supplied and unverified.
     const orgDomainHint =
       (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
     const requestOrigin = requestOriginForContext(metadata, event);
@@ -861,13 +755,6 @@ async function handleSend(
     }
     const working = await updateTask(task.id, { state: "working" });
 
-    // Awaited, not fire-and-forget: this handler is about to return, and a
-    // detached dispatch fetch racing only a short settle timer can be killed
-    // mid-flight when the serverless response is flushed WITHOUT rejecting —
-    // see the `awaitResponse` doc on `fireInternalDispatch` in
-    // server/self-dispatch.ts. The durable worker path gets a fast 202
-    // acknowledgement; a stale-worker fallback uses a short bounded timeout
-    // because the portable route responds after processing the task.
     try {
       await fireProcessTaskDispatch(event, task.id, config);
     } catch (err) {
@@ -1126,7 +1013,6 @@ function authorizeTaskAccess(
   const inProduction = isA2AProductionRuntime();
 
   if (inProduction && !hasA2ASecret && !hasApiKey) {
-    // No way to authenticate the caller in production — refuse access.
     return jsonRpcError(0, -32001, "Task not found");
   }
 
@@ -1147,8 +1033,6 @@ function authorizeTaskAccess(
       }
     }
   }
-  // Legacy row (no owner_email recorded). The route-level auth gate is the
-  // only thing protecting it — fall through and serve.
   return null;
 }
 
@@ -1203,9 +1087,6 @@ async function refireStuckAsyncTaskIfNeeded(
   if (state.statusState === "submitted" || state.statusState === "working") {
     const queuedLifetimeCutoff = now - a2aQueuedLifetimeMaxMs();
     if (state.createdAt <= queuedLifetimeCutoff) {
-      // Dispatch has kept failing (or was never delivered) long enough that
-      // retrying further would just repeat the same failure forever — stop
-      // refiring and surface a terminal error instead of throttling forever.
       return failStuckQueuedA2ATask(
         taskId,
         queuedLifetimeCutoff,
@@ -1235,9 +1116,6 @@ async function refireStuckAsyncTaskIfNeeded(
     const isStale = state.updatedAt <= processingStuckCutoff;
     const isOverLifetime = state.createdAt <= processingLifetimeCutoff;
     if (isStale || isOverLifetime) {
-      // A processor that died mid-handler may have already performed
-      // side-effectful work. Retrying from the top can duplicate artifacts, so
-      // fail deterministically and let the caller issue an intentional retry.
       return failStuckA2ATask(
         taskId,
         processingStuckCutoff,
@@ -1364,10 +1242,6 @@ async function handleInvokeReadOnlyAction(
   }
 }
 
-/**
- * H3-compatible JSON-RPC handler. Returns JSON directly (H3 serializes it).
- * Streaming is handled via H3's node response when needed.
- */
 export async function handleJsonRpcH3(
   body: any,
   event: any,
@@ -1391,7 +1265,6 @@ export async function handleJsonRpcH3(
       if (!config.streaming) {
         return jsonRpcError(id, -32601, "Streaming not supported");
       }
-      // Use the raw node response for SSE streaming
       const res = event.node?.res;
       if (!res) {
         return jsonRpcError(id, -32000, "Streaming not available");
@@ -1400,7 +1273,7 @@ export async function handleJsonRpcH3(
       setResponseHeader(event, "Cache-Control", "no-cache");
       setResponseHeader(event, "Connection", "keep-alive");
       await handleStream(params, config, res, event);
-      return undefined as any; // Response already sent via SSE
+      return undefined as any;
     }
     case "tasks/get": {
       const result = await handleGet(params, event, config);

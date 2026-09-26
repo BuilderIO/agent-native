@@ -1,14 +1,3 @@
-/**
- * The data-program output contract.
- *
- * This module deliberately does NOT touch `../coding-tools/run-code.ts` —
- * `executeSandboxCode` already accepts arbitrary code, so a data program is
- * just user code with a small prelude prepended. The prelude defines a
- * frozen `params` global and a single-call `emit(rows, schema?)` that writes
- * one sentinel-prefixed JSON line to stdout. `parseDataProgramResult` then
- * extracts that line back out of the captured stdout (which may also contain
- * arbitrary `console.log` debug noise before/after it).
- */
 
 export const DATA_PROGRAM_SENTINEL = "__DATA_PROGRAM_RESULT__";
 
@@ -35,21 +24,6 @@ export interface ParsedDataProgramResult {
   truncated: boolean;
 }
 
-/**
- * Build the JS source prepended to user code before it is handed to
- * `executeSandboxCode`. Defines:
- *   - a frozen `params` global (deep-frozen best-effort; primitives and
- *     plain JSON values are always frozen, so user code cannot mutate the
- *     params object out from under itself).
- *   - `emit(rows, schema?)` — single-call guard (a second call throws) that
- *     writes `DATA_PROGRAM_SENTINEL + JSON.stringify({rows, schema})` as one
- *     stdout line via `console.log`. The Run evaluator does not expose
- *     `process`, and the single string argument keeps the sentinel line
- *     byte-exact with no extra formatting.
- *
- * `console.log` remains completely free for debugging — the runner captures
- * combined stdout and only strips the sentinel line when parsing.
- */
 export function buildDataProgramPrelude(
   params: Record<string, unknown> | undefined,
 ): string {
@@ -86,12 +60,6 @@ function inferColumnType(value: unknown): DataProgramColumnType {
   return "json";
 }
 
-/**
- * Infer a column schema by surveying the first `sampleSize` rows. A column's
- * type is "json" if any sampled row disagrees on primitive type (the safe,
- * always-renderable fallback), otherwise the single agreed primitive type.
- * Columns absent from a row are simply not counted for that row.
- */
 export function inferDataProgramSchema(
   rows: Record<string, unknown>[],
   sampleSize = 50,
@@ -135,13 +103,6 @@ function byteLength(value: string): number {
   return Buffer.byteLength(value, "utf8");
 }
 
-/**
- * Find the LAST sentinel-prefixed line in captured stdout. Using the last
- * (not first) occurrence means accidental duplicate/partial sentinel text
- * inside earlier `console.log` debug output can't be mistaken for the real
- * result — the framework-injected `emit()` call is always what produced the
- * final one (the single-call guard rules out a legitimate second `emit()`).
- */
 function extractSentinelLine(stdout: string): string | null {
   const lines = stdout.split("\n");
   for (let i = lines.length - 1; i >= 0; i -= 1) {
@@ -162,12 +123,6 @@ export type ParseDataProgramResultOutcome =
   | { ok: true; result: ParsedDataProgramResult }
   | { ok: false; error: DataProgramContractError };
 
-/**
- * Parse the sentinel-prefixed emit() payload out of captured sandbox stdout.
- * Never throws — always returns a discriminated outcome with a structured
- * error code so callers can surface something actionable instead of a bare
- * "Error: ..." string.
- */
 export function parseDataProgramResult(
   stdout: string,
   options: ParseDataProgramResultOptions,
@@ -238,10 +193,6 @@ export function parseDataProgramResult(
     };
   }
 
-  // Enforce caps by truncating rows to fit — an honest partial result
-  // (`truncated: true`), never a silent drop. A single row that alone
-  // exceeds the byte cap is a hard failure (result_too_large) since there is
-  // nothing safe to truncate to.
   if (rows.length === 0) {
     return { ok: true, result: { rows, schema, truncated: false } };
   }

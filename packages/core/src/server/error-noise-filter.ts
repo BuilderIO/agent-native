@@ -1,19 +1,3 @@
-/**
- * Provider-agnostic drop rules for server error reporting.
- *
- * These rules were tuned against real production volume while Sentry was the
- * only backend, and they lived inside its `beforeSend`. They are not Sentry
- * policy — they describe which server errors are non-bugs in *this* framework
- * (expected 4xx, access-control rejections, Lambda freeze/thaw socket noise).
- * Any second backend that skips them receives a firehose rather than a signal:
- * the `socket hang up` rule alone accounts for ~10k events/day.
- *
- * The rules operate on a normalized signal so the same predicate can judge a
- * Sentry `Event` (already parsed by the SDK) and a raw `Error` reaching the
- * PostHog provider. Fields a given source cannot supply stay `undefined`, and
- * every rule requires the evidence it depends on — an unknown never reads as
- * a match.
- */
 
 import { parseStackFrames } from "../tracking/posthog-exception.js";
 
@@ -24,20 +8,12 @@ export interface ErrorSignalFrame {
 }
 
 export interface NormalizedErrorSignal {
-  /** Error class name, e.g. `ValidationError`. */
   type?: string;
-  /** Error message. */
   value?: string;
-  /** Capture mechanism, e.g. `onunhandledrejection`. */
   mechanismType?: string;
   frames?: ErrorSignalFrame[];
-  /** HTTP status carried by h3's `HTTPError` / `H3Error`. */
   statusCode?: number;
   tags?: Record<string, string | undefined>;
-  /**
-   * Sentry-only: some SDK-internal rejections arrive with no `exception.values`
-   * at all and only a `metadata` blob. Left `undefined` elsewhere.
-   */
   metadataValue?: string;
   metadataFilename?: string;
   hasExceptionValues?: boolean;
@@ -50,33 +26,18 @@ function isUnhandledRejection(signal: NormalizedErrorSignal): boolean {
   );
 }
 
-/** Expected user-input rejections. The framework and CLI both throw these. */
 function isValidationNoise(signal: NormalizedErrorSignal): boolean {
   return (
     signal.type === "ValidationError" || signal.tags?.handled === "validation"
   );
 }
 
-/**
- * Access-control rejections. These are 4xx user-facing errors that reached the
- * error hook because a route forgot to catch them — fixing the route is the
- * right answer, but until then they bury real bugs. Auth routes report their
- * own failures at `warning` level, so this only sees the escape path.
- */
 function isAccessControlNoise(signal: NormalizedErrorSignal): boolean {
   return (
     signal.type === "ForbiddenError" || signal.type === "UnauthorizedError"
   );
 }
 
-/**
- * `socket hang up` unhandled rejections from Lambda freeze cycles. AWS recycles
- * long-lived sockets (MCP Streamable HTTP long-polls, keep-alive agents) ~60s
- * after a function returns 200; the next thaw delivers a socket-end event whose
- * Promise has nobody left to await it. The function already returned correctly,
- * so there is no user impact. The narrow frame match keeps genuine
- * application-thrown socket errors visible.
- */
 function isLambdaSocketHangUpNoise(signal: NormalizedErrorSignal): boolean {
   if (signal.value !== "socket hang up" || !isUnhandledRejection(signal)) {
     return false;
@@ -88,17 +49,6 @@ function isLambdaSocketHangUpNoise(signal: NormalizedErrorSignal): boolean {
   );
 }
 
-/**
- * SDK-only `ErrorEvent` promise rejections — typically the Neon serverless
- * driver's WebSocket dying across a freeze/thaw and rejecting a floating
- * promise with the raw ErrorEvent (`db/client.ts` already records these with
- * context). Events with real application frames stay visible.
- *
- * "Application frame" must exclude the Sentry SDK's own bundled chunks:
- * serverless bundles place them under the app root (e.g.
- * `/var/task/_libs/@sentry/node+….mjs`), outside node_modules, so the SDK marks
- * them `in_app` and the instrumentation stack alone would defeat this filter.
- */
 function isSdkErrorEventNoise(signal: NormalizedErrorSignal): boolean {
   if (signal.value === "[object ErrorEvent]" && isUnhandledRejection(signal)) {
     const frames = signal.frames ?? [];
@@ -119,13 +69,6 @@ function isSdkErrorEventNoise(signal: NormalizedErrorSignal): boolean {
   );
 }
 
-/**
- * h3's `createError({ statusCode: 4xx })` produces an `HTTPError` (h3 v2) /
- * `H3Error` (h3 v1). 4xx ones are handler-controlled "expected failure"
- * responses that route through the error hook only because they bubble out of
- * `defineEventHandler`. Capture when the status looks 5xx, or is missing on a
- * generic Error masquerading as an HTTPError.
- */
 function isExpectedHttpNoise(signal: NormalizedErrorSignal): boolean {
   if (signal.type !== "HTTPError" && signal.type !== "H3Error") return false;
 
@@ -134,10 +77,6 @@ function isExpectedHttpNoise(signal: NormalizedErrorSignal): boolean {
     return code >= 400 && code < 500;
   }
 
-  // No status in the payload — match the common 4xx messages so handler-thrown
-  // 404/400/403/401 don't pollute the backend. A heuristic, but the
-  // alternatives (every 4xx becomes a real issue, or every route grows a
-  // catch+return) are worse.
   const value = signal.value ?? "";
   return (
     /^Cannot find any route matching/i.test(value) ||
@@ -148,13 +87,6 @@ function isExpectedHttpNoise(signal: NormalizedErrorSignal): boolean {
   );
 }
 
-/**
- * `false` when the error is known non-bug noise and should not be reported.
- *
- * Deliberately fails open: anything the rules cannot positively identify as
- * noise is reported. A dropped real error is invisible; a kept noisy one is
- * merely loud.
- */
 export function shouldReportErrorSignal(
   signal: NormalizedErrorSignal,
 ): boolean {
@@ -190,7 +122,6 @@ function toNumericStatus(value: unknown): number | undefined {
   return undefined;
 }
 
-/** Normalize a Sentry event. Typed structurally so this module stays SDK-free. */
 export function errorSignalFromSentryEvent(
   event: SentryLikeEvent,
 ): NormalizedErrorSignal {
@@ -226,7 +157,6 @@ export interface ErrorSignalFromErrorOptions {
   tags?: Record<string, string | undefined>;
 }
 
-/** Normalize a raw thrown value for backends that never see a Sentry event. */
 export function errorSignalFromError(
   error: unknown,
   options: ErrorSignalFromErrorOptions = {},
@@ -259,7 +189,6 @@ export function errorSignalFromError(
   };
 }
 
-/** Convenience wrapper for the raw-error path. */
 export function shouldReportError(
   error: unknown,
   options: ErrorSignalFromErrorOptions = {},

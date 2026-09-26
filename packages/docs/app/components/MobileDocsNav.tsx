@@ -90,8 +90,6 @@ export default function MobileDocsNav() {
                 </p>
                 <ul className="list-none p-0">
                   {section.items.map((item) => {
-                    // Chevron-only group header (no `to`): render a plain,
-                    // non-clickable label with its children listed below.
                     const isGroup = !item.to && Boolean(item.children?.length);
                     const isActive =
                       !isGroup &&

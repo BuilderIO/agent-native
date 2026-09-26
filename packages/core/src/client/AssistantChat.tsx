@@ -100,7 +100,6 @@ import { getBrowserTabId } from "./browser-tab-id.js";
 import { modelCatalogConfirmsMissing } from "./chat-model-groups.js";
 import { AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT } from "./chat-view-transition.js";
 import { AgentActivityTrace } from "./chat/agent-activity-trace.js";
-// ─── chat/ module imports ─────────────────────────────────────────────────────
 import {
   DownscalingImageAttachmentAdapter,
   BinaryDocumentAttachmentAdapter,
@@ -275,9 +274,6 @@ export { displayableUserMessageText } from "./chat/message-components.js";
 type AuthSessionCheckResult = "available" | "missing" | "unknown";
 type ThreadRestoreErrorKind = "not-found" | "unavailable";
 
-// Desktop chat mounts beside the parent identity gate. The server masks an
-// unauthenticated thread lookup as 404, so a stale local pointer must not turn
-// the sign-in screen into a dead-thread error.
 export function shouldSuppressUnauthenticatedDesktopThreadRestore(
   surface: AgentChatSurfaceKind,
   status: number,
@@ -328,14 +324,10 @@ export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
   requestMode?: AgentRequestMode;
   attachments?: AgentChatAttachment[];
-  /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
-  /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
-  /** See `AgentChatMessage.approvedToolCalls`. */
   approvedToolCalls?: string[];
-  /** Send as a protocol continuation that stays out of visible history. */
   hideUserMessage?: boolean;
 }
 
@@ -436,9 +428,6 @@ export function createUserMessageRunConfig(
 }
 
 const PENDING_SELECTION_KEY = "pending-selection-context";
-// Bounds an in-flight poll fetch so its own boolean in-flight guard is
-// guaranteed to release even if the server never responds. Mirrors
-// use-db-sync.ts's getPollAbortMs.
 const POLL_ABORT_MIN_MS = 10_000;
 function getPollAbortMs(interval: number): number {
   return Math.max(POLL_ABORT_MIN_MS, interval * 4);
@@ -455,11 +444,6 @@ const RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE =
   "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. If the last visible step was preparing an app action and no tool result was returned, treat that action input as stalled or too large: change strategy, use a smaller bounded input, and preserve optional details as visible affordances instead of repeating the same giant action. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.";
 const RECONNECT_EMPTY_RETRY_MESSAGE =
   "The previous attempt disconnected before producing any output. Start the original request again.";
-// How long a single activity (model call, tool prep, long tool) must stay
-// in-flight before its label is surfaced in the running indicator. Below this
-// the indicator stays a steady "Thinking" so normal fast turns don't flicker
-// through transient labels ("Contacting model", "Preparing X action"); past it
-// the live label appears so a genuinely slow step reads as working, not hung.
 const ACTIVITY_LABEL_REVEAL_DELAY_MS = 6_000;
 const DEFAULT_ASSISTANT_CHAT_COMPOSER_PLACEHOLDER =
   "Ask the agent to explore, build, or explain…";
@@ -502,10 +486,6 @@ function activeRunStuckThresholdMs(runInfo: ActiveRunLookup): number {
 }
 
 function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
-  // A run killed before it emitted anything has no `lastProgressAt`. Falling
-  // back to the heartbeat keeps that case from reading as perpetually fresh —
-  // "never reported progress" is the worst case, not an exemption from the
-  // staleness check.
   const lastProgressAt =
     typeof runInfo.lastProgressAt === "number"
       ? runInfo.lastProgressAt
@@ -515,9 +495,6 @@ function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
   const nowMs =
     typeof runInfo.serverNow === "number" ? runInfo.serverNow : Date.now();
   const thresholdMs = activeRunStuckThresholdMs(runInfo);
-  // A healthy stream can outrun a delayed durable progress write. The local
-  // SSE cursor is independent evidence that this browser is receiving real
-  // work, so do not abort or replace that run while its own progress is fresh.
   if (
     hasRecentActiveRunProgress(runInfo.threadId, runInfo.runId, thresholdMs)
   ) {
@@ -530,25 +507,8 @@ function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
   );
 }
 
-/**
- * The stored active run is what keeps the "Thinking…" spinner up across a
- * reload, and the `/runs/active` probe is the only path that clears it. A 5xx
- * or a network drop there means "couldn't determine", NOT "still running" —
- * collapsing the two is what strands the spinner forever when the server is
- * briefly unreachable, because no caller reschedules the probe. Retry inside
- * the call, then give up loudly.
- */
 const ACTIVE_RUN_PROBE_RETRY_DELAYS_MS = [400, 1200];
 
-/**
- * Decide whether a reconnect should give up with "no progress". The signal is
- * *time since the last streamed event*, NOT total reconnect duration: a healthy
- * long-running tool (e.g. image generation, which emits `activity` heartbeats
- * every few seconds) makes continuous progress and must never be aborted just
- * for running longer than the threshold. Only genuine silence for the full
- * stuck threshold counts as stuck. Pure + exported so the decision is unit
- * testable without driving the whole reconnect lifecycle.
- */
 export function reconnectProgressTimedOut(args: {
   lastProgressAt: number;
   now: number;
@@ -609,12 +569,6 @@ type AssistantUiThreadBinding = {
   outerSubscribe?: (callback: () => void) => void | (() => void);
 };
 
-/**
- * Keep the assistant-ui repository race recovery installed across runtime-core
- * replacements. The public ThreadRuntime object stays stable when its binding
- * swaps to another local runtime (thread activation, reconnect, history load),
- * but each core owns a different MessageRepository instance.
- */
 export function installAssistantUiMessageRepositoryRecovery(
   threadRuntime: unknown,
 ): () => void {
@@ -778,8 +732,6 @@ export async function waitForThreadRunToClear(
     setActiveRun({
       threadId,
       runId: info.runId,
-      // Waiting to reconnect does not transfer stream ownership. Preserve
-      // the current owner's surface until that surface actually claims it.
       ...(storedOwnerTabId ? { tabId: storedOwnerTabId } : {}),
       ...(info.turnId ? { turnId: info.turnId } : {}),
       lastSeq: sameStoredRun ? stored.lastSeq : -1,
@@ -802,9 +754,6 @@ export async function waitForThreadRunToClear(
           activeRunLooksStale(info);
         if (runLooksClear) {
           consecutiveClearPolls += 1;
-          // A terminal/no-active snapshot can briefly appear between a
-          // foreground run and its server-owned continuation. Require two
-          // consecutive clear polls before releasing a queued follow-up.
           if (consecutiveClearPolls >= ACTIVE_RUN_CLEAR_STABLE_POLLS) {
             return true;
           }
@@ -814,11 +763,6 @@ export async function waitForThreadRunToClear(
         if (!runLooksClear && info.runId) {
           activeRunToResume = info;
           if (info.awaitingRedispatch === true) {
-            // This is not the brief terminal-write lag the 5s waiter was built
-            // for. The server has pre-inserted a durable successor and owns its
-            // recovery. Reattach the UI immediately and leave the queued
-            // message untouched; posting it now can only 409 against that
-            // successor and eventually render a false terminal error.
             resumeActiveRun(info);
             return false;
           }
@@ -837,21 +781,16 @@ export async function waitForThreadRunToClear(
   }
 
   if (activeRunToResume) {
-    // The run remained live beyond the normal SQL terminal-write grace. Keep
-    // the follow-up queued and restore active-run tracking so the reconnect
-    // reader owns this run until it actually becomes terminal.
     resumeActiveRun(activeRunToResume);
     return false;
   }
   return true;
 }
 
-// ─── Composer Attachment Preview ─────────────────────────────────────────────
 
 function getImageAttachmentSrc(attachment: Attachment): string | null {
   if (attachment.type !== "image") return null;
 
-  // Prefer the hosted URL when the server already uploaded this attachment.
   const uploadUrl = (attachment as any).metadata?.uploadUrl as
     | string
     | undefined;
@@ -1018,12 +957,6 @@ function toolCallPartHasResult(part: unknown): boolean {
   return candidate.type === "tool-call" && "result" in candidate;
 }
 
-/**
- * Monotonic progress rank for a tool-call part. Higher means the UI should
- * prefer this copy over a lower-ranked duplicate of the same logical call.
- * Used so reconnect overlays that are ahead of lagging thread messages stay
- * visible instead of flickering back to an older pending spinner.
- */
 function toolCallProgressRank(part: unknown): number {
   if (!part || typeof part !== "object") return 0;
   const candidate = part as {
@@ -1040,14 +973,6 @@ function toolCallProgressRank(part: unknown): number {
     : 1;
 }
 
-/**
- * Identity fingerprint for a tool-call part that survives across readers: two
- * readers of the same run assign unrelated synthetic toolCallIds until both
- * have seen the server id, but the tool name + serialized args are identical
- * for the same logical call (argsText is `JSON.stringify(input)` on both
- * sides). Activity placeholders (no args yet) return null — an empty-args
- * fingerprint would over-match unrelated calls of the same tool.
- */
 function toolCallFingerprintFromContentPart(part: unknown): string | null {
   if (!part || typeof part !== "object") return null;
   const candidate = part as {
@@ -1344,12 +1269,6 @@ function pendingToolCallCountsByName(
   return counts;
 }
 
-/**
- * Linear-time longest overlap where a suffix of `renderedText` equals a prefix
- * of `reconnectText`. The reconnect overlay is recalculated during render on
- * every stream tick, so a descending slice/endsWith scan becomes quadratic on
- * large repeated output.
- */
 function longestSuffixPrefixOverlap(
   renderedText: string,
   reconnectText: string,
@@ -1404,10 +1323,6 @@ function trimReconnectTextAlreadyRendered(
       reconnectText,
     );
     if (tailOverlap > 0) {
-      // Tail reconnects begin after the last remembered event, so their first
-      // text can be the final suffix of a thread snapshot imported in parallel.
-      // For a partial overlap, require a whole word/phrase boundary so a
-      // coincidental shared character at the join cannot eat legitimate text.
       const renderedBeforeOverlap =
         renderedAssistantText[renderedAssistantText.length - tailOverlap - 1];
       const reconnectAfterOverlap = reconnectText[tailOverlap];
@@ -1515,21 +1430,12 @@ export function dedupeReconnectContentAgainstMessages(
               changed = true;
               return false;
             }
-            // Keep reconnect copies that are strictly ahead of the rendered
-            // message (e.g. completed overlay vs lagging pending thread data).
-            // Same-or-behind ranks are duplicates and should stay hidden.
             if (reconnectRank <= existing.rank) {
               changed = true;
               return false;
             }
             return true;
           }
-          // Fingerprint fallback for the id-convergence window: two readers of
-          // the same active run can assign unrelated ids to the same logical tool
-          // call before the server id converges. Suppress the reconnect overlay
-          // only when the rendered message is at least as far along; completed
-          // reconnect copies stay visible over pending message copies so the UI
-          // does not pop back to an older spinner.
           const fingerprint = toolCallFingerprintFromContentPart(part);
           const latestByFingerprint = fingerprint
             ? latestAssistantByFingerprint.get(fingerprint)
@@ -1550,19 +1456,6 @@ export function dedupeReconnectContentAgainstMessages(
             changed = true;
             return false;
           }
-          // Activity / arg-less fallback. A reconnect spinner (activity===true)
-          // or a pending tool whose args have not materialized yet has no
-          // fingerprint, and its reader-local id (`tc_N`) never matches the
-          // server-scoped id (`${runId}:tc_N`) rendered in the message, so it
-          // slips past BOTH checks above and paints a second card beside the
-          // live one ("one spinning, one static"). Suppress it only when the
-          // latest assistant message renders the same tool that is ITSELF still
-          // pending (rank < 4) at an equal-or-greater rank: a spinner alongside
-          // a live pending card is the same in-flight call seen by two readers.
-          // If the rendered same-name tool is already completed, a fresh spinner
-          // is more likely a genuinely repeated call, so it must stay visible
-          // (an empty-args fingerprint would over-match — see the completed
-          // repeat cases below).
           if (!fingerprint) {
             const name = toolCallNameFromContentPart(part);
             const latestByName = name
@@ -1586,10 +1479,6 @@ export function dedupeReconnectContentAgainstMessages(
               hasReaderLocalIdentity &&
               latestByName.pendingRank >= reconnectRank
             ) {
-              // During reconnect -> live-adapter handoff both accumulators own
-              // the same run. Their pre-tool-start activity cards can have
-              // unrelated reader-local ids and no args fingerprint, so name +
-              // pending progress is the only stable identity available.
               changed = true;
               return false;
             }
@@ -1795,10 +1684,6 @@ export function resolveAssistantChatRunningState({
       Boolean(hasActiveServerRun));
   return {
     isRunning,
-    // During auto-continuation, assistant-ui can briefly mark the message done
-    // between chunks even though the adapter is about to POST the next run.
-    // Keep the visible chat state running so the latest assistant message shows
-    // Thinking/Resuming and does not expose footer actions prematurely.
     showRunningInUI:
       !forceStopped && !hasTerminalRunError && (isRunning || isAutoResuming),
   };
@@ -1843,9 +1728,6 @@ export function resolveAssistantChatRunningStatusLabel({
     if (runningActivityLabel === "Contacting model") {
       return labels.contactingModel ?? "Contacting model";
     }
-    // `tool_start` stores the English `runningToolLabel(tool)`. The tool name
-    // rides along in state, so re-derive the label here instead of shipping the
-    // stored English through to the status line.
     const activityTool = runningActivityTool?.trim();
     if (
       activityTool &&
@@ -1865,8 +1747,6 @@ export function resolveAssistantChatRunningStatusLabel({
     for (const [pattern, translateActivity] of localizedActivityPatterns) {
       const match = runningActivityLabel.match(pattern);
       if (match?.[1] && translateActivity) {
-        // The captured activity is the derived action name. When it matches the
-        // tool this run is on, prefer the app's catalog label for it.
         const activity =
           activityTool &&
           labels.toolDisplayName &&
@@ -1960,9 +1840,6 @@ export function shouldShowGlobalRunningStatus({
       contentHasActiveToolCall(reconnectContent, runningActivityTool)),
   );
 
-  // A pending card for the same tool is already the running indicator.
-  // Rendering its global activity label as well shows the logical call twice
-  // (for example, `generate design` plus `Writing generate design...`).
   if (runningActivityLabel && matchingActivityToolIsVisible) {
     return false;
   }
@@ -1972,9 +1849,6 @@ export function shouldShowGlobalRunningStatus({
   ) {
     return false;
   }
-  // The reasoning cell already owns the generic Thinking state. Activity
-  // events can briefly reassert that same label between reasoning deltas;
-  // rendering both makes a second Thinking row flash beneath the thought.
   if (
     runningActivityLabel === "Thinking" &&
     (latestMessageHasActiveTool ||
@@ -2007,7 +1881,6 @@ export function assistantChatAutoscrollStatusKey({
 type QueuedMessage = {
   id: string;
   text: string;
-  /** Already visible in the thread; start its run after the active turn ends. */
   promoted?: boolean;
   images?: string[];
   attachments?: QueuedAttachment[];
@@ -2017,18 +1890,9 @@ type QueuedMessage = {
   trackInRunsTray?: boolean;
   hideUserMessage?: boolean;
   approvedToolCalls?: string[];
-  /** Preserve the logical turn when a hidden reconnect recovery is re-issued. */
   turnId?: string;
-  /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
-  /**
-   * Model/engine/effort snapshotted at enqueue time, for the same reason
-   * `requestMode` is: the picker is global and live, so a queue that flushes
-   * after the user switches models would otherwise silently run the message
-   * under a model it was never composed for. Entries persisted before this
-   * existed simply lack the fields and fall back to the live selection.
-   */
   model?: string;
   engine?: string;
   effort?: ReasoningEffort;
@@ -2120,53 +1984,30 @@ function AssistantChatScrollerControls({
   return null;
 }
 
-// ─── Main Component ─────────────────────────────────────────────────────────
 
 export interface AssistantChatHandle {
-  /** Programmatically send a message into this chat */
   sendMessage(
     text: string,
     images?: string[],
     options?: AssistantChatSendOptions,
   ): void;
-  /** Implement the latest plan when the plan-mode callout is available. */
   implementPlan(): boolean;
-  /** Programmatically prefill the composer without submitting. */
   prefillMessage(text: string): void;
-  /**
-   * Add or replace keyed context for the next composer submission.
-   * Focuses the composer by default; pass `{ focus: false }` for passive
-   * context mirroring (e.g. canvas selection) that must not steal focus.
-   */
   setComposerContextItem(
     item: AgentChatContextItem,
     options?: { focus?: boolean },
   ): void;
-  /** Remove a keyed context item from the composer. */
   removeComposerContextItem(key: string): void;
-  /** Clear all staged context items from the composer. */
   clearComposerContextItems(): void;
-  /** Programmatically send a recovery prompt without replacing the original request. */
   sendRecoveryMessage(
     text: string,
     recoveryAction: AgentRecoveryAction,
     images?: string[],
   ): void;
-  /** Queue a message to send after the current run finishes */
   queueMessage(text: string, images?: string[]): void;
-  /** Whether the chat is currently running */
   isRunning(): boolean;
-  /**
-   * Whether the current run has a tool call or sub-agent (A2A) call that
-   * hasn't returned a result yet. Mirrors the server's in-flight-work
-   * tracking client-side so callers (e.g. `RunStuckBanner`) can tell a
-   * genuinely stalled run apart from one still waiting on a long-running
-   * tool/A2A call before treating "no progress" as safe to abort.
-   */
   hasInFlightWork(): boolean;
-  /** Focus the composer input */
   focusComposer(): void;
-  /** Export the currently visible client-side thread for operations like fork. */
   exportThreadSnapshot(): ChatThreadSnapshot | null;
 }
 
@@ -2234,65 +2075,33 @@ export async function restoreAssistantChatHistoryVersion<
 }
 
 export interface AssistantChatProps {
-  /** API endpoint URL. Default: "/_agent-native/agent-chat" */
   apiUrl?: string;
-  /** Optional Nitro response-streaming endpoint, usually supplied by VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL. */
   streamingUrl?: string;
-  /** Stable tab identifier passed to the adapter for event correlation */
   tabId?: string;
-  /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
-  /** Thread ID for SQL-backed persistence. When set, messages are loaded from and saved to the server. */
   threadId?: string;
-  /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
-  /** Optional host-owned resource history used for chat-side reverts. */
   chatHistory?: AssistantChatHistoryConfig<any, any, any>;
-  /** Restrict server-side thread restores to the supplied app scope. */
   isolateHistoryByScope?: boolean;
-  /** Namespace used to hide ambient composer context from other host surfaces. */
   contextNamespace?: string;
-  /** Whether this chat owns the active visible composer context snapshot. */
   isActiveComposer?: boolean;
-  /**
-   * Identifies which surface hosts this chat. Defaults to "app", which keeps
-   * dev filesystem/bash code-editing tools out of in-product sidebars.
-   */
   agentChatSurface?: AgentChatSurfaceKind;
-  /** Whether the desktop host is currently showing its unauthenticated identity gate. */
   desktopIdentityUnauthenticated?: boolean;
-  /** Whether the desktop host has just established its authenticated identity session. */
   desktopIdentityAuthenticated?: boolean;
-  /** Route completed first-party open_app calls through the host app pane. */
   suppressInlineOpenApp?: boolean;
-  /** Placeholder text for empty state */
   emptyStateText?: string;
-  /** Static or agent-authored next actions shown at the base of the chat. */
   suggestions?: AgentSuggestionInput[];
-  /** Context-aware suggestions merged with `suggestions`. Enabled by default. */
   dynamicSuggestions?: AgentDynamicSuggestionsOption;
-  /** Where suggestions appear. The panel uses a next-action bar at the thread base. */
   suggestionPlacement?: "empty-state" | "context-chips" | "hidden";
-  /** When suggestions become visible. Full-page chat can defer them until the agent has replied. */
   suggestionVisibility?: AssistantChatSuggestionVisibility;
-  /** Optional content rendered as part of the conversation before persisted messages. */
   threadContentSlot?: AssistantChatThreadFooterSlot;
-  /** Optional content rendered at the bottom of the scrollable thread, after messages. */
   threadFooterSlot?: AssistantChatThreadFooterSlot;
-  /** Optional content rendered in the empty state, above the suggestion buttons. */
   emptyStateAddon?: React.ReactNode;
-  /** Optional content rendered in the empty state, below the suggestion
-   *  buttons. Unlike `threadFooterSlot` this never survives the first message. */
   emptyStateFooter?: React.ReactNode;
-  /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
-  /** CSS class for the outer container */
   className?: string;
-  /** Callback when user clicks "Use CLI" button */
   onSwitchToCli?: () => void;
-  /** Callback when message count changes */
   onMessageCountChange?: (count: number) => void;
-  /** Callback to save thread data to the server (provided by useChatThreads) */
   onSaveThread?: (
     threadId: string,
     data: {
@@ -2302,142 +2111,59 @@ export interface AssistantChatProps {
       messageCount: number;
     },
   ) => void;
-  /** Callback to generate a title from the first user message */
   onGenerateTitle?: (threadId: string, message: string) => void;
-  /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
-  /**
-   * Called with the active composer's current plain text when it initializes
-   * and as it changes.
-   * Host apps can use this to render contextual, non-destructive affordances
-   * beside the shared composer without replacing the composer stack.
-   */
   onComposerTextChange?: (text: string) => void;
-  /** Class applied to the shared composer area for host-specific sizing/skin. */
   composerAreaClassName?: string;
-  /** Placeholder for the shared composer in its normal idle state. */
   composerPlaceholder?: string;
-  /** Controls the compactness of the provider setup panel attached above the composer. */
   missingApiKeySetupLayout?: BuilderSetupCardLayout;
-  /** Visual density for the shared composer shell. */
   composerLayoutVariant?: AgentComposerLayoutVariant;
-  /** Center the composer on a fresh empty chat instead of pinning it low. */
   centerComposerWhenEmpty?: boolean;
-  /** Hide the default empty-state icon/text/suggestions for custom start screens. */
   emptyStateDisplay?: "default" | "hidden";
-  /** Optional content rendered inside the composer toolbar after the attach button. */
   composerToolbarSlot?: React.ReactNode;
-  /** Optional action rendered beside the voice/send controls. */
   composerExtraActionButton?: React.ReactNode;
-  /** Show the framework model picker in the shared composer. Defaults to true. */
   showModelSelector?: boolean;
-  /** Disable the composer for capability-gated surfaces while still showing history. */
   composerDisabled?: boolean;
-  /** Placeholder to show while the composer is disabled by the host surface. */
   composerDisabledPlaceholder?: string;
-  /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
   isNewThread?: boolean;
-  /** Replace an active tab when its saved thread no longer exists. */
   onThreadRestoreNotFound?: () => void;
-  /** Defer restore until the owning thread list has reconciled the active id. */
   isThreadStateLoading?: boolean;
-  /** Called when a slash command (e.g. /clear, /help) is executed */
   onSlashCommand?: (command: string) => void;
-  /** Current execution mode (build/plan) */
   execMode?: "build" | "plan";
-  /** Callback to change execution mode */
   onExecModeChange?: (mode: "build" | "plan") => void;
-  /** Disable Plan mode while leaving Act mode available. */
   planModeDisabled?: boolean;
-  /** Explanation shown next to the disabled Plan option. */
   planModeDisabledReason?: string;
-  /** Selected model override for this conversation (undefined = use server default) */
   selectedModel?: string;
-  /** Default model from server config (shown in picker when no override is set) */
   defaultModel?: string;
-  /** Selected engine override for this conversation */
   selectedEngine?: string;
-  /** Selected effort override for this conversation */
   selectedEffort?: ReasoningEffort;
-  /** Available engine/model list for the model picker */
   availableModels?: Array<{
     engine: string;
     label: string;
     models: string[];
     configured: boolean;
   }>;
-  /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
-  /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
-  /** Callback when user picks an effort from the picker */
   onEffortChange?: (effort: ReasoningEffort) => void;
-  /** Local or hosted agent runtimes shown above the model list. */
   availableAgents?: ComposerAgentOption[];
-  /** Selected agent runtime identifier. */
   selectedAgent?: string;
-  /** Mark the selected runtime as the hosted tools-only harness mode. */
   hostedHarness?: boolean;
-  /** Callback when the user picks an agent runtime. */
   onAgentChange?: (agent: string) => void;
-  /**
-   * Optional secondary model menu (e.g. an image-generation model) shown inside
-   * the composer's model picker. Opt-in; chat-only apps omit it.
-   */
   imageModelMenu?: ComposerImageModelMenu;
-  /** Callback when user clicks "Fork Chat" in the message actions menu */
   onForkChat?: () => void | boolean | Promise<void | boolean>;
-  /** Override Builder/provider connect routing for embedded hosts. */
   onConnectProvider?: () => void;
-  /** Route local runtime setup through the host's native bridge. */
   onConnectLocalRuntime?: (engine: string) => void;
-  /**
-   * Controls the shared composer + menu. Sidebar keeps the full menu by default;
-   * hosts without the sidebar provider stack can use upload-only.
-   */
   plusMenuMode?: "full" | "upload-only" | "hidden";
-  /**
-   * Enable framework provider/env status checks. Embedded hosts that provide
-   * model/provider state through another transport can disable these probes.
-   */
   providerStatusChecksEnabled?: boolean;
-  /**
-   * Advanced host override for non-HTTP transports. Defaults to the production
-   * sidebar SSE adapter when omitted.
-   */
   createAdapter?: (context: AssistantChatAdapterContext) => ChatModelAdapter;
-  /**
-   * Bring-your-own agent runtime. When supplied, AssistantChat keeps the
-   * standard composer/transcript/tool rendering shell but sends turns through
-   * this runtime instead of the built-in Agent-Native SSE endpoint. If
-   * `createAdapter` is also supplied, the adapter override takes precedence.
-   */
   runtime?: AgentChatRuntime;
-  /**
-   * Explicitly recreate an injected adapter when the host transport identity
-   * changes. Omit for the production sidebar so parent rerenders do not reset
-   * active chats.
-   */
   adapterReloadKey?: unknown;
-  /**
-   * Advanced host override for thread replay. Defaults to SQL thread fetch when
-   * `threadId` is set, or sessionStorage for legacy tab chats.
-   */
   loadHistoryRepository?: () => Promise<ExportedMessageRepository | null>;
-  /** Re-run `loadHistoryRepository` when the host's external transcript changes. */
   historyReloadKey?: string | number | null;
-  /** Smooth the last assistant message while an external transcript is updating. */
   externalStreaming?: boolean;
-  /** Keep stopped-response actions visible for an embedded host's stop action. */
   externalUserStopped?: boolean;
-  /** Notify an embedded host when the shared composer stop control is used. */
   onStop?: () => void | Promise<unknown>;
-  /**
-   * Optional host hooks for the inline `needsApproval` affordance beyond the
-   * built-in Approve and action-type policy. Code sessions pass their
-   * exact-command callback through for the standalone banner, but suppress the
-   * shared action-type menu (see CodeAgentsApp).
-   */
   approvalActions?: {
     onDeny?: (approvalKey: string) => void;
     onAlwaysAllow?: (
@@ -2446,12 +2172,6 @@ export interface AssistantChatProps {
     ) => void | Promise<void>;
     alwaysAllowScope?: "action" | "exact-command";
   };
-  /**
-   * Pin how much model reasoning this chat shows: "expanded" opens the live
-   * cell, "collapsed" keeps it one click away, "hidden" renders none. Omit to
-   * let the reader's own preference apply, which is what surfaces the in-chat
-   * control — a pinned mode hides it rather than leaving a dead menu item.
-   */
   thinkingDisplay?: ThinkingDisplay;
 }
 
@@ -2515,33 +2235,16 @@ function writeCachedThreadSnapshot(
   } catch {}
 }
 
-/** Remove persisted chat for a given tabId (or "default"). */
 export function clearChatStorage(tabId?: string) {
   try {
     sessionStorage.removeItem(`${CHAT_STORAGE_PREFIX}${tabId || "default"}`);
   } catch {}
 }
 
-/**
- * Ensure all messages in a thread repository have required fields.
- * assistant-ui accesses `message.metadata.submittedFeedback` and
- * `lastMessage.status.type` without null-checking, so server-constructed
- * messages missing these fields crash.
- */
 export function ensureMessageMetadata(repo: any): any {
-  // Drop duplicate message ids before import — assistant-ui's MessageRepository
-  // throws "performOp/link: A message with the same id already exists in the
-  // parent tree" (Sentry AGENT-NATIVE-BROWSER-2Q) when fed repeated ids. No-op
-  // for the normal no-duplicate case. See dedupeRepoMessagesById.
   repo = dropEmptyAssistantMessages(dedupeRepoMessagesById(repo));
   if (!repo?.messages || !Array.isArray(repo.messages)) return repo;
-  // Copy before changing anything. The periodic in-run save passes
-  // `threadRuntime.export()`, whose messages are the live objects assistant-ui
-  // keeps streaming into. Forcing the live assistant message to "complete"
-  // there makes the thread report not-running mid-turn, and settling its
-  // content marks in-flight tool calls as interrupted.
   const messages = repo.messages.map((entry: any) => {
-    // Handle both wrapped ({ message: { ... } }) and flat ({ role, ... }) formats
     const msg = entry?.message ?? entry;
     if (!msg) return entry;
     const next = { ...msg, metadata: msg.metadata ?? {} };
@@ -2560,7 +2263,6 @@ export function ensureMessageMetadata(repo: any): any {
           : { type: "complete", reason: "stop" };
       }
       if (Array.isArray(next.content)) {
-        // Settling only writes top-level fields of tool-call parts.
         next.content = next.content.map((part: any) =>
           part?.type === "tool-call" ? { ...part } : part,
         );
@@ -2572,24 +2274,12 @@ export function ensureMessageMetadata(repo: any): any {
   return { ...repo, messages };
 }
 
-// Re-export for backwards compatibility
 import {
   extractThreadMeta,
   normalizeThreadRepository,
 } from "../agent/thread-data-builder.js";
 export { extractThreadMeta };
 
-/**
- * Strip raw base64 payload from attachment content parts when a hosted URL
- * already exists in the same content entry. This keeps thread save and fork
- * payloads compact — the server already stored the URL reference when it
- * processed the POST, and re-shipping multi-megabyte base64 strings balloons
- * the SQL thread_data column and request body unnecessarily.
- *
- * Only strips the raw base64 data-URL string from `content[].image` / `content[].data`
- * when a `metadata.uploadUrl` reference is present on the same attachment object,
- * so the transcript can still render from the hosted URL after hydration.
- */
 function stripBase64FromRepo(repo: unknown): unknown {
   if (!repo || typeof repo !== "object") return repo;
   const r = repo as Record<string, unknown>;
@@ -2608,14 +2298,12 @@ function stripBase64FromRepo(repo: unknown): unknown {
       if (!att || typeof att !== "object") return att;
       const a = att as Record<string, unknown>;
       const meta = a.metadata as Record<string, unknown> | undefined;
-      // Only strip when we have a hosted upload URL confirmed by the server.
       if (!meta?.uploadUrl) return att;
 
       if (!Array.isArray(a.content)) return att;
       const strippedContent = a.content.map((part: unknown) => {
         if (!part || typeof part !== "object") return part;
         const p = part as Record<string, unknown>;
-        // Replace the raw base64 image data-URL with the hosted URL.
         if (
           p.type === "image" &&
           typeof p.image === "string" &&
@@ -2623,7 +2311,6 @@ function stripBase64FromRepo(repo: unknown): unknown {
         ) {
           return { ...p, image: meta.uploadUrl };
         }
-        // Replace the raw base64 file data with a stripped marker.
         if (
           p.type === "file" &&
           typeof p.data === "string" &&
@@ -2647,23 +2334,6 @@ function stripBase64FromRepo(repo: unknown): unknown {
   return { ...r, messages };
 }
 
-/**
- * Owns the "Resuming…" status shown during the adapter's auto-continuation
- * window — the gap between the end of one serverless chunk and the POST for
- * the next. Set true the moment the adapter dispatches
- * `agent-chat:auto-continue`. Cleared here as soon as the successor chunk
- * produces real output (`agent-chat:stream-progress` — dispatched by the SSE
- * processor for non-empty text/reasoning deltas) or the run is force-stopped;
- * a 30s failsafe timer covers any case neither fires. The caller clears it
- * via the returned `clearAutoResume` for other real-progress signals (tool
- * activity, an accepted run error, an explicit stop) that live outside this
- * hook.
- *
- * Deliberately NOT cleared by `agent-chat:activity-clear` or merely-idle
- * `isRunning`: both also fire for old-chunk `tool_done` replays / server
- * retries, and clearing on those would re-expose terminal message controls
- * during the exact gap this state exists to cover.
- */
 export function useAutoResumeStatus(
   tabId: string | undefined,
   forceStopped: boolean,
@@ -2702,12 +2372,6 @@ export function useAutoResumeStatus(
     };
   }, [tabId]);
 
-  // Real forward progress in the current chunk (visible text or reasoning
-  // deltas) means the run is not stuck between chunks — clear the indicator
-  // immediately rather than waiting on the 30s failsafe. This is the
-  // plain-text-continuation case: no tool call fires `agent-chat:activity`
-  // to clear it, so without this listener "Resuming" would linger for up to
-  // AUTO_RESUME_STATUS_TIMEOUT_MS after the run already resumed or finished.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { tabId?: string };
@@ -2731,13 +2395,6 @@ export function useAutoResumeStatus(
 function approvalResolutionIdentity(
   approvalKey: string,
   toolCallId?: string,
-  // Included so a NEW `approval_required` ask for the same toolCallId/
-  // approvalKey (the server re-emitting after a failed resume never
-  // consumed the earlier grant) looks up as unresolved instead of
-  // inheriting the earlier ask's retained "approved" mark forever. Two
-  // asks sharing no askId (older events, non-production-agent approval
-  // sources) still collapse onto the same identity, preserving the
-  // existing remount-survives-as-approved behavior for them.
   askId?: string,
 ): string {
   return `${toolCallId ?? ""}\u0000${approvalKey}\u0000${askId ?? ""}`;
@@ -2829,12 +2486,6 @@ const AssistantChatInner = forwardRef<
   const threadRuntime = useThreadRuntime();
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
-  // Latest-value ref so long-lived async closures (the reconnect reader, its
-  // watchdog) can check the CURRENT adapter-runtime state instead of the value
-  // captured when they were created. Load-bearing for single-reader ownership:
-  // the adapter's own stream and AssistantChat's reconnect reader must never
-  // both be attached to the same run (dual accumulators render duplicate tool
-  // cards and parallel duplicate streaming text).
   const isRuntimeRunningRef = useRef(isRuntimeRunning);
   isRuntimeRunningRef.current = isRuntimeRunning;
   const messages = thread.messages;
@@ -2842,13 +2493,6 @@ const AssistantChatInner = forwardRef<
     suggestionVisibility,
     messages.some((message) => message.role === "assistant"),
   );
-  // Latest-value ref (same pattern as isRuntimeRunningRef above) so the
-  // `hasInFlightWork` imperative handle method — called from outside React's
-  // render cycle by RunStuckBanner right before a destructive Retry — always
-  // sees the current message content, including tool-call parts pushed into
-  // the last assistant message in place while a long tool/A2A call streams.
-  // useImperativeHandle only depends on `messages.length` (see below), which
-  // does not change while an in-flight call's content mutates.
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const staticSuggestionPrompts = useMemo(
@@ -2881,16 +2525,7 @@ const AssistantChatInner = forwardRef<
     return query ? `?${query}` : "";
   }, [contextScope?.id, contextScope?.type, isolateHistoryByScope]);
 
-  // Chat-wide drag-and-drop: users expect to drop a file anywhere on the agent
-  // sidebar (thread, header, composer) and have it attach — same as ChatGPT,
-  // Claude.ai, Linear, Slack, etc. Tiptap's own `handleDrop` only fires inside
-  // the contenteditable; drops on the message thread or the composer
-  // attachment strip otherwise navigate to the file (browser default), which
-  // is why "upload does nothing" — the chat refreshes to the dropped image.
   const [dropActive, setDropActive] = useState(false);
-  // Inline error shown just above the composer for attachment failures
-  // (unsupported format, size cap, body-size rejection, drop errors).
-  // Cleared on the next message send.
   const [composerError, setComposerError] = useState<string | null>(null);
   const composerDraftScope = tabId || threadId;
   const initialComposerText = useMemo(
@@ -2940,9 +2575,6 @@ const AssistantChatInner = forwardRef<
       if (e.defaultPrevented) return;
       e.preventDefault();
       e.stopPropagation();
-      // Mirror TiptapComposer's paste/drop name-uniqueness so consecutive
-      // screenshots (all named `image.png`) don't collide on the
-      // SimpleImageAttachmentAdapter id.
       const attachments = files.map((file) => {
         if (!file.type.startsWith("image/")) return file;
         const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
@@ -2961,17 +2593,6 @@ const AssistantChatInner = forwardRef<
     [composerRuntime, setComposerError, t],
   );
 
-  // Patch the underlying assistant-ui MessageRepository so addOrUpdateMessage
-  // can't throw "Parent message not found" mid-run. assistant-ui calls
-  // `repository.clear()` from `runtime.import()` and from `resetHead(null)`,
-  // and on a few async paths (history-adapter load, branch reset, repeat
-  // imports) the repo can be cleared between the `append` that added the
-  // user message and the `performRoundtrip` call that tries to record the
-  // assistant placeholder against that user message's id. The internal-bug
-  // throw turns into an unhandled rejection that Sentry captures from the
-  // assets.agent-native.com prompt composer (AGENT-NATIVE-BROWSER-18). Fix
-  // it by relinking to the current head whenever the requested parent has
-  // gone missing instead of throwing.
   useEffect(
     () => installAssistantUiMessageRepositoryRecovery(threadRuntime),
     [threadRuntime],
@@ -2984,15 +2605,9 @@ const AssistantChatInner = forwardRef<
     availableModels,
     modelListLoading,
   );
-  // The model picker has already resolved the same provider status shown in
-  // its setup choices. Keep the signal available for the authoritative missing
-  // state, but do not surface setup while the readiness request is unresolved.
   const missingApiKey =
     agentEngineConfigured.state !== "configured" &&
     (agentEngineConfigured.missing || modelCatalogMissing);
-  // Unknown and unavailable mean we do not know yet. Only an authoritative
-  // missing response may replace the composer with the setup card; otherwise
-  // connected users briefly see a false "Connect AI" state on first mount.
   const engineSetupRequired =
     providerStatusChecksEnabled &&
     agentEngineConfigured.state === "missing" &&
@@ -3003,10 +2618,6 @@ const AssistantChatInner = forwardRef<
   } | null>(null);
   const [authSessionAvailable, setAuthSessionAvailable] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
-  // The dequeue guard briefly stays locked after appending a queued turn so
-  // the adapter has time to claim the run. Wake the effect when that guard
-  // expires; otherwise a fast-completing turn can leave the remaining queue
-  // pending with no state transition left to trigger another dequeue.
   const [queueWakeVersion, setQueueWakeVersion] = useState(0);
   const queuedMessagesRef = useRef<QueuedMessage[]>([]);
   const queueDirtyRef = useRef(false);
@@ -3042,14 +2653,6 @@ const AssistantChatInner = forwardRef<
         composerContextItemsRef.current = next;
         return next;
       });
-      // Publish outside the setState updater. `publishComposerContextItems`
-      // mutates the module-level context store and synchronously dispatches a
-      // window event, which would re-enter React (notifying
-      // `useSyncExternalStore` subscribers like `useAgentChatContext`) while the
-      // updater runs during the render phase. React 19 then throws "Cannot
-      // update a component while rendering a different component". Queueing a
-      // microtask runs the publish after the commit; it reads the freshly
-      // updated `composerContextItemsRef`, not React state.
       queueMicrotask(() => {
         publishComposerContextItems(composerContextItemsRef.current);
       });
@@ -3151,23 +2754,7 @@ const AssistantChatInner = forwardRef<
       ),
     [composerContextItems, normalizedContextNamespace],
   );
-  // Tracks the JSON of the last queue we successfully persisted so the
-  // debounced save effect can skip no-op writes (e.g. restore-from-server
-  // on mount, or queue state that hasn't actually changed).
   const lastPersistedQueueRef = useRef<string>("[]");
-  // Cheap change-guard for `importThreadData`. The real-time sync layer
-  // refetches `/threads/:id` (or re-runs `loadHistoryRepository`) on poll /
-  // change ticks, on reconnect, and whenever the host's transcript bumps
-  // `historyReloadKey`. On a long thread the JSON.parse +
-  // normalizeThreadRepository + threadRuntime.export()/import round-trip is
-  // CPU-bound and triggers re-render churn even when the content is byte-for-
-  // byte identical to what we last imported. We hash the raw incoming payload
-  // and skip the whole pipeline when it hasn't advanced, returning the
-  // already-imported repo so callers (e.g. the reconnect loop's
-  // repoHasAssistantMessage check) see consistent data. Any real change — a
-  // new message, an arriving tool result, the server replacing an optimistic
-  // copy, or switching threads — produces a different signal and falls
-  // through to a full import.
   const lastImportedSignatureRef = useRef<string | null>(null);
   const lastImportedRepoRef = useRef<any>(null);
   const [showContinue, setShowContinue] = useState(false);
@@ -3180,8 +2767,6 @@ const AssistantChatInner = forwardRef<
   >(null);
   const [dismissedProviderAuthErrorKey, setDismissedProviderAuthErrorKey] =
     useState<string | null>(null);
-  // Keep an intentional stop until the next explicit submission. The server
-  // may replay the terminal snapshot well after the client cancellation.
   const userStoppedRunRef = useRef<{
     runId?: string;
     threadId?: string;
@@ -3195,9 +2780,6 @@ const AssistantChatInner = forwardRef<
   const [runningActivityTool, setRunningActivityTool] = useState<string | null>(
     null,
   );
-  // Delayed-reveal state for the activity label (see ACTIVITY_LABEL_REVEAL_DELAY_MS).
-  // `latest` holds the most recent activity label; `surfaced` flips true once the
-  // reveal timer fires; `timer` is the pending one-shot reveal.
   const activityLabelTimerRef = useRef<number | null>(null);
   const latestActivityLabelRef = useRef<string | null>(null);
   const activityLabelSurfacedRef = useRef(false);
@@ -3213,9 +2795,7 @@ const AssistantChatInner = forwardRef<
     updateActiveRunActivity(null);
   }, []);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
-  // Reconnect content is display-only and is discarded on an explicit Stop.
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
-  // A reconnect overlay is visible only while this reader owns the logical turn.
   const reconnectRunIdRef = useRef<string | null>(null);
   const reconnectTurnIdRef = useRef<string | null>(null);
   const reconnectTailOnlyRef = useRef(false);
@@ -3263,20 +2843,11 @@ const AssistantChatInner = forwardRef<
     setPendingReconnectRecovery(null);
     resetRunningActivity();
   }, [releaseReconnectOwnership, resetRunningActivity]);
-  // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
-  // lets new submissions go through immediately — prevents the "stuck
-  // queueing forever" state where isReconnecting or isRuntimeRunning gets
-  // wedged (e.g. after a tab refresh + stop during reconnect).
   const [forceStopped, setForceStopped] = useState(false);
-  // True during the 250ms continuation window and startup of the next chunk
-  // (adapter's auto-continue delay before POSTing the next chunk).
   const { isAutoResuming, clearAutoResume } = useAutoResumeStatus(
     tabId,
     forceStopped,
   );
-  // Latest-value ref for the same single-reader checks as isRuntimeRunningRef:
-  // during an adapter auto-continuation the runtime can flick false between
-  // chunks while the adapter is still driving the turn.
   const isAutoResumingRef = useRef(isAutoResuming);
   isAutoResumingRef.current = isAutoResuming;
   const [hasActiveServerRun, setHasActiveServerRun] = useState(() =>
@@ -3288,9 +2859,6 @@ const AssistantChatInner = forwardRef<
     tabId,
     onActiveRunChange: setHasActiveServerRun,
   });
-  // Server truth must participate in submit gating, not only in the missing
-  // final-response warning. The local lifecycle can clear during a transport
-  // handoff while the server still owns the turn.
   const serverRunState = useRunStuckDetection({
     threadId: threadId ?? null,
     enabled: isActiveComposer,
@@ -3298,9 +2866,6 @@ const AssistantChatInner = forwardRef<
   });
   const serverRunActive =
     serverRunState.runId != null && serverRunState.status === "running";
-  // Real running state drives submission/queue gating; UI running also covers
-  // short auto-continuation gaps so the latest assistant message does not flash
-  // into a done state while the agent is still working.
   const { isRunning, showRunningInUI } = resolveAssistantChatRunningState({
     forceStopped,
     isRuntimeRunning,
@@ -3572,9 +3137,6 @@ const AssistantChatInner = forwardRef<
       chatRunTurnIdRef.current = null;
     }
   }, [activeChatTurnId, showRunningInUI]);
-  // A revealed activity label wins; otherwise keep recovery states calm and
-  // product-facing. Reconnect is transport machinery, so normal replay reads as
-  // ongoing work instead of exposing "Reconnecting" mid-chat.
   const runningStatusLabel = resolveAssistantChatRunningStatusLabel({
     runningActivityLabel,
     runningActivityTool,
@@ -3609,14 +3171,9 @@ const AssistantChatInner = forwardRef<
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
   const focusComposerAfterConnectRef = useRef(false);
-  // Stable ref to the "stop active run" action so addToQueue can abort
-  // a running turn without adding many unstable closure deps to its dep list.
   const stopActiveRunRef = useRef<
     (options?: { preserveQueuedMessages?: boolean }) => void
   >(() => {});
-  // addToQueue is declared before the autoscroll hook because it also feeds
-  // the reconnect/imperative APIs. Keep a stable bridge so an accepted visible
-  // submit can explicitly reattach bottom-following without closure churn.
   const resumeFollowingRef = useRef<() => void>(() => {});
 
   const markOptimisticRunning = useCallback(() => {
@@ -3654,7 +3211,6 @@ const AssistantChatInner = forwardRef<
     return () => window.clearTimeout(timer);
   }, [optimisticRunning]);
 
-  // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
   const [threadRestoreError, setThreadRestoreError] =
     useState<ThreadRestoreErrorKind | null>(null);
@@ -3680,9 +3236,6 @@ const AssistantChatInner = forwardRef<
   const desktopIdentityAuthenticatedRef = useRef(desktopIdentityAuthenticated);
   const desktopIdentityRestoreRetryPendingRef = useRef(false);
 
-  // The desktop identity gate and chat restore run in sibling surfaces. If the
-  // gate wins the race after a masked 404 has already rendered, clear the
-  // transient not-found card and leave the user at a fresh composer.
   useEffect(() => {
     if (!desktopIdentityUnauthenticated) return;
     setThreadRestoreError((current) =>
@@ -3702,9 +3255,6 @@ const AssistantChatInner = forwardRef<
     ) {
       return;
     }
-    // A saved-thread request can race the identity handoff and be masked as a
-    // 404/401/403. Retry once the host confirms the authenticated session so
-    // the thread is restored without requiring a remount or manual retry.
     desktopIdentityRestoreRetryPendingRef.current = true;
     retryThreadRestore();
   }, [
@@ -3749,12 +3299,6 @@ const AssistantChatInner = forwardRef<
 
   const importThreadData = useCallback(
     (threadData: unknown, options?: { markTitleGenerated?: boolean }): any => {
-      // Cheap-signal short-circuit: if the raw payload is identical to the
-      // last one we imported, there is nothing new to parse, normalize, or
-      // re-import into the runtime. Reuse the already-imported repo so callers
-      // still get back a stable result without the CPU + re-render cost. We
-      // still honor `markTitleGenerated` because a re-fetch carrying the same
-      // content can legitimately confirm a title is settled.
       const signature =
         typeof threadData === "string"
           ? threadData
@@ -3778,19 +3322,10 @@ const AssistantChatInner = forwardRef<
       const repo = normalizeThreadRepository(
         typeof threadData === "string" ? JSON.parse(threadData) : threadData,
       );
-      // Whether this payload settled into the runtime (either imported, or
-      // had no messages to import). Only then is it safe to remember its
-      // signature as the canonical "last imported" — a payload that
-      // `shouldImportServerThreadData` deliberately rejected (e.g. it
-      // regressed message count) must NOT be cached, so an identical re-fetch
-      // re-evaluates against the runtime exactly as before instead of
-      // short-circuiting to the rejected repo.
       let settled = true;
       let settledRepo = repo;
       if (repo?.messages?.length > 0) {
         let shouldImport = true;
-        // Adapter owns the live turn (including auto-continuation gaps). Do not
-        // let a lagging server thread snapshot clobber in-flight tool cards.
         if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
           shouldImport = false;
         } else {
@@ -3800,8 +3335,6 @@ const AssistantChatInner = forwardRef<
               repo,
             );
           } catch {
-            // If the runtime/export comparison itself fails, do not fail open by
-            // importing a server snapshot that may be stale relative to local UI.
             shouldImport = false;
           }
         }
@@ -3839,10 +3372,6 @@ const AssistantChatInner = forwardRef<
     [threadRuntime],
   );
 
-  // Accepts an optional external `signal` so poll loops (e.g. the reconnect
-  // thread-poll engine below) can cancel this fetch via their own timeout
-  // instead of racing a second, separately-constructed AbortController.
-  // Callers with no signal of their own keep the internal fallback timeout.
   const refreshThreadFromServer = useCallback(
     async (signal?: AbortSignal): Promise<any> => {
       if (loadHistoryRepository) {
@@ -3852,7 +3381,6 @@ const AssistantChatInner = forwardRef<
           return importThreadData(repo);
         } catch {
           // coercion-ok: callers treat null as "keep the thread already
-          // rendered", the same handling an absent repo needs.
           return null;
         }
       }
@@ -3875,7 +3403,6 @@ const AssistantChatInner = forwardRef<
         return importThreadData(refreshData.threadData);
       } catch {
         // coercion-ok: an aborted or failed refresh keeps the thread already
-        // rendered; the next poll tick retries.
         return null;
       } finally {
         if (ownAbortTimer) clearTimeout(ownAbortTimer);
@@ -4034,26 +3561,9 @@ const AssistantChatInner = forwardRef<
         ...(logicalTurnId ? { turnId: logicalTurnId } : {}),
       };
       if (reconnectRunIdRef.current === runId) return true;
-      // SINGLE-READER OWNERSHIP: never start a second reader while the
-      // adapter's own stream is live (or mid auto-continuation) for this
-      // thread. Two concurrent readers of the same run render two independent
-      // accumulators — duplicate tool cards (one spinning, one static) and the
-      // same assistant text streaming twice in parallel. The adapter owns the
-      // run whenever its runtime is active; this reconnect reader exists only
-      // for runs with NO live adapter stream (page reload, tab restore).
       if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
         return false;
       }
-      // SUPERSEDE THE PREVIOUS RECONNECT GENERATION. A turn that keeps failing
-      // (e.g. repeated stale_run at "Contacting model") produces a new runId
-      // every few seconds; each call here used to OVERWRITE the single-slot
-      // refs below without tearing down the prior closure, leaving its
-      // watchdog (1s) + idleCheck (1s) + thread poll (2s) + SSE retry loop all
-      // running. 4-5 stacked generations = a ~20 req/s request storm that
-      // hammers the same Neon pool the server needs for heartbeats, deepening
-      // the DB saturation that causes the failures in the first place. Abort
-      // the prior generation's AbortController so its stream loop exits and its
-      // `finally` clears every interval before we start a fresh one.
       const previousReconnectRunId = reconnectRunIdRef.current;
       const previousReconnectTurnId = reconnectTurnIdRef.current ?? undefined;
       const previousOwnershipToken = reconnectOwnershipTokenRef.current;
@@ -4077,12 +3587,6 @@ const AssistantChatInner = forwardRef<
         }
       }
 
-      // The refs above lag a render and are per-component-instance, while
-      // MultiTabAssistantChat mounts several instances against one run. The
-      // claim is the actual mutual exclusion: module-scoped, synchronous, and
-      // re-checked on every state write below. Retire the prior logical-turn
-      // owner before claiming its successor, because continuation run IDs
-      // intentionally share one ownership slot.
       const ownershipToken = createRunStreamToken(`reconnect:${runId}`);
       if (!claimRunStream(threadId, runId, ownershipToken, logicalTurnId)) {
         if (reconnectRunIdRef.current === previousReconnectRunId) {
@@ -4135,9 +3639,6 @@ const AssistantChatInner = forwardRef<
         null;
       const reconnectStuckThresholdMs = activeRunStuckThresholdMs(runInfo);
 
-      // This lives inside a useCallback, not component render, so it can't
-      // use the usePollLoop hook (Rules of Hooks) — createPollEngine gives
-      // the same never-overlaps/never-stalls guarantees imperatively.
       const watchdog = createPollEngine(
         async (signal) => {
           if (document.hidden) return;
@@ -4151,11 +3652,6 @@ const AssistantChatInner = forwardRef<
             return;
           }
           const info = (await res.json()) as ActiveRunLookup;
-          // SINGLE-READER OWNERSHIP: if the adapter runtime came alive while
-          // this reader was attached (user sent a message, adapter adopted the
-          // thread's run), this reader is now the duplicate — kill it. The
-          // false→true runtime-transition effect also unwinds the UI state;
-          // this covers the reader itself.
           if (isRuntimeRunningRef.current) {
             abortCtrl.abort();
             watchdog.stop();
@@ -4174,14 +3670,6 @@ const AssistantChatInner = forwardRef<
       watchdog.start();
 
       let reconnectTimedOut = false;
-      // Idle deadline, NOT a total-duration cap. A long-but-healthy run (image
-      // generation emits `activity` heartbeats every few seconds) keeps
-      // advancing `lastReconnectProgressAt`, so it is never aborted for simply
-      // taking longer than the threshold. Only true silence for the full stuck
-      // threshold trips it — the same semantics as `activeRunLooksStale` and the
-      // SSE-level no-progress timeout. `markReconnectProgress` resets it on every
-      // streamed event (see the `onSeq` callback below, which fires for every
-      // event including activity, for both fresh and tail-resume reconnects).
       let lastReconnectProgressAt = Date.now();
       const markReconnectProgress = () => {
         lastReconnectProgressAt = Date.now();
@@ -4209,13 +3697,6 @@ const AssistantChatInner = forwardRef<
         const preparingActionState: PreparingActionState = {};
         const seenEventSeqs = new Set<number>();
         const seenEventIds = new Set<string>();
-        // Exponential backoff for the reattach retry loop. A run that is
-        // "active" server-side but producing no stream (the exact stuck state
-        // that triggers a reconnect) would otherwise re-fetch /runs/:id/events
-        // every ~250ms — several req/s per generation. Back off 250ms → 5s so a
-        // genuinely stuck run stops hammering the server; reset the moment real
-        // progress streams in (see the onSeq callback) so a recovering run
-        // re-tightens immediately.
         let reconnectRetryCount = 0;
         const backoffRetryDelay = () => {
           const ms = Math.min(250 * 2 ** reconnectRetryCount, 5000);
@@ -4249,8 +3730,6 @@ const AssistantChatInner = forwardRef<
                   if (document.hidden) return;
                   if (reconnectRunIdRef.current !== runId) return;
                   // Adapter took over mid-poll — skip imports that would race
-                  // the live stream and flicker tool cards back to older
-                  // snapshots.
                   if (
                     isRuntimeRunningRef.current ||
                     isAutoResumingRef.current
@@ -4313,9 +3792,6 @@ const AssistantChatInner = forwardRef<
                 tabId,
                 scheduleUpdate,
                 (seq, isProgress) => {
-                  // The adapter can preempt this reader mid-stream. Advancing
-                  // the cursor after that would move a run this reader no
-                  // longer represents.
                   if (
                     !ownsRunStream(
                       threadId,
@@ -4395,9 +3871,6 @@ const AssistantChatInner = forwardRef<
           }
         }
 
-        // A newer reader, live adapter, stop action, or component unmount took
-        // ownership while this async loop was unwinding. Do not let the stale
-        // generation refresh/import or update reconnect state afterwards.
         if (reconnectRunIdRef.current !== runId) return;
 
         if (noProgressDuringReconnect && reconnectRunIdRef.current === runId) {
@@ -4441,8 +3914,6 @@ const AssistantChatInner = forwardRef<
             }
           }
           if (afterSeq > 0) {
-            // Tail-resume only replays new events; never freeze that slice as a
-            // complete assistant turn — the server thread is authoritative.
             await refreshThreadFromServer();
             setReconnectContent([]);
             setReconnectFrozen(false);
@@ -4482,8 +3953,6 @@ const AssistantChatInner = forwardRef<
             setPendingReconnectRecovery({
               id: Date.now(),
               ...(reconnectTurnId ? { turnId: reconnectTurnId } : {}),
-              // With no partial work on screen there is nothing to "continue
-              // from"; the long recovery brief only wastes context.
               message:
                 latestContent.length > 0
                   ? RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE
@@ -4586,9 +4055,6 @@ const AssistantChatInner = forwardRef<
             }),
           );
         }
-        // Skip the final refresh when the adapter runtime is live — importing
-        // thread_data mid-stream would clobber the adapter's in-flight message
-        // (the takeover path already discarded this reader's content).
         if (!loaded && !isRuntimeRunningRef.current) {
           const repo = await refreshThreadFromServer();
           if (afterSeq > 0 || repoHasAssistantMessage(repo)) {
@@ -4619,9 +4085,6 @@ const AssistantChatInner = forwardRef<
   const reconnectActiveRunForThread =
     useCallback(async (): Promise<boolean> => {
       if (!threadId) return false;
-      // Single-reader ownership (see startReconnectToRun, which re-checks
-      // after the async probe): skip the probe entirely while the adapter's
-      // own stream is driving this thread.
       if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
         return false;
       }
@@ -4645,9 +4108,6 @@ const AssistantChatInner = forwardRef<
       }
 
       if (!runRes) {
-        // Still unreachable. Only a stored run for this thread is holding the
-        // spinner up, so that is also the only case worth interrupting the user
-        // for — drop it and say why, rather than leaving "Thinking…" forever.
         if (storedActiveRun?.threadId === threadId) {
           clearActiveRunIfMatches(threadId, storedActiveRun.runId);
           window.dispatchEvent(
@@ -4697,17 +4157,10 @@ const AssistantChatInner = forwardRef<
 
   useEffect(() => {
     if (!threadId || !isNewThread) return;
-    // A restored tab can be reclassified as client-only after the thread list
-    // loads. Once that happens, there is no server row to restore, so show the
-    // empty composer instead of leaving the per-thread restore skeleton up.
     setThreadRestoreError(null);
     setIsRestoring(false);
   }, [isNewThread, threadId]);
 
-  // Restore messages from server on mount (when threadId is set). The
-  // server is the single source of truth — we don't hydrate from localStorage
-  // first, so what the user sees in the chat panel always matches what the
-  // history list (and the agent) sees on disk.
   useEffect(() => {
     if (isThreadStateLoading) return;
     if (hasRestoredRef.current) return;
@@ -4732,14 +4185,9 @@ const AssistantChatInner = forwardRef<
       })();
       return () => {
         cancelled = true;
-        // React StrictMode replays effects without resetting refs. Let the
-        // replay start the restore again after cancelling this attempt.
         hasRestoredRef.current = false;
       };
     } else if (threadId && isNewThread) {
-      // Client-created empty tabs do not have a server row until the first
-      // message is sent. Avoid probing /threads/:id on mount; that request
-      // can only 404 and makes normal app startup look broken in DevTools.
       setThreadRestoreError(null);
       setIsRestoring(false);
     } else if (threadId) {
@@ -4807,7 +4255,6 @@ const AssistantChatInner = forwardRef<
                 });
               }
             }
-            // Also skip title generation if thread already has a title
             if (data.title) {
               titleGeneratedRef.current = true;
             }
@@ -4819,15 +4266,9 @@ const AssistantChatInner = forwardRef<
         } catch {
           if (!cancelled) setThreadRestoreError("unavailable");
         } finally {
-          // Clear the skeleton as soon as the persisted messages are imported.
-          // The active-run reconnect probe below must NOT gate first paint — it
-          // only matters when a run is mid-flight (e.g. after a hot reload), and
-          // it streams on top of the already-rendered messages.
           if (!cancelled) setIsRestoring(false);
         }
         if (cancelled || !canReconnect) return;
-        // Reconnect to an in-progress run after the skeleton has cleared, so a
-        // background `/runs/active` probe never delays showing the conversation.
         try {
           await reconnectActiveRunForThread();
         } catch {
@@ -4839,7 +4280,6 @@ const AssistantChatInner = forwardRef<
         hasRestoredRef.current = false;
       };
     } else {
-      // Legacy: restore from sessionStorage
       const storageKey = `${CHAT_STORAGE_PREFIX}${tabId || "default"}`;
       try {
         const saved = sessionStorage.getItem(storageKey);
@@ -4896,10 +4336,6 @@ const AssistantChatInner = forwardRef<
     loadHistoryRepository,
   ]);
 
-  // If assistant-ui stops the local runtime while the background server run is
-  // still alive, immediately switch into the same reconnect path used after a
-  // reload. Otherwise the composer unlocks, the next send hits a 409, and the
-  // user sees "still working" even though the UI stopped updating.
   const prevRuntimeRunningForReconnectRef = useRef(isRuntimeRunning);
   useEffect(() => {
     const wasRuntimeRunning = prevRuntimeRunningForReconnectRef.current;
@@ -4939,7 +4375,6 @@ const AssistantChatInner = forwardRef<
     wasUserStoppedRun,
   ]);
 
-  // Generate a title when the first user message is sent
   useEffect(() => {
     if (!hasRestoredRef.current) return;
     if (titleGeneratedRef.current) return;
@@ -4948,7 +4383,6 @@ const AssistantChatInner = forwardRef<
     const firstUserMsg = messages.find((m) => m.role === "user");
     if (!firstUserMsg) return;
 
-    // Extract text from the first user message
     const text =
       "content" in firstUserMsg
         ? Array.isArray(firstUserMsg.content)
@@ -4968,8 +4402,6 @@ const AssistantChatInner = forwardRef<
     }
   }, [messages, threadId]);
 
-  // Periodically save thread data while the agent is running so refreshes
-  // don't lose messages. Saves every 5 seconds while running.
   const savedTitleRef = useRef("");
   const lastSaveTimeRef = useRef(0);
   useEffect(() => {
@@ -4998,7 +4430,6 @@ const AssistantChatInner = forwardRef<
     onSaveThreadRef.current(threadId, snapshot);
   }, [apiUrl, exportPersistableThreadRepo, messages, isRunning, threadId]);
 
-  // Persist full thread data after each completed response
   useEffect(() => {
     if (!hasRestoredRef.current) return;
     if (isRunning) return;
@@ -5007,7 +4438,6 @@ const AssistantChatInner = forwardRef<
     const repo = exportPersistableThreadRepo();
 
     if (threadId && onSaveThreadRef.current) {
-      // Save to server via the hook callback
       const { title, preview } = extractThreadMeta(repo);
       const threadData = JSON.stringify(stripBase64FromRepo(repo));
       const snapshot = {
@@ -5020,7 +4450,6 @@ const AssistantChatInner = forwardRef<
       writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
       onSaveThreadRef.current(threadId, snapshot);
     } else {
-      // Legacy: save to sessionStorage
       const storageKey = `${CHAT_STORAGE_PREFIX}${tabId || "default"}`;
       try {
         sessionStorage.setItem(storageKey, JSON.stringify(repo));
@@ -5039,9 +4468,6 @@ const AssistantChatInner = forwardRef<
     onMessageCountChange?.(messages.length);
   }, [messages.length, onMessageCountChange]);
 
-  // Persist queued messages to the server so they survive reloads. Debounced
-  // to 300ms so typing-and-queuing-rapidly doesn't hammer the endpoint.
-  // Stores them in thread_data.queuedMessages via POST /threads/:id/queued.
   useEffect(() => {
     if (!threadId) return;
     if (!hasRestoredRef.current) return;
@@ -5073,7 +4499,6 @@ const AssistantChatInner = forwardRef<
     return () => clearTimeout(timer);
   }, [queuedMessages, threadId, apiUrl, threadScopeQuery]);
 
-  // Nudge the shared hook to re-check after a Builder connect.
   const handleBuilderConnected = useCallback(() => {
     focusComposerAfterConnectRef.current = true;
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
@@ -5090,7 +4515,6 @@ const AssistantChatInner = forwardRef<
     return () => window.clearTimeout(timer);
   }, [agentEngineConfigured.state]);
 
-  // Listen for auth error events from the adapter
   const checkAuthSession =
     useCallback(async (): Promise<AuthSessionCheckResult> => {
       try {
@@ -5152,10 +4576,6 @@ const AssistantChatInner = forwardRef<
     if (!authError) return;
     const shouldCaptureStuckAuthCard =
       authSessionAvailable || authError.sessionExpired;
-    // Auto-recovery (`checkAuthSession`) runs immediately + at 250ms. If the
-    // card is still showing 3 seconds later, recovery failed and the user
-    // is about to hit "Refresh chat" — that's the "Reload UI required"
-    // symptom we want signal on.
     const stuckCapture = window.setTimeout(() => {
       void (async () => {
         const sessionState = await checkAuthSession();
@@ -5188,7 +4608,6 @@ const AssistantChatInner = forwardRef<
     };
   }, [authError, authSessionAvailable, checkAuthSession, tabId, threadId]);
 
-  // Listen for loop-limit events from the adapter
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -5242,10 +4661,6 @@ const AssistantChatInner = forwardRef<
       ) {
         return;
       }
-      // A terminal adapter error wins over any read-only reconnect reader that
-      // was following the same run. Leave the server run alone, but tear down
-      // its presentation immediately so the error cannot coexist with stale
-      // tool cards or a second Thinking/Stop state.
       clearReconnectReaderForTerminalError();
       setRunErrorInfo({
         message:
@@ -5260,8 +4675,6 @@ const AssistantChatInner = forwardRef<
       });
       setDismissedRunErrorKey(null);
       setDismissedProviderAuthErrorKey(null);
-      // An errored continuation must not keep showing "Resuming" — there is
-      // no further chunk coming to clear it.
       clearAutoResume();
     };
     window.addEventListener("agent-chat:run-error", handler);
@@ -5276,9 +4689,6 @@ const AssistantChatInner = forwardRef<
     threadId,
   ]);
 
-  // Real activity means the next chunk has started. Surface longer-lived
-  // activity such as "Still generating image" so active-run reconnects do not
-  // look like failures while the server is still making progress.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as {
@@ -5295,16 +4705,10 @@ const AssistantChatInner = forwardRef<
       setRunningActivityTool(tool || null);
       updateActiveRunActivity(tool || null);
       latestActivityLabelRef.current = label;
-      // Already past the delay → keep the visible label current.
       if (activityLabelSurfacedRef.current) {
         setRunningActivityLabel(label);
         return;
       }
-      // Not yet surfaced → arm a single reveal timer on the FIRST activity of
-      // this in-flight period. A burst of quick steps that all finish (clear)
-      // before the timer fires never surfaces anything, so normal fast turns
-      // stay a steady "Thinking". A step still in-flight at the deadline reveals
-      // the latest label so a slow operation reads as working, not hung.
       if (activityLabelTimerRef.current === null) {
         activityLabelTimerRef.current = window.setTimeout(() => {
           activityLabelTimerRef.current = null;
@@ -5328,29 +4732,13 @@ const AssistantChatInner = forwardRef<
     };
   }, [clearAutoResume, resetRunningActivity, tabId]);
 
-  // "Resuming…" itself (auto-continue → stream-progress/forceStopped clear,
-  // plus the 30s failsafe) is owned by useAutoResumeStatus above. Real
-  // next-chunk activity (tool start/activity events) clears it in the
-  // activity handler above; real streamed output (text/reasoning) clears it
-  // via that hook's own stream-progress listener. This effect only handles
-  // the running-activity reset once both running signals go idle — it does
-  // NOT clear auto-resume merely because `isRunning` is still true: the
-  // adapter dispatches auto-continue before the old chunk's runtime flips
-  // idle, so doing that would expose terminal message controls during the
-  // exact gap this state is meant to cover.
   useEffect(() => {
     if (!isRunning && !isAutoResuming) {
       resetRunningActivity();
     }
   }, [isAutoResuming, isRunning, resetRunningActivity]);
 
-  // Auto-dequeue: when the agent is idle, send the next queued message. This
-  // intentionally does not depend on observing the running -> idle transition:
-  // restored queues can exist after a reload where this component never saw the
-  // previous run as active.
   useEffect(() => {
-    // Keep prompts visible while setup is missing. Dequeuing them would remove
-    // the only user-visible copy and immediately re-enter the provider failure.
     if (
       isRestoring ||
       isChatHistoryRestoring ||
@@ -5376,16 +4764,9 @@ const AssistantChatInner = forwardRef<
         let removedForAppend = false;
         let appended = false;
         try {
-          // In serverless/cross-isolate deployments the client can receive the
-          // terminal SSE event a beat before SQL has marked the previous run
-          // complete. Starting the queued turn during that window can reconnect
-          // to the old run and replay the old answer under the new prompt.
           const runCleared = await waitForThreadRunToClear(apiUrl, threadId);
           if (cancelled || chatHistoryRestoreInFlightRef.current) return;
           if (!runCleared) {
-            // The server still owns this turn (including a deferred durable
-            // successor). Keep the queued message visible and retry after a
-            // short delay so one transient idle snapshot cannot strand it.
             retryTimer = window.setTimeout(() => {
               if (!cancelled) {
                 setQueueWakeVersion((version) => version + 1);
@@ -5441,8 +4822,6 @@ const AssistantChatInner = forwardRef<
               prev.filter((message) => message.id !== currentNext.id),
             );
           } else {
-            // Keep the placeholder visible while waiting. Remove it only when
-            // the append is about to begin, so queue stalls stay recoverable.
             applyLocalQueuedMessages((prev) =>
               prev.filter((message) => message.id !== currentNext.id),
             );
@@ -5534,24 +4913,11 @@ const AssistantChatInner = forwardRef<
     threadId,
   ]);
 
-  // Clear frozen reconnect content + forceStopped only on the false→true
-  // transition of isRuntimeRunning (i.e. a NEW run is actually starting).
-  // Reacting to "isRuntimeRunning is currently true" would clear the
-  // nuclear-stop flag immediately after the user clicks stop, since
-  // cancellation is async and isRuntimeRunning is still true at that moment.
   const prevIsRuntimeRunningRef = useRef(isRuntimeRunning);
   useEffect(() => {
     const wasRunning = prevIsRuntimeRunningRef.current;
     prevIsRuntimeRunningRef.current = isRuntimeRunning;
     if (isRuntimeRunning && !wasRunning) {
-      // SINGLE-READER OWNERSHIP: the adapter runtime just took over (a new run
-      // started or an adopted run resumed), so it is now the only owner of this
-      // turn's rendering. The overlay used to be kept alive here for up to
-      // 2500ms so the UI would not flash a gap — but that deliberately put two
-      // independent folds of the same run on screen at once, and the only thing
-      // hiding the second was content-similarity guessing that fails whenever
-      // the two readers disagree (id-less activity cards, a turn split across
-      // several assistant messages). One owner, one surface: drop the overlay.
       if (reconnectRunIdRef.current !== null) {
         reconnectAbortRef.current?.abort();
         releaseReconnectOwnership();
@@ -5579,8 +4945,6 @@ const AssistantChatInner = forwardRef<
     releaseReconnectOwnership,
   ]);
 
-  // Same transition guard for isReconnecting: only clear forceStopped on
-  // the false→true edge (a new reconnect starting on page load).
   const prevIsReconnectingRef = useRef(isReconnecting);
   useEffect(() => {
     const wasReconnecting = prevIsReconnectingRef.current;
@@ -5766,10 +5130,6 @@ const AssistantChatInner = forwardRef<
     [tabId, threadId, threadRuntime],
   );
 
-  // Abort the active server run (identical to what the Stop button does) so
-  // an immediate-while-running send can proceed cleanly without a 409 race.
-  // Captured in a stable ref so addToQueue can call it without listing
-  // all the stop-related state in its own dep array.
   const stopActiveRun = useCallback(
     (options?: { preserveQueuedMessages?: boolean }) => {
       setForceStopped(true);
@@ -5833,8 +5193,6 @@ const AssistantChatInner = forwardRef<
         reconnectRunIdRef.current = null;
         reconnectTurnIdRef.current = null;
         setIsReconnecting(false);
-        // Stop is a user decision, not an error. Drop the reconnect overlay
-        // instead of freezing it with a synthetic interruption warning.
         setReconnectFrozen(false);
         setReconnectContent([]);
         reconnectCanMaterializeRef.current = false;
@@ -5860,7 +5218,6 @@ const AssistantChatInner = forwardRef<
       trackStoppedRun,
     ],
   );
-  // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
   const handleComposerStop = useCallback(async () => {
@@ -5876,8 +5233,6 @@ const AssistantChatInner = forwardRef<
     stopActiveRun({ preserveQueuedMessages: true });
   }, [onStop, stopActiveRun]);
 
-  // The composer stop button uses the handler above; queued send-now keeps the
-  // active run alive and only promotes the selected message for later dequeue.
   const sendQueuedMessageNow = useCallback(
     async (id: string) => {
       await waitForChatHistoryRestore();
@@ -6001,8 +5356,6 @@ const AssistantChatInner = forwardRef<
         setDismissedRunErrorKey(null);
         setDismissedProviderAuthErrorKey(null);
         setComposerError(null);
-        // Selection context attached via Cmd+I is one-shot — clear it as soon
-        // as the user actually sends a message so it can't be re-used.
         clearPendingSelection();
         const submitted = includeComposerContext
           ? buildComposerContextSubmission(text)
@@ -6033,12 +5386,8 @@ const AssistantChatInner = forwardRef<
           ...(imageAttachments ?? []),
         ];
 
-        // ── Body-size guard (Fix 3) ─────────────────────────────────────
-        // Estimate the prompt and attachment payload. Recompress images before
-        // rejecting a request that still exceeds the Vercel/Netlify body budget.
         let messageAttachments = allAttachments;
         {
-          // Continuation requests serialize the prompt once more in history.
           const promptPayloadStrings = getSubmittedPromptBodyStrings(
             submittedText,
             continuationTurnId !== undefined,
@@ -6050,7 +5399,6 @@ const AssistantChatInner = forwardRef<
           if (
             measureJsonStringBytes(allPayloadStrings) > MAX_ESTIMATED_BODY_BYTES
           ) {
-            // Re-compress image attachments more aggressively.
             const recompressed: typeof allAttachments = [];
             for (const att of allAttachments) {
               if (
@@ -6058,7 +5406,6 @@ const AssistantChatInner = forwardRef<
                 att.content.length === 1 &&
                 att.content[0].type === "image"
               ) {
-                // Find the original File from the queued attachments input.
                 const rawAtt = (attachments ?? []).find(
                   (r) => (r as any).id === att.id,
                 ) as { file?: File } | undefined;
@@ -6087,7 +5434,6 @@ const AssistantChatInner = forwardRef<
               }
               recompressed.push(att);
             }
-            // Re-estimate after recompression.
             const recompressedPayloadStrings = [
               ...getAttachmentBodyStrings(recompressed),
               ...promptPayloadStrings,
@@ -6107,7 +5453,6 @@ const AssistantChatInner = forwardRef<
             messageAttachments = recompressed;
           }
         }
-        // ── End body-size guard ──────────────────────────────────────────
         if (isAgentChatSubmitCancelled(submitMessageId)) return false;
         const acceptedVisibleSubmit =
           visibleSubmitSequence !== null &&
@@ -6117,10 +5462,6 @@ const AssistantChatInner = forwardRef<
           latestAcceptedVisibleSubmitSequenceRef.current =
             visibleSubmitSequence;
         }
-        // Snapshot the exec mode at enqueue time when the caller didn't
-        // pass an explicit override. Without this, a plan-mode message that
-        // sits in the queue runs as 'act' if the user flips the global toggle
-        // before the queue flushes — turning a read-only message into a write.
         const effectiveRequestMode: AgentRequestMode | undefined =
           requestMode ??
           (execMode === "plan"
@@ -6128,7 +5469,6 @@ const AssistantChatInner = forwardRef<
             : execMode === "build"
               ? "act"
               : undefined);
-        // Same reasoning for the model picker — see `QueuedMessage.model`.
         const modelSnapshot = {
           model: selectedModel,
           engine: selectedEngine,
@@ -6156,9 +5496,6 @@ const AssistantChatInner = forwardRef<
           resetRetainedTextStreamingState(effectiveContinuationTurnId);
         }
         if (interruptActiveRun) {
-          // Explicit interrupt path: abort the active server run, then let the
-          // auto-dequeue path append this message once the run is clear. Normal
-          // composer sends while running resolve to "queued" before reaching here.
           applyLocalQueuedMessages((prev) => [
             ...prev,
             {
@@ -6256,18 +5593,8 @@ const AssistantChatInner = forwardRef<
             throw error;
           }
         }
-        // The turn is now either queued behind the active run or already a
-        // visible message — either way it has reached the chat. This is
-        // intentionally reported before the agent's response resolves: a
-        // caller like sendToAgentChatAndConfirm only needs to know the submit
-        // wasn't silently dropped, not whether the run itself later succeeds.
-        // A visible submit is explicit user intent to see the new turn. Reattach
-        // following only after the message was queued/appended successfully;
-        // hidden reconnect recovery turns must leave the user's viewport alone.
         if (!hideUserMessage) resumeFollowingRef.current();
         reportAgentChatSubmitResult(submitMessageId, true);
-        // A queued immediate submit can abort the previous run after it is
-        // accepted. Preserve that newer stop marker while clearing the old one.
         if (userStoppedRunRef.current === stoppedRunAtSubmitStart) {
           userStoppedRunRef.current = null;
         }
@@ -6402,9 +5729,6 @@ const AssistantChatInner = forwardRef<
     if (!canImplementPlan) return false;
     onExecModeChange?.("build");
     const continuation = latestProtocolContinuationContext(messagesRef.current);
-    // Plan approval starts a new turn. Keep the scoped action surface from
-    // the completed Plan turn, but omit its ID so the run store does not
-    // replay the Plan response instead of running Act.
     void addToQueue(
       "Implement the plan.",
       undefined,
@@ -6429,7 +5753,6 @@ const AssistantChatInner = forwardRef<
     onExecModeChange?.("build");
   }, [onExecModeChange]);
 
-  // Expose imperative handle
   useImperativeHandle(
     ref,
     () => ({
@@ -6469,11 +5792,6 @@ const AssistantChatInner = forwardRef<
         options?: { focus?: boolean },
       ) {
         stageComposerContextItem(item);
-        // Only pull focus into the composer for explicit user gestures.
-        // Passive context mirroring (e.g. a canvas selection staged with
-        // openSidebar:false) must not steal focus — doing so blurs an active
-        // inline text editor living in the design canvas iframe and tears it
-        // down the instant it opens.
         if (options?.focus !== false) tiptapRef.current?.focus();
       },
       removeComposerContextItem(key: string) {
@@ -6554,28 +5872,14 @@ const AssistantChatInner = forwardRef<
     ],
   );
 
-  // Do not memoize this on `messages` identity. assistant-ui can update the
-  // live assistant message content in place while streaming, and the reconnect
-  // overlay must hide as soon as that live message has caught up.
   const visibleReconnectContent = dedupeReconnectContentAgainstMessages(
     reconnectContent,
     messages,
     {
-      // While the reconnect stack is mounted, the live assistant message is
-      // already the canonical visual owner for any tool it contains. Keeping
-      // an ahead-of-the-thread reconnect copy visible creates the familiar
-      // two-card stack while the adapter catches up, so prefer one row and
-      // let the live message advance in place.
       suppressToolRepeats: isReconnecting || reconnectFrozen,
       trimTailTextOverlap: reconnectTailOnlyRef.current,
     },
   );
-  // The reconnect overlay is a SECOND fold of the same run, rendered as a
-  // sibling of the message list. It may only appear while no adapter runtime
-  // owns the turn. Deriving it from `isRuntimeRunning` at render time — rather
-  // than relying on an effect to clear the overlay's own flags afterwards —
-  // is what makes two streaming copies structurally impossible instead of
-  // merely unlikely; the effect below runs a frame too late to prevent it.
   const showReconnectOverlay = shouldShowReconnectOverlay({
     isRuntimeRunning,
     isReconnecting,
@@ -6615,15 +5919,10 @@ const AssistantChatInner = forwardRef<
     () => new Set<string>(),
   );
   useEffect(() => {
-    // An unsent thread has no row yet, so the endpoint answers 404 "Thread not
-    // found" — a guaranteed failed request on every fresh chat. It also cannot
-    // hold checkpoints, so there is nothing to ask for.
     if (!cpDevMode || !threadId || messages.length === 0) {
       setCheckpointRunIds(new Set<string>());
       return;
     }
-    // Refetch once each run settles: the checkpoint for that turn is written
-    // after the run completes, so a list loaded mid-run would miss it.
     if (isRunning) return;
     let cancelled = false;
     void (async () => {
@@ -6747,8 +6046,6 @@ const AssistantChatInner = forwardRef<
     setRunErrorInfo(null);
     retryAfterRunError();
   }, [handleBuilderConnected, providerAuthErrorKey, retryAfterRunError]);
-  // The banner covers one run; every failed turn it does not cover keeps its own
-  // inline marker, so a failure stays visible after the next prompt.
   const messageActionsCtx = useMemo(
     () => ({
       onForkChat,
@@ -6835,12 +6132,6 @@ const AssistantChatInner = forwardRef<
     </div>
   ) : null;
 
-  // Clarifying-question surface: the `ask-question` action writes a
-  // GuidedQuestionPayload to application_state under "guided-questions". The
-  // hook polls that key, and on submit/skip composes the answer as a normal
-  // user turn (via the shared sendToAgentChat) and clears the persisted key so
-  // the question does not reappear. The key is per browser tab, so `threadId`
-  // is what keeps a pending question in the chat that asked it.
   const {
     questions: guidedQuestions,
     title: guidedQuestionsTitle,
@@ -6910,10 +6201,6 @@ const AssistantChatInner = forwardRef<
     [approvalResolutionScope],
   );
 
-  // Human-in-the-loop approvals: when the user approves a paused `needsApproval`
-  // tool call, re-issue the turn carrying the call's approval key so the server
-  // gate lets that specific call run. Reuses the same append path as recovery /
-  // queued messages (no hand-written fetch).
   const approveToolCall = useCallback(
     (approvalKey: string) => {
       const continuation = approvalProtocolContinuationContext(
@@ -6987,11 +6274,6 @@ const AssistantChatInner = forwardRef<
                 <ChatRunningRunIdContext.Provider value={activeChatRunId}>
                   <ChatRunningTurnIdContext.Provider value={activeChatTurnId}>
                     <ChatRunningContext.Provider
-                      // Keep the current message in a non-complete state while
-                      // the terminal error card is visible, even if the server
-                      // still reports the prior run for a short time while its
-                      // claim is released. Historical messages use turn
-                      // ownership below.
                       value={showRunningInUI || runErrorInfo !== null}
                     >
                       <AgentTextStreamingProvider
@@ -7253,17 +6535,6 @@ const AssistantChatInner = forwardRef<
                                                 </MessageScrollerItem>
                                               ) : null}
                                               <ThreadPrimitive.Messages
-                                                // Deliberately NOT keyed on part structure. Doing that
-                                                // remounted the whole transcript every time a tool call
-                                                // started or a placeholder id was rewritten — a flash and a
-                                                // lost scroll position in the middle of an answer. The
-                                                // error boundary above is the mechanism for assistant-ui's
-                                                // stale tap-resource errors: it catches them, clears, and
-                                                // retries, and its retry signature includes the reset key so
-                                                // a genuinely new structure always gets a fresh budget.
-                                                // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
-                                                // rename and splice through both the import and streaming
-                                                // paths and records that no such error occurs.
                                                 components={{
                                                   UserMessage:
                                                     AssistantChatUserMessageItem,
@@ -7861,9 +7132,6 @@ export const AssistantChat = forwardRef<
       }
       return createAgentChatAdapter(context);
     },
-    // Adapter factories must be memoized and use refs for changing values.
-    // `adapterReloadKey` is an explicit opt-in for embedded hosts whose
-    // transport identity can change without changing tab/thread ids.
     [
       apiUrl,
       tabId,

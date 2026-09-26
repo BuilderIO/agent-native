@@ -38,7 +38,6 @@ export function projectEnvironmentUrl(
     return url.toString();
   } catch {
     // coercion-ok: unknown or malformed optional app URLs stay unchanged and
-    // are validated at the boundary where they are used.
     return rawUrl;
   }
 }

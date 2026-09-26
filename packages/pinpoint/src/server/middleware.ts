@@ -1,8 +1,3 @@
-// @agent-native/pinpoint — Express middleware for pin CRUD
-// MIT License
-//
-// REST routes: GET (list), GET/:id, POST, PATCH/:id, DELETE/:id
-// Path traversal validation on all IDs.
 
 import { Router, type Request, type Response } from "express";
 
@@ -16,24 +11,13 @@ function validateId(id: string): boolean {
 }
 
 export interface PinRoutesOptions {
-  /** Directory for pin data files. Default: data/pins */
   dataDir?: string;
 }
 
-/**
- * Create Express router with pin CRUD endpoints.
- *
- * Usage:
- * ```ts
- * import { pagePinRoutes } from '@agent-native/pinpoint/server';
- * app.use('/api/pins', pagePinRoutes());
- * ```
- */
 export function pagePinRoutes(options: PinRoutesOptions = {}): Router {
   const router = Router();
   const store = new FileStore(options.dataDir || "data/pins");
 
-  // GET / — List all pins, optionally filtered
   router.get("/", async (req: Request, res: Response) => {
     try {
       const pageUrl =
@@ -50,7 +34,6 @@ export function pagePinRoutes(options: PinRoutesOptions = {}): Router {
     }
   });
 
-  // GET /:id — Get a single pin
   router.get("/:id", async (req: Request, res: Response) => {
     try {
       const id = String(req.params.id);
@@ -70,7 +53,6 @@ export function pagePinRoutes(options: PinRoutesOptions = {}): Router {
     }
   });
 
-  // POST / — Create a new pin
   router.post("/", async (req: Request, res: Response) => {
     try {
       const result = PinSchema.safeParse(req.body);
@@ -87,7 +69,6 @@ export function pagePinRoutes(options: PinRoutesOptions = {}): Router {
     }
   });
 
-  // PATCH /:id — Update a pin
   router.patch("/:id", async (req: Request, res: Response) => {
     try {
       const id = String(req.params.id);
@@ -109,7 +90,6 @@ export function pagePinRoutes(options: PinRoutesOptions = {}): Router {
     }
   });
 
-  // DELETE /:id — Delete a pin
   router.delete("/:id", async (req: Request, res: Response) => {
     try {
       const id = String(req.params.id);
@@ -124,7 +104,6 @@ export function pagePinRoutes(options: PinRoutesOptions = {}): Router {
     }
   });
 
-  // DELETE / — Clear pins (optionally by pageUrl)
   router.delete("/", async (req: Request, res: Response) => {
     try {
       const pageUrl =

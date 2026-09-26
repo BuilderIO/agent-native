@@ -1,31 +1,6 @@
-/**
- * `defineEval` — declare a named eval test case.
- *
- * An eval pairs an input (prompt + optional history/setup) with a list of
- * scorers and a pass threshold. The runner (see `runner.ts`) actually runs the
- * agent for the input, scores the output with each scorer, and gates on the
- * threshold. Authors write `*.eval.ts` files that `export default defineEval(...)`
- * or export an array of them.
- *
- * Example (`evals/greeting.eval.ts`):
- * ```ts
- * import { defineEval, contains, llmJudge } from "@agent-native/core/eval";
- *
- * export default defineEval({
- *   name: "greets the user by name",
- *   input: { prompt: "Say hi to Ada." },
- *   threshold: 0.7,
- *   scorers: [
- *     contains("Ada"),
- *     llmJudge({ criteria: "friendliness", rubric: "1.0 = warm greeting" }),
- *   ],
- * });
- * ```
- */
 
 import type { Eval } from "./types.js";
 
-/** Default per-scorer pass threshold when an eval doesn't specify one. */
 export const DEFAULT_EVAL_THRESHOLD = 0.5;
 
 export function defineEval(spec: Eval): Eval {

@@ -68,44 +68,19 @@ import {
   VarScaledSlide,
 } from "./SlidesDeckArtwork";
 
-/** The real rail is `w-48 sm:w-52`; the mock is always at the wider size. */
 const RAIL_WIDTH = 208;
-/** The framework AgentPanel's default width. */
 const AGENT_WIDTH = 340;
 const TOOLBAR_HEIGHT = 48;
 const CONTEXT_TOOLBAR_HEIGHT = 40;
 
-/**
- * Rail width minus the row's own padding, the number column, and its gap —
- * i.e. the width the thumbnail actually gets, which is what sets its zoom.
- */
 const THUMB_WIDTH = RAIL_WIDTH - 16 - 12 - 22;
 const THUMB_SCALE = THUMB_WIDTH / SLIDE_WIDTH;
 
-/**
- * The canvas zoom, stepped down as the fluid workspace narrows. The rail and
- * the agent panel are fixed widths, so what is left for the slide shrinks
- * faster than the page does; a single zoom either crops the slide on a laptop
- * or wastes the canvas on a wide monitor. The steps are the largest zoom that
- * still clears the workspace padding at the top of each band.
- *
- * The toolbar deliberately has no zoom readout because of this: a percentage
- * that changes with the browser window is a number the product never shows.
- */
 const CANVAS_SCALE_STEPS = [{ maxWidth: 1280, scale: 0.48 }];
 const CANVAS_SCALE_WIDE = 0.62;
 
-/** Window width below the breakpoint, where the split stops being fluid. */
 const NARROW_WINDOW_WIDTH = 1220;
 
-/**
- * Below 1150px the window stops being fluid and the whole thing scales, one
- * step per band. A fluid split gives the canvas less and less until the slide
- * is a postage stamp between two full-size panels, which is not what the app
- * looks like at any size. Each step is the largest scale that still fits the
- * top of its band; inside a band the right edge crops, the same tradeoff
- * DesignOverviewMock makes.
- */
 const NARROW_STEPS = [
   { maxWidth: 1150, scale: 0.85 },
   { maxWidth: 1000, scale: 0.72 },
@@ -136,24 +111,10 @@ const ALIGN_TOOLS = [
 
 const AGENT_SUGGESTIONS = ["Tighten the copy", "Add a closing slide"];
 
-// The last turn plays rather than just sitting there: the indicator shimmers,
-// then the reply types in. It is the only motion in the hero, and it is the
-// thing the page is selling.
-//
-// The timings live here because the CSS needs the same numbers and cannot
-// count the characters itself.
 const THINKING_MS = 1000;
 const TYPE_START_MS = 1080;
 const CHAR_MS = 16;
 
-/**
- * The transcript runs longer than the panel on purpose. It is bottom-anchored
- * and clipped, so the earlier turns crop the way a real scrolled conversation
- * does and the deck on the canvas reads as the result of a session rather than
- * of one lucky prompt. The turns it shows are the two things the product is
- * actually for: pulling live numbers in through a workspace connection, and
- * the bulk edits nobody wants to make by hand fourteen times.
- */
 const AGENT_TURNS = [
   {
     prompt: "Start a Q3 board deck from the revenue doc.",
@@ -188,11 +149,6 @@ function charDelay(index: number) {
   return { animationDelay: TYPE_START_MS + index * CHAR_MS + "ms" };
 }
 
-// One span per character, grouped into words. Bare per-character spans would
-// let a line break land mid-word, since browsers may break between inline
-// elements; the word wrapper is what keeps the wrapping normal. The stagger is
-// stagger is a per-character delay because a generated nth-of-type selector
-// would restart its count inside every word wrapper.
 function TypedReply({ text }: { text: string }) {
   const words = text.split(" ");
   let charIndex = 0;
@@ -313,7 +269,6 @@ function ContextToolbar() {
       </span>
       <span className="sm-context-divider" />
       {ALIGN_TOOLS.map((Tool, index) => (
-        // Icon identity is the only distinguishing value in this static list.
         <span key={index} className="sm-icon-btn">
           <Tool size={15} />
         </span>
@@ -337,8 +292,6 @@ function AgentPanel() {
   const streamRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
 
-  // Same trigger the Clips cards use: play on entry and reset on exit, so the
-  // reply types out again instead of being spent on the first scroll past.
   useEffect(() => {
     const node = streamRef.current;
     if (!node) return;
@@ -395,13 +348,9 @@ function AgentPanel() {
   );
 }
 
-// The gradient sweep from ".agent-thinking-indicator__text" in
-// packages/core/src/styles/agent-native.css, re-pointed at this mock's tokens.
 const THINKING_SHINE_CSS =
   "@supports ((background-clip: text) or (-webkit-background-clip: text)) { .slides-mock .sm-agent-thinking { color: transparent; background: linear-gradient(90deg, var(--sm-muted-foreground) 0%, var(--sm-muted-foreground) 36%, var(--sm-foreground) 50%, var(--sm-muted-foreground) 64%, var(--sm-muted-foreground) 100%); background-size: 14rem 100%; background-repeat: repeat; background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; } }";
 
-// Each character keeps its own inline animation-delay, which outranks the 0s
-// the shorthand below would otherwise apply.
 const PLAYING_CSS = [
   ".slides-mock .sm-agent-stream.is-playing .sm-agent-thinking { animation: sm-thinking-life " +
     THINKING_MS +
@@ -410,16 +359,10 @@ const PLAYING_CSS = [
 ];
 
 const SLIDES_MOCK_CSS = [
-  // Shell. The hero container sets the height; the window fills the padded box.
   ".slides-mock { position: relative; width: 100%; padding: 0 40px 28px; overflow: hidden; }",
   ".slides-mock, .slides-mock * { box-sizing: border-box; }",
   ".slides-mock-frame { position: relative; height: 100%; }",
 
-  // Palette, mirroring templates/slides/app/global.css. Dark by default; the
-  // `html.light` block at the end swaps the whole mock when the docs shell is
-  // light. `--sm-accent-row` is the rail's `bg-accent`, carrying the app's own
-  // `--accent` value in both themes rather than an eyeballed grey, and
-  // `--sm-primary` is the filled Share/Present pair.
   ".slides-mock { --sm-background: hsl(0 0% 13%); --sm-surface: hsl(0 0% 10%); --sm-card: hsl(0 0% 15%); --sm-border: hsl(0 0% 24%); --sm-foreground: hsl(0 0% 93%); --sm-muted-foreground: hsl(0 0% 55%); --sm-accent-row: hsl(0 0% 18%); --sm-primary: hsl(0 0% 90%); --sm-primary-foreground: hsl(0 0% 10%); --sm-avatar-fg: hsl(0 0% 85%); --sm-avatar-1: hsl(0 0% 40%); --sm-avatar-2: hsl(0 0% 32%); --sm-avatar-3: hsl(0 0% 25%); }",
 
   ".slides-mock .sm-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; border: 1px solid var(--sm-border); background: var(--sm-background); color: var(--sm-foreground); font-family: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif; }",
@@ -427,7 +370,6 @@ const SLIDES_MOCK_CSS = [
   ".slides-mock .sm-window-topbar span { width: 11px; height: 11px; border-radius: 999px; background: var(--sm-border); }",
   ".slides-mock .sm-window-body { display: flex; flex: 1; min-height: 0; }",
 
-  // Toolbar — the real `h-12` bar, `px-3 gap-1`.
   `.slides-mock .sm-toolbar { display: flex; height: ${TOOLBAR_HEIGHT}px; flex-shrink: 0; align-items: center; gap: 4px; padding: 0 12px; background: var(--sm-background); }`,
   ".slides-mock .sm-toolbar-title { margin-left: 4px; overflow: hidden; font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }",
   ".slides-mock .sm-toolbar-spacer { flex: 1; min-width: 8px; }",
@@ -443,14 +385,12 @@ const SLIDES_MOCK_CSS = [
   ".slides-mock .sm-avatar-2 { background: var(--sm-avatar-2); }",
   ".slides-mock .sm-avatar-3 { background: var(--sm-avatar-3); }",
 
-  // Slide rail — `w-52 p-2 space-y-1`, rows `p-1.5 gap-1.5 rounded-lg`.
   `.slides-mock .sm-rail { display: flex; width: ${RAIL_WIDTH}px; flex-shrink: 0; flex-direction: column; gap: 4px; overflow: hidden; padding: 8px; border-right: 1px solid var(--sm-border); background: var(--sm-background); }`,
   ".slides-mock .sm-rail-row { display: flex; flex-shrink: 0; align-items: center; gap: 6px; padding: 6px; border-radius: 8px; }",
   ".slides-mock .sm-rail-row.is-selected { background: var(--sm-accent-row); }",
   ".slides-mock .sm-rail-number { width: 16px; flex-shrink: 0; text-align: center; color: var(--sm-muted-foreground); font-size: 10px; font-weight: 500; line-height: 20px; }",
   ".slides-mock .sm-rail-thumb { overflow: hidden; border: 1px solid var(--sm-border); border-radius: 4px; }",
 
-  // Canvas
   ".slides-mock .sm-canvas { display: flex; flex: 1; min-width: 0; flex-direction: column; background: var(--sm-surface); }",
   `.slides-mock .sm-context-toolbar { display: flex; height: ${CONTEXT_TOOLBAR_HEIGHT}px; flex-shrink: 0; align-items: center; gap: 2px; overflow: hidden; padding: 0 10px; border-bottom: 1px solid var(--sm-border); background: var(--sm-background); }`,
   ".slides-mock .sm-tool-pill { display: flex; height: 28px; flex-shrink: 0; align-items: center; gap: 5px; padding: 0 10px 0 8px; border-radius: 6px; color: var(--sm-foreground); font-size: 13px; font-weight: 500; }",
@@ -462,10 +402,8 @@ const SLIDES_MOCK_CSS = [
     ({ maxWidth, scale }) =>
       `@media (max-width: ${maxWidth}px) { .slides-mock .sm-workspace { --sd-scale: ${scale}; } }`,
   ),
-  // The real canvas slide carries `shadow-2xl shadow-black/40`.
   ".slides-mock .sm-workspace .sd-slide-box { border-radius: 2px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.07); }",
 
-  // Agent panel
   `.slides-mock .sm-agent { display: flex; width: ${AGENT_WIDTH}px; flex-shrink: 0; flex-direction: column; overflow: hidden; border-left: 1px solid var(--sm-border); background: var(--sm-background); }`,
   ".slides-mock .sm-agent-transcript { display: flex; flex: 1; min-height: 0; flex-direction: column; justify-content: flex-end; gap: 22px; overflow: hidden; padding: 16px; }",
   ".slides-mock .sm-agent-turn { display: flex; flex-shrink: 0; flex-direction: column; gap: 10px; }",
@@ -473,11 +411,6 @@ const SLIDES_MOCK_CSS = [
   ".slides-mock .sm-agent-step { display: flex; align-items: center; gap: 5px; color: var(--sm-muted-foreground); font-size: 12px; }",
   ".slides-mock .sm-agent-ref { color: var(--sm-foreground); }",
   ".slides-mock .sm-agent-reply { font-size: 13px; line-height: 1.55; color: var(--sm-foreground); }",
-  // Thinking indicator, then the reply typing in. The indicator is absolutely
-  // positioned over the reply and the characters hold their space at
-  // "opacity: 0" from the start, so nothing reflows mid-animation. The
-  // indicator mirrors the real one in packages/core: the word "Thinking" with
-  // a gradient sweeping through the text, not a row of bouncing dots.
   ".slides-mock .sm-agent-stream { position: relative; }",
   ".slides-mock .sm-agent-thinking { position: absolute; left: 0; top: 0; opacity: 0; color: var(--sm-muted-foreground); font-size: 13px; font-weight: 500; line-height: 1.55; }",
   ".slides-mock .sm-agent-typed { display: block; }",
@@ -492,9 +425,6 @@ const SLIDES_MOCK_CSS = [
 
   ...PLAYING_CSS,
 
-  // Both fallbacks land on the finished state: without JS the class that
-  // starts the animation is never added, and a visitor who asked not to see
-  // motion gets the reply outright instead of watching it arrive.
   "@media (scripting: none) { .slides-mock .sm-type-char { opacity: 1; } }",
   "@media (prefers-reduced-motion: reduce) { .slides-mock .sm-type-char, .slides-mock .sm-agent-stream.is-playing .sm-type-char { opacity: 1; animation: none; } .slides-mock .sm-agent-thinking { display: none; } }",
 
@@ -506,23 +436,9 @@ const SLIDES_MOCK_CSS = [
 
   SLIDE_ARTWORK_CSS,
 
-  // Light mode. The docs shell puts `light`/`dark` on <html>, so the chrome
-  // follows the visitor's theme. The slides themselves do not — see the note
-  // in SlidesDeckArtwork.tsx.
   "html.light .slides-mock { --sm-background: hsl(0 0% 100%); --sm-surface: hsl(0 0% 96%); --sm-card: hsl(0 0% 97%); --sm-border: hsl(0 0% 90%); --sm-foreground: hsl(0 0% 10%); --sm-muted-foreground: hsl(0 0% 46%); --sm-accent-row: hsl(0 0% 96%); --sm-primary: hsl(0 0% 15%); --sm-primary-foreground: hsl(0 0% 98%); --sm-avatar-fg: hsl(0 0% 30%); --sm-avatar-1: hsl(0 0% 72%); --sm-avatar-2: hsl(0 0% 79%); --sm-avatar-3: hsl(0 0% 86%); }",
   "html.light .slides-mock .sm-workspace .sd-slide-box { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.22); }",
 
-  // Narrow screens. The window becomes a fixed-width split that scales as a
-  // whole and anchors left, rather than letting the canvas collapse to
-  // nothing. The canvas zoom goes back up to the wide value here: inside a
-  // fixed 1220px window the workspace is full width again, whatever the page
-  // around it is doing. Stays last: these rules have the same specificity as
-  // the base ones and would otherwise lose on source order.
-  //
-  // Only the width is fixed. The height is the container's own height divided
-  // back out by the scale, so `scale()` lands it at exactly 100% again: the
-  // hero is a different height at each breakpoint, and a fixed pre-scale
-  // height can only match one of them.
   `@media (max-width: ${NARROW_STEPS[0].maxWidth}px) { .slides-mock { padding: 0 16px 18px; } .slides-mock .sm-workspace { --sd-scale: ${CANVAS_SCALE_WIDE}; } .slides-mock .sm-window { width: ${NARROW_WINDOW_WIDTH}px; inset: 0 auto auto 0; transform-origin: top left; } }`,
   ...NARROW_STEPS.map(
     ({ maxWidth, scale }) =>

@@ -20,7 +20,6 @@ type EmbeddedRuntimeGlobal = typeof globalThis & {
   __AGENT_NATIVE_EMBEDDED_RUNTIME__?: boolean;
 };
 
-/** True once an embedding host has explicitly configured this process's database. */
 export function isEmbeddedRuntimeAuthorized(): boolean {
   return (
     (globalThis as EmbeddedRuntimeGlobal).__AGENT_NATIVE_EMBEDDED_RUNTIME__ ===
@@ -28,7 +27,6 @@ export function isEmbeddedRuntimeAuthorized(): boolean {
   );
 }
 
-/** Claim embedded-host duty. Idempotent; never unset for the life of the process. */
 export function markEmbeddedRuntimeAuthorized(): void {
   (globalThis as EmbeddedRuntimeGlobal).__AGENT_NATIVE_EMBEDDED_RUNTIME__ =
     true;

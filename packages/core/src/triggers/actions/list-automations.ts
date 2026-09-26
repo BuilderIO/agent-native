@@ -23,9 +23,6 @@ function nextRun(
     meta.schedule &&
     isValidCron(meta.schedule),
   );
-  // A stored `nextRun` in the past means the dispatcher kept declining to run
-  // this automation, not that it is overdue. Report the real next occurrence
-  // and let `lastError` carry the reason it keeps being passed over.
   if (meta.nextRun) {
     const stored = new Date(meta.nextRun).getTime();
     if (!Number.isFinite(stored) || stored > Date.now() || !scheduled) {
@@ -97,7 +94,6 @@ export default defineAction({
         triggerType: meta.triggerType,
         event: meta.event ?? null,
         // The path is a bearer credential, so only people who can update the
-        // automation can retrieve it from the action surface.
         webhookPath: canUpdate ? (webhookPath ?? null) : null,
         schedule: meta.schedule || null,
         timezone: meta.schedule ? effectiveTimezone(meta.timezone) : null,

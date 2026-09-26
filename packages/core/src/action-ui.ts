@@ -6,14 +6,8 @@ export const ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER = "core.inline-extension";
 export const ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER = "core.workspace-file";
 
 export interface ActionChatUIConfig {
-  /**
-   * Exact renderer id to use in Agent-Native chat. This is native first-party
-   * React UI, distinct from MCP Apps resources for external hosts.
-   */
   renderer: string;
-  /** Optional label for catalogs, docs, or custom renderer chrome. */
   title?: string;
-  /** Optional developer-facing description for catalogs/docs. */
   description?: string;
 }
 

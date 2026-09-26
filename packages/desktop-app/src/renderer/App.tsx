@@ -96,18 +96,12 @@ export default function App() {
       const result = await loader();
       if (!result.unavailable) setWorkspaceAppList(result);
     } catch (error) {
-      // Keep the last usable inventory visible when a refresh is transiently
-      // unavailable. The main process applies the same rule to deep-link
-      // resolution.
       console.debug("[desktop] workspace app inventory refresh unavailable", {
         reason: error instanceof Error ? error.message : "unknown error",
       });
     }
   }, []);
 
-  // The lane depends on the verified email, so it is only known once identity
-  // has resolved. A change has to remount webviews — they are already pointed
-  // at the previous origin.
   const refreshEnvironmentLane = useCallback(async () => {
     const getLane = window.electronAPI?.identity
       ? () => window.electronAPI!.identity!.getEnvironmentLane()
@@ -120,8 +114,6 @@ export default function App() {
       }
     } catch (error) {
       // coercion-ok: the lane keeps its last known value, which is the same
-      // origin every webview is already pointed at. A failed read must not
-      // move a signed-in user between lanes.
       console.debug("[desktop-environment] lane read failed", {
         reason: error instanceof Error ? error.message : "unknown error",
       });
@@ -133,9 +125,6 @@ export default function App() {
       const loaded = window.electronAPI?.appConfig
         ? await window.electronAPI.appConfig.load()
         : DESKTOP_DEFAULT_APPS;
-      // Resolve the lane before clearing the loading state: mounting first
-      // would load production and then remount onto beta, which is the extra
-      // document and session load this is meant to remove.
       await refreshEnvironmentLane();
       setApps(loaded);
       setLoading(false);
@@ -155,8 +144,6 @@ export default function App() {
       if (!mounted) return;
       childIdentityFailureRef.current = false;
       setDesktopIdentityStatus(status);
-      // App is the shell-level subscriber, so sign-out invalidates the
-      // renderer cache even while every individual app webview is inactive.
       rememberDesktopIdentityStatus(status);
       void refreshWorkspaceAppList();
       void refreshEnvironmentLane();
@@ -295,9 +282,6 @@ export default function App() {
           current?.appId === appId ? undefined : current,
         );
       } catch {
-        // The main process failed to persist the change (e.g. userData is
-        // unwritable), so local state must stay untouched and the failure
-        // must be visible instead of leaving a silently-reverted rail.
         toast.error(`Couldn't remove ${app.name}`, {
           description: "Please try again.",
         });

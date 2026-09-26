@@ -279,8 +279,6 @@ describe("Builder callback CSRF state", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    // Pin the secret so signed tokens are stable across calls and the
-    // .env.local autogeneration in resolveAuthSecret never fires.
     delete process.env.OAUTH_STATE_SECRET;
     process.env.BETTER_AUTH_SECRET = "test-secret-9f2a7c";
   });
@@ -349,7 +347,6 @@ describe("Builder callback CSRF state", () => {
     });
 
     it("rejects a token whose embedded email was swapped post-sign", () => {
-      // Forge attempt: keep the MAC but swap the encoded email field.
       const token = signBuilderCallbackState("alice@example.com");
       const [nonce, _emailEncoded, ts, mac] = token.split(".");
       const swappedEmail = Buffer.from("bob@example.com", "utf8").toString(
@@ -371,7 +368,6 @@ describe("Builder callback CSRF state", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-04-24T12:00:00.000Z"));
       const token = signBuilderCallbackState("alice@example.com");
-      // 11 minutes later — past the 10-min TTL.
       vi.setSystemTime(new Date("2026-04-24T12:11:00.000Z"));
       expect(verifyBuilderCallbackState(token, "alice@example.com")).toBe(
         false,
@@ -382,7 +378,6 @@ describe("Builder callback CSRF state", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-04-24T12:00:00.000Z"));
       const token = signBuilderCallbackState("alice@example.com");
-      // 9 minutes later — still inside the 10-min TTL.
       vi.setSystemTime(new Date("2026-04-24T12:09:00.000Z"));
       expect(verifyBuilderCallbackState(token, "alice@example.com")).toBe(true);
     });
@@ -398,8 +393,6 @@ describe("Builder callback CSRF state", () => {
     it("rejects a token whose timestamp is far in the future", () => {
       const token = signBuilderCallbackState("alice@example.com");
       const [nonce, email, _ts, mac] = token.split(".");
-      // Pretend the token was minted an hour from now — an attacker
-      // trying to give a leaked state arbitrary lifetime.
       const futureTs = Date.now() + 60 * 60 * 1000;
       const forged = `${nonce}.${email}.${futureTs}.${mac}`;
       expect(verifyBuilderCallbackState(forged, "alice@example.com")).toBe(
@@ -844,13 +837,10 @@ describe("Builder callback CSRF state", () => {
         otherState,
       );
 
-      // Ambiguous: Builder dropped the query state and two states are live.
       expect(
         resolveBuilderConnectCallbackState(null, concurrentCookie),
       ).toEqual({ state: null, resetStateCookie: true });
 
-      // A callback naming a state this browser never started belongs to
-      // another flow; the live states must survive it.
       expect(
         resolveBuilderConnectCallbackState(
           "unexpected-state",
@@ -860,13 +850,9 @@ describe("Builder callback CSRF state", () => {
     });
 
     it("lets the next restart succeed after a failed attempt instead of poisoning it", () => {
-      // The reported trap: every "Restart the connection from Settings"
-      // appended another state, so a callback without query state stayed
-      // ambiguous forever and the suggested remedy re-armed the failure.
       const first = createBuilderConnectState();
       let cookie = appendBuilderConnectStateCookie(null, first);
 
-      // First attempt fails for its own reason; the route drops its state.
       cookie = removeBuilderConnectStateCookie(cookie, first);
       expect(cookie).toBe("");
 
@@ -932,9 +918,6 @@ describe("Builder callback CSRF state", () => {
   });
 
   describe("buildBuilderCliAuthUrl", () => {
-    // New clients get a ready-to-open /cli-auth URL from /builder/status with
-    // _an_state embedded in redirect_url so the popup can skip the app
-    // trampoline entirely.
     it("builds a clean redirect_url (no _an_state) when state is null", () => {
       const cliAuthUrl = buildBuilderCliAuthUrl(
         "https://alice.agent-native.com",
@@ -946,7 +929,6 @@ describe("Builder callback CSRF state", () => {
       const parsedRedirect = new URL(redirectUrl!);
       expect(parsedRedirect.pathname).toBe(BUILDER_CALLBACK_PATH);
       expect(parsed.searchParams.get("cli")).toBe("true");
-      // No _an_state — Builder can safely append its own params.
       expect(parsedRedirect.searchParams.has(BUILDER_STATE_PARAM)).toBe(false);
     });
 
@@ -962,7 +944,6 @@ describe("Builder callback CSRF state", () => {
       finalUrl.searchParams.set("user-id", "user-123");
       finalUrl.searchParams.set("org-name", "Acme");
       finalUrl.searchParams.set("kind", "team");
-      // State param is absent — callback authenticates via server-side row.
       expect(finalUrl.searchParams.has(BUILDER_STATE_PARAM)).toBe(false);
       expect(finalUrl.searchParams.get("p-key")).toBe("bpk-test-private-key");
       expect(finalUrl.searchParams.get("api-key")).toBe("test-api-key");
@@ -1121,14 +1102,9 @@ describe("Builder callback CSRF state", () => {
       expect(redirectUrl).toContain(
         "https://agent-workspace.builder.io/dispatch/_agent-native/builder/callback",
       );
-      // The callback origin (the part Builder validates against its allow-list)
-      // must be the gateway, not the preview host.
       expect(new URL(redirectUrl!).origin).toBe(
         "https://agent-workspace.builder.io",
       );
-      // The original preview origin must still ride along inside the
-      // redirect_url query string so the callback can use it as the
-      // postMessage targetOrigin for the opener tab.
       expect(new URL(redirectUrl!).searchParams.get("_an_opener")).toBe(
         "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
       );
@@ -1186,8 +1162,6 @@ describe("Builder callback CSRF state", () => {
 
       const previewOrigin = "https://preview-example.builderio.xyz";
 
-      // The relay POST lands on the internal loopback host, but the preview
-      // proxy forwards the public host that minted the signed state.
       const event = createBuilderBrowserEvent({
         host: "127.0.0.1:8094",
         "x-forwarded-host": "preview-example.builderio.xyz",
@@ -1224,7 +1198,6 @@ describe("Builder callback CSRF state", () => {
         signature: request.headers[BUILDER_RELAY_SIGNATURE_HEADER],
       };
 
-      // The fix: requestOrigin is the forwarded host and matches targetOrigin.
       expect(
         verifyBuilderRelayRequest({
           body: request.body,
@@ -1235,7 +1208,6 @@ describe("Builder callback CSRF state", () => {
         }),
       ).not.toBeNull();
 
-      // The old behavior used the internal loopback origin and failed.
       expect(
         verifyBuilderRelayRequest({
           body: request.body,
@@ -1356,10 +1328,6 @@ describe("Builder callback CSRF state", () => {
     });
 
     it("uses the app's localhost origin for cli-auth when reached via a tunnel Builder rejects (local dev)", () => {
-      // Reproduces the ngrok/tunnel dev case: the preview host is trusted by us
-      // but not by Builder's /cli-auth allow-list, and no public gateway env is
-      // set. Without the fallback the app hands Builder the rejected origin and
-      // Builder redirects to its own dead http://localhost:10110/auth.
       delete process.env.NODE_ENV;
       process.env.PORT = "8080";
       clearBuilderOriginEnv();
@@ -1386,8 +1354,6 @@ describe("Builder callback CSRF state", () => {
         "x-forwarded-proto": "https",
       });
 
-      // Unchanged production behavior: with no gateway configured it returns the
-      // preview origin (never a localhost callback).
       expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
         "https://alice.builderio.xyz",
       );
@@ -1546,9 +1512,6 @@ describe("Builder callback CSRF state", () => {
       });
     });
 
-    // A rejected credential is not a transient outage. Without a typed code,
-    // callers see a plain Error and tell the user to retry something that
-    // cannot succeed until they reconnect.
     it("raises a reconnectable error when Builder rejects the credential", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";
@@ -1578,8 +1541,6 @@ describe("Builder callback CSRF state", () => {
       });
     });
 
-    // 403 is Space membership, not a bad credential. Reconnect is the wrong
-    // advice, so it must stay an ordinary error.
     it("keeps a membership rejection as an ordinary error", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";

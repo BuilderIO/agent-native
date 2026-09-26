@@ -295,8 +295,6 @@ export function useShareButtonController(
     allowPublic: true,
     requireOrgMemberForUserShares: false,
   };
-  // Keep draft and optimistic state in the controller so closing and reopening
-  // the popover cannot drop an in-flight mutation or an unsent invite.
   const [role, setRole] = useState<ShareButtonRole>("viewer");
   useEffect(() => {
     const allowedRoles = options.allowedRoles;

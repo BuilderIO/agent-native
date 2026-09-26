@@ -36,7 +36,6 @@ import { EngineError, type EngineStreamOptions } from "./types.js";
 
 const BARE_403_MESSAGES = ["403 status code (no body)", "Forbidden", ""];
 
-/** Mirrors the @anthropic-ai/sdk APIError shape: status lives on `status`. */
 function anthropicApiError(status: number, message: string): Error {
   return Object.assign(new Error(message), { status, name: "APIError" });
 }
@@ -63,8 +62,6 @@ async function streamAnthropicFailure(err: Error): Promise<any> {
     tools: [],
     abortSignal: new AbortController().signal,
   };
-  // The engine yields its terminal stop event and then rethrows the raw SDK
-  // error, so the rejection is expected and events are collected around it.
   const events: any[] = [];
   await expect(async () => {
     for await (const e of engine.stream(opts)) events.push(e);
@@ -106,8 +103,6 @@ describe("a reasonless provider 403 is transient on every engine", () => {
     const stop = await streamAnthropicFailure(
       anthropicApiError(403, "403 status code (no body)"),
     );
-    // Rebuilt the way the run loop does it (production-agent.ts, `stop` event),
-    // so the assertions below read the same fields production reads.
     const err = new EngineError(stop?.error ?? "Engine stream error", {
       errorCode: stop?.errorCode,
       statusCode: stop?.statusCode,
@@ -117,8 +112,6 @@ describe("a reasonless provider 403 is transient on every engine", () => {
     expect(isRetryableError(err)).toBe(true);
     expect(isTransientProviderRateLimitError(err)).toBe(true);
     expect(continuationReasonForResumableError(err)).toBe("rate_limited");
-    // The credential lane tells the reader to connect a provider they may not
-    // own, and fingerprints a key that is working.
     expect(isLlmCredentialError(err, stop?.errorCode)).toBe(false);
   });
 
@@ -132,8 +125,6 @@ describe("a reasonless provider 403 is transient on every engine", () => {
     expect(normalized.message).not.toMatch(/no body/i);
     expect(normalized.message).not.toMatch(/403/);
     expect(normalized.message).not.toBe(PROVIDER_CREDENTIAL_REJECTED_MESSAGE);
-    // The raw provider sentence stays available for debugging, just not as the
-    // thing the reader is asked to act on.
     expect(normalized.details).toBe("403 status code (no body)");
   });
 });
@@ -157,8 +148,6 @@ describe("a 403 that carries a reason stays a credential failure", () => {
   });
 
   it("honors an SDK that calls the 403 explicitly final", () => {
-    // `isRetryable: false` is the provider's own verdict and outranks the
-    // empty-body inference, so an opaque but final 403 keeps the credential lane.
     const classified = classifyProviderError(
       Object.assign(new Error("403 status code (no body)"), {
         statusCode: 403,
@@ -186,8 +175,6 @@ describe("every engine that tags http_<status> answers the bare 403", () => {
       .filter((file) => file.endsWith("-engine.ts"))
       .filter((file) => {
         const source = readFileSync(join(engineDir, file), "utf8");
-        // An engine that turns a provider status into `http_<status>` owns the
-        // 403 question, so it has to consult the shared predicate to answer it.
         return (
           source.includes("`http_${") &&
           !source.includes("isBareProviderRejectionMessage")

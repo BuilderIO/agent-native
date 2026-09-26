@@ -46,9 +46,7 @@ import { resolveAgentCapabilityAffordance } from "../protocol/index.js";
 export interface AgentKitRenderProps<T> {
   value: T;
   threadId: ThreadId;
-  /** True while this part belongs to the actively streaming run. */
   active?: boolean;
-  /** Stable key a renderer can use to reset state between streamed parts. */
   resetKey?: string;
 }
 
@@ -111,7 +109,6 @@ export interface AgentKitSlots {
   transcript?: ComponentType<AgentKitRegionRenderProps>;
   footer?: ComponentType<AgentKitRegionRenderProps>;
   message?: ComponentType<AgentKitRenderProps<AgentMessage>>;
-  /** Host-owned contextual UI rendered after message content and before actions. */
   messageSupplement?: ComponentType<AgentKitRenderProps<AgentMessage>>;
   messageActions?: ComponentType<AgentKitRenderProps<AgentMessage>>;
   text?: ComponentType<
@@ -300,14 +297,9 @@ export interface AgentKitProviderProps {
   labels?: Partial<AgentKitLabels>;
   onOpenObject?: (object: AgentObjectReference) => void;
   onThreadForked?: (thread: AgentThread) => void;
-  /**
-   * Resolves a provider identifier through host-owned connection setup. The
-   * callback, never the agent-authored request, owns OAuth URLs and scopes.
-   */
   onConnectionRequest?: (
     request: AgentConnectionRequest,
   ) => Promise<AgentConnectionResponse>;
-  /** Receives full renderer failures while the UI shows a safe fallback. */
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
@@ -437,7 +429,6 @@ export function AgentKitProvider({
   );
 }
 
-/** Coalesces same-turn transport bursts without dropping the latest snapshot. */
 function subscribeToAgentKitUpdate(
   controller: AgentKitController,
   listener: () => void,

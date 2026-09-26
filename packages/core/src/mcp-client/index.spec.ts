@@ -11,8 +11,6 @@ import {
 } from "./index.js";
 import { McpClientManager } from "./manager.js";
 
-// Reuse the stdio/client fakes from manager.spec.ts so the ActionEntry
-// wrapper can exercise a real McpClientManager end-to-end.
 
 const serverFixtures: Record<
   string,
@@ -100,7 +98,6 @@ describe("mcpToolsToActionEntries", () => {
       "mcp__x__pong",
     ]);
     for (const entry of Object.values(entries)) {
-      // MCP tools must never be auto-exposed as HTTP endpoints.
       expect(entry.http).toBe(false);
       expect(typeof entry.run).toBe("function");
       expect(typeof entry.planMode?.effect).toBe("function");

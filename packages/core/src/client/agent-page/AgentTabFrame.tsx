@@ -14,7 +14,6 @@ interface AgentTabFrameProps {
   compact?: boolean;
 }
 
-/** Shared settings surface for Manage agent page tabs. */
 export function AgentTabFrame({
   title,
   description,

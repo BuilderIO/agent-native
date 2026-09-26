@@ -46,7 +46,6 @@ import {
   AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS,
 } from "./scheduler-health.js";
 
-// ─── Frontmatter parsing ────────────────────────────────────────────────────
 
 export {
   classifyJobFrontmatter,
@@ -69,22 +68,10 @@ export function buildJobContent(meta: JobFrontmatter, body: string): string {
   return buildJobResourceContent(meta, body);
 }
 
-// ─── Job execution ──────────────────────────────────────────────────────────
 
 export type RecurringJobContext = BackgroundAutomationContext;
 
 export interface SchedulerDeps extends BackgroundAutomationDeps {
-  /**
-   * Tool names to expose on the FIRST engine request for a job run. When
-   * provided, every other action returned by `getActions()` is deferred
-   * behind an attached `tool-search` entry instead of being serialized on
-   * every scheduled tick — `runAgentLoop`'s mid-run tool expansion
-   * (`expandActiveTools`) still lets the model discover and call them after
-   * a search. Omit to keep the full `getActions()` set visible up front
-   * (current behavior). The caller (not this module) knows which of the
-   * merged actions are the app's own vs. framework additions, so this must
-   * be supplied explicitly rather than inferred here.
-   */
   getInitialToolNames?: (job?: RecurringJobContext) => string[] | undefined;
 }
 
@@ -94,9 +81,6 @@ const IDENTITY_FAILURE_RETRY_MS = 5 * 60_000;
 const _activeScheduledJobs = new Set<string>();
 const _preflightingScheduledJobs = new Set<string>();
 
-// Skip the DB query on every tick if we recently confirmed no jobs exist.
-// `_hasJobsCache` is invalidated whenever a `jobs/*` resource is written or
-// deleted (subscribed below), and refreshed at most every 5 minutes.
 let _hasJobsCache: boolean | undefined;
 let _lastJobsCheck = 0;
 const JOBS_CHECK_INTERVAL_MS = 5 * 60_000;
@@ -136,7 +120,6 @@ async function recordSchedulerHealthForScopes(input: {
 function subscribeToJobsResourceEvents(): void {
   if (_emitterSubscribed) return;
   _emitterSubscribed = true;
-  // Lazy import to avoid circular deps at module load
   import("../resources/emitter.js")
     .then(({ getResourcesEmitter }) => {
       getResourcesEmitter().on("resources", (event: any) => {
@@ -153,13 +136,6 @@ function subscribeToJobsResourceEvents(): void {
     });
 }
 
-/**
- * Process all due recurring jobs. Called every 60 seconds.
- *
- * Scans may overlap while a long-running job is executing. Each resource is
- * still protected by its persisted running state and a process-local key, so
- * one job cannot run twice while leaving other due jobs waiting behind it.
- */
 export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   const leaseOwner = await acquireAutomationSchedulerLease({
     appId: deps.appId,
@@ -212,10 +188,6 @@ async function processRecurringJobsWithLease(
 ): Promise<void> {
   subscribeToJobsResourceEvents();
 
-  // Upload receipts are framework-owned temporary state, so the same durable
-  // scheduler sweep that runs on serverless hosts also expires abandoned
-  // provider objects. The cleanup is internally throttled and never blocks
-  // recurring jobs when a provider or database is unavailable.
   try {
     const { runUploadReceiptCleanupOnce } =
       await import("../file-upload/actions/upload-image.js");
@@ -224,10 +196,7 @@ async function processRecurringJobsWithLease(
     console.error("[recurring-jobs] Upload receipt cleanup failed:", error);
   }
 
-  // Skip if we recently confirmed there are no job resources to run.
   const nowMs = Date.now();
-  // Write a global heartbeat before the resource scan. A slow or failed scan
-  // must not make a healthy worker look idle until the finally block runs.
   await recordSchedulerHealthForScopes({
     appId: deps.appId,
     orgIds: [],
@@ -268,15 +237,10 @@ async function processRecurringJobsWithLease(
     }> = [];
 
     for (const resource of jobResources) {
-      // Skip non-markdown or .keep files
       if (!resource.path.endsWith(".md")) continue;
       if (resource.path.endsWith(".keep")) continue;
 
       const { meta, body } = parseJobFrontmatter(resource.content);
-      // Jobs written before app ownership was persisted remain compatible with
-      // the shared scheduler. Once a job declares an owner, only that app may
-      // evaluate or execute it. Without this boundary every app's scheduled
-      // worker can claim the same organization resource.
       if (
         !jobBelongsToApp(meta, deps.appId) &&
         !isRecoveredFactoryJob(meta, resource.path, deps.appId, resource.owner)
@@ -289,25 +253,13 @@ async function processRecurringJobsWithLease(
           null,
       );
 
-      // A host-targeted run is reconciled from the durable relay command. It
-      // must never fall back to this scheduler after the laptop disconnects.
       if (meta.lastStatus === "running" && meta.executionHostId) {
         await reconcileRemoteJob(resource, meta, now);
         continue;
       }
 
-      // Every automation shares this running lock — scheduled, event-triggered,
-      // and manual-only alike. Manual and event automations have no
-      // `meta.schedule`, so they used to fall straight through the
-      // schedule-only skip below and never reach a stale-reset: a crashed or
-      // recycled worker left `lastStatus: running` forever, since nothing but
-      // a matching event or a manual retry past the timeout ever looked at
-      // them again. Sweep every resource here, before the schedule gate, so a
-      // stuck run heals on its own within one tick of the timeout regardless
-      // of automation type.
       if (meta.lastStatus === "running") {
         if (isBackgroundAutomationRunActive(meta, now)) continue;
-        // Stuck — reset so the automation (and its audit trail) is unblocked.
         meta.lastStatus = "error";
         meta.lastError =
           "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
@@ -318,38 +270,25 @@ async function processRecurringJobsWithLease(
             meta.timezone,
           ).toISOString();
         }
-        // A manual or event runner can claim this same stale snapshot first
-        // (its own conditional write moves the resource to a fresh
-        // `lastStatus: running`). Only touch the history row when THIS
-        // write actually won the CAS — otherwise `recoverStaleAutomationHistory`
-        // would look up the automation's latest run and mark the run that
-        // just started as errored instead of the one that was actually stuck.
         if (await updateResource(resource, meta, body)) {
           await recoverStaleAutomationHistory(resource.owner, resource.path);
         }
         continue;
       }
 
-      // Skip disabled or missing schedule
       if (!meta.enabled || !meta.schedule) continue;
       if (!isValidCron(meta.schedule)) continue;
 
-      // Check if due
       if (meta.nextRun) {
         const nextRunDate = new Date(meta.nextRun);
         if (nextRunDate > now) continue;
       } else {
-        // No nextRun computed yet — seed it from `now` so the job waits for its
-        // real next occurrence. Computing from new Date(0) (the epoch) always
-        // returns a 1970 date, which is < now, so the job would fire
-        // immediately on first sight regardless of its schedule.
         const next = nextOccurrence(meta.schedule, now, meta.timezone);
         meta.nextRun = next.toISOString();
         await updateResource(resource, meta, body);
         continue;
       }
 
-      // Skip if body is empty
       if (!body.trim()) continue;
 
       if (hasRecentIdentityFailure(meta, now)) continue;
@@ -381,9 +320,6 @@ async function processRecurringJobsWithLease(
       preflightCandidates.push(candidate);
     }
 
-    // Identity checks can reject stale jobs that remain due for admin review.
-    // Bound the checks so a large blocked backlog cannot consume the whole
-    // invocation or make valid jobs wait behind an unbounded stale queue.
     const dueJobs: typeof dueJobCandidates = [];
     for (const candidate of preflightCandidates) {
       _preflightingScheduledJobs.add(candidate.key);
@@ -438,17 +374,13 @@ async function processRecurringJobsWithLease(
       }
     }
   } catch (err) {
-    // Transient WS / connection drops (Neon serverless): silently retry next
-    // tick instead of spamming stderr — `retryOnConnectionError` already did
-    // its retry budget at the driver level.
     const { isConnectionError } = await import("../db/client.js");
     if (isConnectionError(err)) {
       healthError = "The scheduler could not reach the database.";
-      _hasJobsCache = undefined; // force re-check on next successful tick
+      _hasJobsCache = undefined;
       _lastJobsCheck = 0;
       return;
     }
-    // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause
     const detail =
       err instanceof Error
         ? err
@@ -456,8 +388,6 @@ async function processRecurringJobsWithLease(
     healthError = detail instanceof Error ? detail.message : String(detail);
     console.error("[recurring-jobs] Error processing jobs:", detail);
   } finally {
-    // A scan can fail after reserving a job but before dispatching it. Do not
-    // leave that reservation blocking the job on every subsequent tick.
     for (const key of reservedJobKeys) {
       if (!startedJobKeys.has(key)) _activeScheduledJobs.delete(key);
     }
@@ -529,8 +459,6 @@ async function recordIdentityFailure(
     `[recurring-jobs] Skipping job "${jobName}": ${reason}. ` +
       `User/membership no longer valid — leaving cron entry for admin review.`,
   );
-  // Keep blocked jobs due so an admin can find them, but do not let their
-  // persistent failure consume an execution slot on every scheduler sweep.
   const alreadyRecorded =
     meta.lastStatus === "skipped" && meta.lastError === reason;
   meta.lastCheck = now.toISOString();
@@ -648,11 +576,6 @@ async function executeJob(
   };
   const identity = await resolveBackgroundAutomationIdentity(jobContext);
 
-  // SECURITY (audit 12 #10): re-validate the run-as user/membership on
-  // every tick. Sharing revocation, user deletion, and org-member removal
-  // must take effect for already-scheduled jobs. Skip the tick on
-  // failure; leave the cron entry alone so an admin can purge after
-  // investigation.
   if (!identity.ok) {
     return recordIdentityFailure(
       resource,
@@ -666,9 +589,6 @@ async function executeJob(
   const jobUserEmail = identity.identity.userEmail;
   const jobOrgId = identity.identity.orgId;
 
-  // Manual runs use the same resource row as scheduled runs for concurrency
-  // protection. The check is paired with the conditional write below: two
-  // requests that read the same idle snapshot cannot both claim it.
   if (options.manual && isBackgroundAutomationRunActive(meta, now)) {
     const error = "The automation is already running.";
     if (options.historyId) {
@@ -681,7 +601,6 @@ async function executeJob(
     return { status: "skipped", error };
   }
 
-  // Mark as running
   meta.lastRun = now.toISOString();
   meta.lastStatus = "running";
   meta.lastError = undefined;
@@ -826,7 +745,6 @@ async function executeJob(
   }
 }
 
-/** Execute one stored automation without changing its scheduled next run. */
 export async function runJobNow(
   owner: string,
   name: string,
@@ -846,7 +764,6 @@ export async function runJobNow(
   });
 }
 
-/** Process a durable run-now history row exactly once in the background worker. */
 export async function runQueuedAutomation(
   historyId: string,
   deps: SchedulerDeps,
@@ -900,7 +817,6 @@ async function updateResource(
   return written !== null;
 }
 
-/** Execution bookkeeping the scheduler owns; the rest belongs to the editor. */
 type ExecutionOutcome = Pick<
   JobFrontmatter,
   | "lastRun"
@@ -914,31 +830,18 @@ type ExecutionOutcome = Pick<
   | "remoteAdvanceSchedule"
 > & { advanceSchedule?: boolean };
 
-/**
- * Persist the result of a run without clobbering a concurrent edit.
- *
- * A run holds its `meta` for as long as the job takes, so writing that whole
- * snapshot back on completion would silently revert a schedule, timezone or
- * instruction change made while it was running. Only the execution fields are
- * ours to write, and `nextRun` is recomputed from whatever schedule is stored
- * now, so an edit mid-run takes effect on the next tick.
- */
 async function recordExecutionOutcome(
   resource: Resource,
   outcome: ExecutionOutcome,
 ): Promise<void> {
   const latest = await resourceGetByPath(resource.owner, resource.path);
   if (!latest) {
-    // Deleted while it was running. Writing the pre-run snapshot back would
-    // resurrect the automation and schedule it again.
     console.log(
       `[recurring-jobs] "${resource.path}" was deleted mid-run; dropping its outcome.`,
     );
     return;
   }
   if (latest.id !== resource.id) {
-    // The old definition was deleted and a new one reused the same path.
-    // Never attach the old run's outcome to the replacement definition.
     console.log(
       `[recurring-jobs] "${resource.path}" was replaced mid-run; dropping its outcome.`,
     );
@@ -953,7 +856,6 @@ async function recordExecutionOutcome(
     meta.schedule &&
     isValidCron(meta.schedule)
   ) {
-    // Measured from completion so a long run cannot immediately re-fire.
     meta.nextRun = nextOccurrence(
       meta.schedule,
       new Date(),

@@ -785,7 +785,6 @@ const arSA = {
       s062: "افصل القالب، وقم بتوصيل بياناتك، وابدأ في إنشاء لوحات المعلومات.",
       s063: "اقرأ المستندات",
       s064: "عرض كافة القوالب",
-      // نسخة صفحة الهبوط V3 (2026-09-14) — من البطل إلى الدعوة النهائية أدناه.
       heroEyebrow: "Analytics",
       heroTitle: "اطرح سؤالاً. احصل على المخطط والاستعلام والسياق.",
       heroDescription:
@@ -985,7 +984,6 @@ const arSA = {
       },
       s001: "Assets لقطة شاشة للنموذج",
       imageCredits: "مصادر الصور",
-      // V3 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Assets",
       heroTitle: "قم بإنشاء صور خاصة بالعلامة التجارية في المحادثة",
       heroDescription:
@@ -1030,7 +1028,6 @@ const arSA = {
     },
     clips: {
       s001: "Clips لقطة شاشة للنموذج",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "تسجيلات شاشة يمكن لوكيل الذكاء الاصطناعي رؤيتها وسماعها",
       heroDescription:
@@ -1176,7 +1173,6 @@ const arSA = {
     },
     content: {
       s001: "Content لقطة شاشة للنموذج",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "أنشئ عملك ونظّمه مع وكيل الذكاء الاصطناعي الخاص بك",
       heroDescription:
@@ -1300,7 +1296,6 @@ const arSA = {
     },
     design: {
       s001: "Design لقطة شاشة للنموذج",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "صمّم نماذج أولية تفاعلية مع وكيل الذكاء الاصطناعي الخاص بك",
       heroDescription:
@@ -1673,7 +1668,6 @@ const arSA = {
           "نعم. يمكن لأحد الزملاء طلب مسودة تظهر في قائمة المراجعة الخاصة بك. افتحها، وعدّل الرسالة، وأرسلها عندما تكون جاهزة. لا يمكن لمُقدّم الطلب إرسالها نيابةً عنك؛ فمالك المسودة أو مسؤول المؤسسة هو من يتحكم في الإرسال.",
       },
       s001: "Mail لقطة شاشة للنموذج",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
       heroTitle: "أدر صندوق الوارد الخاص بك مع وكيل الذكاء الاصطناعي",
       heroDescription:
@@ -1840,7 +1834,6 @@ const arSA = {
     },
     slides: {
       s001: "Slides لقطة شاشة للنموذج",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "أنشئ عروضًا تقديمية مع وكيل الذكاء الاصطناعي الخاص بك",
       heroDescription:
@@ -2055,7 +2048,6 @@ const arSA = {
           "نعم. أنشئ نسخة باستخدام الـ CLI، وأضف إجراءاتك وبياناتك وواجهتك، ثم انشر تطبيقك. اضبط المصادقة والوصول إلى مزودي الخدمة لبيئتك، واختبر تدفقات العمل التي تضيفها قبل مشاركتها مع مستخدميك.",
       },
       s001: "لقطة شاشة لتطبيق Chat",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "ابنِ تطبيق الدردشة الخاص بك بالذكاء الاصطناعي",
       heroDescription:

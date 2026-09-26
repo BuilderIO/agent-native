@@ -3,11 +3,6 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { queryAuditEvents } from "../store.js";
 
-/**
- * List audit-log events the current user can see — their own actions plus the
- * agent's actions on their behalf, scoped in SQL to the caller's identity and
- * org. Read-only; never exposes other tenants' rows.
- */
 export default defineAction({
   description:
     "List audit-log events (who changed what, when, and whether it was you or the agent) for resources you can access. Supports filtering by target resource, actor (agent vs human), status, agent thread/turn, and time. Use this to answer 'what did the agent change', 'who edited this record', or 'show recent changes'.",

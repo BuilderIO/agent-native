@@ -54,9 +54,7 @@ export interface WorkspaceConnection {
   scopes: string[];
   config: Record<string, unknown>;
   allowedApps: string[];
-  /** Empty means every member of the owning workspace. */
   allowedUsers: string[];
-  /** Groups are unioned with allowedUsers; empty means no group restriction. */
   allowedUserGroups?: string[];
   credentialRefs: WorkspaceConnectionCredentialRef[];
   ownerEmail: string;
@@ -379,13 +377,7 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
         `;
 
       {
-        // PG-guard: probe information_schema / pg_indexes first (no lock) and
-        // only issue DDL when the table/column/index is actually missing,
-        // wrapped in a transaction-scoped lock_timeout so a contended lock
-        // fails fast. Uses unqualified table names for the probe (the helpers
-        // always search the `public` schema).
 
-        // --- workspace_connections ---
         await ensureTableExists("workspace_connections", createConnectionsSql);
         await ensureColumnExists(
           "workspace_connections",
@@ -486,7 +478,6 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_workspace_connections_updated_at ON ${table} (updated_at)`,
         );
 
-        // --- workspace_connection_grants ---
         await ensureTableExists("workspace_connection_grants", createGrantsSql);
         await ensureColumnExists(
           "workspace_connection_grants",

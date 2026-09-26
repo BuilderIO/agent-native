@@ -61,11 +61,6 @@ interface Extension {
 const EXTENSION_IFRAME_SANDBOX =
   normalizeAgentNativeExtensionSandbox(undefined);
 
-// Read the host app's *actual* computed theme values for the shared token set
-// (THEME_VAR_NAMES). The iframe ships with a generic baked palette
-// (getThemeVars); syncing the live values keeps embedded extensions visually
-// identical to the surrounding app even when a template overrides the default
-// palette (e.g. analytics uses a neutral-gray dark theme, not near-black).
 function readHostThemeVars(): Record<string, string> {
   if (typeof document === "undefined") return {};
   const computed = getComputedStyle(document.documentElement);
@@ -87,59 +82,26 @@ function serializeChatValue(value: unknown): string | undefined {
   }
 }
 
-/**
- * Slot contexts (e.g. Design's `DesignExtensionSlotContext`) commonly carry
- * live callback functions alongside plain data — the host component uses
- * those callbacks itself, but `window.postMessage` uses the structured clone
- * algorithm, which throws a `DataCloneError` on any function-valued property
- * (see MDN's postMessage docs). Round-tripping through JSON drops functions
- * (and other non-cloneable values like symbols) the same way
- * `JSON.stringify` already silently omits them, producing a payload that's
- * safe to post. Exported so a test can verify functions never reach the
- * iframe instead of only reading the code.
- */
 export function sanitizeSlotContextForPostMessage(
   context: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> {
   try {
     return JSON.parse(JSON.stringify(context ?? {}));
   } catch {
-    // Circular reference or other non-serializable shape — fail safe to an
-    // empty context rather than letting postMessage throw and skip every
-    // other message this handler sends in the same tick (theme update,
-    // ready signal).
     return {};
   }
 }
 
 export interface EmbeddedExtensionProps {
   extensionId: string;
-  /** Slot identifier passed via the iframe URL so the extension runtime knows it's
-   * embedded and enables auto-resize. */
   slotId: string;
-  /** Object pushed into the extension as `window.slotContext`. Re-posted whenever
-   * the host re-renders with a new context. */
   context?: Record<string, unknown> | null;
-  /** Optional className applied to the iframe container. */
   className?: string;
-  /** Initial iframe height before content reports a real height. */
   initialHeight?: number;
-  /** Fires once when the embedded iframe first signals content readiness — its
-   * first height report, or iframe load as a fallback. Hosts that gate on
-   * content paint (e.g. dashboard report screenshots) use this. */
   onReady?: () => void;
-  /** Fires when the extension can't be loaded for this viewer (e.g. 403/404 —
-   * the extension isn't shared with them or no longer exists). Hosts can use
-   * this to render an explanatory fallback instead of a blank panel. By default
-   * the component renders nothing on failure (slot-style silent skip). */
   onUnavailable?: (status?: number) => void;
 }
 
-/**
- * Renders a extension inline as a small auto-sized iframe — for use inside an
- * `<ExtensionSlot>`. Different from `<ExtensionViewer>` (which is full-page with a
- * toolbar): no header, sized to content, receives a `slotContext`.
- */
 export function EmbeddedExtension({
   extensionId,
   slotId,
@@ -150,8 +112,6 @@ export function EmbeddedExtension({
   onUnavailable,
 }: EmbeddedExtensionProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  // Latch the readiness signal so onReady fires at most once per iframe
-  // instance. Reset when the iframe is recreated (extensionId/updatedAt change).
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const readyFiredRef = useRef(false);
@@ -166,17 +126,10 @@ export function EmbeddedExtension({
       typeof document !== "undefined" &&
       document.documentElement.classList.contains("dark"),
   );
-  // (audit H4) Mirror ExtensionViewer's role-aware gating; deny-by-default until
-  // the iframe's render binding announcement arrives.
   const bridgeContextRef = useRef<BridgePolicyContext>({
     role: "viewer",
     isAuthor: false,
   });
-  // (audit H4) Latch the render binding once per iframe instance. The shell
-  // posts the server-resolved binding BEFORE user content runs; any later
-  // agent-native-extension-binding message is attacker-controllable (it
-  // originates inside the same sandboxed realm as user code) and must be
-  // ignored so a viewer cannot self-escalate to owner.
   const bindingLatchedRef = useRef(false);
   const extensionRef = useRef(null as null | Extension);
 
@@ -220,8 +173,6 @@ export function EmbeddedExtension({
   });
   extensionRef.current = extension ?? null;
 
-  // Notify the host once when the extension can't be loaded for this viewer so
-  // it can show a fallback instead of a blank panel.
   const onUnavailableRef = useRef(onUnavailable);
   onUnavailableRef.current = onUnavailable;
   const unavailableFiredRef = useRef(false);
@@ -235,9 +186,6 @@ export function EmbeddedExtension({
     }
   }, [isError, isFetching, error]);
 
-  // Initial dark state is baked into the URL on first load only; subsequent
-  // theme toggles update the iframe's <html class="dark"> via postMessage so
-  // the user's interaction state inside the extension survives the toggle.
   const initialDarkRef = useRef(isDark);
   const iframeSrc = useMemo(() => {
     const v = encodeURIComponent(extension?.updatedAt ?? "");
@@ -246,9 +194,6 @@ export function EmbeddedExtension({
     );
   }, [extensionId, slotId, extension?.updatedAt]);
 
-  // Reset role + binding latch to deny-by-default whenever the iframe is
-  // recreated (its key changes). The new render's first binding announcement
-  // re-establishes the role.
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
@@ -266,17 +211,10 @@ export function EmbeddedExtension({
     );
   }, [isDark, appearance]);
 
-  // Forward slot context whenever it changes. The iframe's own load handler
-  // posts the initial value once it's ready; this effect handles updates.
   const contextJson = JSON.stringify(context ?? {});
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
-    // Post the JSON-round-tripped context, not the raw `context` object —
-    // slot contexts (e.g. Design's DesignExtensionSlotContext) carry live
-    // callback functions the host uses internally, and postMessage's
-    // structured clone throws a DataCloneError on any function-valued
-    // property. See sanitizeSlotContextForPostMessage's docblock.
     win.postMessage(
       {
         type: "agent-native-slot-context",
@@ -286,7 +224,6 @@ export function EmbeddedExtension({
     );
   }, [contextJson]);
 
-  // Bridge extension requests + height reports.
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
@@ -294,9 +231,6 @@ export function EmbeddedExtension({
       if (!message || typeof message !== "object") return;
 
       if (message.type === "agent-native-extension-binding") {
-        // Only the FIRST announcement (sent by the shell before user content
-        // runs) is trusted. Ignore re-announcements — a malicious extension
-        // body could otherwise postMessage a forged owner binding to escalate.
         if (bindingLatchedRef.current) return;
         bindingLatchedRef.current = true;
         const binding = (message as any).binding ?? {};
@@ -324,7 +258,6 @@ export function EmbeddedExtension({
         const h = Number(message.height);
         if (Number.isFinite(h) && h > 0) {
           setHeight(Math.ceil(h));
-          // First laid-out height means the content has painted.
           fireReady();
         }
         return;
@@ -374,8 +307,6 @@ export function EmbeddedExtension({
           })
           .join("\n\n");
 
-        // Force a fresh read from the server, same as ExtensionViewer's fix
-        // flow — the query cache may hold the agent's previous (broken) turn.
         let freshContent: string | undefined;
         try {
           const res = await fetch(
@@ -446,9 +377,6 @@ export function EmbeddedExtension({
 
       try {
         const options = sanitizeExtensionRequestOptions(message.options);
-        // (audit H4) Role-aware gating: viewer-shared extensions can read but not
-        // write. The bridge policy is decided here in the parent before the
-        // request leaves; the server enforces a second layer.
         const policy = checkBridgePolicy(path, options.method ?? "GET", {
           ...bridgeContextRef.current,
           extensionId,
@@ -464,8 +392,6 @@ export function EmbeddedExtension({
           });
           return;
         }
-        // (audit H5) Same extension-bridge tagging as <ExtensionViewer>. action-routes
-        // uses these headers to enforce per-action `toolCallable` opt-in.
         const finalHeaders = new Headers(options.headers ?? undefined);
         finalHeaders.set("X-Agent-Native-Extension-Bridge", "1");
         finalHeaders.set("X-Agent-Native-Extension-Id", extensionId);
@@ -532,9 +458,6 @@ export function EmbeddedExtension({
             },
             "*",
           );
-          // Re-assert theme once the iframe document is live. The src bakes in
-          // the initial dark state, but this covers the race where isDark
-          // settled before the iframe's message listener existed.
           iframeRef.current?.contentWindow?.postMessage(
             {
               type: "agent-native-theme-update",
@@ -543,8 +466,6 @@ export function EmbeddedExtension({
             },
             "*",
           );
-          // Fallback readiness signal in case the extension never reports a
-          // height (e.g. fixed-height content that skips auto-resize).
           fireReady();
         }}
       />

@@ -1,14 +1,3 @@
-/**
- * Email transport for system emails (password resets, invitations, notifications).
- *
- * Providers are selected by scoped secrets:
- *   RESEND_API_KEY    — https://resend.com
- *   SENDGRID_API_KEY  — https://sendgrid.com
- *   EMAIL_FROM        — "Name <addr@domain>" (optional; defaults to Resend's sandbox)
- *
- * With neither provider configured, `sendEmail` logs the message to the console
- * so the reset-password flow still works end-to-end for local development.
- */
 
 import { getAppConfig } from "../app-config/index.js";
 import { FAVICON_PNG_BASE64 } from "../assets/branding/favicon-base64.js";
@@ -47,42 +36,19 @@ export interface SendEmailArgs {
   subject: string;
   html: string;
   text?: string;
-  /** Keep security-sensitive links out of provider click-tracking redirects. */
   disableClickTracking?: boolean;
-  /** Use deployment credentials for process-owned sends, not request-scoped overrides. */
   useDeploymentCredentials?: boolean;
   from?: string;
-  /**
-   * Display-name-only override. Keeps the configured (domain-verified) sending
-   * address and just changes the name shown to the recipient, e.g.
-   * "Alice via Clips". Ignored when `from` is set. Prefer this over `from` for
-   * per-user senders: putting a user's own address in `From` breaks SPF/DKIM.
-   */
   fromName?: string;
   cc?: string | string[];
   replyTo?: string;
-  /**
-   * Per-app branding for first-party agent-native.com deployments. Applied
-   * only when the configured EMAIL_FROM is already on agent-native.com, so a
-   * self-hosted deployment keeps its own verified sender and support mailbox
-   * instead of sending as an unverified address a provider would reject.
-   * An explicit `from` / `replyTo` always wins.
-   */
   appSender?: { name: string; slug: string; replyTo?: string };
   inReplyTo?: string;
   references?: string;
   attachments?: EmailAttachment[];
   timeoutMs?: number;
-  /**
-   * Registered transactional email id (see `defineTransactionalEmail`), e.g.
-   * `calendar.booking-confirmed`. Tags the message at the provider so delivery
-   * and open metrics attribute to one email instead of to the whole account,
-   * and keys the row written to `email_log`. Omit for genuinely one-off sends.
-   */
   templateId?: string;
-  /** App slug that owns the send. Defaults to the running app. */
   app?: string;
-  /** Organization that owns the send. Defaults to the current request org. */
   orgId?: string;
 }
 
@@ -213,8 +179,6 @@ function getFromAddress(
 }
 
 function defaultFromAddress(config: EmailTransportConfig): string {
-  // Resend lets unverified accounts send from its sandbox domain; SendGrid
-  // does not, so falling back there would cause silent 403s at runtime.
   if (config.provider === "sendgrid") {
     throw new Error(
       "EMAIL_FROM is required when using SendGrid — save it as a verified sender address.",
@@ -223,11 +187,6 @@ function defaultFromAddress(config: EmailTransportConfig): string {
   return "Agent-Native <onboarding@resend.dev>";
 }
 
-/**
- * Swap the display name while keeping the verified address. The name is
- * sanitized and quoted because it lands in a header: CR/LF would allow header
- * injection, and quotes/angle brackets would break address parsing.
- */
 function withDisplayName(from: string, name: string): string {
   const safe = name
     .replace(/[\r\n"<>\\]/g, " ")
@@ -240,12 +199,6 @@ function withDisplayName(from: string, name: string): string {
 
 const AGENT_NATIVE_SENDER_DOMAIN = "agent-native.com";
 
-/**
- * Resolve the per-app sender address, but only for deployments whose
- * configured sender is already on agent-native.com. Any other (or missing)
- * EMAIL_FROM means we cannot prove the branded address is a verified sender,
- * so the deployment's own configuration is left untouched.
- */
 let warnedAppSenderSuppressed = false;
 
 /**
@@ -291,11 +244,8 @@ function resolveAppSender(
 interface DeliveryOutcome {
   provider: EmailProvider;
   from: string;
-  /** Exact outbound JSON body sent to the provider, when one was built. */
   requestPayload?: string;
-  /** Raw HTTP status code from the provider, when a response was received. */
   responseStatus?: number;
-  /** Raw HTTP response body text from the provider, when a response was received. */
   responseBody?: string;
 }
 
@@ -358,10 +308,8 @@ function omittedBodyMarker(value: unknown): unknown {
 
 function redactPayloadForLog(payload: Record<string, unknown>): string {
   const loggable: Record<string, unknown> = { ...payload };
-  // Resend shape: top-level `html` / `text` fields.
   if ("html" in loggable) loggable.html = omittedBodyMarker(loggable.html);
   if ("text" in loggable) loggable.text = omittedBodyMarker(loggable.text);
-  // SendGrid shape: `content: [{ type, value }]`.
   if (Array.isArray(loggable.content)) {
     loggable.content = (loggable.content as Record<string, unknown>[]).map(
       (entry) => ({ ...entry, value: omittedBodyMarker(entry.value) }),
@@ -378,11 +326,6 @@ function redactPayloadForLog(payload: Record<string, unknown>): string {
   return truncateForLog(JSON.stringify(loggable));
 }
 
-/**
- * A response body that failed to read is not the same as a genuinely empty
- * one — collapsing both to "" would make a truncated/aborted read look like a
- * provider that legitimately returned nothing.
- */
 function unreadableResponseBody(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return `<response body unreadable: ${message}>`;
@@ -482,9 +425,6 @@ async function deliverEmail(
       ],
     };
     if (replyTo) sgPayload.reply_to = parseSendGridFrom(replyTo);
-    // Categories are how per-email delivery/open stats are attributed. Without
-    // them every send lands in one undifferentiated account-wide bucket, which
-    // is indistinguishable from an email that never sent.
     const orgId = args.orgId ?? getRequestOrgId();
     const categories = [
       args.templateId,
@@ -550,9 +490,6 @@ async function deliverEmail(
     };
   }
 
-  // Dev fallback — no provider configured. Logging the full body exposes
-  // reset tokens, so only do it outside production. In production, refuse
-  // to send rather than silently leaking secrets to logs.
   if (process.env.NODE_ENV === "production") {
     throw new Error(
       "No email provider configured. Save RESEND_API_KEY or SENDGRID_API_KEY in settings.",
@@ -567,10 +504,6 @@ async function deliverEmail(
   return { provider, from };
 }
 
-/**
- * Deliver, then record the attempt. Recording lives here rather than in each
- * provider branch so a new transport cannot be added without being logged.
- */
 async function sendEmailWithSignal(
   args: SendEmailArgs,
   signal?: AbortSignal,
@@ -590,10 +523,6 @@ async function sendEmailWithSignal(
   try {
     outcome = await deliverEmail(args, signal);
   } catch (error) {
-    // A response was received but the provider rejected it: the error carries
-    // the raw request/response so "provider said no" stays distinguishable
-    // from "we never reached the provider" (network failure, timeout,
-    // credential resolution failure), which sets none of these three fields.
     const providerError =
       error instanceof EmailProviderError ? error : undefined;
     await recordEmailSend({

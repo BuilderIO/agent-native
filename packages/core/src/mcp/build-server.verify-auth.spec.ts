@@ -1,8 +1,6 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Stub the heavy MCP SDK + builtin-tools so importing build-server.ts is cheap
-// — these specs only exercise verifyAuth's revoke-check addition.
 vi.mock("./builtin-tools.js", () => ({ getBuiltinCrossAppTools: () => ({}) }));
 
 const isJtiRevokedMock = vi.fn();
@@ -266,9 +264,6 @@ describe("verifyAuth — connect-token revoke check", () => {
 
   it("resolves an org SERVICE token to a synthetic service identity with orgId", async () => {
     isJtiRevokedMock.mockResolvedValue(false);
-    // Org service tokens (mintOrgServiceToken) carry the org id directly as
-    // an `org_id` claim — no org_domain mapping required — so ownable rows
-    // created by CI get the org scoping and org members can see them.
     const token = await sign({
       sub: "svc-ci@service.org_123",
       scope: "mcp-connect",
@@ -459,7 +454,6 @@ describe("verifyAuth — connect-token revoke check", () => {
       jti: "jti-x",
     });
     const res = await verifyAuth(`Bearer ${token}`);
-    // Signature already verified; a transient DB blip must not 401 everyone.
     expect(res.authed).toBe(true);
     expect(res.identity?.userEmail).toBe("a@example.com");
   });
@@ -480,12 +474,6 @@ describe("verifyAuth — connect-token revoke check", () => {
   });
 });
 
-// Bug #3: a connected real caller (connect-minted token / `mcp install` /
-// ACCESS_TOKEN / production) must get the FULL MCP tool surface even in local
-// dev — the documented external-agents contract. `verifyAuth` reports this via
-// `fullSurface`, which `createMCPServerForRequest` uses to swap in
-// `config.productionActions`. The pure unauthenticated dev-open path stays
-// sparse (`fullSurface: false`).
 describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => {
   beforeEach(() => {
     vi.clearAllMocks();

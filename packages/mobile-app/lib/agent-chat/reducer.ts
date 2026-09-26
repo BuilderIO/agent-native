@@ -1,9 +1,3 @@
-/**
- * Pure reducer that folds wire events into the visible turn state. One
- * assistant message accumulates per turn; text/reasoning deltas append to
- * parts (respecting partId groupings) and tool events update tool-call parts
- * in place. Ported from the web runtime's mapAgentNativeEvent projection.
- */
 
 import type {
   ChatContentPart,
@@ -18,12 +12,6 @@ export function nextLocalId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${idCounter}`;
 }
 
-/**
- * An expired session inside an already-accepted run arrives as a plain error
- * event, not an HTTP 401 — the request succeeded and the agent failed midway.
- * Without this the UI offers "Retry", which can never succeed, instead of
- * offering to sign in. Classify it here so the view never has to sniff strings.
- */
 function authErrorCode(error: string | undefined): string | null {
   if (!error) return null;
   return /\b(unauthorized|unauthenticated|session expired|not signed in)\b/i.test(
@@ -129,7 +117,6 @@ function stringifyResult(result: unknown): string | undefined {
   }
 }
 
-/** Close any tool calls left running when a turn errors out or completes. */
 function settleRunningTools(parts: ChatContentPart[]): ChatContentPart[] {
   return parts.map((part) =>
     part.type === "tool-call" && part.status === "running"
@@ -138,15 +125,10 @@ function settleRunningTools(parts: ChatContentPart[]): ChatContentPart[] {
   );
 }
 
-/**
- * User-initiated stop: leave partial text in place, mark still-running tools
- * as cancelled (not failed — no error styling), and end the streaming state.
- */
 export function cancelTurnState(
   state: ChatTurnState,
   assistantId: string,
 ): ChatTurnState {
-  // Don't create an empty assistant message when nothing streamed yet.
   const settled = lastAssistantMessage(state, assistantId)
     ? withUpdatedAssistant(state, assistantId, (parts) =>
         parts.map((part) =>
@@ -247,8 +229,6 @@ export function applyWireEvent(
     case "done":
     case "loop_limit":
     case "auto_continue":
-      // All three end the run server-side. Mobile does not auto-continue, so
-      // settle the stream rather than leaving the stop control spinning.
       return { ...state, isStreaming: false, activity: null };
     default:
       return state;

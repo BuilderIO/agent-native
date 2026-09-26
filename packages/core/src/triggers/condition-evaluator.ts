@@ -18,17 +18,9 @@ import { createHash } from "node:crypto";
 
 import { createTtlCache } from "../shared/ttl-cache.js";
 
-/**
- * Bumped whenever the prompt template, model, or hardening logic changes.
- * Included in the cache key so cached "yes" answers from a previous
- * (potentially weaker) prompt don't satisfy conditions in the new prompt.
- */
 const CONDITION_EVAL_VERSION = "v2";
 
-// Bounded TTL cache: hash → classifier result. Uses the shared primitive so
-// there is one implementation of "expire and cap an in-memory map" rather than
-// one per call site; see `shared/ttl-cache.ts` for which pattern to use where.
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_SIZE = 500;
 const _cache = createTtlCache<boolean>({
   ttlMs: CACHE_TTL_MS,
@@ -36,9 +28,6 @@ const _cache = createTtlCache<boolean>({
 });
 
 function cacheKey(condition: string, payload: unknown): string {
-  // Salt the cache key with the prompt version + a separate hash of the
-  // payload so two callers can't cross-pollute each other's cache via
-  // colliding JSON encodings, and a prompt change wipes the cache.
   let payloadHash: string;
   try {
     payloadHash = createHash("sha256")
@@ -52,14 +41,6 @@ function cacheKey(condition: string, payload: unknown): string {
   return createHash("sha256").update(raw).digest("hex").slice(0, 32);
 }
 
-/**
- * Evaluate whether a natural-language condition matches an event payload.
- * Returns true if the condition is empty/undefined (unconditional trigger).
- *
- * Throws when the classifier is unevaluable (network/HTTP/exception). Callers
- * must not treat that as a condition non-match, and failures are never cached
- * as `false` — a transient outage must not suppress the trigger for the TTL.
- */
 export async function evaluateCondition(
   condition: string | undefined,
   payload: unknown,
@@ -92,10 +73,6 @@ async function callHaikuClassifier(
     payloadStr = String(payload);
   }
 
-  // Defuse any "</event_payload>" tag in the payload itself so an attacker
-  // can't close the wrapper early and append their own instructions outside
-  // the tagged block. The escape is reversible-looking (still readable) but
-  // breaks the literal closing tag the model uses to bound the data.
   const safePayload = payloadStr.replace(/<\/event_payload>/gi, "</_payload>");
 
   const prompt = `You are a condition evaluator. Given an event payload and a natural-language condition, determine if the condition is satisfied.
@@ -170,7 +147,6 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
   return text.startsWith("yes");
 }
 
-/** Clear the condition cache (for testing). */
 export function __clearConditionCache(): void {
   _cache.clear();
 }

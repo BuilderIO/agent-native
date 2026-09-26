@@ -1,11 +1,3 @@
-/**
- * OAuth 2.1 client support for remote MCP servers.
- *
- * MCP servers advertise their OAuth endpoints through the standard protected
- * resource and authorization-server metadata documents. The SDK handles the
- * protocol details; this module owns the framework-specific encrypted storage
- * and refresh boundary.
- */
 
 import crypto from "node:crypto";
 
@@ -630,12 +622,6 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     state: McpOAuthDiscoveryState,
     clientMetadataUrl: string | undefined,
   ) => void;
-  /**
-   * Part of the SDK's provider contract, deliberately unset: this app hosts no
-   * client metadata document, so the SDK's SEP-991 path stays out of reach and
-   * every start still needs a registered client. Setting this must also make
-   * `assertRegisterableClient` stop refusing CIMD-only servers.
-   */
   readonly clientMetadataUrl?: string;
 
   constructor(options: McpOAuthProviderOptions) {
@@ -652,9 +638,6 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
       recordedIssuer &&
       this.savedCodeVerifier
     ) {
-      // A callback flow persists registration, discovery, PKCE, and state in
-      // one encrypted cookie. Binding that pre-v2 in-flight registration to
-      // its recorded issuer is safe; durable credentials are never inferred.
       this.clientInfo = { ...this.clientInfo, issuer: recordedIssuer };
     }
     this.metadata = {
@@ -798,10 +781,6 @@ export class McpOAuthRegistrationUnsupportedError extends Error {
   }
 }
 
-/**
- * Accept either an authorization-server URL or a URL to its discovery document.
- * The SDK needs the issuer, while the document may live at an arbitrary path.
- */
 export async function resolveMcpOAuthAuthorizationServerUrl(
   value: string,
 ): Promise<string> {
@@ -858,9 +837,6 @@ function assertRegisterableClient(
     | undefined;
   if (!metadata) return;
   if (metadata.registration_endpoint) return;
-  // The SDK takes its registration-free CIMD path only when the server
-  // advertises it AND the provider supplies a client metadata URL. The flag
-  // alone still falls through to dynamic registration.
   if (
     metadata.client_id_metadata_document_supported === true &&
     clientMetadataUrl
@@ -876,9 +852,6 @@ function assertRegisterableClient(
 export async function startMcpOAuthAuthorization(
   options: McpOAuthProviderOptions & {
     scope?: string;
-    // Override the protected-resource metadata URL for servers whose metadata
-    // is not at the RFC 9728 default path; the SDK still discovers the resource
-    // and authorization-server endpoints from it live.
     resourceMetadataUrl?: string;
   },
 ): Promise<McpOAuthStartResult> {
@@ -890,8 +863,6 @@ export async function startMcpOAuthAuthorization(
       googleScopes,
     );
   }
-  // A caller-supplied client never reaches registration, so only a start
-  // without one can be blocked by a missing registration path.
   if (!options.clientInformation && options.discoveryState) {
     assertRegisterableClient(options.discoveryState, undefined);
   }

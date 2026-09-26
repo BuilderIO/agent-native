@@ -1,13 +1,5 @@
 import type { DbAdminColumn } from "../../db-admin/types.js";
 
-/**
- * Type-aware cell formatting and parsing helpers for the DB admin grid.
- *
- * These are intentionally type-driven: they look at the column's `type`
- * string and normalize it into one of a small set of editor "kinds" that drive
- * which editor UI is rendered and how values are parsed back into the mutation
- * payload.
- */
 
 export type EditorKind =
   | "text"
@@ -18,7 +10,6 @@ export type EditorKind =
   | "enum"
   | "uuid";
 
-/** Sentinel meaning "store SQL NULL". */
 export const NULL_VALUE = null;
 
 const NUMBER_TYPES = [
@@ -46,14 +37,6 @@ function normalizeType(col: DbAdminColumn): string {
   return (col.type || "").toString().trim().toLowerCase();
 }
 
-/**
- * Try to pull allowed enum values out of a column definition.
- *
- * The base contract column shape (`DbAdminColumn`) only carries a `type`
- * string, but introspection may attach extra fields. We probe a
- * few likely shapes and also parse a Postgres-style inline list embedded
- * in the type string, e.g. `enum('a','b')`.
- */
 export function inferEnumValues(col: DbAdminColumn): string[] | null {
   const anyCol = col as unknown as Record<string, unknown>;
   const candidates = [anyCol.enumValues, anyCol.values, anyCol.options];
@@ -74,7 +57,6 @@ export function inferEnumValues(col: DbAdminColumn): string[] | null {
   return null;
 }
 
-/** Infer which editor UI a column should use. */
 export function inferEditorKind(col: DbAdminColumn): EditorKind {
   const type = normalizeType(col);
 
@@ -88,15 +70,10 @@ export function inferEditorKind(col: DbAdminColumn): EditorKind {
   return "text";
 }
 
-/** Whether a value is SQL NULL (vs empty string, 0, false, etc). */
 export function isNull(value: unknown): boolean {
   return value === null || value === undefined;
 }
 
-/**
- * Format a DB value for compact in-cell display. Returns a marker the cell uses
- * to render NULL distinctly; for plain string consumers the text is "NULL".
- */
 export function formatCellValue(
   value: unknown,
   kind: EditorKind,
@@ -117,7 +94,6 @@ export function formatCellValue(
   }
 }
 
-/** Compact single-line JSON for cell display. */
 export function formatJsonCompact(value: unknown): string {
   if (typeof value === "string") {
     try {
@@ -133,7 +109,6 @@ export function formatJsonCompact(value: unknown): string {
   }
 }
 
-/** Pretty multi-line JSON for the expanded editor. */
 export function formatJsonPretty(value: unknown): string {
   if (isNull(value)) return "";
   if (typeof value === "string") {
@@ -150,7 +125,6 @@ export function formatJsonPretty(value: unknown): string {
   }
 }
 
-/** Human-readable timestamp; tolerant of strings, numbers, and Dates. */
 export function formatTimestamp(value: unknown): string {
   if (isNull(value)) return "";
   const date =
@@ -167,7 +141,6 @@ export function formatTimestamp(value: unknown): string {
   );
 }
 
-/** Convert a DB value to the string an editor input should start with. */
 export function valueToEditString(value: unknown, kind: EditorKind): string {
   if (isNull(value)) return "";
   if (kind === "json") return formatJsonPretty(value);
@@ -178,12 +151,6 @@ export function valueToEditString(value: unknown, kind: EditorKind): string {
 
 export class ParseError extends Error {}
 
-/**
- * Parse an edited string back into the JS value sent in the mutation payload.
- *
- * `allowEmptyString` distinguishes "" → empty string from "" → NULL. For most
- * types empty means NULL; for text the editor decides.
- */
 export function parseEditValue(
   raw: string,
   kind: EditorKind,
@@ -212,7 +179,6 @@ export function parseEditValue(
       throw new ParseError(`"${raw}" is not a valid boolean`);
     }
     case "json": {
-      // Accept ANY valid JSON value, including scalars.
       try {
         return JSON.parse(trimmed);
       } catch (err) {
@@ -226,12 +192,10 @@ export function parseEditValue(
     case "enum":
     case "text":
     default:
-      // Preserve intentional spaces for text; trim structured types.
       return kind === "text" ? raw : trimmed;
   }
 }
 
-/** Cycle a tri-state boolean: null → true → false → null. */
 export function cycleTriStateBoolean(value: unknown): boolean | null {
   if (value === null || value === undefined) return true;
   if (value === true) return false;

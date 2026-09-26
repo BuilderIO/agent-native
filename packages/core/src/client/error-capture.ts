@@ -1,38 +1,11 @@
-/**
- * First-party, Sentry-style browser error capture for the Agent-Native
- * analytics SDK.
- *
- * Two responsibilities:
- *  1. Automatic capture of uncaught exceptions (`window.onerror`) and
- *     unhandled promise rejections (`unhandledrejection`).
- *  2. A documented manual API — `captureException(error, context?)` and
- *     `captureMessage(message, level?)` — mirroring Sentry's ergonomics.
- *
- * Captured exceptions are handed to a `send` callback (wired by
- * `configureTracking` to the first-party analytics `/track` ingest as a
- * dedicated `$exception` event) and are tagged with the current analytics
- * session id + session replay id so each error links back to the recording it
- * happened in. Everything here is defensive: capture must never throw back into
- * the host app, so every path is wrapped and failures are swallowed.
- *
- * Stack parsing and fingerprinting are intentionally done authoritatively on
- * the server (see the analytics template's `server/lib/error-capture.ts`); the
- * client sends a compact, bounded payload (type/message/raw stack/context) and
- * the server normalizes + groups it. That keeps one tested source of truth for
- * grouping instead of duplicating parser logic across the wire.
- */
 import { isDynamicImportFailureMessage } from "./route-chunk-recovery.js";
 import { scrubUrl } from "./url-scrub.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
 
-/** Extra Sentry-style context accepted by `captureException`. */
 export interface CaptureExceptionContext {
-  /** Low-cardinality searchable tags. Values are coerced to strings. */
   tags?: Record<string, string | number | boolean | null | undefined>;
-  /** Structured, higher-cardinality detail shown on the event. */
   extra?: Record<string, unknown>;
-  /** Severity; defaults to "error". */
   level?: ExceptionLevel;
 }
 
@@ -43,26 +16,17 @@ export interface ExceptionBreadcrumb {
   level?: ExceptionLevel;
 }
 
-/**
- * Compact exception payload emitted to transport. Field names are the wire
- * contract the analytics server ingest reads — keep them stable.
- */
 export interface CapturedExceptionEvent {
-  /** Error class/name, e.g. "TypeError". "Message" for `captureMessage`. */
   type: string;
   message: string;
-  /** Raw (bounded, redacted) stack string; server parses it into frames. */
   stack?: string;
-  /** False for uncaught/global errors, true for manually handled ones. */
   handled: boolean;
   level: ExceptionLevel;
-  /** ISO timestamp of the occurrence. */
   occurredAt: string;
   url?: string;
   release?: string;
   environment?: string;
   sessionId?: string;
-  /** Client session replay id (localStorage) for replay linkage. */
   sessionReplayId?: string;
   anonymousId?: string;
   breadcrumbs: ExceptionBreadcrumb[];
@@ -71,29 +35,18 @@ export interface CapturedExceptionEvent {
 }
 
 export interface InstallErrorCaptureOptions {
-  /** Transport for a captured exception. Must not throw. */
   send: (event: CapturedExceptionEvent) => void;
-  /** Resolve current analytics/session-replay identifiers at capture time. */
   getSessionContext?: () => {
     sessionId?: string;
     anonymousId?: string;
     replayId?: string;
   };
-  /**
-   * Optional hook to also surface a manual capture on the session replay
-   * timeline. Only invoked for manual `captureException`/`captureMessage`;
-   * auto-captured global errors are already recorded by the replay recorder.
-   */
   emitReplayEvent?: (event: CapturedExceptionEvent) => void;
   release?: string;
   environment?: string;
-  /** Auto-capture `window.onerror`. Defaults to true. */
   captureGlobalErrors?: boolean;
-  /** Auto-capture `unhandledrejection`. Defaults to true. */
   captureUnhandledRejections?: boolean;
-  /** Breadcrumb ring buffer size. Defaults to 20. */
   maxBreadcrumbs?: number;
-  /** Dedupe window (ms) for identical signatures. Defaults to 3000. */
   dedupeWindowMs?: number;
 }
 
@@ -132,7 +85,6 @@ const MAX_EXTRA_STRING_LENGTH = 2000;
 
 const ERROR_CAPTURE_STATE_KEY = Symbol.for("agent-native.client.errorCapture");
 
-// Reuse the same credential-looking redaction the replay capture uses so a
 // stack/message that echoes a token never leaves the browser in the clear.
 const SECRET_KEY_FRAGMENT =
   "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
@@ -188,7 +140,6 @@ function currentUrl(): string | undefined {
   }
 }
 
-/** Normalize any thrown value into a stable `{ type, message, stack }`. */
 export function normalizeCapturedError(error: unknown): {
   type: string;
   message: string;
@@ -313,7 +264,6 @@ function firstStackLine(stack: string | undefined): string {
   );
 }
 
-/** Cheap client-side signature used only for local dedupe. */
 function signatureOf(type: string, message: string, stack?: string): string {
   return `${type}|${message}|${firstStackLine(stack)}`;
 }
@@ -356,9 +306,6 @@ function shouldIgnoreAutoCapturedError(normalized: {
     return true;
   }
 
-  // Route-chunk recovery reloads the current page after stale lazy chunks or
-  // module scripts fail. Browser-level failures have no useful stack, so do
-  // not retain the transient loader noise as an application issue.
   if (!stack && isDynamicImportFailureMessage(message)) {
     return true;
   }
@@ -397,7 +344,6 @@ function shouldDedupe(
 ): boolean {
   const now = Date.now();
   const windowMs = runtime.config.dedupeWindowMs;
-  // Opportunistic cleanup so the map can't grow without bound.
   if (runtime.recentSignatures.size > 200) {
     for (const [key, ts] of runtime.recentSignatures) {
       if (now - ts > windowMs) runtime.recentSignatures.delete(key);
@@ -408,7 +354,6 @@ function shouldDedupe(
   return last !== undefined && now - last < windowMs;
 }
 
-/** Append a privacy-safe breadcrumb to the bounded ring buffer. */
 export function addErrorBreadcrumb(breadcrumb: {
   category: string;
   message: string;
@@ -464,7 +409,6 @@ function installNavigationBreadcrumbs(runtime: ErrorCaptureRuntime): void {
       return result;
     };
     window.addEventListener("popstate", () => record("popstate"));
-    // Seed the trail with the initial location.
     record("load");
   } catch {
     // navigation breadcrumbs are best-effort
@@ -528,8 +472,6 @@ function dispatch(
       // replay timeline emission is best-effort
     }
   }
-  // Record the exception itself as a breadcrumb so a following error carries
-  // the prior failure in its trail.
   addErrorBreadcrumb({
     category: "exception",
     message: `${event.type}: ${event.message}`,
@@ -537,11 +479,6 @@ function dispatch(
   });
 }
 
-/**
- * Capture a handled exception. Mirrors Sentry's `captureException(err, ctx)`.
- * Safe to call before `configureTracking` has run — it simply no-ops if no
- * transport is installed yet.
- */
 export function captureException(
   error: unknown,
   context: CaptureExceptionContext = {},
@@ -561,10 +498,6 @@ export function captureException(
   }
 }
 
-/**
- * Capture a message string as an exception-like event. Mirrors Sentry's
- * `captureMessage(message, level?)`.
- */
 export function captureMessage(
   message: string,
   level: ExceptionLevel = "info",
@@ -582,11 +515,6 @@ export function captureMessage(
   }
 }
 
-/**
- * Install auto-capture + wire the transport. Idempotent: re-invoking updates
- * the config (and (re)installs global handlers) without duplicating listeners.
- * Returns a disposer that removes the global handlers.
- */
 export function installErrorCapture(
   options: InstallErrorCaptureOptions,
 ): () => void {
@@ -604,8 +532,6 @@ export function installErrorCapture(
 
   installNavigationBreadcrumbs(runtime);
 
-  // Tear down any previously-installed handlers before reinstalling so a second
-  // configureTracking call doesn't double-report.
   runtime.removeHandlers?.();
   runtime.removeHandlers = null;
 
@@ -614,14 +540,9 @@ export function installErrorCapture(
   if (runtime.config.captureGlobalErrors) {
     const onError = (event: ErrorEvent) => {
       try {
-        // Route-chunk recovery and other host listeners may intentionally
-        // prevent a browser error after handling it. Respect that decision so
-        // the same transient failure is not stored as an application issue.
         if (event.defaultPrevented) return;
         const normalized = normalizeGlobalErrorEvent(event);
         if (shouldIgnoreAutoCapturedError(normalized)) return;
-        // Global errors are already logged by the session replay recorder, so
-        // don't re-emit them onto the replay timeline (avoid double-counting).
         dispatch(
           runtime,
           buildEvent(runtime, normalized, {

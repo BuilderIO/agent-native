@@ -37,7 +37,6 @@ type BuilderLaunchTrigger = ReactElement<{
   target?: string;
 }>;
 
-// Flip this when Builder's hosted agent-native app flow is ready for launch.
 export const BUILDER_BUILD_ONLINE_SUPPORTED = false;
 export const BUILDER_SIGNUP_URL = "https://builder.io/signup";
 
@@ -249,8 +248,6 @@ export function BuildOnlinePopover({
   onOpen,
 }: {
   location: BuilderWaitlistLocation;
-  // Redesign surfaces style their buttons from the --b-* token system; the
-  // default trigger below belongs to the older docs button vocabulary.
   trigger?: BuilderLaunchTrigger;
   onOpen?: () => void;
 }) {

@@ -86,23 +86,18 @@ import {
 } from "./DesignFitnessArtboards";
 
 const RAIL_WIDTH = 64;
-/** The real `leftSidebarWidth` minimum. Below the 280px default to buy canvas. */
 const LEFT_PANEL_WIDTH = 220;
 const INSPECTOR_WIDTH = 240;
 
 const FRAME_LABEL_HEIGHT = 28;
-/** The real BREAKPOINT_FRAME_GAP, not the wider gap between separate screens. */
 const BREAKPOINT_FRAME_GAP = 24;
 
-/** Zoom applied to the whole window below 860px, where 1180px cannot fit. */
 const NARROW_SCALE = 0.52;
 
 const DESKTOP_FRAME_WIDTH = Math.round(DESKTOP_ARTBOARD_WIDTH * BOARD_SCALE);
 const MOBILE_FRAME_WIDTH = Math.round(MOBILE_ARTBOARD_WIDTH * BOARD_SCALE);
 const MOBILE_FRAME_X = DESKTOP_FRAME_WIDTH + BREAKPOINT_FRAME_GAP;
 
-// Only the three panels the default feature-flag state actually renders. The
-// rest (Assets, Tools, Tokens, Code) sit behind flags that are off.
 const RAIL_ITEMS = [
   { label: "File", icon: IconFile, active: true },
   { label: "Agent", icon: IconMessage },
@@ -133,9 +128,7 @@ type LayerRow = {
   label: string;
   depth: number;
   glyph: LayerGlyph;
-  /** Omitted for leaves, which still reserve the caret slot. */
   disclosure?: "expanded" | "collapsed";
-  /** Component instances take the purple selection family, not the blue one. */
   component?: boolean;
   selected?: boolean;
 };
@@ -232,11 +225,6 @@ const LAYER_ROWS: LayerRow[] = [
   },
 ];
 
-/**
- * The pen tool has no Tabler equivalent, so the editor ships its own glyph.
- * Copied from templates/design's `DesignPenToolIcon` rather than approximated
- * with a bezier icon.
- */
 function PenToolIcon({ size }: { size: number }) {
   return (
     <svg
@@ -258,8 +246,6 @@ function PenToolIcon({ size }: { size: number }) {
   );
 }
 
-// Mirrors the real toolbar: only the four tools with more than one sub-tool
-// get a chevron, and text is IconTextSize (the editor's `IconText` alias).
 const TOOLBAR_TOOLS = [
   { icon: IconPointer, active: true, hasSubTools: true },
   { icon: IconFrame, hasSubTools: true },
@@ -372,11 +358,6 @@ function FilePanel() {
   );
 }
 
-/* ---------------------------------------------------------------------------
- * Inspector primitives. Sizes come from the editor's sidebar tokens: 24px
- * control height, 11px/16px control text, 10px/12px labels, 8px section
- * padding with an 8px row gap and a 4px control gap.
- * ------------------------------------------------------------------------- */
 
 function NumField({
   label,
@@ -412,7 +393,6 @@ function SegmentedIcons({
     <span className="dm-seg-group">
       {icons.map((Icon, index) => (
         <span
-          // Icon identity is the only distinguishing value in this static list.
           key={index}
           className={
             index === activeIndex ? "dm-seg-btn is-active" : "dm-seg-btn"
@@ -688,7 +668,6 @@ function BottomToolbar() {
       <span className="dm-tool-group">
         {TOOLBAR_TOOLS.map(({ icon: Icon, active, hasSubTools }, index) => (
           <span
-            // Icon identity is the only distinguishing value in this static list.
             key={index}
             className="dm-tool-slot"
           >
@@ -756,52 +735,26 @@ function Canvas() {
 }
 
 const DESIGN_MOCK_CSS = [
-  // Shell. The hero container sets the height; the window fills the padded box.
   ".design-mock { position: relative; width: 100%; padding: 0 40px 28px; overflow: hidden; }",
   ".design-mock, .design-mock * { box-sizing: border-box; }",
   ".design-mock-frame { position: relative; height: 100%; }",
 
-  // Palette, mirroring templates/design/app/global.css. Dark by default; the
-  // `html.light` block below swaps the whole mock when the docs shell is light.
-  //
-  // `--dm-selection` is the exception: it carries the Builder brand blue
-  // (--b-action-primary-bg from website-redesign/tokens.css) and is the same
-  // bright value in both themes rather than darkening for light mode. It marks
-  // what the editor has selected — the outline, handles, and dimension badge —
-  // which has to stay legible against the design's own colours, and those do
-  // not change with the docs theme. The value is copied rather than referenced
-  // because tokens.css is scoped under `.builder-brand-tokens`, which root.tsx
-  // deliberately keeps off <body> — a `var(--b-*)` here would resolve to
-  // nothing.
-  //
-  // Everything else in the chrome is neutral on purpose. `--dm-chip-*` is the
-  // filled-control pair (Share, active tool); an accent fill on those made the
-  // chrome compete with the canvas for attention.
   ".design-mock { --dm-panel-bg: hsl(0 0% 13%); --dm-chrome-bg: hsl(0 0% 10%); --dm-dot: hsl(0 0% 30%); --dm-panel-raised: hsl(0 0% 18%); --dm-divider: hsl(0 0% 22%); --dm-border: hsl(0 0% 24%); --dm-canvas-bg: hsl(0 0% 10%); --dm-fg: hsl(0 0% 90%); --dm-fg-muted: hsl(0 0% 60%); --dm-control-bg: hsl(0 0% 18%); --dm-active-row: hsl(0 0% 20%); --dm-selection: #01c8f1; --dm-selection-contrast: #0a0a0a; --dm-chip-bg: hsl(0 0% 88%); --dm-chip-fg: hsl(0 0% 12%); --dm-component: hsl(263 88% 74%); --dm-component-selection: rgba(167, 116, 250, 0.28); --dm-avatar-border: hsl(0 0% 13%); --dm-avatar-fg: hsl(0 0% 82%); --dm-avatar-bg-1: hsl(0 0% 40%); --dm-avatar-bg-2: hsl(0 0% 32%); --dm-avatar-bg-3: hsl(0 0% 25%); }",
 
-  // Window. Column, so the title bar spans the panels the way real window
-  // chrome does; the body below it is the horizontal rail/panel/canvas split.
   ".design-mock .dm-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; border: 1px solid var(--dm-divider); background: var(--dm-panel-bg); color: var(--dm-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
   ".design-mock .dm-window-topbar { display: flex; flex-shrink: 0; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--dm-divider); background: var(--dm-chrome-bg); }",
   ".design-mock .dm-window-topbar span { width: 11px; height: 11px; border-radius: 999px; background: var(--dm-dot); }",
   ".design-mock .dm-window-body { display: flex; flex: 1; min-height: 0; }",
 
-  // Left icon rail — 64px, 48px buttons with a label under the glyph.
   `.design-mock .dm-rail { display: flex; width: ${RAIL_WIDTH}px; flex-shrink: 0; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; border-right: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }`,
   ".design-mock .dm-rail-project { display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; color: var(--dm-fg); }",
   ".design-mock .dm-rail-project-mark { width: 24px; height: auto; }",
   ".design-mock .dm-rail-divider { width: 32px; height: 1px; background: var(--dm-border); }",
   ".design-mock .dm-rail-item { display: flex; width: 48px; height: 48px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-radius: 8px; color: var(--dm-fg-muted); }",
-  // The editor tints this blue (selection bg + accent icon). Kept neutral here
-  // so the hero's only blue is the actual selection on the canvas.
   ".design-mock .dm-rail-item.is-active { background: var(--dm-active-row); color: var(--dm-fg); }",
   ".design-mock .dm-rail-icon { display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; }",
-  // 14px, not `1`: the ellipsis needs `overflow: hidden`, which crops whatever
-  // sits outside the content box, and at line-height 1 that includes the
-  // descender on `Agent`.
   ".design-mock .dm-rail-label { max-width: 100%; overflow: hidden; padding: 0 4px; font-size: 11px; font-weight: 450; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }",
 
-  // File panel — Screens above, Layers filling the rest.
   `.design-mock .dm-panel { display: flex; width: ${LEFT_PANEL_WIDTH}px; flex-shrink: 0; flex-direction: column; border-right: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }`,
   ".design-mock .dm-screens { flex-shrink: 0; padding-bottom: 8px; border-bottom: 1px solid var(--dm-border); }",
   ".design-mock .dm-layers { display: flex; flex: 1; min-height: 0; flex-direction: column; }",
@@ -815,8 +768,6 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
   ".design-mock .dm-row-divider { margin: 8px 12px; border-top: 1px solid var(--dm-border); }",
 
-  // Layer tree. Indentation is real 16px slots, so the deepest rows truncate
-  // their label exactly the way the real panel does at this width.
   ".design-mock .dm-layer-tree { flex: 1; min-height: 0; overflow: hidden; padding: 8px; }",
   ".design-mock .dm-layer { display: flex; height: 32px; align-items: center; gap: 8px; padding-right: 4px; border-radius: 5px; color: var(--dm-fg); }",
   ".design-mock .dm-layer.is-selected { background: var(--dm-component-selection); }",
@@ -828,12 +779,9 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-layer-glyph { flex-shrink: 0; color: var(--dm-fg-muted); }",
   ".design-mock .dm-layer-label { min-width: 0; overflow: hidden; font-size: 12px; font-weight: 400; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }",
 
-  // Canvas
   ".design-mock .dm-canvas { position: relative; flex: 1; min-width: 0; overflow: hidden; background: var(--dm-canvas-bg); }",
   `.design-mock .dm-board { position: absolute; left: 16px; top: 24px; width: ${MOBILE_FRAME_X + MOBILE_FRAME_WIDTH}px; }`,
 
-  // Screen frames. Square corners are intentional: the real editor avoids a
-  // card radius because it would read as a document corner radius.
   ".design-mock .dm-frame { position: absolute; top: 0; }",
   `.design-mock .dm-frame-desktop { left: 0; width: ${DESKTOP_FRAME_WIDTH}px; }`,
   `.design-mock .dm-frame-mobile { left: ${MOBILE_FRAME_X}px; width: ${MOBILE_FRAME_WIDTH}px; }`,
@@ -849,33 +797,21 @@ const DESIGN_MOCK_CSS = [
   `.design-mock .dm-artboard-desktop { width: ${DESKTOP_ARTBOARD_WIDTH}px; min-height: ${ARTBOARD_MIN_HEIGHT}px; }`,
   `.design-mock .dm-artboard-mobile { width: ${MOBILE_ARTBOARD_WIDTH}px; min-height: ${ARTBOARD_MIN_HEIGHT}px; }`,
 
-  // Right inspector — 240px. Overflow is hidden so the tail of the property
-  // list crops mid-section, the way a real scrolled panel reads.
   `.design-mock .dm-inspector { display: flex; width: ${INSPECTOR_WIDTH}px; flex-shrink: 0; flex-direction: column; overflow: hidden; border-left: 1px solid var(--dm-divider); background: var(--dm-panel-bg); }`,
   ".design-mock .dm-inspector-toprow { display: flex; height: 40px; flex-shrink: 0; align-items: center; gap: 6px; padding: 0 8px; }",
   ".design-mock .dm-collaborators { display: flex; height: 32px; align-items: center; padding-right: 4px; }",
-  // Three steps of one neutral rather than per-user hues: presence is ambient
-  // information here, and coloured discs pull the eye off the canvas.
   ".design-mock .dm-avatar { display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 1px solid var(--dm-avatar-border); border-radius: 999px; color: var(--dm-avatar-fg); font-size: 10px; font-weight: 600; }",
   ".design-mock .dm-avatar + .dm-avatar { margin-left: -8px; }",
   ".design-mock .dm-avatar-1 { background: var(--dm-avatar-bg-1); }",
   ".design-mock .dm-avatar-2 { background: var(--dm-avatar-bg-2); }",
   ".design-mock .dm-avatar-3 { background: var(--dm-avatar-bg-3); }",
   ".design-mock .dm-preview-btn { display: flex; height: 32px; align-items: center; gap: 2px; margin-left: auto; padding: 0 8px; border-radius: 6px; color: var(--dm-fg); }",
-  // 28px to match the avatar row beside it. It reads taller than its
-  // neighbours at 32 because it is the only filled control up here, so the box
-  // is the whole silhouette; the ghost preview button gets away with more.
-  //
-  // Neutral rather than the brand accent: it is the only filled control in the
-  // chrome, so an accent fill made it the loudest thing on the page and pulled
-  // focus off the canvas. The accent stays on the selection and active tool.
   ".design-mock .dm-share-btn { display: flex; height: 28px; align-items: center; padding: 0 10px; border-radius: 6px; background: var(--dm-chip-bg); color: var(--dm-chip-fg); font-size: 12px; font-weight: 600; }",
   ".design-mock .dm-segmented { display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: var(--dm-control-bg); }",
   ".design-mock .dm-segment { display: flex; height: 24px; align-items: center; gap: 4px; padding: 0 6px; border-radius: 5px; color: var(--dm-fg-muted); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }",
   ".design-mock .dm-segment.is-active { background: var(--dm-panel-bg); color: var(--dm-fg); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }",
   ".design-mock .dm-zoom { display: flex; height: 24px; align-items: center; gap: 2px; margin-left: auto; padding: 0 4px; color: var(--dm-fg-muted); font-size: 10px; font-variant-numeric: tabular-nums; }",
 
-  // Inspector tabs. The real control is a pill row, not an underline.
   ".design-mock .dm-tabs { display: flex; height: 32px; flex-shrink: 0; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--dm-border); }",
   ".design-mock .dm-tab { display: flex; height: 24px; align-items: center; padding: 0 8px; border-radius: 6px; color: var(--dm-fg-muted); font-size: 11px; font-weight: 600; }",
   ".design-mock .dm-tab.is-active { background: var(--dm-panel-raised); color: var(--dm-fg); }",
@@ -889,8 +825,6 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-state-value { font-size: 11px; font-weight: 600; }",
   ".design-mock .dm-state-chevron { flex-shrink: 0; opacity: 0.7; }",
 
-  // Property sections. The top shadow is the divider, matching
-  // `.design-sidebar-section` in the editor stylesheet.
   ".design-mock .dm-section { flex-shrink: 0; box-shadow: inset 0 1px var(--dm-border); }",
   ".design-mock .dm-section-bar { display: flex; height: 32px; align-items: center; gap: 4px; padding: 0 8px; }",
   ".design-mock .dm-section-chevron { flex-shrink: 0; color: var(--dm-fg-muted); }",
@@ -900,9 +834,6 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-prop { display: flex; min-width: 0; flex-direction: column; gap: 4px; }",
   ".design-mock .dm-prop-label { color: var(--dm-fg-muted); font-size: 10px; font-weight: 400; line-height: 12px; }",
   ".design-mock .dm-prop-row { display: flex; min-width: 0; align-items: center; gap: 4px; }",
-  // The editor's `label-action-rows` layout: two equal field columns and a
-  // fixed 32px action rail. At the 240px panel width that resolves to the
-  // authored 88/8/88/8/32 spans of its 28-column, 8px grid.
   ".design-mock .dm-appearance-grid { display: grid; min-width: 0; grid-template-columns: 1fr 1fr 32px; align-items: center; column-gap: 8px; row-gap: 4px; }",
   ".design-mock .dm-appearance-grid .dm-icon-action { margin-left: auto; }",
 
@@ -926,9 +857,6 @@ const DESIGN_MOCK_CSS = [
   ".design-mock .dm-paint-opacity { flex-shrink: 0; color: var(--dm-fg-muted); font-size: 11px; font-variant-numeric: tabular-nums; }",
   ".design-mock .dm-effects { display: flex; flex-direction: column; gap: 6px; }",
 
-  // Floating bottom toolbar. The real editor pins this dark in both themes;
-  // here it follows the docs theme (see the `html.light` override below) so it
-  // does not sit as a heavy dark slab on the light landing page.
   ".design-mock .dm-toolbar { position: absolute; bottom: 16px; left: 50%; z-index: 3; display: flex; max-width: calc(100% - 32px); transform: translateX(-50%); align-items: center; gap: 6px; overflow: hidden; padding: 6px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; background: rgba(44, 44, 44, 0.95); color: #f5f5f5; box-shadow: 0 22px 55px -24px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }",
   ".design-mock .dm-tool-group { display: flex; min-width: 0; flex-shrink: 0; align-items: center; gap: 2px; }",
   ".design-mock .dm-tool-slot { display: flex; height: 32px; flex-shrink: 0; align-items: center; }",
@@ -942,41 +870,18 @@ const DESIGN_MOCK_CSS = [
 
   DESIGN_FITNESS_CSS,
 
-  // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
-  // follows the visitor's theme instead of staying pinned to the dark art.
   "html.light .design-mock { --dm-panel-bg: hsl(0 0% 100%); --dm-chrome-bg: hsl(0 0% 96%); --dm-dot: hsl(0 0% 80%); --dm-panel-raised: hsl(0 0% 95%); --dm-divider: hsl(0 0% 90%); --dm-border: hsl(0 0% 90%); --dm-canvas-bg: hsl(0 0% 92%); --dm-fg: hsl(0 0% 10%); --dm-fg-muted: hsl(0 0% 45%); --dm-control-bg: hsl(0 0% 95%); --dm-active-row: rgba(38, 38, 38, 0.08); --dm-selection: #01c8f1; --dm-selection-contrast: #0a0a0a; --dm-chip-bg: hsl(0 0% 20%); --dm-chip-fg: hsl(0 0% 98%); --dm-component: hsl(263 84% 64%); --dm-component-selection: rgba(124, 77, 240, 0.16); --dm-avatar-border: hsl(0 0% 100%); --dm-avatar-fg: hsl(0 0% 32%); --dm-avatar-bg-1: hsl(0 0% 72%); --dm-avatar-bg-2: hsl(0 0% 79%); --dm-avatar-bg-3: hsl(0 0% 86%); }",
   "html.light .design-mock .dm-paint-swatch { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }",
 
-  // Light-mode floating toolbar: a raised white bar rather than the editor's
-  // fixed dark slab. Opaque, not the 95% it used to be — it floats over the
-  // design's own white surface, so any translucency let the artboard bleed
-  // through and the bar stopped reading as a separate object. The edge and
-  // shadow carry all of the separation for the same reason.
   "html.light .design-mock .dm-toolbar { border-color: rgba(0, 0, 0, 0.14); background: #ffffff; color: hsl(0 0% 20%); box-shadow: 0 24px 55px -22px rgba(0, 0, 0, 0.45), 0 2px 8px -2px rgba(0, 0, 0, 0.12); }",
   "html.light .design-mock .dm-tool { color: hsl(0 0% 28%); }",
-  // Needed even though the base rule already sets this: the light `.dm-tool`
-  // selector above outranks `.dm-tool.is-active` on specificity, so without it
-  // the active tool draws a dark icon on the dark accent fill.
   "html.light .design-mock .dm-tool.is-active { color: var(--dm-chip-fg); }",
   "html.light .design-mock .dm-tool-caret { color: hsl(0 0% 45%); }",
   "html.light .design-mock .dm-toolbar-divider { background: rgba(0, 0, 0, 0.12); }",
   "html.light .design-mock .dm-mode-group { background: rgba(0, 0, 0, 0.06); }",
   "html.light .design-mock .dm-mode { color: hsl(0 0% 35%); }",
-  // An accent wash rather than the raised white chip the dark theme inverts to:
-  // white on a now-white bar is invisible.
-  // `color` is restated for the same specificity reason as `.dm-tool.is-active`.
   "html.light .design-mock .dm-mode.is-active { background: #ffffff; color: hsl(0 0% 15%); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.16); }",
 
-  // Narrow screens. The window is a fixed-width layout, so the whole mock
-  // scales down and anchors to the left edge rather than letting the canvas
-  // collapse to nothing. This block stays last: it has the same specificity as
-  // the base rules above and would otherwise lose to them on source order.
-  //
-  // Only the width is fixed. The height is the container's own height divided
-  // back out by the scale, so `scale()` lands it at exactly 100% again: the
-  // hero is 340px tall on mobile and 540px at tablet, and a fixed pre-scale
-  // height can only match one of them — it either crops the bottom toolbar or
-  // leaves the taller box half empty.
   `@media (max-width: 860px) { .design-mock { padding: 0 16px 18px; } .design-mock .dm-window { width: 1180px; height: calc(100% / ${NARROW_SCALE}); inset: 0 auto auto 0; transform: scale(${NARROW_SCALE}); transform-origin: top left; } }`,
 ].join("\n");
 

@@ -27,11 +27,6 @@ export type DesignSystemPressEvent =
   | ReactMouseEvent<HTMLElement>
   | ReactKeyboardEvent<HTMLElement>;
 
-/**
- * Styling hooks are optional interoperability affordances. Adapters must not
- * rely on either hook being present, and Toolkit views must not pass
- * framework-specific utility classes through this contract.
- */
 export interface DesignSystemStyleProps {
   className?: string;
   style?: CSSProperties;
@@ -61,7 +56,6 @@ export interface ActionButtonProps
   children?: ReactNode;
   intent?: DesignSystemIntent;
   emphasis?: DesignSystemEmphasis;
-  /** Requests an inset focus ring when the button uses ghost emphasis. */
   inset?: boolean;
   size?: DesignSystemSize;
   pending?: boolean;
@@ -70,7 +64,6 @@ export interface ActionButtonProps
   leadingIcon?: ReactNode;
   trailingIcon?: ReactNode;
   onPress?: (event?: DesignSystemPressEvent) => void;
-  /** Native click interoperability for Radix `asChild` composition. */
   onClick?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   elementRef?: Ref<HTMLButtonElement>;
 }
@@ -86,7 +79,6 @@ export interface IconButtonProps
   disabled?: boolean;
   type?: "button" | "submit" | "reset";
   onPress?: (event?: DesignSystemPressEvent) => void;
-  /** Native click interoperability for Radix `asChild` composition. */
   onClick?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   elementRef?: Ref<HTMLButtonElement>;
 }
@@ -107,7 +99,6 @@ export interface TextFieldProps
   description?: ReactNode;
   errorMessage?: ReactNode;
   placeholder?: string;
-  /** Optional native datalist id for editable fields with suggestions. */
   list?: string;
   name?: string;
   type?: DesignSystemTextInputType;

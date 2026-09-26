@@ -38,11 +38,6 @@ describe("server/request-context", () => {
     });
 
     it("does NOT leak AGENT_USER_EMAIL into a request context that explicitly has no userEmail", () => {
-      // Reproduces the A2A unsigned/api-key path: the request context is set
-      // (so we're inside an HTTP request), but the caller is not user-
-      // authenticated. Returning the env var here would let a previous
-      // request's identity leak into the unauthenticated call on a warm
-      // serverless instance.
       vi.stubEnv("AGENT_USER_EMAIL", "leaked@previous-request.com");
       runWithRequestContext({}, () => {
         expect(getRequestUserEmail()).toBeUndefined();
@@ -197,8 +192,6 @@ describe("server/request-context", () => {
     });
   });
 
-  // Ordered last, and internally ordered no-boundary-then-boundary, because
-  // `markRequestBoundaryInstalled()` sets a process-wide flag with no reset.
   describe("ambient process identity", () => {
     it("answers the process identity even inside a request context", () => {
       vi.stubEnv("AGENT_USER_EMAIL", "deploy@example.com");
@@ -229,7 +222,6 @@ describe("server/request-context", () => {
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain("ambient-warned@example.com");
 
-      // Deduped per identity so one misrouted handler can't flood the log.
       getRequestUserEmail();
       expect(warn).toHaveBeenCalledTimes(1);
       warn.mockRestore();

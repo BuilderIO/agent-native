@@ -136,8 +136,6 @@ describe("engineToolsToAISDK", () => {
       expect(JSON.stringify(inputSchema.properties.kind)).toMatch(
         /"doc".*"app"/,
       );
-      // Action schemas reach the engine with open branches, so the flattened
-      // root must not close over them.
       expect(inputSchema).not.toHaveProperty("additionalProperties");
     });
 
@@ -582,8 +580,6 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
   });
 
   it("unpacks cacheReadTokens from v6 inputTokenDetails", () => {
-    // Usage is emitted from the terminal `finish` (totalUsage), not per-step,
-    // to avoid double-counting tokens. The cache-detail unpacking is identical.
     const events = aiSdkPartToEngineEvents({
       type: "finish",
       finishReason: "stop",
@@ -606,11 +602,7 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
       cacheReadTokens: 50,
       cacheWriteTokens: 10,
     });
-    // `inputTokens` is the whole prompt and the cache counts are a slice of it,
-    // never an addition — `ai`'s `asLanguageModelUsage` maps `inputTokens.total`
-    // with `noCache` / `cacheRead` / `cacheWrite` beneath it. `calculateCost`
     // subtracts to price each token once, so an exclusive value here would bill
-    // the cached tokens twice.
     expect(
       (usage as any).inputTokens -
         (usage as any).cacheReadTokens -

@@ -1,27 +1,8 @@
-// @agent-native/pinpoint — selector-builder tests
-// MIT License
-//
-// This suite runs under vitest's plain "node" environment (no jsdom/happy-dom
-// dependency is available to this package). There is no global `document` or
-// `Node`, so @medv/finder's `finder()` call inside buildSelector() always
-// throws synchronously (it references the bare `Node`/`document` identifiers
-// on its very first lines) and buildSelector() always falls through to its
-// own `buildFallbackSelector()` implementation. That's convenient: it's
-// exactly the fallback logic (id / data-testid / class / nth-child /
-// escaping) this suite is meant to cover, exercised through the public
-// `buildSelector()` API rather than by reaching into an unexported helper.
-//
-// `CSS.escape` is a browser global that Node doesn't provide either, so we
-// polyfill it once for the whole file (a runtime-environment stand-in, not a
-// stub of the module under test) using the standard CSSOM algorithm.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { buildSelector } from "./selector-builder.js";
 
-// Reference implementation of CSS.escape() per the CSSOM spec, so `CSS` is
-// present exactly as a browser would provide it. Used both as the polyfill
-// and (in assertions) as the oracle for what an escaped value should read.
 function cssEscape(value: string): string {
   const string = String(value);
   const length = string.length;
@@ -87,7 +68,6 @@ afterAll(() => {
   }
 });
 
-/** Minimal duck-typed stand-in for a DOM Element — just what buildFallbackSelector reads. */
 interface FakeElement {
   id: string;
   tagName: string;
@@ -149,7 +129,7 @@ describe("buildSelector (fallback path — no finder() in this environment)", ()
       attributes: { "data-testid": "list-item" },
     });
     appendChild(parent, el);
-    appendChild(parent, makeElement({ tagName: "LI" })); // second LI sibling
+    appendChild(parent, makeElement({ tagName: "LI" }));
 
     expect(select(el)).toBe("#unique");
   });
@@ -197,11 +177,6 @@ describe("buildSelector (fallback path — no finder() in this environment)", ()
   });
 
   it("does not filter classes using a caller-supplied skipClassPatterns option in the fallback path", () => {
-    // buildFallbackSelector's class filter only consults the module-level
-    // DEFAULT_SKIP_CLASSES constant, not the merged `allSkipClasses` used by
-    // the primary finder() path — so a custom pattern passed via options has
-    // no effect once we're in the fallback branch. This documents the actual
-    // (and easy to miss) current behavior rather than the option's contract.
     const el = makeElement({ tagName: "DIV", classNames: ["custom-thing"] });
 
     expect(select(el, { skipClassPatterns: [/^custom-/] })).toBe(
@@ -220,7 +195,6 @@ describe("buildSelector (fallback path — no finder() in this environment)", ()
     appendChild(parent, li2);
     appendChild(parent, li3);
 
-    // li2 is the 2nd LI among LI siblings (span1 doesn't count), 1-indexed.
     expect(select(li2)).toBe(`li.${CSS.escape("item")}:nth-child(2)`);
   });
 

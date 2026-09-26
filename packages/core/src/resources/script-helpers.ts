@@ -1,10 +1,3 @@
-/**
- * Resource helpers for use in scripts.
- *
- * Scripts run inside an authenticated request context (set by the agent
- * runtime) or — in CLI-only contexts — read AGENT_USER_EMAIL. Both paths
- * require a real identity; there is no dev-mode fallback.
- */
 
 import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
 import { canManageOrg } from "../org/permissions.js";

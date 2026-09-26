@@ -27,9 +27,7 @@ type ToolSearchResult = {
   source?: string;
   description: string;
   score: number;
-  /** Whether this result can be loaded and called in the current registry. */
   callable: boolean;
-  /** How the action behaves while the agent is in Plan mode. */
   planAvailability: "read" | "conditional" | "act-only";
   parameters: ToolParameterSummary[];
   inputSchema?: unknown;
@@ -107,11 +105,6 @@ export function searchToolRegistry(
   results: ToolSearchResult[];
 } {
   const query = String(args.query ?? "").trim();
-  // No query → "menu" mode: list every available tool by name + a terse
-  // description, with no parameter summaries or input schemas. This is the
-  // cheap, non-opaque counterpart to the compact catalog: the agent can see
-  // the full set of tools for a small token cost, then search/load the few it
-  // actually needs. A query switches to ranked search with parameter details.
   const listAll = query.length === 0;
   const includeSchemas = !listAll && parseBoolean(args.includeSchemas);
   const readOnlyOnly = parseBoolean(args.readOnlyOnly);
@@ -168,10 +161,6 @@ export function searchToolRegistry(
     const source = parsedMcp?.serverId;
     const callable = entry.allowInPlanMode !== false;
     const planAvailability = getPlanAvailability(name, entry);
-    // Conditional policies still need discovery: MCP tools and provider/web
-    // actions classify the arguments at call time. Bash is marked conditional
-    // for Plan mode, but the orchestration bridge intentionally does not expose
-    // shell execution, so do not advertise it as a child-call candidate.
     if (
       readOnlyOnly &&
       planAvailability !== "read" &&

@@ -8,11 +8,6 @@ import { constants as osConstants } from "node:os";
 export const DEV_SERVER_SUPERVISOR_ENV = "AGENT_NATIVE_DEV_SUPERVISOR";
 export const DEV_SERVER_RECOVERY_EXIT_CODE = 86;
 
-/**
- * Keep Windows command-name launches compatible with `.cmd` shims while
- * allowing callers that already have a real executable path to opt out of the
- * shell. The latter is important for paths such as `C:\\Program Files\\nodejs\\node.exe`.
- */
 export function cliSpawnOptions(
   options: Pick<SpawnOptions, "env" | "shell" | "stdio"> = {},
   platform: NodeJS.Platform = process.platform,

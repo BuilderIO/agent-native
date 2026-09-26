@@ -10,8 +10,6 @@ import { BuilderConnectCta } from "../run-recovery.js";
 function ConnectAction({ card }: { card: ConnectRequiredCard }) {
   const t = useT();
   if (card.provider === BUILDER_CONNECT_PROVIDER) {
-    // This card exists only because the server just failed a Builder call, so
-    // a Connected badge from a stale status read would be a dead end.
     return <BuilderConnectCta variant="compact" reconnect />;
   }
   const href = card.connectUrl ?? card.settingsPath;
@@ -27,11 +25,6 @@ function ConnectAction({ card }: { card: ConnectRequiredCard }) {
   );
 }
 
-/**
- * Inline replacement for the collapsed tool pill whenever a tool stopped on a
- * missing integration. Shape-matched, so it is the same affordance for every
- * gated tool rather than one bespoke card per integration.
- */
 export function ConnectRequiredWidget({ card }: { card: ConnectRequiredCard }) {
   return (
     <div className="my-1.5 flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-card-foreground shadow-sm">

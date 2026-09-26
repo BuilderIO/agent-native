@@ -39,9 +39,6 @@ vi.mock("./production-agent.js", async () => {
   };
 });
 
-// The journal reads the durable run-event ledger. Mock just the read-only
-// helper used on the resume path so tests don't need a live DB; keep the rest
-// of run-store real (run-manager pulls several other exports from it).
 vi.mock("./run-store.js", async () => {
   const actual =
     await vi.importActual<typeof import("./run-store.js")>("./run-store.js");
@@ -64,8 +61,6 @@ function makeOpts(
   outcomes?: AgentLoopOutcome[],
 ): Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0] {
   return {
-    // The wrapper only inspects messages, signal, model, and threadId. Cast the
-    // rest — the mocked runAgentLoop ignores them.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     engine: {} as any,
     model: "test-model",
@@ -300,7 +295,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(usage.inputTokens).toBe(100);
     expect(usage.outputTokens).toBe(50);
 
-    // Resume must have appended a continuation nudge between attempts.
     const continuationMessages = messages.filter(
       (m) =>
         m.role === "user" &&
@@ -608,12 +602,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     }
   });
 
-  // `stableOpts` carries the FULL invocation budget, but round 2+ runs inside
-  // `roundTimeoutMs` — what is left after the earlier rounds spent wall-clock.
-  // Handing the loop the full window let it clamp a per-tool timeout above the
-  // round containing it, so the round timer won and the per-tool timeout was
-  // unreachable: the inversion `RUN_TOOL_TIMEOUT_HEADROOM_MS` exists to
-  // prevent, one scope down.
   it("gives each resumed round the budget actually left, not the invocation's", async () => {
     vi.useFakeTimers();
     try {
@@ -623,7 +611,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         attempts++;
         seenBudgets.push(opts.runSoftTimeoutMs);
         if (attempts === 1) {
-          // Round 1 spends two minutes of the invocation, then checkpoints.
           vi.setSystemTime(Date.now() + 120_000);
           opts.send({ type: "auto_continue", reason: "stream_ended" });
         } else {
@@ -700,13 +687,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
   });
 
   it("stops early instead of gambling a 2nd in-process round past the elapsed budget", async () => {
-    // A hosted A2A/MCP call is one serverless invocation; timeoutMs is sized
-    // to survive ONCE. If round 1 genuinely consumes the whole window, round
-    // 2 must not get a fresh full window on top of it — it must see there's
-    // no safe budget left and give up cleanly instead of risking a platform
-    // hard-kill mid-stream. Round 1 uses the full budget (matches prior
-    // behavior); a would-be round 2 is skipped because 10_000 - 10_000 = 0 <
-    // SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS (8_000).
     vi.useFakeTimers();
     try {
       const sentEvents: AgentChatEvent[] = [];
@@ -750,9 +730,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
   });
 
   it("still allows the full MAX_RUN_LOOP_CONTINUATIONS rounds when rounds finish fast (plenty of budget left each time)", async () => {
-    // The common real-world case: most rounds finish well under the soft
-    // timeout, so cumulative elapsed time stays low and every attempt keeps
-    // its full per-round budget — unchanged from before this fix.
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async () => {
       attempts++;
@@ -877,10 +854,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         60_000,
         { backgroundFunction: true },
       );
-      // Once the one cooled-down retry is spent, this ends the turn with the
-      // shared `provider_rate_limited` shape instead of the raw provider
-      // text — the client's own continuation list DOES auto-recover a bare
-      // http_429, which is exactly what capping this at one hop prevents.
       const rejected = expect(run).rejects.toThrow(
         PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
       );
@@ -916,10 +889,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         };
       });
 
-      // No `timeoutOptions` (foreground, not `backgroundFunction`), but a
-      // generous 60s soft timeout leaves well over the cooldown (20s) plus
-      // the minimum continuation budget (8s) — `rateLimitRetryFitsBudget` no
-      // longer requires the background lane for that.
       const run = runAgentLoopDirectWithSoftTimeout(
         makeOpts(
           [{ role: "user", content: [{ type: "text", text: "go" }] }],
@@ -967,7 +936,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         ),
         120_000,
       );
-      // The fixed 20s cooldown alone must NOT retry: the header asked for 45s.
       await vi.advanceTimersByTimeAsync(
         BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS + 5_000,
       );
@@ -991,8 +959,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       });
     });
 
-    // A 60s soft timeout covers the fixed 20s cooldown, but not the 45s the
-    // provider asked for plus the 8s minimum continuation budget.
     await expect(
       runAgentLoopDirectWithSoftTimeout(
         makeOpts(
@@ -1016,9 +982,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       });
     });
 
-    // 25s soft timeout minus the 20s cooldown leaves only 5s — under the 8s
-    // minimum continuation budget, so this must skip straight to the
-    // terminal instead of scheduling a cooldown wait.
     await expect(
       runAgentLoopDirectWithSoftTimeout(
         makeOpts(
@@ -1073,9 +1036,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       throw new Error("socket hang up");
     });
 
-    // After MAX iterations the loop returns the accumulated (empty) usage
-    // rather than throwing — matches the existing soft-timeout exit shape and
-    // lets the run-manager finalize the run.
     const usage = await runAgentLoopDirectWithSoftTimeout(
       makeOpts(
         [{ role: "user", content: [{ type: "text", text: "go" }] }],
@@ -1089,10 +1049,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
   });
 
   it("emits a loud give-up terminal error when the continuation budget is exhausted mid-step", async () => {
-    // Every attempt is a resumable interruption, so the loop keeps continuing
-    // and finally hits MAX_RUN_LOOP_CONTINUATIONS without ever finishing. This
-    // is the genuinely-silent cutoff case: the run-manager would otherwise
-    // report a clean `done`, so the wrapper must surface an explicit terminal.
     const sentEvents: AgentChatEvent[] = [];
     const outcomes: AgentLoopOutcome[] = [];
     let attempts = 0;
@@ -1121,8 +1077,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(err.error).toContain("stopped");
     expect(err.error).toContain("Check any completed tool cards");
     expect(err.recoverable).toBe(false);
-    // The unfinished partial text must be cleared before the terminal so it
-    // stands alone instead of trailing a half sentence.
     const clearIndex = sentEvents.findIndex((e) => e.type === "clear");
     const errorIndex = sentEvents.findIndex((e) => e.type === "error");
     expect(clearIndex).toBeGreaterThanOrEqual(0);
@@ -1198,8 +1152,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
   });
 
   it("does NOT emit a give-up terminal when the turn finishes cleanly", async () => {
-    // A normal completion (no soft-timeout, no resumable error) must never emit
-    // the give-up terminal — that would falsely tell the user it stopped early.
     const sentEvents: AgentChatEvent[] = [];
     mockRunAgentLoop.mockResolvedValue({
       inputTokens: 1,
@@ -1222,18 +1174,12 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
   });
 
   it("does NOT emit a give-up terminal when the user aborts mid-loop", async () => {
-    // User pressed Stop: the loop exits because upstreamSignal aborted, not
-    // because the budget ran out. Staying silent here avoids a spurious
-    // "stopped before finishing" on an intentional cancellation.
     const upstream = new AbortController();
     const sentEvents: AgentChatEvent[] = [];
     const outcomes: AgentLoopOutcome[] = [];
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async () => {
       attempts++;
-      // First attempt errors with a resumable error but ALSO aborts upstream,
-      // so the continuation branch is skipped and the loop exits via the
-      // while-condition rather than the budget.
       upstream.abort();
       throw new Error("socket hang up");
     });
@@ -1259,9 +1205,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
   });
 
   it("stops resuming when the upstream signal aborts mid-loop", async () => {
-    // When the upstream signal aborts during a recovery attempt, the error
-    // is rethrown rather than swallowed: a caller cancellation should
-    // surface, not be hidden behind a transient transport error.
     const upstream = new AbortController();
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async () => {
@@ -1485,8 +1428,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
   });
 
   it("keeps user-visible output when the ledger read fails mid-recovery", async () => {
-    // `clear` WIPES what the user already sees. A ledger blip must not be read
-    // as "no completed side effect", which is what made it wipe tool cards.
     mockGetCurrentTurnEventsForThread.mockRejectedValue(
       new Error("neon: connection lost"),
     );
@@ -1522,11 +1463,8 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(sentEvents.filter((e) => e.type === "clear")).toHaveLength(0);
   });
 
-  // ─── Per-turn tool-call journal on resume ─────────────────────────────────
 
   it("injects a structured journal note on resume listing completed and interrupted tool calls", async () => {
-    // Ledger from the interrupted attempt: sendEmail completed, createTicket
-    // started but never recorded a result.
     mockGetCurrentTurnEventsForThread.mockResolvedValue([
       { type: "tool_start", tool: "sendEmail", input: { to: "a@example.com" } },
       { type: "tool_done", tool: "sendEmail", result: "Email sent (msg_123)" },
@@ -1578,7 +1516,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(text).toContain("Interrupted / unknown outcome");
     expect(text).toContain("createTicket");
 
-    // The standard continuation nudge must still be present (journal is additive).
     const continuationNote = messages
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
@@ -1641,8 +1578,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
   });
 
   it("does not inject a journal note on resume when the turn had no tool calls", async () => {
-    // No tool activity in the ledger → no structured note, so resume behavior is
-    // unchanged from before this feature.
     mockGetCurrentTurnEventsForThread.mockResolvedValue([
       { type: "text", text: "partial answer" },
     ]);
@@ -1676,7 +1611,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       );
     expect(journalNote).toBeUndefined();
 
-    // Exactly the standard continuation nudge was appended (one extra message).
     expect(messages).toHaveLength(2);
   });
 
@@ -1727,7 +1661,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       };
     });
 
-    // A failed ledger read must not break the recovery — the resume still runs.
     await runAgentLoopDirectWithSoftTimeout(
       makeOpts(messages, new AbortController().signal, undefined, "thread-3"),
       60_000,
@@ -1742,11 +1675,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 });
 
 describe("chunk-boundary recovery", () => {
-  /**
-   * Minimal stand-in for the run manager's `RunChunkControl`: a turn signal
-   * that only a Stop touches, and a chunk signal the harness can end the way a
-   * checkpoint does.
-   */
   function makeControl(turnSignal: AbortSignal) {
     let chunk = new AbortController();
     let reason: string | null = null;
@@ -1774,8 +1702,6 @@ describe("chunk-boundary recovery", () => {
     };
   }
 
-  /** Resolves immediately when the signal is ALREADY aborted — which it is
-   *  whenever the boundary was decided before the listener was attached. */
   function waitForAbort(signal: AbortSignal): Promise<void> {
     if (signal.aborted) return Promise.resolve();
     return new Promise<void>((resolve) =>
@@ -1799,7 +1725,6 @@ describe("chunk-boundary recovery", () => {
     mockRunAgentLoop.mockImplementation(async (opts: any) => {
       attempts++;
       if (attempts === 1) {
-        // The run manager decides the boundary while this round is in flight.
         checkpoint("no_progress");
         await waitForAbort(opts.signal);
         throw Object.assign(new Error("aborted"), { name: "AbortError" });
@@ -1863,8 +1788,6 @@ describe("chunk-boundary recovery", () => {
       ),
     ).rejects.toThrow();
 
-    // `canceled` here is what made a hard-timed-out automation byte-identical
-    // to a user Stop in `$ai_error`.
     expect(outcomes.at(-1)).toMatchObject({
       state: "failed",
       code: "background_automation_hard_timeout",
@@ -1879,8 +1802,6 @@ describe("chunk-boundary recovery", () => {
       { role: "user", content: [{ type: "text", text: "go" }] },
     ];
     mockRunAgentLoop.mockImplementation(async (opts: any) => {
-      // The abort route accepts any /^[a-z0-9_-]{1,64}$/i reason from the
-      // client, so "not `user`" is not a safe test for "not a Stop".
       turn.abort("stopped_by_reviewer");
       await waitForAbort(opts.signal);
       throw Object.assign(new Error("aborted"), { name: "AbortError" });
@@ -1947,8 +1868,6 @@ describe("chunk-boundary recovery", () => {
 });
 
 describe("clientAbortReason", () => {
-  // The terminal outcome keys off the abort reason, so a client able to name a
-  // server-owned bound could file its own Stop as a server-side failure.
   it("refuses reasons only the server is allowed to name", () => {
     expect(clientAbortReason("background_automation_hard_timeout")).toBe(
       "user",

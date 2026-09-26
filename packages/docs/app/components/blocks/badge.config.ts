@@ -29,7 +29,6 @@ export const BADGE_SIZES = ["xs", "sm", "md", "lg"] as const;
 
 export const BADGE_SHAPES = ["rounded", "pill"] as const;
 
-/** Small curated allow-list, not an arbitrary icon-name passthrough. */
 export const BADGE_ICONS = [
   "circle-check",
   "circle-info",
@@ -69,7 +68,6 @@ export const badgeSchema = z.object({
   disabled: z.boolean().optional(),
 }) as unknown as z.ZodType<BadgeData>;
 
-/** MDX config: self-closing `<Badge label="Beta" color="orange" ... />`. */
 export const badgeMdx: BlockMdxConfig<BadgeData> = {
   tag: "Badge",
   toAttrs: (data) => ({

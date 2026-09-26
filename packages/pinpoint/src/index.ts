@@ -1,7 +1,4 @@
-// @agent-native/pinpoint — Main entry point (Node/universal)
-// MIT License
 
-// Types
 export type {
   Pin,
   PinStatus,
@@ -28,7 +25,6 @@ export type {
   AgentOutput,
 } from "./types/index.js";
 
-// Storage (browser-safe only — FileStore is in @agent-native/pinpoint/server)
 export { MemoryStore, RestClient } from "./storage/index.js";
 export {
   PinSchema,
@@ -36,7 +32,6 @@ export {
   FrameworkInfoSchema,
 } from "./storage/schemas.js";
 
-// Detection
 export { ElementPicker } from "./detection/element-picker.js";
 export { buildSelector } from "./detection/selector-builder.js";
 export {
@@ -46,7 +41,6 @@ export {
 export { DragSelect } from "./detection/drag-select.js";
 export { TextSelect } from "./detection/text-select.js";
 
-// Frameworks
 export {
   registerAdapter,
   detectFramework,
@@ -57,7 +51,6 @@ export { reactAdapter } from "./frameworks/react-adapter.js";
 export { vueAdapter } from "./frameworks/vue-adapter.js";
 export { genericAdapter } from "./frameworks/generic-adapter.js";
 
-// Output
 export { formatPins } from "./output/formatter.js";
 export {
   formatPinsForAgent,
@@ -65,7 +58,6 @@ export {
   formatRichPinContext,
 } from "./output/agent-context.js";
 
-// Plugins
 export {
   registerPlugin,
   unregisterPlugin,
@@ -74,12 +66,10 @@ export {
 } from "./plugins/registry.js";
 export { agentNativePlugin } from "./plugins/agent-native-plugin.js";
 
-// Freeze
 export { freeze, unfreeze, isFreezeActive } from "./freeze/controller.js";
 
 // Security (browser-safe — path-validation is server-only)
 export { escapeHtml, sanitizeString } from "./security/input-sanitization.js";
 export { isAllowedOrigin } from "./security/origin-validation.js";
 
-// Utils
 export { openFile } from "./utils/open-file.js";

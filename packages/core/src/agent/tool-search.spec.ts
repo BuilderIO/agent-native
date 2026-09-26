@@ -293,20 +293,16 @@ describe("tool-search", () => {
       expect(result.totalTools).toBe(3);
       expect(result.count).toBe(3);
       expect(result.count).toBe(result.results.length);
-      // Sorted alphabetically by name.
       expect(result.results.map((tool) => tool.name)).toEqual([
         "create-doc",
         "list-events",
         "send-email",
       ]);
-      // No parameter summaries, no input schema, score 0 — even for the entry
-      // that has parameters (send-email).
       for (const tool of result.results) {
         expect(tool.parameters).toEqual([]);
         expect(tool.score).toBe(0);
         expect(tool).not.toHaveProperty("inputSchema");
       }
-      // Descriptions are still present (truncated form).
       const sendEmail = result.results.find(
         (tool) => tool.name === "send-email",
       );
@@ -331,21 +327,18 @@ describe("tool-search", () => {
     it("is not capped by limit or maxLimit — returns all tools beyond the cap", () => {
       const registry: Record<string, ActionEntry> = {};
       for (let i = 0; i < 30; i++) {
-        // Zero-padded so alphabetical name sort is also numeric order.
         const name = `tool-${String(i).padStart(2, "0")}`;
         registry[name] = action(`Tool number ${i}`);
       }
 
       const result = searchToolRegistry(registry, {});
 
-      // 30 > DEFAULT_LIMIT (8) and > MAX_LIMIT (25): menu mode ignores both.
       expect(result.totalTools).toBe(30);
       expect(result.count).toBe(30);
       expect(result.results).toHaveLength(30);
       expect(result.results[0].name).toBe("tool-00");
       expect(result.results[29].name).toBe("tool-29");
 
-      // An explicit oversized limit is also ignored in menu mode.
       const withLimit = searchToolRegistry(registry, { limit: 5 });
       expect(withLimit.count).toBe(30);
       expect(withLimit.results).toHaveLength(30);
@@ -362,7 +355,6 @@ describe("tool-search", () => {
       expect(result.results.map((tool) => tool.name)).not.toContain(
         TOOL_SEARCH_ACTION_NAME,
       );
-      // Only the two real actions are counted, not the tool-search entry.
       expect(result.totalTools).toBe(2);
       expect(result.count).toBe(2);
     });
@@ -434,7 +426,6 @@ describe("tool-search", () => {
         );
       }
 
-      // All entries match "report"; limit must cap query-mode results.
       const result = searchToolRegistry(registry, {
         query: "report",
         limit: 5,

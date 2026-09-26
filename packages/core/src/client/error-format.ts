@@ -9,25 +9,9 @@ import {
 
 export { isCreditsLimitErrorCode } from "../agent/engine/error-detail.js";
 
-/**
- * Append a Builder CTA markdown link to gateway errors that users can fix
- * outside the app. Used by both
- * chat SSE consumers (`sse-event-processor.ts` and `useProductionAgent.ts`)
- * to keep the copy in lockstep.
- *
- * `upgradeUrl` comes from the gateway response body and ends up interpolated
- * into markdown, so we validate it's a plain https URL with no characters
- * that would escape the `[...](url)` link target. Only `)` and whitespace
- * terminate the link target — `(`, `<`, `>` are fine inside it — so the
- * regex stays narrow; the gateway may emit URLs containing `(`
- * (e.g. `?ref=Acme%20(staging)`) and we don't want to reject them.
- */
 export const BUILDER_SPACE_SETTINGS_URL =
   "https://builder.io/account/space?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=space_settings";
 
-// Pseudo-href used to mark an in-app "Start new chat" CTA inside the markdown
-// error message. The chat renderer intercepts this href and renders a button
-// that dispatches the `agent-native:new-chat` CustomEvent instead of navigating.
 export const NEW_CHAT_ACTION_HREF = "agent-native:new-chat";
 const OPEN_BUILDER_SPACE_SETTINGS_LABEL = "Open Builder space settings";
 const START_NEW_CHAT_LABEL = "Start new chat";
@@ -49,25 +33,10 @@ const BUILDER_AUTHENTICATION_ERROR =
  */
 export const PROVIDER_CREDENTIAL_REJECTED_MESSAGE =
   "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.";
-/**
- * Distinctive fragment of the message above. `run-recovery` re-classifies a
- * message this module already normalized, so the predicate must match its own
- * output — anchoring both to one constant is what stops them drifting apart.
- */
 const PROVIDER_CREDENTIAL_REJECTED_FRAGMENT =
   "rejected the credential used for this request";
-/**
- * The gateway's unhandled-500 envelope is an internal correlation id and an
- * apology: nothing the reader can act on, and nothing that says whether the
- * failure was theirs. Say where it broke and keep the raw sentence in
- * `details`, which is the only place the error id is useful.
- */
 const GATEWAY_INTERNAL_ERROR_MESSAGE =
   "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.";
-/**
- * Shared between the mapping below and `KNOWN_CHAT_ERROR_KEYS`, so the two
- * copies of this sentence cannot drift apart.
- */
 const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
   "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
 const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
@@ -82,26 +51,14 @@ const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
  */
 const ATTACHMENT_PASSWORD_PROTECTED_MESSAGE =
   "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.";
-/**
- * The gateway codes a payload it could not parse as `invalid_request`, and
- * that lane deliberately does not retry. Both sentences below therefore have
- * to carry the recovery, because nothing downstream will try again.
- */
 const MALFORMED_REQUEST_ATTACHMENT_MESSAGE =
   "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.";
 const MALFORMED_REQUEST_MESSAGE =
   "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.";
-/** Codes the gateway and providers use for a payload they refused to parse. */
 const MALFORMED_REQUEST_CODES = new Set([
   "invalid_request",
   "invalid_request_error",
 ]);
-/**
- * Provider wire fields that only exist because a message carried an
- * attachment. Matching the field name rather than the prose keeps this working
- * across the three providers behind the gateway, which word the same rejection
- * differently.
- */
 const ATTACHMENT_REJECTION_PATTERN =
   /\b(?:file_url|image_url|file_data|input_file|media_type|mime\s?type|image\.source|document\s+block)\b/i;
 
@@ -153,19 +110,6 @@ export interface NormalizedChatError {
   details?: string;
 }
 
-/**
- * True when the server already decided what this reader may be told.
- *
- * A Builder-credits deployment answers every gateway rejection with one visitor
- * line and keeps the real reason on `errorCode` for its owner. Every mapping
- * below is keyed on that code, so re-deriving copy from it hands the visitor
- * back the owner instruction the server just removed — "reconnect Builder in
- * Settings" to someone with no account. This is an identity check against the
- * exported constant, not a keyword match: the rewrite is the whole message.
- *
- * Quota copy is resolved by its safe code before this message guard. Other
- * visitor messages return unchanged before any copy mapping runs.
- */
 function isServerChosenVisitorMessage(text: string): boolean {
   return text === GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
 }
@@ -272,7 +216,6 @@ const KNOWN_CHAT_ERROR_ACTION_KEYS = new Map<string, string>([
   ["Add credits in Builder", "agentChat.errorMessages.addCreditsInBuilder"],
 ]);
 
-/** Localize only Core's own normalized error copy; preserve provider details. */
 export function localizeKnownChatErrorText(
   text: string,
   t: ErrorTranslate,
@@ -383,10 +326,6 @@ export function isProviderAuthenticationError(
   );
 }
 
-// Matches both the raw provider envelope and the already-unwrapped
-// error.message text the gateway forwards, since a password-protected
-// attachment can reach this function in either shape depending on whether
-// the rejection happened before or during streaming.
 function isPasswordProtectedAttachmentError(text: string): boolean {
   return /password[- ]?protected/i.test(text) && /\bpdf\b/i.test(text);
 }
@@ -413,12 +352,9 @@ export function normalizeChatError(
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
   const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
 
-  // Quota is the one safe recovery detail exposed by the Builder-credits lane;
-  // other server-selected visitor messages stay opaque below.
   if (isCreditsLimitErrorCode(code)) {
     return { message: CREDITS_LIMIT_REACHED_MESSAGE };
   }
-  // The server-selected visitor message must not reveal owner-only details.
   if (isServerChosenVisitorMessage(text)) return { message: text };
 
   const providerMessage =
@@ -434,10 +370,6 @@ export function normalizeChatError(
     };
   }
 
-  // Match the envelope as well as the canonical code. The gateway emits this
-  // exact apology on its `invalid_request` stop lane too, and that lane never
-  // reaches `canonicalizeBuilderGatewayErrorCode`, so a code-only check left
-  // the raw apology and a bare hex id as the entire user-visible error.
   if (
     code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     isBuilderGatewayInternalErrorMessage(text)
@@ -445,10 +377,6 @@ export function normalizeChatError(
     return { message: GATEWAY_INTERNAL_ERROR_MESSAGE, details: text };
   }
 
-  // A password-protected PDF still has a valid signature, so it survives
-  // upload and reaches the provider before failing — the provider's raw
-  // wire-field name (pdf.source.base64.data) means nothing to the reader who
-  // just attached a bank statement.
   if (
     isPasswordProtectedAttachmentError(text) ||
     (providerMessage && isPasswordProtectedAttachmentError(providerMessage))
@@ -463,12 +391,6 @@ export function normalizeChatError(
     };
   }
 
-  // Reaches us as a bare gateway 403 with no upgradeUrl, so before this case
-  // it fell all the way through to the raw upstream sentence under a generic
-  // "The agent hit an error" headline, with no retry and no action — a dead
-  // end. It was the single largest cause of turns ending without an answer in
-  // one app, and reads to the user as the chat being broken rather than as
-  // something one person can fix in a minute.
   if (code === "email_verification_required") {
     return {
       message:
@@ -477,9 +399,6 @@ export function normalizeChatError(
     };
   }
 
-  // A model/parameter combination this provider will never accept. Retrying is
-  // pointless and the raw sentence names an API surface the reader has no way
-  // to act on, so say what they can actually change.
   if (code === "provider_config_error") {
     return {
       message:
@@ -488,10 +407,6 @@ export function normalizeChatError(
     };
   }
 
-  // The gateway sent no reason with this 403 — load-shedding, not a revoked
-  // key. Must be checked ahead of `isProviderAuthenticationError`: the raw
-  // detail text this code carries (a bare "Forbidden" / "403 status code")
-  // is the exact shape that predicate matches.
   if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) {
     return {
       message: PROVIDER_TRANSIENT_REJECTION_MESSAGE,
@@ -528,12 +443,6 @@ export function normalizeChatError(
   }
 
   if (/^Gateway error \(no detail; raw event:/i.test(text)) {
-    // The previous copy promised auto-recovery and suggested switching models,
-    // but neither helps for this code: the server already retried once and
-    // the client deliberately skips auto-continuation
-    // (see `builder_gateway_error` in sse-event-processor.ts). The error is
-    // almost always upstream, so retrying the same conversation with a
-    // different model lands on the same wall.
     return {
       message:
         "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
@@ -557,11 +466,6 @@ export function normalizeChatError(
     };
   }
 
-  // Last classified case, so every more specific `invalid_request` above —
-  // a tool schema, a context overflow, a rate limit the gateway coded this way
-  // — keeps its own copy. What is left is a payload the provider refused to
-  // parse, and its raw sentence names provider wire fields (`input[0]
-  // .content[1].file_url`) that no reader can act on.
   if (MALFORMED_REQUEST_CODES.has(code) && !isContextOverflowMessage(text)) {
     return {
       message: ATTACHMENT_REJECTION_PATTERN.test(text)

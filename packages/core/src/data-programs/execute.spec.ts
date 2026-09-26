@@ -1,11 +1,3 @@
-/**
- * Tests for the data-program execution orchestrator. Mocks `./store.js` (the
- * run cache + program CRUD), `../sharing/access.js` (viewer-scoped access
- * checks), and the dynamically-imported `../coding-tools/run-code.js` /
- * `../coding-tools/sandbox/index.js` modules so the sandbox itself is never
- * actually spawned — these tests only exercise the orchestration logic
- * (cache hit/miss, access denial, contract failures, background dedupe).
- */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -301,7 +293,6 @@ describe("data-programs/execute", () => {
     it("surfaces emit_missing and attaches the prior successful run", async () => {
       storeMocks.getDataProgram.mockResolvedValue(makeProgram());
       accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
-      // First call (cache check) — no fresh cache; force a miss via old timestamp.
       storeMocks.getLatestSuccessfulRun
         .mockResolvedValueOnce(makeRun({ finishedAt: Date.now() - 1_000_000 }))
         .mockResolvedValueOnce(makeRun({ finishedAt: Date.now() - 1_000_000 }));
@@ -435,8 +426,6 @@ describe("data-programs/execute", () => {
         makeProgram({ background: true }),
       );
       accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
-      // First call (initial cache check) misses; every call after that
-      // (stale-serve lookups, possibly more than one) sees the stale run.
       storeMocks.getLatestSuccessfulRun
         .mockResolvedValueOnce(null)
         .mockResolvedValue(
@@ -513,13 +502,13 @@ describe("data-programs/execute", () => {
       );
       accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
       storeMocks.getLatestSuccessfulRun
-        .mockResolvedValueOnce(null) // initial cache check
+        .mockResolvedValueOnce(null)
         .mockResolvedValue(
           makeRun({
             finishedAt: Date.now(),
             rowsJson: JSON.stringify([{ done: true }]),
           }),
-        ); // every stale-serve / resolveCacheHit lookup after finalize
+        );
 
       const queuedRun = makeRun({
         id: "dpr_queued",
@@ -528,8 +517,8 @@ describe("data-programs/execute", () => {
         startedAt: Date.now() - 500,
       });
       storeMocks.getActiveRun
-        .mockResolvedValueOnce(queuedRun) // first check: finalize path
-        .mockResolvedValueOnce(null); // after finalize: no longer active
+        .mockResolvedValueOnce(queuedRun)
+        .mockResolvedValueOnce(null);
 
       const oversizedRows = Array.from(
         { length: storeMocks.MAX_PROGRAM_ROWS + 1 },

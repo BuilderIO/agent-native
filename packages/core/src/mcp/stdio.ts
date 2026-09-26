@@ -1,28 +1,3 @@
-/**
- * MCP **stdio** transport for the `agent-native mcp serve` command.
- *
- * This is the binary external coding agents (Claude Code, Claude Cowork,
- * Codex) actually launch — they speak MCP over a child process's stdio, not
- * HTTP. We expose the agent-native app's MCP surface over stdio in two modes:
- *
- *   - **proxy (default)** — connect an MCP `Client` over
- *     `StreamableHTTPClientTransport` to the *already-running* local app's
- *     `http://127.0.0.1:<port>/mcp` (falling back to the legacy
- *     `/_agent-native/mcp` path), and run a stdio `Server` that forwards tools
- *     and optional MCP App resources to it. The live app is the single source
- *     of truth: HMR'd actions, the real registry, correct per-request deep
- *     links, and tenant scoping all come for free. If the app isn't running,
- *     we wait briefly for it (the workspace gateway boots it lazily on first
- *     request).
- *
- *   - **standalone (`--standalone`)** — no running server, no HMR. Build the
- *     MCP server in-process from `autoDiscoverActions(cwd)` +
- *     `createMCPServerForRequest`, connected straight to a
- *     `StdioServerTransport`. Useful in CI / when nothing is serving.
- *
- * Node-only: imports `node:*` and the SDK stdio/http transports. Never part
- * of the serverless bundle.
- */
 
 import {
   MCP_LEGACY_ROUTE_PREFIX,
@@ -31,17 +6,11 @@ import {
 import { resolveLocalAppOrigin } from "./workspace-resolve.js";
 
 export interface RunMCPStdioOptions {
-  /** App id to bridge to (workspace). Optional in a single-app project. */
   appId?: string;
-  /** Explicit port of the running app's dev server. Overrides discovery. */
   port?: number;
-  /** Skip the HTTP proxy and build the server in-process from disk. */
   standalone?: boolean;
-  /** Working directory (defaults to process.cwd()). */
   cwd?: string;
-  /** Env (defaults to process.env). */
   env?: NodeJS.ProcessEnv;
-  /** Max ms to wait for the running app before failing (proxy mode). */
   waitForAppMs?: number;
 }
 
@@ -51,7 +20,6 @@ const MCP_SUBPATHS = [
 ] as const;
 
 function log(msg: string): void {
-  // stderr only — stdout is the MCP protocol channel and must stay clean.
   process.stderr.write(`[mcp] ${msg}\n`);
 }
 
@@ -66,10 +34,6 @@ function authHeaders(env: NodeJS.ProcessEnv): Record<string, string> {
   const headers: Record<string, string> = {
     "X-Agent-Native-MCP-Client": "agent-native-mcp-proxy",
   };
-  // Default to the compact/connector catalog + tool-search like every other
-  // client. The local CLI no longer auto-pulls the full ~105-tool catalog;
-  // opt in explicitly with AGENT_NATIVE_MCP_FULL_CATALOG=1 when you really want
-  // every tool schema loaded up front.
   if (env.AGENT_NATIVE_MCP_FULL_CATALOG === "1") {
     headers["X-Agent-Native-MCP-Full-Catalog"] = "1";
   }
@@ -90,7 +54,6 @@ async function probeOrigin(
       method: "GET",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    // Any HTTP response (even 401/405/406) means the server is up.
     return res.status > 0;
   } catch {
     return false;
@@ -104,14 +67,6 @@ async function resolveMcpSubpath(origin: string): Promise<string | null> {
   return null;
 }
 
-/**
- * Proxy mode: stdio Server ⇄ HTTP Client to the running app.
- *
- * We register the standard handlers on the stdio server and forward them
- * verbatim to the upstream HTTP MCP server via the SDK `Client`. The upstream
- * owns tool definitions, results, MCP App resources, and the appended
- * deep-link block / `_meta`, so nothing is duplicated here.
- */
 async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
   const { origin, appId } = await resolveLocalAppOrigin({
     cwd: opts.cwd,
@@ -120,9 +75,6 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
     port: opts.port,
   });
   const env = opts.env ?? process.env;
-  // Wait for the app to come up. The workspace gateway lazily boots an app's
-  // dev server on first request, so a fresh `mcp serve` may briefly race the
-  // boot. Hit the gateway path too so the lazy start is triggered.
   const deadline = Date.now() + (opts.waitForAppMs ?? 60_000);
   let mcpSubpath = await resolveMcpSubpath(origin);
   if (!mcpSubpath) {
@@ -146,7 +98,6 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
   const { Server } = await import("@modelcontextprotocol/server");
   const { serveStdio } = await import("@modelcontextprotocol/server/stdio");
 
-  // --- Upstream HTTP client -------------------------------------------------
   const clientTransport = new StreamableHTTPClientTransport(new URL(target), {
     requestInit: { headers: authHeaders(env) },
   });
@@ -160,7 +111,6 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
   await client.connect(clientTransport);
   log(`Proxying stdio ⇄ ${target} (app: ${appId})`);
 
-  // --- Downstream stdio server ---------------------------------------------
   const upstreamCapabilities = client.getServerCapabilities();
   const capabilities: NonNullable<
     ReturnType<typeof client.getServerCapabilities>
@@ -182,7 +132,6 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
       });
 
       server.setRequestHandler("tools/call", async (request: any) => {
-        // Forward the call verbatim; the upstream appends the deep-link block.
         return client.callTool(request.params);
       });
 
@@ -207,7 +156,6 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
     { legacy: "serve" },
   );
 
-  // Keep the proxy alive until the client/transport closes.
   await new Promise<void>((resolve) => {
     const done = () => resolve();
     clientTransport.onclose = done;
@@ -224,14 +172,6 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
   }
 }
 
-/**
- * Standalone mode: build the MCP server in-process from disk.
- *
- * No running server, no HMR — actions are discovered via
- * `autoDiscoverActions(cwd)` and the shared `createMCPServerForRequest`
- * builder is reused so behavior (tools, deep links, builtin cross-app tools)
- * matches the HTTP mount exactly.
- */
 async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
   const cwd = opts.cwd ?? process.cwd();
   const env = opts.env ?? process.env;
@@ -247,8 +187,6 @@ async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
       port: opts.port,
     });
     appId = resolved.appId;
-    // Origin is best-effort here (server may not be running) — still useful
-    // so a `link` builder's relative deep link becomes an absolute URL.
     origin = resolved.origin;
   } catch {
     // No workspace / can't resolve — fall back to a bare app id.
@@ -275,14 +213,11 @@ async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
           // builtin cross-app tools stay on so `list_apps` / `open_app` /
           // `create_workspace_app` / `list_templates` still work from disk.
         },
-        // No verified identity in standalone (no inbound auth header). Runs with
-        // platform-default scope, same as a tokenless local HTTP mount.
         undefined,
         {
           origin,
           transport: "stdio",
           clientName: "agent-native-mcp-standalone",
-          // Compact by default; opt into the full catalog with the env flag.
           fullCatalog: process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1",
         },
       ),
@@ -297,10 +232,6 @@ async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
   await stdio.close();
 }
 
-/**
- * Entry point for `agent-native mcp serve`. Defaults to proxy mode; pass
- * `standalone: true` to build the server from disk with no running app.
- */
 export async function runMCPStdio(
   opts: RunMCPStdioOptions = {},
 ): Promise<void> {
@@ -311,10 +242,6 @@ export async function runMCPStdio(
   try {
     await runProxy(opts);
   } catch (err: any) {
-    // Proxy couldn't reach a running app — surface a clear, actionable
-    // message on stderr. We do NOT silently fall back to standalone: the
-    // caller asked for the live registry; auto-falling-back would hide a
-    // broken dev server and serve stale tools.
     log(`Proxy mode failed: ${err?.message ?? err}`);
     throw err;
   }

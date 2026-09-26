@@ -53,11 +53,8 @@ function toSecretScope(scope: RemoteMcpScope): SecretScope {
 }
 
 export interface StoredRemoteMcpServer {
-  /** Stable unique id — used for removal / URLs. */
   id: string;
-  /** Human-readable name. Also used as the MCP server id (prefixed with scope). */
   name: string;
-  /** Streamable HTTP MCP server URL. */
   url: string;
   /**
    * Optional non-secret headers to pass to the MCP server. SECURITY: secret
@@ -67,35 +64,14 @@ export interface StoredRemoteMcpServer {
    * are honored read-only.
    */
   headers?: Record<string, string>;
-  /**
-   * Reference to the encrypted secret holding the JSON-stringified secret
-   * headers map (e.g. `{"Authorization":"Bearer …"}`). Resolved at request
-   * time via `readAppSecret`. Undefined when no secret-class headers were
-   * supplied (or for legacy cleartext rows).
-   */
   headerSecretKey?: string;
-  /** Reference to the encrypted OAuth credential bundle for this server. */
   oauthSecretKey?: string;
-  /**
-   * Trusted first-party Agent-Native app. Only framework-controlled
-   * registrations should set this; management routes intentionally do not
-   * expose it for arbitrary user-added MCP servers.
-   */
   firstParty?: boolean;
-  /** Canonical first-party app id from the org directory, e.g. `assets`. */
   firstPartyAppId?: string;
-  /** Optional description shown in the UI. */
   description?: string;
-  /** ms since epoch. */
   createdAt: number;
 }
 
-/**
- * Header names that are routed through the encrypted-at-rest secrets store
- * instead of being written to the plaintext `settings` row. Match is
- * case-insensitive and substring-based to catch one-off names like
- * `x-zapier-api-key`.
- */
 const SECRET_HEADER_NAME_PATTERNS = [
   /authorization/i,
   /api[-_]?key/i,
@@ -109,7 +85,6 @@ function isSecretHeaderName(name: string): boolean {
   return SECRET_HEADER_NAME_PATTERNS.some((re) => re.test(name));
 }
 
-/** Split a headers map into (cleartext, secret) buckets. */
 function partitionHeaders(headers: Record<string, string> | undefined): {
   cleartext: Record<string, string> | undefined;
   secret: Record<string, string> | undefined;
@@ -128,7 +103,6 @@ function partitionHeaders(headers: Record<string, string> | undefined): {
   };
 }
 
-/** Tiny nanoid — matches the inline helper used elsewhere in this package. */
 function shortId(): string {
   const rand =
     globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
@@ -153,11 +127,6 @@ export function normalizeServerName(input: string): string {
     .slice(0, 40);
 }
 
-/**
- * Short, deterministic, URL-safe hash of an email. Used as the owner
- * discriminator in user-scope merged keys so two users with the same server
- * name don't collide in the global MCP manager.
- */
 export function hashEmail(email: string): string {
   return createHash("sha256")
     .update(email.toLowerCase().trim())
@@ -165,10 +134,6 @@ export function hashEmail(email: string): string {
     .slice(0, 10);
 }
 
-/**
- * Sanitise an org id to the character set allowed in merged keys.
- * Org ids are already nanoid-style alphanumeric, but we normalise defensively.
- */
 function sanitiseOrgId(orgId: string): string {
   return orgId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 }
@@ -309,11 +274,6 @@ export async function addOAuthRemoteServer(
   }
 }
 
-/**
- * Replace the OAuth grant for an existing server without changing its id or
- * display name. Reconnect must update the saved grant in place; registering a
- * second row makes the original connection impossible to repair.
- */
 export async function replaceOAuthRemoteServer(
   scope: RemoteMcpScope,
   scopeId: string,
@@ -390,8 +350,6 @@ export async function replaceOAuthRemoteServer(
     };
   }
 
-  // The settings row now points at the replacement grant. Old-grant cleanup
-  // is best effort and must not roll back or invalidate the committed row.
   await revokeMcpOAuthCredentials({
     key: current.oauthSecretKey,
     scope,
@@ -461,7 +419,6 @@ async function addRemoteServerInternal(
   const id = `mcps_${shortId()}`;
   const { cleartext, secret } = partitionHeaders(input.headers);
 
-  // Persist secret-class headers in the encrypted secrets table; the
   // settings row only references the secret key, never the cleartext.
   let headerSecretKey: string | undefined;
   if (secret) {
@@ -648,8 +605,6 @@ export async function removeRemoteServer(
       );
     }
   }
-  // Best-effort: drop the encrypted-headers secret too. Errors are logged
-  // but don't fail the deletion — the settings row is already gone, so a
   // dangling secret is harmless (it just can't be read back).
   if (removed?.headerSecretKey) {
     try {
@@ -668,15 +623,6 @@ export async function removeRemoteServer(
   return true;
 }
 
-/**
- * Resolve the full headers map (cleartext + decrypted secret headers) for a
- * stored MCP server. Used when projecting the stored record into the
- * runtime `McpHttpServerConfig` shape that `McpClientManager` consumes.
- *
- * For legacy rows that wrote secrets cleartext into `headers`, this
- * returns those cleartext values unchanged — they should be re-saved
- * through `addRemoteServer` to migrate to encrypted storage.
- */
 export async function materializeHeaders(
   scope: RemoteMcpScope,
   scopeId: string,
@@ -734,14 +680,6 @@ export function toHttpServerConfig(
   };
 }
 
-/**
- * Async variant of `toHttpServerConfig` that resolves any encrypted
- * `headerSecretKey` reference from `app_secrets` and returns the full
- * cleartext headers map for use at runtime. Use this when actually
- * configuring an MCP client; use the sync variant only when serializing
- * stored data (e.g. for read-only listings that shouldn't disclose
- * secrets).
- */
 export async function toHttpServerConfigAsync(
   scope: RemoteMcpScope,
   scopeId: string,
@@ -820,8 +758,6 @@ export function parseMergedKey(
   const m = /^(user|org|hub)_([^_]+)_(.+)$/.exec(key);
   if (!m) return null;
   const prefix = m[1];
-  // Hub-sourced servers are scoped to the org they came from — treat them
-  // as org-scope for visibility purposes (see isMcpToolAllowedForRequest).
   const scope: RemoteMcpScope = prefix === "user" ? "user" : "org";
   return {
     scope,

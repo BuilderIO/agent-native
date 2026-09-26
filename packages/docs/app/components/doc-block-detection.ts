@@ -1,8 +1,3 @@
-/**
- * Detects syntax that can be parsed as a docs visual block without importing
- * the block registry. Keep this parser fence-aware: JSX-looking examples in a
- * fenced code sample must not promote an ordinary page to the block path.
- */
 const FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
 const VISUAL_FENCE_PATTERN = /^\s*`{3,}\s*(?:an-[\w-]+|mermaid)\b/;
 const MDX_COMPONENT_PATTERN = /^\s*<[A-Z][A-Za-z0-9-]*(?:\s|\/?>|$)/;

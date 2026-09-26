@@ -81,12 +81,6 @@ const HSTS = "max-age=31536000; includeSubDomains; preload";
 const PERMISSIONS_POLICY =
   "camera=*, microphone=(self), geolocation=(), screen-wake-lock=()";
 
-/**
- * Returns true when the request was received over HTTPS. We trust both the
- * underlying connection (when the server is terminating TLS itself) and the
- * `x-forwarded-proto` header (set by Netlify, Vercel, Cloudflare, and any
- * other reverse proxy that fronts the framework).
- */
 function isHttpsRequest(event: any): boolean {
   const xfp =
     event?.node?.req?.headers?.["x-forwarded-proto"] ??
@@ -94,10 +88,8 @@ function isHttpsRequest(event: any): boolean {
   if (typeof xfp === "string" && xfp.split(",")[0].trim() === "https")
     return true;
   if (Array.isArray(xfp) && xfp[0] === "https") return true;
-  // h3 sets `event.url.protocol` to "http:" or "https:".
   const proto = event?.url?.protocol;
   if (proto === "https:") return true;
-  // Direct Node `req.connection.encrypted` (older runtimes).
   if (event?.node?.req?.connection?.encrypted) return true;
   return false;
 }
@@ -117,12 +109,6 @@ function isIframeNavigationRequest(event: any): boolean {
   return getHeader(event, "sec-fetch-dest") === "iframe";
 }
 
-/**
- * Create the security-headers h3 middleware. Mount this BEFORE other route
- * handlers so the headers are present on every response (including 4xx/5xx
- * error pages). Route handlers that need to tighten a specific header can call
- * `setResponseHeader` after this runs — the latest write wins.
- */
 export function createSecurityHeadersMiddleware() {
   return defineEventHandler((event) => {
     const embedFrameRequest = requestHasEmbedAuthMarker(event);
@@ -133,11 +119,6 @@ export function createSecurityHeadersMiddleware() {
     setResponseHeader(
       event,
       "Referrer-Policy",
-      /**
-       * Dispatch is served as an embed, and the parent page's path cannot be forged by a
-       * same-origin child app, so stripping it made minting an app session from Dispatch
-       * impossible.
-       */
       embedFrameRequest ? "same-origin" : "strict-origin-when-cross-origin",
     );
     setResponseHeader(event, "Permissions-Policy", PERMISSIONS_POLICY);
@@ -153,7 +134,6 @@ export function createSecurityHeadersMiddleware() {
         : "same-site",
     );
     if (embedFrameRequest && isMcpEmbedCorsOrigin(requestOrigin)) {
-      // requestOrigin is non-null: isMcpEmbedCorsOrigin returns true only for truthy origins
       setResponseHeader(event, "Access-Control-Allow-Origin", requestOrigin!);
       setResponseHeader(event, "Vary", "Origin");
       setResponseHeader(
@@ -170,7 +150,6 @@ export function createSecurityHeadersMiddleware() {
     if (isHttpsRequest(event)) {
       setResponseHeader(event, "Strict-Transport-Security", HSTS);
     }
-    // Continue to the next handler — we only set headers, don't return a body.
     return undefined;
   });
 }

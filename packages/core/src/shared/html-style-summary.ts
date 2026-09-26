@@ -1,22 +1,12 @@
-/**
- * Summarize the inline style vocabulary shared by a set of HTML fragments so
- * an agent editing one of them can match its siblings instead of inventing
- * values. A Slides deck, a set of design screens, or a document's sections all
- * have this shape: the fragment being edited is one item, and the style the
- * user expects is defined by the others.
- */
 
 export interface HtmlStyleFragment {
-  /** Short label used to name the fragments that deviate, e.g. "slide 1". */
   label: string;
   html: string;
 }
 
 export interface HtmlStyleValue {
   value: string;
-  /** How many fragments use the value at least once. */
   fragments: number;
-  /** Labels of the fragments that use it; kept only for rare values. */
   labels?: string[];
 }
 
@@ -33,13 +23,9 @@ const COLOR_LITERAL_RE =
   /#[0-9a-f]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)|(?:oklch|oklab|color)\([^)]*\)/gi;
 const BACKGROUND_RE = /background(?:-color|-image)?\s*:\s*([^;"'}]+)/gi;
 const TEXT_COLOR_RE = /(?<![-\w])color\s*:\s*([^;"'}]+)/gi;
-// Family names carry their own quotes, so these captures stop only at the
-// declaration end.
 const FONT_FAMILY_RE = /font-family\s*:\s*([^;}]+)/gi;
 const FONT_SHORTHAND_RE =
   /(?<![-\w])font\s*:\s*[^;}]*?\d+(?:\.\d+)?(?:px|rem|em|%)(?:\s*\/\s*[\w.%]+)?\s+([^;}]+)/gi;
-// Either attribute quote and any CSS length: a 2.5rem heading is still part
-// of the vocabulary.
 const HEADING_SIZE_RE =
   /<h[1-6]\b[^>]*style\s*=\s*(["'])[^"']*?font-size\s*:\s*([\d.]+(?:px|rem|em|%|vw|vh|pt))/gi;
 const IGNORED_COLOR_WORDS = new Set([
@@ -50,7 +36,6 @@ const IGNORED_COLOR_WORDS = new Set([
   "none",
   "currentcolor",
 ]);
-/** Below this share of fragments a value is a deviation and gets named. */
 const RARE_VALUE_LIMIT = 2;
 
 function normalizeColor(raw: string): string | undefined {
@@ -61,7 +46,6 @@ function normalizeColor(raw: string): string | undefined {
   }
   const literal = value.match(COLOR_LITERAL_RE)?.[0];
   if (literal) return literal.replace(/\s*,\s*/g, ", ");
-  // A bare named color such as "white" or a variable such as var(--bg).
   return /^[a-z-]+$/.test(value) || value.startsWith("var(")
     ? value
     : undefined;
@@ -138,7 +122,6 @@ export function summarizeHtmlStyles(
   const fontFamilies: typeof backgrounds = [];
   const headingSizes: typeof backgrounds = [];
   for (const { label, html: raw } of fragments) {
-    // Inline styles inside attributes carry their quotes HTML-escaped.
     const html = raw.replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'");
     const background = collect(html, BACKGROUND_RE, normalizeColor);
     const text = collect(html, TEXT_COLOR_RE, normalizeColor);
@@ -185,10 +168,6 @@ function describeValues(
     .join(", ");
 }
 
-/**
- * Render the summary as the lines a current-screen read prints, so an agent
- * sees the shared vocabulary next to the item it is about to edit.
- */
 export function formatHtmlStyleSummary(
   summary: HtmlStyleSummary,
   options: { noun?: string } = {},

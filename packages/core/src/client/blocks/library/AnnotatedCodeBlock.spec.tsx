@@ -246,8 +246,6 @@ describe("AnnotatedCodeBlock annotations", () => {
       "[data-annotation-hover-card]",
     );
     expect(card).toBeTruthy();
-    // Line 2 starts at y=122 with a 22px height, so the first-line anchor center
-    // is 133px. Hovering line 4 would have produced 177px before this fix.
     expect(card!.style.top).toBe("133px");
   });
 

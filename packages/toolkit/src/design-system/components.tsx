@@ -63,15 +63,6 @@ function mergeElementRefs<Element>(
   };
 }
 
-/**
- * Like `createComponent`, but also wraps in `forwardRef` and merges the
- * forwarded ref into `elementRef` before rendering. Radix `asChild`/`Slot`
- * triggers attach a native `ref` directly to their JSX child to measure it
- * for popper positioning; without this, that ref is silently dropped by the
- * plain function component `createComponent` returns, and Radix falls back
- * to an unmeasured, off-screen position. Scoped to ActionButton/IconButton
- * because those are the only semantic contracts that declare `elementRef`.
- */
 function createRefForwardingComponent<
   Props extends { elementRef?: Ref<Element> },
   Element,

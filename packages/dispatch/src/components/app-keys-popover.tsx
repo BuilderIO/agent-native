@@ -62,9 +62,6 @@ export function AppKeysPopover({
                 size="sm"
                 aria-label={`Manage keys for ${appName}`}
                 onClick={(event) => {
-                  // Keep parent card click handlers from also firing. Do not
-                  // preventDefault here: Radix uses the same click to open the
-                  // popover trigger.
                   event.stopPropagation();
                 }}
                 className="size-7 rounded-md p-0 text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
@@ -126,9 +123,6 @@ export function AppKeysPanel({
     return map;
   }, [grants]);
 
-  // Track per-secret pending state so a fast double-click on the same row
-  // can't queue two `create-vault-grant` requests (which would silently
-  // create duplicate active grants — a later revoke only clears one).
   const [pendingSecretIds, setPendingSecretIds] = useState<Set<string>>(
     () => new Set(),
   );

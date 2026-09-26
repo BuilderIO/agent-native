@@ -1,25 +1,6 @@
-/**
- * `createScorer` and a batteries-included set of built-in scorers.
- *
- * A scorer is a 4-step pipeline (preprocess → analyze → generateScore →
- * generateReason). `createScorer` is a thin identity-with-validation factory:
- * it enforces the one hard contract (`generateScore` is required) and returns
- * a fully-typed `Scorer`. Built-in scorers below show both flavors:
- *
- *   - `exactMatch` / `contains` — pure-JS analyze, no model.
- *   - `llmJudge` — analyze runs an LLM judge through the resolved engine
- *     (provider-agnostic; the model is whatever the runner resolved).
- */
 
 import type { AgentRunOutput, Scorer, ScorerDefinition } from "./types.js";
 
-/**
- * Create a scorer from a 4-step pipeline definition.
- *
- * `generateScore` is the only required step. `preprocess`/`analyze` default to
- * identity (the scorer sees the raw `AgentRunOutput`), and `generateReason` is
- * optional.
- */
 export function createScorer<Pre = AgentRunOutput, Ana = Pre>(
   def: ScorerDefinition<Pre, Ana>,
 ): Scorer<Pre, Ana> {
@@ -40,23 +21,16 @@ export function createScorer<Pre = AgentRunOutput, Ana = Pre>(
   };
 }
 
-/** Clamp any number into [0, 1]; coerce non-finite to 0. */
 export function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(1, n));
 }
 
-// ─── Built-in JS scorers ──────────────────────────────────────────────
 
-/** Normalize for forgiving text comparison (case + surrounding whitespace). */
 function normalize(s: string): string {
   return s.trim().toLowerCase();
 }
 
-/**
- * `exactMatch` — 1.0 when the agent's (trimmed, case-insensitive by default)
- * text equals `expected`, else 0.0. Pure JS, no model.
- */
 export function exactMatch(
   expected: string,
   opts: { caseSensitive?: boolean } = {},
@@ -79,11 +53,6 @@ export function exactMatch(
   });
 }
 
-/**
- * `contains` — 1.0 when the agent's text contains every required substring
- * (case-insensitive by default). Score is the fraction matched, so a partial
- * hit still surfaces signal. Pure JS, no model.
- */
 export function contains(
   needles: string | string[],
   opts: { caseSensitive?: boolean } = {},
@@ -114,10 +83,6 @@ export function contains(
   });
 }
 
-/**
- * `usesTool` — 1.0 when the agent invoked the named tool/action at least once.
- * Useful as a behavioral gate ("the agent must call send-email"). Pure JS.
- */
 export function usesTool(
   toolName: string,
 ): Scorer<AgentRunOutput, { used: boolean }> {
@@ -137,18 +102,12 @@ export function usesTool(
   });
 }
 
-// ─── Built-in LLM-judge scorer ────────────────────────────────────────
 
 interface JudgeVerdict {
   score: number;
   reasoning: string;
 }
 
-/**
- * Pull the first JSON object out of model text (which may be wrapped in prose
- * or a ```json fence) and parse it into a verdict. Returns null on garbage so
- * the caller can degrade gracefully instead of throwing.
- */
 function parseJudgeVerdict(text: string): JudgeVerdict | null {
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return null;
@@ -165,26 +124,12 @@ function parseJudgeVerdict(text: string): JudgeVerdict | null {
 }
 
 export interface LlmJudgeOptions {
-  /** Scorer name (defaults to `llm_judge`). */
   name?: string;
-  /** What is being judged, e.g. "helpfulness". */
   criteria: string;
-  /** A rubric describing what 0.0 vs 1.0 means. */
   rubric?: string;
-  /**
-   * The score scale the judge is told to use. Output is normalized to [0,1].
-   * Defaults to a 0..1 scale.
-   */
   scoreRange?: { min: number; max: number };
 }
 
-/**
- * `llmJudge` — an LLM-as-judge scorer. The analyze step asks the resolved
- * engine to score the agent output against a natural-language rubric and emit
- * `{ "score": <n>, "reasoning": "<why>" }`. The model is whatever the runner
- * resolved from the engine registry — this scorer NEVER hardcodes a provider
- * or model, so evals stay provider-agnostic.
- */
 export function llmJudge(
   opts: LlmJudgeOptions,
 ): Scorer<

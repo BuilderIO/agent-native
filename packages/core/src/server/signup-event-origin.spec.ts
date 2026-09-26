@@ -2,22 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import { encodeMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 
-/**
- * The contract this file pins:
- *
- *   a `user` row insert is only a signup when a request created it.
- *
- * Better Auth calls `user.create.after` for every insert and hands it a null
- * context for anything created through `internalAdapter` outside an HTTP
- * endpoint. In production that is the legacy-session backfill and Google's
- * canonical-identity provisioning — neither of which is a person signing up.
- * Emitting for them is what put ~94% of `better-auth` signups into the
- * warehouse with no `anonymous_id` and a fabricated `referral_source: direct`.
- *
- * Every previous attempt at this bug added another attribution source to the
- * hook and shipped green, because no test ever drove the hook with the context
- * shape production actually produces. These do.
- */
 
 const tracked: Array<{
   name: string;
@@ -105,8 +89,6 @@ describe("emitSignupEventForCreatedUser", () => {
     });
   });
 
-  // The regression. `ensureGoogleAuthIdentity` and the legacy-session backfill
-  // both land here with no context; each used to mint an unattributable row.
   it("emits nothing for a row created outside any request", async () => {
     await emitSignupEventForCreatedUser(USER, null);
     await emitSignupEventForCreatedUser(USER, undefined);
@@ -116,8 +98,6 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked).toEqual([]);
   });
 
-  // "No browser" and "a browser with no campaign" must not look alike: only
-  // the second one is direct traffic a marketer can act on.
   it("omits referral_source entirely when the request carried no cookies", async () => {
     await emitSignupEventForCreatedUser(USER, { headers: new Headers() });
 
@@ -162,8 +142,6 @@ describe("emitSignupEventForCreatedUser", () => {
     )}`;
 
     await emitSignupEventForCreatedUser(USER, {
-      // No cookie: the link was opened in a different browser than the one
-      // that requested it, which is the case the token exists for.
       headers: new Headers(),
       request: {
         url: `https://app.example.com/_agent-native/auth/ba/magic-link/verify?token=t&newUserCallbackURL=${encodeURIComponent(
@@ -176,8 +154,6 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked[0].properties).toMatchObject({ utm_source: "newsletter" });
   });
 
-  // The handoff header is unsigned and outranks the cookie, so a request that
-  // arrives carrying one must not be able to author somebody's attribution.
   it("prefers the request-scoped context over an inbound handoff header", async () => {
     requestContext = {
       signupAttribution: {

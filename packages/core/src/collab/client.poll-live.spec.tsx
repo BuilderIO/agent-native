@@ -1,14 +1,5 @@
 // @vitest-environment happy-dom
 
-/**
- * Poll-cadence contract when the shared SSE transport reports poll-live (see
- * use-db-sync.local-sse-refused.spec.ts for the transport half): the local
- * endpoint refused before ever opening — on that deploy target /poll is the
- * live channel already — so collab/client.ts must relax to the same cadence
- * it uses for an SSE stream that genuinely carries awareness (12s), not the
- * fast "live channel down" fallback (2s) that would only add load with no
- * freshness gain.
- */
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -38,13 +29,11 @@ class FakeEventSource {
 }
 
 function emptyStateResponse(): Response {
-  // A valid Yjs update for a document whose `content` text is "seed".
   return new Response(
     JSON.stringify({ state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA" }),
   );
 }
 
-/** Routes collab/poll endpoints to canned JSON and counts `/poll` calls. */
 function makeFetchMock() {
   const pollCalls: string[] = [];
   const mock = vi.fn(async (input: RequestInfo | URL) => {
@@ -123,9 +112,6 @@ describe("collab poll cadence with poll-live", () => {
       await vi.advanceTimersByTimeAsync(50);
     });
 
-    // The shared transport's EventSource refuses before ever opening (a
-    // serverless 204) — the same client-side path exercised in
-    // use-db-sync.local-sse-refused.spec.ts.
     expect(FakeEventSource.instances.length).toBeGreaterThanOrEqual(1);
     const source = FakeEventSource.instances[0];
     source.readyState = FakeEventSource.CLOSED;
@@ -134,15 +120,11 @@ describe("collab poll cadence with poll-live", () => {
     });
 
     const pollsAtRefusal = pollCalls.length;
-    // Fast (SSE-down) cadence is 2s; if poll-live weren't relaxing the
-    // cadence, a poll would land well within 3s of the refusal.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
     expect(pollCalls.length).toBe(pollsAtRefusal);
 
-    // The relaxed (SSE-connected-equivalent) cadence is 12s, so a poll lands
-    // once the remaining time elapses.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(9_500);
     });

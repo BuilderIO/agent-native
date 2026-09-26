@@ -63,20 +63,8 @@ import {
   startAutomationRun,
 } from "./run-history.js";
 
-/**
- * Default hard abort for one in-process automation run. Read through
- * `resolveBackgroundRunHardTimeoutMs()` at the use site — this is the host's
- * real function budget for scheduled work, and it differs by deployment.
- */
 export const BACKGROUND_RUN_HARD_TIMEOUT_MS = 10 * 60_000;
 
-/**
- * Terminal failure of a background automation, carrying the machine-readable
- * code the failure taxonomy already computes.
- *
- * The code used to be produced and then dropped, so "how often are runs cut
- * off?" was a `LIKE '%no_progress%'` over an English sentence.
- */
 export class BackgroundAutomationRunError extends Error {
   readonly errorCode: string;
   constructor(message: string, errorCode: string) {
@@ -119,15 +107,7 @@ export interface BackgroundAutomationRunOptions {
   requestContext?: Omit<RequestContext, "userEmail" | "orgId">;
   actionCaller?: ActionCaller;
   actionAutomation?: ActionAutomationContext;
-  /** Reuse a history row created by a durable run-now enqueue. */
   historyId?: string;
-  /**
-   * Per-run overrides for the run-manager no-progress backstop. `startRun` has
-   * always accepted these; the automation path had no way to reach them, and
-   * the one indirect route (zeroing `agent.runSoftTimeoutMs`) is global and
-   * would strip foreground chat of its chunk boundary. Additive: unset means
-   * the configured/default behaviour, unchanged.
-   */
   noProgressTimeoutMs?: number;
   backgroundNoProgressTimeoutMs?: number;
 }
@@ -145,12 +125,6 @@ export type BackgroundAutomationIdentityResult =
   | { ok: true; identity: AutomationExecutionIdentity }
   | { ok: false; reason: string };
 
-/**
- * A persisted background run must not outlive its execution identity.
- * Organization runs fail closed when membership state cannot be read. A
- * brand-new personal install without auth tables remains a distinct
- * not-applicable case so local/CLI jobs keep working before auth is configured.
- */
 export async function validateAutomationRunIdentity(
   ownerEmail: string,
   orgId?: string,
@@ -266,20 +240,12 @@ export function isBackgroundAutomationRunActive(
   if (meta.lastStatus !== "running") return false;
   if (!meta.lastRun) return false;
   const startedAt = new Date(meta.lastRun).getTime();
-  // Tracks the hard abort: past it no run of this automation is still alive, so
-  // a deployment that raises the abort must not have its live runs treated as
-  // stuck and re-dispatched underneath themselves.
   return (
     Number.isFinite(startedAt) &&
     now.getTime() - startedAt < resolveBackgroundRunHardTimeoutMs()
   );
 }
 
-/**
- * A soft-timeout/no-progress checkpoint is a continuation boundary, not a
- * successful finish. Only the last terminal event decides whether an
- * in-invocation resume recovered from the boundary.
- */
 export function backgroundRunCutOffReason(run: {
   events?: readonly { event: { type: string; reason?: string } }[];
 }): string | null {
@@ -323,9 +289,6 @@ export async function runBackgroundAutomation(
   deps: BackgroundAutomationDeps,
 ): Promise<BackgroundAutomationRunResult> {
   const { automation } = options;
-  // Bookkeeping, so it must not gate the work it describes: a history table
-  // that cannot be written should cost us the record, not the automation.
-  // Everything downstream tolerates a null id by skipping its own write.
   let historyId: string | null = null;
   if (options.historyId) {
     historyId = options.historyId;
@@ -353,8 +316,6 @@ export async function runBackgroundAutomation(
   }
 
   let result: BackgroundAutomationRunResult;
-  // Populated as soon as the run id exists, so a failure that never returns a
-  // result can still be joined to its LLM trace (`aiTraceId` -> $ai_trace_id).
   const runIdRef: { current: string | null } = { current: null };
   try {
     result = await executeBackgroundAutomation(
@@ -369,11 +330,6 @@ export async function runBackgroundAutomation(
       err instanceof BackgroundAutomationRunError
         ? err.errorCode
         : "background_automation_failed";
-    // Both callers (recurring-jobs scheduler, trigger dispatcher) record this
-    // onto the automation's own metadata and console.error it, and neither
-    // reports it. A failure visible only in a resource field and stdout is not
-    // a failure anyone sees: the run-level no-progress cutoff killed
-    // automations across two releases without ever raising an issue.
     captureError(err, {
       tags: {
         area: "background-automation",
@@ -395,17 +351,10 @@ export async function runBackgroundAutomation(
     );
     throw err;
   }
-  // Outside the try: history is bookkeeping about the run, so a failure to
-  // write it must not turn a completed automation into a reported failure.
   await recordRunOutcome(historyId, "success");
   return result;
 }
 
-/**
- * Link the run to its agent thread. Bookkeeping again: the automation is
- * already executing by this point, so a failed write costs the cross-reference
- * in the history view, not the run.
- */
 async function recordRunThread(
   historyId: string | null,
   threadId: string,
@@ -444,18 +393,6 @@ function backgroundAutomationPersistFailure(input: {
   };
 }
 
-/**
- * Chat opens `/chat/:threadId` from `thread_data`, not `agent_run_events`.
- * Persist before the cut-off/status reject so a failed run still has a
- * visible trace. Keep the scheduler title — `extractThreadMeta` would
- * otherwise replace `Job: …` with the prompt excerpt.
- *
- * Cut-off and hard-abort turns have no terminal error event of their own.
- * `suppressInternalContinuation` also drops `auto_continue`, so persist
- * would otherwise store a completed assistant message. Append a
- * non-recoverable error and skip that suppress so Open thread shows the
- * incomplete state.
- */
 async function persistBackgroundAutomationTurn(input: {
   threadId: string;
   threadTitle: string;
@@ -583,13 +520,6 @@ async function executeBackgroundAutomation(
         : deps.apiKey
           ? { scope: "deployment" as const }
           : undefined;
-      // The run manager invokes its detached callback after the scheduler's
-      // setup stack has yielded, so the engine's credentials must be captured
-      // now, while the owner/org identity is explicit. Passing
-      // `credentialIdentity` is what makes resolveEngine capture them, on the
-      // same gateway lane the interactive path uses — a Builder-credits site has
-      // no per-user connection to find, so resolving that lane by hand here once
-      // left every scheduled automation dead while chat still worked.
       const engine =
         deps.engine ??
         (await resolveEngine({
@@ -616,25 +546,6 @@ async function executeBackgroundAutomation(
       if (runIdRef) runIdRef.current = runId;
       await recordRunThread(historyId, thread.id, runId);
 
-      // Scheduled work is background work: it has no synchronous serverless
-      // caller waiting on it, so it must not inherit the interactive clamp
-      // (40s soft timeout, a 30s no-progress backstop at 0.75x that, and 6
-      // continuations). A dashboard render or digest legitimately spends
-      // minutes across many tool calls, and dies the first time any gap
-      // between two of them exceeds 30s — recorded as `no_progress` after
-      // several minutes of real work, because the backstop is suspended
-      // while a tool is in flight but not between tools.
-      //
-      // Hardcoded rather than `isInBackgroundFunctionRuntime()` (what
-      // webhook-handler.ts uses): a webhook can arrive on either runtime, but
-      // a scheduler tick never serves a synchronous request, so the
-      // interactive clamp never applies to it.
-      //
-      // Derived from this runner's OWN hard abort, not from the durable-chat
-      // background ceiling: that ceiling is 13 minutes and this process is
-      // killed at 10, so taking it left the recoverable soft-timeout boundary
-      // as dead code and the terminal no-progress backstop as the only
-      // boundary an automation could reach.
       const hardTimeoutMs = resolveBackgroundRunHardTimeoutMs();
       const softTimeoutMs = resolveBackgroundAutomationSoftTimeoutMs();
 
@@ -645,16 +556,6 @@ async function executeBackgroundAutomation(
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
       let hardTimedOut = false;
 
-      // This runner executes in-process, synchronously — there is no HTTP
-      // self-dispatch to a separate worker. Self-claim the row into
-      // 'background-processing' right away, exactly like a genuine HTTP
-      // background worker does immediately after its own insert (see
-      // production-agent.ts's `claimBackgroundWorkerRunEarly`). Without this,
-      // the row sits at dispatch_mode='background' for its whole life with no
-      // worker ever claiming it, which is indistinguishable from a lost HTTP
-      // handoff to the unclaimed-background-run sweep — it gets reaped as
-      // "background_worker_never_started" out from under a still-executing
-      // job the moment any single tool call runs past the 25s grace window.
       await insertRun(runId, thread.id, undefined, {
         dispatchMode: "background",
       });
@@ -698,19 +599,8 @@ async function executeBackgroundAutomation(
                 model,
                 automation.meta.reasoningEffort,
               ),
-              // Same model-aware ceiling the interactive paths pass (see
-              // agent-teams.ts and webhook-handler.ts). Without it a scheduled
-              // run silently inherits the flat per-engine default — a LOWER
-              // budget than chat, on exactly the runs that produce the largest
-              // single tool call (a digest, a dashboard, a batch insert), and
-              // the truncation surfaces as an unexplained invalid-arguments
-              // retry loop rather than as a budget problem.
               maxOutputTokens: resolveMainChatMaxOutputTokens(model),
             };
-            // Same adapter A2A uses: bridge this runner's multi-argument shape
-            // to the single-argument `runAgentLoop` `instrumentAgentLoop`
-            // expects. `control` is what lets a chunk boundary be recovered
-            // here instead of ending the turn.
             const execute = (o: typeof loopOpts = loopOpts) =>
               runAgentLoopDirectWithSoftTimeout(
                 o,
@@ -731,20 +621,12 @@ async function executeBackgroundAutomation(
                   loopOpts,
                   runId,
                   threadId: thread.id,
-                  // A scheduled run is NOT anonymous. Passing the owner is what
-                  // makes it visible to per-user observability reads.
                   userId: ownerEmail,
                   config,
-                  // The trace list column is a name, so it has to say WHICH
-                  // automation ran; a constant here made every scheduled run
-                  // in LLM analytics indistinguishable from every other one.
                   spanName: `background_automation_run:${automation.name}`,
                   metadata: {
                     automation: automation.name,
                     trigger: "background_automation",
-                    // `recurring-job:` / `manual-automation:` / `automation:`
-                    // — what actually started this run, which the span name
-                    // alone does not say.
                     label: usageLabel,
                     scope: orgId ? "organization" : "personal",
                   },
@@ -752,9 +634,6 @@ async function executeBackgroundAutomation(
                 return;
               }
             } catch (error) {
-              // Match A2A and interactive chat: a setup failure falls through
-              // to an uninstrumented run, but a failure from INSIDE the
-              // instrumented loop is the real run failure and must rethrow.
               if (instrumented) throw error;
             }
             usageRef.current = await execute();
@@ -781,8 +660,6 @@ async function executeBackgroundAutomation(
               reject(err instanceof Error ? err : new Error(String(err)));
               throw err;
             }
-            // Hard timeout owns the runner reject so a serverless return
-            // waits for this persist via `activeRun.finalized`.
             if (hardTimedOut) return;
             if (persistFailure) {
               reject(
@@ -810,13 +687,7 @@ async function executeBackgroundAutomation(
           {
             softTimeoutMs,
             backgroundFunction: true,
-            // This runner owns continuation in-process: there is no HTTP body
-            // to re-POST and no `chainServerDrivenContinuation` behind it, so a
-            // checkpoint must end the CHUNK and let the loop above recover it.
             recoverChunkBoundaries: true,
-            // Matches the `dispatch_mode` this runner already writes onto the
-            // run row at insert. Without it the terminal and boundary analytics
-            // events reported every scheduled run as foreground.
             dispatchMode: "background",
             noProgressTimeoutMs: options.noProgressTimeoutMs,
             backgroundNoProgressTimeoutMs:
@@ -831,10 +702,6 @@ async function executeBackgroundAutomation(
           hardAbortTimer = null;
           if (activeRun.status !== "running") return;
           hardTimedOut = true;
-          // `abortRun`, not `activeRun.abort.abort`: the controller alone
-          // carries no reason the run manager can see, so finalization fell
-          // through to `aborted:user` and a hard timeout was recorded as a
-          // person pressing Stop.
           abortRun(runId, "background_automation_hard_timeout");
           const timeoutError = new BackgroundAutomationRunError(
             `Background automation timed out after ${Math.round(hardTimeoutMs / 60_000)} minutes`,

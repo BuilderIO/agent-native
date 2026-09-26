@@ -16,10 +16,6 @@ import {
 import { getRequestUserEmail } from "../request-context.js";
 import { getGlobalMcpManager } from "./mcp-glue.js";
 
-// ---------------------------------------------------------------------------
-// Builder.io browser-connect / built-in MCP toggle tools, and the unified
-// `agent-teams` sub-agent orchestration tool.
-// ---------------------------------------------------------------------------
 
 const MAX_EXTENSION_PROMOTION_CONTENT_CHARS = 200_000;
 
@@ -206,8 +202,6 @@ export function createBuilderBrowserTool(deps: {
             extensionId,
             contentLength: extension.content.length,
           };
-          // Do not put private extension source into the waitlist prompt when
-          // this workspace cannot launch a Builder code-change branch.
           if (branchProjectId) {
             const bundle = buildExtensionPromotionPrompt(prompt, extension);
             prompt = bundle.prompt;
@@ -389,7 +383,6 @@ export function createBuilderBrowserTool(deps: {
           });
         }
 
-        // Add chrome-devtools-mcp server pointing at the provisioned browser
         const currentConfig = manager.getConfig();
         const servers = { ...(currentConfig?.servers ?? {}) };
         servers["chrome-devtools"] = {
@@ -428,10 +421,6 @@ export function createBuilderBrowserTool(deps: {
   return entries;
 }
 
-/**
- * Creates the unified `agent-teams` tool that consolidates all sub-agent
- * orchestration behind a single tool with an `action` parameter.
- */
 export function createTeamTools(deps: {
   getOwner: () => string;
   getSystemPrompt: () => string;
@@ -505,14 +494,10 @@ export function createTeamTools(deps: {
       run: async (args: Record<string, string>) => {
         const action = args.action;
 
-        // ── spawn ──────────────────────────────────────────────
         if (action === "spawn") {
           if (!args.task) throw new Error("'task' is required for spawn");
-          // Capture the send function NOW (at spawn time) so that
-          // concurrent runs don't clobber each other's send reference.
           const capturedSend = deps.getSend();
           const { spawnTask } = await import("../agent-teams.js");
-          // Filter out the team tool so sub-agents can't spawn sub-agents
           const subAgentActions = Object.fromEntries(
             Object.entries(deps.getActions()).filter(
               ([name]) => name !== "agent-teams",
@@ -571,7 +556,6 @@ export function createTeamTools(deps: {
           });
         }
 
-        // ── status ─────────────────────────────────────────────
         if (action === "status") {
           if (!args.taskId) throw new Error("'taskId' is required for status");
           const { getTask } = await import("../agent-teams.js");
@@ -590,7 +574,6 @@ export function createTeamTools(deps: {
           });
         }
 
-        // ── read-result ────────────────────────────────────────
         if (action === "read-result") {
           if (!args.taskId)
             throw new Error("'taskId' is required for read-result");
@@ -620,7 +603,6 @@ export function createTeamTools(deps: {
           });
         }
 
-        // ── send ───────────────────────────────────────────────
         if (action === "send") {
           if (!args.taskId) throw new Error("'taskId' is required for send");
           if (!args.message) throw new Error("'message' is required for send");
@@ -629,7 +611,6 @@ export function createTeamTools(deps: {
           return JSON.stringify(result);
         }
 
-        // ── list ───────────────────────────────────────────────
         if (action === "list") {
           const { listTasks } = await import("../agent-teams.js");
           const tasks = await listTasks();

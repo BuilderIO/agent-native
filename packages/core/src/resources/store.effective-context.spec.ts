@@ -500,8 +500,6 @@ describe("resourceEffectiveContext", () => {
         2,
       );
     try {
-      // Written by a pre-upgrade Dispatch under the bare owner; only the
-      // Dispatch resource id ties it back to org B.
       const orgBRow = await resourcePut(
         WORKSPACE_OWNER,
         orgBPath,

@@ -1,24 +1,7 @@
-/**
- * Per-model-family prompt overlays.
- *
- * A small addendum appended to the assembled system prompt when a non-Claude
- * engine is active. Claude is the baseline so it gets no overlay. GPT-family
- * models benefit from an explicit autonomy/persistence nudge and parallel-tool
- * encouragement. Gemini benefits from concise tool-call discipline.
- *
- * Each overlay is ≤8 lines. They are selected by the active model id at the
- * point in agent-chat-plugin.ts where both the assembled prompt and the
- * resolved model id are known.
- */
 
-/**
- * Return the model-family overlay string for the given model id, or an empty
- * string for Claude (baseline — no overlay needed).
- */
 export function getModelFamilyOverlay(modelId: string): string {
   const id = modelId.toLowerCase();
 
-  // Claude family — baseline, no overlay
   if (
     id.startsWith("claude-") ||
     id.startsWith("us.anthropic.") ||
@@ -27,7 +10,6 @@ export function getModelFamilyOverlay(modelId: string): string {
     return "";
   }
 
-  // GPT / OpenAI family
   if (
     id.startsWith("gpt-") ||
     id.startsWith("o1") ||
@@ -41,7 +23,6 @@ Keep going until the task is fully resolved before yielding back — do not stop
 </model-overlay>`;
   }
 
-  // Gemini family
   if (id.startsWith("gemini-") || id.includes("gemini")) {
     return `
 <model-overlay>
@@ -49,6 +30,5 @@ Keep tool calls concise and non-redundant: do not repeat a tool call you already
 </model-overlay>`;
   }
 
-  // Other / unknown — no overlay
   return "";
 }

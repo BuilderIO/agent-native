@@ -1,5 +1,3 @@
-// @agent-native/pinpoint — Element metadata extraction
-// MIT License
 
 import type {
   ElementInfo,
@@ -8,7 +6,6 @@ import type {
 } from "../types/index.js";
 import { buildSelector } from "./selector-builder.js";
 
-/** Relevant computed style properties to capture */
 const STYLE_KEYS = [
   "color",
   "backgroundColor",
@@ -31,14 +28,10 @@ const STYLE_KEYS = [
   "textDecoration",
 ] as const;
 
-/**
- * Extract comprehensive metadata from a DOM element.
- */
 export function extractElementInfo(element: Element): ElementInfo {
   const rect = element.getBoundingClientRect();
   const computed = window.getComputedStyle(element);
 
-  // Extract computed styles (relevant subset)
   const computedStyles: Record<string, string> = {};
   for (const key of STYLE_KEYS) {
     const value = computed.getPropertyValue(
@@ -49,7 +42,6 @@ export function extractElementInfo(element: Element): ElementInfo {
     }
   }
 
-  // Extract ARIA attributes
   const ariaAttributes: Record<string, string> = {};
   for (const attr of element.attributes) {
     if (attr.name.startsWith("aria-") || attr.name === "role") {
@@ -57,7 +49,6 @@ export function extractElementInfo(element: Element): ElementInfo {
     }
   }
 
-  // Extract data attributes
   const dataAttributes: Record<string, string> = {};
   for (const attr of element.attributes) {
     if (attr.name.startsWith("data-")) {
@@ -65,10 +56,8 @@ export function extractElementInfo(element: Element): ElementInfo {
     }
   }
 
-  // Build DOM path
   const domPath = buildDomPath(element);
 
-  // Get text content (truncated)
   const textContent = getTextContent(element);
 
   return {
@@ -92,9 +81,6 @@ export function extractElementInfo(element: Element): ElementInfo {
   };
 }
 
-/**
- * Build a full ElementContext including HTML snippet and framework info.
- */
 export function buildElementContext(
   element: Element,
   frameworkInfo?: FrameworkInfo,
@@ -111,12 +97,7 @@ export function buildElementContext(
   };
 }
 
-/**
- * Get text content of an element, truncated to 200 characters.
- * Only includes direct text nodes, not deeply nested text.
- */
 function getTextContent(element: Element): string | undefined {
-  // Get direct text content only (not children's text)
   let text = "";
   for (const node of element.childNodes) {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -124,7 +105,6 @@ function getTextContent(element: Element): string | undefined {
     }
   }
 
-  // Fallback to full textContent if no direct text
   if (!text) {
     text = element.textContent?.trim() || "";
   }
@@ -133,9 +113,6 @@ function getTextContent(element: Element): string | undefined {
   return text.length > 200 ? text.slice(0, 200) + "..." : text;
 }
 
-/**
- * Build a DOM path string like: html > body > div#root > main > section.hero
- */
 function buildDomPath(element: Element): string {
   const parts: string[] = [];
   let current: Element | null = element;
@@ -157,14 +134,9 @@ function buildDomPath(element: Element): string {
   return parts.join(" > ");
 }
 
-/**
- * Get a cleaned HTML snippet of an element.
- * Removes inline event handlers and excessive whitespace.
- */
 function getCleanedHtml(element: Element, maxLength = 500): string {
   const clone = element.cloneNode(true) as Element;
 
-  // Remove event handler attributes
   const allElements = [clone, ...Array.from(clone.querySelectorAll("*"))];
   for (const el of allElements) {
     for (const attr of Array.from(el.attributes)) {
@@ -175,11 +147,9 @@ function getCleanedHtml(element: Element, maxLength = 500): string {
   }
 
   let html = clone.outerHTML;
-  // Collapse whitespace
   html = html.replace(/\s+/g, " ").trim();
 
   if (html.length > maxLength) {
-    // Truncate but keep the opening tag intact
     const openTagEnd = html.indexOf(">") + 1;
     if (openTagEnd > 0 && openTagEnd < maxLength) {
       html = html.slice(0, maxLength) + "...";

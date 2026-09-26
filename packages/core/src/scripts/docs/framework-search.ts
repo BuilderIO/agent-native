@@ -1,10 +1,3 @@
-/**
- * Core script: framework-search
- *
- * Search the version-matched framework docs and readable source together.
- * This is intentionally bounded and read-only so every app chat can use the
- * same fallback when a question is not answered by the docs alone.
- */
 
 import fs from "node:fs";
 
@@ -171,7 +164,6 @@ async function searchFramework(options: {
     hits.push({ entry, pathMatch, snippets });
   }
 
-  // Keep the result deterministic and favor docs titles and exact path hits.
   hits.sort((a, b) => {
     const aScore = (a.pathMatch ? 2 : 0) + (a.entry.kind === "doc" ? 1 : 0);
     const bScore = (b.pathMatch ? 2 : 0) + (b.entry.kind === "doc" ? 1 : 0);

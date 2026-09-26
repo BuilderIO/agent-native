@@ -32,9 +32,6 @@ import type {
  * correctly in any app once the matching tokens exist in `core/styles/blocks.css`.
  */
 
-/* ========================================================================== */
-/* Viewer-level wireframe style preference (localStorage)                     */
-/* ========================================================================== */
 
 export type WireframeStyle = "sketchy" | "clean";
 
@@ -96,7 +93,6 @@ export function useWireframeStyle(): WireframeStyle {
   );
 }
 
-/** Read the live dark-mode flag from the document root (next-themes-free). */
 export function useIsDark(): boolean {
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
@@ -111,14 +107,7 @@ export function useIsDark(): boolean {
   return isDark;
 }
 
-/* ========================================================================== */
-/* Primitives (ported from kit/primitives.tsx)                                */
-/* ========================================================================== */
 
-/**
- * Frame-level config threaded to every Screen so skeleton / theme / sketch-vs-
- * clean reach the kit no matter which path renders the root Screen.
- */
 export const KitConfigContext = createContext<{
   skeleton?: boolean;
   flushFrame?: boolean;
@@ -208,10 +197,6 @@ export function Screen({
       style={{
         position: "relative",
         width: "100%",
-        // `minHeight` (not a fixed `height: 100%`) so the screen fills an
-        // auto-height artboard's floor yet grows with its content instead of
-        // clipping. The frame shell (`ArtboardFrame`) owns the height policy; a
-        // caller can still override via `style.height` for a fixed canvas.
         minHeight: "100%",
         background: "transparent",
         color: V.ink,
@@ -1247,14 +1232,10 @@ export function Text({
   );
 }
 
-/* ========================================================================== */
-/* Node registry (ported from kit/registry.tsx)                               */
-/* ========================================================================== */
 
 type NodeRenderer = (node: WireframeNode, children: ReactNode) => ReactNode;
 
 const REGISTRY: Record<WireframeElName, NodeRenderer> = {
-  // --- Frame / structure -------------------------------------------------
   screen: (n) => {
     const kids = n.children ?? [];
     const lead = kids[0]?.el;
@@ -1309,7 +1290,6 @@ const REGISTRY: Record<WireframeElName, NodeRenderer> = {
   ),
   divider: () => <Divider />,
 
-  // --- Text --------------------------------------------------------------
   title: (n) => <Title text={n.text} script={n.script} />,
   text: (n) => (
     <Text
@@ -1324,7 +1304,6 @@ const REGISTRY: Record<WireframeElName, NodeRenderer> = {
     <SectionLabel tone={n.tone}>{n.label ?? n.text}</SectionLabel>
   ),
 
-  // --- List / task -------------------------------------------------------
   navItem: (n) => (
     <NavItem
       label={n.label ?? n.text}
@@ -1345,7 +1324,6 @@ const REGISTRY: Record<WireframeElName, NodeRenderer> = {
     />
   ),
 
-  // --- Controls ----------------------------------------------------------
   chips: (n) => <Tabs items={n.items ?? []} />,
   chip: (n) => <Chip active={n.active}>{n.label ?? n.text}</Chip>,
   pill: (n) => <Pill tone={n.tone}>{n.label ?? n.text}</Pill>,
@@ -1366,7 +1344,6 @@ const REGISTRY: Record<WireframeElName, NodeRenderer> = {
   fab: (n) => <Fab icon={n.icon} />,
   searchBar: (n) => <SearchBar placeholder={n.placeholder} />,
 
-  // --- Atoms -------------------------------------------------------------
   avatar: () => <Avatar />,
   iconSquare: (n) => <IconSquare active={n.active} />,
   kv: (n) => <KV rows={n.rows ?? []} />,
@@ -1388,7 +1365,6 @@ function renderScreenBodyNodes(nodes: WireframeNode[]): ReactNode {
   );
 }
 
-/** Render a single kit-tree node (and its children, recursively). */
 export function renderNode(
   node: WireframeNode,
   key?: string | number,
@@ -1402,36 +1378,28 @@ export function renderNode(
   return <KeyedNode key={key ?? node.id}>{rendered}</KeyedNode>;
 }
 
-/** Render an array of nodes. */
 export function renderNodes(nodes: WireframeNode[]): ReactNode {
   return nodes.map((node, i) => renderNode(node, node.id ?? i));
 }
 
-/** Lightweight keyed wrapper that does not introduce extra DOM. */
 function KeyedNode({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** Whether an `el` name has a registered renderer. */
 export function hasRenderer(el: string): el is WireframeElName {
   return el in REGISTRY;
 }
 
 export { REGISTRY as NODE_REGISTRY, V as WFV, toneColors, toneInk, fontWeight };
 
-/* ========================================================================== */
-/* Rough overlay (ported from kit/rough.tsx)                                  */
-/* ========================================================================== */
 
 const gen = rough.generator();
 
 type RoughPath = { d: string; stroke: string; strokeWidth: number };
 
-/** The default selector used for HTML mockups: standard wireframe primitives plus explicit opt-ins. */
 export const HTML_ROUGH_SELECTOR =
   "[data-rough],button,input,textarea,select,hr,.wf-btn,.wf-card,.wf-box,.wf-pill,.wf-chip,.wf-icon-fallback,[style*='border:'],[style*='border-top:'],[style*='border-right:'],[style*='border-bottom:'],[style*='border-left:']";
 
-/** Stable per-element seed so a frame doesn't re-wobble on every measure. */
 function seedFrom(...parts: Array<string | number>): number {
   const value = parts.join(":");
   let hash = 2166136261;
@@ -1442,7 +1410,6 @@ function seedFrom(...parts: Array<string | number>): number {
   return ((hash >>> 0) % 2147483646) + 1;
 }
 
-/** Map the 0–100 sketch slider to a rough.js roughness (calm + legible). */
 export function sketchRoughness(sketch: number): number {
   const s = Math.max(0, Math.min(100, Number.isFinite(sketch) ? sketch : 0));
   return Number((0.32 + (s / 100) * 1.15).toFixed(2));
@@ -1457,7 +1424,6 @@ function readVar(el: Element, name: string): string {
   return getComputedStyle(el).getPropertyValue(name).trim();
 }
 
-/** Normalize a CSS color (hex or rgb[a]) to "r,g,b" for equality comparison. */
 function toRgbKey(color: string): string | null {
   const c = color.trim();
   const hex = c.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
@@ -1481,14 +1447,12 @@ function toRgbKey(color: string): string | null {
   return null;
 }
 
-/** True when two CSS colors resolve to the same RGB (hex vs rgb tolerant). */
 function sameColor(a: string, b: string): boolean {
   const ka = toRgbKey(a);
   const kb = toRgbKey(b);
   return ka !== null && ka === kb;
 }
 
-/** A rounded-rect SVG path (so the frame stroke follows the artboard radius). */
 function roundedRectPath(
   x: number,
   y: number,
@@ -1511,7 +1475,6 @@ function roundedRectPath(
   ].join(" ");
 }
 
-/** Rough.js cannot safely render paths whose inset consumes the whole box. */
 export function hasDrawableRoughBounds(
   width: number,
   height: number,
@@ -1525,7 +1488,6 @@ export function hasDrawableRoughBounds(
   );
 }
 
-/** Rough.js recursively flattens paths, so every coordinate must be finite. */
 export function hasDrawableRoughGeometry(
   x: number,
   y: number,
@@ -1841,11 +1803,6 @@ function build(
   return { paths, w: layoutW, h: layoutH };
 }
 
-/**
- * Renders the rough overlay for a frame. `scopeRef` points at the frame root.
- * When `enabled` is false (skeleton / clean register) it renders nothing and the
- * crisp CSS borders stay visible.
- */
 export function RoughOverlay({
   scopeRef,
   sketch = 52,

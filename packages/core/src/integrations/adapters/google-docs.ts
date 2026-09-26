@@ -9,10 +9,8 @@ import type {
   PlatformDeliveryReceipt,
 } from "../types.js";
 
-/** Google Docs comment replies have no formal length limit but keep it reasonable */
 const GDOCS_MAX_LENGTH = 4000;
 
-// ─── Service Account Auth ───────────────────────────────────────────────────
 
 interface ServiceAccountKey {
   client_email: string;
@@ -22,17 +20,12 @@ interface ServiceAccountKey {
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
-/**
- * Parse the service account key from env.
- * Supports both a JSON string and a file path.
- */
 export function getServiceAccountKey(): ServiceAccountKey | null {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
   if (!raw) return null;
   try {
     return JSON.parse(raw) as ServiceAccountKey;
   } catch {
-    // Could be a file path — try reading it
     try {
       const fs = require("node:fs");
       const content = fs.readFileSync(raw, "utf-8");
@@ -43,19 +36,12 @@ export function getServiceAccountKey(): ServiceAccountKey | null {
   }
 }
 
-/**
- * Get the service account email for display (users share docs with this).
- */
 export function getServiceAccountEmail(): string | null {
   const key = getServiceAccountKey();
   return key?.client_email ?? null;
 }
 
-/**
- * Create a signed JWT and exchange it for an access token.
- */
 export async function getServiceAccountAccessToken(): Promise<string | null> {
-  // Return cached token if still valid (with 60s buffer)
   if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) {
     return cachedToken.token;
   }
@@ -115,11 +101,7 @@ export async function getServiceAccountAccessToken(): Promise<string | null> {
   }
 }
 
-// ─── Google Drive API Helpers ───────────────────────────────────────────────
 
-/**
- * Extract a Google Doc file ID from a URL or return the string as-is.
- */
 export function extractFileId(urlOrId: string): string {
   const match = urlOrId.match(/\/d\/([a-zA-Z0-9_-]+)/);
   return match ? match[1] : urlOrId;
@@ -141,9 +123,6 @@ export interface GoogleDocComment {
   }>;
 }
 
-/**
- * List comments on a Google Doc, optionally filtering by modified time.
- */
 export async function listDocComments(
   fileId: string,
   accessToken: string,
@@ -170,9 +149,6 @@ export async function listDocComments(
   return data.comments ?? [];
 }
 
-/**
- * Reply to a comment on a Google Doc.
- */
 export async function replyToComment(
   fileId: string,
   commentId: string,
@@ -199,9 +175,6 @@ export async function replyToComment(
   }
 }
 
-/**
- * Get the start page token for changes.list (initial sync point).
- */
 export async function getStartPageToken(accessToken: string): Promise<string> {
   const res = await fetch(
     "https://www.googleapis.com/drive/v3/changes/startPageToken",
@@ -222,9 +195,6 @@ export interface DriveChange {
   };
 }
 
-/**
- * List changes since a page token. Returns changed file IDs and the next token.
- */
 export async function listChanges(
   pageToken: string,
   accessToken: string,
@@ -256,20 +226,7 @@ export async function listChanges(
   };
 }
 
-// ─── Platform Adapter ───────────────────────────────────────────────────────
 
-/**
- * Create a Google Docs platform adapter.
- *
- * Unlike Slack/Telegram, this adapter is poll-driven — the poller
- * constructs IncomingMessage objects and feeds them through the
- * webhook handler. The adapter handles formatting and sending replies.
- *
- * Setup:
- * - Set GOOGLE_SERVICE_ACCOUNT_KEY (JSON string or file path) in env
- * - Users share their Google Docs with the service account email
- * - Comments containing the trigger keyword (default: "@agent") are processed
- */
 export function googleDocsAdapter(): PlatformAdapter {
   return {
     platform: "google-docs",
@@ -351,7 +308,6 @@ export function googleDocsAdapter(): PlatformAdapter {
   };
 }
 
-/** Split a message into chunks that fit within the platform's limit */
 function splitMessage(text: string, maxLength: number): string[] {
   if (text.length <= maxLength) return [text];
   const chunks: string[] = [];

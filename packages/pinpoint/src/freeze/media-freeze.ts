@@ -1,10 +1,4 @@
-// @agent-native/pinpoint — Media element freeze (video, audio, SVG SMIL)
-// MIT License
 
-/**
- * Pause all playing media elements on the page.
- * Returns a cleanup function to resume.
- */
 export function freezeMedia(): () => void {
   const mediaElements = document.querySelectorAll("video, audio");
   const playing: HTMLMediaElement[] = [];
@@ -17,7 +11,6 @@ export function freezeMedia(): () => void {
     }
   });
 
-  // Pause SVG SMIL animations
   const svgElements = document.querySelectorAll("svg");
   const pausedSVGs: SVGSVGElement[] = [];
   svgElements.forEach((svg) => {

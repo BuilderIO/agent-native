@@ -86,9 +86,6 @@ export async function resolveKeyReferences(
     if (resolutions.has(name)) continue;
 
     let result = await readAppSecret({ key: name, scope, scopeId });
-    // SECURITY (audit 05 H2): user→workspace fallback is opt-in. Default
-    // off prevents one malicious org member from poisoning every other
-    // member's `${keys.NAME}` resolution with a workspace-scoped value.
     if (!result && scope === "user" && workspaceFallbackEnabled) {
       result = await readAppSecret({
         key: name,
@@ -117,17 +114,6 @@ export async function resolveKeyReferences(
   return { resolved, usedKeys, secretValues };
 }
 
-/**
- * Resolve `${keys.NAME}` for browser extension fetches and other request-bound
- * code paths that should honor the active workspace's shared credential store.
- *
- * Lookup order:
- * 1. user scope for personal overrides
- * 2. active org scope (Dispatch vault sync writes here for org workspaces)
- * 3. active org workspace scope (legacy shared rows)
- * 4. solo workspace scope when no org is active
- * 5. legacy app credential store user/org scopes
- */
 export async function resolveKeyReferencesWithRequestScopes(
   text: string,
   userScopeId: string,
@@ -232,14 +218,6 @@ function requestSecretCandidates(
   ];
 }
 
-/**
- * Check if a URL is allowed by a key's URL allowlist. Returns true when no
- * allowlist is configured (permissive default — the allowlist is opt-in).
- *
- * Matching is exact on the URL's origin (scheme + host + port), so an entry
- * like `https://hooks.slack.com` blocks `https://evil.example.com` even if
- * the agent tries to redirect the request elsewhere.
- */
 export function validateUrlAllowlist(
   url: string,
   allowlist: string[] | null,

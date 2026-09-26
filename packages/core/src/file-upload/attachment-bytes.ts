@@ -1,21 +1,4 @@
-// Owns: whether an attachment's bytes actually are what its `media_type`
-// claims, decided from the bytes rather than from the filename.
-//
-// A provider validates the block it is given, not the block we meant to send,
-// and it rejects the WHOLE request when one image or document block does not
-// decode as its declared type. Measured against the Builder gateway: PNG bytes
-// labelled `image/jpeg`, a truncated PNG, SVG markup labelled `image/png`, and
-// non-PDF bytes inside a `document` block each return
-// `reason: invalid_request` with the gateway's opaque
-// "Sorry, this was caused by an internal error. ERROR ID: ..." envelope. One
-// bad attachment therefore kills every other attachment and the user's text
-// along with it.
-//
-// Browsers derive `File.type` from the extension, so a `.jpg` holding PNG bytes
-// is ordinary user data, not a corrupt upload. Trusting the declared label is
-// what turns that into a dead turn.
 
-/** Media types every supported vision provider decodes as inline base64. */
 export type SniffedImageMediaType =
   | "image/jpeg"
   | "image/png"
@@ -24,27 +7,9 @@ export type SniffedImageMediaType =
 
 export type SniffedMediaType = SniffedImageMediaType | "application/pdf";
 
-/**
- * Bytes are read from the base64 head/tail only. Decoding a 5 MB attachment in
- * full to read a magic number is pure cost on every turn. The tail window is
- * wide enough to hold a PDF trailer plus the whitespace writers leave after it.
- */
 const HEAD_BASE64_CHARS = 64;
 const TAIL_BASE64_CHARS = 1024;
 
-/**
- * Canonical base64 only: alphabet characters, then at most two pad chars, in a
- * multiple of four.
- *
- * `Buffer.from(value, "base64")` silently skips characters outside the
- * alphabet, so a payload carrying a stray space or a line break decodes to the
- * correct bytes locally while the provider rejects the whole request. Measured:
- * splicing a space, a newline, or a `!` into an otherwise valid PNG payload
- * decodes to the same 852 bytes in Node and still returns `invalid_request`.
- * Line-wrapped base64 at 76 columns is a real encoder output, not a
- * hypothetical, so this is the difference between a readable attachment and a
- * dead turn.
- */
 const CANONICAL_BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 
 function isCanonicalBase64(value: string): boolean {
@@ -52,7 +17,6 @@ function isCanonicalBase64(value: string): boolean {
   return CANONICAL_BASE64_RE.test(value);
 }
 
-/** Decoded byte length, exact because the payload is known to be canonical. */
 function decodedByteLength(base64: string): number {
   let padding = 0;
   if (base64.endsWith("==")) padding = 2;
@@ -67,8 +31,6 @@ function decodeHead(base64: string): Uint8Array {
 }
 
 function decodeTail(base64: string): Uint8Array {
-  // base64 encodes 3 bytes per 4 chars, so a tail slice only aligns to byte
-  // boundaries when it starts on a multiple of 4 from the string start.
   const start = Math.max(0, base64.length - TAIL_BASE64_CHARS);
   const aligned = start + ((4 - (start % 4)) % 4);
   return new Uint8Array(Buffer.from(base64.slice(aligned), "base64"));
@@ -109,16 +71,6 @@ const WEBP_TAG = [0x57, 0x45, 0x42, 0x50] as const;
 const PDF_SIGNATURE = [0x25, 0x50, 0x44, 0x46] as const;
 const PDF_EOF = [0x25, 0x25, 0x45, 0x4f, 0x46] as const;
 
-/**
- * The media type the bytes actually are, or `null` when they match no format a
- * provider accepts inline. `null` covers empty data, non-canonical base64,
- * text/SVG/HTML markup, and office formats — every shape that has been observed
- * to fail the whole request when labelled as an image.
- *
- * A PNG must carry its IHDR chunk here, not just the 8-byte signature: the
- * signature alone followed by an IEND chunk is a well-formed prefix around no
- * image, and the provider rejects it.
- */
 export function sniffAttachmentMediaType(
   base64: string | undefined,
 ): SniffedMediaType | null {
@@ -141,24 +93,8 @@ export function sniffAttachmentMediaType(
   return null;
 }
 
-/**
- * Whether the bytes stop before their format says they should, which is how a
- * cut-short upload presents. Every format here has an unambiguous end-of-file
- * marker or a self-declared length, so this asks the file about itself rather
- * than guessing from size.
- *
- * JPEG and PDF are matched anywhere in the tail window because writers append
- * whitespace and metadata after the terminator; requiring it at the exact last
- * byte would demote valid files. A raw `FFD9` cannot occur inside JPEG scan
- * data, where `FF` is byte-stuffed as `FF00`, so scanning is still precise.
- */
 function isTruncated(base64: string, mediaType: SniffedMediaType): boolean {
   if (mediaType === "image/webp") {
-    // RIFF declares its own payload size in bytes 4..7, little-endian,
-    // excluding the 8-byte header. A short upload leaves that promise unmet.
-    // Read it unsigned: `<< 24` yields a signed int32, so a header claiming
-    // 0xffffffff would come back as -1 and read as comfortably within the
-    // payload instead of four gigabytes past it.
     const head = decodeHead(base64);
     if (head.length < 8) return true;
     const declared =
@@ -191,13 +127,6 @@ export type AttachmentBytesRejection = Exclude<
   { kind: "ok" }
 >;
 
-/**
- * Reconcile an image attachment's declared media type against its bytes.
- *
- * On success the verdict carries the SNIFFED type, not the declared one:
- * relabelling is what makes an extension-mismatched screenshot readable
- * instead of fatal.
- */
 export function reconcileImageBytes(input: {
   base64: string | undefined;
   declared: string;
@@ -213,7 +142,6 @@ export function reconcileImageBytes(input: {
   return { kind: "ok", mediaType: actual };
 }
 
-/** Reconcile a document attachment's bytes against the PDF it claims to be. */
 export function reconcilePdfBytes(input: {
   base64: string | undefined;
   declared: string;
@@ -229,11 +157,6 @@ export function reconcilePdfBytes(input: {
   return { kind: "ok", mediaType: actual };
 }
 
-/**
- * Model-visible explanation for a rejected attachment. The model relays this to
- * the user, so it has to name the file's real problem: "unsupported format" for
- * a truncated upload sends the user off converting a file that was fine.
- */
 export function describeAttachmentBytesVerdict(
   verdict: AttachmentBytesRejection,
 ): string {

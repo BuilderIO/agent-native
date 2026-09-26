@@ -127,9 +127,6 @@ export const EXTENSIONS_UPDATED_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_up
 export const EXTENSIONS_ARCHIVED_AT_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS archived_at TEXT`;
 export const EXTENSIONS_ARCHIVED_AT_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_archived_at_idx ON tools (archived_at)`;
 
-// Global (admin) hide: when set, the extension row is hidden from EVERYONE's
-// list, distinct from the per-user `tool_hidden_extensions` table. Additive
-// columns — see ensureExtensionsTables() for the idempotent ADD COLUMN run.
 export const EXTENSIONS_HIDDEN_AT_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS hidden_at TEXT`;
 export const EXTENSIONS_HIDDEN_BY_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS hidden_by TEXT`;
 export const EXTENSIONS_HIDDEN_AT_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_hidden_at_idx ON tools (hidden_at)`;
@@ -171,17 +168,7 @@ export const EXTENSION_HISTORY_VERSION_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT E
 export const EXTENSION_HISTORY_CREATED_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_history_tool_created_idx
   ON tool_history (tool_id, created_at)`;
 
-// ---------------------------------------------------------------------------
-// extension_consents — vestigial, kept for additive-schema compliance
-// ---------------------------------------------------------------------------
-//
-// Originally added for an audit-C1 per-(viewer, extension, content_hash)
-// consent gate that prompted viewers to "Run anyway" before non-author
-// extensions could execute. We removed the runtime gate after settling on
-// intra-org trust (extensions are shared between trusted teammates; the
-// org-level access controls are sufficient). The table is kept here so
 // deploys that already ran the migration stay healthy — additive-only schema
-// policy means we never drop. Physical name stays `tool_consents`.
 
 export const extensionConsents = table("tool_consents", {
   viewerEmail: text("viewer_email").notNull(),

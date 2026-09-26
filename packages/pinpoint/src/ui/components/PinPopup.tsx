@@ -1,5 +1,3 @@
-// @agent-native/pinpoint — Pin creation/edit popup with voice + queue
-// MIT License
 
 import {
   createSignal,
@@ -14,13 +12,9 @@ import { icons } from "../icons/index.js";
 
 interface PinPopupProps {
   context: ElementContext;
-  /** Pre-filled comment for editing an existing pin */
   initialComment?: string;
-  /** Whether this is editing an existing pin */
   isEditing?: boolean;
-  /** Compact mode — hide technical details behind chevron toggle */
   compactPopup?: boolean;
-  /** Whether queue mode is enabled */
   queueMode?: boolean;
   onAdd: (comment: string) => void;
   onQueue?: (comment: string) => void;
@@ -28,7 +22,6 @@ interface PinPopupProps {
   onCancel: () => void;
 }
 
-// Check Speech API availability
 function getSpeechRecognition(): (new () => any) | null {
   const w = window as any;
   return w.SpeechRecognition || w.webkitSpeechRecognition || null;
@@ -44,7 +37,6 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
   const compact = () => props.compactPopup ?? true;
   const hasSpeechAPI = !!getSpeechRecognition();
 
-  // Friendly display name: component name or HTML tag
   const displayName = () => {
     if (props.context.framework?.componentPath) {
       return props.context.framework.componentPath;
@@ -52,7 +44,6 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
     return `<${props.context.element.tagName.toLowerCase()}>`;
   };
 
-  // Reactive popup positioning
   const popupPosition = () => {
     const rect = props.context.element.boundingRect;
     const estimatedHeight = compact() && showDetails() ? 260 : 220;
@@ -76,7 +67,6 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
     }
   }
 
-  // Voice recording
   function toggleRecording() {
     if (isRecording()) {
       stopRecording();
@@ -106,13 +96,11 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
           interim = transcript;
         }
       }
-      // Append transcribed text to existing comment
       const current = comment();
       const separator = current && !current.endsWith(" ") ? " " : "";
       setComment(current + separator + finalTranscript + interim);
       finalTranscript = "";
 
-      // Update textarea height
       if (textareaRef) {
         textareaRef.style.height = "auto";
         textareaRef.style.height =
@@ -145,7 +133,6 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
       textareaRef.selectionStart = textareaRef.value.length;
     }
 
-    // Global Escape listener
     const onEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -207,7 +194,6 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
       }}
     >
       {compact() ? (
-        /* Compact mode — friendly name + collapsible details */
         <>
           {/* Header with chevron toggle */}
           <div
@@ -252,7 +238,6 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
           </div>
         </>
       ) : (
-        /* Expanded mode — all info visible */
         <>
           <div class="pp-popup__component">{displayName()}</div>
           <div class="pp-popup__element-info">{props.context.cssSelector}</div>

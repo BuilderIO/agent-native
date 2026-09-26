@@ -44,18 +44,10 @@ function hasElectronShellBridge(): boolean {
 
 export interface ConnectBuilderCardProps {
   configured: boolean;
-  /**
-   * True when the server has a Builder branch project configured for this
-   * request. When false, the card shows a hosted waitlist CTA or a local code
-   * external coding-agent handoff instead of a Send button.
-   */
   builderEnabled?: boolean;
   connectUrl: string;
   orgName?: string | null;
-  /** The user's feature/change request, forwarded to the selected coding
-   *  agent when they click Send. Empty for generic "connect Builder" prompts. */
   prompt?: string;
-  /** Formatted staged chat context forwarded with the Builder request. */
   context?: string;
 }
 
@@ -66,11 +58,6 @@ interface BuilderRunResult {
   status: string;
 }
 
-/**
- * Rich inline card rendered for the `connect-builder` tool call. Shows the
- * Builder handoff when available, or routes local development requests to the
- * external coding agent.
- */
 export function ConnectBuilderCard({
   configured: initialConfigured,
   builderEnabled: initialBuilderEnabled = true,
@@ -80,17 +67,11 @@ export function ConnectBuilderCard({
   context = "",
 }: ConnectBuilderCardProps) {
   const t = useT();
-  // The connect-poll state machine is shared — the tool-call result is
-  // frozen at render time, so the hook's mount-time fetch + focus refresh
-  // is what catches a flow the user completed in another tab.
   const flow = useBuilderConnectFlow({
     popupUrl: initialConnectUrl,
     provisionAccount: true,
     trackingSource: "connect_builder_card",
   });
-  // Keep the server-rendered handoff state until a successful status response
-  // arrives. A transient status failure must not replace a valid Send CTA with
-  // the hook's initial disconnected defaults.
   const configured = flow.statusResolved ? flow.configured : initialConfigured;
   const codeChangeConfigured = flow.statusResolved
     ? flow.codeChangeConfigured
@@ -116,13 +97,6 @@ export function ConnectBuilderCard({
   const [electronShell] = useState(() => hasElectronShellBridge());
   const mountedRef = useRef(true);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Tracks whether the user clicked "Connect Builder" *this session*. When
-  // the connect-then-poll round-trip lands `configured=true`, we use this
-  // flag to decide whether to retry the user's pending prompt automatically
-  // — the alternative is making them click "Send to Builder" a second time
-  // even though the agent had already captured their original ask. We do
-  // NOT auto-send when the card mounts already-connected (e.g. user
-  // revisits an old thread) — only when the connect just succeeded.
   const wasConnectingRef = useRef(false);
 
   useEffect(() => {
@@ -224,7 +198,6 @@ export function ConnectBuilderCard({
     }, 1600);
   }, [prompt]);
 
-  // Combine connect-flow errors, send errors, waitlist errors, and copy errors.
   const err = sendErr ?? waitlistErr ?? copyErr ?? flow.error;
 
   const hasPrompt = prompt.trim().length > 0;
@@ -249,10 +222,6 @@ export function ConnectBuilderCard({
     );
   }, []);
 
-  // Auto-send the user's pending prompt the moment connecting finishes
-  // successfully. Without this, the connect popup closing leaves the user
-  // staring at a "Send to Builder" button — feels like they have to
-  // re-submit even though the prompt is right there in the card.
   useEffect(() => {
     if (flow.connecting) {
       wasConnectingRef.current = true;
@@ -264,14 +233,10 @@ export function ConnectBuilderCard({
       void handleSend();
     }
   }, [flow.connecting, canSend, sending, runResult, sendErr, handleSend]);
-  // Branch creation is gated by a server-side project id, which may come
-  // from deployment config or org-scoped secrets.
   const showExternalAgentHandoff =
     localDevelopment && !builderEnabled && hasPrompt;
   const showWaitlist = !localDevelopment && !builderEnabled && hasPrompt;
 
-  // Title + subtitle depend on which mode we're in. We compute them up front
-  // so the render tree below stays flat.
   const connectedCapabilityText =
     builderEnabled && codeChangeConfigured
       ? t("onboarding.builderReadyWithCodeChanges")

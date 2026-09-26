@@ -28,12 +28,9 @@ import type { Resource } from "./use-resources.js";
 export interface ResourceEditorProps {
   resource: Resource;
   onSave: (content: string) => void;
-  /** Controlled view mode — if provided, the editor won't manage its own view state */
   view?: "visual" | "code";
   onViewChange?: (v: "visual" | "code") => void;
-  /** When true, the editor's internal toolbar row is hidden */
   hideToolbar?: boolean;
-  /** When true, content can be viewed and selected but not modified */
   readOnly?: boolean;
 }
 
@@ -248,15 +245,12 @@ function FrontmatterBar({
   );
 }
 
-// --- Syntax-highlighted code editor (textarea + overlay) ---
 
 function highlightJson(text: string): string {
-  // Escape HTML first
   const esc = text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-  // Tokenize JSON with regex
   return esc.replace(
     /("(?:\\.|[^"\\])*")\s*:|("(?:\\.|[^"\\])*")|((?:-?\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\btrue\b|\bfalse\b|\bnull\b)/g,
     (match, key, str, num, lit) => {
@@ -423,7 +417,6 @@ function VisualMarkdownEditor({
   );
 }
 
-// --- Main ResourceEditor ---
 
 interface RemoteAgentFormValue {
   id?: string;
@@ -588,7 +581,6 @@ export function ResourceEditor({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevIdRef = useRef(resource.id);
 
-  // Reset content when resource changes
   useEffect(() => {
     if (prevIdRef.current !== resource.id) {
       setContent(resource.content);
@@ -617,7 +609,6 @@ export function ResourceEditor({
     [onViewChange],
   );
 
-  // Cleanup debounce on unmount
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -629,7 +620,6 @@ export function ResourceEditor({
   const isImage = resource.mimeType.startsWith("image/");
   const isRemoteAgent = isRemoteAgentPath(resource.path);
 
-  // Remote-agent manifest → form editor
   if (isRemoteAgent) {
     return (
       <div className="flex h-full flex-col">
@@ -642,7 +632,6 @@ export function ResourceEditor({
     );
   }
 
-  // Image preview
   if (isImage) {
     return (
       <div className="flex h-full flex-col">
@@ -657,7 +646,6 @@ export function ResourceEditor({
     );
   }
 
-  // Markdown files get visual/code toggle
   if (isMarkdown) {
     return (
       <div className="flex h-full flex-col">
@@ -722,7 +710,6 @@ export function ResourceEditor({
     );
   }
 
-  // Non-markdown text files
   const isJson =
     resource.mimeType === "application/json" || resource.path.endsWith(".json");
 
@@ -753,7 +740,6 @@ export function ResourceEditor({
   );
 }
 
-// --- Scoped editor styles (injected inline so no external CSS needed) ---
 
 const editorStyles = `
 /* Prose styling for the visual editor */

@@ -1,10 +1,3 @@
-/**
- * Framework-level sharing / privacy primitive.
- *
- * Templates make their resource tables ownable and register them here so the
- * shared share actions and UI work end-to-end. See
- * `.agents/skills/sharing/SKILL.md` for the full pattern.
- */
 
 export {
   ownableColumns,

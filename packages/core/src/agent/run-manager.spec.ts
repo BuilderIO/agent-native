@@ -12,14 +12,10 @@ import {
 import { EngineError } from "./engine/types.js";
 import type { AgentChatEvent } from "./types.js";
 
-// The whole run-store module is mocked, so the subscription's missing-row and
-// unknown-status fallbacks would otherwise spread `undefined` into the frame.
 const RUN_RECORD_MISSING_ERROR_CODE = "run_record_missing";
 const UNKNOWN_RUN_STATUS_ERROR_CODE = "unknown_run_status";
 const RUN_TERMINAL_LOOKUP_FAILED_ERROR_CODE = "run_terminal_lookup_failed";
 
-// Mutable so one test can exercise the grace window while the rest read the
-// terminal frames without waiting it out.
 const runStoreTestState = vi.hoisted(() => ({ runRecordMissingGraceMs: 0 }));
 
 vi.mock("./run-store.js", () => ({
@@ -79,8 +75,6 @@ vi.mock("./run-store.js", () => ({
   setRunInFlightMarker: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
   reapUnclaimedBackgroundRun: vi.fn(() => Promise.resolve(false)),
-  // Faithful copy of the real pure predicate (5-min redispatch bound) so the
-  // run-manager client-poll guard can be exercised without the real DB module.
   UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS: 5 * 60_000,
   shouldRedispatchUnclaimedBackgroundRun: (
     row: { startedAt: number },
@@ -121,8 +115,6 @@ vi.mock("./run-store.js", () => ({
   persistRunCheckpointEvent: vi.fn(() => Promise.resolve()),
   recordRunDiagnostic: vi.fn(() => Promise.resolve()),
   RUN_DIAG_STAGE: { runBoundaryReached: "run_boundary_reached" },
-  // Faithful copy of the real pure mapping so the run-manager abort paths can
-  // be exercised without the real DB module.
   terminalEventForAbortReason: (reason: string | undefined) => {
     const normalized = (reason ?? "").trim() || "user";
     if (
@@ -346,8 +338,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("holds the idle cadence until the decay threshold, then backs off to the cap", () => {
-    // Below the threshold nothing changes — a run that goes quiet for a beat
-    // between tokens must not be penalized.
     for (let n = 0; n <= SQL_SUBSCRIPTION_IDLE_DECAY_AFTER_POLLS; n += 1) {
       expect(resolveSqlSubscriptionPollMs(1_000, 999, n)).toBe(
         SQL_SUBSCRIPTION_IDLE_POLL_MS,
@@ -362,8 +352,6 @@ describe("run manager soft timeout", () => {
       ),
     ).toBe(SQL_SUBSCRIPTION_IDLE_POLL_MS * 2);
 
-    // Capped, and stays capped for an absurd count rather than overflowing to
-    // Infinity through `2 ** steps`.
     expect(resolveSqlSubscriptionPollMs(1_000, 999, 500)).toBe(
       SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS,
     );
@@ -373,26 +361,19 @@ describe("run manager soft timeout", () => {
   });
 
   it("counts only idle polls toward the decay ladder", () => {
-    // Events always reset.
     expect(nextSqlSubscriptionEmptyPolls(9, true, 1_000, 0)).toBe(0);
     expect(nextSqlSubscriptionEmptyPolls(9, true, 1_000, 5_000)).toBe(0);
 
-    // Empty poll INSIDE the active grace window: held, not incremented. Without
-    // this the ~16 fast polls in a 2s grace window would land the ladder at its
-    // cap the moment the grace expired.
     expect(nextSqlSubscriptionEmptyPolls(3, false, 1_000, 5_000)).toBe(3);
     expect(nextSqlSubscriptionEmptyPolls(0, false, 1_000, 1_001)).toBe(0);
 
-    // Empty poll at or past the grace boundary: counts.
     expect(nextSqlSubscriptionEmptyPolls(3, false, 1_000, 1_000)).toBe(4);
     expect(nextSqlSubscriptionEmptyPolls(3, false, 1_000, 0)).toBe(4);
   });
 
   it("resumes at the idle cadence, not the cap, after a brief mid-stream pause", () => {
-    // Regression guard for the stutter: a run streams, pauses ~2.5s, resumes.
-    // The polls during the grace window must not have advanced the ladder.
     let empties = 0;
-    const activeUntil = 2_000; // grace set at t=0 by a non-empty read
+    const activeUntil = 2_000;
     for (const now of [125, 250, 375, 500, 1_000, 1_500, 1_999]) {
       empties = nextSqlSubscriptionEmptyPolls(empties, false, now, activeUntil);
     }
@@ -403,9 +384,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("never decays while the active polling window is open", () => {
-    // A streaming producer must keep the 125ms cadence no matter what the empty
-    // counter says — the counter is reset on every non-empty read, but a stale
-    // value must not leak into the active branch.
     expect(resolveSqlSubscriptionPollMs(1_000, 1_001, 999)).toBe(
       SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
     );
@@ -481,10 +459,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("persists a soft-timeout chunk as `truncated`, never as `completed`", async () => {
-    // A run that stopped at a budget boundary did not finish. Filing it as
-    // `completed` hid it from every success-rate query AND handed it the short
-    // 24h retention, so the most-reported failures were also the fastest to
-    // lose their evidence.
     startRun(
       "run-truncated-status",
       "thread-truncated-status",
@@ -512,10 +486,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("makes the chunk boundary durable when the soft timeout fires, not after the unwind", async () => {
-    // Regression: the terminal auto_continue used to be stashed in memory and
-    // only written after the agent loop unwound. Wind-down regularly outlasted
-    // the remaining serverless budget, the process was hard-killed, and the run
-    // was reaped as a `stale_run` lie with no auto_continue in the ledger.
     let unwound = false;
     let releaseCheckpoint!: () => void;
     vi.mocked(persistRunCheckpointEvent).mockImplementationOnce(
@@ -550,14 +520,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("persists the terminal auto_continue with a unique seq when the run emits events after the soft timeout", async () => {
-    // Regression: the soft-timeout terminal event (auto_continue) is stashed
-    // with the seq captured at `send()` time. If the runFn streams MORE events
-    // before it actually stops on the abort signal, those events reuse that
-    // seq and get persisted first. If the terminal event were emitted with its
-    // stale captured seq, insertRunEvent's `ON CONFLICT (run_id, seq) DO
-    // NOTHING` would silently drop it and the client would lose the
-    // continuation signal. The terminal event must always land in SQL with a
-    // unique seq.
     const persisted: Array<{ seq: number; type: string }> = [];
     vi.mocked(insertRunEvent).mockImplementation(
       async (_runId, seq, eventData) => {
@@ -571,9 +533,6 @@ describe("run manager soft timeout", () => {
       async (send, signal) => {
         await new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => {
-            // Simulate the runFn streaming a couple more chunks before it
-            // actually unwinds on the abort signal — these get pushed and
-            // would reuse the auto_continue's stashed seq.
             send({ type: "text", text: "late chunk 1" });
             send({ type: "text", text: "late chunk 2" });
             resolve();
@@ -590,18 +549,15 @@ describe("run manager soft timeout", () => {
       expect(persisted.some((e) => e.type === "auto_continue")).toBe(true),
     );
 
-    // The terminal auto_continue must be persisted exactly once...
     const terminalPersists = persisted.filter(
       (e) => e.type === "auto_continue",
     );
     expect(terminalPersists).toHaveLength(1);
-    // ...and with a seq that doesn't collide with any other persisted event.
     const terminalSeq = terminalPersists[0].seq;
     const collisions = persisted.filter(
       (e) => e.seq === terminalSeq && e.type !== "auto_continue",
     );
     expect(collisions).toHaveLength(0);
-    // All persisted seqs must be unique (no ON CONFLICT drops).
     const allSeqs = persisted.map((e) => e.seq);
     expect(new Set(allSeqs).size).toBe(allSeqs.length);
     expect(run.status).toBe("completed");
@@ -708,13 +664,9 @@ describe("run manager soft timeout", () => {
     );
   });
 
-  // ── Durable background soft-timeout (opt-in `backgroundFunction`) ─────────
-  // The foreground/interactive path is unchanged (40s clamp); only an explicit
-  // background-function invocation lifts the ceiling to the host-natural budget.
 
   it("FOREGROUND hosted run still clamps to the 40s interactive ceiling (guardrail)", () => {
     process.env.NETLIFY = "true";
-    // No backgroundFunction flag — this is the normal interactive path.
     expect(resolveRunSoftTimeoutMs(240_000)).toBe(
       HOSTED_SOFT_TIMEOUT_CEILING_MS,
     );
@@ -726,7 +678,6 @@ describe("run manager soft timeout", () => {
     expect(
       resolveRunSoftTimeoutMs(undefined, { backgroundFunction: true }),
     ).toBe(BACKGROUND_SOFT_TIMEOUT_CEILING_MS);
-    // Sanity: that default is well above the 40s interactive clamp.
     expect(BACKGROUND_SOFT_TIMEOUT_CEILING_MS).toBeGreaterThan(
       HOSTED_SOFT_TIMEOUT_CEILING_MS,
     );
@@ -734,8 +685,6 @@ describe("run manager soft timeout", () => {
 
   it("BACKGROUND hosted run clamps to the 13min ceiling, NOT the 40s one", () => {
     process.env.NETLIFY = "true";
-    // An override that exceeds the background ceiling clamps down to ~13min,
-    // but is NOT pulled down to the foreground 40s clamp.
     const resolved = resolveRunSoftTimeoutMs(60 * 60_000, {
       backgroundFunction: true,
     });
@@ -745,28 +694,17 @@ describe("run manager soft timeout", () => {
 
   it("BACKGROUND override below the ceiling is honored as-is on hosted", () => {
     process.env.NETLIFY = "true";
-    // A short serverless host that DOES have a wall keeps its small budget and
-    // would chain — the background ceiling is a max, not a floor.
     expect(
       resolveRunSoftTimeoutMs(5 * 60_000, { backgroundFunction: true }),
     ).toBe(5 * 60_000);
   });
 
   it("BACKGROUND on a non-hosted (long-lived) runtime is effectively unbounded (0)", () => {
-    // Local / self-hosted Node: one chunk, no host wall, no framework timeout.
     expect(
       resolveRunSoftTimeoutMs(undefined, { backgroundFunction: true }),
     ).toBe(0);
   });
 
-  // ── Regression: soft-timeout MUST match the REAL function budget ──────────
-  // The 60s-wall overshoot bug came from selecting `backgroundFunction: true`
-  // whenever the run was a `_process-run` worker, regardless of whether it was
-  // actually inside a real `-background` (15-min) function. These tests pin the
-  // exact composition production-agent.ts uses:
-  //   backgroundFunction = isBackgroundWorker && isInBackgroundFunctionRuntime()
-  // so a worker that landed on the ~60s synchronous function keeps the 40s
-  // clamp and checkpoints cleanly instead of looping at the 60s hard wall.
   function resolveForWorker(opts: {
     isBackgroundWorker: boolean;
     overrideMs?: number;
@@ -788,8 +726,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("INLINE FALLBACK (foreground ~60s fn, not a worker) uses the 40s default", () => {
-    // The graceful inline fallback runs in the foreground ~60s function. Even
-    // though durable is active, it is NOT a background worker → must stay 40s.
     process.env.NETLIFY = "true";
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
     expect(
@@ -798,9 +734,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("WORKER on the regular ~60s function (name does NOT end in -background) keeps the 40s clamp (the bug)", () => {
-    // This is the exact overshoot scenario: the `_process-run` worker re-entered
-    // but the `-background` function was never emitted, so it landed on the
-    // synchronous `server` function. It MUST checkpoint at 40s, not 13min.
     process.env.NETLIFY = "true";
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
     expect(isInBackgroundFunctionRuntime()).toBe(false);
@@ -1904,8 +1837,6 @@ describe("run manager soft timeout", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(emitProgress).toBeTypeOf("function");
 
-    // The first two writes reject; the third succeeds. A latched in-flight
-    // flag would leave this at one attempted write forever.
     await vi.advanceTimersByTimeAsync(3_000);
     expect(attempts).toBe(3);
     expect(successfulWrites).toEqual([12_000]);
@@ -2203,10 +2134,6 @@ describe("run manager soft timeout", () => {
     });
   });
 
-  // The client decides auto-continue from the error code and these fields. A
-  // deployment that answers visitors with one line replaces the message it used
-  // to keyword-match, so the engine's verdict has to travel as a field or the
-  // turn ends on those sites alone.
   it("carries a provider-retryable engine failure on the wire", async () => {
     const events: AgentChatEvent[] = [];
 
@@ -2236,13 +2163,6 @@ describe("run manager soft timeout", () => {
     expect(events).toContainEqual(
       expect.objectContaining({ type: "error", providerRetryable: true }),
     );
-    // NOT `recoverable`: that field is the server's own continuation-boundary
-    // signal, and the two classifiers that read it (thread-data-builder's
-    // `isInternalContinuationError`, production-agent's
-    // `isRecoverableContinuationError`) would drop this error from the persisted
-    // turn and self-chain a background continuation into a live provider
-    // throttle. Asserted per-property because `toEqual`/`objectContaining`
-    // treat an absent key and `recoverable: undefined` as the same thing.
     const retryableEvent = events.find((event) => event.type === "error");
     expect(retryableEvent).not.toHaveProperty("recoverable");
   });
@@ -2432,11 +2352,6 @@ describe("run manager soft timeout", () => {
     });
   });
 
-  // A truncated gateway stream is a routine interruption the client continues
-  // from. It reached here as `builder_gateway_network_error` — recovered from the
-  // sentence "stream ended without a stop event" — until the engine gave it a
-  // code of its own, and on a Builder-credits deployment the sentence is replaced
-  // by one visitor line, so the code is the only thing left to suppress on.
   it("keeps a truncated gateway stream out of Sentry on both lanes", async () => {
     for (const [name, message] of [
       ["owner", "Builder gateway stream ended without a stop event"],
@@ -2579,10 +2494,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("emits a terminal event the callback installed even when the loop already stashed one", async () => {
-    // `completionRun` is a COPY once the loop stashed a terminal event, so a
-    // callback writing to it used to be silently ignored — the run emitted the
-    // recoverable error the callback was overriding, and the client re-POSTed
-    // the chain the server had just stopped.
     const events: AgentChatEvent[] = [];
     const onComplete = vi.fn(async (completionRun: ActiveRun) => {
       completionRun.continuationTerminalEvent = {
@@ -2616,7 +2527,6 @@ describe("run manager soft timeout", () => {
       errorCode: "builder_gateway_internal_error",
       recoverable: false,
     });
-    // The row still records the underlying failure, not a generic one.
     expect(setRunError).toHaveBeenCalledWith(
       "run-callback-terminal-override",
       "builder_gateway_internal_error",
@@ -2661,10 +2571,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("auto-continues a foreground run whose last tool call failed", async () => {
-    // Design "Build this design as production code": the turn ends on failing
-    // tool calls with no assistant text, and a plain `done` left the client
-    // able to say only "stopped after these actions ... without sending a final
-    // message". The model never read the error, so the turn is unfinished.
     const events: AgentChatEvent[] = [];
     const run = startRun(
       "run-foreground-tool-error",
@@ -2709,11 +2615,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("auto-continues when a precondition failure is the last tool result", async () => {
-    // Analytics /ask: the first turn stopped silently after a
-    // `provider-api-request` precondition failure, and the missing credential
-    // only surfaced when the user typed "continue" by hand. The successful
-    // lookups before it must not make the failing tail look like a finished
-    // answer.
     const events: AgentChatEvent[] = [];
     const run = startRun(
       "run-precondition-tool-error",
@@ -2764,10 +2665,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("does not continue a failed tool the agent already stopped on", async () => {
-    // The bound on failed-tool continuations. A precondition the turn cannot
-    // satisfy (missing credential, missing role) is classified on the first
-    // attempt and emits a terminal error, so the chain must end on that real
-    // message rather than retrying a failure whose outcome cannot change.
     const events: AgentChatEvent[] = [];
     const run = startRun(
       "run-permanent-precondition",
@@ -3269,8 +3166,6 @@ describe("run manager soft timeout", () => {
       chunks.push(decoder.decode(next.value));
     }
 
-    // A false `done` here tells the client the agent stopped while the chained
-    // successor run is still working ("stopped without sending a final message").
     expect(chunks.join("")).toContain(
       'data: {"type":"auto_continue","reason":"run_timeout","seq":0,"eventId":"run-sql-chunk:0"}',
     );
@@ -3340,10 +3235,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("waits for the real terminal event when an in-memory run has none buffered", async () => {
-    // `run.status` flips to "completed" when runFn resolves, while the
-    // completion callback emits the terminal event afterwards (it can still
-    // become auto_continue or error). A reconnect inside that window must not
-    // be told the turn is over with no terminal frame.
     const run = startRun(
       "run-memory-terminal-race",
       "thread-memory-terminal-race",
@@ -3374,7 +3265,6 @@ describe("run manager soft timeout", () => {
     expect(closed).toBe(false);
     expect(chunks.join("")).not.toContain('"type":"done"');
 
-    // The producer's real terminal event arrives and closes the stream.
     for (const notify of run.subscribers) {
       notify({ seq: 0, event: { type: "done" } });
     }
@@ -3396,8 +3286,6 @@ describe("run manager soft timeout", () => {
     await vi.waitFor(() => expect(run.status).not.toBe("running"));
     expect(run.events).toEqual([{ seq: 0, event: { type: "done" } }]);
 
-    // Cursor already past the buffered terminal event, so the replay loop
-    // delivers nothing. Closing here would recreate the ambiguous close.
     const stream = subscribeToRun("run-memory-past-cursor", 1);
     const reader = stream!.getReader();
     const decoder = new TextDecoder();
@@ -3415,9 +3303,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("retries instead of reporting a missing row when the terminal lookup fails", async () => {
-    // An unreadable terminal event is not an absent one. Reporting
-    // run_record_missing off a failed read would claim a confirmed outcome the
-    // subscription never established.
     vi.mocked(getRunById).mockResolvedValue(null);
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
     vi.mocked(getLastTerminalRunEvent).mockRejectedValue(
@@ -3474,11 +3359,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("emits a terminal event when the run row is gone instead of closing silently", async () => {
-    // Retention prunes `agent_runs` (and its events) on a cutoff, so a
-    // reconnecting subscriber can legitimately find no row. Closing the stream
-    // with zero terminal frames leaves the client unable to tell "finished"
-    // from "still running", which renders as the interrupted/unknown-outcome
-    // card plus "stopped without sending a final message".
     vi.mocked(getRunById).mockResolvedValue(null);
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
     vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
@@ -3500,8 +3380,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("keeps polling a not-yet-visible run row instead of ending the stream", async () => {
-    // The run id is minted in the request handler and the events endpoint often
-    // runs in another isolate, so the first status probe can precede the
     // producer's INSERT. That ordinary race must not end the turn.
     runStoreTestState.runRecordMissingGraceMs = 60_000;
     vi.mocked(getRunById).mockResolvedValue(null);
@@ -3559,8 +3437,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("emits a terminal event for an unrecognized non-running status", async () => {
-    // `agent_runs.status` is a plain TEXT column, so the branch list here is a
-    // guess about the column's domain, not a guarantee from the type system.
     vi.mocked(getRunById).mockResolvedValue({
       id: "run-sql-unknown-status",
       threadId: "thread-sql-unknown-status",
@@ -3622,8 +3498,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("returns recently-completed SQL runs from /runs/active so reconnect can replay them", async () => {
-    // Memory miss — different isolate than the producer.
-    // SQL has the run in completed status with a recent startedAt.
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-recent-completed",
       threadId: "thread-recent",
@@ -3643,18 +3517,12 @@ describe("run manager soft timeout", () => {
       status: "completed",
       heartbeatAt: expect.any(Number),
     });
-    // Confirm we passed includeTerminal so SQL surfaced a non-running row.
     expect(getRunByThread).toHaveBeenCalledWith("thread-recent", {
       includeTerminal: true,
     });
   });
 
   it("surfaces a truncated SQL run on /runs/active, reported with the legacy wire status", async () => {
-    // The row is honestly `truncated` in SQL (retention + telemetry read it
-    // that way), but shipped clients key their chunk-boundary handling off
-    // `status === "completed"` plus terminalReason — an unrecognized status
-    // would read as non-terminal and re-attach until a budget expired. Delete
-    // the mapping once agent-chat-adapter.ts understands `truncated`.
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-recent-truncated",
       threadId: "thread-truncated",
@@ -3707,11 +3575,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("uses completed_at (not started_at) for the reconnect window so long-running tasks are still reachable", async () => {
-    // The run started long enough ago that it would fall outside the window
-    // if we measured from startedAt — but it completed seconds ago, which is
-    // when the user actually disconnected. A senior engineer reconnecting
-    // here expects to replay the synthesized terminal events, not to retry
-    // the POST.
     const startedAt = Date.now() - TERMINAL_RUN_RECONNECT_WINDOW_MS - 120_000;
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-long-then-recent-complete",
@@ -3732,9 +3595,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("falls back to heartbeat_at when completed_at is missing on legacy rows", async () => {
-    // Older deployments may have terminal rows without a completed_at value.
-    // The reconnect window should still work — fall back to the freshest
-    // signal we have (heartbeat) before reaching for startedAt.
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-legacy-no-completed-at",
       threadId: "thread-legacy",
@@ -3841,13 +3701,6 @@ describe("run manager soft timeout", () => {
     abortRun(run.runId, "test");
   });
 
-  // ─── FIX 1: stale in-memory terminal chunk vs a live SQL successor ──────────
-  // A chunk-terminal in-memory run (soft-timeout auto_continue) never clears
-  // `threadToRun` — see `abortInMemoryRun` vs the direct `abort.abort(...)`
-  // soft-timeout path in `startRun`. Without this fix, every poll landing on
-  // the isolate that produced chunk 0 would keep returning its stale
-  // "completed" snapshot forever, even after a newer successor run for the
-  // SAME turn already exists and is running in SQL.
   it("FIX 1: prefers a newer running successor over a stale in-memory chunk-terminal run for the same turn", async () => {
     const run = startRun(
       "run-fix1-chunk0",
@@ -3862,12 +3715,8 @@ describe("run manager soft timeout", () => {
     );
 
     await vi.advanceTimersByTimeAsync(11);
-    // Chunk-terminal in-memory, but `threadToRun` still points at this run —
-    // exactly the stale-candidate state this fix must see through.
     expect(run.status).toBe("completed");
 
-    // A same-turn successor already exists and is running in SQL (e.g. via
-    // chainServerDrivenContinuation, or FIX 3's stale-run recovery).
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-fix1-successor",
       threadId: "thread-fix1-successor",
@@ -3907,10 +3756,6 @@ describe("run manager soft timeout", () => {
     await vi.advanceTimersByTimeAsync(11);
     expect(run.status).toBe("completed");
 
-    // No successor has been inserted yet — must still fall back to the
-    // stale-but-honest in-memory status exactly as before this fix (the
-    // reconnect-window / replay behavior for a genuinely finished run is
-    // unchanged).
     vi.mocked(getRunByThread).mockResolvedValue(null);
 
     const result = await getActiveRunForThreadAsync("thread-fix1-nosucc");
@@ -3935,9 +3780,6 @@ describe("run manager soft timeout", () => {
     await vi.advanceTimersByTimeAsync(11);
     expect(run.status).toBe("completed");
 
-    // A later, unrelated user turn already started on the same thread — this
-    // must never be mistaken for a continuation successor of the terminal
-    // chunk above.
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-fix1-unrelated",
       threadId: "thread-fix1-diffturn",
@@ -3959,12 +3801,7 @@ describe("run manager soft timeout", () => {
     });
   });
 
-  // ─── FALLBACK HARDENING: unclaimed background run recovery ──────────────────
   it("reaps an unclaimed-stale background run PAST the redispatch bound (202 acked, worker never started, no recovery left)", async () => {
-    // dispatch_mode still 'background' (never flipped to 'background-processing')
-    // means the bg-fn worker silently died. Once the successor is OLDER than the
-    // redispatch bound the sweep has had its chances, so the client poll reaps it
-    // loudly — this is the moved-later loud failure.
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-unclaimed",
       threadId: "thread-unclaimed",
@@ -3981,20 +3818,12 @@ describe("run manager soft timeout", () => {
 
     const result = await getActiveRunForThreadAsync("thread-unclaimed");
 
-    // Recovered → the read returns null (run no longer "active"), and we never
-    // fell through to the generic stale reaper.
     expect(result).toBeNull();
     expect(reapUnclaimedBackgroundRun).toHaveBeenCalledWith("run-unclaimed");
     expect(reapIfStale).not.toHaveBeenCalled();
   });
 
   it("does NOT reap a deferred background successor while still WITHIN the redispatch bound — leaves it for the sweep", async () => {
-    // A successor that chainServerDrivenContinuation deferred (dispatch failed,
-    // row left running+background for the sweep to redispatch). At 30s it is well
-    // inside the 5-min redispatch bound, so the ~1s client poll must NOT reap it
-    // at the 25s unclaimed grace — that would convert the silent server-side
-    // recovery into a user-visible background_worker_never_started manual-retry
-    // error. reapIfStale (90s → stale_run auto-continue) stays the outer backstop.
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-deferred",
       threadId: "thread-deferred",
@@ -4007,20 +3836,11 @@ describe("run manager soft timeout", () => {
       diagStage: null,
     });
     vi.mocked(reapUnclaimedBackgroundRun).mockClear();
-    // reapIfStale not yet eligible (background 90s window) → returns false, so the
-    // still-running successor is surfaced as active while it awaits the sweep.
     vi.mocked(reapIfStale).mockResolvedValueOnce(false);
 
     const result = await getActiveRunForThreadAsync("thread-deferred");
 
-    // The unclaimed reap was skipped — the sweep owns recovery inside the bound.
     expect(reapUnclaimedBackgroundRun).not.toHaveBeenCalled();
-    // The run is still surfaced as an active background run (client keeps
-    // following; no premature manual-retry error). `awaitingRedispatch: true`
-    // is the wire signal `/runs/active` (agent-chat-plugin.ts) forwards
-    // as-is so the client's follow loop (agent-chat-adapter.ts) can tell
-    // this apart from a dead run and stop counting it against its idle
-    // timeout — see the THREE-SITE INVARIANT comment above this function.
     expect(result).toMatchObject({
       runId: "run-deferred",
       status: "running",
@@ -4045,27 +3865,17 @@ describe("run manager soft timeout", () => {
 
     const result = await getActiveRunForThreadAsync("thread-processing");
 
-    // A claimed, heartbeating worker is left alone and its diagnostics surface.
     expect(reapUnclaimedBackgroundRun).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       runId: "run-processing",
       status: "running",
       dispatchMode: "background-processing",
       diagStage: '{"stage":"worker_started","at":1}',
-      // A CLAIMED worker is not the "unclaimed, awaiting sweep redispatch"
-      // state — this must stay false so the client's idle-timeout tolerance
-      // only applies to the actually-deferred case.
       awaitingRedispatch: false,
     });
   });
 
-  // ─── hasInFlightWork wire signal (server-authoritative in-flight marker) ──
   it("surfaces hasInFlightWork: true from the SQL fallback path when in_flight_since is set", async () => {
-    // Same shape as the "claimed, heartbeating worker" case above, but with
-    // an open tool call / A2A agent_call — the exact scenario that triggered
-    // the false stale_run reap: reapIfStale (called just above this in the
-    // real implementation) reads the SAME in_flight_since column and did NOT
-    // reap this row, so the wire signal here must agree.
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-in-flight",
       threadId: "thread-in-flight",
@@ -4165,8 +3975,6 @@ describe("run manager soft timeout", () => {
     expect(output).toContain('"type":"error"');
     expect(output).toContain('"errorCode":"stale_run"');
     expect(output).toContain('"recoverable":true');
-    // Self-heal: persist the synthesized terminal event back to SQL so future
-    // reconnects replay it normally instead of regenerating it each time.
     expect(ensureTerminalRunEvent).toHaveBeenCalledWith(
       "run-sql-errored",
       expect.objectContaining({ errorCode: "stale_run" }),
@@ -4174,11 +3982,6 @@ describe("run manager soft timeout", () => {
   });
 
   it("replays the real Connection error. instead of inventing stale_run on reconnect", async () => {
-    // Slides prod: run-1783574983915-pmx5jd had events
-    // [Starting agent, Contacting model, Connection error.] and row
-    // error_detail="Connection error.", but the client cursor was already
-    // past seq 2 so getRunEventsSince returned []. The old path always
-    // synthesized STALE_RUN_ERROR_EVENT — exactly Kyle's Slack card.
     vi.mocked(getRunById).mockResolvedValue({
       id: "run-connection-error",
       threadId: "thread-connection-error",
@@ -4281,10 +4084,7 @@ describe("run manager soft timeout", () => {
     expect(output).toContain('"errorCode":"stale_run"');
   });
 
-  // Fix 1a/b: zombie self-abort — run whose row was reaped must self-abort
   it("self-aborts and does not overwrite status when the SQL row is no longer running", async () => {
-    // Simulate a run that gets reaped mid-execution: the SQL row flips to
-    // 'errored' after the heartbeat interval fires and checkSqlAbort reads it.
     vi.mocked(getRunStatus).mockResolvedValueOnce("errored");
 
     let abortFired = false;
@@ -4303,21 +4103,13 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    // Advance past the 3s checkSqlAbort threshold
     await vi.advanceTimersByTimeAsync(3001);
 
     expect(abortFired).toBe(true);
-    // The zombie must NOT have written a terminal status on top of the reaper's
-    // 'errored' write — the conditional updateRunStatusIfRunning call should
-    // have been skipped because the run was aborted (status="aborted").
     expect(run.abortReason).toBe("displaced");
   });
 
   it("uses a conditional WHERE status=running write so a reaped row is not overwritten", async () => {
-    // Simulate the reaper having flipped the row to 'errored'. The zombie's
-    // own terminal write must use updateRunStatusIfRunning (WHERE id=? AND
-    // status='running') so it is a no-op when the row is already errored.
-    // The mock returns false (rowsAffected=0) to simulate the row being gone.
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(false);
     vi.mocked(getRunStatus).mockResolvedValue("errored");
 
@@ -4334,21 +4126,13 @@ describe("run manager soft timeout", () => {
     );
 
     await vi.advanceTimersByTimeAsync(3001);
-    // Wait for the run to finish winding down (status flips to aborted)
     await vi.waitFor(() => expect(updateRunStatusIfRunning).toHaveBeenCalled());
-    // The unconditional updateRunStatus must NOT have been called — only the
-    // guarded conditional variant is allowed on the terminal status write path.
     expect(updateRunStatus).not.toHaveBeenCalledWith(
       "run-no-clobber",
       expect.anything(),
     );
   });
 
-  // checkSqlAbort is a cross-isolate backstop, so an unreadable abort state
-  // must fail OPEN: the outage hides a Stop from every other reader too, and
-  // killing the run only guarantees destroyed work in the common case where
-  // nobody pressed Stop. Sustained read failures used to self-abort with
-  // `abort_check_unavailable` after ~9s.
   it("keeps running to completion when every abort-state read fails", async () => {
     vi.mocked(getRunAbortState).mockRejectedValue(new Error("read timeout"));
     vi.mocked(getRunStatus).mockRejectedValue(new Error("read timeout"));
@@ -4361,7 +4145,6 @@ describe("run manager soft timeout", () => {
         signal.addEventListener("abort", () => {
           abortFired = true;
         });
-        // Far longer than the old 3-failure (~9s) kill threshold.
         await new Promise<void>((resolve) => setTimeout(resolve, 120_000));
         send({ type: "done" });
       },
@@ -4379,7 +4162,6 @@ describe("run manager soft timeout", () => {
     expect(run.abortReason).toBeUndefined();
   });
 
-  // Fix 3: ordered event persistence
   it("chains event persistence so inserts commit in seq order", async () => {
     const persistOrder: number[] = [];
     let resolveSeq0!: () => void;
@@ -4389,7 +4171,6 @@ describe("run manager soft timeout", () => {
 
     vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
       if (seq === 0) {
-        // seq=0 is intentionally slow
         await seq0Barrier;
       }
       persistOrder.push(seq);
@@ -4399,27 +4180,23 @@ describe("run manager soft timeout", () => {
       "run-persist-order",
       "thread-persist-order",
       async (send) => {
-        send({ type: "text", text: "first" }); // seq 0
-        send({ type: "text", text: "second" }); // seq 1
+        send({ type: "text", text: "first" });
+        send({ type: "text", text: "second" });
       },
       undefined,
       { softTimeoutMs: 0 },
     );
     run.subscribers.add(() => {});
 
-    // Let the run complete; seq=1 insert would normally beat seq=0 without the chain
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
-    // seq=1 must not have committed yet because seq=0 is still pending
     expect(persistOrder).not.toContain(1);
 
-    // Release seq=0 — seq=1 should follow
     resolveSeq0();
     await vi.waitFor(() => expect(persistOrder).toContain(1));
 
-    // Order must be preserved: seq=0 before seq=1
     expect(persistOrder.indexOf(0)).toBeLessThan(persistOrder.indexOf(1));
   });
 
@@ -4534,10 +4311,6 @@ describe("run manager soft timeout", () => {
     },
   );
 
-  // ─── No-progress backstop (RUN_NO_PROGRESS_HARD_TIMEOUT_MS) ────────────────
-  // Timer-driven, independent of the in-loop watchdogs: catches a stall in a
-  // segment that never emits a real-progress event (only keepalives), while
-  // leaving a run with a tool genuinely in flight alone.
   describe("no-progress backstop", () => {
     it("exports foreground and background backstop constants", () => {
       expect(RUN_NO_PROGRESS_HARD_TIMEOUT_MS).toBe(150_000);
@@ -4549,12 +4322,6 @@ describe("run manager soft timeout", () => {
       );
     });
 
-    // ORDERING INVARIANT. The hosted foreground path rides a synchronous
-    // serverless function whose real wall is ~57-59s. Any watchdog at or above
-    // the soft timeout is unreachable dead code — the flat 150s backstop, the
-    // 90s in-loop watchdogs and the 12-minute tool timeout all were. These
-    // assertions exist so the next constant change cannot silently reintroduce
-    // the inversion.
     it("keeps every foreground watchdog strictly inside the chunk budget", () => {
       const softTimeoutMs = DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS;
       const noProgress = resolveRunNoProgressTimeoutMs({ softTimeoutMs });
@@ -4567,49 +4334,33 @@ describe("run manager soft timeout", () => {
       expect(toolCeiling).toBe(35_000);
     });
 
-    // The same inversion, on the path that actually runs the one-shot
-    // automations: a background AUTOMATION's budget is its own hard abort minus
-    // headroom (10min - 20s), which is materially SMALLER than the background
-    // chat ceiling (13min). `runAgentLoop` used to re-derive the ceiling from
-    // the chat number and got 12m55s — above the 9m40s the run actually had —
-    // so every per-tool timeout on that path was dead code and the chunk
-    // boundary won instead. It now takes the caller's real budget.
     it("keeps the tool ceiling inside a background AUTOMATION's own budget", () => {
-      // `agent.backgroundRunHardTimeoutMs` default (background-automation-runner.ts).
-      // Inlined rather than imported so this spec does not pull the jobs module.
       const automationHardAbortMs = 10 * 60_000;
       const automationBudgetMs =
         automationHardAbortMs - BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS;
 
-      // The bug: derived from the chat ceiling, the tool ceiling outlives the
-      // budget it is supposed to sit inside.
       expect(
         resolveRunToolTimeoutCeilingMs(BACKGROUND_SOFT_TIMEOUT_CEILING_MS),
       ).toBeGreaterThan(automationBudgetMs);
 
-      // The fix: derived from the caller's actual budget, it stays under it.
       expect(resolveRunToolTimeoutCeilingMs(automationBudgetMs)).toBeLessThan(
         automationBudgetMs,
       );
     });
 
     it("clamps a background-sized foreground override down to the chunk budget", () => {
-      // templates/analytics passes 3min unconditionally — a background-sized
-      // value that outlives both the serverless wall and the client watchdog.
       expect(
         resolveRunNoProgressTimeoutMs({
           softTimeoutMs: DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
           overrideMs: 3 * 60_000,
         }),
       ).toBe(30_000);
-      // 0 still means "disabled" and is never clamped up.
       expect(
         resolveRunNoProgressTimeoutMs({
           softTimeoutMs: DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
           overrideMs: 0,
         }),
       ).toBe(0);
-      // A smaller override is honoured as-is.
       expect(
         resolveRunNoProgressTimeoutMs({
           softTimeoutMs: DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
@@ -4633,15 +4384,9 @@ describe("run manager soft timeout", () => {
           backgroundOverrideMs: 3 * 60_000,
         }),
       ).toBe(3 * 60_000);
-      // Local dev (no soft-timeout regime) stays unbounded.
       expect(resolveRunNoProgressTimeoutMs({ softTimeoutMs: 0 })).toBe(0);
     });
 
-    // The wedged-transport case the backstop was built for: keepalives with no
-    // engine call in flight (the loop never entered one, or died inside setup).
-    // Distinct from keepalives arriving INSIDE a `model_stream` bracket, which
-    // the next test covers — there the model is demonstrably generating and the
-    // loop's own 90s watchdog is the one on duty.
     it("checkpoints via auto_continue(no_progress) and aborts when only keepalives stream past the window", async () => {
       const events: AgentChatEvent[] = [];
       let aborted = false;
@@ -4651,8 +4396,6 @@ describe("run manager soft timeout", () => {
         "run-no-progress-keepalive-only",
         "thread-no-progress-keepalive-only",
         async (send, signal) => {
-          // Emit a keepalive every 1.5s (piggybacked on the heartbeat cadence)
-          // forever — none of these count as real progress.
           const keepaliveTimer = setInterval(() => {
             send({ type: "stream_keepalive" });
           }, 1500);
@@ -4666,14 +4409,10 @@ describe("run manager soft timeout", () => {
           });
         },
         undefined,
-        // useHostedSoftTimeoutDefault would normally arm the backstop; use an
-        // explicit small override instead for a fast, deterministic test.
         { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
       );
       run.subscribers.add((event) => events.push(event.event));
 
-      // The backstop check piggybacks on the 1.5s heartbeat interval, so with
-      // a 5s window it fires at the first heartbeat tick past the window (t=6s).
       await vi.advanceTimersByTimeAsync(6_001);
 
       expect(aborted).toBe(true);
@@ -4700,8 +4439,6 @@ describe("run manager soft timeout", () => {
             id: "call-1",
             input: {},
           });
-          // No tool_done — simulate a tool that legitimately runs long without
-          // emitting anything, well past the no-progress window.
           await new Promise<void>((resolve) => {
             signal.addEventListener("abort", () => {
               aborted = true;
@@ -4718,7 +4455,6 @@ describe("run manager soft timeout", () => {
       expect(aborted).toBe(false);
       expect(run.status).toBe("running");
 
-      // Clean up: finish the tool and let the run wind down.
       expect(abortRun("run-no-progress-tool-in-flight")).toBe(true);
       await vi.waitFor(() => expect(aborted).toBe(true));
     });
@@ -4758,8 +4494,6 @@ describe("run manager soft timeout", () => {
         "run-no-progress-reset-by-progress",
         "thread-no-progress-reset-by-progress",
         async (send, signal) => {
-          // Real progress (text) at t=3s, well before the 5s window elapses —
-          // this must push the deadline out to t=8s rather than firing at t=5s.
           setTimeout(
             () => send({ type: "text", text: "still working" }),
             3_000,
@@ -4776,12 +4510,10 @@ describe("run manager soft timeout", () => {
       );
       run.subscribers.add(() => {});
 
-      // Past the original 5s deadline, but within 5s of the t=3s progress event.
       await vi.advanceTimersByTimeAsync(6_000);
       expect(aborted).toBe(false);
       expect(run.status).toBe("running");
 
-      // Now past 5s from the reset point (t=3s + 5s = t=8s).
       await vi.advanceTimersByTimeAsync(3_000);
       expect(aborted).toBe(true);
       expect(run.status).toBe("completed");
@@ -4822,13 +4554,9 @@ describe("run manager soft timeout", () => {
       );
       run.subscribers.add(() => {});
 
-      // tool_done itself counts as real progress (shouldBumpProgressForEvent
-      // returns true for it), so the window restarts from t=1s. It should not
-      // fire at the original t=5s deadline...
       await vi.advanceTimersByTimeAsync(5_001);
       expect(aborted).toBe(false);
 
-      // ...but does fire once 5s have elapsed since the tool_done at t=1s.
       await vi.advanceTimersByTimeAsync(1_000);
       expect(aborted).toBe(true);
       expect(abortReason).toBe("no_progress");
@@ -4853,12 +4581,9 @@ describe("run manager soft timeout", () => {
           });
         },
         undefined,
-        // softTimeoutMs: 0 (local/non-hosted default) and no explicit
-        // noProgressTimeoutMs override — the backstop must resolve to disabled.
         { softTimeoutMs: 0 },
       );
 
-      // Advance well past RUN_NO_PROGRESS_HARD_TIMEOUT_MS (150s) — still no abort.
       await vi.advanceTimersByTimeAsync(
         RUN_NO_PROGRESS_HARD_TIMEOUT_MS + 10_000,
       );
@@ -4891,9 +4616,6 @@ describe("run manager soft timeout", () => {
           });
         },
         undefined,
-        // A soft timeout far beyond the no-progress window is active, but this
-        // is still foreground mode (no backgroundFunction flag), so the 150s
-        // hosted backstop remains the default.
         { softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS },
       );
       run.subscribers.add(() => {});
@@ -4951,9 +4673,6 @@ describe("run manager soft timeout", () => {
         "thread-no-progress-model-stream-in-flight",
         async (send, signal) => {
           send({ type: "model_stream", status: "start" });
-          // Extended thinking: the engine is streaming frames the loop can see,
-          // but nothing forwarded here counts as progress. Before the bracket
-          // existed this window is what killed live runs at the backstop bound.
           const keepaliveTimer = setInterval(() => {
             send({ type: "stream_keepalive" });
           }, 1500);
@@ -4975,16 +4694,12 @@ describe("run manager soft timeout", () => {
       );
       run.subscribers.add((event) => events.push(event.event));
 
-      // Well past the window with the stream open — suspended, exactly like a
-      // tool call in flight.
       await vi.advanceTimersByTimeAsync(30_000);
       expect(aborted).toBe(false);
       expect(events).not.toContainEqual(
         expect.objectContaining({ type: "auto_continue" }),
       );
 
-      // Closing the bracket both lifts the suspension and counts as progress,
-      // so the clock restarts from the `end` rather than firing immediately.
       endStream?.();
       await vi.advanceTimersByTimeAsync(3_000);
       expect(aborted).toBe(false);
@@ -5042,8 +4757,6 @@ describe("run manager soft timeout", () => {
     it("clears a model-stream bracket leaked by a throw mid-stream", async () => {
       vi.mocked(setRunInFlightMarker).mockClear();
 
-      // A stream that throws never reaches its own `end`; terminal cleanup is
-      // the backstop against a leaked increment holding the SQL grace marker.
       const run = startRun(
         "run-in-flight-marker-model-stream-leak",
         "thread-in-flight-marker-model-stream-leak",
@@ -5065,11 +4778,6 @@ describe("run manager soft timeout", () => {
     });
   });
 
-  // ─── Chunk-scoped checkpoints (recoverChunkBoundaries) ─────────────────────
-  //
-  // The property most at risk from scoping the checkpoint to the chunk is that
-  // a user Stop still ends the turn, so both abort sources are exercised here
-  // against the same runFn.
   describe("chunk-scoped checkpoints", () => {
     it("bounds recoverable chunks with the cumulative soft-timeout timer", async () => {
       let signalReason: unknown;
@@ -5125,7 +4833,6 @@ describe("run manager soft timeout", () => {
           clearInterval(keepaliveTimer);
           chunkAborts.push(signal.reason);
           boundaryReason = control.chunkBoundaryReason();
-          // Recover exactly the way the agent-loop wrapper does.
           const next = control.beginChunk();
           send({ type: "text", text: "recovered" });
           await new Promise<void>((resolve) => {
@@ -5151,8 +4858,6 @@ describe("run manager soft timeout", () => {
       expect(turnAborted).toBe(false);
       expect(run.abort.signal.aborted).toBe(false);
       expect(run.status).toBe("running");
-      // No `auto_continue` reaches the stream: the turn did not stop here, and
-      // a trailing auto_continue is exactly what a caller reads as a cut-off.
       expect(run.events.some((e) => e.event.type === "auto_continue")).toBe(
         false,
       );
@@ -5198,8 +4903,6 @@ describe("run manager soft timeout", () => {
       );
       expect(chunkAborts).toEqual(["no_progress"]);
 
-      // Only a full second window later, measured from the recovery — not
-      // immediately, which is what a shared clock would have produced.
       await vi.advanceTimersByTimeAsync(
         DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS - 5_000,
       );
@@ -5224,8 +4927,6 @@ describe("run manager soft timeout", () => {
           });
           turnAborted = control.turnSignal.aborted;
           boundaryReason = control.chunkBoundaryReason();
-          // A caller that tries to keep going after a Stop gets the aborted
-          // turn signal back, not a fresh chunk.
           expect(control.beginChunk().aborted).toBe(true);
         },
         undefined,
@@ -5241,17 +4942,11 @@ describe("run manager soft timeout", () => {
       await run.finalized;
 
       expect(turnAborted).toBe(true);
-      // A Stop is not a chunk boundary. Reading it as one is the bug.
       expect(boundaryReason).toBeNull();
       expect(run.status).toBe("aborted");
     });
 
     it("still cancels the chunk opened AFTER a recovery when the turn aborts", async () => {
-      // The turn-abort listener is registered once and reads `chunkAbort`
-      // through the closure, so replacing the controller must not orphan it.
-      // If it did, Stop, the cross-isolate abort and a caller's hard timeout
-      // would all stop reaching a post-boundary chunk — the run would keep
-      // going after the user asked it not to.
       let recoveredChunk: AbortSignal | undefined;
       let recoveredChunkAbortReason: unknown;
 
@@ -5301,11 +4996,6 @@ describe("run manager soft timeout", () => {
     });
 
     it("reports a run that ends on a terminal error event as errored, not completed", async () => {
-      // The agent-loop wrapper emits its give-up terminal through `send` and
-      // then RETURNS normally rather than throwing. If the stashed terminal
-      // event did not promote the status, every caller reading `run.status`
-      // would record a run that gave up as a success — and the background
-      // automation runner reads exactly that.
       const completions: string[] = [];
 
       const run = startRun(
@@ -5334,10 +5024,6 @@ describe("run manager soft timeout", () => {
     });
 
     it("counts a boundary as recovered only once a round actually starts", async () => {
-      // This counter answers "is the recovery working?", so `recovered` has to
-      // mean a round started — not that one was invited to. A caller can still
-      // exhaust its budget after the boundary, and counting the invitation
-      // over-reports recovery, which is the direction that hides the failure.
       const boundaryEvents: Array<Record<string, unknown>> = [];
       track.mockImplementation((name: string, properties: unknown) => {
         if (name === "agent_run_boundary") {
@@ -5556,8 +5242,6 @@ describe("run manager soft timeout", () => {
       expect(properties).not.toHaveProperty("error_code");
       expect(properties).not.toHaveProperty("error_detail");
       expect(properties).not.toHaveProperty("abort_reason");
-      // This run passed no dispatchMode. It used to be reported as
-      // "foreground" anyway — see the dispatch-mode tests below.
       expect(properties).not.toHaveProperty("dispatch_mode");
     });
 
@@ -5630,9 +5314,6 @@ describe("run manager soft timeout", () => {
       );
 
       await vi.advanceTimersByTimeAsync(1_001);
-      // Two events: the boundary counter fires when the boundary is reached,
-      // the terminal event when the run finalizes. They answer different
-      // questions and must both be emitted.
       await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(2));
 
       expect(track).toHaveBeenCalledWith(
@@ -5655,10 +5336,6 @@ describe("run manager soft timeout", () => {
       );
     });
 
-    // The default was wrong every time it applied: the interactive handler is the
-    // only caller that passes `dispatchMode`, so `?? "foreground"` only ever
-    // mislabelled the callers that are NOT foreground. A 6-of-7 no-progress rate
-    // on the automation path was indistinguishable from chat because of it.
     it("omits dispatch_mode rather than calling an unlabelled run foreground", async () => {
       startRun(
         "run-dispatch-mode-absent",
@@ -5750,14 +5427,6 @@ describe("run manager soft timeout", () => {
     });
 
     it("carries a model resolved mid-run via mutation of the same options object", async () => {
-      // Mirrors the seam webhook-handler.ts uses: the effective model isn't
-      // known until deep inside the run callback (after stored-model /
-      // platform-default resolution), so the caller mutates the same
-      // `StartRunOptions` object it already handed to `startRun` instead of
-      // restructuring model resolution to happen earlier. `startRun` only
-      // reads `options.model` in its `.finally()`, after the run callback
-      // has settled, so a mutation made anywhere inside that callback is
-      // guaranteed to land before it's read.
       const runOptions: Parameters<typeof startRun>[4] = { softTimeoutMs: 0 };
       startRun(
         "run-tracking-late-model",
@@ -5801,8 +5470,6 @@ describe("engineRequestShapeTags", () => {
     });
   });
 
-  // Absent must stay absent: emitting zeros would report an empty request,
-  // which is a different — and wrong — diagnosis than "never sent".
   it("emits nothing when the failure happened before a request was built", () => {
     expect(engineRequestShapeTags(undefined)).toEqual({});
   });

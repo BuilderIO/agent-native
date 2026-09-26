@@ -1,6 +1,3 @@
-/**
- * test-agent-engine — sends a trivial prompt to verify the engine is working.
- */
 
 import { createProviderEndpointFetch } from "../../agent/engine/ai-sdk-engine.js";
 import {

@@ -724,7 +724,6 @@ export async function listAppUsageMetrics(
         args: baseArgs,
       }),
       // ponytail: cap legacy prompt hydration at 240 rows; raise only if real
-      // histories routinely crowd distinct prompts out of the 12-turn list.
       getDbExec().execute({
         sql: `SELECT id, created_at, owner_email, app, label, model,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,

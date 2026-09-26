@@ -18,27 +18,16 @@ import {
  * parsing untrusted cookie input must NEVER throw — every accessor is defensive.
  */
 
-/**
- * The decoded first-touch attribution object. Mirrors the compact JSON the
- * client writes into the `an_ft` cookie / `an_attribution` localStorage key.
- * Every field is optional — the client omits empty fields to keep the cookie
- * small, and a malformed/absent cookie yields `null`.
- */
 export interface FirstTouchAttribution {
-  /** Referral source bucket, e.g. "clip_share", "plan_share". */
   ref?: string;
-  /** Referrer's stable user id (the clip/plan owner who shared the link). */
   via?: string;
   utm_source?: string;
   utm_medium?: string;
   utm_campaign?: string;
   utm_content?: string;
   utm_term?: string;
-  /** `window.location.pathname` of the first page the visitor landed on. */
   landing_path?: string;
-  /** Host of `document.referrer` (scrubbed; host only, never a full URL). */
   landing_referrer?: string;
-  /** ISO timestamp of when the visitor first landed. */
   landed_at?: string;
 }
 
@@ -51,30 +40,21 @@ export interface FirstTouchAttribution {
  * that are acquisitions instead of counting row inserts.
  */
 export type SignupOrigin =
-  /** A person completed a signup form or magic link in a browser. */
   | "browser_signup"
   /** The framework's Google OAuth callback owns this event. */
   | "google_oauth"
   /** Federated SSO provisioning an identity into a sibling app. */
   | "sso_jit";
 
-/**
- * Request-scoped browser attribution captured at the signup boundary.
- * Better Auth may create the user in a later async callback where the
- * original request headers are no longer available, so the values must be
- * carried explicitly through that boundary.
- */
 export interface SignupAttributionContext {
   attribution: Record<string, string>;
   anonymousId?: string;
 }
 
-/** Internal Better Auth handoff header; attribution is analytics-only. */
 export const SIGNUP_ATTRIBUTION_HEADER_NAME =
   "x-agent-native-signup-attribution";
 const SIGNUP_ATTRIBUTION_HEADER_MAX_LENGTH = 4096;
 
-/** Cookie name written by the client (non-HttpOnly; non-sensitive). */
 export const FIRST_TOUCH_COOKIE_NAME = "an_ft";
 
 const STRING_FIELDS: Array<keyof FirstTouchAttribution> = [
@@ -126,8 +106,6 @@ export function decodeFirstTouchValue(
   try {
     decoded = decodeURIComponent(value);
   } catch {
-    // Not valid percent-encoding — fall back to the raw value and let the JSON
-    // parse below decide whether it's usable.
     decoded = value;
   }
   let parsed: unknown;
@@ -167,11 +145,6 @@ export function readFirstTouchAttribution(
   }
 }
 
-/**
- * Read the browser identity handoff used to link anonymous pageviews to the
- * signup event. This is analytics-only and intentionally does not authorize
- * or identify a user.
- */
 export function readAnalyticsAnonymousId(
   cookieHeader: string | null | undefined,
 ): string | undefined {
@@ -189,17 +162,6 @@ function isExternalReferrerHost(host: string | undefined): boolean {
   return !!trimmed && trimmed.length > 0;
 }
 
-/**
- * Derive the `referral_source` bucket from first-touch attribution per the
- * contract:
- *   1. explicit `ref` wins;
- *   2. landing path under `/share/` => "clip_share";
- *   3. landing path that looks like a public plan page
- *      (`/p/`, `/plan/`, `/plans/`, `/recaps/`, or `/share-plan/`) =>
- *      "plan_share";
- *   4. a non-empty external referring host => "external";
- *   5. otherwise => "direct".
- */
 export function deriveReferralSource(ft: FirstTouchAttribution | null): string {
   if (ft?.ref && ft.ref.trim()) return ft.ref.trim();
   const path = ft?.landing_path ?? "";
@@ -217,14 +179,6 @@ export function deriveReferralSource(ft: FirstTouchAttribution | null): string {
   return "direct";
 }
 
-/**
- * Compute the snake_case signup-event properties from first-touch attribution.
- * Returns a clean object with `undefined` values omitted, ready to merge into
- * the `signup` track call. Always sets `referral_source` (defaults to "direct").
- *
- * Pure and total — given any (or no) input it returns a well-formed object and
- * never throws.
- */
 export function deriveSignupAttribution(
   ft: FirstTouchAttribution | null,
 ): Record<string, string> {
@@ -291,17 +245,12 @@ export function signupAttributionContextFromCookieHeader(
   };
 }
 
-/** Serialize the bounded attribution handoff for a Better Auth request. */
 export function encodeSignupAttributionContext(
   context: SignupAttributionContext,
 ): string {
   return encodeURIComponent(JSON.stringify(context));
 }
 
-/**
- * Decode the internal handoff header. Invalid input is absent, not a direct
- * attribution, so the caller can safely fall back to the request cookie.
- */
 export function decodeSignupAttributionContext(
   value: string | null | undefined,
 ): SignupAttributionContext | undefined {
@@ -339,7 +288,6 @@ export function decodeSignupAttributionContext(
       ...(anonymousId ? { anonymousId } : {}),
     };
   } catch (error) {
-    // `undefined` distinguishes an unreadable handoff from direct attribution.
     void error;
     return undefined;
   }
@@ -370,7 +318,6 @@ export function addSignupAttributionHeader(
   return result;
 }
 
-/** Read the explicit handoff from Better Auth's request context headers. */
 export function signupAttributionContextFromHeaders(
   headers: Headers | null | undefined,
 ): SignupAttributionContext | undefined {

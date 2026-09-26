@@ -745,7 +745,6 @@ const ptBR = {
         answer5:
           "Sim. Compartilhe painéis com colegas de equipe ou sua organização com acesso de visualizador, editor ou administrador. Você também pode agendar relatórios por e-mail com os resultados atuais do painel, ou configurar alertas para as condições que quiser acompanhar.",
       },
-      // Copy V3 da landing page (2026-09-14) — do hero ao CTA final abaixo.
       heroEyebrow: "Analytics",
       heroTitle:
         "Faça uma pergunta. Obtenha o gráfico, a consulta e o contexto.",
@@ -876,7 +875,6 @@ const ptBR = {
           "Sim. Adicione coanfitriões obrigatórios, e o Calendar verifica as informações de livre/ocupado deles antes de oferecer um horário. Para também respeitar o horário de trabalho configurado de cada coanfitrião, você e esse coanfitrião precisam adicionar os calendários um do outro como sobreposições. Sem esse compartilhamento mútuo, o Calendar verifica apenas as informações de livre/ocupado deles.",
       },
       s001: "Captura de tela do modelo Calendar",
-      // Cópia V3 da página de destino (10/09/2026) — do hero ao CTA final.
       heroEyebrow: "Calendar",
       heroTitle:
         "Encontre tempo, marque reuniões e adapte seu dia com um agente",
@@ -1061,7 +1059,6 @@ const ptBR = {
           "Sim. Crie uma cópia com a CLI, adicione suas actions, dados e interface, e implante sua aplicação. Configure a autenticação e o acesso a provedores para seu ambiente, e teste os fluxos de trabalho que você adicionar antes de compartilhá-los com seus usuários.",
       },
       s001: "Captura de tela do app Chat",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "Construa seu próprio app de chat com IA",
       heroDescription:
@@ -1107,7 +1104,6 @@ const ptBR = {
     },
     clips: {
       s001: "Captura de tela do modelo Clips",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "Gravações de tela que seu agente de IA pode ver e ouvir",
       heroDescription:
@@ -1276,7 +1272,6 @@ const ptBR = {
           "Sim. Novos documentos são privados por padrão. Compartilhe-os com acesso de visualização, edição ou administração, e use o histórico de versões da página para restaurar um snapshot anterior. Restaurar um snapshot substitui o conteúdo atual da página.",
       },
       s001: "Captura de tela do modelo Content",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "Crie e organize seu trabalho com seu agente de IA",
       heroDescription:
@@ -1400,7 +1395,6 @@ const ptBR = {
           "Exporte o HTML ou um ZIP dos arquivos de design, ou prepare um repasse para um agente de programação. O protótipo oferece um ponto de partida para o desenvolvimento; a lógica da aplicação, integrações, testes e implantação ainda precisam de implementação e revisão. As exportações em HTML podem usar recursos externos em tempo de execução.",
       },
       s001: "Captura de tela do modelo Design",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "Crie protótipos interativos com seu agente de IA",
       heroDescription:
@@ -1523,7 +1517,6 @@ const ptBR = {
           "Não. Em um workspace de equipe, o Dispatch pode exigir revisão das próprias alterações que faz em recursos e configurações compartilhados. Ações dentro de aplicativos conectados, como enviar e-mail, seguem os controles desses aplicativos. A fila de aprovações do Dispatch não é um portão universal para toda ação de agente.",
       },
       s001: "Captura de tela do modelo Dispatch",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "Coordene seus agentes de IA em um só lugar",
       heroDescription:
@@ -1762,7 +1755,6 @@ const ptBR = {
           "Sim. Um colega de equipe pode solicitar um rascunho que aparece na sua fila de revisão. Abra-o, edite a mensagem e envie quando estiver pronto. Quem solicitou não pode enviá-lo em seu nome; quem controla o envio é o dono do rascunho ou um administrador da organização.",
       },
       s001: "Captura de tela do modelo Mail",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
       heroTitle: "Gerencie sua caixa de entrada com seu agente de IA",
       heroDescription:
@@ -1953,7 +1945,6 @@ const ptBR = {
           "Exporte um arquivo PPTX para abrir no PowerPoint. Para usar a apresentação no Google Slides, importe esse arquivo lá. Revise fontes e layouts após a exportação, pois podem ser renderizados de forma diferente entre os editores.",
       },
       s001: "Captura de tela do modelo Slides",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "Crie apresentações com seu agente de IA",
       heroDescription:

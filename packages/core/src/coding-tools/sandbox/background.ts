@@ -48,24 +48,15 @@ import {
   type SandboxExecutionRow,
 } from "./executions-store.js";
 
-/** Framework route the enqueue self-dispatch targets (mounted by core-routes-plugin). */
 export const SANDBOX_PROCESS_EXECUTION_PATH =
   "/_agent-native/sandbox/_process-execution";
 
-/** Default background budget — generous compared to the foreground 120s default. */
 export const BACKGROUND_DEFAULT_TIMEOUT_MS = 10 * 60_000;
-/** Hard cap on a single background execution's own timeout. */
 export const BACKGROUND_MAX_TIMEOUT_MS = 30 * 60_000;
-/** Lease duration; an executor that misses ~3 heartbeats is considered dead. */
 export const SANDBOX_EXECUTION_LEASE_MS = 90_000;
-/** Heartbeat cadence while an execution is running. */
 const HEARTBEAT_INTERVAL_MS = 30_000;
-/** A queued row older than this with no claim is treated as a lost dispatch. */
 export const SANDBOX_EXECUTION_REDRIVE_AFTER_MS = 15_000;
 
-// ---------------------------------------------------------------------------
-// Runner registration
-// ---------------------------------------------------------------------------
 
 export interface SandboxExecutionRunInput {
   code: string;
@@ -87,16 +78,6 @@ export interface SandboxExecutionRunner {
 
 let registeredRunner: SandboxExecutionRunner | undefined;
 
-/**
- * Register the runner the background executor uses to actually execute code.
- * `createRunCodeEntry` registers one at plugin init, closing over its action
- * registry + bridge allowlist so background executions get the same bridge
- * surface (and the same owner-scoped request context) as foreground calls.
- *
- * First registration wins: agent-chat-plugin builds the full-surface prod
- * entry before the lean/dev variants, so the executor runs against the fully
- * assembled prod action registry.
- */
 export function registerSandboxExecutionRunner(
   runner: SandboxExecutionRunner,
   options: { replace?: boolean } = {},
@@ -111,26 +92,13 @@ export function getSandboxExecutionRunner():
   return registeredRunner;
 }
 
-/** Test-only: clear registered runner state. */
 export function resetSandboxBackgroundForTests(): void {
   registeredRunner = undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Queued adapter marker
-// ---------------------------------------------------------------------------
 
-/**
- * Marker adapter selectable via `AGENT_NATIVE_SANDBOX=background` (or
- * `registerSandboxAdapter`). It never executes a prepared module itself —
- * `run-code` detects it via `isQueuedSandboxAdapter` and takes the enqueue
- * path with the RAW code instead (a prepared module embeds the enqueueing
- * request's loopback bridge, which dies with that request, so deferring the
- * prepared source would be wrong by construction).
- */
 export class BackgroundQueueAdapter implements SandboxAdapter {
   readonly id = "background-queue";
-  /** Marks this adapter as deferred/queued for `isQueuedSandboxAdapter`. */
   readonly queued = true as const;
 
   async run(): Promise<SandboxRunResult> {
@@ -142,16 +110,12 @@ export class BackgroundQueueAdapter implements SandboxAdapter {
   }
 }
 
-/** True when the active adapter defers execution to the background queue. */
 export function isQueuedSandboxAdapter(
   adapter: SandboxAdapter | null | undefined,
 ): boolean {
   return Boolean(adapter && (adapter as { queued?: boolean }).queued === true);
 }
 
-// ---------------------------------------------------------------------------
-// Enqueue + drive
-// ---------------------------------------------------------------------------
 
 export interface EnqueueSandboxExecutionInput {
   code: string;
@@ -165,14 +129,9 @@ export interface EnqueueSandboxExecutionInput {
 
 export interface EnqueueSandboxExecutionResult {
   execution: SandboxExecutionRow;
-  /** Human-readable note when the initial drive could not be confirmed. */
   driveNote?: string;
 }
 
-/**
- * Create the queued row and kick off its first drive. Never throws on drive
- * failure — the row stays queued and the poll-time / sweep drains re-drive it.
- */
 export async function enqueueSandboxExecution(
   input: EnqueueSandboxExecutionInput,
 ): Promise<EnqueueSandboxExecutionResult> {
@@ -201,14 +160,6 @@ export async function enqueueSandboxExecution(
   return { execution, driveNote };
 }
 
-/**
- * Start (or restart) execution of a queued/lease-expired row.
- *
- * Serverless: fire an HMAC-signed self-dispatch so the work runs in a fresh
- * invocation with its own budget. Long-lived Node: run in-process, detached
- * from the caller. Both paths funnel into `processQueuedSandboxExecution`,
- * whose atomic claim guarantees a single executor even when drives race.
- */
 export async function driveSandboxExecution(
   executionId: string,
   options: { event?: unknown } = {},
@@ -222,8 +173,6 @@ export async function driveSandboxExecution(
     });
     return;
   }
-  // Long-lived process: execute here, detached. Errors are logged, never
-  // propagated into the caller (the poll/sweep drains recover).
   void processQueuedSandboxExecution(executionId).catch((err) => {
     console.error(
       `[run-code] in-process background execution ${executionId} failed:`,
@@ -232,9 +181,6 @@ export async function driveSandboxExecution(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Executor
-// ---------------------------------------------------------------------------
 
 export interface ProcessSandboxExecutionResult {
   status:
@@ -246,11 +192,6 @@ export interface ProcessSandboxExecutionResult {
   finalStatus?: SandboxExecutionRow["status"];
 }
 
-/**
- * Claim and execute one queued (or lease-expired) execution to completion,
- * persisting the result. Safe to call from racing invocations: the SQL claim
- * admits exactly one executor per attempt.
- */
 export async function processQueuedSandboxExecution(
   executionId: string,
 ): Promise<ProcessSandboxExecutionResult> {
@@ -267,8 +208,6 @@ export async function processQueuedSandboxExecution(
 
   const runner = getSandboxExecutionRunner();
   if (!runner) {
-    // Leave the row queued — a later invocation (where the run-code entry has
-    // been built at plugin init) will pick it up via poll/sweep.
     console.error(
       `[run-code] no sandbox execution runner registered; leaving ${executionId} queued.`,
     );
@@ -283,8 +222,6 @@ export async function processQueuedSandboxExecution(
     now,
   );
   if (!claimed) {
-    // Either another executor won the race, or attempts ran out. Reap the
-    // exhausted-expired case so the row cannot stay "running" forever.
     if (leaseExpired && row.attemptCount >= row.maxAttempts) {
       const reapedNow = await failExpiredSandboxExecution(
         executionId,
@@ -292,8 +229,6 @@ export async function processQueuedSandboxExecution(
         now,
       );
       if (reapedNow) return { status: "completed", finalStatus: "failed" };
-      // Reap refused: a concurrent writer beat us (a zombie executor's
-      // finalize landed, or the state changed) — report what the row is now.
       const current = await getSandboxExecutionInternal(executionId);
       return current && current.status !== "running"
         ? { status: "completed", finalStatus: current.status }
@@ -312,7 +247,6 @@ export async function processQueuedSandboxExecution(
       // another executor could reclaim; finalize is claim-token-guarded.
     });
   }, HEARTBEAT_INTERVAL_MS);
-  // Never keep a long-lived process alive solely for the heartbeat timer.
   (heartbeat as { unref?: () => void }).unref?.();
 
   try {
@@ -367,16 +301,7 @@ export async function processQueuedSandboxExecution(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Drains
-// ---------------------------------------------------------------------------
 
-/**
- * Re-drive lost/expired executions. Called opportunistically from the status
- * poll (for the polled row) and periodically from the warm-instance sweep in
- * core-routes-plugin. Missing-table errors are treated as "nothing due" so
- * deployments that never use background run-code pay zero cost.
- */
 export async function drainDueSandboxExecutions(
   options: { limit?: number; event?: unknown } = {},
 ): Promise<number> {
@@ -387,7 +312,6 @@ export async function drainDueSandboxExecutions(
       queuedOlderThanMs: SANDBOX_EXECUTION_REDRIVE_AFTER_MS,
     });
   } catch {
-    // Table may not exist yet (background run-code never used) — nothing due.
     return 0;
   }
   let driven = 0;

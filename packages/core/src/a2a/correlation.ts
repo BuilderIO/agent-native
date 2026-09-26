@@ -5,7 +5,6 @@ export const MAX_A2A_DELEGATION_HOPS = 3;
 
 const APP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
-// Model ids also carry `/` (provider-prefixed gateway ids).
 const MODEL_HINT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
 
 function boundedIdentifier(
@@ -71,9 +70,6 @@ export function sanitizeA2ACorrelationMetadata(
       ].slice(0, MAX_A2A_DELEGATION_HOPS + 1)
     : [];
   const pathDepth = Math.min(MAX_A2A_DELEGATION_HOPS, visitedApps.length);
-  // Damaged lineage must never reset a nested call to depth zero. Derive at
-  // least the valid path length, and fail closed at the hop limit when a peer
-  // supplied an explicit but invalid depth.
   const delegationDepth =
     providedDelegationDepth !== undefined
       ? Math.max(providedDelegationDepth, pathDepth)

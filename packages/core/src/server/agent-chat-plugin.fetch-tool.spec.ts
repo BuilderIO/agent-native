@@ -1,18 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-// `resolveFetchToolKeyAllowlist` is a plain module-level function in
-// agent-chat-plugin.ts (hoisted out of the per-request fetch-tool wiring
-// specifically so it's unit-testable here without booting the whole plugin —
-// see its doc comment in agent-chat-plugin.ts).
-// It takes its `getKeyAllowlist` / `getResolvedKeyAllowlist` dependencies as
-// explicit parameters, so no module mocking is needed here at all.
 import { resolveFetchToolKeyAllowlist } from "./agent-chat-plugin.js";
 
 describe("resolveFetchToolKeyAllowlist", () => {
   it("looks up the allowlist at the resolved scope when resolvedKeys reports one (org scope)", async () => {
     // A key stored at org scope (e.g. synced in by the Dispatch vault) must
-    // have its allowlist checked at that same org scope — not user scope —
-    // per the audit 05 H2 alignment note in secrets/substitution.ts.
     const getKeyAllowlist = vi.fn();
     const getResolvedKeyAllowlist = vi
       .fn()

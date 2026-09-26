@@ -9,17 +9,11 @@ import { PromptComposer, type PromptComposerProps } from "./PromptComposer.js";
 import type { AgentComposerLayoutVariant } from "./types.js";
 
 export interface PromptBarSection {
-  /** Stable identifier used for DOM hooks and host-level analytics. */
   id: string;
-  /** Optional compact section label, such as Commands or Skills. */
   label?: ReactNode;
-  /** Optional leading icon for the section label. */
   icon?: ReactNode;
-  /** Section content, typically a list of selectable command/tool rows. */
   content: ReactNode;
-  /** Hide this section without changing the host's registration order. */
   visible?: boolean;
-  /** Optional ordering value; lower values render first. */
   order?: number;
   className?: string;
 }
@@ -33,39 +27,20 @@ export interface PromptBarProps extends Omit<
   | "style"
   | "layoutVariant"
 > {
-  /** Submission handler shared with the underlying PromptComposer. */
   onSubmit?: PromptComposerProps["onSubmit"];
-  /** Render as the shared inline boundary used by full chat surfaces. */
   mode?: "inline" | "popover";
-  /** Custom trigger. Defaults to a compact Ask-agent button. */
   trigger?: ReactNode;
-  /** Label for the default trigger. */
   triggerLabel?: string;
-  /** Optional menu/content rendered directly above the composer. */
   children?: ReactNode;
-  /** Registered menu sections rendered above the composer in one shared surface. */
   sections?: PromptBarSection[];
-  /** Controlled popover state for hosts that coordinate surrounding layout. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  /** Trigger class, used when the default trigger is rendered. */
   className?: string;
-  /** Popover content classes, useful for compact and wide host surfaces. */
   contentClassName?: string;
-  /** Popover alignment relative to the trigger. */
   align?: "start" | "center" | "end";
-  /** Composer density inside the bar. Defaults to the compact popover fit. */
   layoutVariant?: AgentComposerLayoutVariant;
 }
 
-/**
- * Composable prompt surface for small contextual agent entry points.
- *
- * The popover owns only placement and shared chrome. Commands, sources, tool
- * access, and other agent affordances belong in registered `sections` (or the
- * compatibility `children` slot), so hosts can add them without forking the
- * composer or its submit behavior.
- */
 export function PromptBar({
   mode = "popover",
   trigger,

@@ -50,11 +50,6 @@ export interface VaultCtx {
   orgId: string | null;
 }
 
-/**
- * Build a VaultCtx from the current request. Throws if the request is
- * unauthenticated — the previous behavior of falling back to "local@localhost"
- * leaked rows across tenants when a misconfigured environment skipped auth.
- */
 export function requireVaultCtx(): VaultCtx {
   const ownerEmail = currentOwnerEmail();
   if (!ownerEmail) {
@@ -63,7 +58,6 @@ export function requireVaultCtx(): VaultCtx {
   return { ownerEmail, orgId: currentOrgId() };
 }
 
-/** WHERE clause that limits a vault row to the caller's ownership scope. */
 function ctxScope<T extends { ownerEmail: any; orgId: any }>(
   table: T,
   ctx: VaultCtx,
@@ -83,9 +77,6 @@ function tenantScope<T extends { ownerEmail: any; orgId: any }>(
   return and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId));
 }
 
-/** Build a ctx that scopes to a specific row's owner/org (used when a
- * request approver acts on behalf of the original requester so the
- * created secret lands in the request's org). */
 function ctxForRow(row: {
   ownerEmail: string;
   orgId: string | null;
@@ -151,11 +142,6 @@ function scopedFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
   return ctxScope(table, requireVaultCtx());
 }
 
-/**
- * Shared vault values and grants are organization administration data. Keep
- * the member path available for request creation and safe key metadata, but
- * fail closed before a member can read or mutate a raw secret.
- */
 export async function assertCanManageVault(): Promise<void> {
   const orgId = currentOrgId();
   if (!orgId) return;
@@ -246,7 +232,6 @@ export async function setVaultAccessSettings(input: {
   return getVaultAccessSettings();
 }
 
-// ─── Vault Audit ──────────────────────────────────────────────────
 
 export async function recordVaultAudit(input: {
   action: string;
@@ -282,7 +267,6 @@ export async function listVaultAudit(limit = 50) {
     .limit(limit);
 }
 
-// ─── Secrets ──────────────────────────────────────────────────────
 
 export async function listSecrets() {
   await assertCanManageVault();
@@ -294,7 +278,6 @@ export async function listSecrets() {
     .orderBy(desc(schema.vaultSecrets.updatedAt));
 }
 
-/** Safe metadata for app creation and integration readiness checks. */
 export async function listSecretOptions() {
   const db = getDb();
   return db
@@ -561,7 +544,6 @@ export async function deleteSecret(
   const existing = await getSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
 
-  // Revoke all active grants first
   const grants = await listGrants({ secretId });
   for (const grant of grants) {
     if (grant.status === "active") {
@@ -597,7 +579,6 @@ export async function deleteSecret(
   return existing;
 }
 
-// ─── Grants ──────────────────────────────────────────────────────
 
 export async function listGrants(filter?: {
   secretId?: string;
@@ -813,7 +794,6 @@ export async function revokeGrant(
   return getGrant(grantId, ctx);
 }
 
-// ─── Shared Credential Store Sync ─────────────────────────────────
 
 type VaultSecretRow = typeof schema.vaultSecrets.$inferSelect;
 
@@ -829,7 +809,6 @@ export interface VaultSecretMetadata {
   updatedAt: number;
 }
 
-/** Return the fields safe to expose to clients, agents, and action callers. */
 export function toVaultSecretMetadata(
   secret: VaultSecretRow | null,
 ): VaultSecretMetadata | null {
@@ -986,7 +965,6 @@ export async function cleanupSyncedCredentialKeysIfUnused(
   }
 }
 
-// ─── Sync ──────────────────────────────────────────────────────
 
 export async function syncGrantsToApp(
   appId: string,
@@ -1029,9 +1007,6 @@ export async function syncGrantsToApp(
     };
   }
 
-  // `all-apps` mode lists secrets across every org the caller can see, so each
-  // row must be written back under its own org. Syncing them all under `ctx`
-  // upserts copies of other orgs' credentials into the caller's org.
   const credentialStoreGroups = groupSecretsByTenant(secretsToSync, (row) =>
     ctxForSecretRow(row, ctx),
   );
@@ -1060,10 +1035,6 @@ export async function syncGrantsToApp(
     | { status: "skipped"; reason: string }
     | { status: "failed"; reason: string };
 
-  // Best-effort push to the app's env-vars endpoint for local/dev apps that
-  // still read process.env directly. Production/shared-DB apps intentionally
-  // reject env writes; the encrypted app_secrets sync above is the canonical
-  // path for request-scoped credentials.
   if (!isTrustedEnvVarSyncAgentUrl(agent.url)) {
     envVarSync = {
       status: "skipped",
@@ -1100,8 +1071,6 @@ export async function syncGrantsToApp(
   const syncedKeys = credentialStoreKeys;
   const timestamp = now();
 
-  // Update syncedAt on grants that were successfully pushed to the shared
-  // credential store. All-apps mode has no explicit grant rows to update.
   for (const grant of activeGrants) {
     const secret = await getSecret(grant.secretId, ctx);
     if (secret && syncedKeys.includes(secret.credentialKey)) {
@@ -1134,7 +1103,6 @@ export async function syncGrantsToApp(
   };
 }
 
-// ─── Requests ──────────────────────────────────────────────────────
 
 export async function listRequests(filter?: { status?: string }) {
   const db = getDb();
@@ -1240,13 +1208,6 @@ export async function approveRequest(
   const reviewer = ctx.ownerEmail;
   const staleApplyingBefore = timestamp - 5 * 60 * 1000;
 
-  // Fence the transition on the current status — scoped to caller's tenant —
-  // so a concurrent approve can't both win: only the caller that flips
-  // pending -> applying proceeds to create the secret/grant. A crashed worker
-  // leaves an applying row behind, so a later reviewer may reclaim a lease
-  // that has been idle for five minutes. See
-  // claimAgentTeamRun in packages/core/src/server/agent-teams-run-queue.ts
-  // for the same pattern.
   const claimed = await db
     .update(schema.vaultRequests)
     .set({
@@ -1279,11 +1240,9 @@ export async function approveRequest(
   const claimedRequest = claimed[0];
 
   // Secret + grant must land in the REQUEST's tenant, not the approver's
-  // (the approver may be acting on behalf of another user in the same org).
   const requestCtx = ctxForRow(claimedRequest);
 
   try {
-    // Check if secret already exists in the request's tenant for this key.
     const existingSecrets = await db
       .select()
       .from(schema.vaultSecrets)
@@ -1307,7 +1266,6 @@ export async function approveRequest(
     }
 
     if (secret) {
-      // Create the grant in the request's tenant as well.
       await createGrant(secret.id, claimedRequest.appId, requestCtx);
     }
   } catch (error) {
@@ -1396,7 +1354,6 @@ export async function denyRequest(
   return getRequestForTenant(requestId, ctx);
 }
 
-// ─── Integrations Catalog ────────────────────────────────────────
 
 export interface IntegrationEntry {
   key: string;
@@ -1405,7 +1362,6 @@ export interface IntegrationEntry {
   configured: boolean;
   vaultGranted: boolean;
   vaultSecretId?: string;
-  /** False for non-credential settings (flags, addresses) — see env-status's `secret`. Default true. */
   secret: boolean;
 }
 
@@ -1505,7 +1461,6 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
   return results;
 }
 
-// ─── Vault Overview (for dashboard) ──────────────────────────────
 
 export async function listVaultOverview() {
   const isAdmin = await canManageVault();
@@ -1531,7 +1486,6 @@ export async function listVaultOverview() {
   };
 }
 
-// ─── SendGrid Notifications ──────────────────────────────────────
 
 async function notifyAdminsOfRequest(
   requestId: string,
@@ -1542,7 +1496,6 @@ async function notifyAdminsOfRequest(
   const appUrl = process.env.APP_URL;
   if (!apiKey || !from || !appUrl) return;
 
-  // Use approval policy approver emails as admin notification targets
   const { getApprovalPolicy } = await import("./dispatch-store.js");
   const policy = await getApprovalPolicy();
   if (policy.approverEmails.length === 0) return;

@@ -4,21 +4,7 @@ import type { ActionEntry } from "../agent/production-agent.js";
 
 const ACTION_ROUTE_CONNECT_AUTH_TIMEOUT_MS = 15_000;
 
-/**
- * End-to-end auth check for the local-first `/visual-plan` publish flow.
- *
- * `agent-native connect` mints an MCP-audience OAuth access token and the local
- * Plans server POSTs it (as `Authorization: Bearer`) to the HOSTED action route
- * `/_agent-native/actions/import-visual-plan-source`. This test drives the REAL
- * `mountActionRoutes` handler wired to the REAL `getSession`-based owner/org
- * resolver (the exact `resolveOwnerContext` shape `agent-chat-plugin` mounts),
- * and asserts the connect token authenticates the action call and scopes it to
- * the token's owner/org — the integration the unit test in `auth.spec.ts`
- * proves at the `getSession` layer.
- */
 
-// Real h3 is used (no module mock) so getMethod/getHeader/setResponse* behave
-// exactly as in production. Only the nitro->h3 adapter is stubbed to identity.
 vi.mock("./framework-request-handler.js", () => ({
   getH3App: (app: any) => app,
 }));
@@ -53,12 +39,6 @@ function makePostEvent(opts: {
   };
 }
 
-/**
- * Mirror `agent-chat-plugin.resolveOwnerContext`: resolve the owner + org from
- * the request session, throwing a 401 when there is no session and no
- * anonymous-owner fallback. Both `getOwnerFromEvent` and `resolveOrgId` funnel
- * through the same framework `getSession`.
- */
 async function buildOwnerResolver() {
   const { getSession } = await import("./auth.js");
   const getOwnerFromEvent = async (event: any): Promise<string> => {
@@ -176,7 +156,6 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
       expect(
         actions["import-visual-plan-source"].run as any,
       ).toHaveBeenCalled();
-      // The plan is created as the token's owner/org — identical scoping to MCP.
       expect(seen).toEqual({
         userEmail: "owner@plans.test",
         orgId: "org-123",

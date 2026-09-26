@@ -9,9 +9,7 @@ export interface ChatModelEngineEntry {
   name: string;
   label: string;
   supportedModels?: readonly string[];
-  /** Whether explicit provider selections may use IDs outside the catalog. */
   acceptsCustomModels?: boolean;
-  /** Whether the engine accepts model IDs outside its curated catalog. */
   preserveCustomModels?: boolean;
   requiredEnvVars?: readonly string[];
   packageInstalled?: boolean;
@@ -25,7 +23,6 @@ export interface ChatModelEngineEntry {
    * through to the env heuristic rather than reading as "needs an API key".
    */
   configured?: boolean;
-  /** Why readiness is unknown, when the server's lookup failed. */
   configuredError?: string;
 }
 
@@ -37,11 +34,6 @@ export interface BuildChatModelGroupsOptions {
   currentModel?: string;
 }
 
-/**
- * A loaded provider-backed catalog can confirm that setup is missing before
- * the slower canonical readiness request resolves. An empty catalog is a
- * failed lookup, not evidence that no provider is configured.
- */
 export function modelCatalogConfirmsMissing(
   groups: readonly Pick<EngineModelGroup, "configured">[] | undefined,
   loading: boolean | undefined,
@@ -85,9 +77,6 @@ function addCurrentModel(
   return next;
 }
 
-// Cheapest → most expensive. The composer mirrors these tokens for the `$`
-// cost labels on picker rows (packages/toolkit/src/composer/TiptapComposer.tsx);
-// the toolkit cannot import core, so a new family must be added in both lists.
 const MODEL_COST_ORDER = [
   "luna",
   "terra",
@@ -177,9 +166,6 @@ function shouldShowDirectEngine(
   engine: ChatModelEngineEntry,
   currentEngineName?: string,
 ): boolean {
-  // Keep a persisted selection usable after an engine is hidden from the
-  // picker; users can choose a supported replacement instead of landing on a
-  // model that no longer has a rendered group.
   if (
     HIDDEN_CHAT_MODEL_ENGINES.has(engine.name) &&
     engine.name !== currentEngineName
@@ -267,18 +253,7 @@ export function buildChatModelGroups({
     .filter((group) => group.models.length > 0)
     .filter(shouldShowConfiguredGroup);
 
-  // The gateway lane — a Fusion preview or a Builder-credits deploy — bills the
-  // app's own Builder account and needs no connect step, but
-  // `/builder/status.configured` answers for the IDENTITY lane only and is false
-  // here. Without the catalog's server-resolved readiness (which sees both
-  // lanes) every row in the picker is a dead "needs API key" while the gateway
-  // is the one credential that can actually run the chat.
   if (builderEngine?.configured === true) {
-    // A provider key the customer pasted still outranks the injected gateway at
-    // request time (`selectDetectedEngine` skips deploy-injected sets), so it
-    // stays selectable. Unconfigured direct engines are dropped: with a routable
-    // lane in the list they are dead ends, not a setup path, and their labels
-    // collide with the Builder families.
     return [
       ...groupBuilderModels(builderModels()),
       ...directGroups.filter(

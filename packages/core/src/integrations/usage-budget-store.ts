@@ -10,7 +10,6 @@ import {
 let initPromise: Promise<void> | undefined;
 let transactionTail: Promise<void> = Promise.resolve();
 
-/** All budget values are integer millionths of one billing currency unit. */
 export const INTEGRATION_BUDGET_COST_UNIT = "currency_micros" as const;
 
 export type IntegrationBudgetPeriod = "day" | "month";
@@ -24,9 +23,7 @@ export interface IntegrationUsageBudget {
   subjectType: IntegrationBudgetSubject["type"];
   subjectId: string;
   period: IntegrationBudgetPeriod;
-  /** Integer millionths of one billing currency unit. */
   limitMicros: number;
-  /** Threshold in basis points: 8,000 means 80%. */
   thresholdBps: number;
   ownerEmail: string;
   orgId: string | null;
@@ -380,8 +377,6 @@ async function ensureWindow(
   windowStart: number,
   now: number,
 ): Promise<void> {
-  // Use one conflict target as the atomic create-if-absent primitive for the
-  // counter row.
   await db.execute({
     sql: `INSERT INTO integration_usage_budget_windows
       (budget_id, window_start, used_micros, reserved_micros, updated_at)
@@ -475,8 +470,6 @@ export async function saveIntegrationUsageBudget(
   const now = Date.now();
 
   await withSerializedTransaction(async (tx) => {
-    // The stable id is derived entirely from the authorized partition. The
-    // conflict update therefore cannot cross an owner/org boundary.
     await tx.execute({
       sql: `INSERT INTO integration_usage_budgets (
         id, partition_key, subject_type, subject_id, period, limit_micros,
@@ -516,7 +509,6 @@ export async function getIntegrationUsageBudget(
   return findBudget(getDbExec(), budgetId, normalizeAccess(accessInput));
 }
 
-/** List budgets visible in the caller's personal/active-org partition. */
 export async function listIntegrationUsageBudgets(
   accessInput: IntegrationScopeAccess,
 ): Promise<IntegrationUsageBudget[]> {
@@ -899,7 +891,6 @@ export async function listIntegrationBudgetThresholdEvents(
   }));
 }
 
-/** Test-only reset for suites that swap the injected database. */
 export function _resetIntegrationUsageBudgetStoreForTests(): void {
   initPromise = undefined;
   transactionTail = Promise.resolve();

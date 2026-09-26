@@ -54,12 +54,9 @@ function isPrivateHost(hostname: string): boolean {
   }
   if (METADATA_HOSTS.includes(host)) return true;
 
-  // IPv6 ULA/link-local/multicast.
   if (/^f[cd]/.test(host) || /^fe[89ab]/.test(host)) return true;
   if (/^ff/i.test(host)) return true;
 
-  // IPv4-mapped IPv6. URL parsing may preserve dotted form in some runtimes
-  // or normalize it to hex, e.g. [::ffff:127.0.0.1] -> ::ffff:7f00:1.
   const v4mappedDotted = host.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   if (v4mappedDotted) {
     const [a, b, c, d] = v4mappedDotted[1].split(".").map(Number);
@@ -67,15 +64,12 @@ function isPrivateHost(hostname: string): boolean {
   }
   if (isPrivateIpv4MappedHex(host)) return true;
 
-  // Dotted IPv4. URL parsing normalizes shorthand/octal/hex IPv4 forms to
-  // dotted decimal before we reach this point.
   const parts = host.split(".");
   if (parts.length === 4 && parts.every((p) => /^\d+$/.test(p))) {
     const [a, b, c, d] = parts.map(Number);
     if (isPrivateIpv4(a, b, c, d)) return true;
   }
 
-  // Decimal integer IPv4.
   if (/^\d+$/.test(host)) {
     const num = Number(host);
     if (num >= 0 && num <= 0xffffffff) {
@@ -119,11 +113,6 @@ function isIpLiteralHost(hostname: string): boolean {
   return parts.length === 4 && parts.every((p) => /^\d+$/.test(p));
 }
 
-/**
- * Async SSRF guard for environments that can resolve DNS. The synchronous
- * guard catches literals and known rebinding domains; this closes the common
- * "public hostname resolves to a private address" gap before dispatch.
- */
 export async function isBlockedExtensionUrlWithDns(
   url: string,
 ): Promise<boolean> {
@@ -142,27 +131,10 @@ export async function isBlockedExtensionUrlWithDns(
     const records = await lookup(hostname, { all: true, verbatim: true });
     return records.some((record) => isPrivateHost(record.address));
   } catch {
-    // Some edge runtimes do not expose DNS lookup. Keep the deterministic
-    // parser-based protections instead of failing every outbound request.
     return false;
   }
 }
 
-/**
- * Build an undici Dispatcher whose connect-time DNS lookup runs through a
- * private-IP guard. This closes the TOCTOU gap where:
- *   1. We resolve hostname → public IP and pass.
- *   2. Between that lookup and the actual connect, DNS rebinding flips the
- *      record to a private IP.
- *   3. fetch() resolves again and connects to the private IP.
- *
- * With a custom dispatcher, the same lookup that produces the IP also gates
- * the connect: if the IP is in the private set, the connect throws.
- *
- * Returns `null` if undici / node:dns are not available (e.g. some edge
- * runtimes); the caller should fall back to the regular `fetch` path —
- * `isBlockedExtensionUrlWithDns` will still have caught most rebinding cases.
- */
 function normalizeLookupHostname(hostname: string): string {
   return hostname.toLowerCase().replace(/^\[|\]$/g, "");
 }
@@ -176,9 +148,6 @@ function loopbackHostnameVariants(hostname: string): string[] {
   ) {
     return [normalized];
   }
-  // Local workspace manifests can identify the same child server as
-  // localhost, 127.0.0.1, or ::1. They are equivalent only for loopback; do
-  // not alias arbitrary private or public hostnames.
   return ["localhost", "127.0.0.1", "::1"];
 }
 
@@ -241,7 +210,6 @@ function allowedPrivateOriginForDestination(
 }
 
 let sharedSsrfDispatcher: Promise<unknown> | undefined;
-// Agents capture their private-origin policy and destination port.
 const privateSsrfDispatchers = new Map<string, Promise<unknown>>();
 
 async function createSsrfSafeDispatcherUncached(
@@ -249,8 +217,6 @@ async function createSsrfSafeDispatcherUncached(
   destinationUrl?: string,
   options: { required?: boolean } = {},
 ): Promise<unknown> {
-  // Keep the undici import opaque to Vite/Rolldown. A literal dynamic import
-  // makes browser builds try to resolve and bundle this server-only package.
   let undici: any;
   let dnsModule: any;
   try {
@@ -289,9 +255,6 @@ async function createSsrfSafeDispatcherUncached(
 
   return new Agent({
     connect: {
-      // Override DNS lookup at connect time so the IP we hand to undici's
-      // socket is the one we authorized. Reject any record in the private
-      // set BEFORE the TCP handshake.
       lookup: (
         hostname: string,
         options: any,
@@ -323,9 +286,6 @@ async function createSsrfSafeDispatcherUncached(
                 return callback(e);
               }
             }
-            // Mirror Node's lookup behavior: when `all` is true, return the
-            // array; otherwise the first entry. undici's connect honors
-            // `options.all`.
             if (options && options.all) {
               return callback(null, list as any);
             }
@@ -418,13 +378,6 @@ export async function ssrfSafeFetch(
     requireDispatcher?: boolean;
     httpsOnly?: boolean;
     assertUrlAllowed?: (url: string) => void | Promise<void>;
-    /**
-     * Exact origins that may resolve to a private address. A workspace runs
-     * every app on loopback behind one gateway, so sibling A2A calls are
-     * private by construction; without this they are indistinguishable from an
-     * SSRF attempt and get blocked. Only ever pass origins the deployment
-     * itself configured (never a request-supplied value).
-     */
     allowedPrivateOrigins?: readonly string[];
   } = {},
 ): Promise<Response> {
@@ -478,8 +431,6 @@ export async function ssrfSafeFetch(
       if (options.followRedirects === false) return response;
       const location = response.headers.get("location");
       if (!location) return response;
-      // Drain the redirect body so the hop's connection is released instead
-      // of being held until GC.
       await response.body?.cancel().catch(() => {});
       const nextUrl = new URL(location, currentUrl);
       const method = currentInit.method?.toUpperCase() ?? "GET";
@@ -523,11 +474,6 @@ export async function ssrfSafeFetch(
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Legacy aliases — predate the Tools → Extensions rename. Templates import
-// these via the legacy `@agent-native/core/tools/url-safety` subpath; keep
-// the names exported so they keep resolving until every consumer updates.
-// ─────────────────────────────────────────────────────────────────────────────
 
 export { isBlockedExtensionUrl as isBlockedToolUrl };
 export { isBlockedExtensionUrlWithDns as isBlockedToolUrlWithDns };

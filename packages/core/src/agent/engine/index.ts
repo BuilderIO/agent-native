@@ -1,6 +1,3 @@
-/**
- * Public exports for the pluggable agent engine system.
- */
 
 export type {
   AgentEngine,

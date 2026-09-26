@@ -50,10 +50,6 @@ function makeDeps(overrides: Partial<PeerProbeDeps> = {}): PeerProbeDeps {
 }
 
 describe("probePeerAgent", () => {
-  // Reachability and auth are independent questions. An unreachable peer
-  // can't tell us anything about whether our calls would authenticate, so
-  // `authorized` must stay ABSENT — not coerced to `false` — or the settings
-  // UI reports a peer as "auth rejected" when it never even answered.
   it("leaves authorized undefined when the peer is unreachable", async () => {
     const deps = makeDeps({
       loadCapabilities: async () => ({
@@ -121,10 +117,6 @@ describe("probePeerAgent", () => {
     expect(result.authError).toBeUndefined();
   });
 
-  // A timeout on the auth-only call proves nothing about auth — the card
-  // fetch already proved reachability. Collapsing a timeout into
-  // `authorized: false` would tell a correctly-configured caller that its
-  // credentials are rejected, when the real cause is an unrelated network hiccup.
   it("never reports a timeout on the no-op call as authorized:false", async () => {
     const deps = makeDeps({
       createClient: () => ({

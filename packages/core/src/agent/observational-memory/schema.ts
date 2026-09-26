@@ -27,20 +27,11 @@ import { table, text, integer, ownableColumns } from "../../db/schema.js";
 export const observationalMemory = table("observational_memory", {
   id: text("id").primaryKey(),
   threadId: text("thread_id").notNull(),
-  /** Which tier this entry belongs to. */
   tier: text("tier", { enum: ["observation", "reflection"] }).notNull(),
-  /** The dated, compacted text content of this entry. */
   text: text("text").notNull(),
-  /** Estimated token count of `text` (used for the reflection threshold). */
   tokenEstimate: integer("token_estimate").notNull().default(0),
-  /**
-   * Inclusive index range of the source thread messages this entry summarizes.
-   * For observations these are indices into the flattened thread-message array;
-   * for reflections they span the observation indices that were folded.
-   */
   sourceStartIndex: integer("source_start_index"),
   sourceEndIndex: integer("source_end_index"),
-  /** How many source messages/observations this entry covers. */
   sourceMessageCount: integer("source_message_count").notNull().default(0),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),

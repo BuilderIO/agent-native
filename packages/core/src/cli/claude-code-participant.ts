@@ -33,8 +33,6 @@ const SAFE_ENVIRONMENT_KEYS = [
   "USER",
   "LOGNAME",
   "SHELL",
-  // Claude Code uses this as its config root; HOME remains required for its
-  // default config and macOS Keychain-backed subscription login.
   "CLAUDE_CONFIG_DIR",
 ] as const;
 
@@ -96,7 +94,6 @@ export interface RunClaudeCodeParticipantOptions {
   model?: string;
   effort?: string;
   session?: ClaudeCodeParticipantSession;
-  /** Either the fixed CLI name or an absolute executable path for packaged apps. */
   command?: string;
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;

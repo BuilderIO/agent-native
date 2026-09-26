@@ -7,9 +7,6 @@ import {
   createCoreAttachmentActionEntries,
 } from "./attachment-actions.js";
 
-// ---------------------------------------------------------------------------
-// Helpers: mime / filename detection
-// ---------------------------------------------------------------------------
 
 describe("isTextLikeMimeType", () => {
   it("recognises plain text variants", () => {
@@ -54,9 +51,6 @@ describe("isTextLikeFilename", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// persistTextAttachmentsAsResources
-// ---------------------------------------------------------------------------
 
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
@@ -223,9 +217,6 @@ describe("persistTextAttachmentsAsResources", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// read-attachment action slicing
-// ---------------------------------------------------------------------------
 
 describe("createCoreAttachmentActionEntries / read-attachment", () => {
   beforeEach(() => {

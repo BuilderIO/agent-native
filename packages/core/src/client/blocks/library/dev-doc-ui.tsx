@@ -27,7 +27,6 @@ import { cn } from "../../utils.js";
  * param location, diff mode).
  */
 
-/* ── Input ─────────────────────────────────────────────────────────────────── */
 
 export const DevInput = forwardRef<
   HTMLInputElement,
@@ -45,7 +44,6 @@ export const DevInput = forwardRef<
 ));
 DevInput.displayName = "DevInput";
 
-/* ── Label ─────────────────────────────────────────────────────────────────── */
 
 export const DevLabel = forwardRef<
   HTMLLabelElement,
@@ -62,7 +60,6 @@ export const DevLabel = forwardRef<
 ));
 DevLabel.displayName = "DevLabel";
 
-/* ── Textarea ──────────────────────────────────────────────────────────────── */
 
 export const DevTextarea = forwardRef<
   HTMLTextAreaElement,
@@ -79,9 +76,7 @@ export const DevTextarea = forwardRef<
 ));
 DevTextarea.displayName = "DevTextarea";
 
-/* ── Badge ─────────────────────────────────────────────────────────────────── */
 
-/** Only the `outline` badge variant is used by these blocks. */
 export function DevBadge({ className, ...props }: ComponentProps<"span">) {
   return (
     <span
@@ -94,12 +89,7 @@ export function DevBadge({ className, ...props }: ComponentProps<"span">) {
   );
 }
 
-/* ── Switch ────────────────────────────────────────────────────────────────── */
 
-/**
- * A native-checkbox toggle styled to read like the shadcn Switch. `onCheckedChange`
- * mirrors the shadcn/Radix API so call sites stay identical.
- */
 export function DevSwitch({
   checked,
   onCheckedChange,
@@ -140,18 +130,12 @@ export function DevSwitch({
   );
 }
 
-/* ── Select (native, shadcn-trigger styled) ────────────────────────────────── */
 
 export interface DevSelectOption {
   value: string;
   label: ReactNode;
 }
 
-/**
- * A native `<select>` styled to match the shadcn SelectTrigger. Drop-in for the
- * simple enum pickers the dev-doc editors use. `onValueChange` mirrors the shadcn
- * API. The chevron is positioned over the native control.
- */
 export function DevSelect({
   value,
   onValueChange,

@@ -12,8 +12,6 @@ export {
 } from "./condition-evaluator.js";
 export { createAutomationToolEntries } from "./actions.js";
 
-// Template-native automation surfaces use the same organization-scoped
-// service and run history as the framework Agent page.
 export {
   defineAutomation,
   listAutomationDefinitions,

@@ -1,19 +1,3 @@
-/**
- * Shared debounced syntax-highlighted code block.
- *
- * Performance characteristics vs the old per-site implementations:
- * - While code is still growing (streaming), Shiki re-highlight is debounced
- *   to ~150 ms (trailing).  Between debounce fires the previous highlighted
- *   HTML is kept — no blank flash.
- * - A content hash gate means identical re-renders never re-invoke Shiki.
- * - A final highlight is triggered immediately when streaming ends (caller
- *   passes streaming=false).
- * - Non-streaming first paint waits for Shiki (invisible placeholder reserves
- *   space) so the UI never snaps from plain text to highlighted HTML.
- *
- * Usage:
- *   <HighlightedCodeBlock code={code} lang="typescript" containerClass="agent-markdown-shiki" />
- */
 import React, { useEffect, useRef, useState } from "react";
 
 const LANG_ALIASES: Record<string, string> = {
@@ -32,14 +16,8 @@ const LANG_ALIASES: Record<string, string> = {
 export interface HighlightedCodeBlockProps {
   code: string;
   lang: string;
-  /** Class applied to the wrapper div when Shiki HTML is rendered. */
   containerClass: string;
-  /** Pass true while the parent message is still streaming. When false the
-   *  block fires an immediate (non-debounced) highlight pass. */
   streaming?: boolean;
-  /** Loader for the site-specific Shiki highlighter instance. Each call site
-   *  has its own highlighter loader (different language sets, different CSS
-   *  class, etc.) — pass it in so this component stays decoupled. */
   loadHighlighter: () => Promise<{
     codeToHtml: (
       code: string,
@@ -72,17 +50,9 @@ export function HighlightedCodeBlock({
 }: HighlightedCodeBlockProps): React.ReactElement {
   const [html, setHtml] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  // Track the content hash for which html was last rendered so identical
-  // re-renders never re-invoke Shiki.
   const renderedHashRef = useRef<number | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
-  // Whether this block has already put code on screen. Reserving space
-  // invisibly is right on FIRST paint — it avoids an unhighlighted→highlighted
-  // flash — but once code is visible, hiding it again to wait for Shiki blanks
-  // a code box the user was reading. That is what happened whenever the block
-  // lost its html (a re-highlight after the content changed): readable code
-  // went blank mid-answer.
   const hasPaintedRef = useRef(false);
 
   useEffect(() => {
@@ -99,7 +69,6 @@ export function HighlightedCodeBlock({
   useEffect(() => {
     const contentHash = hashString(lang + "\0" + code);
 
-    // Skip if we already rendered this exact content
     if (renderedHashRef.current === contentHash) return;
 
     const doHighlight = () => {
@@ -134,20 +103,17 @@ export function HighlightedCodeBlock({
         });
     };
 
-    // Clear any existing pending debounce
     if (debounceTimerRef.current !== null) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
 
     if (streaming) {
-      // Debounce while the code block is still growing
       debounceTimerRef.current = setTimeout(() => {
         debounceTimerRef.current = null;
         doHighlight();
       }, DEBOUNCE_MS);
     } else {
-      // Stream complete (or never was streaming): highlight immediately
       doHighlight();
     }
   }, [code, lang, streaming, loadHighlighter]);
@@ -162,9 +128,6 @@ export function HighlightedCodeBlock({
     );
   }
 
-  // Streaming: show plain growing text (previous html already kept above when
-  // available). Non-streaming first paint: reserve space invisibly so we never
-  // flash unhighlighted → highlighted. Once painted, never hide again.
   const showPlain = streaming || failed || hasPaintedRef.current;
   if (showPlain) hasPaintedRef.current = true;
   return (

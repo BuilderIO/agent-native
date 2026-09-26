@@ -21,9 +21,6 @@ import path from "node:path";
 
 import { canonicalTrackingEvent } from "@agent-native/core/shared";
 
-// Public, write-only analytics key. Safe to embed (revocable from the Analytics
-// settings UI). Override with AGENT_NATIVE_ANALYTICS_PUBLIC_KEY for testing or
-// to point telemetry at a different first-party analytics instance.
 // guard:allow-public-key -- first-party analytics write key is public by design.
 const EMBEDDED_PUBLIC_KEY =
   "anpk_dc523e34b99bc34d76e82d94c46593544e4a8509a4bfc93c";
@@ -31,7 +28,6 @@ const DEFAULT_ENDPOINT = "https://analytics.agent-native.com/track";
 const FLUSH_TIMEOUT_MS = 1500;
 
 export interface CliTelemetryOptions {
-  /** Stable identifier for the emitting CLI, e.g. "skills-installer". */
   cli: string;
   cliVersion: string;
   command: string;
@@ -183,11 +179,6 @@ function captureException(
   });
 }
 
-/**
- * Read (or lazily create) a stable per-machine install id, shared across both
- * skills CLIs so one developer counts once. Best-effort: an unwritable home
- * directory just yields an ephemeral id for this run.
- */
 function resolveInstallId(): string {
   try {
     const dir = path.join(os.homedir(), ".agent-native");

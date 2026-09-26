@@ -1,18 +1,3 @@
-/**
- * Observational Memory (OM) — background compaction of a long agent thread into
- * a dated, three-tier context (recent raw messages → dense observations →
- * higher-level reflections) so long-running threads cost far fewer tokens and
- * stay prompt-cache stable.
- *
- * Public surface:
- * - `buildObservationalContext` — read API returning the three tiers, injected
- *   into the turn's prompt assembly by the agent loop for long threads.
- * - `maybeCompactThread` — decoupled compactor the agent loop calls after a
- *   turn; runs the Observer then the Reflector.
- * - `runObserver` / `runReflector` — the individual compaction passes.
- * - store helpers + the migration plugin factory (registered as a default
- *   framework plugin so the table is created on startup).
- */
 
 export {
   resolveObservationalMemoryConfig,

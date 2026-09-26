@@ -1,13 +1,3 @@
-/**
- * Client-side persistence for the SQL editor surface of the dev-mode database
- * admin. Everything lives in `localStorage` under the `agentnative.dbadmin.sql.*`
- * namespace and is SSR-safe (no-ops when `window` is unavailable).
- *
- * Two stores live here:
- *  - Query HISTORY: a capped, de-duplicated list of executed SQL strings, most
- *    recent first. Useful for re-loading a previous query into the editor.
- *  - Saved SNIPPETS: named, reusable queries the user explicitly saved.
- */
 
 const HISTORY_KEY = "agentnative.dbadmin.sql.history";
 const SNIPPETS_KEY = "agentnative.dbadmin.sql.snippets";
@@ -38,18 +28,12 @@ function writeJSON(key: string, value: unknown): void {
   }
 }
 
-// ─── History ───────────────────────────────────────────────────────────────
 
 export function loadHistory(): string[] {
   const list = readJSON<string[]>(HISTORY_KEY, []);
   return Array.isArray(list) ? list.filter((s) => typeof s === "string") : [];
 }
 
-/**
- * Prepend an executed query to the history. Trims whitespace, skips empties,
- * de-dupes against the most-recent entry, and caps the list length. Returns the
- * updated list so callers can update their in-memory copy without re-reading.
- */
 export function pushHistory(sql: string): string[] {
   const trimmed = sql.trim();
   if (!trimmed) return loadHistory();
@@ -57,8 +41,6 @@ export function pushHistory(sql: string): string[] {
   const existing = loadHistory();
   if (existing[0] === trimmed) return existing;
 
-  // Remove any earlier identical entry so the list stays unique while keeping
-  // the newly executed query at the top.
   const deduped = existing.filter((s) => s !== trimmed);
   const next = [trimmed, ...deduped].slice(0, HISTORY_CAP);
   writeJSON(HISTORY_KEY, next);
@@ -74,7 +56,6 @@ export function clearHistory(): void {
   }
 }
 
-// ─── Snippets ────────────────────────────────────────────────────────────────
 
 export interface SqlSnippet {
   id: string;
@@ -103,10 +84,6 @@ export function loadSnippets(): SqlSnippet[] {
   );
 }
 
-/**
- * Create or update a snippet. Pass an `id` to update an existing one; omit it to
- * create a new snippet. Returns the updated list.
- */
 export function saveSnippet(input: {
   id?: string;
   name: string;

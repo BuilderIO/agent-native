@@ -159,7 +159,6 @@ describe("trusted MCP OAuth authorization scopes", () => {
     );
 
     expect(orgOnly).not.toBe(personalOnly);
-    // The reported bug was an org-only server answering with personal-only text.
     expect(orgOnly).toMatch(/set up for your workspace/i);
     expect(orgOnly).toMatch(/owner or admin/i);
     expect(orgOnly).not.toMatch(/personal connection/i);
@@ -587,8 +586,6 @@ describe("managed MCP OAuth clients", () => {
       expect(mcpUrlRequiresOrganizationScope(raw)).toBe(true);
       expect(resolveMcpOAuthScope(new URL(raw), "user").ok).toBe(false);
     }
-    // A query or fragment takes the URL outside the trusted Builder Publish
-    // match on the server too, so it is a generic server that accepts either
     // scope. Forcing org here would fail requests the server would allow.
     for (const raw of [
       "https://mcp.builder.io/mcp/fusion",
@@ -612,7 +609,6 @@ describe("managed MCP OAuth clients", () => {
       if (integration.authMode !== "oauth" || !integration.url) continue;
       const serverUrl = new URL(integration.url);
 
-      // The client must not advertise a personal connection the server rejects.
       expect({
         id: integration.id,
         organizationScopeOnly: integration.organizationScopeOnly === true,
@@ -621,8 +617,6 @@ describe("managed MCP OAuth clients", () => {
         organizationScopeOnly: !resolveMcpOAuthScope(serverUrl, "user").ok,
       });
 
-      // The URL-level rule that buildMcpOAuthStartUrl enforces has to agree
-      // with the server too, since custom servers carry no catalog flag.
       expect({
         id: integration.id,
         urlRequiresOrg: mcpUrlRequiresOrganizationScope(integration.url),
@@ -631,8 +625,6 @@ describe("managed MCP OAuth clients", () => {
         urlRequiresOrg: !resolveMcpOAuthScope(serverUrl, "user").ok,
       });
 
-      // ...nor a workspace connection the server rejects. `managedOAuth` is
-      // what makes the UI hide the workspace option for those providers.
       expect({
         id: integration.id,
         managedOAuth: integration.managedOAuth === true,
@@ -736,8 +728,6 @@ describe("MCP OAuth start failures", () => {
     });
   });
 
-  // GitHub's authorization server advertises no registration_endpoint, so the
-  // generic message told users to retry a flow that can never succeed.
   it("names the authorization server that cannot register a client", () => {
     const failure = resolveMcpOAuthStartError(
       new McpOAuthRegistrationUnsupportedError({
@@ -802,8 +792,6 @@ describe("MCP OAuth start failure rendering", () => {
     expect(wantsHtmlResponse(jsonEvent())).toBe(false);
   });
 
-  // The Connect button opens this route in a popup, so a JSON body was painted
-  // across the window as a raw error object.
   it("renders an HTML page for the popup instead of the raw JSON body", async () => {
     const response = mcpOAuthStartFailureResponse(htmlEvent(), {
       status: 400,
@@ -831,8 +819,6 @@ describe("MCP OAuth start failure rendering", () => {
     expect(html).toContain("&lt;img");
   });
 
-  // The callback stages the flow-cookie deletion before it validates anything,
-  // and h3 does not merge staged Set-Cookie headers into a returned Response.
   it("carries the staged flow-cookie deletion onto the HTML page", async () => {
     const event = htmlEvent();
     clearMcpOAuthFlowCookies(event);

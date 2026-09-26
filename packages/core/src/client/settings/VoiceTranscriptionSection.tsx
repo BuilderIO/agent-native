@@ -1,14 +1,3 @@
-/**
- * <VoiceTranscriptionSection /> — source + cleanup settings for voice input.
- *
- * Writes the selection to application_state under `voice-transcription-prefs`
- * so the composer's `useVoiceDictation` hook picks it up on next record. The
- * legacy `provider` field is still written alongside `transcriptionMode` so
- * older clients continue to normalize safely.
- *
- * Provider status comes from `/_agent-native/voice-providers/status`, which
- * mirrors the server transcription route's key/env resolution.
- */
 
 import { Picker, Skeleton, Switch } from "@agent-native/toolkit/design-system";
 import {
@@ -159,7 +148,6 @@ export function VoiceTranscriptionSection({
   const googleRealtimeReady =
     !!googleRealtimeConfigured && builderRealtimeReady;
 
-  // Read cleanup pref (default: true if Builder is connected).
   useEffect(() => {
     let cancelled = false;
     fetch(CLEANUP_PREFS_URL)
@@ -176,7 +164,7 @@ export function VoiceTranscriptionSection({
             (body as { enabled?: boolean } | null)?.enabled ??
             (body as { value?: { enabled?: boolean } } | null)?.value?.enabled;
           if (typeof stored === "boolean") setCleanupEnabled(stored);
-          else setCleanupEnabled(null); // resolve once builderStatus arrives
+          else setCleanupEnabled(null);
         },
       )
       .catch(() => !cancelled && setCleanupEnabled(null));
@@ -314,7 +302,6 @@ export function VoiceTranscriptionSection({
           throw new Error(`HTTP ${res.status}`);
         }
       } catch (err) {
-        // Revert the optimistic update so the UI matches server state.
         setTranscriptionMode(previous.transcriptionMode);
         setProvider(previous.provider);
         setInstructions(previous.instructions);
@@ -801,7 +788,6 @@ function ProviderOption({
       onKeyDown={onKeyDown}
       aria-pressed={selected}
       aria-disabled={disabled || undefined}
-      // Theme tokens; streaming agent owns layout.
       className={`w-full text-start rounded-md border px-2.5 py-2 flex items-start gap-2 ${
         selected
           ? "border-primary bg-primary/10"
@@ -857,12 +843,6 @@ interface VersionStatusPayload {
   reason?: string;
 }
 
-// Tauri v2 exposes `window.__TAURI_INTERNALS__.invoke` as the runtime entry
-// point that `@tauri-apps/api/core` itself wraps. Calling it directly avoids
-// pulling `@tauri-apps/api` into the web bundle's import graph — a dynamic
-// `import("@tauri-apps/api/core")` survives Vite's prebundle as a literal
-// specifier and trips `vite:import-analysis` with a "Failed to resolve" error
-// in fresh CLI installs that don't have the desktop dep installed.
 type TauriInvoke = (cmd: string, args?: unknown) => Promise<unknown>;
 function getTauriInvoke(): TauriInvoke | null {
   if (typeof window === "undefined") return null;
@@ -878,7 +858,7 @@ function SystemAudioStatus() {
   useEffect(() => {
     let cancelled = false;
     const invoke = getTauriInvoke();
-    if (!invoke) return; // Web users: render nothing.
+    if (!invoke) return;
     setState({ kind: "loading" });
     void (async () => {
       try {
@@ -895,9 +875,6 @@ function SystemAudioStatus() {
           });
           return;
         }
-        // Supported — now probe permission. This may prompt; calling it
-        // here matches the original on-mount semantics requested in the
-        // settings flow.
         try {
           const granted = (await invoke(
             "system_audio_request_permission",
@@ -915,8 +892,6 @@ function SystemAudioStatus() {
           }
         }
       } catch {
-        // Older desktop builds may not have the new command yet —
-        // fall back to the permission probe.
         if (cancelled) return;
         try {
           const granted = (await invoke(
@@ -974,7 +949,6 @@ function SystemAudioStatus() {
     );
   }
 
-  // denied
   return (
     <div className="flex items-start gap-1.5 px-0.5 pt-1 text-[10px] text-muted-foreground">
       <IconAlertCircle size={11} className="mt-[1px] shrink-0 text-amber-500" />

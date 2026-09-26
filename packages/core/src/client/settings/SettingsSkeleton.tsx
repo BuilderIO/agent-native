@@ -12,7 +12,6 @@ export interface SettingsSkeletonProps extends HTMLAttributes<HTMLDivElement> {
   label?: string;
 }
 
-/** Layout-matching placeholder for settings fields while their data loads. */
 export function SettingsSkeleton({
   lines = 3,
   label = "Loading settings",
@@ -59,7 +58,6 @@ export interface SettingsLoadingRowProps extends HTMLAttributes<HTMLDivElement> 
   controlCount?: number;
 }
 
-/** Layout-matching placeholder for a single settings row while it loads. */
 export function SettingsLoadingRow({
   controlCount = 1,
   className,

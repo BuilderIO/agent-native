@@ -1,16 +1,3 @@
-/**
- * <DevOverlay /> — the framework dev/configuration panel.
- *
- * Templates render this once at the root of their app. The user toggles it
- * with Cmd+Ctrl+A (also exposed as `useDevOverlayShortcut`). Panels register
- * via `registerDevPanel`; values for option-style controls persist to
- * localStorage via `useDevOption`.
- *
- * Visibility note: the overlay only mounts when the host explicitly opens it
- * via the keybinding (or the `open` prop). It is dev-only by convention —
- * shipping with the keybinding active in prod is fine because nothing renders
- * unless invoked.
- */
 
 import {
   IconChevronDown,
@@ -48,10 +35,6 @@ import { useDevOverlayShortcut } from "./use-dev-overlay-shortcut.js";
 const COLLAPSED_KEY_PREFIX = `${DEV_OVERLAY_STORAGE_PREFIX}collapsed-`;
 
 export interface DevOverlayProps {
-  /**
-   * Force-control the overlay's visibility. When omitted the overlay manages
-   * its own state and listens to Cmd+Ctrl+A.
-   */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
@@ -71,7 +54,6 @@ export function DevOverlay({ open, onOpenChange }: DevOverlayProps = {}) {
 
   useDevOverlayShortcut(useCallback(() => setOpen(!isOpen), [isOpen, setOpen]));
 
-  // Esc closes (only when overlay is the topmost UI — skip when typing).
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -391,8 +373,6 @@ function DevActionRow({ option }: { option: DevActionOption }) {
   );
 }
 
-// Shadow / border styles tuned to read well over both light and dark app
-// chrome — the overlay is dev-only so we don't bother with theme tokens.
 const styles: Record<string, React.CSSProperties> = {
   shell: {
     position: "fixed",
@@ -400,7 +380,6 @@ const styles: Record<string, React.CSSProperties> = {
     right: 16,
     width: 380,
     maxWidth: "calc(100vw - 32px)",
-    // Sized to content; capped so it never spills off-screen on small windows.
     maxHeight: "calc(100vh - 32px)",
     background: "rgba(20, 20, 23, 0.96)",
     color: "#f4f4f5",
@@ -440,9 +419,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 12,
     overflowY: "auto",
     flex: 1,
-    // Required to let `overflow-y: auto` actually scroll inside a flex column.
-    // Without this, flex children grow to fit content and the scroll never
-    // engages.
     minHeight: 0,
     display: "flex",
     flexDirection: "column",
@@ -564,7 +540,6 @@ const styles: Record<string, React.CSSProperties> = {
   footerBtnDanger: { color: "#fecaca", borderColor: "rgba(239,68,68,0.3)" },
 };
 
-// Inject keyframes for the spinner once.
 if (
   typeof document !== "undefined" &&
   !document.getElementById("agent-native-dev-overlay-keyframes")

@@ -1,18 +1,8 @@
-/**
- * Client-side registry for dev-overlay panels.
- *
- * Panels register at module load (or via React effect) and the overlay reads
- * from this registry on each render. Re-registering the same id replaces the
- * previous panel — templates can override framework defaults.
- */
 
 import type { DevPanel } from "./types.js";
 
 const panels = new Map<string, DevPanel>();
 const listeners = new Set<() => void>();
-// Cache the sorted snapshot so useSyncExternalStore receives a stable
-// reference between unrelated renders. Recomputed lazily on the next read
-// after `emit()`.
 let cachedSnapshot: DevPanel[] | null = [];
 
 function invalidateSnapshot() {

@@ -1,4 +1,3 @@
-/** Shared Postgres schema exports for templates and framework stores. */
 
 import { sql } from "drizzle-orm";
 import {
@@ -32,9 +31,6 @@ export function now() {
 
 export { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
-// Ownership / sharing primitives - templates opt a resource into the
-// framework sharing system by spreading ownableColumns() into the table and
-// pairing it with createSharesTable().
 export {
   ownableColumns,
   createSharesTable,

@@ -1,12 +1,3 @@
-/**
- * The realtime registration row must be invisible to the settings watermark.
- *
- * `wireLocalEmitters` already skips that key so the isolate that writes it fans
- * out nothing. The cross-instance external-change detector is the other half:
- * it has no key filter, so a bare `MAX(updated_at)` advancing makes every OTHER
- * live isolate record a durable `key:"*"` settings change and invalidate every
- * connected client's settings queries — for a write none of them can see.
- */
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -15,11 +6,6 @@ import { AppSyncState } from "./poll.js";
 
 const ACTION_MARKER_KEY = "__action_change__";
 
-/**
- * A settings table whose newest row is the hidden registration write.
- * `settingsMax` answers a watermark query that can see every key;
- * `filteredMax` answers one that excludes the registration key.
- */
 function makeState(opts: { settingsMax: number; filteredMax: number }) {
   const settingsQueries: Array<{ sql: string; args: unknown[] }> = [];
   const max = { ...opts };
@@ -40,8 +26,6 @@ function makeState(opts: { settingsMax: number; filteredMax: number }) {
           rowsAffected: 0,
         };
       }
-      // A non-zero action marker keeps `seedVersionFromDb` from arming the
-      // detector's one-second throttle, so the check below actually runs.
       if (/max\(updated_at\)/i.test(sql)) {
         return {
           rows: [{ max_ts: args[0] === ACTION_MARKER_KEY ? 500 : 0 }],
@@ -76,7 +60,6 @@ describe("settings watermark", () => {
   });
 
   it("still fans out for an ordinary settings write", async () => {
-    // The filter must exclude one key, not disable the detector.
     const { state, max } = makeState({
       settingsMax: 1_000,
       filteredMax: 1_000,
@@ -84,7 +67,6 @@ describe("settings watermark", () => {
     await state.seedVersionFromDb();
     const baseline = state.getVersion();
 
-    // An ordinary settings row, which the filtered watermark does see.
     max.settingsMax = 9_000;
     max.filteredMax = 9_000;
     await state.checkExternalDbChanges({ durableEvents: false });

@@ -1,9 +1,3 @@
-// @agent-native/pinpoint — Canvas-based selection overlay + draw mode
-// MIT License
-//
-// Uses <canvas> for hover highlight, drag rectangle, pin outlines,
-// and freehand/shape drawing.
-// LERP interpolation for smooth hover animation.
 
 import { onMount, onCleanup, type Component } from "solid-js";
 
@@ -19,7 +13,6 @@ interface OverlayCanvasProps {
   dragRect: DOMRect | null;
   pins: Pin[];
   active: boolean;
-  // Draw mode
   drawMode: boolean;
   drawStrokes: DrawStroke[];
   currentStroke: DrawStroke | null;
@@ -33,7 +26,6 @@ interface OverlayCanvasProps {
   onTextPlace: (x: number, y: number) => void;
 }
 
-// LERP interpolation for smooth transitions
 function lerp(start: number, end: number, t: number): number {
   return start + (end - start) * t;
 }
@@ -84,13 +76,11 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
       const start = stroke.points[0];
       const end = stroke.points[stroke.points.length - 1];
 
-      // Line
       ctx.beginPath();
       ctx.moveTo(start.x, start.y);
       ctx.lineTo(end.x, end.y);
       ctx.stroke();
 
-      // Arrowhead
       const angle = Math.atan2(end.y - start.y, end.x - start.x);
       const headLen = 12 + stroke.lineWidth * 2;
       ctx.beginPath();
@@ -133,7 +123,6 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
     const textWidth = metrics.width;
     const textHeight = fontSize + 2;
 
-    // Background
     ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
     const bgX = note.x - 2;
     const bgY = note.y - textHeight - padding / 2;
@@ -153,13 +142,11 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
     ctx.closePath();
     ctx.fill();
 
-    // Colored indicator dot
     ctx.fillStyle = note.color;
     ctx.beginPath();
     ctx.arc(bgX + padding, bgY + bgH / 2, 3, 0, Math.PI * 2);
     ctx.fill();
 
-    // Text
     ctx.fillStyle = "#ffffff";
     ctx.fillText(note.text, bgX + padding + 10, note.y - 2);
   }
@@ -172,7 +159,6 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
     const dpr = window.devicePixelRatio || 1;
     ctx.clearRect(0, 0, canvasRef.width / dpr, canvasRef.height / dpr);
 
-    // Draw hover highlight with LERP interpolation (only when active and not in draw mode)
     if (props.active && !props.drawMode && props.hoveredRect) {
       targetRect = {
         x: props.hoveredRect.x,
@@ -194,7 +180,6 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
         LERP_SPEED,
       );
 
-      // Hover highlight box
       ctx.strokeStyle = "rgba(59, 130, 246, 0.8)";
       ctx.lineWidth = 2;
       ctx.setLineDash([]);
@@ -205,7 +190,6 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
         currentRect.height,
       );
 
-      // Fill with semi-transparent overlay
       ctx.fillStyle = "rgba(59, 130, 246, 0.06)";
       ctx.fillRect(
         currentRect.x,
@@ -215,7 +199,6 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
       );
     }
 
-    // Draw drag selection rectangle (only when active)
     if (props.active && !props.drawMode && props.dragRect) {
       ctx.strokeStyle = "rgba(59, 130, 246, 0.6)";
       ctx.lineWidth = 1;
@@ -236,17 +219,14 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
       );
     }
 
-    // Draw all completed strokes
     for (const stroke of props.drawStrokes) {
       drawStroke(ctx, stroke);
     }
 
-    // Draw current in-progress stroke
     if (props.currentStroke) {
       drawStroke(ctx, props.currentStroke);
     }
 
-    // Draw text notes
     for (const note of props.textNotes) {
       drawTextNote(ctx, note);
     }
@@ -254,7 +234,6 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
     animFrameId = requestAnimationFrame(draw);
   }
 
-  // Mouse handlers for draw mode
   function handleMouseDown(e: MouseEvent) {
     if (!props.drawMode) return;
     if (props.drawTool === "text") {
@@ -274,7 +253,6 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
     props.onDrawEnd();
   }
 
-  // Touch handlers for draw mode
   function handleTouchStart(e: TouchEvent) {
     if (!props.drawMode) return;
     e.preventDefault();

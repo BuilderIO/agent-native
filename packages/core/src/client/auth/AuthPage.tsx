@@ -58,11 +58,8 @@ export interface AuthPageProps {
   localeOptions: AuthLocaleOption[];
   appName?: string;
   showGoogle: boolean;
-  /** Show the organization SSO email-to-provider entry point. */
   organizationSsoEnabled?: boolean;
-  /** Whether identity SSO is available for this request. */
   identitySsoEnabled?: boolean;
-  /** Whether Google sign-in should start through the preview identity hub. */
   googleViaIdentitySso?: boolean;
   /** @deprecated Automatic browser SSO handoff was removed. */
   identitySsoAuto?: boolean;
@@ -423,11 +420,6 @@ export function isElectron(
   return userAgent.includes("Electron");
 }
 
-/**
- * Builder's desktop webview uses Electron without the Agent-Native marker.
- * This only selects the local workspace return origin; native deep-link
- * handling remains exclusive to Agent-Native Desktop.
- */
 export function isBuilderDesktop(
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
 ): boolean {
@@ -567,8 +559,6 @@ export function resolveGoogleAuthUrlPath(input: {
   const previewOrigin = input.builderPreview
     ? configuredOAuthOrigin(input.publicOAuthOrigin, input.currentOrigin)
     : "";
-  // The public OAuth authority is rooted at the app origin even when the
-  // preview itself is mounted under a workspace prefix such as /dispatch.
   return previewOrigin
     ? `${previewOrigin}${GOOGLE_AUTH_URL_PATH}`
     : `${input.runtimeAppBasePath}${GOOGLE_AUTH_URL_PATH}`;
@@ -1579,13 +1569,6 @@ export function AuthPage(props: AuthPageProps) {
     }
     let popup: Window | null = null;
     if (flow === "popup") {
-      // A same-frame redirect fallback is safe only at the true top level:
-      // Google's accounts pages refuse to render at all once they detect
-      // Sec-Fetch-Dest: iframe (a blank "403 — you do not have access to this
-      // page"), regardless of which host framed the page. This used to only
-      // guard Builder's own preview iframe, so any OTHER embedding — the
-      // Design app's local visual-edit canvas included — fell through to the
-      // redirect and hit that same 403 the moment the popup failed to open.
       const redirectFallbackUnsafe = isInFrame();
       try {
         popup = openOAuthPopup({

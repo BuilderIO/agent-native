@@ -5,14 +5,6 @@ import {
   IconCheck,
   IconTestPipe,
 } from "@tabler/icons-react";
-/**
- * Detail view for a virtual MCP server entry in the Workspace tree.
- *
- * Shown when the user clicks an `mcp-servers/<name>.json` entry. Servers
- * aren't editable in-place — today the server endpoints only support
- * create + delete, matching the Settings UX they replaced. Users can
- * delete and recreate if they need to change a URL or headers.
- */
 import React, { useState } from "react";
 
 import { cn } from "../utils.js";

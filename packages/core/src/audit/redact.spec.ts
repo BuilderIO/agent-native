@@ -38,7 +38,6 @@ describe("redactArgsToJson", () => {
     expect(
       __test.looksSecret("https://discord.com/api/webhooks/123/abcDEF"),
     ).toBe(true);
-    // A vault-style payload puts the secret under a generic `value` key.
     const json = redactArgsToJson({
       value: "https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXXXXXX",
     });
@@ -46,7 +45,6 @@ describe("redactArgsToJson", () => {
   });
 
   it("truncates very long (non-secret) strings", () => {
-    // Spaces make it clearly prose, not an opaque token, so it is truncated
     // rather than redacted as a secret.
     const long = "lorem ipsum ".repeat(500);
     const json = redactArgsToJson({ body: long });
@@ -56,23 +54,18 @@ describe("redactArgsToJson", () => {
   });
 
   it("keeps the output parseable when the whole payload is truncated", () => {
-    // 10 fields × ~1000-char prose values → serialized JSON exceeds MAX_JSON,
-    // but no single string hits the per-string limit and none look secret.
     const sentence = "word ".repeat(200);
     const big = Object.fromEntries(
       Array.from({ length: 10 }, (_, i) => [`f${i}`, sentence]),
     );
     const json = redactArgsToJson(big);
-    expect(() => JSON.parse(json!)).not.toThrow(); // valid JSON, not a slice
+    expect(() => JSON.parse(json!)).not.toThrow();
     const parsed = JSON.parse(json!);
     expect(parsed._auditTruncated).toBe(true);
     expect(typeof parsed.preview).toBe("string");
   });
 
   it("honours a caller-supplied cap, envelope included", () => {
-    // The A2A activity snapshot has a much tighter wire budget than the audit
-    // log, and validates the exact stored length — the truncation envelope has
-    // to fit inside the cap, not overhang it.
     const json = redactArgsToJson(
       { command: "echo hi; ".repeat(500), cwd: "/repo" },
       { maxJson: 256, maxString: 64 },

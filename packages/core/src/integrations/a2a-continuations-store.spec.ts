@@ -40,12 +40,6 @@ function queryArgs(query: string | { args?: unknown[] }): unknown[] {
   return typeof query === "string" ? [] : (query.args ?? []);
 }
 
-/**
- * `recoverDueA2AContinuationIds` short-circuits on a cheap
- * `status IN ('pending','processing','delivering')` probe, so a double that
- * answers every SELECT with zero rows never reaches the recovery statements
- * these tests assert on. Report one live row from the probe and nothing else.
- */
 function mockEmptyExceptLiveProbe(): void {
   executeMock.mockImplementation(async (query: string | { sql: string }) =>
     querySql(query).includes(
@@ -1459,7 +1453,6 @@ describe("A2A continuations store", () => {
           sql.includes("integration_a2a_continuations") &&
           (sql.includes("SET status = ?") || sql.includes("SELECT id FROM")),
       );
-    // Live probe + two lease resets + the due selection.
     expect(custodyQueries).toHaveLength(4);
     for (const sql of custodyQueries) {
       expect(sql).toContain("terminal_delivery_confirmed_at IS NOT NULL");
@@ -1500,9 +1493,6 @@ describe("A2A continuations store", () => {
   });
 
   it("costs one query and writes nothing when no continuation is live", async () => {
-    // The 60s retry job calls this on every app. Both lease resets used to run
-    // blind, so an app whose queue has been empty since boot still paid three
-    // round trips a minute forever.
     const { recoverDueA2AContinuationIds } = await loadStore();
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
 

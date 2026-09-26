@@ -70,8 +70,6 @@ describe("can-see on a self-registered app", () => {
   });
 
   it("binds the registered channel, rejecting a token for another one", async () => {
-    // The app knows its own channel id, so an access token minted against a
-    // different channel must not verify here even with a valid signature.
     const token = signGatewayAccessToken(
       { ...QUERY, projectId: "rt_someone_else" },
       REGISTERED.hmacSecret,
@@ -99,8 +97,6 @@ describe("can-see on a self-registered app", () => {
   });
 
   it("never self-registers for a pipeline app", async () => {
-    // Same discriminator as the token mint: either half injected means the
-    // pipeline owns this app and the env pair governs.
     process.env.AGENT_NATIVE_REALTIME_HMAC_SECRET = "injected-secret";
     mockProjectId.mockReturnValue("proj_pipeline");
     const token = signGatewayAccessToken(

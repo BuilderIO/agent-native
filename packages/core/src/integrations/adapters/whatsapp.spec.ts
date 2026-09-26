@@ -9,8 +9,6 @@ vi.mock("h3", async (importOriginal) => {
   const actual = await importOriginal<typeof import("h3")>();
   return {
     ...actual,
-    // The adapter reads the raw body via h3.readRawBody and caches it on
-    // event.context.__rawBody. Return the cached string (set per test).
     readRawBody: vi.fn(async (event: any) => event.context.__rawBody),
     getQuery: vi.fn(() => hoisted.query),
     getHeader: vi.fn(() => hoisted.header),
@@ -19,7 +17,6 @@ vi.mock("h3", async (importOriginal) => {
 
 import { whatsappAdapter } from "./whatsapp.js";
 
-/** Event whose raw body is the given JSON string (already stringified). */
 function eventWithRaw(raw: string | undefined, method = "POST"): any {
   return {
     context: { __rawBody: raw },
@@ -27,7 +24,6 @@ function eventWithRaw(raw: string | undefined, method = "POST"): any {
   };
 }
 
-/** A well-formed WhatsApp Cloud API text-message webhook payload. */
 function textWebhook(overrides: Record<string, any> = {}) {
   return {
     entry: [
@@ -253,7 +249,6 @@ describe("whatsappAdapter handleVerification (GET challenge handshake)", () => {
 
   it("pre-caches the raw body once on POST so the consume-once stream is not double-read", async () => {
     // POST must NOT take the GET challenge path even when verify-token query
-    // params are present — it pre-reads the raw body and returns handled:false.
     process.env.WHATSAPP_VERIFY_TOKEN = "my-verify-token";
     hoisted.query = {
       "hub.mode": "subscribe",
@@ -262,8 +257,6 @@ describe("whatsappAdapter handleVerification (GET challenge handshake)", () => {
     };
     const h3 = await import("h3");
     const readRawBody = h3.readRawBody as unknown as ReturnType<typeof vi.fn>;
-    // Event has no cached body yet; the source wrapper reads via h3 once and
-    // caches the bytes on event.context.__rawBody (M3 consume-once guard).
     const event: any = {
       context: {},
       req: new Request("https://app.test/webhook", { method: "POST" }),
@@ -275,8 +268,6 @@ describe("whatsappAdapter handleVerification (GET challenge handshake)", () => {
     expect(result).toEqual({ handled: false });
     expect(event.context.__rawBody).toBe('{"entry":[]}');
 
-    // A second read (e.g. from verifyWebhook/parseIncomingMessage) is served
-    // from the cache and never re-streams the request.
     readRawBody.mockClear();
     await whatsappAdapter().parseIncomingMessage(event);
     expect(readRawBody).not.toHaveBeenCalled();
@@ -332,7 +323,6 @@ describe("whatsappAdapter verifyWebhook (security)", () => {
   it("rejects a request whose signature does not match", async () => {
     process.env.WHATSAPP_APP_SECRET = "shh";
     const raw = JSON.stringify(textWebhook());
-    // signature computed over a DIFFERENT body — must fail
     const crypto = await import("node:crypto");
     hoisted.header =
       "sha256=" +
@@ -353,12 +343,9 @@ describe("whatsappAdapter verifyWebhook (security)", () => {
   });
 
   it("verifies over the exact raw bytes, not a JSON-equivalent re-serialization (M2)", async () => {
-    // Meta signs the exact bytes it sent. A signature minted over a byte
-    // variant (extra whitespace, same JSON value) must be rejected — the
-    // adapter must NOT re-stringify a parsed body before comparing.
     process.env.WHATSAPP_APP_SECRET = "shh";
     const sentBytes = '{"a":1,"b":2}';
-    const reserializedBytes = '{ "a": 1, "b": 2 }'; // same value, different bytes
+    const reserializedBytes = '{ "a": 1, "b": 2 }';
     const crypto = await import("node:crypto");
     hoisted.header =
       "sha256=" +
@@ -376,7 +363,6 @@ describe("whatsappAdapter verifyWebhook (security)", () => {
 describe("whatsappAdapter sendResponse", () => {
   it("does nothing when access token or phone number id is missing", async () => {
     process.env.WHATSAPP_ACCESS_TOKEN = "tok";
-    // no phone number id
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 

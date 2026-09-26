@@ -81,7 +81,6 @@ export interface SuggestionCreationReceipt {
   authorEmail: string | null;
   actorKind: ResourceSuggestion["actorKind"] | null;
   requestHash: string | null;
-  // 1 = written before the suggestionActorKind classifier rollout; 2 = after.
   receiptVersion: number;
 }
 
@@ -98,7 +97,6 @@ export async function getSuggestionByCreationKey(
     })
   ).rows[0];
   if (!row) return null;
-  // Read the immutable first-amendment receipt last so it repairs any current-state read torn by a concurrent amendment.
   const current = await getSuggestion(String(row.suggestion_id), client);
   const amendment = (
     await client.execute({

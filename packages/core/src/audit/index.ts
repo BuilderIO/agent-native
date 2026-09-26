@@ -1,9 +1,3 @@
-/**
- * Framework audit log — a durable, complete, access-scoped, append-only record
- * of who mutated what app data, when, from where, and (for the agent) in which
- * run. Distinct from observability (sampled telemetry) and tracking
- * (fire-and-forget analytics). Capture is automatic at the `defineAction` seam.
- */
 export type {
   ActionAuditConfig,
   AuditActorKind,

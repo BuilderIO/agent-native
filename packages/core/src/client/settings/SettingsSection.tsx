@@ -11,13 +11,6 @@ import {
 
 import { cn } from "../utils.js";
 
-/**
- * Where a settings section is being rendered.
- *
- * - `sidebar`: the compact agent sidebar panel (dense, small type).
- * - `page`: the full-width settings page, styled as a polished card that
- *   matches the shadcn `Card` surface used by app-owned settings tabs.
- */
 export type SettingsSurface = "sidebar" | "page";
 
 const SettingsSurfaceContext = createContext<SettingsSurface>("sidebar");
@@ -48,19 +41,13 @@ interface SettingsSectionProps {
   badge?: string;
   required?: boolean;
   connected?: boolean;
-  /** Let a child-owned card surface fill the section without a second wrapper. */
   flat?: boolean;
-  /** Render the page content as a row inside a parent SettingsGroup. */
   grouped?: boolean;
   open?: boolean;
   onToggle?: () => void;
   children: ReactNode;
 }
 
-/**
- * Settings sections stay compact and collapsible in the agent sidebar, while
- * the full settings page uses Codex-style headings and always-visible rows.
- */
 export function SettingsSection(props: SettingsSectionProps) {
   const surface = useSettingsSurface();
   return surface === "page" ? (
@@ -126,8 +113,6 @@ function SettingsSectionBody({
     }
     if (!present) return;
 
-    // Fallback for reduced-motion and older transition engines that may not
-    // emit a height transitionend event.
     const timeout = window.setTimeout(() => setPresent(false), 260);
     return () => window.clearTimeout(timeout);
   }, [open, present]);

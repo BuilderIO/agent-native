@@ -129,7 +129,6 @@ const BUILDER_MORE_SERVICES = [
 ] as const;
 
 export interface FirstRunOnboardingProps {
-  /** The shared startup gate has already resolved this account as eligible. */
   initialFirstRun?: boolean;
 }
 
@@ -164,10 +163,6 @@ export function FirstRunOnboarding({
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
   }, [previewMode, previewStep]);
-  // completeFirstRun() rejects on failure — swallow it here so a Skip/
-  // Continue click never becomes an unhandled rejection; completeFirstRunError
-  // (rendered below) is the real signal, and the user stays on this screen
-  // to retry instead of being bounced to an unrelated error screen.
   const trackFirstRunStepCompleted = useCallback(
     (stepScreen: FirstRunScreen, stepExtensionIndex = extensionIndex) => {
       if (previewMode) return;
@@ -428,9 +423,6 @@ export function FirstRunOnboarding({
     }
     trackFirstRunSetupOutcome(attempt, "settings_opened");
     if (typeof window === "undefined") return;
-    // Drop the onboarding preview params — useOnboardingPreviewMode() reads
-    // them live from the URL, so carrying them over would re-trigger the
-    // preview overlay on the Settings page we're navigating to.
     const search = new URLSearchParams(window.location.search);
     search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);
     search.delete(ONBOARDING_PREVIEW_STEP_QUERY_PARAM);
@@ -1045,9 +1037,6 @@ function CapabilityList({
   );
 }
 
-// Design system intelligence has no BYOK path — it's Builder-managed only, so
-// the manual list shows it crossed out with no Required/Recommended tag
-// instead of mislabeling it "Optional".
 const NO_MANUAL_PATH_CAPABILITY_IDS = new Set(["design-system-intelligence"]);
 
 /** The setup cards are a scannable comparison, not a capability inventory:
@@ -1115,17 +1104,9 @@ function CapabilityInfoButton({
   );
 }
 
-// `aria-disabled` (not `disabled`) is what BuilderConnectPopover sets while the
-// Builder status is still in flight, so the `disabled:` styles never engage and
-// a pending CTA is pixel-identical to a live one — which is why this class of
-// dead button survives screenshot review.
 const primaryButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-60";
 
-/** Inline failure signal for a failed completeFirstRun() call — keeps the
- *  user on their current screen with a way forward, instead of swapping to
- *  an unrelated full-screen error or leaving Skip/Continue looking like it
- *  did nothing. */
 function FirstRunCompletionError({
   message,
   onRetry,

@@ -1,14 +1,6 @@
-/**
- * Unit tests for payload size enforcement in collab route handlers.
- *
- * Verifies that postCollabUpdate, postCollabText, postCollabJson, and
- * postCollabPatch all return 413 when the request body exceeds the configured
- * limit (or the default 2 MB limit).
- */
 
 import { describe, expect, it, vi } from "vitest";
 
-// Stub h3 so we can drive handlers with synthetic events.
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getRouterParam: (event: any, name: string) => event._params?.[name],
@@ -61,7 +53,7 @@ function event(params: Record<string, string>, maxPayloadBytes?: number): any {
   };
 }
 
-const DEFAULT_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 
 describe("getCollabState cache policy", () => {
   it.each([{}, { stateVector: "AAA=" }])(
@@ -85,7 +77,6 @@ describe("getCollabState cache policy", () => {
   });
 });
 
-// Generates a string of `len` bytes.
 function bigString(len: number): string {
   return "x".repeat(len);
 }
@@ -101,7 +92,7 @@ describe("postCollabUpdate payload limit", () => {
   });
 
   it("passes through when body is within the limit", async () => {
-    const smallUpdate = Buffer.alloc(4).toString("base64"); // tiny update
+    const smallUpdate = Buffer.alloc(4).toString("base64");
     mockReadBody.mockResolvedValue({ update: smallUpdate });
     const ev = event({ docId: "doc-1" });
     const res = await postCollabUpdate(ev);
@@ -132,7 +123,6 @@ describe("postCollabText payload limit", () => {
     mockReadBody.mockResolvedValue({ text: "hello" });
     const ev = event({ docId: "doc-2" });
     const res = await postCollabText(ev);
-    // 200 (handler invokes applyText which is mocked)
     expect(ev._status).toBe(200);
   });
 });

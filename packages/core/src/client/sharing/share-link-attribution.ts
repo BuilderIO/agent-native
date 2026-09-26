@@ -22,12 +22,6 @@
 export const SHARE_LINK_REF_PARAM = "ref";
 export const SHARE_LINK_VIA_PARAM = "via";
 
-/**
- * Append `ref=<source>` (and `via=<ownerId>` when a non-empty id is given) to
- * an absolute share URL, preserving any existing query params. Returns the
- * input unchanged when it isn't a parseable absolute URL, including
- * `undefined` — so callers can feed in a share URL that isn't minted yet.
- */
 export function withShareLinkAttribution(
   url: string | undefined,
   source: string,

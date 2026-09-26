@@ -382,7 +382,6 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
   ],
 ];
 
-/** Store names in release order. Exported for the guard and its tests. */
 export function frameworkSchemaEnsureNames(): string[] {
   return FRAMEWORK_SCHEMA_ENSURES.map(([name]) => name);
 }
@@ -402,8 +401,6 @@ export function frameworkSchemaEnsureNames(): string[] {
  * module exists to remove.
  */
 export async function runFrameworkSchemaEnsures(
-  // Injectable so the ordering and failure contract can be tested without
-  // standing up 60 real stores; production callers pass nothing.
   ensures: readonly SchemaEnsure[] = FRAMEWORK_SCHEMA_ENSURES,
 ): Promise<void> {
   for (const [name, run] of ensures) {

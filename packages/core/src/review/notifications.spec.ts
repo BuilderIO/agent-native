@@ -127,8 +127,6 @@ beforeEach(() => {
     async (_threadId: string, recipients: string[]) => recipients,
   );
   mocks.getReviewableResource.mockReturnValue(undefined);
-  // Default: everyone offered still has access. Access filtering has its own
-  // tests; these assert who is *offered*.
   mocks.filterRecipientsByResourceAccess.mockImplementation(
     async ({ emails }: { emails: string[] }) =>
       [...emails].map((email) => email.trim().toLowerCase()),

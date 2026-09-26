@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// --- Mock dependencies ---
 
 const mockAppStateGet = vi.fn();
 const mockAppStateGetManyEntries = vi.fn();
@@ -249,8 +248,6 @@ describe("application-state handlers", () => {
         values: { "stored-null": null, "stored-empty": {} },
         missing: ["never-written"],
       });
-      // An absent key is absent from `values` entirely — a caller can tell it
-      // apart from a key whose stored value happens to be null or empty.
       expect("never-written" in (result as any).values).toBe(false);
       expect((result as any).values["stored-null"]).toBeNull();
       expect((result as any).missing).not.toContain("stored-null");

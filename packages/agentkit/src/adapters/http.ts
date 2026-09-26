@@ -67,9 +67,7 @@ export interface AgentKitHttpTransportOptions {
   baseUrl: string;
   fetch?: typeof globalThis.fetch;
   headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
-  /** Stable request correlation for distributed traces and deterministic tests. */
   createCorrelationId?: () => string;
-  /** Aborts every request owned by this transport lifecycle. */
   signal?: AbortSignal;
 }
 
@@ -286,8 +284,6 @@ async function* parseEventStream(
       false,
     );
   }
-  // AG-UI frames carry no envelope, so correlation is proven once for the whole
-  // stream here instead of per event. This throws on a mismatched response.
   responseCorrelationId(response, undefined, expectedCorrelationId);
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
@@ -686,16 +682,11 @@ export function createAgentKitHttpTransport(
 export interface AgentKitHttpServerRequestContext<
   TTrustedContext,
 > extends AgentRequestContext {
-  /**
-   * Host-resolved authority for this request. This value is never read from a
-   * protocol envelope and is never serialized into an AgentKit response.
-   */
   readonly trusted: TTrustedContext;
 }
 
 interface AgentKitHttpHandlerBaseOptions {
   basePath?: string;
-  /** Receives validation, transport, and backend failures for host logging. */
   onError?: (error: unknown, request: Request) => void | Promise<void>;
 }
 
@@ -703,7 +694,6 @@ export type AgentKitHttpHandlerOptions<TTrustedContext = never> =
   AgentKitHttpHandlerBaseOptions &
     (
       | {
-          /** A host-owned transport for handlers whose trust scope is static. */
           transport: AgentTransport;
           transportOwnership?: never;
           resolveRequestContext?: never;
@@ -711,19 +701,10 @@ export type AgentKitHttpHandlerOptions<TTrustedContext = never> =
         }
       | {
           transport?: never;
-          /**
-           * Request-created transports are owned by the handler by default.
-           * Use `borrowed` only when the factory returns a host-managed transport.
-           */
           transportOwnership?: "borrowed" | "owned";
-          /** Resolves authenticated, authorized host state from this request. */
           resolveRequestContext: (
             request: Request,
           ) => TTrustedContext | Promise<TTrustedContext>;
-          /**
-           * Creates a transport closed over the resolved authority. Transport
-           * operations still receive only cancellation and correlation state.
-           */
           createTransport: (
             context: AgentKitHttpServerRequestContext<TTrustedContext>,
           ) => AgentTransport | Promise<AgentTransport>;
@@ -935,7 +916,6 @@ function eventStream(
   );
 }
 
-/** Framework-neutral Fetch handler for serverless, Node, and edge runtimes. */
 export function createAgentKitHttpHandler<TTrustedContext = never>(
   options: AgentKitHttpHandlerOptions<TTrustedContext>,
 ): (request: Request) => Promise<Response> {
@@ -951,8 +931,6 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
       try {
         await options.onError?.(error, request);
       } catch (observerError) {
-        // Error observers must not prevent a standards-compliant response to
-        // the original failed request.
         console.error("AgentKit error observer failed.", observerError);
       }
     };
@@ -1032,9 +1010,6 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
         : url.pathname;
       const transport = await getTransport();
       if (request.method === "GET" && path === "/capabilities") {
-        // Serve the boolean map from discovery so a transport that only
-        // implements discoverCapabilities does not report every capability as
-        // unknown here.
         return respond(
           await invoke(async (context) => {
             if (!transport.discoverCapabilities) {

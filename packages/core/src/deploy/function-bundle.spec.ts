@@ -47,8 +47,6 @@ describe("cloneServerBundleForFunction", () => {
 
     const src = path.join(root, "server", "node_modules", "dep");
     fs.mkdirSync(src, { recursive: true });
-    // A relative link, as a package manager writes: it would dangle in the
-    // clone, which sits at a different depth than the source.
     fs.symlinkSync(
       path.relative(src, target),
       path.join(src, "index.mjs"),
@@ -59,8 +57,6 @@ describe("cloneServerBundleForFunction", () => {
     cloneServerBundleForFunction(src, dest);
 
     const clone = path.join(dest, "index.mjs");
-    // link(2) does not dereference on Linux, so linking the link itself would
-    // ship a symlink here — every deploy reader is entitled to a regular file.
     expect(fs.lstatSync(clone).isSymbolicLink()).toBe(false);
     expect(fs.readFileSync(clone, "utf8")).toBe("dep");
     expect(fs.statSync(clone).ino).toBe(fs.statSync(target).ino);
@@ -111,8 +107,6 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
     writePackage("@sparticuz/chromium-min", { "maybe-lib": "^1.0.0" });
     writePackage("playwright-core");
     writePackage("maybe-lib");
-    // Installed, so the survivor can require it at runtime. Deleting it is
-    // unrecoverable; keeping it costs bytes.
     const survivor = path.join(dir, "node_modules", "survivor");
     fs.mkdirSync(survivor, { recursive: true });
     fs.writeFileSync(
@@ -134,8 +128,6 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
     writePackage("@sparticuz/chromium-min", { "orphan-tar": "^1.0.0" });
     writePackage("playwright-core");
     writePackage("orphan-tar");
-    // .bin holds executable links and has no manifest. Walking it as a package
-    // makes the closure walk throw on an ordinary bundle.
     fs.mkdirSync(path.join(dir, "node_modules", ".bin"), { recursive: true });
     fs.writeFileSync(
       path.join(dir, "node_modules", ".bin", "tsc"),
@@ -155,8 +147,6 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
     writePackage("@sparticuz/chromium-min", { "shared-tar": "^1.0.0" });
     writePackage("playwright-core");
     writePackage("shared-tar");
-    // Traced straight into the emitted bundle, so no other *package* depends on
-    // it and only the function's own manifest proves it is still live.
     fs.writeFileSync(
       path.join(dir, "package.json"),
       JSON.stringify({
@@ -183,9 +173,7 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
   it("keeps an unrelated package sharing the browser runtime's scope", () => {
     writePackage("@sparticuz/chromium-min");
     writePackage("playwright-core");
-    // Same @sparticuz scope, nothing to do with the browser runtime. Deleting
     // the scope directory wholesale would take it, and the closure walk that
-    // proves what is still needed never gets a say.
     writePackage("@sparticuz/unrelated");
     writePackage("keeps-it", { "@sparticuz/unrelated": "^1.0.0" });
 
@@ -205,8 +193,6 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
     writePackage("@sparticuz/chromium-min", { "shared-lib": "^1.0.0" });
     writePackage("playwright-core");
     writePackage("shared-lib");
-    // Not reachable from the browser runtime at all — an ordinary server
-    // dependency that happens to need the same small utility package.
     writePackage("some-real-dependency", { "shared-lib": "^1.0.0" });
 
     pruneBrowserRuntimeFromNonAgentClone(dir, REWRITING_ENTRY);
@@ -222,8 +208,6 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
   it("throws instead of guessing when a closure member has no readable package.json", () => {
     writePackage("@sparticuz/chromium-min", { "broken-dep": "^1.0.0" });
     writePackage("playwright-core");
-    // Present on disk but not a readable package — e.g. an install that never
-    // finished. Reachability cannot be trusted past this point.
     fs.mkdirSync(path.join(dir, "node_modules", "broken-dep"), {
       recursive: true,
     });

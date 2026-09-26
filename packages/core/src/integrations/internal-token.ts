@@ -16,7 +16,7 @@ import {
   timingSafeEqual as nodeTimingSafeEqual,
 } from "node:crypto";
 
-const MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_AGE_MS = 5 * 60 * 1000;
 /**
  * Allow tokens stamped slightly in the future (clock-skew between dispatcher
  * and verifier) — but no more. Without this small tolerance the verifier
@@ -25,7 +25,7 @@ const MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
  * token of any age was accepted, which combined with rotation lag turned
  * into a replay window.
  */
-const FUTURE_SKEW_TOLERANCE_MS = 60 * 1000; // 1 minute
+const FUTURE_SKEW_TOLERANCE_MS = 60 * 1000;
 
 function getSecret(): string {
   const secret = process.env.A2A_SECRET;
@@ -43,7 +43,6 @@ function hmacHex(secret: string, payload: string): string {
 }
 
 function safeEqual(a: string, b: string): boolean {
-  // timingSafeEqual requires equal-length buffers, so guard first.
   if (a.length !== b.length) return false;
   try {
     return nodeTimingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
@@ -65,10 +64,6 @@ export function signInternalToken(taskId: string): string {
   return `${ts}.${sig}`;
 }
 
-/**
- * Verify an internal token against a task id. Returns true if the token is
- * authentic, unexpired, and bound to this task id.
- */
 export function verifyInternalToken(taskId: string, token: string): boolean {
   if (!token) return false;
   const dot = token.indexOf(".");
@@ -77,10 +72,6 @@ export function verifyInternalToken(taskId: string, token: string): boolean {
   const sig = token.slice(dot + 1);
   const ts = Number(tsRaw);
   if (!Number.isFinite(ts)) return false;
-  // Reject expired (past) AND future-stamped tokens. A small forward skew
-  // tolerance accounts for legitimate clock drift between machines but no
-  // more — accepting tokens minutes in the future would let an attacker
-  // replay them long after issuance.
   const now = Date.now();
   if (now - ts > MAX_AGE_MS) return false;
   if (ts - now > FUTURE_SKEW_TOLERANCE_MS) return false;
@@ -93,10 +84,6 @@ export function verifyInternalToken(taskId: string, token: string): boolean {
   return safeEqual(sig, expected);
 }
 
-/**
- * Pull a Bearer token from an Authorization header value.
- * Returns null if the header is missing or malformed.
- */
 export function extractBearerToken(
   authHeader: string | undefined,
 ): string | null {

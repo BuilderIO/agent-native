@@ -1,10 +1,3 @@
-/**
- * Bounding and redaction helpers shared by every exception emitter.
- *
- * Kept free of `process.env` and Node built-ins so the browser bundle can use
- * the same rules — an exception shaped one way on the server and another way
- * in the client is how a leak ships in only one of them.
- */
 
 export const MAX_MESSAGE_LENGTH = 1000;
 export const MAX_STACK_LENGTH = 8000;
@@ -66,9 +59,6 @@ export function safeTags(
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(tags ?? {})) {
     if (Object.keys(out).length >= MAX_TAGS) break;
-    // Skip, don't stop: callers build tag objects with optional entries
-    // (`{ ...tags, route, method, userAgent }`), so breaking on the first
-    // undefined dropped every tag after it depending on key order.
     if (value == null) continue;
     const safeKey = boundedText(key, 100);
     out[safeKey] = SECRET_KEY_RE.test(safeKey)
@@ -84,7 +74,6 @@ export interface ExceptionParts {
   stack?: string;
 }
 
-/** Split an unknown thrown value into bounded, redacted type/message/stack. */
 export function exceptionParts(error: unknown): ExceptionParts {
   if (error instanceof Error) {
     return {

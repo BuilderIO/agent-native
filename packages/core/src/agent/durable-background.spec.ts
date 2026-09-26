@@ -29,7 +29,6 @@ import {
  * tests pin the host, secret, and opt-out legs of that gate.
  */
 
-// Env keys the gate reads, snapshotted/cleared so each case is isolated.
 const ENV_KEYS = [
   "AGENT_CHAT_DURABLE_BACKGROUND",
   "AGENT_CHAT_FOREGROUND_SELF_CHAIN",
@@ -51,9 +50,6 @@ const ENV_KEYS = [
 let saved: NodeJS.ProcessEnv;
 
 beforeEach(() => {
-  // Snapshot the whole env, then clear the keys the gate reads so each case is
-  // isolated. Spread + Reflect.deleteProperty avoid dynamic `process.env[key]`
-  // access (which guard:no-env-credentials forbids even in tests).
   saved = { ...process.env };
   for (const k of ENV_KEYS) Reflect.deleteProperty(process.env, k);
 });
@@ -70,7 +66,6 @@ afterEach(() => {
   );
 });
 
-/** Mark the runtime as hosted (Netlify, not local). */
 function makeHosted() {
   process.env.NETLIFY = "true";
 }
@@ -173,7 +168,6 @@ describe("isAgentChatDurableBackgroundEnabled (Netlify default-on gate)", () => 
   it("honors an explicit env opt-in on a long-lived server with no hosted marker", () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     process.env.A2A_SECRET = "shhh";
-    // The soft-timeout regime keys on hosted detection, which stays false.
     expect(isHostedRuntimeForDurableBackground()).toBe(false);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
     expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(true);
@@ -332,8 +326,6 @@ describe("isInBackgroundFunctionRuntime (real -background function guard)", () =
   });
 
   it("is TRUE when the Lambda function name ends in -background (15-min budget)", () => {
-    // Matches the emitted names: "server-agent-background" (single template)
-    // and "<app>-agent-background" (workspace deploy).
     for (const name of [
       "server-agent-background",
       "plan-agent-background",
@@ -446,15 +438,10 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
     expect(AGENT_BACKGROUND_FUNCTION_URL_PATH).toBe(
       "/.netlify/functions/server-agent-background",
     );
-    // Name MUST end in -background (Netlify async convention + runtime guard).
     expect(AGENT_BACKGROUND_FUNCTION_NAME.endsWith("-background")).toBe(true);
   });
 
   it("dispatches to the function's DEFAULT url on hosted Netlify (single template)", () => {
-    // DOC-CORRECT: the background function declares NO custom config.path, so it
-    // keeps its default url /.netlify/functions/<name>. The `server` /* catch-all
-    // already excludes /.netlify/*, so a POST to that default url matches ONLY the
-    // async function (202, 15-min) — it is never shadowed by the sync function.
     process.env.NETLIFY = "true";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_BACKGROUND_FUNCTION_URL_PATH,
@@ -465,10 +452,6 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
   });
 
   it("dispatches to the function's DEFAULT url in deployed Netlify Lambda runtime even when NETLIFY is absent", () => {
-    // Production Functions do not always preserve the build-time NETLIFY env
-    // flag, but they do expose AWS_LAMBDA_FUNCTION_NAME. The durable dispatcher
-    // must still target the emitted Netlify background function; the worker
-    // entry's runtime marker unlocks the 15-minute budget after dispatch lands.
     process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-design-server";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_BACKGROUND_FUNCTION_URL_PATH,
@@ -476,8 +459,6 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
   });
 
   it("dispatches to the function's DEFAULT url in the modern Netlify runtime", () => {
-    // NETLIFY is build-only. Deployed Functions document SITE_ID as a runtime
-    // read-only variable even when Lambda compatibility variables are absent.
     process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_BACKGROUND_FUNCTION_URL_PATH,
@@ -485,9 +466,6 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
   });
 
   it("dispatches to the PER-APP default url on hosted Netlify (workspace)", () => {
-    // Workspace deploy emits one background fn per app named <app>-agent-background
-    // reachable at its default url. The foreground reads the workspace app id from
-    // AGENT_NATIVE_WORKSPACE_APP_ID and resolves the matching function url.
     process.env.NETLIFY = "true";
     process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "plan";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
@@ -515,8 +493,6 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
   });
 
   it("returns the framework process-run path when NOT on Netlify", () => {
-    // Nothing set → not Netlify (e.g. local dev, Vercel, Cloudflare, self-host).
-    // No second function exists; the in-process catch-all handles the route.
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_CHAT_PROCESS_RUN_PATH,
     );
@@ -540,7 +516,6 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
   });
 
   it("returns the framework path under `netlify dev` (NETLIFY_LOCAL=true)", () => {
-    // `netlify dev` runs in-process; the same in-process catch-all handles it.
     process.env.NETLIFY = "true";
     process.env.NETLIFY_LOCAL = "true";
     process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-design-server";
@@ -595,8 +570,6 @@ describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
     });
 
     it("carries the runId on a 401 so the route can record the auth failure", () => {
-      // DIAGNOSTIC: an auth failure in the unreadable bg fn must still be
-      // attributable to a run so /runs/active can show WHY it timed out.
       const r = prepareProcessRunRequest(
         { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
         "Bearer bogus",
@@ -667,15 +640,10 @@ describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
         { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
         undefined,
       );
-      // Carries the runId so the route can record the "A2A_SECRET missing"
-      // failure onto the run (otherwise it would time out with no clue).
       expect(r).toMatchObject({ ok: false, status: 503, runId: RUN_ID });
     });
 
     it("allows an unsigned dispatch in local dev (SQL claim is the guard)", () => {
-      // No production env vars set in beforeEach's cleared environment.
-      // Simulates the route handler seeing a loopback (127.0.0.1/::1) peer —
-      // the real local-dev self-dispatch signal.
       const r = prepareProcessRunRequest(
         { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
         undefined,
@@ -687,9 +655,6 @@ describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
     });
 
     it("refuses an unsigned dispatch that is NOT from loopback (fail closed)", () => {
-      // No production env vars set, but the caller can't/doesn't establish
-      // loopback — e.g. a non-loopback peer address, or a caller with no h3
-      // `event` to check (loopback omitted, defaults to false).
       const r = prepareProcessRunRequest(
         { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
         undefined,

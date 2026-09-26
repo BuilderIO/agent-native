@@ -27,25 +27,7 @@ import {
   type TableDensity,
 } from "./table.config.js";
 
-/**
- * Standard `table` block — a simple grid of header columns and string rows.
- * STANDARD library block: lives in core (`@agent-native/core/blocks`) so any
- * app can register it. The plan app's registries (server + client) import
- * {@link tableBlock} (browser) and the React-free {@link tableMdx}/
- * {@link tableSchema} config (server) so its render + MDX round-trip move out
- * of the plan `PlanBlockView` switch / `serializeBlock` into the registry,
- * while the legacy branch stays as a backward-compatible fallback for
- * unregistered renderers.
- */
 
-/**
- * Read-only renderer. Mirrors the legacy plan `PlanBlockView` table branch
- * markup byte-for-byte (same `plan-block overflow-x-auto` section + title +
- * `plan-line`/`plan-muted` table) so converting the block to the registry does
- * not change the rendered output. The `plan-*` class names are styled by the
- * consuming app's CSS — core only emits the markup, exactly like the existing
- * `CalloutBlock` read renderer.
- */
 const densityClasses: Record<TableDensity, { header: string; cell: string }> = {
   compact: {
     header: "py-1.5",
@@ -236,14 +218,6 @@ function PlainTextTableField({
   );
 }
 
-/**
- * Editable grid. The schema's `columns: string[]` / `rows: string[][]` are
- * positional/structured, which the schema auto-editor intentionally cannot
- * render, so this block supplies its own `Edit`: an editable header row plus a
- * body grid, with add/remove controls for both columns and rows. Every change
- * commits a full new `{ columns, rows }` value (re-validated upstream by the
- * registry), keeping rows rectangular with the column count.
- */
 function TableBlockEdit({
   data,
   onChange,
@@ -279,7 +253,6 @@ function TableBlockEdit({
   const addColumn = () => {
     commit({
       columns: [...columns, `Column ${columnCount + 1}`],
-      // Keep rows rectangular: append an empty cell to every row.
       rows: rows.map((row) => [...row, ""]),
     });
   };
@@ -295,7 +268,6 @@ function TableBlockEdit({
   const addRow = () => {
     commit({
       columns,
-      // New row matches the current column count.
       rows: [
         ...rows,
         Array.from({ length: Math.max(columnCount, 1) }, () => ""),
@@ -418,11 +390,6 @@ function TableBlockEdit({
   );
 }
 
-/**
- * The full standard `table` `BlockSpec`. Pairs the React-free
- * {@link tableSchema}/{@link tableMdx} config (also used by the server registry)
- * with the React `Read`/`Edit`. `empty()` seeds a 2×2 grid for slash insertion.
- */
 export const tableBlock = defineBlock<TableData>({
   type: "table",
   schema: tableSchema,
@@ -431,7 +398,6 @@ export const tableBlock = defineBlock<TableData>({
   Edit: TableBlockEdit,
   placement: ["block"],
   editSurface: "inline",
-  // A simple grid maps to an NFM table, so it round-trips to Notion.
   notionCompatible: true,
   label: "Table",
   icon: ({ size, className }) => (

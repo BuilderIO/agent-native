@@ -90,8 +90,6 @@ describe("formatChatErrorText", () => {
     );
     expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
     expect(text).toMatch(/^Error: /);
-    // The CTA is the only suffix — no Builder-credit CTA on this error
-    // code, since it's not a quota/billing problem.
     expect(text).not.toContain("[Add credits in Builder]");
   });
 
@@ -122,10 +120,6 @@ describe("formatChatErrorText", () => {
     expect(normalized.details).toBe(
       'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
     );
-    // Copy must not promise auto-recovery or suggest switching models — the
-    // server already retried once and the client skips auto-continuation
-    // for this code, and the error is almost always upstream so a different
-    // model lands on the same wall.
     expect(normalized.message).not.toMatch(/recover automatically/i);
     expect(normalized.message).not.toMatch(/another model/i);
     expect(normalized.message).toMatch(/gateway/i);
@@ -185,10 +179,6 @@ describe("formatChatErrorText", () => {
   });
 
   it("normalizes the gateway's email-verification block into something actionable", () => {
-    // Arrives as a bare gateway 403 with no upgradeUrl, so with no case here
-    // it fell through to the raw upstream sentence under a generic "The agent
-    // hit an error" headline with no retry — a dead end, and in production the
-    // largest single cause of chat turns ending without an answer.
     const raw =
       "At least one user in this space must verify their email before using AI.";
     const normalized = normalizeChatError(raw, "email_verification_required");
@@ -199,12 +189,6 @@ describe("formatChatErrorText", () => {
     expect(normalized.details).toBe(raw);
   });
 
-  // The engine keeps the real reason on `errorCode` so the site owner can
-  // diagnose it, and this is the layer that turns a code back into copy. Every
-  // code below has a mapping here or in `formatChatErrorText`, so without the
-  // guard the render boundary undoes the server's rewrite and the visitor reads
-  // the owner instruction again — the guarantee has to hold HERE, not only at
-  // the engine that chose the message.
   describe("a message the server already chose for a visitor", () => {
     const ownerCodes = [
       "builder_auth_error",
@@ -229,8 +213,6 @@ describe("formatChatErrorText", () => {
         expect(normalized).toStrictEqual({
           message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
         });
-        // No owner CTA either: a link to Builder space settings is an action
-        // only the owner of an org the visitor is not in can take.
         expect(
           formatChatErrorText(
             GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
@@ -409,10 +391,6 @@ describe("Builder gateway internal-error envelope", () => {
     ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
   });
 
-  // The gateway emits this same envelope on its `invalid_request` stop lane,
-  // which never reaches `canonicalizeBuilderGatewayErrorCode`. Keying the copy
-  // on the code alone left the raw apology plus a bare hex id as the whole
-  // user-visible error.
   it("is recognized by its envelope on any accompanying code", () => {
     const reported =
       "Sorry, this was caused by an internal error. " +

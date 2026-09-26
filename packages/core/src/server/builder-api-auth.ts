@@ -279,12 +279,6 @@ export async function resolveBuilderLegacyRequestAuthorization(
 ): Promise<BuilderRequestAuthorization | null> {
   for (const key of legacyCredentialKeys) {
     if (key === "BUILDER_PRIVATE_KEY") {
-      // Resolve the private key on its own, same as any other legacy key
-      // below: a private-key-only tenant (no public key ever stored) still
-      // authenticates every plain Bearer-token caller. resolveBuilderCredentials()
-      // only returns a bundle when the private+public pair is complete, so it
-      // is queried separately and purely to populate the public key/user id
-      // that scope-gated callers (Fusion, design systems, browser) require.
       const privateKey = await resolveBuilderCredential(key);
       if (!privateKey) continue;
       const { publicKey, userId } = await resolveBuilderCredentials();
@@ -334,16 +328,6 @@ export async function resolveBuilderApiAuthorization(
   return resolved.authorization;
 }
 
-/**
- * Whether Builder.io can authenticate an asset call for this request — an
- * OAuth grant, or a legacy private key.
- *
- * Storage gates and provider selection use this. It intentionally does not
- * verify the grant is usable: answering `false` for a connected user whose
- * grant needs re-authorizing would report storage as unconfigured and send
- * them to set up something they already have, instead of letting the upload
- * path say what is actually wrong.
- */
 export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
   const orgId = getRequestOrgId() ?? null;
@@ -353,10 +337,6 @@ export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   return !!(await resolveBuilderCredential("BUILDER_PRIVATE_KEY"));
 }
 
-/**
- * Whether the effective Builder credential can authorize an API request with
- * the requested scope. OAuth custody deliberately wins over deploy keys here.
- */
 export async function canAuthorizeBuilderApiRequest(
   requiredScope?: BuilderOAuthPermissionScope,
 ): Promise<boolean> {

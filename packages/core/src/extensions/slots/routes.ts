@@ -1,16 +1,3 @@
-/**
- * HTTP handler for extension extension-point slots.
- *
- * Mounted at `/_agent-native/slots`. Routes:
- *
- *   GET    /:slotId/installs    — current user's installed widgets for a slot
- *   GET    /:slotId/available   — extensions that declare this slot, scoped to user access
- *   POST   /:slotId/install     — install a extension into a slot (body: { extensionId, position?, config? })
- *   DELETE /:slotId/install/:extensionId — uninstall
- *   GET    /extension/:extensionId        — list slot declarations for a specific extension
- *   POST   /extension/:extensionId        — declare a slot target (body: { slotId, config? })
- *   DELETE /extension/:extensionId/:slotId — remove a slot declaration
- */
 
 import {
   defineEventHandler,
@@ -63,12 +50,10 @@ async function dispatch(
   method: string,
   parts: string[],
 ): Promise<unknown> {
-  // GET /extension/:extensionId — list a extension's slot declarations
   if (method === "GET" && parts.length === 2 && parts[0] === "extension") {
     return listSlotsForExtension(parts[1]);
   }
 
-  // POST /extension/:extensionId — declare a slot target { slotId, config? }
   if (method === "POST" && parts.length === 2 && parts[0] === "extension") {
     const body = await readBody(event);
     const slotId = String(body?.slotId ?? "").trim();
@@ -81,24 +66,20 @@ async function dispatch(
     return row;
   }
 
-  // DELETE /extension/:extensionId/:slotId — remove a slot declaration
   if (method === "DELETE" && parts.length === 3 && parts[0] === "extension") {
     await removeExtensionSlotTarget(parts[1], parts[2]);
     recordChange({ source: "action", type: "change" });
     return { ok: true };
   }
 
-  // GET /:slotId/installs — current user's installs in slot
   if (method === "GET" && parts.length === 2 && parts[1] === "installs") {
     return listSlotInstallsForUser(parts[0]);
   }
 
-  // GET /:slotId/available — extensions that declare this slot the user can install
   if (method === "GET" && parts.length === 2 && parts[1] === "available") {
     return listExtensionsForSlot(parts[0]);
   }
 
-  // POST /:slotId/install — install { extensionId, position?, config? }
   if (method === "POST" && parts.length === 2 && parts[1] === "install") {
     const body = await readBody(event);
     const extensionId = String(body?.extensionId ?? "").trim();
@@ -114,7 +95,6 @@ async function dispatch(
     return row;
   }
 
-  // DELETE /:slotId/install/:extensionId — uninstall
   if (method === "DELETE" && parts.length === 3 && parts[1] === "install") {
     await uninstallExtensionSlot(parts[2], parts[0]);
     recordChange({ source: "action", type: "change" });

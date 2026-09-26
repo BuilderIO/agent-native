@@ -1,32 +1,8 @@
-/**
- * Analytics for the MCP server this app exposes.
- *
- * Events and property names follow PostHog's MCP analytics vocabulary
- * (https://posthog.com/docs/mcp-analytics/events) — `$mcp_tool_call`,
- * `$mcp_tool_name`, `$mcp_duration_ms`, … — but they are emitted through the
- * framework's provider-agnostic `track()`, so an app on Mixpanel, Amplitude,
- * a webhook, or Agent-Native Analytics receives the same events under the
- * same names. The vocabulary is borrowed rather than invented because
- * PostHog's MCP dashboards read these keys directly, and a second spelling
- * would strand every app already built on theirs.
- *
- * Emission points live in `build-server.ts` (shared by the HTTP mount and the
- * stdio transport, so both surfaces report identically) and in `server.ts`
- * for the initialize handshake, which is the only place the client's own name
- * and version are on the wire.
- *
- * Deliberately NOT emitted: `$mcp_response`. A tool result is app data of
- * unbounded size; the properties here stay metadata. `$mcp_parameters` is
- * opt-in for the same reason (`observability.mcpCaptureParameters`) and
- * redacted
- * even then.
- */
 
 import { getAppConfig } from "../app-config/store.js";
 import { safeValue } from "../tracking/redaction.js";
 import { listTrackingProviders, track } from "../tracking/registry.js";
 
-/** Reserved request `_meta` keys the 2026-07-28 protocol carries per request. */
 const CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo";
 const PROTOCOL_VERSION_META_KEY = "io.modelcontextprotocol/protocolVersion";
 
@@ -38,13 +14,7 @@ export const MCP_ANALYTICS_EVENTS = {
   resourceRead: "$mcp_resource_read",
 } as const;
 
-/**
- * Per-request identity of the MCP exchange: who is calling, over which
- * transport, against which server build. Resolved once per request and passed
- * to each event so every `$mcp_*` event carries the same caller columns.
- */
 export interface McpAnalyticsContext {
-  /** `$mcp_source` — which transport served the request. */
   source: "http" | "stdio";
   serverName: string;
   serverVersion: string;
@@ -53,9 +23,7 @@ export interface McpAnalyticsContext {
   clientVersion?: string;
   clientUserAgent?: string;
   protocolVersion?: string;
-  /** Verified caller, when the request authenticated to one. */
   userId?: string;
-  /** MCP transport session, when the transport keeps one. */
   sessionId?: string;
 }
 
@@ -64,14 +32,6 @@ interface McpRequestLike {
   _meta?: Record<string, unknown> | undefined;
 }
 
-/**
- * Normalized vendor bucket for the calling host.
- *
- * Clients report themselves inconsistently — `claude-code`, `Claude Code`,
- * `claude-ai`, or nothing but a user agent — so grouping on the raw name
- * splits one host across several rows. Matching is substring-based against
- * the lowercased client name and user agent, first match wins.
- */
 const VENDOR_CLIENT_PATTERNS: Array<[RegExp, string]> = [
   [/claude[\s._-]?code/, "claude-code"],
   [/claude[\s._-]?desktop/, "claude-desktop"],
@@ -105,7 +65,6 @@ export function detectVendorClient(
   return undefined;
 }
 
-/** `{ name, version }` a 2026-era client carries in per-request `_meta`. */
 export function readClientInfoFromRequest(
   request: McpRequestLike | undefined,
 ): {
@@ -131,14 +90,7 @@ export function readClientInfoFromRequest(
 }
 
 function analyticsEnabled(): boolean {
-  // A registry with no provider still fans out through `track()` at zero cost,
-  // but building the property bag (redacting arguments, listing tool names) is
-  // not free — skip it when nothing would receive the event.
   if (listTrackingProviders().length === 0) return false;
-  // Not wrapped: a malformed `MCP_ANALYTICS` value is a deployment error, and
-  // catching it here would turn "your config is wrong" into "MCP usage stopped
-  // being reported" — the exact silent-off state this instrumentation exists to
-  // rule out.
   return getAppConfig().observability.mcpEvents;
 }
 
@@ -203,7 +155,6 @@ export function trackMcpToolCall(
   args: {
     toolName: string;
     toolDescription?: string;
-    /** `read` for a `readOnly` action, `write` otherwise. */
     toolCategory?: string;
     parameters?: Record<string, unknown>;
     durationMs: number;
@@ -262,13 +213,6 @@ export function trackMcpResourceRead(
   });
 }
 
-/**
- * Error shape for a `$mcp_*` event.
- *
- * `$mcp_error_type` is the class/code a consumer can group by;
- * `$mcp_error_message` is bounded and redacted by the tracking layer's own
- * rules when it reaches a provider.
- */
 export function describeMcpError(err: unknown): {
   errorType: string;
   errorMessage: string;

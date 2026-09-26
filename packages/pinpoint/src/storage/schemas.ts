@@ -1,5 +1,3 @@
-// @agent-native/pinpoint — Zod schemas for runtime validation
-// MIT License
 
 import { z } from "zod";
 

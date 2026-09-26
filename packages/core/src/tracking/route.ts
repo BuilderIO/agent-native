@@ -19,18 +19,14 @@
  * a client-supplied identity.
  */
 
-/** Max length of an event name. Mirrors typical provider limits. */
 export const MAX_TRACK_EVENT_NAME_LENGTH = 200;
 
-/** Max serialized size of the `properties` object, in bytes. */
 export const MAX_TRACK_PROPERTIES_BYTES = 16 * 1024;
 
 export interface TrackRouteValidationResult {
   ok: boolean;
-  /** Present when `ok` is true. */
   name?: string;
   properties?: Record<string, unknown>;
-  /** Present when `ok` is false — a short, client-safe reason. */
   error?: string;
 }
 
@@ -42,15 +38,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-/**
- * Validate a client tracking payload. Pure and synchronous so it can be unit
- * tested without standing up an h3 event.
- *
- *   - `name` must be a non-empty string no longer than
- *     `MAX_TRACK_EVENT_NAME_LENGTH` characters.
- *   - `properties`, when present, must be a plain JSON object whose serialized
- *     size is at most `MAX_TRACK_PROPERTIES_BYTES` bytes.
- */
 export function validateTrackPayload(
   body: unknown,
 ): TrackRouteValidationResult {

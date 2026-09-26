@@ -53,50 +53,27 @@ import type { IncomingMessage } from "./types.js";
 const PLATFORM = "google-docs";
 const DEFAULT_TRIGGER = "@agent";
 
-/** Track processed comment IDs to avoid reprocessing */
 const processedComments = new Set<string>();
-/** Track last-checked time per document for comment filtering */
 const lastCheckedTimes = new Map<string, string>();
 
 export interface GoogleDocsPollerOptions {
-  /** Polling interval in milliseconds (fallback mode). Default: 30000 (30s) */
   intervalMs?: number;
-  /** Trigger keyword in comments. Default: "@agent" (case-insensitive) */
   triggerKeyword?: string;
-  /** System prompt for the agent */
   systemPrompt: string;
-  /** Action entries for the agent */
   actions: Record<string, ActionEntry>;
-  /**
-   * Tool names to expose on the FIRST engine request. See
-   * `WebhookHandlerOptions.initialToolNames` (`webhook-handler.ts`) — same
-   * semantics, shared `actions` source from `createIntegrationsPlugin`. Omit
-   * to keep the full `actions` set visible up front (current behavior).
-   */
   initialToolNames?: string[];
-  /** Model to use */
   model: string;
-  /** Anthropic API key */
   apiKey: string;
-  /** Thread owner email */
   ownerEmail: string;
-  /** Webhook URL for push mode (set by plugin from WEBHOOK_BASE_URL) */
   webhookUrl?: string;
 }
 
 let pollerJob: IntervalJobHandle | null = null;
-// Held only for the startup delay below. It counts as "already running" for
-// both the idempotency guard and stop(): `pollerJob` is still null during that
-// window, so without this a second start() would build a second independent
-// poller, and a stop() inside the window could not prevent the loop from
-// arming itself afterwards.
 let pollerStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeOptions: GoogleDocsPollerOptions | null = null;
 let pollerGeneration = 0;
 
-// ─── Watch Channel Management ───────────────────────────────────────────────
 
-/** How long a watch channel lasts (Google max is ~24h, we use 23h to renew early) */
 const WATCH_CHANNEL_TTL_MS = 23 * 60 * 60 * 1000;
 const WATCH_RETRY_MS = 5 * 60 * 1000;
 const WATCH_STOP_CLAIM_TTL_MS = WATCH_RETRY_MS - 30 * 1000;
@@ -222,12 +199,6 @@ async function cleanupRegisteredWatch(
   }
 }
 
-/**
- * Register a Google Drive changes.watch channel so Google pushes
- * notifications to our webhook instead of us polling.
- *
- * Returns true if the watch was registered successfully.
- */
 export async function registerWatch(
   webhookUrl: string,
   expectedChannelId?: string,
@@ -241,7 +212,6 @@ export async function registerWatch(
   const accessToken = await getServiceAccountAccessToken();
   if (!accessToken) return false;
 
-  // Get the current page token as the starting point
   let pageToken = await getPageToken();
   if (!pageToken) {
     pageToken = await getStartPageToken(accessToken);
@@ -257,8 +227,6 @@ export async function registerWatch(
   let registeredChannel: { id: string; resourceId: string } | null = null;
 
   try {
-    // Keep the active channel until Google accepts the replacement. A failed
-    // registration must not take down a still-valid channel.
     const currentConfig = await getIntegrationConfig(PLATFORM, "watch-channel");
     if (
       expectedChannelId !== undefined &&
@@ -312,8 +280,6 @@ export async function registerWatch(
       return false;
     }
 
-    // Promote only if no other registration changed the active channel while
-    // this request was in flight. Stop this orphaned channel if it lost.
     const promoted = await saveIntegrationConfigIfUnchanged(
       PLATFORM,
       {
@@ -378,7 +344,6 @@ export async function registerWatch(
       `[google-docs] Watch registered (channel: ${data.id}, expires: ${new Date(parseInt(data.expiration)).toISOString()})`,
     );
 
-    // Schedule renewal before expiration
     scheduleWatchRenewal(
       webhookUrl,
       undefined,
@@ -403,9 +368,6 @@ export async function verifyGoogleDocsPushNotification(
   return verifyGoogleDocsChannel(config?.configData, headers);
 }
 
-/**
- * Stop an existing watch channel.
- */
 async function stopWatch(expectedClaimId?: string): Promise<WatchStopResult> {
   const config = await getIntegrationConfig(PLATFORM, "watch-channel");
   const claim = getWatchClaim(config);
@@ -441,7 +403,6 @@ async function stopWatch(expectedClaimId?: string): Promise<WatchStopResult> {
     );
   }
 
-  // Re-read the CAS result so the cleanup below can only clear this claim.
   const claimedConfig = await getIntegrationConfig(PLATFORM, "watch-channel");
   const claimedWatch = getWatchClaim(claimedConfig);
   if (!claimedConfig || claimedWatch?.id !== claimId) {
@@ -493,7 +454,6 @@ export async function stopGoogleDocsWatchChannel(
       },
     );
 
-    // An already-expired or already-stopped channel is safe to replace.
     if (res.ok || res.status === 404 || res.status === 410) {
       return true;
     }
@@ -511,9 +471,6 @@ export async function stopGoogleDocsWatchChannel(
   }
 }
 
-/**
- * Schedule automatic watch renewal before the channel expires.
- */
 function scheduleWatchRenewal(
   webhookUrl: string,
   delayMs = WATCH_CHANNEL_TTL_MS - 60 * 60 * 1000,
@@ -622,7 +579,6 @@ function scheduleWatchCleanupRetry(
   unrefTimer(watchRenewalTimer);
 }
 
-// ─── Page Token Management ──────────────────────────────────────────────────
 
 async function getPageToken(): Promise<string | null> {
   const config = await getIntegrationConfig(PLATFORM, "page-token");
@@ -633,7 +589,6 @@ async function setPageToken(token: string): Promise<void> {
   await saveIntegrationConfig(PLATFORM, { pageToken: token }, "page-token");
 }
 
-// ─── Comment Detection ──────────────────────────────────────────────────────
 
 function isAgentMention(commentText: string, triggerKeyword: string): boolean {
   return commentText.toLowerCase().includes(triggerKeyword.toLowerCase());
@@ -643,9 +598,6 @@ function commentKey(fileId: string, commentId: string): string {
   return `${fileId}:${commentId}`;
 }
 
-/**
- * Check a single document for new agent-directed comments.
- */
 async function checkDocumentComments(
   fileId: string,
   accessToken: string,
@@ -663,7 +615,6 @@ async function checkDocumentComments(
 
     const key = commentKey(fileId, comment.id);
 
-    // Skip comments authored by the service account
     if (
       serviceEmail &&
       comment.author.emailAddress?.toLowerCase() === serviceEmail.toLowerCase()
@@ -674,17 +625,12 @@ async function checkDocumentComments(
     const existingMapping = await getThreadMapping(PLATFORM, key);
 
     if (existingMapping) {
-      // Durable per-reply dedup: the in-memory `processedComments` Set does not
-      // survive serverless cold starts (see pending-tasks-store H3 note), which
-      // would let already-answered replies be reprocessed and double-posted.
-      // Persist processed reply ids in the existing SQL thread mapping instead.
       const persistedReplyIds =
         existingMapping.platformContext.processedReplyIds;
       const processedReplyIds = new Set<string>(
         Array.isArray(persistedReplyIds) ? (persistedReplyIds as string[]) : [],
       );
 
-      // Check for new follow-up replies from users
       const newUserReplies = (comment.replies ?? []).filter((r) => {
         if (
           serviceEmail &&
@@ -703,8 +649,6 @@ async function checkDocumentComments(
         const replyKey = `${key}:reply:${reply.id}`;
         processedComments.add(replyKey);
         processedReplyIds.add(reply.id);
-        // Persist immediately so a crash/cold-start between replies cannot
-        // re-answer this reply on the next invocation.
         await saveThreadMapping(
           PLATFORM,
           key,
@@ -737,7 +681,6 @@ async function checkDocumentComments(
       continue;
     }
 
-    // New comment — check if it mentions the agent
     if (!isAgentMention(comment.content, triggerKeyword)) continue;
 
     processedComments.add(key);
@@ -766,13 +709,7 @@ async function checkDocumentComments(
   lastCheckedTimes.set(fileId, now);
 }
 
-// ─── Process Changes ────────────────────────────────────────────────────────
 
-/**
- * Process pending Drive changes — called by both push notifications and polling.
- * Fetches changes since the last page token, finds Google Docs that changed,
- * and checks their comments for agent mentions.
- */
 export async function processChanges(
   options: GoogleDocsPollerOptions,
 ): Promise<void> {
@@ -783,7 +720,7 @@ export async function processChanges(
   if (!pageToken) {
     pageToken = await getStartPageToken(accessToken);
     await setPageToken(pageToken);
-    return; // First run — just save the cursor
+    return;
   }
 
   const { changes, nextPageToken } = await listChanges(pageToken, accessToken);
@@ -791,7 +728,6 @@ export async function processChanges(
 
   if (changes.length === 0) return;
 
-  // Deduplicate and filter to Google Docs
   const docFileIds = new Set<string>();
   for (const change of changes) {
     if (change.removed) continue;
@@ -812,10 +748,6 @@ export async function processChanges(
   }
 }
 
-/**
- * Handle a push notification from Google Drive changes.watch.
- * Called from the integration webhook route.
- */
 export async function handlePushNotification(): Promise<void> {
   if (!activeOptions) {
     console.warn(
@@ -831,7 +763,6 @@ export async function handlePushNotification(): Promise<void> {
   }
 }
 
-// ─── Agent Processing ───────────────────────────────────────────────────────
 
 async function processComment(
   fileId: string,
@@ -868,8 +799,6 @@ async function processComment(
     threadId = thread.id;
   }
 
-  // Older mapped conversations predate thread provenance. Backfill them as
-  // they are touched so Dispatch's default local-history view excludes them.
   await setThreadSourceIfMissing(threadId, source);
 
   const thread = await getThread(threadId);
@@ -911,12 +840,6 @@ async function processComment(
   ];
 
   const engine = createAnthropicEngine({ apiKey: options.apiKey });
-  // Attach tool-search on a shallow copy so framework additions merged in by
-  // `createIntegrationsPlugin` (integration memory, `call-agent`) can be
-  // deferred behind it without mutating the plugin's long-lived registry.
-  // `runAgentLoop`'s `expandActiveTools` re-expands from `availableTools`
-  // after a tool-search call, so anything filtered out of the initial
-  // `tools` list stays reachable.
   const runnableActions = attachToolSearch({ ...options.actions });
   const availableTools = actionsToEngineTools(runnableActions);
   const tools = filterInitialEngineTools(
@@ -934,9 +857,6 @@ async function processComment(
       await runWithRequestContext(
         { userEmail: options.ownerEmail, orgId, isIntegrationCaller: true },
         () =>
-          // Wrapper, not raw `runAgentLoop`: a doc-comment reply has no client
-          // driving continuation, so a transport-level cut has to be resumed
-          // inside this invocation or the commenter never gets an answer.
           runAgentLoopDirectWithSoftTimeout(
             {
               engine,
@@ -950,13 +870,6 @@ async function processComment(
               signal,
             },
             undefined,
-            // Same omission the scheduled-job runner had: without this, a
-            // poller-driven reply inherits the interactive clamp (40s soft
-            // timeout, a no-progress backstop at 0.75x that, 6 continuations)
-            // even though no client is waiting on a response. Uses the runtime
-            // check rather than a hardcoded `true` — matching webhook-handler.ts
-            // in this same subsystem — because unlike the job runner there is no
-            // hard-abort cap here to bound a wider ceiling.
             {
               useHostedDefault: true,
               backgroundFunction: isInBackgroundFunctionRuntime(),
@@ -981,8 +894,6 @@ async function processComment(
         console.error("[google-docs] Error sending response:", err);
       }
     },
-    // No userId here: `options.ownerEmail` is PII (email), which the
-    // terminal event must not carry.
     { model: options.model, engineName: engine.name },
   );
 }
@@ -1028,19 +939,7 @@ async function persistThreadData(
   }
 }
 
-// ─── Poller (Hybrid: Push Primary, Poll Fallback) ───────────────────────────
 
-/**
- * Start the Google Docs integration.
- *
- * Hybrid approach:
- * 1. Attempts to register a Google Drive changes.watch webhook for
- *    near-instant push notifications (~seconds latency)
- * 2. Falls back to polling if the watch registration fails
- *    (e.g. domain not verified, local dev)
- * 3. Even in push mode, polls at a slow interval (5min) as a safety net
- *    in case a push notification is missed
- */
 export async function startGoogleDocsPoller(
   options: GoogleDocsPollerOptions,
 ): Promise<void> {
@@ -1052,16 +951,13 @@ export async function startGoogleDocsPoller(
   const generation = ++pollerGeneration;
   activeOptions = options;
 
-  // Check if integration is enabled before trying to register watch
   const config = await getIntegrationConfig(PLATFORM);
   if (!isCurrentPollerGeneration(generation)) return;
   if (!config?.configData?.enabled) {
-    // Still start the poll loop so it picks up when enabled later
     startPollLoop(options, options.intervalMs ?? 30_000);
     return;
   }
 
-  // Try to register push notifications
   const webhookUrl = options.webhookUrl;
   let pushMode = false;
 
@@ -1070,7 +966,6 @@ export async function startGoogleDocsPoller(
     if (!isCurrentPollerGeneration(generation)) return;
     if (pushMode) {
       console.log("[google-docs] Push mode active — using Drive webhooks");
-      // In push mode, still poll slowly as a safety net (every 5 min)
       startPollLoop(options, 5 * 60 * 1000);
     }
   }
@@ -1083,7 +978,6 @@ export async function startGoogleDocsPoller(
   }
 }
 
-/** Backoff for the config probe while google-docs is disabled. */
 const DISABLED_CONFIG_RECHECK_MS = 5 * 60 * 1000;
 
 function startPollLoop(
@@ -1095,11 +989,6 @@ function startPollLoop(
 
   async function poll(): Promise<void> {
     try {
-      // The loop starts even when google-docs was never configured (so it picks
-      // up a later enable), which used to mean one `integration_configs` read
-      // every 30s per app forever. While disabled, re-read only every
-      // DISABLED_CONFIG_RECHECK_MS — or immediately after any in-process config
-      // write, so enabling the integration still takes effect on the next tick.
       const epoch = integrationConfigWriteEpoch();
       if (Date.now() < disabledUntil && epoch === disabledAtConfigWriteEpoch) {
         return;
@@ -1113,7 +1002,6 @@ function startPollLoop(
       disabledUntil = 0;
       await processChanges(options);
     } catch (err) {
-      // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause
       const detail =
         err instanceof Error
           ? err
@@ -1122,10 +1010,6 @@ function startPollLoop(
     }
   }
 
-  // processChanges ultimately calls the Drive/Docs REST API
-  // (adapters/google-docs.ts), none of whose fetch()s carry a request
-  // timeout — startIntervalJob's own cadence-scaled timeout backstops a hung
-  // call, same convention as SyncTransport's poll abort.
   if (pollerStartTimer) clearTimeout(pollerStartTimer);
   pollerStartTimer = setTimeout(() => {
     pollerStartTimer = null;
@@ -1140,9 +1024,6 @@ function startPollLoop(
   }
 }
 
-/**
- * Stop the Google Docs integration.
- */
 export async function stopGoogleDocsPoller(): Promise<void> {
   pollerGeneration += 1;
   activeOptions = null;

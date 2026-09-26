@@ -39,9 +39,6 @@ describe("buildRuntimeContextPrompt", () => {
       timezone: "America/New_York",
     });
 
-    // A millisecond ISO timestamp or any clock time (HH:MM) in this block
-    // would invalidate the Anthropic prompt cache on every request — the
-    // block sits inside the cached system-prompt prefix.
     expect(prompt).not.toMatch(/\d{2}:\d{2}/);
     expect(prompt).not.toContain("2026-05-03T");
     expect(prompt).not.toContain("currentUtc");
@@ -100,7 +97,6 @@ describe("buildCurrentTimeUserContext", () => {
     expect(block).toContain("<current-time>");
     expect(block).toContain("currentUtc: 2026-05-03T18:30:45.123Z");
     expect(block).toContain("currentTimezone: America/New_York");
-    // Local wall-clock time (2:30 PM EDT on that date) is present.
     expect(block).toMatch(/currentTimeInTimezone: .*2:30/);
   });
 
@@ -115,14 +111,6 @@ describe("buildCurrentTimeUserContext", () => {
   });
 });
 
-/**
- * Source guards for the prompt-caching invariants. The volatile precise time
- * must be injected per-turn into the USER message (production-agent.ts), and
- * every system-prompt assembly site must append the day-granular
- * runtime-context block LAST so a day rollover invalidates as little of the
- * cached prefix as possible. These read the source because the wiring lives
- * inside large request-handler closures that have no cheap unit seam.
- */
 describe("prompt-caching wiring guards", () => {
   it("production-agent injects the precise per-turn time into the user message", () => {
     const source = readFileSync("src/agent/production-agent.ts", {
@@ -132,8 +120,6 @@ describe("prompt-caching wiring guards", () => {
       'import { buildCurrentTimeUserContext } from "./runtime-context.js"',
     );
     expect(source).toContain('presendCap("time", timeContextThunk, "", 9000)');
-    // The time block rides the same per-turn context that is appended to the
-    // user message on every turn (including continuation/retry paths).
     expect(source).toContain(
       "const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;",
     );
@@ -143,9 +129,6 @@ describe("prompt-caching wiring guards", () => {
     const source = readFileSync("src/server/agent-chat-plugin.ts", {
       encoding: "utf-8",
     });
-    // The bare `runtimeContext` identifier (or a direct
-    // buildRuntimeContextPrompt() call) must never be followed by `+` in a
-    // system-prompt concatenation — it has to be the final operand.
     expect(source).not.toMatch(/\bruntimeContext\b\s*\+/);
     expect(source).not.toMatch(/runtimeContextForEvent\([^)]*\)\s*\+/);
     expect(source).not.toMatch(/buildRuntimeContextPrompt\([^)]*\)\s*\+/);

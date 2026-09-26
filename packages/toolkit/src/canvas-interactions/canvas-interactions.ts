@@ -1,10 +1,3 @@
-/**
- * Headless canvas interaction primitives shared by visual editors.
- *
- * This module deliberately knows nothing about React, DOM elements, or how an
- * application persists objects. An app supplies its object adapter and turns
- * the returned semantic commands into its own mutations.
- */
 
 export const DEFAULT_CANVAS_DRAG_THRESHOLD = 3;
 export const DEFAULT_CANVAS_NUDGE = 1;
@@ -71,7 +64,6 @@ export interface CanvasNudgePolicy {
   acceleratedAmount?: number;
 }
 
-/** The interaction surface an app can durably support. */
 export interface CanvasInteractionCapabilities {
   selection: boolean;
   multiSelection: boolean;
@@ -120,7 +112,6 @@ export interface CanvasInteractionConfig {
   shortcuts?: readonly CanvasShortcut[];
 }
 
-/** The only persistence seam required by the shared interaction core. */
 export interface CanvasInteractionAdapter<TObjectId = string> {
   readonly capabilities: CanvasInteractionCapabilities;
   dispatch(command: CanvasCommand<TObjectId>): CanvasCommandDispatchResult;
@@ -183,10 +174,6 @@ export type CanvasShortcutModifier =
 export interface CanvasShortcut {
   command: CanvasCommandId;
   key: string;
-  /**
-   * Optional physical key identity for shifted punctuation. `KeyboardEvent.key`
-   * changes `]` to `}` under Shift, while `KeyboardEvent.code` stays stable.
-   */
   code?: string;
   modifiers?: readonly CanvasShortcutModifier[];
 }
@@ -255,7 +242,6 @@ export interface CanvasNudgeResult {
   delta: CanvasPoint;
 }
 
-/** A pointer expressed in browser client coordinates. */
 export interface CanvasGesturePointer extends CanvasPoint, CanvasModifiers {}
 
 export type CanvasGestureKind = "move" | "resize";
@@ -264,12 +250,10 @@ export type CanvasGesturePhase = "idle" | "pending" | "active";
 export interface CanvasGestureBase<TObjectId = string> {
   readonly kind: CanvasGestureKind;
   readonly objectIds: readonly TObjectId[];
-  /** Pointer location when the gesture began, in browser client coordinates. */
   readonly startPointer: CanvasGesturePointer;
   readonly pointer: CanvasGesturePointer;
   readonly clientDelta: CanvasPoint;
   readonly canvasDelta: CanvasPoint;
-  /** Whether this gesture should create copies as part of its one final commit. */
   readonly duplicate: boolean;
 }
 
@@ -314,15 +298,10 @@ export type CanvasGestureStart<TObjectId = string> =
   | CanvasMoveGestureStart<TObjectId>
   | CanvasResizeGestureStart<TObjectId>;
 
-/** Typed result returned by host preview, commit, and cancel callbacks. */
 export type CanvasGestureAdapterResult =
   | { handled: true }
   | { handled: false; reason: "unsupported" | "unhandled" };
 
-/**
- * Persistence-neutral callbacks for a single object gesture. Previews are
- * transient; `commit` is invoked at most once after an active gesture ends.
- */
 export interface CanvasGestureAdapter<TObjectId = string> {
   preview?(gesture: CanvasGesture<TObjectId>): CanvasGestureAdapterResult;
   commit(gesture: CanvasGesture<TObjectId>): CanvasGestureAdapterResult;
@@ -444,7 +423,6 @@ function hasOnlyShortcutModifiers(
   );
 }
 
-/** Resolves click-to-edit without attaching event listeners. */
 export function resolveCanvasTextActivation(
   input: CanvasTextActivationInput,
   policy: CanvasTextEditPolicy = {},
@@ -456,10 +434,6 @@ export function resolveCanvasTextActivation(
     : "select";
 }
 
-/**
- * Escape has one explicit owner: editing wins over any box-selection state.
- * The host applies this result before handing Escape to generic UI dismissal.
- */
 export function resolveCanvasEscape<TObjectId>(
   input: CanvasEscapeInput<TObjectId>,
   policy: CanvasTextEditPolicy = {},
@@ -488,7 +462,6 @@ export function resolveCanvasEscape<TObjectId>(
   };
 }
 
-/** Converts a browser client point into unscaled canvas coordinates. */
 export function clientPointToCanvasPoint(
   point: CanvasPoint,
   viewport: CanvasViewport,
@@ -501,7 +474,6 @@ export function clientPointToCanvasPoint(
   };
 }
 
-/** Converts a client-space drag delta to the canvas's unscaled coordinate space. */
 export function clientDeltaToCanvasDelta(
   delta: CanvasPoint,
   viewport: CanvasViewport,
@@ -514,7 +486,6 @@ export function clientDeltaToCanvasDelta(
   };
 }
 
-/** Whether the client pointer crossed the intentional-drag threshold. */
 export function hasCrossedCanvasDragThreshold(
   start: CanvasPoint,
   current: CanvasPoint,
@@ -525,7 +496,6 @@ export function hasCrossedCanvasDragThreshold(
   return dx * dx + dy * dy >= threshold * threshold;
 }
 
-/** Locks a drag to its dominant axis, used for Shift-drag. */
 export function constrainCanvasDragDelta(
   delta: CanvasPoint,
   lockAxis = false,
@@ -536,10 +506,6 @@ export function constrainCanvasDragDelta(
     : { x: 0, y: delta.y };
 }
 
-/**
- * Resizes against the opposite edge, or from the center with Alt. Shift
- * preserves aspect ratio on every handle; derived dimensions are centered.
- */
 export function resizeCanvasRect(
   start: CanvasRect,
   input: CanvasResizeInput,
@@ -621,7 +587,6 @@ export function resizeCanvasRect(
   };
 }
 
-/** Whether this drag gesture should duplicate selected objects before moving. */
 export function shouldDuplicateCanvasDrag(
   modifiers: CanvasModifiers,
   duplicateModifier: CanvasDuplicateModifier = "alt",
@@ -638,7 +603,6 @@ export function shouldDuplicateCanvasDrag(
   }
 }
 
-/** Resolves standard arrow-key movement, including Shift's accelerated nudge. */
 export function resolveCanvasNudge(
   input: CanvasNudgeInput,
   policy: CanvasNudgePolicy = {},
@@ -660,7 +624,6 @@ export function resolveCanvasNudge(
   }
 }
 
-/** Looks up a semantic command without referring to platform-specific events. */
 export function resolveCanvasShortcut(
   input: CanvasShortcutInput,
   shortcuts: readonly CanvasShortcut[] = DEFAULT_CANVAS_SHORTCUTS,
@@ -678,7 +641,6 @@ export function resolveCanvasShortcut(
   return shortcut?.command ?? null;
 }
 
-/** Creates a reusable, immutable shortcut lookup for one editor policy. */
 export function createCanvasShortcutRegistry(
   shortcuts: readonly CanvasShortcut[] = DEFAULT_CANVAS_SHORTCUTS,
 ): CanvasShortcutRegistry {
@@ -688,11 +650,6 @@ export function createCanvasShortcutRegistry(
   };
 }
 
-/**
- * Creates an app-configured pure interaction core. `dispatch` is optional so
- * hosts can either use the helpers directly or receive semantic commands via
- * their adapter without the Toolkit owning any state.
- */
 export function createCanvasInteractionCore<TObjectId = string>(
   config: CanvasInteractionConfig = {},
   adapter?: CanvasInteractionAdapter<TObjectId>,
@@ -794,11 +751,6 @@ export function createCanvasInteractionCore<TObjectId = string>(
   };
 }
 
-/**
- * Creates a small state machine for one pointer gesture at a time. It keeps
- * browser coordinates at its boundary, while every emitted preview and commit
- * is in stable canvas coordinates. Hosts own rendering and persistence.
- */
 export function createCanvasGestureController<TObjectId = string>(
   config: CanvasGestureControllerConfig<TObjectId>,
 ) {

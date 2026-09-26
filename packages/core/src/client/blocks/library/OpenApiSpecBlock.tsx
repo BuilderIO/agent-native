@@ -33,7 +33,6 @@ import type { OpenApiSpecData } from "./openapi-spec.config.js";
  * from props (no window/document access at module or render time).
  */
 
-/* ── Theme-aware color tokens (mirrors ApiEndpointBlock) ────────────────────── */
 
 const METHOD_PILL: Record<string, string> = {
   GET: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -58,7 +57,6 @@ const PARAM_IN_BADGE: Record<string, string> = {
   body: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
 };
 
-/** Status-pill palette keyed by the leading status digit (2xx/3xx/4xx/5xx). */
 function statusPillClass(status: string): string {
   const lead = status.trim().charAt(0);
   if (lead === "2")
@@ -70,7 +68,6 @@ function statusPillClass(status: string): string {
   return "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300";
 }
 
-/* ── Defensive spec parsing + normalization ────────────────────────────────── */
 
 type Json = unknown;
 type JsonObject = Record<string, Json>;
@@ -97,7 +94,6 @@ interface NormalizedParam {
 interface NormalizedResponse {
   status: string;
   description?: string;
-  /** Inline JSON example/schema preview, when derivable. */
   example?: string;
 }
 
@@ -145,11 +141,6 @@ function asString(value: Json): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-/**
- * Parse the raw spec text into a JSON object. v1 supports JSON only — a YAML
- * parser is not a declared dependency. This is the single seam to extend with
- * YAML once `yaml` is a real dependency.
- */
 function parseSpec(raw: string): ParseResult {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -187,10 +178,9 @@ function parseSpec(raw: string): ParseResult {
   }
 }
 
-/** Resolve a local `$ref` (e.g. `#/components/schemas/User`) against the root. */
 function resolveRef(root: JsonObject, ref: string, seen: Set<string>): Json {
   if (!ref.startsWith("#/")) return undefined;
-  if (seen.has(ref)) return undefined; // cycle guard
+  if (seen.has(ref)) return undefined;
   seen.add(ref);
   const segments = ref
     .slice(2)
@@ -204,7 +194,6 @@ function resolveRef(root: JsonObject, ref: string, seen: Set<string>): Json {
   return current;
 }
 
-/** Follow a single `$ref` hop on a schema/param object if present. */
 function deref(root: JsonObject, value: Json, seen: Set<string>): Json {
   let current = value;
   let guard = 0;
@@ -217,7 +206,6 @@ function deref(root: JsonObject, value: Json, seen: Set<string>): Json {
   return current;
 }
 
-/** Short human type label for a (deref'd) schema object. */
 function schemaTypeLabel(
   root: JsonObject,
   schema: Json,
@@ -241,11 +229,6 @@ function schemaTypeLabel(
   return undefined;
 }
 
-/**
- * Build a compact JSON skeleton from a (resolved) schema so the request/response
- * panels can show a Swagger-UI-style model preview. Bounded depth + a cycle
- * guard keep it safe on recursive models.
- */
 function schemaExample(
   root: JsonObject,
   schema: Json,
@@ -301,7 +284,6 @@ function schemaExample(
   return null;
 }
 
-/** Stringify a derived example, guarding against oversized payloads. */
 function stringifyExample(value: Json): string | undefined {
   try {
     const text = JSON.stringify(value, null, 2);
@@ -323,7 +305,6 @@ function normalizeParam(
   const name = asString(param.name);
   const location = asString(param.in);
   if (!name || !location) return undefined;
-  // OpenAPI 3 nests type under `schema`; Swagger 2 puts it on the param.
   const type =
     schemaTypeLabel(root, param.schema, seen) ?? asString(param.type);
   return {
@@ -353,7 +334,6 @@ function normalizeOperation(
     }
   }
 
-  // Request body: OpenAPI 3 `requestBody.content[*].schema`; Swagger 2 `body` param.
   let requestContentType: string | undefined;
   let requestExample: string | undefined;
   const requestBody = deref(root, rawOp.requestBody, new Set(seen));
@@ -368,7 +348,6 @@ function normalizeOperation(
   } else {
     const bodyParam = params.find((p) => p.in === "body");
     if (bodyParam) {
-      // Swagger 2 body param carries its schema on the raw parameter.
       const rawBody = Array.isArray(rawOp.parameters)
         ? rawOp.parameters.find(
             (p) =>
@@ -386,8 +365,6 @@ function normalizeOperation(
       );
     }
   }
-  // Swagger 2 `body` params are represented via requestBody above; drop them
-  // from the visible param table so they don't double-render.
   const visibleParams = params.filter((p) => p.in !== "body");
 
   const responses: NormalizedResponse[] = [];
@@ -396,7 +373,6 @@ function normalizeOperation(
       const response = deref(root, rawResponse, new Set(seen));
       let example: string | undefined;
       if (isObject(response)) {
-        // OpenAPI 3: response.content[*].schema; Swagger 2: response.schema.
         if (isObject(response.content)) {
           const media = Object.values(response.content)[0];
           if (isObject(media)) {
@@ -458,14 +434,11 @@ function normalizeSpec(doc: JsonObject): NormalizedSpec {
 
   const info = isObject(doc.info) ? doc.info : undefined;
 
-  // Global security requirement → every operation without its own override is
   // secured. Operation-level `security: []` opts out; we treat presence here as
-  // the default-secured signal.
   const globalSecured =
     Array.isArray(doc.security) &&
     doc.security.some((req) => isObject(req) && Object.keys(req).length > 0);
 
-  // Tag order + descriptions from the document's top-level `tags`.
   const tagOrder: string[] = [];
   const tagDescriptions = new Map<string, string>();
   if (Array.isArray(doc.tags)) {
@@ -520,8 +493,6 @@ function normalizeSpec(doc: JsonObject): NormalizedSpec {
     }
   }
 
-  // Order: documented tags first (in their declared order), then any remaining
-  // tags alphabetically.
   const orderedTagNames = [
     ...tagOrder.filter((tag) => groups.has(tag)),
     ...[...groups.keys()]
@@ -545,7 +516,6 @@ function normalizeSpec(doc: JsonObject): NormalizedSpec {
   };
 }
 
-/* ── Operation row (collapsed-by-default, mirrors api-endpoint) ─────────────── */
 
 function OperationRow({
   operation,
@@ -751,7 +721,6 @@ function OperationRow({
   );
 }
 
-/* ── Tag group (collapsed-by-default) ──────────────────────────────────────── */
 
 function TagGroup({
   group,
@@ -803,7 +772,6 @@ function TagGroup({
   );
 }
 
-/* ── Read (Redoc / Swagger-UI-style reference) ─────────────────────────────── */
 
 /**
  * Read-only renderer for an `openapi-spec` block. Parses `data.spec` defensively
@@ -873,8 +841,6 @@ export function OpenApiSpecRead({
               <TagGroup
                 key={group.tag}
                 group={group}
-                // Open the first group by default so the reference is not a wall
-                // of collapsed accordions on first paint.
                 defaultOpen={index === 0}
                 renderMarkdown={renderMarkdown}
               />
@@ -906,15 +872,7 @@ export function OpenApiSpecRead({
   );
 }
 
-/* ── Edit (panel form) ─────────────────────────────────────────────────────── */
 
-/**
- * Panel editor for an `openapi-spec` block: a `title` input plus a monospace
- * textarea bound to the raw `spec`, with a "Format" button that pretty-prints via
- * `JSON.parse` → `JSON.stringify(_, null, 2)` (guarded — shows an INLINE error,
- * never `window.alert`). Renders BARE content (no `<section>`); the registry's
- * panel surface supplies the popover chrome.
- */
 export function OpenApiSpecEdit({
   data,
   onChange,

@@ -2,19 +2,6 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-/**
- * Safety invariants behind the durable-background *inline fallback*.
- *
- * When `fireInternalDispatch` throws (the self-POST failed fast, before any
- * background worker could claim the run), `production-agent.ts` no longer
- * errors the chat with "Failed to dispatch background run". Instead it claims
- * the already-inserted run row atomically via `claimBackgroundRun` and runs the
- * turn inline. The SQL atomic claim is the single backstop that guarantees at
- * most ONE of {inline fallback, a delayed background delivery} ever executes a
- * given run — these tests pin that claim's exclusivity against a real PGlite
- * engine (so the conditional UPDATE / rowsAffected semantics are exercised for
- * real, not mocked).
- */
 
 const pglite = await createTestPglite();
 
@@ -65,10 +52,8 @@ describe("durable-background inline fallback — claimBackgroundRun exclusivity"
     const runId = nextRunId();
     await insertRun(runId, "thread-1", runId, { dispatchMode: "background" });
 
-    // The inline fallback claims the row it inserted as 'background'.
     expect(await claimBackgroundRun(runId)).toBe(true);
 
-    // The row is now owned (background-processing), still running.
     await expect(dispatchModeOf(runId)).resolves.toBe("background-processing");
     expect((await getRunById(runId))?.status).toBe("running");
   });
@@ -77,9 +62,6 @@ describe("durable-background inline fallback — claimBackgroundRun exclusivity"
     const runId = nextRunId();
     await insertRun(runId, "thread-2", runId, { dispatchMode: "background" });
 
-    // Race: the inline fallback and a (late) background worker both try to own
-    // the same run. Exactly one conditional UPDATE may match dispatch_mode =
-    // 'background', so exactly one wins.
     const [a, b] = await Promise.all([
       claimBackgroundRun(runId),
       claimBackgroundRun(runId),
@@ -91,10 +73,7 @@ describe("durable-background inline fallback — claimBackgroundRun exclusivity"
     const runId = nextRunId();
     await insertRun(runId, "thread-3", runId, { dispatchMode: "background" });
 
-    // Inline fallback wins first.
     expect(await claimBackgroundRun(runId)).toBe(true);
-    // A delayed background delivery arrives later and tries to claim — it must
-    // lose (so it returns the benign "already-claimed" ack and never runs).
     expect(await claimBackgroundRun(runId)).toBe(false);
   });
 
@@ -102,9 +81,7 @@ describe("durable-background inline fallback — claimBackgroundRun exclusivity"
     const runId = nextRunId();
     await insertRun(runId, "thread-4", runId, { dispatchMode: "background" });
 
-    // Foreground gave up and flipped the row terminal before any claim.
     await updateRunStatusIfRunning(runId, "errored");
-    // No worker (or fallback) may claim a terminal row.
     expect(await claimBackgroundRun(runId)).toBe(false);
 
     const row = await getRunById(runId);
@@ -113,7 +90,6 @@ describe("durable-background inline fallback — claimBackgroundRun exclusivity"
 
   it("does NOT match a normal foreground (non-background) run", async () => {
     const runId = nextRunId();
-    // Inline path inserts with no dispatch mode (foreground).
     await insertRun(runId, "thread-5", runId);
     expect(await claimBackgroundRun(runId)).toBe(false);
   });

@@ -1,15 +1,3 @@
-/**
- * Guard: every visual block embedded in the docs must parse, satisfy its block
- * schema, and render through the same SSR path prod uses. This is what keeps a
- * one-off JSON typo or a bad block field from shipping a broken docs page.
- *
- * It scans the real doc sources in `@agent-native/core/docs/content`, extracts
- * every fenced block segment, and for each one:
- *   1. validates the body against the block's zod schema (precise error), and
- *   2. server-renders it via `renderToStaticMarkup` (catches render crashes).
- *
- * Failures are aggregated so a single run reports every broken block at once.
- */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -101,13 +89,8 @@ function shouldTranslateFileTreeText(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
   if (!trimmed) return false;
-  // Stable identifiers and literal config snippets stay unchanged in localized
-  // file-tree notes; prose titles and comments should not remain English.
   if (trimmed.startsWith("@")) return false;
   if (/^[\w.-]+:\s*\[/.test(trimmed)) return false;
-  // A bare list of identifiers or enum values (table/column names, "a | b |
-  // c" status values) has nothing to translate, unlike a sentence that
-  // happens to contain one.
   if (/^[\w.]+(\s*[,|]\s*[\w.]+)+$/.test(trimmed)) return false;
   return /[A-Za-z]/.test(trimmed);
 }
@@ -157,9 +140,6 @@ describe("docs visual blocks", () => {
     expect(docs.length).toBeGreaterThan(0);
   });
 
-  // Guard against the splitter SILENTLY skipping a visual fence (e.g. a regex that
-  // rejects a valid info string), which would otherwise leak raw JSON into the
-  // page AND bypass the schema/render checks below (they only see parsed blocks).
   it("parses every raw an-* fence opener into a block segment", () => {
     const failures: string[] = [];
     for (const doc of allDocs) {
@@ -255,9 +235,6 @@ describe("docs visual blocks", () => {
               </AgentNativeI18nProvider>
             </MemoryRouter>,
           );
-          // A rendered DocBlockError surfaces as the only child text; treat the
-          // schema test as the source of truth for those and just assert the
-          // render produced markup.
           if (!html || html.length === 0) {
             failures.push(`${docLabel(doc)} [block #${index}]: empty render`);
           }

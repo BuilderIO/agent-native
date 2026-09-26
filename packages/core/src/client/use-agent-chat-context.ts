@@ -21,11 +21,6 @@ export interface UseAgentChatContextResult extends AgentChatContextState {
   refresh(): Promise<AgentChatContextState>;
 }
 
-/**
- * Advanced hook for UIs that need to stay in sync with the active chat
- * composer's staged context chips. Simple send/prefill flows should use
- * `sendToAgentChat({ message, context, submit })` directly.
- */
 export function useAgentChatContext(enabled = true): UseAgentChatContextResult {
   const appStateVersion = useChangeVersion("app-state");
   const state = useSyncExternalStore(

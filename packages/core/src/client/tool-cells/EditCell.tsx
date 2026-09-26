@@ -1,13 +1,3 @@
-/**
- * EditCell — renders an edit tool call as a syntax-highlighted unified diff.
- *
- * The diff is computed client-side from oldText / newText stored in the
- * structured metadata.  The HighlightedCodeBlock from AssistantChat is not
- * accessible here, so we do a lightweight line-diff + per-line class approach
- * instead (no dep on shiki required for the diff view itself).
- *
- * Collapsed by default beyond MAX_COLLAPSED_LINES; expand button shows all.
- */
 
 import {
   IconChevronDown,
@@ -33,10 +23,8 @@ interface EditCellProps {
   isRunning: boolean;
 }
 
-/** Lines shown collapsed before "expand" is offered. */
 const MAX_COLLAPSED_LINES = 40;
 
-// ─── Diff computation ────────────────────────────────────────────────────────
 
 interface DiffLine {
   kind: "context" | "added" | "removed";
@@ -49,8 +37,6 @@ function computeLineDiff(oldText: string, newText: string): DiffLine[] {
   const oldLines = oldText.split("\n");
   const newLines = newText.split("\n");
 
-  // Simple Myers-style LCS via DP for line-level diffs.
-  // For very large files we cap input to keep it snappy.
   const MAX_LINES = 2000;
   const a = oldLines.slice(0, MAX_LINES);
   const b = newLines.slice(0, MAX_LINES);
@@ -58,7 +44,6 @@ function computeLineDiff(oldText: string, newText: string): DiffLine[] {
   const m = a.length;
   const n = b.length;
 
-  // Build LCS table
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
     new Array(n + 1).fill(0),
   );
@@ -97,7 +82,6 @@ function computeLineDiff(oldText: string, newText: string): DiffLine[] {
     }
   }
 
-  // Append any overflow lines as context
   if (oldLines.length > MAX_LINES) {
     for (let k = MAX_LINES; k < oldLines.length; k++) {
       result.push({
@@ -120,7 +104,6 @@ function computeLineDiff(oldText: string, newText: string): DiffLine[] {
   return result;
 }
 
-/** Compute +N -N line counts from a diff. */
 function diffStats(lines: DiffLine[]): { added: number; removed: number } {
   let added = 0;
   let removed = 0;
@@ -131,7 +114,6 @@ function diffStats(lines: DiffLine[]): { added: number; removed: number } {
   return { added, removed };
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
 
 const DiffView = memo(function DiffView({
   lines,

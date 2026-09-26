@@ -1,10 +1,3 @@
-/**
- * `useDevOption` — read/write a dev-overlay option backed by localStorage.
- *
- * Storage layout: `agent-native-dev-overlay-option-<panelId>-<optionId>` holds
- * a JSON-encoded value. Falls back to `defaultValue` when the key is missing
- * or the JSON is corrupt.
- */
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -33,7 +26,6 @@ export function useDevOption<T>(
   const key = devOptionKey(panelId, optionId);
   const [value, setValue] = useState<T>(() => readRaw(key, defaultValue));
 
-  // Keep tabs (and the overlay's "Clear all" button) in sync.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onStorage = (e: StorageEvent) => {

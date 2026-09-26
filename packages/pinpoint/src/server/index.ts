@@ -1,5 +1,3 @@
-// @agent-native/pinpoint — Server exports
-// MIT License
 
 export { pagePinRoutes, type PinRoutesOptions } from "./middleware.js";
 export { registerPinpointA2A } from "./a2a.js";

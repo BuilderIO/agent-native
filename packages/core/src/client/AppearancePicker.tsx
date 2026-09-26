@@ -16,10 +16,6 @@ import { cn } from "./utils.js";
 
 export interface AppearancePickerProps {
   className?: string;
-  /**
-   * Called after a preset is applied (e.g. to persist server-side via
-   * the `change-appearance` action so the choice survives across devices).
-   */
   onChange?: (preset: AppearancePresetId) => void;
 }
 

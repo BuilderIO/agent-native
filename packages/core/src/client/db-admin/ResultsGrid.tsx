@@ -1,11 +1,3 @@
-/**
- * Read-only results table for the SQL editor. Renders a clean, dense grid with a
- * sticky header, zebra striping, dim NULL tokens, stringified objects, and
- * horizontal scrolling. DDL/DML statements that return no columns render a
- * "Query OK" placeholder instead.
- *
- * Results are LIMIT-capped upstream, so no virtualization is needed.
- */
 import { IconCircleCheck } from "@tabler/icons-react";
 
 import { cn } from "../utils.js";

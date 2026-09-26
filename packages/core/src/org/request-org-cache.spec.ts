@@ -121,8 +121,6 @@ describe("per-request org membership memo", () => {
   });
 
   it("evicts a transient failure instead of memoizing it", async () => {
-    // 08006 = connection failure; `queryOrgMembers` rethrows transient errors
-    // rather than reporting them as "no memberships".
     mockExecute.mockRejectedValueOnce(
       Object.assign(new Error("connection failure"), { code: "08006" }),
     );

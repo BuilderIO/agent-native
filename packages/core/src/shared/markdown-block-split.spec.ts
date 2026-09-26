@@ -59,7 +59,6 @@ describe("splitMarkdownBlocks", () => {
   });
 
   it("requires closing fence to be same type as opening fence", () => {
-    // ~~~ does not close a ``` fence
     const text = "Start.\n\n```js\ncode\n~~~\nstill inside\n```\n\nEnd.";
     const result = splitMarkdownBlocks(text);
     expect(result.completedBlocks).toEqual([
@@ -115,8 +114,6 @@ describe("splitMarkdownBlocks", () => {
   it("handles text ending with a newline", () => {
     const text = "Block A.\n\nBlock B.\n";
     const result = splitMarkdownBlocks(text);
-    // "Block B.\n" → trailing newline → last line is "" which is blank
-    // so Block B is a completed block, tail is ""
     expect(result.completedBlocks).toEqual(["Block A.", "Block B."]);
     expect(result.tail).toBe("");
   });
@@ -132,7 +129,6 @@ describe("splitMarkdownBlocks", () => {
   });
 
   it("closing fence with fewer backticks than opening does not close", () => {
-    // Opening is ```` (4), closing is ``` (3): does NOT close
     const text = "Intro.\n\n````ts\ncode\n```\nmore code\n````\n\nEnd.";
     const result = splitMarkdownBlocks(text);
     expect(result.completedBlocks).toEqual([
@@ -143,14 +139,11 @@ describe("splitMarkdownBlocks", () => {
   });
 });
 
-// ─── CRLF line endings ───────────────────────────────────────────────────────
 
 describe("CRLF line endings", () => {
   it("splits two CRLF paragraphs separated by a blank CRLF line", () => {
     const text = "First.\r\n\r\nSecond.";
     const result = splitMarkdownBlocks(text);
-    // The blank line "\r\n" splits on "\n" → "\r" which trimStart() reduces
-    // to "" — so splitting is detected correctly.
     expect(result.completedBlocks).toHaveLength(1);
     expect(result.tail).toBe("Second.");
   });
@@ -175,7 +168,6 @@ describe("joinMarkdownBlocks", () => {
   it("rejoins with double newlines to recover original structure", () => {
     const original = "First.\n\nSecond.\n\nThird.";
     const split = splitMarkdownBlocks(original);
-    // joining gives "First.\n\nSecond.\n\nThird." — same structure
     expect(joinMarkdownBlocks(split)).toBe(original);
   });
 
@@ -190,13 +182,6 @@ describe("joinMarkdownBlocks", () => {
   });
 });
 
-/**
- * The split drives BOTH the streaming render and the final one, so rendering
- * the blocks separately must equal rendering the whole document. When these
- * diverged, streamed text was visibly wrong until the stream ended, and the
- * correction rebuilt the message's DOM — the flash and scroll jump users
- * reported. Add a case here before adding any new split rule.
- */
 describe("split/whole render parity", () => {
   const CONSTRUCTS: Array<[string, string]> = [
     ["plain paragraphs", "First para.\n\nSecond para.\n\nThird."],
@@ -252,9 +237,6 @@ describe("split/whole render parity", () => {
     },
   );
 
-  // A TypeScript index signature inside a fence looks exactly like a link
-  // reference definition. Matching it disabled splitting for the whole message,
-  // so every commit re-parsed the entire document.
   it("still splits a message whose fence contains a TS index signature", () => {
     const text =
       "```ts\ntype X = {\n  [key: string]: string\n}\n```\n\npara two\n\npara three";

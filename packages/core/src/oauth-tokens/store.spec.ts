@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Deterministic key so the at-rest encryption round-trips within the test.
-// Must be set before importing ./store.js (which pulls in secrets/crypto).
 process.env.SECRETS_ENCRYPTION_KEY ||= "oauth-store-test-key";
 
 const { decryptSecretValue, isEncryptedSecretValue } =
@@ -478,7 +476,6 @@ describe("oauth token store", () => {
     );
 
     const storedColumn = lastInsert().args[4] as string;
-    // Tokens are encrypted at rest, not stored as plaintext JSON.
     expect(isEncryptedSecretValue(storedColumn)).toBe(true);
     const stored = JSON.parse(decryptSecretValue(storedColumn));
     expect(stored).toMatchObject({

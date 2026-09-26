@@ -2,25 +2,6 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-/**
- * `runBackgroundAutomation` executes entirely in-process — there is no HTTP
- * self-dispatch to a separate worker — yet it marks its run row
- * `dispatch_mode = 'background'` so the reaper gives it the wider
- * background stale window. Without an immediate self-claim, that row sits at
- * the transient 'background' state for its WHOLE life: the unclaimed-
- * background-run sweep (run-store.ts's `listUnclaimedBackgroundRunRows` /
- * `reapUnclaimedBackgroundRun`) treats ANY such row past the 25s grace window
- * as a dead HTTP handoff and errors it mid-run with
- * `background_worker_never_started`, even though the job is still executing.
- * This pins the fix: the row must land on `background-processing` — the SAME
- * claimed state a genuine HTTP background worker reaches via
- * `claimBackgroundRun` — which removes it from that sweep's eligibility (it
- * filters on `dispatch_mode = 'background'` exactly, not a LIKE prefix).
- *
- * Real PGlite (not a blanket mock) so the CAS UPDATE semantics in
- * `claimBackgroundRun` / `insertRun`'s `ON CONFLICT DO NOTHING` are exercised
- * for real, matching the convention in durable-background-fallback.spec.ts.
- */
 
 const pglite = await createTestPglite();
 
@@ -44,9 +25,6 @@ const rawClient = {
   }),
 };
 
-// Partial-mock: only getDbExec is replaced (with the real-PGlite client
-// above); every other export stays real, since several transitively-imported
-// modules (secrets/storage.ts, db/schema.ts) call those directly.
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, getDbExec: () => rawClient };
@@ -81,10 +59,6 @@ vi.mock("../chat-threads/store.js", () => ({
     fn(),
 }));
 
-// Narrow re-implementation, not `vi.importActual` — pulling in the real
-// production-agent.ts module graph pulls in its module-scope engine
-// registration, which this focused test doesn't need (see the same note in
-// scheduler.spec.ts).
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: () => [],
   filterInitialEngineTools: (tools: unknown[]) => tools,
@@ -95,9 +69,6 @@ vi.mock("../agent/production-agent.js", () => ({
   runAgentLoop: vi.fn(),
 }));
 
-// The credential store answers "no rows" cleanly. A Builder-credits site has no
-// per-user connection to find, which is exactly the case the engine capture
-// below has to survive.
 vi.mock("../secrets/storage.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../secrets/storage.js")>()),
   readAppSecret: vi.fn(async () => null),
@@ -162,12 +133,6 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     await expect(dispatchModeOf(runId)).resolves.toBe("background-processing");
   });
 
-  // Without `backgroundFunction`, scheduled work inherits the interactive
-  // regime — a 40s soft timeout, a no-progress backstop at 0.75x that, and 6
-  // continuations. The backstop is suspended while a tool is in flight but not
-  // between tools, so a legitimate multi-minute job dies in the first >30s gap
-  // and is recorded as `no_progress` after minutes of real work. It was the
-  // largest single terminal reason across the fleet's scheduled runs.
   it("runs scheduled work under the background timeout regime, not the interactive clamp", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
@@ -209,25 +174,13 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       appId: "calendar",
       maxIterations: 9,
       maxRunInputTokens: 123_456,
-      // Scheduled work used to pass no ceiling at all and silently inherit the
-      // flat per-engine default — a LOWER output budget than chat, on the runs
-      // that produce the largest single tool call.
       maxOutputTokens: 64_000,
     });
     expect(call?.[2]).toMatchObject({ backgroundFunction: true });
-    // The chunk control is what makes a checkpoint recoverable here. Without
-    // it the run manager's boundary aborts the turn and the loop's own
-    // continuation budget — which already accepts `no_progress` — is dead.
     expect(call?.[3]).toBeDefined();
-    // Derived from this runner's OWN 10-minute hard abort, not the 13-minute
-    // durable-chat ceiling that the process is killed three minutes before.
     expect(call?.[1]).toBeLessThan(BACKGROUND_RUN_HARD_TIMEOUT_MS);
   });
 
-  // Chat and webhook automations already forwarded `reasoningEffort` into the
-  // agent loop (agent-teams.ts, webhook-handler.ts); this runner was the one
-  // path that silently dropped it, so a scheduled automation's configured
-  // effort never reached the engine at all.
   it("forwards the automation's configured reasoningEffort into the agent loop", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
@@ -272,9 +225,6 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     expect(call?.[0]).toMatchObject({ reasoningEffort: "low" });
   });
 
-  // History is a record ABOUT the run. If the history table is unwritable the
-  // correct outcome is a missing record, not a scheduled automation that never
-  // executed and gets reported as a failure.
   it("still runs the automation when the run-history write fails", async () => {
     const runHistory = await import("./run-history.js");
     const startSpy = vi
@@ -314,7 +264,6 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
 
       expect(runId).toBeTruthy();
       expect(startSpy).toHaveBeenCalled();
-      // Nothing to attach or finish once the record could not be opened.
       expect(attachSpy).not.toHaveBeenCalled();
       expect(finishSpy).not.toHaveBeenCalled();
     } finally {
@@ -492,9 +441,6 @@ describe("runBackgroundAutomation — thread transcript", () => {
   });
 
   it("reports a cut-off automation to the error-capture system", async () => {
-    // The scheduler and the trigger dispatcher both swallow this into the
-    // automation's own metadata plus a console.error, so the capture seam is
-    // the only thing that puts it in front of anyone.
     const { registerErrorCaptureProvider } =
       await import("../server/capture-error.js");
     const captured: Array<{ error: unknown; context: Record<string, any> }> =
@@ -566,8 +512,6 @@ describe("runBackgroundAutomation — thread transcript", () => {
       automation: "cut-off-digest",
       scope: "personal",
     });
-    // Joins the issue to its LLM trace; without it the report lands somewhere
-    // no backend can correlate with the run that produced it.
     expect(captured[0].context.aiTraceId).toMatch(/^job-cut-off-digest-/);
   });
 
@@ -653,10 +597,6 @@ describe("runBackgroundAutomation — thread transcript", () => {
       pendingHardTimeouts[0]!();
 
       await expect(runPromise).rejects.toThrow(/timed out after 10 minutes/);
-      // Aborting the controller directly carries no reason the run manager can
-      // see, so finalization fell through to `aborted:user` and a hard timeout
-      // was filed as a person pressing Stop — in the analytics that exist to
-      // tell the two apart.
       const hardTimedOutRunId = (await pglite
         .prepare(
           `SELECT id FROM agent_runs WHERE id LIKE 'job-hard-timeout-digest%' ORDER BY started_at DESC LIMIT 1`,
@@ -693,12 +633,6 @@ describe("runBackgroundAutomation — thread transcript", () => {
   });
 });
 
-// Every test above supplies `deps.engine`, which is what let the credential
-// capture below stay broken: production never sets it (agent-chat-plugin builds
-// SchedulerDeps without one) and both jobs/scheduler.ts and
-// triggers/dispatcher.ts reach this path. On a Builder-credits site the engine
-// must resolve through the gateway lane; resolving the identity lane by hand
-// here left every scheduled and event automation dead while chat still worked.
 describe("runBackgroundAutomation — engine credentials with no deps.engine", () => {
   const GATEWAY_TOKEN = "btk-site-token";
   const GATEWAY_SPACE_ID = "space-abc";
@@ -744,9 +678,6 @@ describe("runBackgroundAutomation — engine credentials with no deps.engine", (
         .mock.calls.at(-1)?.[0].engine;
       expect(engine?.name).toBe("builder");
 
-      // The capture is only correct if a turn taken later, detached from this
-      // stack, actually authenticates. A captured identity-lane result yields
-      // missing_credentials here and never reaches fetch.
       const fetchSpy = vi
         .fn()
         .mockResolvedValue(

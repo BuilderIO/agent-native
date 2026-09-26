@@ -47,11 +47,6 @@ describe("resolveCatchAllTarget", () => {
   });
 
   it("uses app.path when id !== path (not /${appId})", () => {
-    // Before the fix, an entry whose mounted path differs from its id —
-    // e.g. id: "forms", path: "my-forms" without a leading slash — was
-    // silently rewritten to `/forms` (the appId) and routed to the wrong
-    // app. The normalizer now keeps the manifest path and only prepends
-    // the missing slash.
     expect(
       resolveCatchAllTarget("forms", {
         workspaceApps: [{ id: "forms", path: "my-forms" }],
@@ -60,9 +55,6 @@ describe("resolveCatchAllTarget", () => {
   });
 
   it("prefers app.url when the manifest entry has an externally-hosted URL", () => {
-    // Workspaces can point at remote deploys. The catch-all should bounce
-    // to the absolute URL instead of mounting a local path that doesn't
-    // exist inside the gateway.
     expect(
       resolveCatchAllTarget("forms", {
         workspaceApps: [
@@ -77,11 +69,6 @@ describe("resolveCatchAllTarget", () => {
   });
 
   it("ignores app.url that isn't an absolute http(s) URL and falls back to path", () => {
-    // Bare hostname — `new URL("forms.example.com")` throws, so the value
-    // is rejected and we fall through to the (validated) path. Without
-    // this, the catch-all would `throw redirect("forms.example.com")`
-    // and the browser would treat the value as a relative path inside the
-    // gateway, producing a broken redirect.
     expect(
       resolveCatchAllTarget("forms", {
         workspaceApps: [
@@ -92,8 +79,6 @@ describe("resolveCatchAllTarget", () => {
   });
 
   it("rejects non-http(s) URL schemes (e.g. javascript:) and falls back to path", () => {
-    // Defense in depth — a hostile manifest entry can't produce a
-    // `javascript:` redirect target. Validation enforces http(s) only.
     expect(
       resolveCatchAllTarget("forms", {
         workspaceApps: [
@@ -122,9 +107,6 @@ describe("resolveCatchAllTarget", () => {
   });
 
   it("collapses leading slashes/backslashes in app.path so `/\\evil.example` can't redirect off-origin", () => {
-    // Browsers normalize backslashes to forward slashes during URL
-    // parsing, so `throw redirect("/\\evil.example")` would resolve to
-    // `https://evil.example`. The regex covers both slash types.
     expect(
       resolveCatchAllTarget("forms", {
         workspaceApps: [{ id: "forms", path: "/\\evil.example" }],
@@ -133,12 +115,6 @@ describe("resolveCatchAllTarget", () => {
   });
 
   it("collapses leading double slashes in app.path so `//evil.example` can't redirect off-origin", () => {
-    // The manifest parser only checks `startsWith("/")`, so a path of
-    // `//evil.example` slips through. Browsers treat that as a network-
-    // path reference and `throw redirect("//evil.example")` would redirect
-    // to `https://evil.example` — the same phishing vector the `app.url`
-    // validator closes. Collapse the leading slashes so the redirect
-    // stays on the gateway.
     expect(
       resolveCatchAllTarget("forms", {
         workspaceApps: [{ id: "forms", path: "//evil.example" }],

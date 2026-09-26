@@ -1,9 +1,3 @@
-// @agent-native/pinpoint — update-pin script tests
-// MIT License
-//
-// Same temp-dir-via-chdir approach as create-pin.spec.ts, since updatePin()
-// always constructs `new FileStore()` with the default `data/pins` path
-// resolved against `process.cwd()`.
 
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -70,8 +64,6 @@ describe("update-pin script", () => {
   it("updates status and always stamps changedBy as 'agent', overwriting any prior value", async () => {
     const root = chdirTmp();
     const store = new FileStore(path.join(root, "data/pins"));
-    // Default fixture status already has changedBy: "user" — confirms the
-    // script always overwrites it with "agent" rather than preserving it.
     const pin = makePin();
     await store.save(pin);
 
@@ -80,7 +72,7 @@ describe("update-pin script", () => {
     const [updated] = await store.list();
     expect(updated!.status.state).toBe("resolved");
     expect(updated!.status.changedBy).toBe("agent");
-    expect(updated!.comment).toBe(pin.comment); // untouched
+    expect(updated!.comment).toBe(pin.comment);
   });
 
   it("can update comment and status together in one call", async () => {

@@ -83,15 +83,6 @@ export type CodeAgentTranscriptEventKind =
   | "artifact"
   | "status";
 
-/**
- * Structured, machine-checkable marker for transcript events that need
- * special handling in the UI beyond free-text matching. `"credential-gap"`
- * marks the status event the executor appends when no LLM provider key (or
- * Codex CLI login) is available; consumers should prefer this field over
- * regex-matching `message` (see `isCredentialGapCodeAgentEvent` in
- * `../code-agents/transcript-normalizer.js`). Optional so older, already
- * persisted JSONL transcripts without the field keep parsing unchanged.
- */
 export type CodeAgentTranscriptEventSignal = "credential-gap";
 
 export interface CodeAgentTranscriptEvent {
@@ -123,10 +114,6 @@ export interface CreateCodeAgentRunInput {
 }
 
 export interface AppendCodeAgentTranscriptEventInput {
-  /**
-   * Stable event identity supplied by a retrying caller. Reusing this value
-   * returns the previously persisted event instead of appending a duplicate.
-   */
   id?: string;
   runId: string;
   kind: CodeAgentTranscriptEventKind;
@@ -172,7 +159,6 @@ export function codeAgentRunTranscriptPath(runId: string): string {
   return path.join(codeAgentTranscriptsDir(), `${runId}.jsonl`);
 }
 
-// --------------- Command allowlist ---------------
 
 const COMMAND_ALLOWLIST_FILENAME = "command-allowlist.json";
 
@@ -180,10 +166,6 @@ export function codeAgentCommandAllowlistPath(): string {
   return path.join(codeAgentStoreRoot(), COMMAND_ALLOWLIST_FILENAME);
 }
 
-/**
- * Load the per-store command allowlist.  Returns an array of exact command
- * strings the user has marked "always allow".
- */
 export function readCodeAgentCommandAllowlist(): string[] {
   try {
     const raw = JSON.parse(
@@ -196,10 +178,6 @@ export function readCodeAgentCommandAllowlist(): string[] {
   }
 }
 
-/**
- * Persist a command to the per-store allowlist so future identical commands
- * are auto-approved without a prompt.  Deduplicates by exact string match.
- */
 export function addCodeAgentCommandToAllowlist(command: string): void {
   const filePath = codeAgentCommandAllowlistPath();
   withFileLockSync(filePath, () => {
@@ -209,7 +187,6 @@ export function addCodeAgentCommandToAllowlist(command: string): void {
   });
 }
 
-/** Return true if `command` is in the stored allowlist. */
 export function isCodeAgentCommandAllowed(command: string): boolean {
   return readCodeAgentCommandAllowlist().includes(command);
 }

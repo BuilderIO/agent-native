@@ -46,7 +46,6 @@ describe("inspectNativeSessionShared", () => {
   it("asks once for a token every mounted tab is validating at the same time", async () => {
     fetchMock.mockResolvedValue(sessionResponse("steve@builder.io"));
 
-    // One app foreground used to fan out into one request per open tab.
     const results = await Promise.all([
       inspectNativeSessionShared("token-a", BASE),
       inspectNativeSessionShared("token-a", BASE),

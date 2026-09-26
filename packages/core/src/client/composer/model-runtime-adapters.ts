@@ -12,10 +12,6 @@ import {
 } from "../use-agent-engine-configured.js";
 import { useChatModels } from "../use-chat-models.js";
 
-/**
- * The model controls are part of the composer's first-paint contract. Keep
- * their hooks stable while optional Core integrations load in a later chunk.
- */
 export const coreComposerModelAdapters: NonNullable<
   ComposerRuntimeAdapters["models"]
 > = {

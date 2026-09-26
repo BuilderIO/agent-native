@@ -26,8 +26,6 @@ describe("workspaceAppRouteAccessFromPackageJson", () => {
   });
 
   it("ignores garbage scalar types so typos don't silently clear overrides", () => {
-    // false / 0 / {} all normalize to [] inside normalizeWorkspaceAppPathList;
-    // the guard must reject them before they become "explicitly empty".
     for (const bad of [false, 0, {}, true]) {
       expect(
         workspaceAppRouteAccessFromPackageJson({
@@ -53,8 +51,6 @@ describe("workspaceAppRouteAccessFromPackageJson", () => {
   });
 
   it("treats null as absent (falls through the alias `??` chain)", () => {
-    // The alias resolution uses `??`, so null doesn't short-circuit. To
-    // clear an inherited override, use an empty array.
     expect(
       workspaceAppRouteAccessFromPackageJson({
         "agent-native": { workspaceApp: { publicPaths: null } },

@@ -16,20 +16,6 @@ import {
   isTransientProviderRateLimitError,
 } from "./production-agent.js";
 
-/**
- * A Builder-credits deployment answers every gateway rejection with one visitor
- * line, so any verdict a downstream classifier left in the message text is gone
- * on those sites and only on those sites. Three separate predicates shipped that
- * way on this branch — retryability, background continuation, and the
- * context-overflow trim-and-retry — so this file asserts the property rather
- * than the three fixes: every classifier of a gateway failure reaches the same
- * verdict on both lanes, and a new one that does not is a test failure rather
- * than a production report.
- *
- * Verdicts are ALSO pinned absolutely. Parity alone passes when both lanes are
- * equally wrong, which is exactly how a "the gateway lane matches" assertion
- * would have hidden the context-overflow bug in reverse.
- */
 
 const credentialState = vi.hoisted(() => ({
   lane: "identity" as "identity" | "gateway-deploy" | null,
@@ -95,14 +81,11 @@ interface GatewayFailure {
   rejectWith?: () => unknown;
   fetchImpl?: () => (url: string, init?: RequestInit) => Promise<Response>;
   env?: Record<string, string>;
-  /** Verdicts pinned on BOTH lanes, so parity can never pass vacuously. */
   expect?: Partial<Record<keyof typeof PARITY_CHECKED, unknown>>;
 }
 
 const FAILURES: GatewayFailure[] = [
   {
-    // The gateway reports a context overflow as an ordinary 400, so the prose
-    // was the only carrier — and the visitor line replaced it.
     label: "400 prompt too long",
     response: () =>
       jsonErrorResponse(400, {
@@ -137,8 +120,6 @@ const FAILURES: GatewayFailure[] = [
     expect: { isContextTooLongError: false, isRetryableError: false },
   },
   {
-    // The BLOCKER: a truncated stream is continued, not retried, and the code is
-    // the only thing that says so once the sentence is replaced.
     label: "stream ended without a stop event",
     response: () => jsonlResponse([{ type: "text-delta", text: "partial" }]),
     expect: {
@@ -255,11 +236,6 @@ const FAILURES: GatewayFailure[] = [
   },
 ];
 
-/**
- * The classifiers exercised on both lanes. `run` receives exactly what the layer
- * it lives in receives: an `EngineError` rebuilt from the stop event (the agent
- * loop's `throw`) or the SSE error event run-manager sends from it.
- */
 const PARITY_CHECKED = {
   isRetryableError: ({ engineError }: ClassifierInput) =>
     isRetryableError(engineError),
@@ -275,12 +251,6 @@ const PARITY_CHECKED = {
     isRecoverableContinuationError(errorEvent),
 };
 
-/**
- * Gateway-failure classifiers that are not called here, each with the reason and
- * where the guarantee is proved instead. An entry is a decision a reviewer
- * should see — the completeness check below fails on a classifier that is in
- * neither map, so silence is not an option.
- */
 const COVERED_ELSEWHERE: Record<string, string> = {
   maxRetriesForError:
     "Reads only `errorCode`, which the structural invariant below proves is lane-identical.",
@@ -313,10 +283,6 @@ async function runLane(
 ): Promise<LaneOutcome> {
   credentialState.lane = lane;
   vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
-  // Pinned here rather than inherited: `isBuilderGatewayDeployConfigured` treats
-  // any of these as "preview/hosted workspace, not a visitor surface", so a
-  // runner that has one set silently exercises the owner path and every visitor
-  // assertion below passes for the wrong reason.
   vi.stubEnv("FUSION_ENVIRONMENT", undefined);
   vi.stubEnv("FUSION_ENV_ORIGIN", undefined);
   vi.stubEnv("VITE_FUSION_ENV_ORIGIN", undefined);
@@ -351,8 +317,6 @@ async function runLane(
     providerRetryable: stop.providerRetryable,
     contextOverflow: stop.contextOverflow,
   });
-  // run-manager builds the error event from the same stop: the message it sends
-  // is the engine's, and the code is the engine's whenever there is one.
   const errorEvent = {
     type: "error" as const,
     error: stop.error ?? "",
@@ -368,8 +332,6 @@ async function runLane(
   vi.unstubAllGlobals();
   return {
     stop,
-    // `startRun`'s chain: the engine's code, else the code recovered from the
-    // delivered message, else "unknown".
     persistedErrorCode:
       stop.errorCode ?? classifyTerminalErrorCode(stop.error) ?? "unknown",
     verdicts,
@@ -392,15 +354,9 @@ describe("gateway failures classify identically on both lanes", () => {
       const identity = await runLane(failure, "identity");
       const credits = await runLane(failure, "gateway-deploy");
 
-      // The premise: the credits lane really did replace the message, so a
-      // matching verdict below is evidence and not a no-op.
       expect(credits.stop.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
       expect(identity.stop.error).not.toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
 
-      // Everything a downstream layer may read has to survive that rewrite —
-      // including the code run persistence settles on, which falls back to
-      // classifying the message and so lands on `unknown` for a signal the engine
-      // left in prose (`startRun`, run-manager.ts).
       expect(credits.persistedErrorCode).toBe(identity.persistedErrorCode);
       expect(credits.stop.errorCode).toBe(identity.stop.errorCode);
       expect(credits.stop.statusCode).toBe(identity.stop.statusCode);
@@ -421,9 +377,6 @@ describe("gateway failures classify identically on both lanes", () => {
     });
   }
 
-  // The table above only covers classifiers someone remembered to list. This
-  // covers the next one: a function in either file that decides anything about a
-  // gateway failure must be exercised above or carry a written reason why not.
   it("registers every gateway-failure classifier in these two modules", () => {
     const MARKERS = [
       "builder_gateway",

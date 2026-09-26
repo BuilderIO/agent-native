@@ -219,9 +219,6 @@ async function acquireLease(
     if (currentHolder && currentHolder !== holder) {
       if (
         expiresAt > now ||
-        // A crashed holder may already have redeemed this revision's rotating
-        // refresh token. Treat an expired same-revision lease as abandoned so
-        // the caller reconnects instead of risking a second redemption.
         currentRevision === revision ||
         (currentRevision === -1 && legacyCredential)
       ) {

@@ -1,25 +1,3 @@
-/**
- * Wraps `runAgentLoop` with two layered recovery mechanisms so a single hosted
- * invocation can survive interruptions without showing the user a dead chat:
- *
- * 1. **Soft timeout** — an inner timer that aborts the LLM call before the
- *    hosting function's hard limit (Lambda 75s, Vercel 60s, etc.) so we have a
- *    chance to gracefully wind down and append a continuation nudge. Without
- *    this the function gets killed mid-stream and the user sees a frozen
- *    spinner.
- *
- * 2. **Resumable-error continuation** — when the LLM call errors with a
- *    transport- or gateway-level interruption (Builder gateway 45s timeout,
- *    socket hang up, ECONNRESET, upstream 5xx that survived engine retries),
- *    we save the conversation prefix, append a "continue from where you left
- *    off" message, and run another LLM call. Anthropic's prompt cache makes
- *    the resume call dramatically faster than the cold first attempt, and the
- *    agent gets explicit context that it was cut off so it doesn't re-do
- *    completed work.
- *
- * Both paths route through `appendAgentLoopContinuation` so the agent sees a
- * uniform "continue" instruction regardless of which recovery fired.
- */
 
 import {
   MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS,
@@ -56,11 +34,6 @@ import {
 } from "./tool-call-journal.js";
 import type { AgentChatEvent } from "./types.js";
 
-/**
- * `persisted: false` means the durable half of the turn could not be read, so
- * `events` holds only what this invocation saw. Callers that decide whether to
- * DISCARD user-visible output must not read that as "nothing else happened".
- */
 async function readCurrentTurnEventsForResume(
   threadId: string | undefined,
   turnId: string | undefined,
@@ -69,8 +42,6 @@ async function readCurrentTurnEventsForResume(
   let persistedEvents: AgentChatEvent[] = [];
   let persisted = true;
   try {
-    // Without the turnId this can return the PREVIOUS turn's events — see
-    // `getCurrentTurnEventsForThread`, whose run row is written without await.
     persistedEvents = threadId
       ? await getCurrentTurnEventsForThread(threadId, turnId)
       : [];
@@ -100,27 +71,6 @@ function actionPreparationContinuationOptions(
   return actionPreparationTool ? { actionPreparationTool } : {};
 }
 
-/**
- * Derive the per-turn tool-call journal from the durable run-event ledger and,
- * when there is anything to report, append a STRUCTURED note to the message
- * prefix so the resumed model:
- *   - does NOT re-execute tool calls that already completed (avoiding duplicate
- *     side effects like re-sending an email or re-creating a ticket), and
- *   - is explicitly told about any tool call that started but whose outcome was
- *     never recorded ("interrupted, unknown outcome") so it can decide.
- *
- * This is additive to the existing "continue from where you left off" nudge —
- * it is appended right after it. When the journal is empty (no completed or
- * interrupted tool calls — e.g. a turn with no tool activity, or a clean
- * continuation), nothing extra is appended and resume behavior is byte-for-byte
- * what it was before. Best-effort: any ledger read/parse failure is swallowed so
- * a journal hiccup can never block a recovery that would otherwise succeed.
- *
- * This prompt-level journal is paired with tool-layer enforcement in
- * production-agent.ts/runToolCall, which refuses to re-execute a journaled-
- * complete write tool (returning the journaled result instead). See
- * `tool-call-journal.ts` (`findCompletedJournalEntry`) for the keying used.
- */
 function appendToolCallJournalNote(
   messages: EngineMessage[],
   events: readonly AgentChatEvent[],
@@ -202,10 +152,6 @@ async function appendContinuationAndJournal(
   appendToolCallJournalNote(messages, events);
 }
 
-/**
- * Rebuild the same safe continuation context for a logical turn that resumes
- * in a fresh hosted invocation.
- */
 export async function appendDurableContinuationContext(
   messages: EngineMessage[],
   reason: AgentLoopContinuationReason,
@@ -215,12 +161,6 @@ export async function appendDurableContinuationContext(
   await appendContinuationAndJournal(messages, reason, threadId, turnId);
 }
 
-/**
- * `"unknown"` is not `"none"`: the only caller uses this to decide whether to
- * emit `clear`, and `clear` WIPES user-visible output. A transient ledger error
- * must not delete the tool cards that are the user's only proof a side effect
- * landed.
- */
 async function completedSideEffectInCurrentTurn(
   threadId: string | undefined,
   turnId: string | undefined,
@@ -260,27 +200,9 @@ function internalContinuationReasonForAttempt(
   return undefined;
 }
 
-/**
- * The engine already performs its own short provider retries. After those are
- * exhausted, an A2A/MCP run gets one cooled-down continuation for a transient
- * 429/529/transient-403 — background or foreground, whichever lane this
- * invocation is running, as long as the remaining wall-clock covers the
- * cooldown plus a minimum continuation round (see `rateLimitRetryFitsBudget`
- * below; a foreground turn's tighter budget often fails that check and skips
- * straight to the `provider_rate_limited` terminal). One extra round is
- * enough to bridge a short provider bucket without multiplying a sustained
- * rate limit into a request storm.
- */
 export const MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS = 1;
 export const BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS = 20_000;
 
-/**
- * The provider's own `Retry-After` (already capped by `classifyProviderError`)
- * outranks the fixed cooldown when it asks for longer: retrying sooner than
- * the header says is a guaranteed second 429, and the budget gate below
- * measures the same delay so a wait the chunk cannot afford ends the turn
- * with the visible rate-limit terminal instead of overrunning the wall.
- */
 function rateLimitCooldownMs(err: unknown): number {
   const retryAfterMs =
     err instanceof EngineError && typeof err.retryAfterMs === "number"
@@ -305,62 +227,25 @@ function waitForBackgroundRateLimitCooldown(
   });
 }
 
-// Re-exported from the leaf module so existing importers keep working. Callers
-// that need ONLY these two symbols must import `./abort-reasons.js` directly —
-// reaching them through this module drags the whole run loop into their graph.
 export { SERVER_OWNED_ABORT_REASONS, clientAbortReason };
 
-/** Machine-readable code carried on the give-up terminal `error` event so the
- * client renders a loud "stopped before finishing" terminal instead of an
- * ambiguous silent stall. Deliberately NOT in the client's auto-recoverable
- * allow-list (`isAutoRecoverableError`) so it terminates the chain rather than
- * looping another POST that would hit the same wall. */
 export const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
 
-/** User-facing terminal message when a hosted run is cut off mid-step and
- * exhausts its in-invocation continuation budget without finishing. Generic and
- * framework-level (not app-specific). Mirrors the `reliable-mutations` skill's
- * "fail loud, retry as a single bulk action" guidance so the user understands
- * the turn stopped before finishing without implying that earlier completed
- * tool calls did not persist. */
 export const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "I ran out of time before finishing this step. " +
   "I stopped rather than keep retrying silently. " +
   "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 
-/**
- * Internal entry point used by the agent-chat plugin's run handler. Wraps
- * `runAgentLoop` with soft-timeout + resumable-error continuation recovery.
- *
- * The `softTimeoutMs` argument falls back to `resolveRunSoftTimeoutMs(...)` so
- * different hosting environments (Lambda, Vercel, Cloudflare, local dev) get
- * an appropriate inner budget. Setting it to <= 0 disables both layers — the
- * call goes straight to `runAgentLoop` with no wrapping.
- */
 export async function runAgentLoopDirectWithSoftTimeout(
   opts: Parameters<typeof runAgentLoop>[0],
   softTimeoutMs?: number,
   timeoutOptions?: ResolveRunSoftTimeoutOptions,
-  /**
-   * Chunk control from `startRun`, for a caller that owns continuation inside
-   * this invocation. Without it `opts.signal` is the only signal there is, so a
-   * checkpoint fired from ABOVE this loop reads as a Stop and the recovery
-   * below — which already accepts `no_progress` and already has a 20-round
-   * background budget — is unreachable.
-   */
   control?: RunChunkControl,
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
   const finalResponseGuardRequestText =
     opts.finalResponseGuardRequestText ??
     resolveFinalResponseGuardRequestText(opts.messages);
   const timeoutMs = resolveRunSoftTimeoutMs(softTimeoutMs, timeoutOptions);
-  // Hand the loop the budget it is ACTUALLY running inside, so a per-tool
-  // timeout is clamped under this chunk rather than under a re-derived generic
-  // ceiling. A background automation's budget is its own hard abort minus
-  // headroom and is materially smaller than the background chat ceiling; the
-  // loop had no way to know that and guessed high, which made every per-tool
-  // timeout on that path unreachable. `0` means "no soft-timeout regime"
-  // (local dev), where the loop's own fallback is the right answer.
   const stableOpts = {
     ...opts,
     finalResponseGuardRequestText,
@@ -377,24 +262,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
     }
   };
 
-  // Disabling continuation recovery must not disable terminal classification.
-  // Keep the same outcome boundary around a direct loop so A2A/MCP callers
-  // never infer success from a rejected or canceled run.
   const turnSignal = control?.turnSignal ?? opts.signal;
-  /**
-   * A turn someone pressed Stop on is `canceled`. A turn that ended because a
-   * SERVER bound fired is not: nobody cancelled it, it ran out of something,
-   * and the abort reason says which.
-   *
-   * Reporting both as `canceled` made a hard-timed-out automation
-   * byte-identical to a user Stop in every consumer, `$ai_error` included, and
-   * contradicted the no-timeout path above, which has always reported an
-   * unfinished reason as `failed` with that reason as its code.
-   *
-   * Allowlisted rather than "anything that isn't `user`", because the abort
-   * route accepts a client-supplied reason string: an inverted test would
-   * relabel a genuine Stop the moment a caller sent its own word for it.
-   */
   const turnAbortOutcome = (): AgentLoopOutcome => {
     const reason =
       typeof turnSignal.reason === "string" ? turnSignal.reason.trim() : "";
@@ -465,10 +333,6 @@ export async function runAgentLoopDirectWithSoftTimeout(
     }
   }
 
-  // `turnSignal` answers "is this turn over?"; `chunkSignal` answers "is this
-  // ROUND over?". They are the same object for every caller that does not pass
-  // a control, which is what keeps the foreground/HTTP paths byte-for-byte
-  // unchanged.
   const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
     inputTokens: 0,
     outputTokens: 0,
@@ -489,24 +353,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
     }
     usage.engineName = next.engineName ?? usage.engineName;
     usage.model = next.model;
-    // Without these, a retry that never got a usage report merges its zeros
-    // over an earlier attempt's real numbers, and telemetry reports an
-    // unmeasured run as a measured empty one.
     if (next.usageReported) usage.usageReported = true;
     usage.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
   };
 
   const localTurnEvents: AgentChatEvent[] = [];
-  /**
-   * Recover a boundary the run manager decided from OUTSIDE this loop.
-   *
-   * Same treatment the loop's own `auto_continue` gets: drop partial text the
-   * client already saw (unless a side effect landed, whose tool card is the
-   * user's only proof), append the continuation context and tool-call journal,
-   * then open a fresh chunk. Not opening one would leave every later round
-   * running under an already-aborted signal, which fails instantly and looks
-   * exactly like the bug this replaces.
-   */
   const continueFromChunkBoundary = async (
     reason: AgentLoopContinuationReason,
     attemptEvents: readonly AgentChatEvent[],
@@ -531,29 +382,12 @@ export async function runAgentLoopDirectWithSoftTimeout(
     chunkSignal = control?.beginChunk() ?? chunkSignal;
   };
   let attempts = 0;
-  // Every current hosted caller of this function (A2A/MCP delegated turns)
-  // runs inside ONE serverless invocation whose real platform hard-kill is
-  // what `timeoutMs` was sized to survive ONCE — reusing that same fresh
-  // window for every one of up to `MAX_RUN_LOOP_CONTINUATIONS` in-process
-  // rounds ignores the wall-clock the earlier rounds already spent, so a 2nd+
-  // round can gamble past the host's real limit and die with a silent
-  // mid-stream kill instead of a clean give-up. Budget subsequent rounds
-  // against cumulative elapsed time since this call started (mirrors
-  // `resolveSelfChainContinuationBudget`'s "remaining = ceiling - elapsed"
-  // pattern, already proven for the analogous foreground self-chain case).
-  // The first round is unaffected — it always gets the full `timeoutMs`.
   const loopEntryAt = Date.now();
   const maxRunLoopContinuations =
     timeoutOptions?.backgroundFunction === true
       ? MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS
       : MAX_RUN_LOOP_CONTINUATIONS;
   let backgroundRateLimitContinuations = 0;
-  // Tracks whether the most recent attempt ended by scheduling another
-  // continuation (soft-timeout or resumable error → `continue`) rather than
-  // returning a finished turn. When the loop then exits because the budget is
-  // exhausted (NOT because the user aborted and NOT because the turn finished),
-  // this is the silent give-up case: emit a loud terminal so the user sees an
-  // unambiguous "stopped before finishing" instead of a bare done/"…".
   let lastAttemptWasUnfinishedContinuation = false;
   while (!turnSignal.aborted && attempts < maxRunLoopContinuations) {
     const roundTimeoutMs =
@@ -562,19 +396,12 @@ export async function runAgentLoopDirectWithSoftTimeout(
       attempts > 0 &&
       roundTimeoutMs < SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS
     ) {
-      // Not enough wall-clock left in this invocation to safely start
-      // another round — stop here (lastAttemptWasUnfinishedContinuation is
-      // already true from the prior round) so the loop exits through the
-      // existing RUN_BUDGET_EXHAUSTED_MESSAGE path below instead of risking
-      // a raw platform kill mid-stream.
       break;
     }
     attempts++;
     lastAttemptWasUnfinishedContinuation = false;
     const controller = new AbortController();
     const abortFromUpstream = () => controller.abort();
-    // Bound to the CURRENT chunk. A turn abort still reaches it — the run
-    // manager ends the live chunk whenever the turn ends.
     const roundChunkSignal = chunkSignal;
     if (roundChunkSignal.aborted) {
       controller.abort();
@@ -601,13 +428,6 @@ export async function runAgentLoopDirectWithSoftTimeout(
       let attemptOutcome: AgentLoopOutcome | undefined;
       const nextUsage = await runAgentLoop({
         ...stableOpts,
-        // THIS round's budget, not the invocation's. `stableOpts` carries the
-        // full `timeoutMs`, but round 2+ runs inside `roundTimeoutMs` — what
-        // is left after the earlier rounds spent wall-clock. Clamping a
-        // per-tool timeout against the full window puts it above the round
-        // that contains it, so the round timer wins and the per-tool timeout
-        // is unreachable — the same inversion `RUN_TOOL_TIMEOUT_HEADROOM_MS`
-        // exists to prevent, one scope down.
         runSoftTimeoutMs: roundTimeoutMs,
         send,
         signal: controller.signal,
@@ -676,8 +496,6 @@ export async function runAgentLoopDirectWithSoftTimeout(
         continue;
       }
       if (softTimedOut && !turnSignal.aborted) {
-        // Clear partial text the client received before the abort so the
-        // resumed model doesn't re-emit it and produce duplicated output.
         lastAttemptWasUnfinishedContinuation = true;
         if (
           (await completedSideEffectInCurrentTurn(
@@ -699,12 +517,6 @@ export async function runAgentLoopDirectWithSoftTimeout(
         continue;
       }
       const transientRateLimit = isTransientProviderRateLimitError(err);
-      // Was `timeoutOptions?.backgroundFunction === true` only — a foreground
-      // turn never got the one cooled-down retry and always surfaced the raw
-      // 429/529/transient-403. Budgeted the same way regardless of lane: the
-      // remaining-wall-clock check below already fails closed for a
-      // foreground turn that doesn't have the 20s cooldown + minimum
-      // continuation budget to spare.
       const rateLimitCooldown = rateLimitCooldownMs(err);
       const rateLimitRetryFitsBudget =
         backgroundRateLimitContinuations <
@@ -738,15 +550,6 @@ export async function runAgentLoopDirectWithSoftTimeout(
         await waitForBackgroundRateLimitCooldown(turnSignal, rateLimitCooldown);
         continue;
       }
-      // The one cooled-down retry is spent (or this lane never had budget for
-      // it): end the turn with the shared `provider_rate_limited` code. The
-      // thrown EngineError is what run-manager turns into the terminal `error`
-      // event, deliberately WITHOUT `recoverable: true` — that flag means
-      // "internal continuation boundary": thread-data-builder drops such
-      // errors from the persisted turn and `isRecoverableContinuationError`
-      // chains another chunk into the same throttle, which is exactly the
-      // spiral this exists to stop. The client never auto-continues this code,
-      // so the user gets a visible message and a manual retry.
       if (!turnSignal.aborted && transientRateLimit) {
         if (
           (await completedSideEffectInCurrentTurn(
@@ -767,19 +570,6 @@ export async function runAgentLoopDirectWithSoftTimeout(
           errorCode: PROVIDER_RATE_LIMITED_ERROR_CODE,
         });
       }
-      // Resumable transport / gateway interruptions: the LLM call was cut off
-      // mid-stream (gateway 45s timeout, socket hang up, function-level
-      // timeout that didn't trip our soft timer first). Treat it the same way
-      // as a soft timeout — append the streamed prefix as non-rendered context,
-      // add a "continue from where you left off" nudge, and let the loop run
-      // another LLM call. Anthropic's prompt cache makes the resume call much
-      // faster than the cold first attempt.
-      //
-      // Emit 'clear' so any partial streamed text is discarded on the client
-      // before the model resumes. Without this the model restarts its sentence
-      // from scratch and the fold produces duplicated text in one message
-      // (the partial text was already sent to the client but is now retained
-      // only as an internal checkpoint so the next attempt can finish it).
       if (!turnSignal.aborted && isResumableEngineError(err)) {
         lastAttemptWasUnfinishedContinuation = true;
         if (
@@ -825,18 +615,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
     }
   }
 
-  // The loop exited without a clean return. If the user aborted, that's a Stop —
-  // stay silent. Otherwise we only get here by exhausting
-  // MAX_RUN_LOOP_CONTINUATIONS while the last attempt was still trying to
-  // continue (soft-timeout / resumable error). That is the genuinely-silent
-  // give-up the run-manager would otherwise report as a clean `done`: emit a
-  // loud, non-auto-continuing terminal so the user knows the turn stopped
-  // before finishing and nothing was partially saved by the run itself.
   if (!turnSignal.aborted && lastAttemptWasUnfinishedContinuation) {
-    // Discard any partial text already streamed for the unfinished attempt so
-    // the terminal message stands alone instead of trailing a half sentence.
-    // Preserve completed tool cards: they are the user's only durable proof
-    // that a side effect landed before the final assistant note timed out.
     if (
       (await completedSideEffectInCurrentTurn(
         opts.threadId,

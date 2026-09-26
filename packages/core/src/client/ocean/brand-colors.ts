@@ -1,9 +1,6 @@
 import { HERO_FALLBACK_COLORS } from "./hero-layout.js";
-// Type-only: importing DEFAULT_OCEAN_COLORS (a value) would pull tuning.ts in
-// here -- see hero-layout.ts. Use HERO_FALLBACK_COLORS for the actual default.
 import type { OceanColors } from "./ocean-colors.js";
 
-/** Auth shells without docs tokens still use these values as the fallback. */
 // guard:allow-raw-color - These fixed values calibrate the standalone GPU shader to the docs brand.
 const DARK_COLORS = { fg: "#aeadac", bg: "#0a0a0a" };
 // guard:allow-raw-color - These fixed values calibrate the standalone GPU shader to the docs brand.
@@ -29,8 +26,6 @@ export function hexToLinearRgb(
   ];
 }
 
-// The present pass encodes to sRGB on the way out, so the token has to enter
-// the shader linear or every mix lands too dark.
 function srgbToLinear(channel: number): number {
   return channel <= 0.04045
     ? channel / 12.92

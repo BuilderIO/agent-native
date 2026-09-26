@@ -1,9 +1,3 @@
-/**
- * Tests for awareness SSE fast-path emission.
- *
- * Validates that postAwareness emits an AWARENESS_CHANGE_EVENT after storing
- * a client's state, so SSE-connected peers can receive cursor updates push-style.
- */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -104,7 +98,6 @@ describe("postAwareness SSE fast-path", () => {
   });
 
   it("emits event with all current clients (including the sender)", async () => {
-    // Pre-seed another client.
     const map = getDocAwareness("emit-doc");
     map.set(99, {
       clientId: 99,
@@ -180,14 +173,14 @@ describe("postAwareness SSE fast-path", () => {
       received.push(evt);
     });
 
-    await postAwareness(event({}) as any); // No docId
+    await postAwareness(event({}) as any);
 
     getAwarenessEmitter().removeAllListeners(AWARENESS_CHANGE_EVENT);
     expect(received).toHaveLength(0);
   });
 
   it("does not emit when clientId or state is missing", async () => {
-    mockReadBody.mockResolvedValue({ clientId: 5 }); // missing state
+    mockReadBody.mockResolvedValue({ clientId: 5 });
 
     const received: AwarenessChangeEvent[] = [];
     getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, (evt) => {

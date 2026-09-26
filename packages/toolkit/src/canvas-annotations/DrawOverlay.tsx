@@ -32,82 +32,29 @@ import type { CanvasAnnotationTranslate } from "./types.js";
 export interface DrawAnnotation {
   id: string;
   type: "path" | "text";
-  /** SVG path data for "path" type */
   pathData?: string;
-  /** Text content for "text" type */
   text?: string;
-  /** Annotation color (hex) */
   color: string;
-  /** Stroke width for paths, font weight reference for text */
   lineWidth: number;
-  /** Position relative to the canvas (text annotations only) */
   position: { x: number; y: number };
-  /**
-   * Creation timestamp (Date.now()) — used for unified undo ordering across
-   * strokes and text annotations. Optional so existing callers of DrawAnnotation
-   * don't need to supply it.
-   */
   createdAt?: number;
 }
 
 export interface DrawOverlayProps {
   translate: CanvasAnnotationTranslate;
-  /** Whether the overlay is currently visible (toggled from the toolbar) */
   visible: boolean;
-  /** When false, canvas clicks pass through to sibling tools while the toolbar stays usable. */
   canvasInteractive?: boolean;
-  /** Extra queued annotations owned by sibling tools, such as comment pins. */
   queuedAnnotationCount?: number;
-  /**
-   * Current zoom level (percentage, e.g. 100 = 100%). Used to convert
-   * getBoundingClientRect() visual-space coordinates to layout-space so that
-   * strokes and text labels stay anchored to their painted position across
-   * zoom changes.
-   */
   zoom?: number;
-  /** Called when the user submits the queued strokes/text to the agent */
   onSend: (
     annotations: DrawAnnotation[],
     instruction: string,
     canvasSize: { width: number; height: number },
   ) => void;
-  /** Called when the user cancels / closes the draw mode */
   onClose: () => void;
-  /**
-   * True while the caller is capturing/compositing/uploading the annotated
-   * screenshot for a just-submitted drawing (see the design app's
-   * design-canvas/annotation-snapshot.ts). Disables Send and swaps its icon
-   * for a spinner so a slow capture can't be triggered twice from the same
-   * drawing. The entire overlay becomes inert while true so edits made after
-   * the submitted snapshot cannot be erased when that submission is later
-   * confirmed and the caller clears the batch.
-   */
   sending?: boolean;
-  /**
-   * Bump this (e.g. a counter) exactly when the caller wants to discard the
-   * current strokes/text annotations — after `onClose` or a confirmed Send.
-   * Strokes/text are intentionally NOT cleared merely because `visible`
-   * turns false: `visible` can toggle off for reasons that have nothing to
-   * do with the user wanting to discard their work (switching tools, views,
-   * or side panels), and doing so silently would destroy annotations the
-   * user never got a chance to send. Only an in-progress (uncommitted)
-   * gesture is reset on hide; a pending text label is committed so its typed
-   * content survives.
-   */
   clearSignal?: number;
-  /**
-   * Identity of the canvas this annotation batch belongs to. When the host
-   * reuses one DrawOverlay instance for a different screen, the old batch is
-   * cleared with a warning instead of being silently reinterpreted against
-   * the new screen's pixels and submitted with the wrong screenshot.
-   */
   scopeKey?: string;
-  /**
-   * Keep the canvas DOM/bitmap alive while hidden. Use for the one active
-   * editor overlay whose work must survive mode/view toggles; leave false for
-   * large preview grids so every dormant screen does not allocate a canvas
-   * and ResizeObserver.
-   */
   retainSurfaceWhenHidden?: boolean;
 }
 
@@ -124,12 +71,6 @@ const LINE_WIDTHS = [
   { value: 8, label: "Thick" },
 ];
 
-/**
- * A point stored as fractions (0..1) of the canvas visual rect.
- * This makes coordinates zoom- and resize-stable: multiply by the current
- * rect width/height to get visual pixels for canvas drawing, or multiply by
- * rect/scale to get layout-space for CSS positioning and pathData output.
- */
 interface Point {
   x: number;
   y: number;
@@ -137,40 +78,19 @@ interface Point {
 
 interface Stroke {
   id: string;
-  /** Points stored as fractions (0..1) of the canvas visual rect. */
   points: Point[];
   color: string;
   lineWidth: number;
-  /** Creation timestamp for unified undo ordering. */
   createdAt: number;
 }
 
 interface PendingTextInput {
-  /** Fractional x (0..1) of the visual rect. */
   xFrac: number;
-  /** Fractional y (0..1) of the visual rect. */
   yFrac: number;
   value: string;
-  /**
-   * Monotonic generation id. A click that opens a new pending text box while
-   * an earlier one is still focused fires pointerdown (which replaces the
-   * ref synchronously) before the outgoing box's native `blur` event runs.
-   * Without this, that trailing blur reads the *new* (empty) pending input
-   * out of the ref and wipes it via `commitTextAnnotation`'s unconditional
-   * `setPendingTextInput(null)` before the user can type anything. Callers
-   * pass the generation captured at their own render so a stale blur/Enter/
-   * Escape from a since-replaced box is a no-op instead of clobbering the
-   * newer one.
-   */
   generation: number;
 }
 
-/**
- * Keep long pen/stylus gestures bounded before they become agent prompt data.
- * Once this limit is reached, older samples are progressively decimated while
- * preserving the first, latest, and future points. At normal pointer rates the
- * sub-pixel filter below is the only sampling users will notice.
- */
 const MAX_STROKE_POINTS = 2048;
 const MIN_POINT_DISTANCE_PX = 0.35;
 
@@ -207,9 +127,6 @@ function appendStrokePoint(
 
   let next = points;
   if (next.length >= MAX_STROKE_POINTS) {
-    // Preserve the full trajectory instead of dropping the tail of a long
-    // gesture. Repeated compaction gradually lowers only the oldest sampling
-    // density, which is visually preferable to a path that suddenly stops.
     const compacted: Point[] = [next[0]];
     for (let index = 2; index < next.length - 1; index += 2) {
       compacted.push(next[index]);
@@ -222,29 +139,6 @@ function appendStrokePoint(
   return next;
 }
 
-/**
- * Draw-to-prompt overlay for the slide canvas.
- *
- * Mirrors claude.ai/design's "Draw mode": the user sketches on the canvas,
- * adds a one-line text instruction, hits Send, and the strokes + instruction
- * are forwarded to the agent. The agent receives the path geometry along with
- * the canvas size so it can interpret position semantically (e.g. "move the
- * title here").
- *
- * This component is canvas-agnostic — it overlays absolutely-positioned over
- * its parent, so the parent (a slide editor or design canvas) only needs to
- * be `position: relative`.
- *
- * Coordinate model
- * ----------------
- * All stroke points and text positions are stored as fractions (0..1) of the
- * canvas's visual rect (getBoundingClientRect). This makes them stable across
- * zoom and resize. When rendering:
- *   - Canvas strokes: multiply by rect.width / rect.height (visual pixels).
- *   - CSS text labels: multiply by rect.width/scale / rect.height/scale
- *     (layout pixels inside the scaled wrapper).
- *   - pathData in send(): layout pixels = fraction * rect.width / scale.
- */
 export function DrawOverlay({
   translate,
   visible,
@@ -267,16 +161,11 @@ export function DrawOverlay({
   const strokesRef = useRef<Stroke[]>([]);
   const [textAnnotations, setTextAnnotations] = useState<DrawAnnotation[]>([]);
   const textAnnotationsRef = useRef<DrawAnnotation[]>([]);
-  // Unified redo stack. Each entry is either a Stroke or a DrawAnnotation so
-  // undo/redo work in creation order across both types.
   const [redoStack, setRedoStack] = useState<Array<Stroke | DrawAnnotation>>(
     [],
   );
   const clearUndoGenerationRef = useRef(0);
   const [currentStroke, setCurrentStroke] = useState<Point[] | null>(null);
-  // Pointer events can arrive down -> move -> up before React renders once.
-  // This ref is the authoritative in-progress gesture; state is only a
-  // frame-throttled snapshot used to redraw the canvas.
   const currentStrokeRef = useRef<Point[] | null>(null);
   const currentStrokeFrameRef = useRef<number | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
@@ -287,33 +176,18 @@ export function DrawOverlay({
   const textInputStateRef = useRef<PendingTextInput | null>(null);
   const textInputGenerationRef = useRef(0);
   const textInputRef = useRef<HTMLInputElement>(null);
-  // Escape cancels the pending text annotation, but unmounting the input also
-  // fires its blur handler, which would commit the very annotation the user
-  // just cancelled. This flag lets the blur handler skip that commit.
   const cancelingTextRef = useRef(false);
   const [instruction, setInstruction] = useState("");
   const instructionRef = useRef("");
   const drawing = useRef(false);
   const canvasSizeRef = useRef({ w: 0, h: 0 });
-  // Resize tick: bumped by ResizeObserver so the redraw effect re-runs when
-  // the canvas element's CSS size changes (e.g. device frame switch).
   const [resizeTick, setResizeTick] = useState(0);
 
   const scale = Math.max(zoom / 100, 0.01);
 
-  // A host can still unmount the active editor entirely (route/design close,
-  // or focused canvas teardown) rather than merely hiding this component.
-  // Losing unsent work in that teardown must never be silent. Normal
-  // overview/focused visibility changes retain their active surface and do
-  // not hit this cleanup; only a real component unmount does.
   useEffect(() => {
     return () => {
       clearUndoGenerationRef.current += 1;
-      // A true unmount never runs the `!visible` effect above (the prop
-      // never transitions — the component is simply gone), so a still-open
-      // pending text box never gets its usual commit-on-hide chance. Count
-      // it here too, or a label the user was mid-typing would vanish
-      // without even counting toward the warning.
       const pendingText = textInputStateRef.current?.value.trim();
       const discardedCount =
         strokesRef.current.length +
@@ -395,12 +269,6 @@ export function DrawOverlay({
     textInputGenerationRef.current = 0;
   }, [resetActiveStroke, setPendingTextInput]);
 
-  // Hiding ends whatever the user was mid-gesture on, but must NOT discard
-  // already-committed strokes/text: `visible` can turn false for reasons
-  // that have nothing to do with the user wanting to abandon their
-  // annotations (switching tools, views, or side panels). Only reset the
-  // transient in-flight state here — the committed `strokes`/
-  // `textAnnotations` arrays are cleared exclusively by `clearSignal` below.
   useEffect(() => {
     if (!visible) {
       resetActiveStroke();
@@ -409,9 +277,6 @@ export function DrawOverlay({
     }
   }, [resetActiveStroke, visible]);
 
-  // Comment-pin mode can temporarily leave the toolbar visible while making
-  // the drawing surface inert. Never retain a half-finished gesture across
-  // that tool switch.
   useEffect(() => {
     if (!canvasInteractive) resetActiveStroke();
   }, [canvasInteractive, resetActiveStroke]);
@@ -432,10 +297,6 @@ export function DrawOverlay({
     return () => window.cancelAnimationFrame(id);
   }, [shouldFocusTextInput, visible]);
 
-  // Retained editor surfaces keep their canvas mounted while hidden, so a
-  // hidden-first host installs its observer and the bitmap does not flash
-  // blank when the user re-enters annotate mode. Non-retained preview-grid
-  // overlays attach only while visible to avoid idle canvas/observer cost.
   useEffect(() => {
     if (!visible && !retainSurfaceWhenHidden) return;
     const canvas = canvasRef.current;
@@ -446,11 +307,6 @@ export function DrawOverlay({
     return () => ro.disconnect();
   }, [retainSurfaceWhenHidden, visible]);
 
-  // Redraw before paint whenever strokes change, the canvas is resized, or a
-  // preserved batch becomes visible again. The visible dependency is
-  // intentional even though the DOM stays mounted: browsers may discard a
-  // hidden canvas backing store under memory pressure, and re-entry must
-  // never expose a blank frame before the next pointer event.
   useLayoutEffect(() => {
     if (!visible) return;
     const canvas = canvasRef.current;
@@ -471,7 +327,6 @@ export function DrawOverlay({
 
     ctx.clearRect(0, 0, rect.width, rect.height);
 
-    // Points are stored as fractions; multiply by current rect to get visual px.
     for (const stroke of strokes) {
       drawStroke(
         ctx,
@@ -502,14 +357,6 @@ export function DrawOverlay({
     // the new visual size.
   }, [strokes, currentStroke, color, lineWidth, resizeTick, visible, zoom]);
 
-  /**
-   * Commits the pending text annotation (if any) and clears the pending
-   * input. `expectedGeneration`, when passed, guards against a stale
-   * blur/Enter/Escape belonging to a pending text box that has since been
-   * replaced or already cleared — see `PendingTextInput.generation`. Called
-   * with no argument to force-commit whatever is currently pending (e.g.
-   * before opening a new text box, or right before Send).
-   */
   const commitTextAnnotation = useCallback(
     (expectedGeneration?: number) => {
       const pendingText = textInputStateRef.current;
@@ -520,9 +367,6 @@ export function DrawOverlay({
       ) {
         return;
       }
-      // Clear the authoritative pending value first. Enter, blur, and Send can
-      // all occur in the same browser turn; any later handler becomes a no-op
-      // instead of duplicating the label.
       setPendingTextInput(null);
       if (!pendingText.value.trim()) return;
 
@@ -530,7 +374,6 @@ export function DrawOverlay({
         id: crypto.randomUUID(),
         type: "text",
         text: pendingText.value.trim(),
-        // Store fractional position so the label stays anchored across zoom changes.
         position: { x: pendingText.xFrac, y: pendingText.yFrac },
         color,
         lineWidth,
@@ -539,23 +382,16 @@ export function DrawOverlay({
       const nextTexts = [...textAnnotationsRef.current, ann];
       textAnnotationsRef.current = nextTexts;
       setTextAnnotations(nextTexts);
-      // A new text annotation also clears the redo stack.
       setRedoStack([]);
     },
     [color, lineWidth, nextCreatedAt, setPendingTextInput],
   );
 
-  // Hiding removes the pending-text input from interaction. Commit whatever
-  // was typed explicitly so a still-open label survives an unrelated exit
-  // instead of relying on incidental native blur ordering.
   useEffect(() => {
     if (!visible) commitTextAnnotation();
   }, [visible, commitTextAnnotation]);
 
-  // The explicit-discard path: the caller bumps `clearSignal` exactly when
-  // the user deliberately closes the overlay (X/Escape) or a Send is
   // confirmed delivered. A scope change below is the only other reset path,
-  // guarding against submitting one screen's geometry against another.
   const lastClearSignalRef = useRef(clearSignal);
   useLayoutEffect(() => {
     if (clearSignal === lastClearSignalRef.current) return;
@@ -593,9 +429,6 @@ export function DrawOverlay({
       if (textMode) {
         e.preventDefault();
         cancelingTextRef.current = false;
-        // Commit whatever text box was still open (using the current ref,
-        // which still holds the outgoing box at this point) before replacing
-        // it, so clicking a new spot never silently drops the previous label.
         commitTextAnnotation();
         textInputGenerationRef.current += 1;
         setPendingTextInput({
@@ -691,7 +524,6 @@ export function DrawOverlay({
         const nextStrokes = [...strokesRef.current, stroke];
         strokesRef.current = nextStrokes;
         setStrokes(nextStrokes);
-        // A new stroke clears the redo stack (standard editor convention).
         setRedoStack([]);
       }
       currentStrokeRef.current = null;
@@ -732,10 +564,6 @@ export function DrawOverlay({
     [resetActiveStroke],
   );
 
-  /**
-   * Undo removes the most recently created annotation (stroke or text) in
-   * creation order and pushes it onto the unified redo stack.
-   */
   const undo = () => {
     if (sending) return;
     const currentStrokes = strokesRef.current;
@@ -749,7 +577,6 @@ export function DrawOverlay({
 
     if (!lastStroke && !lastText) return;
 
-    // Remove whichever was created most recently.
     const strokeTime = lastStroke?.createdAt ?? -Infinity;
     const textTime = lastText?.createdAt ?? 0;
 
@@ -773,12 +600,10 @@ export function DrawOverlay({
       const top = stack[stack.length - 1];
       const remaining = stack.slice(0, -1);
       if ("points" in top) {
-        // It's a Stroke
         const nextStrokes = [...strokesRef.current, top as Stroke];
         strokesRef.current = nextStrokes;
         setStrokes(nextStrokes);
       } else {
-        // It's a DrawAnnotation (text)
         const nextTexts = [
           ...textAnnotationsRef.current,
           top as DrawAnnotation,
@@ -807,8 +632,6 @@ export function DrawOverlay({
         label: t("visualEditor.undo"),
         onClick: () => {
           if (undoGeneration !== clearUndoGenerationRef.current) return;
-          // Merge snapshot with any strokes/texts drawn during the toast window
-          // so new work is not discarded; also restore the pre-clear redo stack.
           const restoredStrokes = [...prevStrokes, ...strokesRef.current];
           const restoredTexts = [...prevTexts, ...textAnnotationsRef.current];
           strokesRef.current = restoredStrokes;
@@ -826,18 +649,14 @@ export function DrawOverlay({
     if (sending) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    // A focused text label normally commits on blur before the Send click, but
-    // keyboard/programmatic activation does not guarantee that ordering.
     commitTextAnnotation();
     const rect = canvas.getBoundingClientRect();
-    // Layout-space dimensions = visual rect / scale factor.
     const layoutW = rect.width / scale;
     const layoutH = rect.height / scale;
 
     const pathAnnotations: DrawAnnotation[] = strokesRef.current.map((s) => ({
       id: s.id,
       type: "path",
-      // Convert fractional points to layout-space absolute pixels for the agent.
       pathData: s.points
         .map(
           (p, i) =>
@@ -849,7 +668,6 @@ export function DrawOverlay({
       position: { x: 0, y: 0 },
     }));
 
-    // Convert fractional text positions to layout-space absolute pixels.
     const layoutTextAnnotations: DrawAnnotation[] =
       textAnnotationsRef.current.map((a) => ({
         ...a,
@@ -1169,23 +987,15 @@ export function DrawOverlay({
                   )
                 }
                 onBlur={() => {
-                  // Escape unmounts the input, which fires this blur — skip
-                  // the commit for a cancelled annotation.
                   if (cancelingTextRef.current) {
                     cancelingTextRef.current = false;
                     return;
                   }
-                  // Pass this render's generation so a trailing blur that
-                  // arrives after pointerdown has already opened a *newer*
-                  // text box (see PendingTextInput.generation) is a no-op
-                  // instead of wiping the box the user just started typing.
                   commitTextAnnotation(textInput.generation);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    // Committing unmounts the focused input, which can emit a
-                    // blur event in the same turn. Skip that second commit.
                     cancelingTextRef.current = true;
                     commitTextAnnotation(textInput.generation);
                   }

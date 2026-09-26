@@ -1,18 +1,3 @@
-/**
- * Changelog UI — renders an app's CHANGELOG.md as an in-app "What's new"
- * surface. Core owns all of this; a template just passes its own
- * `CHANGELOG.md?raw` content in (Vite inlines it at build time, so this works
- * on every host with no runtime file access or server route).
- *
- * Surfaces:
- *   - <ChangelogDialog>      a self-contained modal listing every release.
- *   - <ChangelogSettingsCard> a settings-page card with the latest updates.
- *   - useChangelogSeen()     tracks the last release a user has seen (so the
- *                            command menu can show an "unseen" dot).
- *
- * The command menu's built-in `changelog` prop (see CommandMenu.tsx) wires the
- * dialog automatically — most templates never touch these directly.
- */
 
 import { IconChevronDown, IconHistory, IconX } from "@tabler/icons-react";
 import React, { useEffect, useId, useMemo, useState } from "react";
@@ -32,11 +17,9 @@ export {
   useChangelogSeen,
 } from "./use-changelog-seen.js";
 
-// ─── Date formatting ──────────────────────────────────────────────────────────
 
 function formatEntryHeading(entry: ChangelogEntry, locale: LocaleCode): string {
   if (entry.date) {
-    // Parse as a plain calendar date (avoid TZ shifting YYYY-MM-DD back a day).
     const [y, m, d] = entry.date.split("-").map(Number);
     if (y && m && d) {
       const formatted = new Date(y, m - 1, d).toLocaleDateString(locale, {
@@ -50,10 +33,6 @@ function formatEntryHeading(entry: ChangelogEntry, locale: LocaleCode): string {
   return entry.title;
 }
 
-// ─── Markdown body ────────────────────────────────────────────────────────────
-// A small, self-contained renderer for a release body. Avoids depending on the
-// typography plugin (`prose`) being generated in the host template by applying
-// explicit utility classes that Tailwind scans from core's compiled output.
 
 const changelogMarkdownComponents = {
   h3: (props: React.HTMLAttributes<HTMLHeadingElement>) => (
@@ -102,8 +81,6 @@ function ChangelogBody({ markdown }: { markdown: string }) {
   const gfm = remarkGfmFn;
 
   if (!ready || !ReactMarkdown || !gfm) {
-    // The react-markdown chunk loads on module eval; this is typically only one
-    // frame. Show readable plain text rather than nothing in the meantime.
     return (
       <div className="whitespace-pre-wrap text-sm text-foreground">
         {markdown}
@@ -121,7 +98,6 @@ function ChangelogBody({ markdown }: { markdown: string }) {
   );
 }
 
-// ─── Shared markup ────────────────────────────────────────────────────────────
 
 function ChangelogEntries({
   entries,
@@ -149,14 +125,11 @@ function ChangelogEntries({
   );
 }
 
-// ─── Dialog ───────────────────────────────────────────────────────────────────
 
 export interface ChangelogDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Raw CHANGELOG.md contents (e.g. `import md from "../CHANGELOG.md?raw"`). */
   markdown: string;
-  /** Dialog heading. Default: "What's new". */
   title?: string;
   closeLabel?: string;
   emptyText?: string;
@@ -221,14 +194,10 @@ export function ChangelogDialog({
   );
 }
 
-// ─── Settings card ────────────────────────────────────────────────────────────
 
 export interface ChangelogSettingsCardProps {
-  /** Raw CHANGELOG.md contents (e.g. `import md from "../CHANGELOG.md?raw"`). */
   markdown: string;
-  /** How many recent releases to show inline before "View all". Default: 2. */
   limit?: number;
-  /** Card heading. Default: "What's new". */
   title?: string;
   closeLabel?: string;
   emptyText?: string;

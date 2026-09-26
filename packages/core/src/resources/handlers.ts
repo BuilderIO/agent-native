@@ -53,9 +53,6 @@ import {
   type ResourceMeta,
 } from "./store.js";
 
-// ---------------------------------------------------------------------------
-// Owner resolution
-// ---------------------------------------------------------------------------
 
 async function resolveOwner(event: any, shared?: boolean): Promise<string> {
   if (shared) return sharedResourceOwner(await resolveOrgId(event));
@@ -145,18 +142,13 @@ async function resolveOrgId(event: any): Promise<string | null> {
   return ctx.orgId ?? null;
 }
 
-/**
- * Reject writes to organization-wide resources unless the user is the
- * organization owner/admin (or the deployment is solo — no org membership).
- * Read access remains open to every org member.
- */
 async function assertCanEditShared(event: any): Promise<void> {
   const session = await getSession(event);
   if (!session?.email) {
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   const ctx = await getOrgContext(event);
-  if (!ctx.orgId) return; // solo / dev mode — no org, treat as owner
+  if (!ctx.orgId) return;
   if (ctx.role === "owner" || ctx.role === "admin") return;
   throw createError({
     statusCode: 403,
@@ -173,9 +165,6 @@ function shouldIncludeAgentScratch(query: Record<string, unknown>): boolean {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Tree building
-// ---------------------------------------------------------------------------
 
 interface JobMetadata {
   schedule?: string;
@@ -241,7 +230,6 @@ function buildTree(resources: ResourceMeta[]): TreeNode[] {
   return root;
 }
 
-/** Sort tree nodes: folders first, then files, alphabetically within each group */
 function sortTree(nodes: TreeNode[]): void {
   nodes.sort((a, b) => {
     if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
@@ -252,11 +240,7 @@ function sortTree(nodes: TreeNode[]): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
 
-/** GET /_agent-native/resources — list resources */
 export async function handleListResources(event: any) {
   const query = getQuery(event);
   const prefix = (query.prefix as string) || undefined;
@@ -271,7 +255,6 @@ export async function handleListResources(event: any) {
     ? { includeAgentScratch: true, userEmail: email, orgId }
     : { userEmail: email, orgId };
 
-  // Seed personal AGENTS.md + LEARNINGS.md on first access
   await ensurePersonalDefaults(email);
 
   let resources: ResourceMeta[];
@@ -285,14 +268,12 @@ export async function handleListResources(event: any) {
   } else if (scope === "shared") {
     resources = await listSharedResources(orgId, prefix, localListOptions);
   } else {
-    // "all" — personal + organization/shared + inherited workspace
     resources = await resourceListAccessible(email, prefix, scopedListOptions);
   }
 
   return { resources };
 }
 
-/** GET /_agent-native/resources/tree — build nested tree */
 export async function handleGetResourceTree(event: any) {
   const query = getQuery(event);
   const scope = (query.scope as string) || "all";
@@ -306,7 +287,6 @@ export async function handleGetResourceTree(event: any) {
     ? { includeAgentScratch: true, userEmail: email, orgId }
     : { userEmail: email, orgId };
 
-  // Seed personal AGENTS.md + LEARNINGS.md on first access
   await ensurePersonalDefaults(email);
 
   let resources: ResourceMeta[];
@@ -333,13 +313,11 @@ export async function handleGetResourceTree(event: any) {
 
   const tree = buildTree(resources);
 
-  // Enrich typed resources with parsed metadata for richer UI
   await enrichTreeNodes(tree, orgId);
 
   return { tree };
 }
 
-/** GET /_agent-native/resources/effective?path=... — show inheritance stack */
 export async function handleGetEffectiveResourceContext(event: any) {
   const query = getQuery(event);
   const path = query.path;
@@ -354,9 +332,6 @@ export async function handleGetEffectiveResourceContext(event: any) {
   return resourceEffectiveContext(email, path, { userEmail: email, orgId });
 }
 
-/**
- * Walk the tree and add typed metadata for jobs, skills, and agents.
- */
 async function enrichTreeNodes(
   nodes: TreeNode[],
   orgId: string | null,
@@ -369,7 +344,7 @@ async function enrichTreeNodes(
     parseFn = scheduler.parseJobFrontmatter;
     describeFn = cron.describeCron;
   } catch {
-    return; // Jobs module not available
+    return;
   }
 
   for (const node of nodes) {
@@ -427,9 +402,6 @@ async function enrichTreeNodes(
   }
 }
 
-/** GET /_agent-native/resources/:id — get single resource with content.
- *  `?raw` returns the bytes inline; `?download=1` returns the same bytes as a
- *  safe attachment. */
 export async function handleGetResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -503,9 +475,6 @@ export async function handleGetResource(event: any) {
     return new Response(buf);
   }
 
-  // For binary resources (images, audio, video), omit the content field from
-  // the JSON response — it can be megabytes of base64. The client fetches
-  // the actual bytes via ?raw when it needs to display them.
   const isBinary =
     resource.mimeType.startsWith("image/") ||
     resource.mimeType.startsWith("audio/") ||
@@ -520,7 +489,6 @@ export async function handleGetResource(event: any) {
   return resource;
 }
 
-/** POST /_agent-native/resources — create a resource */
 export async function handleCreateResource(event: any) {
   const body = await readBody(event);
 
@@ -535,7 +503,6 @@ export async function handleCreateResource(event: any) {
 
   const owner = await resolveOwner(event, body.shared);
 
-  // If ifNotExists is set, skip if the resource already exists
   if (body.ifNotExists) {
     const existing = await resourceGetByPath(owner, body.path);
     if (existing) {
@@ -559,7 +526,6 @@ export async function handleCreateResource(event: any) {
   return resource;
 }
 
-/** PUT /_agent-native/resources/:id — update an existing resource */
 export async function handleUpdateResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -575,7 +541,6 @@ export async function handleUpdateResource(event: any) {
     return { error: "Resource not found" };
   }
 
-  // Ownership check: only the owner (or shared resource editors) can update
   if (
     !canReadOwner(existing.owner, email, orgId) ||
     !isLegacySharedResourceVisibleToOrganization(existing, orgId)
@@ -603,9 +568,6 @@ export async function handleUpdateResource(event: any) {
     existing.owner === SHARED_OWNER &&
     isLegacyOrganizationWorkspaceFile(existing, orgId);
 
-  // Existing `__shared__` rows are legacy app defaults. In an organization,
-  // editing one creates an organization override instead of mutating the
-  // fallback seen by every tenant in the deployment.
   if (existing.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER) {
     const metadata =
       body.metadata !== undefined ? body.metadata : existing.metadata;
@@ -653,12 +615,10 @@ export async function handleUpdateResource(event: any) {
     };
   }
 
-  // If path changed, move it
   if (!isLocalWorkspaceResource && body.path && body.path !== existing.path) {
     await resourceMove(id, body.path);
   }
 
-  // Update content/mimeType by re-putting
   const writeOptions =
     body.metadata !== undefined ? { metadata: body.metadata } : undefined;
   const resource = writeOptions
@@ -682,7 +642,6 @@ export async function handleUpdateResource(event: any) {
   return resource;
 }
 
-/** DELETE /_agent-native/resources/:id — delete a resource */
 export async function handleDeleteResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -698,7 +657,6 @@ export async function handleDeleteResource(event: any) {
     return { error: "Resource not found" };
   }
 
-  // Ownership check: only the owner (or shared resource editors) can delete
   if (
     !canReadOwner(existing.owner, email, orgId) ||
     !isLegacySharedResourceVisibleToOrganization(existing, orgId)
@@ -763,7 +721,6 @@ export async function handleDeleteResource(event: any) {
   return { ok: true };
 }
 
-/** POST /_agent-native/resources/upload — upload a file as a resource */
 export async function handleUploadResource(event: any) {
   const parts = await readMultipartFormData(event);
 
@@ -781,7 +738,6 @@ export async function handleUploadResource(event: any) {
     return { error: "No file data found" };
   }
 
-  // Reject oversized uploads before touching any storage.
   if (filePart.data.length > DEFAULT_UPLOAD_MAX_FILE_BYTES) {
     setResponseStatus(event, 413);
     return {
@@ -794,7 +750,6 @@ export async function handleUploadResource(event: any) {
   const shared = sharedPart?.data?.toString() === "true";
   const mimeType = filePart.type || "application/octet-stream";
 
-  // Reject executable / script MIME types.
   if (filePart.type && !isAllowedUploadMimeType(filePart.type)) {
     setResponseStatus(event, 415);
     return { error: `Unsupported file type: ${filePart.type}` };
@@ -804,17 +759,10 @@ export async function handleUploadResource(event: any) {
   }
   const owner = await resolveOwner(event, shared);
 
-  // Binary assets must live in file storage so resource rows do not become
-  // base64 blobs in SQL. Text resources still live in SQL because they are
-  // edited inline and benefit from the resource store's metadata/search.
   const isText =
     mimeType.startsWith("text/") || mimeType === "application/json";
 
   if (!isText) {
-    // Use the actual session user email for credential resolution — not `owner`,
-    // which is "__shared__" for org-wide resources and would break the per-user
-    // DB credential lookup (resolveBuilderCredential refuses env fallback for any
-    // non-null non-local email, including the sentinel value).
     const credentialEmail =
       owner !== SHARED_OWNER
         ? owner

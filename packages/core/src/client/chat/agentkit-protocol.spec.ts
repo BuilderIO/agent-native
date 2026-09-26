@@ -160,9 +160,6 @@ describe("createAgentKitProtocolAdapter", () => {
         appId: "dispatch",
         detail: "Connect Slack to verify the workflow.",
       };
-      // A paused HTTP stream may remain open until the host sends the
-      // continuation. The adapter must release its reader at the request
-      // boundary instead of deadlocking the response behind stream closure.
       await new Promise<void>(() => {});
     }
     const continueTurn = vi.fn(async () => ({
@@ -408,8 +405,6 @@ describe("createAgentKitProtocolAdapter", () => {
       protocol: createAgentKitProtocolVersionOffer(),
       requested: ["resumableRuns"],
     });
-    // The boolean projection and the descriptor must agree. Reporting
-    // "degraded" here while the projection says false is what made replay read
     // as unfinished rather than deliberately out of scope.
     expect(discovery?.capabilities).toEqual([
       expect.objectContaining({

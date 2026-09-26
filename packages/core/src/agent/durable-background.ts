@@ -49,43 +49,13 @@ import {
   verifyInternalToken,
 } from "../integrations/internal-token.js";
 
-/**
- * Framework route the background function actually runs — sibling to
- * `AGENT_TEAM_PROCESS_RUN_PATH`. Reached *through* the Netlify background
- * function, so it inherits the 15-min budget.
- */
 export const AGENT_CHAT_PROCESS_RUN_PATH =
   "/_agent-native/agent-chat/_process-run";
 
-/**
- * Name of the standalone Netlify background function the build emits (see
- * `emitSingleTemplateNetlifyBackgroundFunction` in deploy/build.ts). Shared so
- * the emit and the dispatch-path helper below can never drift on the name.
- *
- * MUST end in `-background` — both because that is the conventional Netlify
- * async-function suffix and because `isInBackgroundFunctionRuntime()` reads the
- * `AWS_LAMBDA_FUNCTION_NAME` `-background` suffix as a secondary runtime signal.
- */
 export const AGENT_BACKGROUND_FUNCTION_NAME = "server-agent-background";
 
-/**
- * Default function URL of the background function on Netlify. Every Netlify
- * function is reachable at `/.netlify/functions/<name>` BY DEFAULT; that default
- * url is removed ONLY if the function declares a custom `config.path`. The
- * emitted background function declares NO custom `config.path` (it sets
- * `background: true` and nothing else routing-related), so it KEEPS this default
- * url — and the Nitro `server` function already excludes `/.netlify/*` from its
- * `/*` catch-all, so this namespace is never shadowed. The foreground therefore
- * dispatches HERE on hosted Netlify (see `resolveAgentChatProcessRunDispatchPath`).
- */
 export const AGENT_BACKGROUND_FUNCTION_URL_PATH = `/.netlify/functions/${AGENT_BACKGROUND_FUNCTION_NAME}`;
 
-/**
- * Marker carried in a Netlify background-function body when the shared
- * long-running worker should route to a processor other than agent chat.
- * The emitted wrapper defaults to the normal agent-chat `_process-run` route;
- * A2A uses this marker to reuse the same 15-minute function for async tasks.
- */
 export const AGENT_BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor";
 export const AGENT_BACKGROUND_PROCESSOR_A2A = "a2a";
 export const AGENT_BACKGROUND_PROCESSOR_INTEGRATION = "integration";
@@ -93,21 +63,9 @@ export const AGENT_BACKGROUND_PROCESSOR_ROUTE = "route";
 export const AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD =
   "__agentNativeProcessorRoute";
 
-/**
- * The per-app workspace background function URL path. Workspace deploy emits one
- * background function per app named `<app>-agent-background`, reachable at its
- * DEFAULT url `/.netlify/functions/<app>-agent-background` (no custom
- * `config.path`). The foreground resolves the current workspace app id from
- * `AGENT_NATIVE_WORKSPACE_APP_ID` (set by the workspace function entry) so it can
- * dispatch to the right per-app function url. Returns `null` when no workspace
- * app id is configured (single-template deploy).
- */
 function resolveWorkspaceBackgroundFunctionUrlPath(): string | null {
   const raw = getAppConfig().app.workspaceId;
   if (raw === undefined) return null;
-  // Mirror the workspace app-id normalization (resources/store.ts): take the
-  // first path segment and accept only the safe slug shape used for function
-  // names. Anything else falls back to the single-template name.
   const candidate = raw.trim().replace(/^\/+/, "").split("/")[0] ?? "";
   if (!/^[a-z0-9][a-z0-9-]{0,127}$/.test(candidate)) return null;
   return `/.netlify/functions/${candidate}-agent-background`;
@@ -117,15 +75,7 @@ function isNetlifyHostedRuntimeForDispatch(): boolean {
   if (process.env.NETLIFY_LOCAL === "true") return false;
   if (process.env.NETLIFY === "false") return false;
   if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
-  // NETLIFY is a build-only read-only variable. In deployed Functions Netlify
-  // documents URL, SITE_NAME, and SITE_ID as the runtime read-only variables;
-  // SITE_ID is the unambiguous host marker. Lambda compatibility mode also
-  // exposes AWS runtime variables, so keep the function-name fallback for older
-  // deploys. Without either check a modern Netlify Function silently selects the
-  // portable framework route even though the emitted background function exists.
   if (process.env.SITE_ID) return true; // guard:allow-env-credential - Netlify's read-only public site identifier is a runtime host marker, not a user credential.
-  // Non-Netlify AWS falls back inline if the /.netlify/functions dispatch
-  // fast-fails.
   return Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
 }
 
@@ -188,11 +138,6 @@ export function dispatchPathTargetsNetlifyBackgroundFunction(
   return dispatchPath.startsWith("/.netlify/functions/");
 }
 
-/**
- * Env flag for durable background runs. On Netlify, unset means enabled and an
- * explicit falsy value opts out. Everywhere else, including a long-lived Node
- * server, apps opt in with an explicit truthy value (`true`/`1`/`yes`/`on`).
- */
 export const AGENT_CHAT_DURABLE_BACKGROUND_ENV =
   "AGENT_CHAT_DURABLE_BACKGROUND";
 
@@ -205,11 +150,6 @@ export const AGENT_CHAT_DURABLE_BACKGROUND_ENV =
  */
 export const AGENT_CHAT_BACKGROUND_RUN_FIELD = "__backgroundRun";
 
-/**
- * Mirror of run-manager's private `isHostedRuntime`. Kept in sync deliberately:
- * the durable-background gate must agree with the soft-timeout regime about
- * what "hosted" means.
- */
 export function isHostedRuntimeForDurableBackground(): boolean {
   if (process.env.NETLIFY_LOCAL === "true") return false;
   if (process.env.NETLIFY === "false") return false;
@@ -237,11 +177,6 @@ export function isHostedRuntimeForDurableBackground(): boolean {
   );
 }
 
-/**
- * Netlify is the only host with the emitted 15-minute background function.
- * Keep the framework-wide default scoped to deployed Netlify rather than
- * silently enabling it on other hosted runtimes that may not have that worker.
- */
 export function isNetlifyHostedRuntimeForDurableBackground(): boolean {
   if (process.env.NETLIFY_LOCAL === "true") return false;
   if (process.env.NETLIFY === "false") return false;
@@ -251,33 +186,7 @@ export function isNetlifyHostedRuntimeForDurableBackground(): boolean {
   );
 }
 
-/**
- * True when THIS process is actually executing inside a Netlify *background*
- * function (the long, 15-min-budget async function whose deployed name ends in
- * `-background`). Netlify runs functions on AWS Lambda and sets
- * `AWS_LAMBDA_FUNCTION_NAME` to the function's name, so a `-background` suffix is
- * the runtime proof that the ~60s synchronous wall does NOT apply here.
- *
- * This is the SAFETY GUARD for the soft-timeout regime. The `_process-run`
- * self-dispatch worker (`isBackgroundWorker`) is NOT enough on its own: if the
- * `-background` function was never emitted (deploy gate off, or Netlify routed
- * the path to the synchronous function), the self-POST lands on the regular
- * ~60s `server` function. A worker there MUST use the 40s soft-timeout and
- * checkpoint before the 60s wall — using the ~13min budget would overshoot the
- * hard wall and get killed at 60s, then re-dispatch/resume in a wasteful loop.
- * So the 13-min budget is taken ONLY when this returns true.
- *
- * The PRIMARY signal is a `globalThis` marker the emitted background function's
- * entry sets at cold start — the deployed Lambda name is not guaranteed to end
- * in `-background` on Netlify, so the entry marks its own runtime. A `globalThis`
- * flag (not `process.env`) keeps the no-env-mutation guard satisfied and carries
- * no cross-request state (set once per isolate). The `AWS_LAMBDA_FUNCTION_NAME`
- * suffix and the explicit `AGENT_CHAT_FORCE_BACKGROUND_RUNTIME` env (truthy) are
- * additional signals — the latter an operator escape hatch. Off by default.
- */
 export function isInBackgroundFunctionRuntime(): boolean {
-  // Set by the emitted `-background` function entry at cold start (the primary,
-  // most reliable signal — see the emit in deploy/build.ts).
   if (
     (globalThis as Record<string, unknown>)
       .__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true
@@ -313,9 +222,6 @@ export function backgroundRunMarkerExpectsBackgroundRuntime(
 export function shouldUseBackgroundFunctionTimeoutForWorker(
   _marker: unknown,
 ): boolean {
-  // The dispatch marker says which URL the foreground targeted, not where the
-  // request actually landed. Only the worker runtime proof can safely lift the
-  // hosted 40s clamp to the 15-minute background-function budget.
   return isInBackgroundFunctionRuntime();
 }
 
@@ -334,16 +240,6 @@ export function backgroundRuntimeDiagnosticDetail(marker: unknown): string {
 export const BACKGROUND_FUNCTION_UNREACHABLE_NOTICE_KEY =
   "__AGENT_NATIVE_BACKGROUND_UNREACHABLE_NOTICE__";
 
-/**
- * The foreground targeted the `-background` function's default url, yet this
- * worker is NOT running in that function: the deploy is missing the artifact (or
- * Netlify routed the url to the synchronous function). The turn still completes
- * on the 40s-clamped path, so nothing else ever surfaces it — an app can lose
- * the 15-min budget for its whole lifetime in silence (agent-native-plan did:
- * zero background runs ever, every turn pinned to the ~60s wall). Announce it
- * once per isolate; the same detail is already recorded on the run row by the
- * caller, so this only adds the server-side signal a deploy owner can grep.
- */
 function reportMissingBackgroundFunctionOnce(
   marker: unknown,
   detail: string,
@@ -361,20 +257,7 @@ function reportMissingBackgroundFunctionOnce(
   );
 }
 
-/**
- * Env flag parse, shared by the runtime gate and the deploy-time emit gates so
- * they can never drift apart (they did: the workspace deploy copy defaulted ON
- * while this one defaulted OFF).
- */
 export function isDurableBackgroundFlagEnabled(): boolean {
-  // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
-  // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
-  // in sync with AGENT_CHAT_DURABLE_BACKGROUND_ENV.
-  //
-  // This parses only the explicit opt-in signal. Netlify's default-on behavior
-  // is composed separately in isAgentChatDurableBackgroundEnabled, while every
-  // other runtime still requires this truthy value. Empty and unknown values
-  // remain false so an explicit host opt-in cannot be inferred accidentally.
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
   if (raw == null) return false;
   const normalized = raw.trim().toLowerCase();
@@ -398,22 +281,9 @@ export function isDurableBackgroundFlagExplicitlyDisabled(): boolean {
   );
 }
 
-/**
- * The single gate. On deployed Netlify, durable runs are enabled unless the env
- * flag is explicitly falsy. Other runtimes retain the explicit env/app opt-in
- * path. A2A_SECRET is always required; the implicit Netlify default and the
- * workspace app opt-in also require a hosted runtime, while an explicit env
- * opt-in does not. False means the current synchronous behavior is used
- * unchanged.
- */
 export function isAgentChatDurableBackgroundEnabled(options?: {
   appOptIn?: boolean;
 }): boolean {
-  // An app-level opt-out must win over a stale deploy-wide env flag. Netlify
-  // environment variables can outlive the source config that originally set
-  // them; allowing that flag to re-enable a worker an app explicitly disabled
-  // recreates the missing-background-function failure this gate is meant to
-  // prevent.
   if (options?.appOptIn === false) return false;
   const envOptIn = isDurableBackgroundFlagEnabled();
   const netlifyDefaultOptIn =
@@ -423,12 +293,6 @@ export function isAgentChatDurableBackgroundEnabled(options?: {
     options?.appOptIn === true &&
     !isDurableBackgroundFlagExplicitlyDisabled() &&
     resolveWorkspaceBackgroundFunctionUrlPath() !== null;
-  // An explicit env opt-in on a long-lived server (a container, Railway,
-  // `agent-native start`) carries none of the hosted markers. The flag plus a
-  // configured A2A secret is the whole condition there: the worker is the same
-  // signed `_process-run` route reached over the deployment's own self-dispatch
-  // URL, and the host timeout budget is untouched (`resolveRunSoftTimeoutMs`
-  // still asks `isHostedRuntime`).
   if (envOptIn && hasConfiguredA2ASecret()) return true;
   return (
     (envOptIn || netlifyDefaultOptIn || workspaceAppOptIn) &&
@@ -437,22 +301,10 @@ export function isAgentChatDurableBackgroundEnabled(options?: {
   );
 }
 
-/**
- * Env flag for the FOREGROUND server-driven self-chain. DEFAULT-OFF: a hosted
- * app must explicitly opt in with a truthy value (`true`/`1`/`yes`/`on`). A
- * regular Netlify function has a fixed 60-second wall, and a self-dispatched
- * successor can otherwise be killed before it persists its next continuation.
- * Keep this separate from `AGENT_CHAT_DURABLE_BACKGROUND` so the experimental
- * regular-function chain can be enabled independently after its deployment is
- * proven safe.
- */
 export const AGENT_CHAT_FOREGROUND_SELF_CHAIN_ENV =
   "AGENT_CHAT_FOREGROUND_SELF_CHAIN";
 
 function isForegroundSelfChainExplicitlyEnabled(): boolean {
-  // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
-  // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
-  // in sync with AGENT_CHAT_FOREGROUND_SELF_CHAIN_ENV.
   const raw = process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN;
   if (raw == null) return false;
   const normalized = raw.trim().toLowerCase();
@@ -464,25 +316,6 @@ function isForegroundSelfChainExplicitlyEnabled(): boolean {
   );
 }
 
-/**
- * Gate for the foreground self-chain: a normal (non-durable-background)
- * agent-chat turn that hits its soft-timeout chunk boundary continues via a
- * server-side self-dispatch on the REGULAR function (not a Netlify
- * `-background` function) instead of depending on the client to re-POST
- * `auto_continue`. True only when the env flag is explicitly truthy, the
- * runtime is hosted, and `A2A_SECRET` is configured (the HMAC handoff
- * authenticates the dispatch). Unlike `isAgentChatDurableBackgroundEnabled`,
- * the explicit flag does not lift the hosted-runtime requirement.
- * False means the existing client-driven `auto_continue` re-POST path is used.
- *
- * Deliberately independent of `isAgentChatDurableBackgroundEnabled`: an app can
- * use this narrower capability without opting into the full 15-min
- * background-function worker path, and the two gates never need to agree.
- * When BOTH would be true for a given run, the durable-background dispatch
- * decision in `production-agent.ts` is evaluated first and takes precedence —
- * a run already dispatched to the durable background worker chains via the
- * existing `isBackgroundWorker` path, not this one.
- */
 export function isAgentChatForegroundSelfChainEnabled(): boolean {
   return (
     isForegroundSelfChainExplicitlyEnabled() &&
@@ -491,37 +324,19 @@ export function isAgentChatForegroundSelfChainEnabled(): boolean {
   );
 }
 
-/** Decision returned by `prepareProcessRunRequest`. */
 export type ProcessRunPreparation =
   | {
       ok: true;
-      /** The pre-claimed run id the background worker must reuse. */
       runId: string;
-      /** Body to stash for the re-entered handler (marker guaranteed present). */
       body: Record<string, unknown>;
     }
   | {
       ok: false;
-      /** HTTP status the route should return. */
       status: number;
-      /** Error payload. */
       error: string;
-      /**
-       * The run id parsed from the body, when present. Carried even on failure
-       * so the route can RECORD the auth/validation failure ONTO the run
-       * (diag_stage) before returning the error status — otherwise a 401/503 in
-       * the unreadable Netlify background function would leave the run to time
-       * out with no clue why. Null when no run id could be parsed.
-       */
       runId: string | null;
     };
 
-/**
- * Parse the run id from a `_process-run` request body without authenticating.
- * Mirrors the precedence in `prepareProcessRunRequest` (marker.runId, then
- * top-level taskId). Returns null when neither is a usable string. Used so the
- * route can attach a diagnostic to the run even on an auth/validation failure.
- */
 export function extractProcessRunId(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
   const record = body as Record<string, unknown>;
@@ -594,10 +409,6 @@ export function prepareProcessRunRequest(
       };
     }
   } else if (!isTrustedLocalRuntime({ loopback })) {
-    // Callers that can see the h3 `event` (the route handler) pass the real
-    // loopback signal; callers without one default to non-loopback. Unsigned
-    // dispatch is still allowed via A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted
-    // local/dev setups; see auth-policy.ts `isTrustedLocalRuntime`.
     return {
       ok: false,
       status: 503,
@@ -607,8 +418,6 @@ export function prepareProcessRunRequest(
     };
   }
 
-  // Ensure the marker is present so the re-entered handler runs as the
-  // background worker (reuses runId/turnId, no re-claim, no re-dispatch).
   if (!marker || typeof marker.runId !== "string") {
     record[AGENT_CHAT_BACKGROUND_RUN_FIELD] = { runId };
   }

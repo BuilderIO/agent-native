@@ -39,35 +39,12 @@ export {
   type RegistryBlockSideMapBlock,
 } from "./RegistryBlockContext.js";
 
-/* -------------------------------------------------------------------------- */
-/* The generic registry-block side-map + Tiptap NodeView.                      */
-/*                                                                            */
-/* This is the app-agnostic NodeView that renders registered block specs       */
-/* inside a `SharedRichEditor` document. Hosts mount the node produced by      */
-/* {@link createRegistryBlockNode} as an extra extension and wrap the editor   */
-/* in a {@link RegistryBlockDataProvider}, sourcing the typed block `data`     */
-/* from their own authoritative store (for example, PlanContent.blocks). The   */
-/* node itself carries only lightweight identity attrs (type/id/title/summary) */
-/* plus an optional `__raw` verbatim-MDX attr for byte-stable source           */
-/* round-trips; the heavy typed `data` is threaded through the side-map        */
-/* context, keeping the doc small and the block data the single source of      */
-/* truth.                                                                     */
-/* -------------------------------------------------------------------------- */
 
 function clickedInteractiveChild(target: HTMLElement) {
   if (target.closest("button,input,textarea,select,a,[role='textbox']")) {
     return true;
   }
 
-  // The block drag-handle grip is a `role="button"` div that lives in the editor
-  // wrapper, and nested container blocks (columns/tabs) render their own inner
-  // editors — each its own grip. A container block's `onMouseDownCapture`
-  // selection handler runs in a SEPARATE React root (Tiptap mounts every node
-  // view as its own root), so its `stopPropagation()` halts the NATIVE mousedown
-  // right there, before it can reach an inner grip or inner editor. Treat the
-  // grip and anything inside a nested editor region as interactive so the outer
-  // container never hijacks a mousedown meant for inner machinery — this is what
-  // makes dragging a block OUT of / BETWEEN columns (a nested grip) work at all.
   if (
     target.closest(".drag-handle") ||
     target.closest(".plan-nested-document-editor-region")
@@ -121,26 +98,12 @@ export function selectRegistryBlockNode({
     view.focus();
     return true;
   } catch (error) {
-    // A node can disappear between the mousedown and selection dispatch during
-    // reconciliation. Keep that expected stale-position race recoverable, but
-    // do not hide unrelated editor failures.
     if (error instanceof RangeError) return false;
     throw error;
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* B. RegistryBlockNodeView (React)                                           */
-/* -------------------------------------------------------------------------- */
 
-/**
- * Renders one registry-block atom. The block is non-editable as far as
- * ProseMirror is concerned (`contentEditable={false}`); all interaction happens
- * inside the registry-driven `<BlockView>`. Read vs edit is toggled by
- * `props.selected` (the node is "selected" in the editor) AND the document being
- * editable. `data-plan-interactive` keeps existing host click-guards from
- * treating clicks inside the block as document clicks.
- */
 export function RegistryBlockNodeView(props: NodeViewProps) {
   const blockType = String(props.node.attrs.blockType ?? "");
   const blockId = String(props.node.attrs.blockId ?? "");
@@ -149,15 +112,6 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
 
   const sideMap = useRegistryBlockData();
 
-  // Optimistic edit override. `onBlockDataChange` commits into the host's own
-  // store (a ref the side-map context can't observe), so an edit does NOT
-  // re-render this node — the new data only reaches the view on the next full
-  // document reconcile, which lands after the autosave round-trip (seconds
-  // later) and is skipped entirely when the host treats the save as its own
-  // echo. That left quick toggles like the callout tone buttons visually frozen
-  // until reload. Holding the just-edited data locally re-renders this one node
-  // immediately, then releases once the authoritative block catches up to (or
-  // moves past) the value the edit was based on.
   const [pendingEdit, setPendingEdit] = useState<{
     data: unknown;
     base: unknown;
@@ -181,9 +135,6 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     sideMap?.onBlockDataChange(blockId, nextData, meta);
   };
   const editable = sideMap?.editable ?? false;
-  // In Notion-sync mode, flag blocks that have no Notion (NFM) analog so the
-  // author sees what won't push. Prose blocks aren't registry-block nodes, so
-  // this only ever covers structured blocks.
   const incompatibleWithNotion =
     (sideMap?.notionSync ?? false) &&
     (sideMap?.isNotionIncompatibleType?.(blockType) ?? false);
@@ -203,8 +154,6 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     });
   };
 
-  // The block data isn't in the side-map yet (e.g. a freshly inserted node whose
-  // store entry hasn't been seeded). Render a graceful placeholder.
   if (!block) {
     return (
       <NodeViewWrapper className="plan-block-node" data-block-id={blockId}>
@@ -244,14 +193,6 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     );
   };
 
-  // Choose how to render the block body:
-  //  1. A host registry adapter renders a registered block.
-  //  2. No spec, but the side-map provides `renderLegacyBlock` → delegate to the
-  //     host's dispatcher (decision, legacy visual-questions, image, and any
-  //     other type rendered by a bespoke component rather than the registry), so
-  //     EVERY block type renders in the document exactly as it does in the
-  //     per-block reader — never a bare title fallback.
-  //  3. Neither → a small non-crashing fallback.
   let body: ReactNode;
   let editSurface: ReactNode = null;
   const registered = sideMap?.renderRegisteredBlock?.(block, {
@@ -267,15 +208,10 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     body = registered.body;
     editSurface = registered.editSurface ?? null;
   } else if (sideMap?.renderLegacyBlock) {
-    // Self-editing legacy blocks (e.g. image) render their own edit affordance
-    // inside their overlay, so render them in edit mode and add NO separate
-    // corner edit surface — the block owns a single, self-contained overlay.
     const selfEdits =
       editable && Boolean(sideMap.legacyBlockSelfEdits?.(blockType));
     body = sideMap.renderLegacyBlock(block, { editing: selfEdits });
     if (editable && !selfEdits) {
-      // Prefer a host-provided schema/custom editor (a real form) over the raw
-      // JSON fallback when the host knows how to edit this legacy block type.
       const customEditor = sideMap.renderLegacyBlockEditor?.(block, {
         onChange: (nextData) => commitBlockData(nextData),
       });
@@ -304,9 +240,6 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     <NodeViewWrapper
       className="plan-block-node"
       data-block-id={blockId}
-      // Mirror the block type onto the wrapper so the document flow can detect a
-      // RUN of consecutive blocks of the same type (e.g. api-endpoint) and
-      // collapse the divider + gap between them, matching the read-only path.
       data-block-type={blockType || undefined}
       data-plan-block-selected={props.selected ? "" : undefined}
       data-notion-incompatible={incompatibleWithNotion ? "" : undefined}
@@ -381,11 +314,6 @@ export function LegacyJsonEditSurface({
   renderEditSurface?: (options: RegistryBlockEditSurfaceOptions) => ReactNode;
   onChange: (nextData: unknown) => void;
   selected: boolean;
-  /**
-   * A host-provided form editor. When present it
-   * replaces the raw-JSON textarea + Save button; the form autosaves through its
-   * own `onChange`.
-   */
   customEditor?: ReactNode;
 }) {
   const serializedBlockData = useMemo(
@@ -474,47 +402,14 @@ export function LegacyJsonEditSurface({
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* A. registry-block Tiptap node factory                                      */
-/* -------------------------------------------------------------------------- */
 
-/** Options for {@link createRegistryBlockNode}. */
 export interface CreateRegistryBlockNodeOptions {
-  /**
-   * The Tiptap node name (e.g. `"planBlock"`). Hosts that serialize the doc by
-   * node name (plan's `plan-doc.ts` keys off `"planBlock"`) must pass the exact
-   * name their serializer expects.
-   */
   nodeName: string;
-  /**
-   * The HTML data-attribute that marks a serialized registry block on copy/paste
-   * round-trip (e.g. `"data-plan-block"`).
-   */
   dataTag: string;
-  /**
-   * Mint a fresh, unique block id for a given block type. Used by the dedupe
-   * plugin to re-mint duplicate / missing ids (paste/duplicate). Plan passes
-   * `createPlanBlockId`.
-   */
   mintId: (blockType: string) => string;
-  /** Node group (default `"block"`). */
   group?: string;
 }
 
-/**
- * Build the generic registry-block Tiptap atom node. Returns a Tiptap `Node`
- * that:
- *  - carries identity attrs `blockType` / `blockId` / `title` / `summary`, a
- *    `sourceBlockId` (set when a duplicate is re-minted, so the host can copy the
- *    original block's data), and an optional `__raw` verbatim-MDX attr for
- *    byte-stable source round-trips;
- *  - is an atom + isolating + draggable block that renders through
- *    {@link RegistryBlockNodeView} (via `ReactNodeViewRenderer`);
- *  - installs a dedupe `appendTransaction` plugin that re-mints any duplicate or
- *    empty `blockId` (the classic paste/duplicate case), preserving the original
- *    block's id + side-map data and tagging its own transaction so it never
- *    loops.
- */
 export function createRegistryBlockNode(
   options: CreateRegistryBlockNodeOptions,
 ) {
@@ -522,11 +417,6 @@ export function createRegistryBlockNode(
   const dedupeKey = new PluginKey(`${nodeName}DedupeIds`);
   const keyboardGuardKey = new PluginKey(`${nodeName}KeyboardGuard`);
 
-  /**
-   * Collect every `blockId` currently present on this node type in a doc, with
-   * the position of each node, so duplicate ids (from paste/duplicate) can be
-   * detected and re-minted.
-   */
   function collectEntries(state: EditorState): Array<{
     pos: number;
     blockType: string;
@@ -556,12 +446,6 @@ export function createRegistryBlockNode(
     return found;
   }
 
-  /**
-   * Build a transaction that re-mints any duplicate / missing ids in `state`, or
-   * `null` when nothing needs changing. Only the *later* duplicate (and any node
-   * with an empty id) is re-minted, so the original keeps its id and side-map
-   * data.
-   */
   function buildDedupeTransaction(state: EditorState) {
     const entries = collectEntries(state);
     if (entries.length === 0) return null;
@@ -617,9 +501,6 @@ export function createRegistryBlockNode(
         title: { default: null },
         summary: { default: null },
         sourceBlockId: { default: null },
-        // Optional verbatim source for hosts that need byte-identical
-        // source-format round-trips without React (server pull, hashing). Plan
-        // never sets this.
         __raw: { default: null, rendered: false },
       };
     },
@@ -665,7 +546,6 @@ export function createRegistryBlockNode(
         new Plugin({
           key: dedupeKey,
           appendTransaction(transactions, _oldState, newState) {
-            // Ignore our own re-mint, and skip when nothing changed the doc.
             if (
               transactions.some((transaction) =>
                 transaction.getMeta(dedupeKey),

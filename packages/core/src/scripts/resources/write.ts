@@ -1,11 +1,3 @@
-/**
- * Core script: resource-write
- *
- * Write (create or update) a resource in the SQL store.
- *
- * Usage:
- *   pnpm action resource-write --path <path> --content <content> [--scope personal|shared] [--mime <mime-type>] [--visibility workspace|agent_scratch]
- */
 
 import { getOrgRoleForEmail } from "../../mcp/actions/service-token-access.js";
 import { canManageOrg } from "../../org/permissions.js";

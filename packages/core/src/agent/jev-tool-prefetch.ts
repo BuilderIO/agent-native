@@ -38,7 +38,6 @@ export type JevResponse = {
 export interface JevCandidate {
   id: string;
   description: string;
-  /** Metadata sent to Jev; callers must not put private content here. */
   metadata?: Record<string, string>;
 }
 
@@ -47,7 +46,6 @@ export interface JevRankCandidatesOptions {
   apiKey?: string;
   personalApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
-  /** IDs, descriptions, and metadata are sent to Jev; callers provide summaries only. */
   candidates: readonly JevCandidate[];
   candidateStateKey: string;
   answerKey: string;
@@ -111,7 +109,6 @@ function visiblePriorMessages(input: {
       );
 }
 
-/** Keep Jev grounded in recent user requests without sending assistant results. */
 export function buildJevRequestContext(input: {
   request: string;
   history?: readonly AgentMessage[];
@@ -141,7 +138,6 @@ export function buildJevRequestContext(input: {
     : currentBlock;
 }
 
-/** Current request plus the last two user turns for semantic/catalog retrieval. */
 export function buildRecentUserRequestContext(input: {
   request: string;
   history?: readonly AgentMessage[];
@@ -171,13 +167,6 @@ export function buildRecentUserRequestContext(input: {
     : currentBlock;
 }
 
-/**
- * Rank a bounded metadata-only catalog with Jev. Direct keys send bounded
- * request text and candidate IDs, descriptions, and metadata to a third party;
- * callers must omit paths, raw bodies, SQL, tool inputs/results, and row data.
- * A missing key, malformed response, timeout, or provider failure returns no
- * ranking so callers keep their existing deterministic fallback.
- */
 export async function rankJevCandidates(
   options: JevRankCandidatesOptions,
 ): Promise<string[]> {
@@ -344,12 +333,6 @@ export interface JevToolPrefetchOptions {
   limit?: number;
 }
 
-/**
- * Ask Jev which deferred tools deserve first-request schemas.
- *
- * A missing key and a Jev failure both preserve the existing curated surface;
- * Jev is an accelerator, not a dependency of agent execution.
- */
 export async function preloadJevTools(
   options: JevToolPrefetchOptions,
 ): Promise<EngineTool[]> {

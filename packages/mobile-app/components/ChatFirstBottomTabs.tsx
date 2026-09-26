@@ -44,16 +44,10 @@ import {
 } from "@/lib/tab-bar-layout";
 import { useApps } from "@/lib/use-apps";
 
-/**
- * Interruptible on purpose: hopping between tabs retargets the travel with
- * velocity preserved rather than restarting it from a standstill.
- */
 const SLIDE_SPRING = { duration: 420, dampingRatio: 0.82 };
 
 const HIGHLIGHT_RADIUS = 16;
-/** Label height plus its gap, folded together so it can collapse to nothing. */
 const LABEL_BLOCK = 16;
-/** Breathing room per side, so the chip never abuts its neighbour or the wall. */
 const HIGHLIGHT_INSET = 4;
 
 const PILL_SURFACE = {
@@ -90,9 +84,6 @@ function TabButton({
   const minimized = useTabBarMinimized();
   const tint = active ? foreground : mutedForeground;
 
-  // The label collapses to zero height rather than being clipped, so the glyph
-  // stays optically centred at every point of the minimize animation. Clipping
-  // a fixed-height box left the icon sitting low once the labels went away.
   const labelStyle = useAnimatedStyle(() => ({
     height: interpolate(
       minimized.value,
@@ -186,8 +177,6 @@ export default function ChatFirstBottomTabs({
   const minimized = useTabBarMinimized();
   const [launcherOpen, setLauncherOpen] = useState(false);
 
-  // The apps you pinned ride between Chat and Settings; everything else is
-  // one tap away behind the action button.
   const items: TabItem[] = [
     { key: "chat", label: "Chat", routeName: "chat" },
     ...selectedAppIds
@@ -207,20 +196,12 @@ export default function ChatFirstBottomTabs({
     items.findIndex((item) => item.routeName === currentRouteName),
     0,
   );
-  // Routes opened from the launcher own no slot, so the highlight fades out
-  // rather than parking on a tab the user is not actually on.
   const hasActiveTab = items.some(
     (item) => item.routeName === currentRouteName,
   );
 
   const slotCount = items.length;
 
-  /**
-   * Travel between tabs and the minimize shrink are separate motions. Spring
-   * the slot *index* and multiply by the live slot width, rather than springing
-   * the final offset — a spring whose target moves every frame of the shrink
-   * visibly trails the icons it is meant to sit under.
-   */
   const slideIndex = useSharedValue(activeIndex);
   const highlightOpacity = useSharedValue(hasActiveTab ? 1 : 0);
 
@@ -232,13 +213,6 @@ export default function ChatFirstBottomTabs({
     highlightOpacity.value = withSpring(hasActiveTab ? 1 : 0, SLIDE_SPRING);
   }, [hasActiveTab, highlightOpacity]);
 
-  /**
-   * The capsule is `flex: 1` beside an action button that shrinks as the bar
-   * minimizes, so the capsule silently widens by the same amount. Deriving the
-   * slot from a constant button size drifts a few points per slot — worst at
-   * the last one — and the highlight stops sitting under its icon. Recompute
-   * per frame from the same interpolation the button uses.
-   */
   const slotWidthAt = (progress: number) => {
     "worklet";
     const actionSize = interpolate(
@@ -270,7 +244,6 @@ export default function ChatFirstBottomTabs({
     borderRadius: pillHeight(minimized.value) / 2,
   }));
 
-  // Transform-only, so the travel is GPU-composited with no per-frame layout.
   const highlightStyle = useAnimatedStyle(() => {
     const height = interpolate(
       minimized.value,
