@@ -223,11 +223,10 @@ export default function Index() {
   const hasRecentDesigns =
     ownDesignsSummary.isSuccess && ownDesignsSummary.data.totalCount > 0;
   const hasSearchResultsSection = normalizedSearch.length > 0;
-  const activeHomeSection = hasSearchResultsSection
-    ? "recent"
-    : hasRecentDesigns
-      ? homeSection
-      : "templates";
+  useEffect(() => {
+    if (hasSearchResultsSection) setHomeSection("recent");
+  }, [hasSearchResultsSection]);
+  const activeHomeSection = hasRecentDesigns ? homeSection : "templates";
   const {
     data: templatesData,
     isLoading: templatesLoading,

@@ -498,6 +498,9 @@ export default function Index() {
   const [deckSearch, setDeckSearch] = useState("");
   const [homeSection, setHomeSection] =
     useState<PromptHomeLibraryTab>("templates");
+  useEffect(() => {
+    if (deckSearch.trim()) setHomeSection("recent");
+  }, [deckSearch]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
   // True while the picker still reflects an auto-applied default rather than
   // an explicit user choice. `useWorkspaceDefaults()`/`useDesignSystems()`
@@ -1999,11 +2002,6 @@ export default function Index() {
   const hasRecentDecks =
     viewState === "decks" && decks.some((deck) => deck.createdByMe === true);
   const hasDeckSearch = normalizedDeckSearch.length > 0;
-  const activeHomeSection = hasDeckSearch
-    ? "recent"
-    : hasRecentDecks
-      ? homeSection
-      : "templates";
 
   if (isStartingNewDeck) {
     return (
@@ -2169,7 +2167,7 @@ export default function Index() {
         </div>
       ) : null}
       <PromptHomeLibrary
-        value={activeHomeSection}
+        value={homeSection}
         onValueChange={setHomeSection}
         showRecent={hasRecentDecks || hasDeckSearch}
         labels={{

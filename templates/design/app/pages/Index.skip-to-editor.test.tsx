@@ -620,6 +620,10 @@ describe("Index search empty state", () => {
     });
 
     expect(container.textContent).toContain("home.recent");
+    const tabs = container.querySelectorAll<HTMLElement>('[role="tab"]');
+    expect(tabs).toHaveLength(2);
+    await act(async () => tabs[0]?.click());
+    expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
   });
 });
 

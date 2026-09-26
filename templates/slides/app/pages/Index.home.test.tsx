@@ -483,6 +483,11 @@ describe("Slides prompt-led home", () => {
       await screen.findByRole("tabpanel", { name: "Recent" }),
     ).toBeTruthy();
     expect(screen.getByText("No decks match your search.")).toBeTruthy();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Templates" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(screen.getByRole("tabpanel", { name: "Templates" })).toBeTruthy();
     header.unmount();
   });
 
