@@ -66,8 +66,10 @@ export function AiInboxSetup({
       refetchOnWindowFocus: true,
     },
   );
+  const jevAvailabilityResolved =
+    !jevAvailability.isError && jevAvailability.data != null;
   const jevConfigured =
-    !jevAvailability.isError && jevAvailability.data?.configured === true;
+    jevAvailabilityResolved && jevAvailability.data?.configured === true;
   const createRuleMutation = useCreateAutomation();
   const updateSettings = useUpdateSettings();
   const [step, setStep] = useState<SetupStep>(0);
@@ -103,8 +105,9 @@ export function AiInboxSetup({
 
   useEffect(() => {
     const wasForceOpen = previousForceOpen.current;
+    if (!forceOpen) previousForceOpen.current = false;
+    if (!visible || !jevAvailabilityResolved) return;
     previousForceOpen.current = forceOpen;
-    if (!visible) return;
     if (forceOpen && !wasForceOpen) {
       setJevStepRequired(!jevConfigured);
       setStep(jevConfigured ? 0 : -1);
@@ -114,7 +117,7 @@ export function AiInboxSetup({
     } else if (step === -1) {
       setStep(0);
     }
-  }, [forceOpen, jevConfigured, step, visible]);
+  }, [forceOpen, jevAvailabilityResolved, jevConfigured, step, visible]);
 
   const complete = async () => {
     try {
@@ -209,7 +212,12 @@ export function AiInboxSetup({
   };
 
   const skip = async () => {
-    if (step < 0 || !jevConfigured) {
+    if (step < 0) {
+      await complete();
+      return;
+    }
+    if (!jevAvailabilityResolved) return;
+    if (!jevConfigured) {
       await complete();
       return;
     }
@@ -267,6 +275,14 @@ export function AiInboxSetup({
               ),
             )}
           </div>
+          {step >= 0 && jevAvailability.isError ? (
+            <div className="mb-5">
+              <JevAvailabilityError
+                onRetry={() => void jevAvailability.refetch()}
+                retrying={jevAvailability.isFetching}
+              />
+            </div>
+          ) : null}
           {step === -1 ? (
             jevAvailability.isError ? (
               <JevAvailabilityError
@@ -381,7 +397,7 @@ export function AiInboxSetup({
               <Button
                 variant="ghost"
                 onClick={() => void skip()}
-                disabled={saving}
+                disabled={saving || (step >= 0 && !jevAvailabilityResolved)}
               >
                 {t("mail.sort.aiSetupSkip")}
               </Button>

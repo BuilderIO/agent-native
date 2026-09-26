@@ -32,9 +32,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@/components/settings/JevConnectionPrompt", () => ({
   JevConnectionPrompt: () => null,
   JevAvailabilityError: ({ onRetry }: { onRetry: () => void }) => (
-    <button type="button" onClick={onRetry}>
-      mail.error.tryAgain
-    </button>
+    <div role="alert">
+      <p>mail.aiFilter.jevAvailabilityFailed</p>
+      <button type="button" onClick={onRetry}>
+        mail.error.tryAgain
+      </button>
+    </div>
   ),
 }));
 
@@ -156,7 +159,48 @@ describe("AiInboxSetup", () => {
     );
   });
 
-  it("shows retry instead of a connect prompt when Jev availability cannot be checked", async () => {
+  it("preserves the current step when Jev availability fails and recovers", async () => {
+    const { rerender } = render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+
+    const importantPrompt = await screen.findByRole("textbox", {
+      name: "mail.sort.aiSetupImportantHeadline",
+    });
+    Object.assign(mocks.jevAvailability, {
+      data: undefined,
+      isError: true,
+    });
+    rerender(<AiInboxSetup forceOpen />);
+
+    expect(screen.getByRole("alert")).not.toBeNull();
+    expect(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupImportantHeadline",
+      }),
+    ).toBe(importantPrompt);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "mail.sort.aiSetupSkip",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    Object.assign(mocks.jevAvailability, {
+      data: { configured: true },
+      isError: false,
+    });
+    rerender(<AiInboxSetup forceOpen />);
+    expect(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupImportantHeadline",
+      }),
+    ).toBe(importantPrompt);
+  });
+
+  it("shows retry without replacing the onboarding step when Jev availability cannot be checked", async () => {
     Object.assign(mocks.jevAvailability, {
       data: undefined,
       isError: true,
@@ -165,9 +209,17 @@ describe("AiInboxSetup", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "mail.aiFilter.jevAvailabilityFailed",
+        name: "mail.sort.aiSetupTagsHeadline",
       }),
     ).not.toBeNull();
+    expect(screen.getByRole("alert")).not.toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "mail.sort.aiSetupSkip",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
     expect(
       screen.getByRole("button", { name: "mail.error.tryAgain" }),
     ).not.toBeNull();
