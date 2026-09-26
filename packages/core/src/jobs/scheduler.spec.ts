@@ -903,7 +903,7 @@ Run job ${index}.`,
     ).toBe(true);
   });
 
-  it("rotates past recently recorded identity failures", async () => {
+  it("keeps rotating past identity failures after their cooldown expires", async () => {
     const resources = Array.from({ length: 34 }, (_, index) => {
       const owner =
         index < 33
@@ -967,25 +967,35 @@ Run job ${index}.`,
       };
     });
 
-    await processRecurringJobs({
-      getActions: () => ({}),
-      getSystemPrompt: async () => "system",
-      engine: testEngine,
-      model: "test-model",
-    });
-    await processRecurringJobs({
-      getActions: () => ({}),
-      getSystemPrompt: async () => "system",
-      engine: testEngine,
-      model: "test-model",
-    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const start = Date.parse("2026-09-24T00:00:00.000Z");
+      for (const [minute, expectedRuns] of [
+        [0, 0],
+        [1, 1],
+        [5, 1],
+        [6, 2],
+      ]) {
+        vi.setSystemTime(start + minute * 60_000);
+        await processRecurringJobs({
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+          model: "test-model",
+        });
+        expect(runCount, `completed runs after minute ${minute}`).toBe(
+          expectedRuns,
+        );
+      }
+    } finally {
+      vi.useRealTimers();
+    }
 
-    expect(runCount).toBe(1);
     expect(
       resourcePutMock.mock.calls.filter((call) =>
         String(call[2]).includes("lastStatus: skipped"),
       ),
-    ).toHaveLength(33);
+    ).toHaveLength(66);
   });
 
   it("passes persisted MCP capabilities to the background action suppliers", async () => {
@@ -1696,37 +1706,50 @@ Do some work.`,
     expect(content).not.toContain("lastRun:");
   });
 
-  it("stops rewriting a blocked job once its failure state is recorded", async () => {
-    // The skip path used to persist the resource on every 60s tick, churning
-    // the poll stream and moving the displayed timestamp forever.
-    dbExecuteMock.mockResolvedValue({ rows: [] });
-    const blocked = {
-      id: "resource-blocked",
-      owner: "ghost@agent-native.test",
-      path: "jobs/blocked-job.md",
-      content: `---
+  it.each([
+    { age: "recent", offset: -60_000, writes: 0 },
+    { age: "expired", offset: -5 * 60_000, writes: 1 },
+    { age: "missing", offset: undefined, writes: 1 },
+  ])(
+    "persists a repeated identity failure with a $age lastCheck only when needed",
+    async ({ offset, writes }) => {
+      dbExecuteMock.mockResolvedValue({ rows: [] });
+      const blocked = {
+        id: "resource-blocked",
+        owner: "ghost@agent-native.test",
+        path: "jobs/blocked-job.md",
+        content: `---
 schedule: "* * * * *"
 nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: ghost@agent-native.test
 lastStatus: skipped
 lastError: "user \\"ghost@agent-native.test\\" no longer exists"
+${offset === undefined ? "" : `lastCheck: "${new Date(Date.now() + offset).toISOString()}"`}
 ---
 
 Do some work.`,
-    };
-    resourceListAllOwnersMock.mockResolvedValueOnce([blocked]);
+      };
+      resourceGetByPathMock.mockResolvedValueOnce(blocked);
 
-    await processRecurringJobs({
-      getActions: () => ({}),
-      getSystemPrompt: async () => "system",
-      engine: testEngine,
-      model: "test-model",
-    });
+      const result = await runJobNow(blocked.owner, "blocked-job", {
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+        engine: testEngine,
+        model: "test-model",
+      });
 
-    expect(runAgentLoopMock).not.toHaveBeenCalled();
-    expect(resourcePutMock).not.toHaveBeenCalled();
-  });
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      expect(result.status).toBe("skipped");
+      expect(resourcePutMock).toHaveBeenCalledTimes(writes);
+      if (writes > 0) {
+        const content: string = resourcePutMock.mock.calls[0][2];
+        expect(content).toContain("lastCheck:");
+        expect(content).not.toContain("lastRun:");
+        expect(content).toContain('nextRun: "1970-01-01T00:00:00.000Z"');
+      }
+    },
+  );
 
   it("patches claim and completion status without dropping application-owned frontmatter", async () => {
     resourceListAllOwnersMock.mockResolvedValueOnce([
