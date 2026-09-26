@@ -49,6 +49,17 @@ describe("AgentPanel compatibility exports", () => {
     expect(legacyFocusAgentChat).toBe(focusAgentChat);
     expect(legacyPreloadAgentChatSurface).toBe(preloadAgentChatSurface);
   });
+
+  it("uses a stable-ref link in the full-view menu item", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", "utf8").replace(
+      /\s+/g,
+      " ",
+    );
+
+    expect(source).toContain(
+      "<DropdownMenuItem asChild> <RouterSidebarLink to={fullViewAction.href}",
+    );
+  });
 });
 
 describe("resolveAgentPanelChatSurface", () => {
