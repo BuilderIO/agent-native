@@ -127,6 +127,8 @@ export async function recordDocumentHistoryTransition(args: {
   documentId: string;
   before: DocumentHistoryState;
   after: DocumentHistoryState;
+  beforeBodyRevision?: number;
+  afterBodyRevision?: number;
   cause: DocumentHistoryCause;
   now: string;
 }): Promise<{
@@ -140,6 +142,7 @@ export async function recordDocumentHistoryTransition(args: {
       id: schema.documentVersions.id,
       title: schema.documentVersions.title,
       content: schema.documentVersions.content,
+      bodyRevision: schema.documentVersions.bodyRevision,
       createdAt: schema.documentVersions.createdAt,
     })
     .from(schema.documentVersions)
@@ -166,7 +169,9 @@ export async function recordDocumentHistoryTransition(args: {
     !args.cause.skipBeforeCheckpoint &&
     (!latest ||
       latest.title !== args.before.title ||
-      latest.content !== args.before.content)
+      latest.content !== args.before.content ||
+      (args.beforeBodyRevision !== undefined &&
+        latest.bodyRevision !== args.beforeBodyRevision))
   ) {
     beforeCheckpointId = crypto.randomUUID();
     await args.db.insert(schema.documentVersions).values({
@@ -175,6 +180,7 @@ export async function recordDocumentHistoryTransition(args: {
       documentId: args.documentId,
       title: args.before.title,
       content: args.before.content,
+      bodyRevision: args.beforeBodyRevision ?? null,
       chatContext: serializeDocumentVersionChatContext(
         args.cause.chatContext ??
           documentVersionChatContextFromAction(args.cause.ctx),
@@ -201,6 +207,7 @@ export async function recordDocumentHistoryTransition(args: {
     documentId: args.documentId,
     title: args.after.title,
     content: args.after.content,
+    bodyRevision: args.afterBodyRevision ?? null,
     chatContext: serializeDocumentVersionChatContext(
       args.cause.chatContext ??
         documentVersionChatContextFromAction(args.cause.ctx),

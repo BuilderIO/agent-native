@@ -218,6 +218,8 @@ import {
 } from "@/hooks/use-document-properties";
 import {
   isDocumentUpdateConflict,
+  isDocumentUpdatePreservationRequired,
+  isDocumentUpdateSuperseded,
   type DocumentUpdateResult,
   useCreateDocument,
   useDeleteDocument,
@@ -597,13 +599,17 @@ export function previewDocumentSaveResult(args: {
   baseline?: PreviewDocumentPayload;
   contentChanged: boolean;
 }): PreviewDocumentSaveDeferred | PreviewDocumentSaveSuccess {
-  const serverDocument = isDocumentUpdateConflict(args.result)
-    ? args.result.document
-    : args.result;
+  const serverDocument =
+    "document" in args.result ? args.result.document : args.result;
   const titleSaveObservedExternalBody =
     !args.contentChanged && serverDocument.content !== args.payload.content;
 
-  if (isDocumentUpdateConflict(args.result) || titleSaveObservedExternalBody) {
+  if (
+    isDocumentUpdateConflict(args.result) ||
+    isDocumentUpdateSuperseded(args.result) ||
+    isDocumentUpdatePreservationRequired(args.result) ||
+    titleSaveObservedExternalBody
+  ) {
     return deferredPreviewDocumentSave("conflict", {
       lastSaved: args.baseline ?? args.payload,
       pending: {

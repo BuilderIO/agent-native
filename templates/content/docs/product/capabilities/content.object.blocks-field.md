@@ -32,7 +32,7 @@ evidence:
     "actions/content-database-block-actions.db.test.ts",
   ]
 superseded_by: null
-last_reviewed: "2026-09-22"
+last_reviewed: "2026-09-23"
 ---
 
 # Blocks fields
@@ -53,6 +53,7 @@ A reviewer writes a Comment containing a Page reference and a code Block, while 
 - Typed Blocks preserve source when a renderer is unavailable and report a degraded state rather than dropping content.
 - A multi-field action can share causality while retaining which field changed.
 - Page-body recovery generations are scoped to one editor lineage and settle only when the confirmed canonical title and body represent that authored snapshot.
+- Page-body save attempts retain a matching base, candidate, actor/session, and retry identity through rebase, retention, lifecycle submission, and remount. A remote live observation is distinct from authored intent and from confirmed SQL persistence; recovery retains the latest observed body without promoting it to a new local edit.
 
 ## Boundaries and non-goals
 
@@ -72,7 +73,7 @@ Given a Page with two Blocks fields, when an authorized editor restores one fiel
 
 ## Current evidence
 
-Primary and additional collection Blocks properties now retain distinct field identities, ordered Block identities, and independent monotonic revisions around their existing Markdown stores. Shared actions can list and mutate one exact collection Blocks field with field-level compare-and-swap, sibling preservation, stable IDs, durable retry receipts, and verified read-back. The Page body also fences delayed recovery upserts after a confirmed editor generation and preserves another tab's lineage. Export reports each field and its identity status without changing plain NFM. Comment/Discussion owners, attributable history, arbitrary restore, and the full real-interface matrix remain incomplete, so this is `in_progress`, not verified.
+Primary and additional collection Blocks properties retain distinct field identities, ordered Block identities, and independent monotonic revisions around their existing Markdown stores. Shared actions can list and mutate one exact collection Blocks field with field-level compare-and-swap, sibling preservation, stable IDs, durable retry receipts, and verified read-back. The Page body fences delayed recovery upserts after a confirmed editor generation and preserves another tab's lineage. The September 23 hosted beta two-tab run still lost later independent edits from one tab and opened version-choice recovery, so those foundations did not prove Page-body convergence. An early local pass of the current save-session repair preserved all markers through three alternating edits per tab, ten more alternating cycles, and an independent browser/MCP edit with replay receipt; full R01–R08 and repaired beta proof remain pending. Export reports each field and its identity status without changing plain NFM. Comment/Discussion owners, attributable history, arbitrary restore, and the full real-interface matrix remain incomplete, so this is `in_progress`.
 
 ## Proof plan
 

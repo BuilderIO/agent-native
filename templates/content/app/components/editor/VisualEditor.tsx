@@ -5,6 +5,7 @@ import {
   type AttributedRecentEdit,
 } from "@agent-native/core/client/collab";
 import {
+  callAction,
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
@@ -72,7 +73,7 @@ import {
   Node as TiptapNode,
   mergeAttributes,
 } from "@tiptap/react";
-import { yUndoPluginKey } from "@tiptap/y-tiptap";
+import { prosemirrorToYDoc, yUndoPluginKey } from "@tiptap/y-tiptap";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import {
   useCallback,
@@ -85,7 +86,7 @@ import {
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
-import type { Doc as YDoc } from "yjs";
+import { encodeStateAsUpdate, type Doc as YDoc } from "yjs";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import { Button } from "@/components/ui/button";
@@ -1505,6 +1506,8 @@ interface VisualEditorProps {
     baseRevision: string;
     serverRevision: string;
   }) => void;
+  /** Reports the current serialized body after a remote editor update. */
+  onRemoteSnapshotChange?: (markdown: string) => void;
   onChange: (markdown: string) => void;
   onSaveContent?: (
     markdown: string,
@@ -3064,6 +3067,7 @@ export function VisualEditor({
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
+  onRemoteSnapshotChange,
   onChange,
   onSaveContent,
   onEscape,
@@ -3338,6 +3342,7 @@ export function VisualEditor({
   // through `guardsRef`, populated right after the hook runs below. `onUpdate`
   // only fires once the editor exists, by which point the ref holds the guards.
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
+  const draftEmissionGenerationRef = useRef(0);
   const lastUserEditIntentAtRef = useRef(0);
   const hasUserEditIntentRef = useRef(false);
   const markUserEditIntent = useCallback(() => {
@@ -3387,7 +3392,11 @@ export function VisualEditor({
         // clobber DB content with an empty string). `registerEmitted` records
         // this as the last-emitted value and returns false to skip the save.
         if (!guards.registerEmitted(normalized)) return "unchanged" as const;
-        setTimeout(() => onChangeRef.current(normalized), 0);
+        const generation = draftEmissionGenerationRef.current;
+        setTimeout(() => {
+          if (generation === draftEmissionGenerationRef.current)
+            onChangeRef.current(normalized);
+        }, 0);
         return "scheduled" as const;
       } catch (err: any) {
         toast.error(
@@ -3606,6 +3615,7 @@ export function VisualEditor({
     },
     onUpdate: ({ editor, transaction }) => {
       const guards = guardsRef.current;
+      guards?.reportRemoteUpdate(transaction);
       // `shouldIgnoreUpdate` covers: not editable, mid-programmatic setContent,
       // and (collab) remote-origin transactions — the exact guards content used
       // inline before, now owned by the shared hook.
@@ -3754,6 +3764,7 @@ export function VisualEditor({
             canonicalizeNfm(snapshot.content);
         }
         if (applied) {
+          draftEmissionGenerationRef.current += 1;
           acknowledgedRestoreRef.current = {
             documentId: documentId ?? null,
             ...snapshot,
@@ -4019,6 +4030,89 @@ export function VisualEditor({
     (!contentUpdatedAt ||
       contentUpdatedAt < acknowledgedRestore.contentUpdatedAt),
   );
+  const initialSeedErrorShownRef = useRef(false);
+  const requestInitialSeed = useCallback(
+    async (seedEditor: CoreEditor, markdown: string): Promise<Uint8Array> => {
+      if (!documentId)
+        throw new Error("A document ID is required to seed collaboration.");
+      const seedDoc = prosemirrorToYDoc(
+        seedEditor.schema.nodeFromJSON(nfmToDoc(markdown)),
+        "default",
+      );
+      try {
+        const update = encodeStateAsUpdate(seedDoc);
+        let binary = "";
+        for (const byte of update) binary += String.fromCharCode(byte);
+        const result = await callAction<{ stateBase64: string }>(
+          "seed-document-collab",
+          { id: documentId, seedUpdateBase64: btoa(binary) },
+        );
+        initialSeedErrorShownRef.current = false;
+        return Uint8Array.from(atob(result.stateBase64), (char) =>
+          char.charCodeAt(0),
+        );
+      } finally {
+        seedDoc.destroy();
+      }
+    },
+    [documentId],
+  );
+  const onInitialSeedError = useCallback(
+    (error: unknown) => {
+      if (initialSeedErrorShownRef.current) return;
+      initialSeedErrorShownRef.current = true;
+      toast.error(t("empty.genericError"));
+      console.error("Collaborative editor seed failed:", error);
+    },
+    [t],
+  );
+  const getCollabMarkdown = useCallback(
+    (editorToSerialize: CoreEditor) =>
+      docToNfm(editorToSerialize.getJSON() as any),
+    [],
+  );
+  const setCollabContent = useCallback(
+    (
+      editorToUpdate: CoreEditor,
+      value: string,
+      options: { emitUpdate?: boolean; addToHistory?: boolean },
+    ) => {
+      if (!editable) return;
+      const doc = nfmToDoc(value);
+      if (options.addToHistory === false) {
+        editorToUpdate
+          .chain()
+          .command(({ tr }) => {
+            // Externally loaded content must stay outside local undo.
+            tr.setMeta("addToHistory", false);
+            return true;
+          })
+          .setContent(doc, { emitUpdate: options.emitUpdate })
+          .run();
+        return;
+      }
+      editorToUpdate.commands.setContent(doc);
+    },
+    [editable],
+  );
+  const shouldSeedCollabContent = useCallback(
+    ({
+      value,
+      currentMarkdown,
+      fragmentLength,
+    }: {
+      value: string;
+      currentMarkdown: string;
+      fragmentLength: number;
+    }) =>
+      editable &&
+      shouldSeedCollaborativeContent({
+        content: value,
+        currentMarkdown,
+        fragmentLength,
+      }),
+    [editable],
+  );
   const collabState = useCollabReconcile({
     editor,
     ydoc,
@@ -4040,10 +4134,14 @@ export function VisualEditor({
       : collabContentRevision,
     requestCollabSync,
     onBaseAwareReconcile,
+    onRemoteSnapshotChange,
+    requestInitialSeed:
+      ydoc && editable && documentId ? requestInitialSeed : undefined,
+    onInitialSeedError,
     overlapPolicy: "prefer-live",
     editable,
     isEditorFocused: isVisualEditorFocused,
-    getMarkdown: (e) => docToNfm(e.getJSON() as any),
+    getMarkdown: getCollabMarkdown,
     // Read-only viewers join the shared Y.Doc purely to RECEIVE live edits and
     // cursors; their editor content comes from the server state fetch + peer Yjs
     // updates, never from SQL reconcile. Any local Y.Doc write from a viewer
@@ -4051,35 +4149,13 @@ export function VisualEditor({
     // publish an author-less snapshot, so both write paths are neutered when
     // `!editable`: this `setContent` (used by both the seed and the reconcile
     // apply) no-ops, and `shouldSeed` returns false so the seed never runs.
-    setContent: (e, value, options) => {
-      if (!editable) return;
-      const doc = nfmToDoc(value);
-      if (options.addToHistory === false) {
-        e.chain()
-          .command(({ tr }) => {
-            // addToHistory:false so cmd+z (or Yjs undo) doesn't erase
-            // externally-loaded content.
-            tr.setMeta("addToHistory", false);
-            return true;
-          })
-          .setContent(doc, { emitUpdate: options.emitUpdate })
-          .run();
-        return;
-      }
-      e.commands.setContent(doc);
-    },
+    setContent: setCollabContent,
     normalizeValue: canonicalizeNfm,
     // The shared fallback parser is CommonMark. Content stores canonical NFM,
     // whose adjacent lines are separate Notion blocks, so always provide the
     // exact NFM parser for the surgical reconcile path.
     parseValue: parseNfmForCollabReconcile,
-    shouldSeed: ({ value, currentMarkdown, fragmentLength }) =>
-      editable &&
-      shouldSeedCollaborativeContent({
-        content: value,
-        currentMarkdown,
-        fragmentLength,
-      }),
+    shouldSeed: shouldSeedCollabContent,
     initialAppliedUpdatedAt: null,
   });
   guardsRef.current = collabState;
@@ -4566,6 +4642,22 @@ export function VisualEditor({
       <RegistryBlockDataProvider value={registryBlockDataValue}>
         <EditorContent editor={editor} />
       </RegistryBlockDataProvider>
+      {collabState.initialSeedFailed ? (
+        <div
+          role="alert"
+          className="flex items-center gap-2 px-4 py-2 text-sm text-destructive"
+        >
+          <span>{t("empty.genericError")}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={collabState.retryInitialSeed}
+          >
+            {t("comments.retry")}
+          </Button>
+        </div>
+      ) : null}
       <input
         ref={imageFileInputRef}
         type="file"

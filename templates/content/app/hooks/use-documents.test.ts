@@ -16,6 +16,7 @@ import {
   documentQueryKey,
   filterDocumentTreeDocuments,
   isDocumentUpdateConflict,
+  isDocumentUpdateSuperseded,
   isFavoritesDatabaseCache,
   mergeDocumentIntoDocumentCache,
   mergeDocumentIntoListDocumentsCache,
@@ -935,6 +936,31 @@ describe("isDocumentUpdateConflict", () => {
   it("does not treat a normal saved document as a conflict", () => {
     expect(
       isDocumentUpdateConflict({
+        ...doc("doc-1", null),
+        urlPath: "/page/doc-1",
+        softDeletedDatabaseIds: [],
+      } as any),
+    ).toBe(false);
+  });
+});
+
+describe("isDocumentUpdateSuperseded", () => {
+  it("recognizes a settled editor generation", () => {
+    expect(
+      isDocumentUpdateSuperseded({
+        superseded: true,
+        id: "doc-1",
+        document: { ...doc("doc-1", null), urlPath: "/page/doc-1" } as any,
+        editorSessionId: "tab-one",
+        editGeneration: 4,
+        discardedGeneration: 4,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat a normal saved document as superseded", () => {
+    expect(
+      isDocumentUpdateSuperseded({
         ...doc("doc-1", null),
         urlPath: "/page/doc-1",
         softDeletedDatabaseIds: [],

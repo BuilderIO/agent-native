@@ -2,9 +2,10 @@ import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Awareness } from "y-protocols/awareness";
-import type { Doc as YDoc } from "yjs";
+import { applyUpdate, type Doc as YDoc, type XmlFragment } from "yjs";
 
 import { AGENT_CLIENT_ID, isReconcileLeadClient } from "../collab-ui/index.js";
 import {
@@ -15,6 +16,33 @@ import {
 } from "./surgical-apply.js";
 
 export { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION };
+
+export function isRemoteCollaborativeTransaction(
+  transaction: Transaction,
+): boolean {
+  return (
+    isChangeOrigin(transaction) &&
+    !transaction.getMeta(ySyncPluginKey)?.isUndoRedoOperation
+  );
+}
+
+type InitialSeedNode = ReturnType<XmlFragment["toArray"]>[number];
+
+export function applyAuthoritativeInitialSeed(
+  ydoc: YDoc,
+  state: Uint8Array,
+  initialNodes: ReadonlyArray<{ node: InitialSeedNode; serialized: string }>,
+): void {
+  const fragment = ydoc.getXmlFragment("default");
+  ydoc.transact(() => {
+    for (const { node, serialized } of initialNodes) {
+      if (node.toString() !== serialized) continue;
+      const index = fragment.toArray().indexOf(node);
+      if (index !== -1) fragment.delete(index, 1);
+    }
+    applyUpdate(ydoc, state, "authoritative-initial-seed");
+  }, "authoritative-initial-seed");
+}
 
 /** Reads the current markdown out of the tiptap-markdown storage. */
 export function getEditorMarkdown(editor: Editor): string {
@@ -94,6 +122,11 @@ export interface UseCollabReconcileOptions {
     baseRevision: string;
     serverRevision: string;
   }) => void;
+  /** Observes a remote Yjs edit or an applied authoritative snapshot without persisting it. */
+  onRemoteSnapshotChange?: (markdown: string) => void;
+  /** Atomically seeds an initially empty shared editor and returns the committed Y.Doc state. */
+  requestInitialSeed?: (editor: Editor, value: string) => Promise<Uint8Array>;
+  onInitialSeedError?: (error: unknown) => void;
   /** Controls how overlapping live and server hunks are reconciled. */
   overlapPolicy?: "conflict" | "prefer-live";
   /** Whether the editor accepts edits. Reconcile/seed only run for the live editor. */
@@ -174,6 +207,9 @@ export interface UseCollabReconcileOptions {
 export interface UseCollabReconcileResult {
   /** True when a Y.Doc is bound (collaborative editing active). */
   collab: boolean;
+  /** A permanent initial sync failure keeps the editor read-only until retried. */
+  initialSeedFailed: boolean;
+  retryInitialSeed: () => void;
   /**
    * Set true around any programmatic `setContent` so the editor's `onUpdate`
    * can ignore the resulting transaction (it isn't a user edit).
@@ -185,6 +221,8 @@ export interface UseCollabReconcileResult {
    * mode) a remote-origin transaction. Also records the local typing time.
    */
   shouldIgnoreUpdate: (transaction: Transaction) => boolean;
+  /** Reports a remote Yjs document change, excluding local undo and reconciliation. */
+  reportRemoteUpdate: (transaction: Transaction) => void;
   /**
    * Call from `onUpdate` AFTER computing the markdown to emit. Returns false
    * when the value must NOT be persisted yet (an empty collab doc before the
@@ -276,6 +314,9 @@ export function useCollabReconcile({
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
+  onRemoteSnapshotChange,
+  requestInitialSeed,
+  onInitialSeedError,
   overlapPolicy = "conflict",
   editable,
   isEditorFocused = defaultIsEditorFocused,
@@ -410,6 +451,7 @@ export function useCollabReconcile({
   // authoritative external snapshot into it. Exactly one client does, so the
   // content isn't inserted once per open editor. A sole client always leads.
   const [isLeadClient, setIsLeadClient] = useState(true);
+  const seedLead = requestInitialSeed ? true : isLeadClient;
   // Count of OTHER visible human collaborators. When >0, a peer's edit also
   // arrives via Yjs, so external markdown reconcile must defer (avoid applying
   // the same change through both Yjs and setContent).
@@ -458,12 +500,15 @@ export function useCollabReconcile({
   // so two clients opening a brand-new block at once don't both seed (which
   // would duplicate the content via concurrent inserts at the same position).
   const seededRef = useRef(false);
+  const [initialSeedFailed, setInitialSeedFailed] = useState(false);
+  const [initialSeedRetry, setInitialSeedRetry] = useState(0);
   useEffect(() => {
     if (!collab || !editor || editor.isDestroyed || !ydoc) return;
     if (seededRef.current) return;
     if (!collabSynced) return;
     if (collabBackedSnapshot) {
       seededRef.current = true;
+      if (requestInitialSeed) editor.setEditable(editable);
       return;
     }
     if (contentRevision) {
@@ -515,7 +560,7 @@ export function useCollabReconcile({
     // duplicates it), but `seededRef` also gates persistence and reconcile — so
     // release it here anyway, or this client's own typing is dropped before it
     // ever reaches SQL while its peers still see it through Yjs.
-    if (!isLeadClient) {
+    if (!seedLead) {
       const releaseTimer = setTimeout(() => {
         seededRef.current = true;
       }, 0);
@@ -529,6 +574,8 @@ export function useCollabReconcile({
     // ProseMirror after this effect is scheduled. Capturing the pre-projection
     // empty editor here would incorrectly seed the SQL snapshot alongside the
     // existing CRDT content, duplicating the whole document after reload.
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryDelayMs = 1000;
     const seedTimer = setTimeout(() => {
       if (cancelled || editor.isDestroyed) return;
       const fragment = ydoc.getXmlFragment("default");
@@ -544,6 +591,58 @@ export function useCollabReconcile({
         })
       ) {
         seededRef.current = true;
+        if (requestInitialSeed) editor.setEditable(editable);
+        return;
+      }
+      if (requestInitialSeed) {
+        editor.setEditable(false);
+        const initialNodes = fragment.toArray().map((node) => ({
+          node,
+          serialized: node.toString(),
+        }));
+        const claim = () => {
+          void requestInitialSeed(editor, value)
+            .then((state) => {
+              if (cancelled || editor.isDestroyed) return;
+              isSettingContentRef.current = true;
+              try {
+                applyAuthoritativeInitialSeed(ydoc, state, initialNodes);
+              } finally {
+                isSettingContentRef.current = false;
+              }
+              const serialized = getMarkdown(editor);
+              lastEmittedRef.current = serialized;
+              pushEmittedRing(recentEmittedRef.current, serialized);
+              lastAppliedValueRef.current = value;
+              lastAppliedSerializedRef.current = serialized;
+              if (contentUpdatedAt)
+                lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+              seededRef.current = true;
+              setInitialSeedFailed(false);
+              editor.setEditable(editable);
+            })
+            .catch((error: unknown) => {
+              if (cancelled || editor.isDestroyed) return;
+              onInitialSeedError?.(error);
+              const status =
+                error && typeof error === "object" && "status" in error
+                  ? error.status
+                  : undefined;
+              if (
+                typeof status === "number" &&
+                status >= 400 &&
+                status < 500 &&
+                status !== 408 &&
+                status !== 429
+              ) {
+                setInitialSeedFailed(true);
+                return;
+              }
+              retryTimer = setTimeout(claim, retryDelayMs);
+              retryDelayMs = Math.min(retryDelayMs * 2, 8000);
+            });
+        };
+        claim();
         return;
       }
       isSettingContentRef.current = true;
@@ -563,6 +662,9 @@ export function useCollabReconcile({
     return () => {
       cancelled = true;
       clearTimeout(seedTimer);
+      if (retryTimer) clearTimeout(retryTimer);
+      if (requestInitialSeed && !editor.isDestroyed)
+        editor.setEditable(editable);
     };
   }, [
     collab,
@@ -570,13 +672,17 @@ export function useCollabReconcile({
     editor,
     ydoc,
     value,
-    isLeadClient,
+    seedLead,
+    requestInitialSeed,
+    onInitialSeedError,
+    editable,
     contentUpdatedAt,
     contentRevision,
     getMarkdown,
     setContent,
     shouldSeed,
     collabBackedSnapshot,
+    initialSeedRetry,
   ]);
 
   const peerReconcileWaitRef = useRef<{
@@ -1047,6 +1153,7 @@ export function useCollabReconcile({
           lastAppliedSerializedRef.current = merged;
           if (contentUpdatedAt)
             lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+          if (merged !== beforeMarkdown) onRemoteSnapshotChange?.(merged);
           if (merged !== normalized) {
             onBaseAwareReconcile({
               status: "merged",
@@ -1092,6 +1199,9 @@ export function useCollabReconcile({
         if (contentUpdatedAt) {
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
         }
+        if (serialized !== beforeMarkdown) {
+          onRemoteSnapshotChange?.(serialized);
+        }
       }, 0);
       retry = applyTimer;
     };
@@ -1119,6 +1229,7 @@ export function useCollabReconcile({
     normalizeValue,
     isEditorFocused,
     onBaseAwareReconcile,
+    onRemoteSnapshotChange,
     overlapPolicy,
     collabBackedSnapshot,
     pendingCollabSnapshot,
@@ -1153,9 +1264,27 @@ export function useCollabReconcile({
     // state load or a peer's edit arriving via sync). Each client saves only its
     // OWN local edits; a peer's edit is saved by that peer. Without this, a
     // lagging Y.Doc load would write stale markdown over newer SQL.
-    if (collab && transaction && isChangeOrigin(transaction)) return true;
+    if (collab && transaction && isRemoteCollaborativeTransaction(transaction))
+      return true;
     lastTypedAtRef.current = Date.now();
     return false;
+  };
+
+  const reportRemoteUpdate = (transaction: Transaction): void => {
+    if (
+      !collab ||
+      !collabSynced ||
+      !seededRef.current ||
+      !editor ||
+      editor.isDestroyed ||
+      isSettingContentRef.current ||
+      !transaction.docChanged ||
+      !isChangeOrigin(transaction) ||
+      transaction.getMeta(ySyncPluginKey)?.isUndoRedoOperation
+    ) {
+      return;
+    }
+    onRemoteSnapshotChange?.(getMarkdown(editor));
   };
 
   const registerEmitted = (markdown: string): boolean => {
@@ -1170,8 +1299,14 @@ export function useCollabReconcile({
 
   return {
     collab,
+    initialSeedFailed,
+    retryInitialSeed: () => {
+      setInitialSeedFailed(false);
+      setInitialSeedRetry((retry) => retry + 1);
+    },
     isSettingContentRef,
     shouldIgnoreUpdate,
+    reportRemoteUpdate,
     registerEmitted,
   };
 }

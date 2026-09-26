@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -1277,11 +1278,12 @@ describe("inline database lifecycle reconcile", () => {
       databaseId,
       databaseDocumentId,
     });
-    const db = getDb();
-    await db
-      .update(schema.documents)
-      .set({ content: originalContent })
-      .where(eq(schema.documents.id, hostDocumentId));
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: hostDocumentId,
+        content: originalContent,
+      }),
+    );
 
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
       updateDocumentAction.run({
@@ -1291,6 +1293,94 @@ describe("inline database lifecycle reconcile", () => {
     );
 
     expect(result.softDeletedDatabaseIds).toEqual([databaseId]);
+    expect((await databaseRow(databaseId))?.deletedAt).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it("rolls back the browser receipt when inline database reconciliation fails", async () => {
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const ownerBlockId = nextId("inline_database");
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+    });
+    const originalContent = inlineDatabaseBlock({
+      blockId: ownerBlockId,
+      databaseId,
+      databaseDocumentId,
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: hostDocumentId,
+        content: originalContent,
+      }),
+    );
+    const db = getDb();
+    const base = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({ id: hostDocumentId }),
+    );
+    const attemptId = nextId("inline-remove-attempt");
+    const editorSessionId = nextId("inline-remove-session");
+    const save = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(
+          {
+            id: hostDocumentId,
+            content: "The database block was removed.",
+            baseRevision: base.revision,
+            authoredBaseRevision: base.revision,
+            authoredBaseContent: originalContent,
+            authoredCandidateContent: "The database block was removed.",
+            browserSaveAttemptId: attemptId,
+            editorSessionId,
+            editorEditGeneration: 1,
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+    const exec = getDbExec();
+    await exec.execute(`
+      CREATE FUNCTION fail_inline_reconcile() RETURNS trigger
+      LANGUAGE plpgsql AS $failure$
+      BEGIN
+        IF NEW.deleted_at IS NOT NULL THEN
+          RAISE EXCEPTION 'injected inline reconciliation failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $failure$;
+    `);
+    await exec.execute(`
+      CREATE TRIGGER fail_inline_reconcile
+      BEFORE UPDATE ON content_databases
+      FOR EACH ROW EXECUTE FUNCTION fail_inline_reconcile();
+    `);
+    try {
+      await expect(save()).rejects.toThrow();
+      expect((await documentRow(hostDocumentId))?.content).toBe(
+        originalContent,
+      );
+      expect((await databaseRow(databaseId))?.deletedAt).toBeNull();
+      expect(
+        await db
+          .select()
+          .from(schema.documentBrowserSaveAttempts)
+          .where(
+            eq(schema.documentBrowserSaveAttempts.documentId, hostDocumentId),
+          ),
+      ).toHaveLength(0);
+    } finally {
+      await exec.execute(
+        `DROP TRIGGER fail_inline_reconcile ON content_databases`,
+      );
+      await exec.execute(`DROP FUNCTION fail_inline_reconcile()`);
+    }
+    const saved = await save();
+    const replayed = await save();
+    expect(saved.softDeletedDatabaseIds).toEqual([databaseId]);
+    expect(replayed.softDeletedDatabaseIds).toEqual([databaseId]);
+    expect(replayed.browserSaveAttempt?.result).toBe("replayed");
     expect((await databaseRow(databaseId))?.deletedAt).toEqual(
       expect.any(String),
     );

@@ -13,8 +13,15 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import {
+  findDocumentBodyBase,
+  preserveDocumentBodyIntent,
+  readDocumentBodyIntents,
+  recordDocumentBodyIntent,
+} from "../server/lib/document-body-intents.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
 import {
   resolveDocumentTextEdits,
   type DocumentTextEdit,
@@ -70,6 +77,7 @@ function validateDocumentEditSnapshot(
   baseRevision: string,
   edits: DocumentTextEdit[] | undefined,
   initializeContent?: string,
+  baseContent?: string,
 ) {
   if (!document) {
     throw new ActionContractError("Document not found.", {
@@ -77,10 +85,10 @@ function validateDocumentEditSnapshot(
       statusCode: 404,
     });
   }
-  const beforeContent = document.content ?? "";
+  const beforeContent = baseContent ?? document.content ?? "";
   const beforeHash = documentContentHash(beforeContent);
   if (
-    document.bodyRevision !== base.revision ||
+    (baseContent === undefined && document.bodyRevision !== base.revision) ||
     beforeHash !== base.contentHash
   ) {
     conflict("STALE_BASE_REVISION", "The document changed after it was read.", {
@@ -165,9 +173,18 @@ function replayResult(stored: typeof schema.documentEditReceipts.$inferSelect) {
 export interface DocumentEditMutationResult {
   applied: number;
   total: number;
+  preservationRequired?: {
+    reason: "structure" | "provenance";
+    checkpointId: string;
+  };
   receipt: {
     receiptId: string;
-    outcome: "applied" | "unchanged";
+    outcome:
+      | "applied"
+      | "unchanged"
+      | "displaced-preserved"
+      | "preservation-required";
+    displacedCheckpointId?: string;
     documentId: string;
     revisions: { before: string; after: string };
     bodyRevision: { before: number; after: number };
@@ -293,18 +310,47 @@ export async function mutateDocumentBody(
   };
 
   try {
+    await assertAccess("document", args.documentId, "editor", {
+      userEmail: args.ctx.userEmail,
+      orgId: args.ctx.orgId ?? undefined,
+    });
     const previous = await readReplay(db);
     if (previous) return previous;
     const [preflightDocument] = await db
       .select()
       .from(schema.documents)
       .where(eq(schema.documents.id, args.documentId));
+    const preflightBaseContent =
+      preflightDocument?.bodyRevision === base.revision &&
+      documentContentHash(preflightDocument.content ?? "") === base.contentHash
+        ? (preflightDocument.content ?? "")
+        : preflightDocument
+          ? await findDocumentBodyBase({
+              db,
+              ownerEmail: preflightDocument.ownerEmail,
+              documentId: args.documentId,
+              contentHash: base.contentHash,
+              revision: base.revision,
+            })
+          : null;
+    if (preflightBaseContent === null) {
+      conflict("STALE_BASE_REVISION", "The exact edit base is unavailable.", {
+        expectedRevision: args.baseRevision,
+        currentRevision: preflightDocument
+          ? documentRevisionToken(
+              preflightDocument.bodyRevision,
+              preflightDocument.content,
+            )
+          : undefined,
+      });
+    }
     validateDocumentEditSnapshot(
       preflightDocument,
       base,
       args.baseRevision,
       normalizedEdits,
       initializationContent,
+      preflightBaseContent,
     );
     const creativeContext = args.resolveCreativeContext
       ? await args.resolveCreativeContext()
@@ -324,22 +370,147 @@ export async function mutateDocumentBody(
         .select()
         .from(schema.documents)
         .where(eq(schema.documents.id, args.documentId));
+      const baseContent =
+        document?.bodyRevision === base.revision &&
+        documentContentHash(document.content ?? "") === base.contentHash
+          ? (document.content ?? "")
+          : document
+            ? await findDocumentBodyBase({
+                db: tx,
+                ownerEmail: document.ownerEmail,
+                documentId: args.documentId,
+                contentHash: base.contentHash,
+                revision: base.revision,
+              })
+            : null;
+      if (baseContent === null) {
+        conflict("STALE_BASE_REVISION", "The exact edit base is unavailable.", {
+          expectedRevision: args.baseRevision,
+        });
+      }
       const validated = validateDocumentEditSnapshot(
         document,
         base,
         args.baseRevision,
         normalizedEdits,
         initializationContent,
+        baseContent,
       );
-      const { beforeContent, beforeHash, resolved } = validated;
+      const { resolved } = validated;
 
-      const changed = resolved.content !== beforeContent;
+      if (
+        initializationContent !== undefined &&
+        document.bodyRevision !== base.revision
+      ) {
+        conflict(
+          "DOCUMENT_BODY_NOT_EMPTY",
+          "Document initialization requires the current body to be empty.",
+          {
+            currentRevision: documentRevisionToken(
+              document.bodyRevision,
+              document.content,
+            ),
+          },
+        );
+      }
+
+      const intent = {
+        writerId: `${scope}:edit-document`,
+        operationId: args.idempotencyKey,
+        authoredBaseRevision: base.revision,
+      };
+      const priorIntents = await readDocumentBodyIntents({
+        db: tx,
+        ownerEmail: document.ownerEmail,
+        documentId: document.id,
+        afterRevision: base.revision,
+        throughRevision: document.bodyRevision,
+      });
+      const merged = mergeDocumentBodyIntents({
+        authoredBaseContent: baseContent,
+        authoredCandidateContent: resolved.content,
+        currentContent: document.content,
+        currentRevision: document.bodyRevision,
+        incoming: intent,
+        priorIntents,
+      });
+      const now = nextDocumentUpdatedAt(document.updatedAt);
+      const receiptId = crypto.randomUUID();
+      if (merged.status === "preservation-required") {
+        const checkpointId = await preserveDocumentBodyIntent({
+          db: tx,
+          ownerEmail: document.ownerEmail,
+          documentId: document.id,
+          title: document.title,
+          candidateContent: resolved.content,
+          actorEmail: args.ctx.userEmail ?? null,
+          origin: args.ctx.caller,
+          operation: "edit-document-preservation",
+          now,
+        });
+        const result: DocumentEditMutationResult = {
+          applied: 0,
+          total: normalizedEdits?.length ?? 1,
+          preservationRequired: { reason: merged.reason, checkpointId },
+          receipt: {
+            receiptId,
+            outcome: "preservation-required",
+            documentId: document.id,
+            revisions: {
+              before: documentRevisionToken(
+                document.bodyRevision,
+                document.content,
+              ),
+              after: documentRevisionToken(
+                document.bodyRevision,
+                document.content,
+              ),
+            },
+            bodyRevision: {
+              before: document.bodyRevision,
+              after: document.bodyRevision,
+            },
+            hashes: {
+              before: documentContentHash(document.content),
+              after: documentContentHash(document.content),
+            },
+            ranges: [],
+            idempotency: {
+              key: args.idempotencyKey,
+              result: "applied",
+              payloadDigest,
+            },
+            readback: { verified: true },
+          },
+        };
+        await tx.insert(schema.documentEditReceipts).values({
+          id: receiptId,
+          ownerEmail: document.ownerEmail,
+          orgId: document.orgId,
+          documentId: document.id,
+          callerScope: scope,
+          idempotencyKey: args.idempotencyKey,
+          payloadDigest,
+          baseRevision: base.revision,
+          resultRevision: document.bodyRevision,
+          beforeHash: documentContentHash(document.content),
+          afterHash: documentContentHash(document.content),
+          rangesJson: "[]",
+          actorJson: JSON.stringify({
+            caller: args.ctx.caller,
+            userEmail: args.ctx.userEmail,
+          }),
+          resultJson: JSON.stringify(result),
+          createdAt: now,
+        });
+        return result;
+      }
+
+      const changed = merged.content !== document.content;
       const afterRevision = changed
         ? document.bodyRevision + 1
         : document.bodyRevision;
-      const afterHash = documentContentHash(resolved.content);
-      const now = nextDocumentUpdatedAt(document.updatedAt);
-      const receiptId = crypto.randomUUID();
+      const afterHash = documentContentHash(merged.content);
       if (changed) {
         const primaryBlocksFields = await lockPrimaryBlocksFields(
           tx,
@@ -348,7 +519,7 @@ export async function mutateDocumentBody(
         const updated = await tx
           .update(schema.documents)
           .set({
-            content: resolved.content,
+            content: merged.content,
             bodyRevision: afterRevision,
             ...documentEditAttribution(actor),
             updatedAt: now,
@@ -357,7 +528,7 @@ export async function mutateDocumentBody(
             and(
               eq(schema.documents.id, document.id),
               eq(schema.documents.bodyRevision, document.bodyRevision),
-              eq(schema.documents.content, beforeContent),
+              eq(schema.documents.content, document.content),
             ),
           )
           .returning({ bodyRevision: schema.documents.bodyRevision });
@@ -376,8 +547,8 @@ export async function mutateDocumentBody(
             ownerEmail: field.ownerEmail,
             documentId: document.id,
             propertyId: field.propertyId,
-            previousMarkdown: beforeContent,
-            markdown: resolved.content,
+            previousMarkdown: document.content,
+            markdown: merged.content,
             now,
           });
         }
@@ -385,8 +556,10 @@ export async function mutateDocumentBody(
           db: tx,
           ownerEmail: document.ownerEmail,
           documentId: document.id,
-          before: { title: document.title, content: beforeContent },
-          after: { title: document.title, content: resolved.content },
+          before: { title: document.title, content: document.content },
+          after: { title: document.title, content: merged.content },
+          beforeBodyRevision: document.bodyRevision,
+          afterBodyRevision: afterRevision,
           cause: { ctx: args.ctx, operation: "edit-document" },
           now,
         });
@@ -402,6 +575,32 @@ export async function mutateDocumentBody(
           );
         }
       }
+      const displacedCheckpointId = merged.displaced
+        ? await preserveDocumentBodyIntent({
+            db: tx,
+            ownerEmail: document.ownerEmail,
+            documentId: document.id,
+            title: document.title,
+            candidateContent: resolved.content,
+            actorEmail: args.ctx.userEmail ?? null,
+            origin: args.ctx.caller,
+            operation: "edit-document-displaced",
+            now,
+          })
+        : undefined;
+      await recordDocumentBodyIntent({
+        db: tx,
+        ownerEmail: document.ownerEmail,
+        orgId: document.orgId ?? "",
+        documentId: document.id,
+        intent,
+        candidateHash: documentContentHash(resolved.content),
+        committedRevision: afterRevision,
+        changedBlockIndexes: merged.changedBlockIndexes,
+        canonicalChanged: changed,
+        displacedCheckpointId,
+        now,
+      });
       const ranges = resolved.ranges.map((range, editIndex) => ({
         editIndex,
         start: range.start,
@@ -412,14 +611,25 @@ export async function mutateDocumentBody(
         total: normalizedEdits?.length ?? 1,
         receipt: {
           receiptId,
-          outcome: changed ? "applied" : "unchanged",
+          outcome: merged.displaced
+            ? "displaced-preserved"
+            : changed
+              ? "applied"
+              : "unchanged",
+          ...(displacedCheckpointId ? { displacedCheckpointId } : {}),
           documentId: document.id,
           revisions: {
-            before: documentRevisionToken(document.bodyRevision, beforeContent),
-            after: documentRevisionToken(afterRevision, resolved.content),
+            before: documentRevisionToken(
+              document.bodyRevision,
+              document.content,
+            ),
+            after: documentRevisionToken(afterRevision, merged.content),
           },
           bodyRevision: { before: document.bodyRevision, after: afterRevision },
-          hashes: { before: beforeHash, after: afterHash },
+          hashes: {
+            before: documentContentHash(document.content),
+            after: afterHash,
+          },
           ranges,
           idempotency: {
             key: args.idempotencyKey,
@@ -437,9 +647,9 @@ export async function mutateDocumentBody(
         callerScope: scope,
         idempotencyKey: args.idempotencyKey,
         payloadDigest,
-        baseRevision: document.bodyRevision,
+        baseRevision: base.revision,
         resultRevision: afterRevision,
-        beforeHash,
+        beforeHash: documentContentHash(document.content),
         afterHash,
         rangesJson: JSON.stringify(ranges),
         actorJson: JSON.stringify({
@@ -464,7 +674,7 @@ export async function mutateDocumentBody(
         .where(eq(schema.documents.id, document.id));
       if (
         !readback ||
-        readback.content !== resolved.content ||
+        readback.content !== merged.content ||
         readback.bodyRevision !== afterRevision ||
         documentContentHash(readback.content) !== afterHash
       ) {
@@ -482,6 +692,10 @@ export async function mutateDocumentBody(
     // outcome instead of surfacing a false stale/unique-key failure.
     const replay = await readReplay(db);
     if (!replay) throw error;
+    await assertAccess("document", args.documentId, "editor", {
+      userEmail: args.ctx.userEmail,
+      orgId: args.ctx.orgId ?? undefined,
+    });
     return replay;
   }
 }

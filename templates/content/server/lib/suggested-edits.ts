@@ -1,4 +1,5 @@
 import { fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   withPreparedYDocMutation,
   type PreparedYDocMutationLease,
@@ -19,19 +20,25 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
-import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+} from "../../actions/_document-edit-mutation.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
   SUPPORTED_SUGGESTION_BLOCKS,
   SUPPORTED_SUGGESTION_MARKS,
 } from "../../app/components/editor/suggestions/model.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
+import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
 import { nfmToDoc } from "../../shared/nfm.js";
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { resolveMarkdownSuggestionRange } from "../../shared/suggestion-rebase.js";
 import { schema } from "../db/index.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
+import { recordDocumentBodyIntent } from "./document-body-intents.js";
+import { recordDocumentHistoryTransition } from "./document-history.js";
 
 export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
 
@@ -165,17 +172,6 @@ function matchesDocumentRevision(
   return (
     baseRevision === canonicalRevision || baseRevision === document.updatedAt
   );
-}
-
-function decisionChatContext(ctx: Record<string, unknown> | undefined) {
-  const context = Object.fromEntries(
-    (["threadId", "runId", "turnId"] as const).flatMap((key) =>
-      typeof ctx?.[key] === "string" && ctx[key].trim()
-        ? [[key, ctx[key]]]
-        : [],
-    ),
-  );
-  return Object.keys(context).length ? JSON.stringify(context) : null;
 }
 
 type ContentDecisionCoordination = {
@@ -620,6 +616,24 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     const now = new Date().toISOString();
     const nextBodyRevision = currentDocument.bodyRevision + 1;
     const nextRevision = documentRevisionToken(nextBodyRevision, nextContent);
+    const intent = {
+      writerId: `suggestion:${String(current.owner_email)}`,
+      operationId: context.suggestion.id,
+      authoredBaseRevision: currentDocument.bodyRevision,
+    };
+    const planned = mergeDocumentBodyIntents({
+      authoredBaseContent: currentContent,
+      authoredCandidateContent: nextContent,
+      currentContent,
+      currentRevision: currentDocument.bodyRevision,
+      incoming: intent,
+      priorIntents: [],
+    });
+    if (planned.status !== "resolved") {
+      throw new Error(
+        "The accepted suggestion cannot preserve document structure",
+      );
+    }
     const applied = await commitCanonicalDocumentBodyMutation({
       write: async () => {
         const updated = await tx.execute({
@@ -649,17 +663,32 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
             now,
           });
         }
-        await tx.execute({
-          sql: "INSERT INTO document_versions (id,owner_email,document_id,title,content,chat_context,created_at) VALUES (?,?,?,?,?,?,?)",
-          args: [
-            globalThis.crypto.randomUUID(),
-            current.owner_email,
-            context.resourceId,
-            current.title,
-            current.content,
-            decisionChatContext(context.ctx),
-            now,
-          ],
+        await recordDocumentHistoryTransition({
+          db: identityTx,
+          ownerEmail: String(current.owner_email),
+          documentId: context.resourceId,
+          before: { title: String(current.title), content: currentContent },
+          after: { title: String(current.title), content: nextContent },
+          beforeBodyRevision: currentDocument.bodyRevision,
+          afterBodyRevision: nextBodyRevision,
+          cause: {
+            ctx: context.ctx as ActionRunContext | undefined,
+            operation: "accept-suggestion",
+            origin: "suggestion",
+          },
+          now,
+        });
+        await recordDocumentBodyIntent({
+          db: identityTx,
+          ownerEmail: String(current.owner_email),
+          orgId: context.suggestion.orgId ?? "",
+          documentId: context.resourceId,
+          intent,
+          candidateHash: documentContentHash(nextContent),
+          committedRevision: nextBodyRevision,
+          changedBlockIndexes: planned.changedBlockIndexes,
+          canonicalChanged: true,
+          now,
         });
         await coordination.ydoc.persist(tx, nextContent);
         await coordination.sync.persist(tx);

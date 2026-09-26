@@ -483,6 +483,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@tiptap/y-tiptap",
         "clsx",
         "highlight.js",
         "lowlight",
