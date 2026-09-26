@@ -1,33 +1,6 @@
 name: PR Visual Recap (fork, trusted + label-gated)
 
-# Fork-safe variant of pr-visual-recap.yml.
-#
-# PURPOSE: Fork PRs cannot run the main workflow (pull_request runs without
-# secrets, so publishing fails cleanly and is skipped). This workflow lets a
-# trusted member/collaborator author get a recap automatically, and lets a
-# MAINTAINER opt an outside fork PR in by applying the `recap` label after
-# reviewing the diff for prompt-injection-shaped content.
-#
-# SECURITY MODEL:
-#   - Trigger: pull_request_target (has access to base-repo secrets).
-#   - Gate condition: PR is from a fork AND either the author is an active
-#     member of the base repository owner organization, has write-level access
-#     to the base repository, the author association is trusted (`OWNER`,
-#     `MEMBER`, or `COLLABORATOR`), OR this event is a fresh `recap` label
-#     application. Non-fork PRs are excluded — the main workflow covers them.
-#   - NO fork code is checked out or executed. We checkout only the BASE
-#     repository at the base ref. The diff is obtained by fetching the fork
-#     head ref as a remote ref (safe — fetching commits is not executing them)
-#     then running `git diff base...refs/recap/fork-head`.
-#   - The diff is attacker-controlled text fed as INPUT to the LLM; it is
 #     never executed. Mitigations: secret-scan (fail-closed), sensitive-path
-#     gate, and the prompt explicitly marks diff content as untrusted data.
-#   - To refresh after new fork commits, a maintainer must review the updated
-#     diff, then remove/reapply the `recap` label, unless the PR author has a
-#     trusted author association. A rerun only reuses the original event
-#     payload/SHA and is appropriate for transient failures on the same reviewed
-#     commit.
-#   - Concurrency: per-PR, cancel-in-progress (mirror of main workflow).
 
 on:
   pull_request_target:
@@ -49,8 +22,6 @@ env:
 jobs:
   gate:
     name: Gate (fork label check)
-    # The gate script already rejects same-repo PRs (pr-visual-recap.yml covers
-    # them), so skip the job rather than claim a runner to reach that verdict.
     if: github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -294,11 +265,6 @@ jobs:
       VISUAL_RECAP_SKILL_SOURCE: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       VISUAL_RECAP_SECRET_SCAN: ${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}
     steps:
-      # Checkout the BASE repository at the BASE ref ONLY.
-      # - `repository:` is pinned to GITHUB_REPOSITORY (the base repo) to rule
-      #   out any scenario where the expression resolves to the fork.
-      # - `ref:` is the PR base branch, not the fork head — no fork code on disk.
-      # - `persist-credentials: false` keeps the token out of .git/config.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ github.repository }}
@@ -306,9 +272,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # Fetch the fork head as a read-only remote ref so we can diff against it.
-      # Fetching commits is safe — we are not executing or installing from them.
-      # The ref lands at refs/recap/fork-head (not merged into any branch).
       - name: Fetch fork head ref
         env:
           PR_NUMBER_ENV: ${{ github.event.pull_request.number }}
@@ -327,7 +290,6 @@ jobs:
           echo "FORK_BASE_SHA=${BASE_SHA}" >> "$GITHUB_ENV"
           echo "FORK_HEAD_SHA=${FETCHED_SHA}" >> "$GITHUB_ENV"
 
-      # Dogfood local source inside this monorepo, else the published package.
       - name: Resolve recap CLI
         id: cli
         env:
@@ -399,9 +361,6 @@ jobs:
           set -uo pipefail
           $RECAP_CLI recap check start --sha "$HEAD_SHA" --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
-      # Collect a bounded diff between the base and the fetched fork head.
-      # FORK_BASE_SHA / FORK_HEAD_SHA reference the trusted local-object-store
-      # refs — no fork code is involved in the diff collection itself.
       - name: Collect bounded diff (fork)
         id: diff
         run: |
@@ -468,8 +427,6 @@ jobs:
             echo '__RECAP_ROUTE_HEALTH_EOF__'
           } >> "$GITHUB_OUTPUT"
 
-      # Secret-scan the fork diff BEFORE the agent ever sees it.
-      # Fail CLOSED: any scanner error treats the diff as suppressed.
       - name: Secret scan
         id: scan
         if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true'
@@ -516,8 +473,6 @@ jobs:
           EOF
           fi
 
-      # Build the recap prompt with --fork-pr so the agent is explicitly told
-      # that the diff is attacker-controlled untrusted text, not instructions.
       - name: Build recap prompt
         id: prompt
         if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
@@ -1027,12 +982,6 @@ jobs:
         if: always() && !cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          # recap-source.json + the agent transcript (claude-result.json /
-          # codex-events.jsonl + stderr) are the only window into WHAT the agent
-          # did when a publish fails (no plan URL) — INCLUDING the case where it
-          # finished without writing recap-source.json at all. The sticky comment
-          # only shows the screenshot, so without these a failed recap is
-          # undebuggable. Uploaded on success + failure; tolerant when absent.
           name: pr-visual-recap-source-fork-${{ github.event.pull_request.number }}
           path: |
             recap-source.json
@@ -1076,9 +1025,6 @@ jobs:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           RECAP_AUTH_FAILED: ${{ steps.auth_probe.outputs.auth_failed }}
           RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
-          # Prefer the route-health diagnostic when the plan app routes are not
-          # yet deployed so the comment explains the 404 instead of a generic
-          # "recap-url.txt was not created" message.
           RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.source_status.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -euo pipefail

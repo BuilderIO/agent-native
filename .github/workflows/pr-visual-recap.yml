@@ -1,8 +1,5 @@
 name: PR Visual Recap
 
-# Visual code review: a coding agent runs the repo's visual-recap skill over the
-# PR diff, publishes a plan, and upserts one sticky comment with a screenshot.
-# Plain `pull_request` (NOT `pull_request_target`) so fork code never sees secrets.
 
 on:
   pull_request:
@@ -26,9 +23,6 @@ jobs:
   gate:
     name: Gate
     if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
-    # A custom plain-label runner is allowed only for trusted same-repo authors.
-    # Fork and untrusted PRs are forced onto GitHub-hosted ubuntu-latest before
-    # any step starts. The only fromJSON input is this static association list.
     runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) && (vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest') || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
@@ -231,17 +225,11 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
-          # This job runs an agent over untrusted PR diff; don't leave the token
-          # in .git/config (it uses GH_TOKEN for gh API calls, never git push).
           persist-credentials: false
 
-      # Dogfood trusted base-branch source inside this monorepo, else install the
-      # published package once. Never execute PR-head recap CLI code.
       - name: Resolve recap CLI
         id: cli
         env:
-          # Optional: pin the consumer CLI version (e.g. "1.2.3"). Defaults to
-          # "latest" when unset. Set via repository variable RECAP_CLI_VERSION.
           RECAP_CLI_VERSION: ${{ vars.RECAP_CLI_VERSION || 'latest' }}
         run: |
           if [ "$GITHUB_REPOSITORY" = "BuilderIO/agent-native" ] && [ -f packages/core/src/cli/index.ts ]; then
@@ -458,8 +446,6 @@ jobs:
         id: prompt
         if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         env:
-          # Pass step outputs via env, NOT ${{ }} interpolation into the run body:
-          # the prev plan id is parsed from a PR comment and could inject shell.
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
@@ -887,7 +873,6 @@ jobs:
         continue-on-error: true
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
-          # Use the gate-normalized agent so "Codex" still selects the right file.
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}
           RECAP_REPAIR_SUCCEEDED: ${{ steps.publish_repair.outcome == 'success' }}
         run: |
@@ -914,7 +899,6 @@ jobs:
         if: steps.url.outputs.ok == 'true'
         continue-on-error: true
         env:
-          # recap-url.txt is untrusted agent output; pass via env, never ${{ }}.
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
         run: |
           set -uo pipefail
@@ -977,12 +961,6 @@ jobs:
         if: always() && !cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          # recap-source.json + the agent transcript (claude-result.json /
-          # codex-events.jsonl + stderr) are the only window into WHAT the agent
-          # did when a publish fails (no plan URL) — INCLUDING the case where it
-          # finished without writing recap-source.json at all. The sticky comment
-          # only shows the screenshot, so without these a failed recap is
-          # undebuggable. Uploaded on success + failure; tolerant when absent.
           name: pr-visual-recap-source-${{ github.event.pull_request.number }}
           path: |
             recap-source.json
@@ -1026,9 +1004,6 @@ jobs:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           RECAP_AUTH_FAILED: ${{ steps.auth_probe.outputs.auth_failed }}
           RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
-          # Prefer the route-health diagnostic when the plan app routes are not
-          # yet deployed so the comment explains the 404 instead of a generic
-          # "recap-url.txt was not created" message.
           RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.source_status.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -euo pipefail
@@ -1038,8 +1013,6 @@ jobs:
         if: always() && !cancelled() && steps.recap_check.outputs.check_run_id != ''
         continue-on-error: true
         env:
-          # Untrusted/step values via env (NOT ${{ }}-interpolated into the run
-          # body): the agent-written plan URL and the scan JSON could inject shell.
           CHECK_RUN_ID: ${{ steps.recap_check.outputs.check_run_id }}
           PLAN_OK: ${{ steps.url.outputs.ok }}
           PLAN_URL: ${{ steps.url.outputs.plan_url }}

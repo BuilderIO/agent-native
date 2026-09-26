@@ -1,20 +1,8 @@
 name: Signup agent review (scheduled)
 
-# The deterministic canary (`Signup E2E (scheduled)`) asserts the boundaries we
-# already know how to name: link host, session, refresh. This lane exists for
-# the failures nobody wrote an assertion for — the clip that started this work
-# showed a first-time signup that simply sat there until the user reloaded, and
-# no status code or session check describes that.
-#
-# Deliberately a separate workflow rather than another lane in `beta-e2e.yml`:
 # this one spends model tokens, needs a second credential, and must never gate
-# or page. Keeping it out of the gating workflow means a model outage or a
-# noisy review can never block a merge or wake anyone.
 on:
   schedule:
-    # An hour after the deterministic canary, so a fleet-wide breakage is
-    # already paged by the lane that is allowed to page before this one spends
-    # a single token describing it.
     - cron: "15 17 * * *"
   workflow_dispatch:
     inputs:
@@ -114,9 +102,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Open or update the advisory issue
-        # Only when the review actually ran and reported something. A failed
-        # lane is reported by the failing step, not by an issue that would read
-        # as a product problem.
         if: ${{ success() && steps.classify.outputs.inconclusive != 'true' }}
         run: |
           set -euo pipefail

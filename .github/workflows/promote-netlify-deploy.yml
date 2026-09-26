@@ -1,13 +1,5 @@
 name: Promote Netlify deploy
 
-# Netlify has no native "jump the queue" primitive: production builds share a
-# per-account concurrency pool, so when one site is busted it can sit behind a
-# backlog of other sites' queued builds. This manual workflow prioritizes a
-# single site by (a) cancelling queued-but-not-yet-started production deploys
-# for the target site, (b) optionally cancelling OTHER sites' queued production
-# deploys to free build slots, and (c) triggering a fresh production build of
-# the target site so the latest main ships immediately. In-progress deploys are
-# never cancelled.
 
 on:
   workflow_dispatch:
@@ -50,8 +42,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Promotion has its own queue; the fleet caller coordinates individual
-  # sites at the job level so a promotion cannot replace a pending fleet run.
   group: agent-native-production-promote-${{ inputs.site }}
   cancel-in-progress: false
 
@@ -98,8 +88,6 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.resolve-sites.outputs.matrix) }}
     concurrency:
-      # Use the same queue as fleet deploys and manager operations, including
-      # the shared Design and Slides database.
       group: >-
         ${{ (matrix.site == 'design' || matrix.site == 'slides')
             && 'agent-native-production-site-design-slides'

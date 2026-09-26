@@ -1,8 +1,5 @@
 name: Monitor Agent-Native site availability
 
-# This is deliberately independent from app health and Netlify build status:
-# an edge outage can make both the app health endpoint and the dashboard
-# unavailable while the deploy metadata still says "ready".
 on:
   schedule:
     - cron: "*/5 * * * *"
@@ -15,8 +12,6 @@ permissions:
 
 concurrency:
   group: monitor-agent-native-sites
-  # Let an active outage run finish its paging and issue-reporting steps;
-  # GitHub still keeps at most one pending replacement for this concurrency group.
   cancel-in-progress: false
 
 jobs:
@@ -41,8 +36,6 @@ jobs:
         with:
           node-version: "22"
 
-      # Signup E2E has its own scheduled workflow and rolling issue. Keep this
-      # incident focused on public availability and credential/callback checks.
       - name: Probe every public host
         if: ${{ always() }}
         id: probe
@@ -321,11 +314,6 @@ jobs:
           NODE
 
       - name: Probe Google sign-in credentials
-        # The availability probe above stays green while sign-in is 100% broken:
-        # on 2026-08-20 every host reported ok:true for hours with a stale Google
-        # secret. The app's callback collapses invalid_client and invalid_grant
-        # into one identical error page, so this asks each deploy to ask Google
-        # directly and report which of the two it got.
         if: always()
         run: |
           set -o pipefail
@@ -530,12 +518,6 @@ jobs:
 
       - name: Probe Google callback registration
         # The credential probe above cannot see redirect_uri_mismatch because
-        # its deliberately invalid code is rejected before redirect handling.
-        # Check the fleet-wide root callback plus app-owned callbacks on the
-        # hosts that advertise them. During rollout, old deployments are logged
-        # as not verified instead of becoming a false incident; managed hosts
-        # still fail closed. The explicit five-minute budget leaves the
-        # expanded job time for incident paging.
         if: always()
         run: |
           set -o pipefail

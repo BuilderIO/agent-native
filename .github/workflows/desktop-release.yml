@@ -34,15 +34,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Pushes to main are the employee-facing Nightly train. Production is only
-  # released deliberately through workflow_dispatch.
   RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
   AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
   EP_PRE_RELEASE: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' }}
   ELECTRON_APP_ID: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'com.agentnative.desktop.nightly' || 'com.agentnative.desktop' }}
   ELECTRON_PRODUCT_NAME: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'Agent-Native Nightly' || 'Agent-Native' }}
-  # Deterministic version for auto-triggered builds: base version from
-  # package.json + run number ensures uniqueness without committing back.
   AUTO_VERSION_SUFFIX: ${{ github.run_number }}
 
 jobs:

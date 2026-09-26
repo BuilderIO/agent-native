@@ -4,9 +4,6 @@ on:
   issue_comment:
     types: [created]
 
-# Preview providers can post several comments while one deploy settles. The
-# newest run rescans the PR and handles all matching comments, so older runs
-# are safe to cancel instead of occupying the Actions queue.
 concurrency:
   group: hide-preview-bot-comments-${{ github.event.issue.number || github.run_id }}
   cancel-in-progress: true

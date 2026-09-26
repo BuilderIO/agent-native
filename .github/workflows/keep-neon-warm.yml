@@ -1,17 +1,5 @@
 name: Audit hosted app health
 
-# Each published Netlify app now warms itself with a one-minute Scheduled
-# Function. This GitHub workflow is an independent strict audit, not the
-# latency-control mechanism: GitHub Actions schedules can be delayed too long
-# to prevent a scale-to-zero database from suspending.
-#
-# --strict also asks every app to read its own pg_stat_activity, which is how
-# the database-pressure signals from the 2026-08-06 analytics outage get
-# checked every 15 minutes without putting a single production database credential in
-# CI. The app already holds its own.
-#
-# Scheduled workflows only run on the default branch, so this takes effect once
-# merged to main. Use the manual trigger to warm on demand.
 
 on:
   schedule:
@@ -76,13 +64,6 @@ jobs:
           echo "updated_at=$previous_updated_at" >>"$GITHUB_OUTPUT"
           echo "latest_failure_updated_at=$latest_failure_updated_at" >>"$GITHUB_OUTPUT"
 
-      # One rolling issue, and it means something: open == currently failing.
-      #
-      # The previous version posted "Scheduled audit failed: <run url>" on every
-      # red run. One app's health route hung for a day and buried the issue
-      # under 14 identical comments, which is exactly how a monitor teaches
-      # people to stop opening it. Now the comment names what broke, and repeats
-      # of the SAME breakage stay silent — a new comment means something changed.
       - name: Report failure on a rolling issue
         if: failure()
         shell: bash

@@ -1,9 +1,5 @@
 name: Clips Desktop Release
 
-# Release channels for the Clips Tauri menu-bar app are separate from the main
-# Electron desktop app and from each other. Pushes to main build Nightly;
-# production is released deliberately through workflow_dispatch. Each channel
-# has its own app identifier, release tag namespace, and updater pointer.
 
 on:
   push:
@@ -69,10 +65,6 @@ jobs:
     strategy:
       fail-fast: false
       # Serialize so platform jobs can't race to create the draft release at
-      # the same time — when both call tauri-action concurrently, one job's
-      # bundles + latest.json get orphaned (clips-v0.1.74 lost its macOS
-      # assets this way, leaving the manifest Windows-only and breaking the
-      # Tauri updater on macOS clients).
       max-parallel: 1
       matrix:
         include:
@@ -131,7 +123,7 @@ jobs:
           fi
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
         with:
           targets: ${{ matrix.rust-targets }}
 
@@ -333,18 +325,14 @@ jobs:
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Tauri signing — REQUIRED for the updater to accept downloaded
-          # bundles. See templates/clips/desktop/README.md for key setup.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.CLIPS_TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.CLIPS_TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS codesign + notarize (reuses the Electron app's Apple creds).
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: W3PMF2T3MW
-          # Sentry error reporting for the Tauri native process and webview.
           CLIPS_DESKTOP_SENTRY_DSN: ${{ secrets.CLIPS_DESKTOP_SENTRY_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           CLIPS_DESKTOP_SENTRY_CLIENT_KEY: ${{ secrets.CLIPS_DESKTOP_SENTRY_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           CLIPS_DESKTOP_SENTRY_PROJECT_ID: ${{ secrets.CLIPS_DESKTOP_SENTRY_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}

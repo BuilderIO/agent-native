@@ -29,8 +29,6 @@ runs:
         restore-keys: playwright-${{ runner.os }}-
 
     - name: Typecheck the suite
-      # Fail before the browser starts and before any token is spent: `e2e/` is
-      # not a workspace package, so the repo-wide typecheck never sees it.
       run: pnpm typecheck:e2e
       shell: bash
 

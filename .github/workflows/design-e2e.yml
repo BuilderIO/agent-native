@@ -1,10 +1,5 @@
 name: Design E2E (browser)
 
-# Post-merge only: a red canvas suite must not block an unrelated merge, and
-# this does not gate the beta deploy. Sharded because the suite is workers:1,
-# and shard granularity is per FILE, so a single fat spec sets the floor.
-# Known-broken tests carry test.fixme() with the symptom, so a red run here
-# means something that was passing broke.
 
 on:
   push:
@@ -19,7 +14,6 @@ on:
 
 concurrency:
   group: design-e2e
-  # Preserve the active 8-shard run while newer commits replace pending runs.
   cancel-in-progress: false
 
 permissions:
@@ -34,9 +28,6 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    # One PGlite instance does not survive a ~15-minute workers:1 shard: it
-    # starts raising `stack depth limit exceeded` and never recovers, so every
-    # later query — session lookup included — fails and the shard 401s out.
     services:
       postgres:
         image: postgres:17-alpine
@@ -53,10 +44,6 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      # Deleted in parallel because these are independent inode-heavy trees and
-      # doing them serially cost ~110s per shard. `docker system prune` is not
-      # worth its runtime here: the only image in play is the postgres service,
-      # which is running and therefore never pruned.
       - name: Free disk for the design build and browser
         run: |
           for dir in /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup \
