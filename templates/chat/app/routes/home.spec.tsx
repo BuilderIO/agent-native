@@ -22,6 +22,7 @@ const routeState = vi.hoisted(() => ({
           mediaType?: string;
         }
     >;
+    metadata?: unknown;
   }>,
   title: undefined as string | undefined,
   navigate: vi.fn(),
@@ -342,6 +343,33 @@ describe("ChatRoute AgentKit surface", () => {
       text: "chat.retryPreviousRequest",
       metadata: { custom: { agentNativeRecoveryAction: "retry" } },
     });
+
+    routeState.messages.push({
+      id: "recovery-1",
+      role: "user",
+      parts: [{ type: "text", text: "Retry the previous request." }],
+      metadata: { custom: { agentNativeRecoveryAction: "retry" } },
+    });
+    act(() =>
+      root.render(
+        React.createElement(failure, {
+          error: {
+            code: "provider_error",
+            message: "The request could not be processed.",
+            details: "No LLM provider key was found.",
+          },
+          runId: "run-two",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    expect(
+      container.querySelector("[data-testid='chat-builder-setup']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='generic-run-failure']"),
+    ).toBeNull();
   });
 
   it("keeps one owned transport across routed threads", () => {

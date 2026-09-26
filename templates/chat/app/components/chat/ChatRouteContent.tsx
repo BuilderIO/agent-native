@@ -176,7 +176,14 @@ function ChatRunFailure({
     });
   }, [controller, t, threadId]);
   const isFirstMessage =
-    thread.messages.filter((message) => message.role === "user").length === 1;
+    thread.messages.filter((message) => {
+      if (message.role !== "user") return false;
+      const metadata = message.metadata as
+        | { custom?: { agentNativeRecoveryAction?: unknown } }
+        | undefined;
+      const recoveryAction = metadata?.custom?.agentNativeRecoveryAction;
+      return recoveryAction !== "continue" && recoveryAction !== "retry";
+    }).length === 1;
   if (
     isFirstMessage &&
     isMissingLlmProviderRunError({
