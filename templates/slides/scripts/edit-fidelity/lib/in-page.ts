@@ -549,9 +549,12 @@ export function installInPageHelpers(chromeSelector: string) {
    * DOM positions agree. That count makes a row's end equal the next row's
    * start, so the selection must also lie in the point's row. A click on a
    * glyph's middle may put the caret on either side of it, so the point spans
-   * one grapheme each way; a double-click spans the word and a space after
-   * it; a point on a short leading element of a row (a bullet marker) spans
-   * that element up to the row's text.
+   * one grapheme each way, but never a space, which would reach the next
+   * word; a double-click spans the word and a space after it; a point on a
+   * short leading element of a row (a bullet marker) spans that element up
+   * to the row's text. Every offset indexes one collapsed text of the whole
+   * editor, since collapsing a row alone can merge a space with its
+   * neighbor's differently.
    */
   async function entryCaretProblem(
     point: { x: number; y: number },
@@ -579,10 +582,6 @@ export function installInPageHelpers(chromeSelector: string) {
     };
     const start = offsetOf(sel.startContainer, sel.startOffset);
     const end = offsetOf(sel.endContainer, sel.endOffset);
-    if (gesture !== "dblclick" && !sel.collapsed)
-      return `a ${gesture} selected characters ${start}-${end} instead of placing a caret`;
-    if (gesture === "dblclick" && sel.collapsed)
-      return "double-click did not select a word";
     // caretRangeFromPoint rounds the point to whole pixels, which can move it
     // across a narrow glyph; the click itself used the fractional point.
     const pos = document.caretPositionFromPoint?.(point.x, point.y);
@@ -617,20 +616,28 @@ export function installInPageHelpers(chromeSelector: string) {
         break;
       }
     }
+    // A bullet marker is not text, so even a double-click on one only
+    // places the caret at the row's text.
+    if ((marker || gesture !== "dblclick") && !sel.collapsed)
+      return `a ${gesture} selected characters ${start}-${end} instead of placing a caret`;
+    if (!marker && gesture === "dblclick" && sel.collapsed)
+      return "double-click did not select a word";
     const rowStart = offsetOf(row, 0);
+    const editorTextRange = document.createRange();
+    editorTextRange.selectNodeContents(editor);
+    const editorText = renderedText(editorTextRange.toString());
     let from: number;
     let to: number;
     if (marker) {
       from = offsetOf(marker, 0);
       to = offsetOf(marker, marker.childNodes.length);
+      if (editorText[to] === " ") to++;
     } else {
-      const rowTextRange = document.createRange();
-      rowTextRange.selectNodeContents(row);
-      const rowText = renderedText(rowTextRange.toString());
-      const pointRange = document.createRange();
-      pointRange.setStart(row, 0);
-      pointRange.setEnd(node, offset);
-      const pointOffset = renderedText(pointRange.toString()).length;
+      const rowText = editorText.slice(
+        rowStart,
+        offsetOf(row, row.childNodes.length),
+      );
+      const pointOffset = offsetOf(node, offset) - rowStart;
       const segments = Array.from(
         new Intl.Segmenter(undefined, {
           granularity: gesture === "dblclick" ? "word" : "grapheme",
@@ -659,6 +666,7 @@ export function installInPageHelpers(chromeSelector: string) {
       }
       if (wordEnd === undefined) {
         segments.forEach(({ index, segment }, i) => {
+          if (gesture !== "dblclick" && !segment.trim()) return;
           if (index < pointOffset && index + segment.length >= pointOffset)
             localFrom = index;
           if (index <= pointOffset && index + segment.length > pointOffset) {
@@ -678,10 +686,7 @@ export function installInPageHelpers(chromeSelector: string) {
       rowRange.comparePoint(sel.startContainer, sel.startOffset) === 0 &&
       rowRange.comparePoint(sel.endContainer, sel.endOffset) === 0;
     if (inRow && start >= from && end <= to) return null;
-    const editorTextRange = document.createRange();
-    editorTextRange.selectNodeContents(editor);
-    const total = renderedText(editorTextRange.toString()).length;
-    return `selection at character ${start}${end !== start ? `-${end}` : ""} of ${total}${inRow ? "" : " in another row"}, click at ${from}${to !== from ? `-${to}` : ""}`;
+    return `selection at character ${start}${end !== start ? `-${end}` : ""} of ${editorText.length}${inRow ? "" : " in another row"}, click at ${from}${to !== from ? `-${to}` : ""}`;
   }
 
   function snapshot(

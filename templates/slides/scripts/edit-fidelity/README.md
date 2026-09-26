@@ -134,15 +134,19 @@ them per slide. For each target and scenario:
    and two animation frames waited once every stylesheet has loaded and
    `document.fonts` reports `loaded`. The renderer injects a webfont
    stylesheet per slide font, so `fonts.ready` alone can resolve before the
-   slide's font is requested. Scenarios never contaminate each other.
+   slide's font is requested. Scenarios never contaminate each other: a
+   `pagehide` keepalive write from the previous page that carries other
+   content for this slide could land after the restore, so it errors the
+   scenario.
 2. **View.** Capture `view.png` and a style snapshot of the slide.
 3. **Enter edit.** Try click, then a second click, then double-click. The
    gesture that worked is recorded. A click must leave a caret within one
-   grapheme of the click point (`caretPositionFromPoint`, compared in
-   rendered characters), and a double-click a selection inside the word
-   under it plus one trailing space; either way it must be in the point's
-   row (nearest block, or the row of a bullet marker, which counts up to the
-   start of the row's text). Anything else is a violation. The double-click
+   non-space grapheme of the click point (`caretPositionFromPoint`, compared
+   in rendered characters, a whitespace run counting as one), and a
+   double-click a selection of the whole word under it, across inline
+   elements, plus at most one trailing space; either way it must be in the
+   point's row (nearest block, or the row of a bullet marker, where either
+   gesture must leave a caret up to the start of the row's text). Anything else is a violation. The double-click
    selection is then collapsed to a caret before any keys. If none enters
    edit, the status is `no-edit`; the scenario fails and is never skipped. The clicks must still change nothing: a `no-edit` result also
    gets a violation for any write, any change to the stored slide (both

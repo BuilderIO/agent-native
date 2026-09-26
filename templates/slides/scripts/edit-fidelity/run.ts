@@ -478,7 +478,7 @@ async function enterEdit(
   page: Page,
   slideId: string,
   point: { x: number; y: number },
-  violations?: string[],
+  violations: string[],
 ) {
   const editing = async () => (await editorState(page, slideId)).editing;
   const gestures: Array<[string, () => Promise<void>]> = [
@@ -497,7 +497,7 @@ async function enterEdit(
       [point, name] as const,
     );
     if (entry)
-      violations?.push(
+      violations.push(
         `entering edit put the caret away from the click (${entry})`,
       );
     // A double-click enters edit with its word selected, and typing would
@@ -542,7 +542,6 @@ async function settleSaved(
   deckId: string,
   slideId: string,
   writesInFlight: () => number,
-  minimumObservationMs = 2500,
 ) {
   const start = Date.now();
   let last = await getSlideContent(page, deckId, slideId);
@@ -554,10 +553,7 @@ async function settleSaved(
       last = now;
       lastChange = Date.now();
     }
-    if (
-      Date.now() - start >= minimumObservationMs &&
-      Date.now() - lastChange >= 1200
-    )
+    if (Date.now() - start >= 2500 && Date.now() - lastChange >= 1200)
       return last;
     if (Date.now() - start >= 75_000) {
       throw new Error(
@@ -902,7 +898,19 @@ async function runScenario(
   try {
     await restoreSlide(page, deckId, slideId, ctx.stored);
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
-    await takeKeepaliveWrites(page);
+    // Leaving the previous page fires pagehide after restoreSlide, so a
+    // keepalive flush it sent can land after the restore and change the
+    // slide this scenario starts from.
+    const leftBehind = keepaliveMismatches(
+      await takeKeepaliveWrites(page),
+      slideId,
+      ctx.stored,
+    );
+    if (leftBehind.length) {
+      throw new Error(
+        `leaving the previous page sent ${leftBehind.length} keepalive write(s) that can overwrite the restored slide`,
+      );
+    }
     const current = (await listTargets(page, slideId))[target.index];
     if (!current || current.text !== target.text) {
       throw new Error(
@@ -1999,7 +2007,7 @@ async function warmUp(page: Page, base: string) {
   const deckId = String(created.id ?? created.deckId);
   await openSlide(page, base, deckId, 0, "warm-1");
   const [target] = await listTargets(page, "warm-1");
-  if (target && (await enterEdit(page, "warm-1", target.point))) {
+  if (target && (await enterEdit(page, "warm-1", target.point, []))) {
     await exitEdit(page, "warm-1", "escape");
   }
   await openSlide(page, base, deckId, 0, "warm-1");
