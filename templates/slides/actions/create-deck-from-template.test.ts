@@ -51,9 +51,9 @@ describe("create-deck-from-template through add-deck persistence", () => {
     const template = getBuiltInDeckTemplate(request.templateId)!;
     expect(result).toEqual({
       id: "deck-copy",
-      title: "The pitch",
+      title: template.title,
       templateId: "starter-pitch",
-      slideCount: 5,
+      slideCount: template.slides.length,
       designSystemId: null,
       url: "/deck/deck-copy",
       reused: false,
@@ -72,7 +72,7 @@ describe("create-deck-from-template through add-deck persistence", () => {
       templateSource: {
         templateId: request.templateId,
         version: 1,
-        createdTitle: "The pitch",
+        createdTitle: template.title,
       },
     });
     expect(
@@ -80,7 +80,7 @@ describe("create-deck-from-template through add-deck persistence", () => {
     ).toEqual(template.slides.map((slide) => slide.content));
     expect(
       new Set(deck.slides.map((slide: { id: string }) => slide.id)).size,
-    ).toBe(5);
+    ).toBe(template.slides.length);
     expect(
       deck.slides.every(
         (slide: { id: string }) =>
@@ -155,7 +155,7 @@ describe("create-deck-from-template through add-deck persistence", () => {
       reused: true,
       title: "Edited title",
       designSystemId: "later-system",
-      slideCount: 5,
+      slideCount: getBuiltInDeckTemplate(request.templateId)!.slides.length,
     });
     expect(row).toEqual(before);
     expect(mocks.insertValues).toHaveBeenCalledTimes(1);

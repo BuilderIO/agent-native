@@ -35,7 +35,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Spinner } from "@/components/ui/spinner";
 
 import { TemplatePreview } from "./TemplatePreview";
 
@@ -159,16 +158,11 @@ export function DesignTemplateLibrary({
   };
   return (
     <>
-      {pendingId ? (
-        <div role="status" className="flex items-center gap-2">
-          <Spinner />
-          {t("templatesPage.opening")}
-        </div>
-      ) : null}
       <TemplateLibraryGrid
         items={templates}
         loading={loading}
         pendingId={pendingId}
+        pendingLabel={t("templatesPage.opening")}
         disabled={Boolean(pendingId)}
         selectedId={preview?.id}
         onSelect={(template) => void copy(template)}
@@ -178,12 +172,15 @@ export function DesignTemplateLibrary({
           retry: t("homeContext.retry"),
         }}
         renderPreview={(template) => (
-          <TemplatePreview
-            html={template.previewHtml}
-            title={template.title}
-            width={template.width}
-            height={template.height}
-          />
+          <div className="design-library-card-preview">
+            <TemplatePreview
+              html={template.previewHtml}
+              title={template.title}
+              width={template.width}
+              height={template.height}
+              className="h-full w-full"
+            />
+          </div>
         )}
         renderActions={(template) => (
           <TemplateMenu

@@ -805,6 +805,11 @@ const messages = {
     chooseAnotherFile: "दूसरी फ़ाइल चुनें",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "उत्पाद पिच डेक बनाएँ",
+      roadmap: "उत्पाद रोडमैप बनाएँ",
+      explainer: "प्रस्तुति में किसी विषय को समझाएँ",
+    },
     suggestedPrompts: "सुझाए गए प्रॉम्प्ट",
     importMenu: {
       import: "आयात करें",

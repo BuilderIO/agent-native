@@ -27,6 +27,7 @@ import {
   PromptHome,
   PromptHomeLibrary,
   type PromptHomeLibraryTab,
+  useHomeSearchShortcut,
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
@@ -136,8 +137,6 @@ import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
-const loadPromptPopover = () => import("@/components/editor/PromptDialog");
-const LazyPromptPopover = lazy(loadPromptPopover);
 const LazyDesignSystemSetup = lazy(() =>
   import("@/components/design-system/DesignSystemSetup").then(
     ({ DesignSystemSetup }) => ({
@@ -146,15 +145,16 @@ const LazyDesignSystemSetup = lazy(() =>
   ),
 );
 
+const loadPromptPopover = () => import("@/components/editor/PromptDialog");
+const LazyPromptPopover = lazy(loadPromptPopover);
+
+function preloadPromptPopover() {
+  void loadPromptPopover().catch(() => {});
+}
+
 async function uploadPromptFiles(files: File[]): Promise<UploadedFile[]> {
   const module = await import("@/lib/prompt-file-uploads");
   return module.uploadPromptFiles(files);
-}
-
-function preloadPromptPopover() {
-  // This is an optional hover/focus optimization; rendering the opened popover
-  // is where a failed chunk load is surfaced through its recovery boundary.
-  void loadPromptPopover().catch(() => {});
 }
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
@@ -419,9 +419,14 @@ export default function Index() {
   } = useWorkspaceDefaults();
   const { session } = useSession();
   const agentEngine = useAgentEngineConfigured();
+  const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
+  const bounceSetupCard = () => {
+    if (agentEngine.missing) setSetupCardBouncePulse((pulse) => pulse + 1);
+  };
   const quickActionsEnabled =
     agentEngine.state === "configured" && !agentEngine.missing;
-  const agentEngineConfigured = agentEngine.state === "configured";
+  const agentEngineConfigured =
+    agentEngine.state === "configured" && !agentEngine.missing;
   const retryAgentEngineStatus = useCallback(() => {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
@@ -434,8 +439,20 @@ export default function Index() {
       staleTime: 5 * 60 * 1000,
     },
   );
+  const homeSuggestions = homeSuggestionsQuery.data?.suggestions.length
+    ? homeSuggestionsQuery.data.suggestions
+    : [
+        t("home.fallbackSuggestions.pitch"),
+        t("home.fallbackSuggestions.roadmap"),
+        t("home.fallbackSuggestions.explainer"),
+      ].map((prompt, index) => ({
+        id: `slides-home-generic-${index}`,
+        label: prompt,
+        prompt,
+      }));
   const navigate = useNavigate();
   const location = useLocation();
+  useHomeSearchShortcut(location.pathname === "/home");
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
@@ -1354,7 +1371,7 @@ export default function Index() {
       attachments: PromptAttachmentActions,
       options?: SlidesPromptSubmitOptions,
     ) => {
-      if (agentEngine.state !== "configured") return "retain" as const;
+      if (!agentEngineConfigured) return "retain" as const;
       pendingDeckAttachmentActionsRef.current = attachments;
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       const retryContext =
@@ -1416,7 +1433,7 @@ export default function Index() {
       newDeckRetryContext,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
-      agentEngine.state,
+      agentEngineConfigured,
       setNewDeckPromptOpen,
       runPendingDeckGeneration,
     ],
@@ -1996,30 +2013,22 @@ export default function Index() {
     loadError,
     deckCount: decks.length,
   });
-  const hasRecentDecks = viewState === "decks" && decks.length > 0;
-  const hasDeckSearch = normalizedDeckSearch.length > 0;
-
   useSetHeaderActions(
     useMemo(
       () => (
         <HomeHeaderActions
           search={
-            viewState !== "empty" ? (
-              <DeckSearchInput
-                value={deckSearch}
-                onChange={setDeckSearch}
-                className="w-full"
-              />
-            ) : null
+            <DeckSearchInput
+              value={deckSearch}
+              onChange={setDeckSearch}
+              className="w-full"
+            />
           }
         >
-          {viewState !== "empty" ? (
-            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
-          ) : null}
           <ImportDeckButton controller={deckImport} />
         </HomeHeaderActions>
       ),
-      [deckFilter, deckImport, deckSearch, setDeckFilter, t, viewState],
+      [deckImport, deckSearch, setDeckSearch],
     ),
   );
   if (isStartingNewDeck) {
@@ -2037,48 +2046,60 @@ export default function Index() {
     <PromptHome
       title={t("home.firstDeckPromptTitle")}
       mobileToolbar={
-        <>
+        <div className="slides-home-mobile-toolbar flex min-w-0 flex-1 items-center gap-2">
           <DeckSearchInput
             value={deckSearch}
             onChange={setDeckSearch}
-            className="w-full"
+            className="min-w-0 flex-1"
           />
           <ImportDeckButton controller={deckImport} />
-        </>
+        </div>
+      }
+      connection={
+        agentEngine.missing ? (
+          <BuilderSetupCard
+            attached
+            fullWidth
+            layout="sidebar"
+            bouncePulse={setupCardBouncePulse}
+            onConnected={retryAgentEngineStatus}
+          />
+        ) : null
       }
       composer={
-        <div data-slides-home-composer>
-          {agentEngine.state !== "configured" ? (
+        <div
+          data-slides-home-composer
+          className={
+            agentEngine.missing
+              ? "agent-composer-area--attached-above"
+              : undefined
+          }
+          onFocusCapture={bounceSetupCard}
+          onPointerDownCapture={bounceSetupCard}
+        >
+          {!agentEngine.missing && agentEngine.state !== "configured" ? (
             <div className="mb-2">
-              {agentEngine.missing ? (
-                <BuilderSetupCard
-                  onConnected={retryAgentEngineStatus}
-                  fullWidth
-                  layout="sidebar"
-                />
-              ) : (
-                <div
-                  className="flex items-center justify-center gap-3 text-sm text-muted-foreground"
-                  role="status"
-                >
-                  <span>
-                    {t(
-                      agentEngine.state === "unknown"
-                        ? "agentChat.setup.checkingProvider"
-                        : "agentChat.setup.providerStatusUnavailable",
-                    )}
-                  </span>
-                  {agentEngine.state === "unavailable" ? (
-                    <button
-                      type="button"
-                      className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      onClick={retryAgentEngineStatus}
-                    >
-                      {t("home.retry")}
-                    </button>
-                  ) : null}
-                </div>
-              )}
+              <div
+                className="flex items-center justify-center gap-3 text-sm text-muted-foreground"
+                role="status"
+              >
+                <span>
+                  {t(
+                    agentEngine.state === "unknown"
+                      ? "agentChat.setup.checkingProvider"
+                      : "agentChat.setup.providerStatusUnavailable",
+                  )}
+                </span>
+                {agentEngine.state === "unavailable" ? (
+                  <button
+                    type="button"
+                    className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={retryAgentEngineStatus}
+                  >
+                    {t("home.retry")}
+                  </button>
+                ) : null}
+              </div>
             </div>
           ) : null}
           <LazyChunkErrorBoundary
@@ -2159,26 +2180,23 @@ export default function Index() {
         </div>
       }
       quickActions={
-        quickActionsEnabled && homeSuggestionsQuery.data?.suggestions.length ? (
-          <AgentSuggestionBar
-            suggestions={homeSuggestionsQuery.data.suggestions.map(
-              (suggestion, index) => ({
-                ...suggestion,
-                id: suggestion.id ?? `slides-home-${index}`,
-                disabled: !showNewDeckPrompt || generating,
-              }),
-            )}
-            ariaLabel={t("home.suggestedPrompts")}
-            className="px-0 py-0"
-            onSelect={(suggestion) => {
-              if (!showNewDeckPrompt || generating) return;
-              void homeComposerRef.current?.submitSource(
-                agentSuggestionPrompt(suggestion),
-                [],
-              );
-            }}
-          />
-        ) : null
+        <AgentSuggestionBar
+          suggestions={homeSuggestions.map((suggestion, index) => ({
+            ...suggestion,
+            id: suggestion.id ?? `slides-home-${index}`,
+            disabled: !quickActionsEnabled || !showNewDeckPrompt || generating,
+          }))}
+          ariaLabel={t("home.suggestedPrompts")}
+          className="px-0 py-0"
+          onSelect={(suggestion) => {
+            if (!quickActionsEnabled || !showNewDeckPrompt || generating)
+              return;
+            void homeComposerRef.current?.submitSource(
+              agentSuggestionPrompt(suggestion),
+              [],
+            );
+          }}
+        />
       }
     >
       {viewState === "error" ? (
@@ -2203,7 +2221,6 @@ export default function Index() {
       <PromptHomeLibrary
         value={homeSection}
         onValueChange={setHomeSection}
-        showRecent={hasRecentDecks || hasDeckSearch}
         labels={{
           templates: t("templatesPage.title"),
           recent: t("home.recent"),
@@ -2219,7 +2236,7 @@ export default function Index() {
         recentActions={
           <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
         }
-        templates={<DeckTemplateLibrary home />}
+        templates={<DeckTemplateLibrary />}
         recent={
           <div className="agent-template-library-grid">
             {visibleDecks.map((deck) => (
@@ -2397,7 +2414,8 @@ function DeckSearchInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={t("root.searchDecks")}
         aria-label={t("root.searchDecks")}
-        className="ps-9"
+        data-home-search="true"
+        className="h-8 pe-3 ps-9"
       />
     </div>
   );
