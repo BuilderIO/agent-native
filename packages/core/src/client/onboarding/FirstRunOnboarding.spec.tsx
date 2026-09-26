@@ -796,7 +796,7 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector(
         "[data-testid='first-run-builder-status-error']",
       )?.textContent,
-    ).toContain("Couldn't reach Builder");
+    ).toBe("Couldn't check AI connection.");
     act(() => {
       document.body
         .querySelector("[data-testid='first-run-builder-status-error']")
@@ -1697,7 +1697,7 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector(
         '[data-testid="first-run-builder-status-error"]',
       )?.textContent,
-    ).toContain("Couldn't reach Builder");
+    ).toBe("No se pudo comprobar la conexión de IA.");
 
     const cta = document.body.querySelector(
       '[data-testid="first-run-builder-create-account"]',

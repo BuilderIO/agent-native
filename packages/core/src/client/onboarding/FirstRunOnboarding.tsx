@@ -586,7 +586,7 @@ export function FirstRunOnboarding({
                 data-testid="first-run-builder-status-error"
                 className="text-center text-xs text-destructive"
               >
-                {connectFlow.error}
+                {t("agentChat.setup.providerStatusUnavailable")}
               </p>
               <button
                 type="button"
@@ -742,7 +742,7 @@ export function FirstRunOnboarding({
                     data-testid="first-run-builder-status-error"
                     className="text-center text-xs text-destructive"
                   >
-                    {connectFlow.error}
+                    {t("agentChat.setup.providerStatusUnavailable")}
                   </p>
                 )}
               </section>

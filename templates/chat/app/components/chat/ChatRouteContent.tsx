@@ -166,16 +166,42 @@ function ChatRunFailure({
   threadId,
 }: AgentRunFailureRenderProps) {
   const thread = useAgentThread(threadId);
+  const { controller } = useAgentKit();
+  const firstUserMessage = thread.messages.find(
+    (message) => message.role === "user",
+  );
+  const retryFirstMessage = useCallback(() => {
+    if (!firstUserMessage) return;
+    const text = firstUserMessage.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    const attachments = firstUserMessage.parts.flatMap((part) =>
+      part.type === "file" ? [part] : [],
+    );
+    void controller.sendMessage({
+      threadId,
+      text,
+      ...(attachments.length ? { attachments } : {}),
+    });
+  }, [controller, firstUserMessage, threadId]);
   const isFirstMessage =
     thread.messages.filter((message) => message.role === "user").length === 1;
   if (
     isFirstMessage &&
     isMissingLlmProviderRunError({
       message: error.message,
+      details: typeof error.details === "string" ? error.details : undefined,
       errorCode: error.code,
     })
   ) {
-    return <BuilderSetupCard fullWidth layout="sidebar" />;
+    return (
+      <BuilderSetupCard
+        fullWidth
+        layout="sidebar"
+        onRetry={retryFirstMessage}
+      />
+    );
   }
   return <AgentRunFailure error={error} runId={runId} threadId={threadId} />;
 }
