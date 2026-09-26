@@ -65,8 +65,7 @@ function trackFirstRunSetupOutcome(
     | "already_connected"
     | "failed"
     | "settings_opened"
-    | "skipped_to_app"
-    | "handoff_failed",
+    | "skipped_to_app",
   errorType?: string,
 ) {
   if (!attempt || attempt.outcomeTracked) return;
@@ -199,11 +198,11 @@ export function FirstRunOnboarding({
   const completionAttemptRef = useRef<{
     screen: FirstRunScreen | null;
     extensionIndex: number;
+    onSuccess?: () => void;
   } | null>(null);
   const completionInFlightRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
-  const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const builderSetupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const startSetupMethod = useCallback(
     (
@@ -216,7 +215,6 @@ export function FirstRunOnboarding({
         methodId,
         outcomeTracked: false,
       };
-      setupAttemptRef.current = attempt;
       const properties = {
         flow: "first_run",
         step_id: "choice",
@@ -234,25 +232,31 @@ export function FirstRunOnboarding({
     async (
       completedScreen: FirstRunScreen | null,
       completedExtensionIndex = extensionIndex,
+      onSuccess?: () => void,
     ) => {
-      completionAttemptRef.current = completedScreen
-        ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
-        : { screen: null, extensionIndex: completedExtensionIndex };
+      completionAttemptRef.current = {
+        screen: completedScreen,
+        extensionIndex: completedExtensionIndex,
+        ...(onSuccess ? { onSuccess } : {}),
+      };
       completionInFlightRef.current = true;
+      let onSuccessAfterCompletion: (() => void) | undefined;
       try {
         await completeFirstRun();
         if (completedScreen) {
           trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
         }
         onboardingTerminalRef.current = true;
+        onSuccessAfterCompletion = completionAttemptRef.current?.onSuccess;
         completionAttemptRef.current = null;
-        return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
         return false;
       } finally {
         completionInFlightRef.current = false;
       }
+      onSuccessAfterCompletion?.();
+      return true;
     },
     [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
   );
@@ -316,7 +320,6 @@ export function FirstRunOnboarding({
   const handleBuilderConnected = useCallback(() => {
     trackFirstRunSetupOutcome(builderSetupAttemptRef.current, "connected");
     builderSetupAttemptRef.current = null;
-    setupAttemptRef.current = null;
     trackFirstRunStepCompleted("choice");
     trackFirstRunStepCompleted("connecting");
     handleFinish(null);
@@ -346,6 +349,7 @@ export function FirstRunOnboarding({
     void finishOnboarding(
       attempt?.screen ?? null,
       attempt?.extensionIndex ?? extensionIndex,
+      attempt?.onSuccess,
     );
   }, [extensionIndex, finishOnboarding]);
   const completionErrorProps = {
@@ -403,7 +407,6 @@ export function FirstRunOnboarding({
     if (connectFlow.hasFetchedStatus && connectFlow.configured) {
       trackFirstRunSetupOutcome(attempt, "already_connected");
       builderSetupAttemptRef.current = null;
-      setupAttemptRef.current = null;
       trackFirstRunStepCompleted("choice");
       handleFinish(null);
       return;
@@ -421,19 +424,7 @@ export function FirstRunOnboarding({
     });
   };
 
-  const handleOpenSettings = async () => {
-    if (completionInFlightRef.current) return;
-    const attempt = startSetupMethod("custom_keys", "manual");
-    const completed = await finishOnboarding("choice");
-    if (!completed) {
-      trackFirstRunSetupOutcome(
-        attempt,
-        "handoff_failed",
-        "onboarding_completion_error",
-      );
-      return;
-    }
-    trackFirstRunSetupOutcome(attempt, "settings_opened");
+  const navigateToKeySettings = useCallback(() => {
     if (typeof window === "undefined") return;
     // Drop the onboarding preview params — useOnboardingPreviewMode() reads
     // them live from the URL, so carrying them over would re-trigger the
@@ -451,18 +442,24 @@ export function FirstRunOnboarding({
       )}${query ? `?${query}` : ""}`,
     );
     window.dispatchEvent(new Event("popstate"));
+  }, [pathname]);
+
+  const handleOpenSettings = async () => {
+    if (completionInFlightRef.current) return;
+    const attempt = startSetupMethod("custom_keys", "manual");
+    await finishOnboarding("choice", extensionIndex, () => {
+      trackFirstRunSetupOutcome(attempt, "settings_opened");
+      navigateToKeySettings();
+    });
   };
 
   const handleSkipToApp = async () => {
     if (completionInFlightRef.current) return;
     const attempt = startSetupMethod("skip_to_app", "skip");
-    trackFirstRunStepSkipped("choice", "skip_to_app");
-    const completed = await finishOnboarding(null);
-    trackFirstRunSetupOutcome(
-      attempt,
-      completed ? "skipped_to_app" : "handoff_failed",
-      completed ? undefined : "onboarding_completion_error",
-    );
+    await finishOnboarding(null, extensionIndex, () => {
+      trackFirstRunStepSkipped("choice", "skip_to_app");
+      trackFirstRunSetupOutcome(attempt, "skipped_to_app");
+    });
   };
 
   const builderStatusPending = !previewMode && !connectFlow.statusResolved;

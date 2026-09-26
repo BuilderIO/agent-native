@@ -886,6 +886,71 @@ describe("FirstRunOnboarding", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("records the skipped choice after completion succeeds on retry", async () => {
+    mocks.firstRunMode = "connect";
+    mocks.completeFirstRun
+      .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
+      .mockResolvedValueOnce(undefined);
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+    window.history.replaceState(null, "", "/home");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-skip-to-app']")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    const choiceSkipped = () =>
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([event, properties]) =>
+          event === "onboarding_step_skipped" &&
+          (properties as Record<string, unknown>).step_id === "choice",
+      );
+    expect(choiceSkipped()).toHaveLength(0);
+
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Try again")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+    expect(choiceSkipped()).toHaveLength(1);
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "skip_to_app",
+        outcome: "skipped_to_app",
+      }),
+    );
+    window.history.replaceState(null, "", "/");
+  });
+
   it("keeps the existing setup chooser for connect-and-integrations mode", () => {
     mocks.firstRunMode = "connect-and-integrations";
 
@@ -1769,10 +1834,10 @@ describe("FirstRunOnboarding", () => {
     expect(window.location.pathname).toBe("/dispatch/settings/keys");
   });
 
-  it("keeps the choice screen visible when completion fails", async () => {
-    mocks.completeFirstRun.mockRejectedValue(
-      new Error("first-run completion failed: 500"),
-    );
+  it("preserves the manual settings handoff when completion is retried", async () => {
+    mocks.completeFirstRun
+      .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
+      .mockResolvedValueOnce(undefined);
     mocks.useOnboarding.mockReturnValue({
       firstRun: true,
       loading: false,
@@ -1809,6 +1874,23 @@ describe("FirstRunOnboarding", () => {
     expect(window.location.pathname).toBe("/");
     expect(document.body.textContent).toContain(
       "first-run completion failed: 500",
+    );
+
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Try again")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+    expect(window.location.pathname).toBe("/settings/keys");
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        outcome: "settings_opened",
+      }),
     );
   });
 
