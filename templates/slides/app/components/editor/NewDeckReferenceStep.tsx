@@ -78,6 +78,49 @@ export interface ImportedReference {
 
 type FileImportSource = Exclude<ImportedReference["source"], "google-slides">;
 
+// Mirrors extractGoogleSlidesPresentationId in
+// actions/import-google-slides-reference.ts: a bare Picker file ID, or a
+// docs.google.com presentation URL. Keep both patterns in sync with that
+// function if its accepted shapes ever change.
+const GOOGLE_PICKER_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+const GOOGLE_SLIDES_PRESENTATION_PATH_PATTERN =
+  /^\/presentation\/(?:u\/\d+\/)?d\/[a-zA-Z0-9_-]+(?:\/|$)/;
+
+function parseHttpUrl(value: string): URL | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    // coercion-ok: an unparseable string is a syntactically invalid URL, the
+    // exact "null" this parse exists to report.
+    return null;
+  }
+}
+
+function isGoogleSlidesPresentationUrl(value: string): boolean {
+  const url = parseHttpUrl(value);
+  return Boolean(
+    url &&
+    url.hostname === "docs.google.com" &&
+    GOOGLE_SLIDES_PRESENTATION_PATH_PATTERN.test(url.pathname),
+  );
+}
+
+function isValidReferenceSourceValue(
+  kind: NewDeckReferenceSource["kind"],
+  value: string,
+): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (kind === "google-docs") {
+    return (
+      isGoogleSlidesPresentationUrl(trimmed) ||
+      GOOGLE_PICKER_ID_PATTERN.test(trimmed)
+    );
+  }
+  return Boolean(parseHttpUrl(trimmed));
+}
+
 interface DesignSystemOption {
   id: string;
   title: string;
@@ -167,10 +210,12 @@ export function NewDeckReferenceStep({
   const selectedReferenceDeck = selectedReferenceDeckId
     ? deckById.get(selectedReferenceDeckId)
     : undefined;
+  const selectedSourceValid = Boolean(
+    selectedSource &&
+    isValidReferenceSourceValue(selectedSource.kind, selectedSource.value),
+  );
   const hasSelection = Boolean(
-    selectedDesignSystemId ||
-    selectedReferenceDeckId ||
-    selectedSource?.value.trim(),
+    selectedDesignSystemId || selectedReferenceDeckId || selectedSourceValid,
   );
 
   useEffect(() => {
@@ -618,7 +663,7 @@ export function NewDeckReferenceStep({
           disabled={
             busy ||
             !hasSelection ||
-            Boolean(selectedSource && !selectedSource.value.trim())
+            Boolean(selectedSource && !selectedSourceValid)
           }
         >
           {importing || continuing
