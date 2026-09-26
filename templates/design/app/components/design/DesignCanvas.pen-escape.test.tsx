@@ -168,7 +168,7 @@ describe("DesignCanvas Pen path completion", () => {
     };
   }
 
-  it("releases an active anchor or closing gesture without restoring or committing it", async () => {
+  it("preserves placed anchors when Escape cancels an active anchor gesture", async () => {
     const onCreatePrimitive = vi.fn(() => "created-path");
     const { releasePointerCapture, sendPointer, click, pressKey } =
       await renderPenCanvas(onCreatePrimitive);
@@ -178,16 +178,22 @@ describe("DesignCanvas Pen path completion", () => {
     await pressKey("Escape");
     expect(releasePointerCapture).toHaveBeenCalledWith(2);
     await sendPointer("pointerup", 2, 180, 180);
-    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(1);
     expect(onCreatePrimitive).not.toHaveBeenCalled();
+  });
 
-    await click(3, 120, 120);
-    await click(4, 180, 180);
-    await sendPointer("pointerdown", 5, 120, 120);
+  it("preserves an open path when Escape cancels a closing gesture", async () => {
+    const onCreatePrimitive = vi.fn(() => "created-path");
+    const { releasePointerCapture, sendPointer, click, pressKey } =
+      await renderPenCanvas(onCreatePrimitive);
+
+    await click(1, 120, 120);
+    await click(2, 180, 180);
+    await sendPointer("pointerdown", 3, 120, 120);
     await pressKey("Escape");
-    expect(releasePointerCapture).toHaveBeenCalledWith(5);
-    await sendPointer("pointerup", 5, 120, 120);
-    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(releasePointerCapture).toHaveBeenCalledWith(3);
+    await sendPointer("pointerup", 3, 120, 120);
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
     expect(onCreatePrimitive).not.toHaveBeenCalled();
   });
 

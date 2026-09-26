@@ -9203,7 +9203,9 @@ function SingleScreenCreationOverlay({
       event.stopPropagation();
       event.stopImmediatePropagation();
       if (event.key === "Escape" && penGestureRef.current) {
+        const pathBefore = penGestureRef.current.pathBefore;
         clearPenPath();
+        updatePenPath(pathBefore);
         return;
       }
       const continuesExistingPath =
