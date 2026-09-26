@@ -429,12 +429,9 @@ const messages = {
     agentEmptyTitle: "会話に参加する",
     agentEmptyDescription:
       "無料の Clips アカウントを作成して、このクリップにコメント、リアクション、質問を追加できます。",
-    commentSignupTitle: "AIエージェントに全体像を伝える",
-    commentSignupContext:
-      "文字起こしとタイムスタンプ付きフレームを1つのリンクで共有",
-    commentSignupFeedback:
-      "録画したフィードバックを明確な次のアクションに変える",
-    commentSignupDebug: "コンソールエラーと失敗したリクエストを記録",
+    commentSignupTitle: "AIエージェントが見て聞ける画面録画",
+    commentSignupDescription:
+      "Clipsは、バグ、フィードバック、操作手順をAIエージェントと共有できる無料のオープンソース画面録画ツールです。",
     agentEmptySignInPrompt: "アカウントをお持ちですか？",
     signUp: "登録",
     ownerInsights: "所有者インサイト",
@@ -835,6 +832,8 @@ const messages = {
     changelogEmpty: "まだ更新はありません。",
     changelogCommentSignup:
       "コメントがないときのサイドバーでClipsを試すメリットを簡潔に伝え、登録への分かりやすい導線を用意しました。",
+    changelogCommentsEmptyState:
+      "コメントがないときの表示で、画面録画がAIエージェントにどう役立つかを説明するようになりました。",
     changelogShareLink:
       "ログイン中のユーザーが利用不可・期限切れ・非公開の共有リンクで「ホームに戻る」を選ぶと、公開マーケティングページではなくライブラリに移動するようになりました。",
     viewAllUpdates: "すべての更新を見る",

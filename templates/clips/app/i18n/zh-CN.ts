@@ -401,10 +401,9 @@ const messages = {
     agentEmptyTitle: "加入对话",
     agentEmptyDescription:
       "创建免费的 Clips 账号，即可评论、回应并询问此剪辑。",
-    commentSignupTitle: "让 AI 智能体了解完整情况",
-    commentSignupContext: "通过一个链接分享文字稿和带时间戳的画面",
-    commentSignupFeedback: "将录制的反馈转化为清晰的后续步骤",
-    commentSignupDebug: "捕获控制台错误和失败的请求",
+    commentSignupTitle: "AI 智能体能看见和听见的屏幕录制",
+    commentSignupDescription:
+      "Clips 是一款免费开源的屏幕录制工具，可与 AI 智能体分享 bug、反馈和分步演示。",
     agentEmptySignInPrompt: "已经有账号了？",
     signUp: "注册",
     ownerInsights: "所有者洞察",
@@ -783,6 +782,8 @@ const messages = {
     changelogEmpty: "暂无更新。",
     changelogCommentSignup:
       "没有评论时，侧边栏会简要说明 Clips 的价值，并提供清晰的注册入口。",
+    changelogCommentsEmptyState:
+      "无评论状态现在会说明屏幕录制如何帮助 AI 智能体。",
     changelogShareLink:
       "已登录用户在不可用、过期或私有的分享链接中选择“返回主页”时，现在会进入资料库，而不是公开营销页面。",
     viewAllUpdates: "查看所有更新",
