@@ -876,6 +876,11 @@
     display: none;
   }
 
+  .mm-focus-labels .mm-thread-row.is-hovered time,
+  .mm-focus-jev .mm-thread-row.is-hovered time {
+    visibility: visible;
+  }
+
   .mm-row-action-rail {
     width: auto;
     min-width: 42px;
