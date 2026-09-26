@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const routeState = vi.hoisted(() => ({
   basePath: "",
   threadId: undefined as string | undefined,
-  messages: [] as Array<{ id: string }>,
+  messages: [] as Array<{ id: string; role?: string }>,
   title: undefined as string | undefined,
   navigate: vi.fn(),
   transport: undefined as
@@ -75,6 +75,9 @@ vi.mock("@agent-native/core/client/agentkit-chat/transport", () => ({
 }));
 
 vi.mock("@agent-native/agentkit/react/components", () => ({
+  AgentRunFailure: ({ error }: { error: { message: string } }) => (
+    <div data-testid="generic-run-failure">{error.message}</div>
+  ),
   AgentConnectionRequestCard: () => null,
   AgentKitChat: (props: Record<string, unknown>) => {
     routeState.chatProps = props;
@@ -86,6 +89,11 @@ vi.mock("@agent-native/agentkit/react/components", () => ({
       </div>
     );
   },
+}));
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  BuilderSetupCard: () => <div data-testid="chat-builder-setup" />,
+  isMissingLlmProviderRunError: ({ errorCode }: { errorCode?: string }) =>
+    errorCode === "missing_credentials",
 }));
 vi.mock("@agent-native/agentkit/react/context", () => ({
   useAgentKit: () => ({
@@ -193,6 +201,7 @@ describe("ChatRoute AgentKit surface", () => {
       slots: {
         emptyState: expect.any(Function),
         messageSupplement: expect.any(Function),
+        runFailure: expect.any(Function),
         connectionRequest: expect.any(Function),
         footer: expect.any(Function),
       },
@@ -216,6 +225,46 @@ describe("ChatRoute AgentKit surface", () => {
     expect(
       container.querySelector("[data-agent-page-workspace-toggle]"),
     ).toBeNull();
+  });
+
+  it("shows Builder setup only for a missing key on the first user message", () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [{ id: "user-1", role: "user" }];
+    act(() => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    const failure = slots.runFailure;
+    const failureProps = {
+      error: { code: "missing_credentials", message: "Missing credentials" },
+      runId: "run-one",
+      threadId: "thread-one",
+    };
+    act(() => root.render(React.createElement(failure, failureProps)));
+    expect(
+      container.querySelector("[data-testid='chat-builder-setup']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='generic-run-failure']"),
+    ).toBeNull();
+
+    routeState.messages = [
+      { id: "user-1", role: "user" },
+      { id: "assistant-1", role: "assistant" },
+      { id: "user-2", role: "user" },
+    ];
+    act(() => root.render(React.createElement(failure, failureProps)));
+    expect(
+      container.querySelector("[data-testid='chat-builder-setup']"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-testid='generic-run-failure']"),
+    ).not.toBeNull();
   });
 
   it("keeps one owned transport across routed threads", () => {

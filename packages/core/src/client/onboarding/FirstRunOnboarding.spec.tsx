@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
+  firstRunMode: "off" as "off" | "connect" | "connect-and-integrations",
 }));
 
 vi.mock("react-router", async (importOriginal) => {
@@ -40,6 +41,10 @@ vi.mock("./use-preview-mode.js", () => ({
   useOnboardingPreviewStep: mocks.useOnboardingPreviewStep,
 }));
 
+vi.mock("./first-run-enabled.js", () => ({
+  resolveFirstRunOnboardingMode: () => mocks.firstRunMode,
+}));
+
 vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
@@ -60,6 +65,7 @@ describe("FirstRunOnboarding", () => {
     mocks.useOnboardingPreviewStep.mockReset();
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
     mocks.useOnboardingPreviewStep.mockReturnValue(null);
+    mocks.firstRunMode = "off";
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: false,
       statusResolved: true,
@@ -612,6 +618,203 @@ describe("FirstRunOnboarding", () => {
         outcome: "connected",
       }),
     );
+  });
+
+  it("uses one Builder continue action for connect-mode setup", () => {
+    mocks.firstRunMode = "connect";
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+
+    const continueButton = document.body.querySelector<HTMLButtonElement>(
+      "[data-testid='first-run-builder-continue']",
+    );
+    expect(continueButton?.textContent).toContain("Continue");
+    expect(
+      document.body.querySelector("[data-testid='first-run-builder-sign-in']"),
+    ).toBeNull();
+    expect(document.body.textContent).toContain("Use my own API keys");
+    expect(document.body.textContent).not.toContain("What's included");
+    expect(
+      document.body.querySelector(
+        "a[href='https://www.builder.io/legal/terms']",
+      ),
+    ).toBeTruthy();
+
+    act(() => continueButton?.click());
+
+    expect(flow.start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: true }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_clicked",
+      expect.objectContaining({ method_id: "builder_create_account" }),
+    );
+  });
+
+  it("falls back to Builder sign-in when account provisioning is disabled", () => {
+    mocks.firstRunMode = "connect";
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-builder-continue']")
+        ?.click();
+    });
+
+    expect(flow.start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: false }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_clicked",
+      expect.objectContaining({ method_id: "builder_sign_in" }),
+    );
+  });
+
+  it("opens API key settings only after choosing the manual option", async () => {
+    mocks.firstRunMode = "connect";
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe("/settings/keys");
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_clicked",
+      expect.objectContaining({ method_id: "custom_keys" }),
+    );
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("lets connect-mode users skip into the app without opening key settings", async () => {
+    mocks.firstRunMode = "connect";
+    window.history.replaceState(null, "", "/home");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-skip-to-app']")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    expect(window.location.pathname).toBe("/home");
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_clicked",
+      expect.objectContaining({
+        method_id: "skip_to_app",
+        method_kind: "skip",
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_skipped",
+      expect.objectContaining({
+        step_id: "choice",
+        reason: "skip_to_app",
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "skip_to_app",
+        outcome: "skipped_to_app",
+      }),
+    );
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("keeps the existing setup chooser for connect-and-integrations mode", () => {
+    mocks.firstRunMode = "connect-and-integrations";
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector(
+        "[data-testid='first-run-builder-create-account']",
+      ),
+    ).not.toBeNull();
+    expect(
+      document.body.querySelector("[data-testid='first-run-builder-continue']"),
+    ).toBeNull();
   });
 
   it("records Builder account-exists as a sanitized failed outcome", () => {

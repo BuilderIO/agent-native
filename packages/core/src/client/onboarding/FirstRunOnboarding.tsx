@@ -34,6 +34,7 @@ import {
 import { useT } from "../i18n.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
+import { resolveFirstRunOnboardingMode } from "./first-run-enabled.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
 import { saveFirstRunOnboardingRole } from "./first-run-status.js";
 import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
@@ -48,7 +49,8 @@ type FirstRunScreen = "choice" | "role" | "connecting" | "extension";
 type FirstRunSetupMethodId =
   | "builder_create_account"
   | "builder_sign_in"
-  | "custom_keys";
+  | "custom_keys"
+  | "skip_to_app";
 
 interface FirstRunSetupAttempt {
   id: string;
@@ -63,6 +65,7 @@ function trackFirstRunSetupOutcome(
     | "already_connected"
     | "failed"
     | "settings_opened"
+    | "skipped_to_app"
     | "handoff_failed",
   errorType?: string,
 ) {
@@ -137,6 +140,7 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
+  const connectFirstRun = resolveFirstRunOnboardingMode() === "connect";
   const { pathname } = useLocation();
   const previewMode = useOnboardingPreviewMode();
   const previewStep = useOnboardingPreviewStep();
@@ -202,7 +206,10 @@ export function FirstRunOnboarding({
   const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const builderSetupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const startSetupMethod = useCallback(
-    (methodId: FirstRunSetupMethodId, methodKind: "builder" | "manual") => {
+    (
+      methodId: FirstRunSetupMethodId,
+      methodKind: "builder" | "manual" | "skip",
+    ) => {
       if (previewMode || typeof window === "undefined") return null;
       const attempt = {
         id: window.crypto.randomUUID(),
@@ -446,6 +453,18 @@ export function FirstRunOnboarding({
     window.dispatchEvent(new Event("popstate"));
   };
 
+  const handleSkipToApp = async () => {
+    if (completionInFlightRef.current) return;
+    const attempt = startSetupMethod("skip_to_app", "skip");
+    trackFirstRunStepSkipped("choice", "skip_to_app");
+    const completed = await finishOnboarding(null);
+    trackFirstRunSetupOutcome(
+      attempt,
+      completed ? "skipped_to_app" : "handoff_failed",
+      completed ? undefined : "onboarding_completion_error",
+    );
+  };
+
   const handleRoleContinue = async () => {
     const roleToSave =
       selectedRole === "other" ? customRole.trim() : selectedRole;
@@ -506,6 +525,73 @@ export function FirstRunOnboarding({
             void finishOnboarding(null);
           }}
         />
+      </OnboardingShell>
+    );
+  }
+
+  if (screen === "choice" && connectFirstRun) {
+    return (
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        {...completionErrorProps}
+      >
+        <div className="mx-auto flex w-full max-w-md flex-col items-center gap-6">
+          <h1 className="text-xl font-semibold tracking-[-0.03em] text-foreground">
+            {t("agentChat.setup.connectBuilder")}
+          </h1>
+          <div className="flex w-full flex-col items-center gap-3">
+            <button
+              type="button"
+              data-testid="first-run-builder-continue"
+              className={cn(primaryButtonClass, "w-full")}
+              onClick={() => handleBuilder(canActivateBuilderFreeCredits)}
+              disabled={connectFlow.connecting}
+            >
+              {t("agentChat.common.continue")}
+              <IconArrowRight size={15} />
+            </button>
+            <p className="text-center text-xs leading-5 text-muted-foreground">
+              {t("agentChat.onboarding.builderConsentPrefix")}{" "}
+              <a
+                href="https://www.builder.io/legal/terms"
+                target="_blank"
+                rel="noreferrer"
+                className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t("agentChat.onboarding.builderTerms")}
+              </a>{" "}
+              {t("agentChat.onboarding.builderConsentAnd")}{" "}
+              <a
+                href="https://www.builder.io/legal/privacy"
+                target="_blank"
+                rel="noreferrer"
+                className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t("agentChat.onboarding.builderPrivacy")}
+              </a>
+              .
+            </p>
+          </div>
+          <div className="flex flex-col items-center gap-2">
+            <button
+              type="button"
+              data-testid="first-run-open-key-settings"
+              className="min-h-9 rounded-lg px-2.5 text-sm font-medium text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => void handleOpenSettings()}
+            >
+              {t("agentChat.onboarding.useOwnApiKeys")}
+            </button>
+            <button
+              type="button"
+              data-testid="first-run-skip-to-app"
+              className="min-h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => void handleSkipToApp()}
+            >
+              {t("agentChat.onboarding.skipForNow")}
+            </button>
+          </div>
+        </div>
       </OnboardingShell>
     );
   }

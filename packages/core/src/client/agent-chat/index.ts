@@ -122,7 +122,11 @@ export {
   type AgentEngineConfiguredState,
   type UseAgentEngineConfiguredResult,
 } from "../use-agent-engine-configured.js";
-export { BuilderSetupCard } from "../chat/run-recovery.js";
+export {
+  BuilderSetupCard,
+  isMissingLlmProviderRunError,
+  type RunErrorInfo,
+} from "../chat/run-recovery.js";
 export {
   AgentConversation,
   AgentConversationMessageView,

@@ -3,6 +3,7 @@ import type {
   AgentMessage,
 } from "@agent-native/agentkit";
 import {
+  AgentRunFailure,
   AgentConnectionRequestCard,
   AgentKitChat,
 } from "@agent-native/agentkit/react/components";
@@ -10,9 +11,14 @@ import {
   useAgentKit,
   useAgentKitControl,
   useAgentThread,
+  type AgentRunFailureRenderProps,
   type AgentKitRenderProps,
 } from "@agent-native/agentkit/react/context";
 import { AgentKitRoot } from "@agent-native/agentkit/react/root";
+import {
+  BuilderSetupCard,
+  isMissingLlmProviderRunError,
+} from "@agent-native/core/client/agent-chat";
 import { CoreComposerRuntimeProvider } from "@agent-native/core/client/agentkit-chat/composer";
 import {
   McpAgentKitConnectionRequestCard,
@@ -121,6 +127,7 @@ function ChatThreadRouteContent({
             slots={{
               emptyState: ChatEmptyState,
               messageSupplement: ChatMcpConnectionSuggestion,
+              runFailure: ChatRunFailure,
               connectionRequest: ChatMcpConnectionRequest,
               footer: ChatAgentFooter,
             }}
@@ -151,6 +158,26 @@ function ChatThreadRouteContent({
       </aside>
     </div>
   );
+}
+
+function ChatRunFailure({
+  error,
+  runId,
+  threadId,
+}: AgentRunFailureRenderProps) {
+  const thread = useAgentThread(threadId);
+  const isFirstMessage =
+    thread.messages.filter((message) => message.role === "user").length === 1;
+  if (
+    isFirstMessage &&
+    isMissingLlmProviderRunError({
+      message: error.message,
+      errorCode: error.code,
+    })
+  ) {
+    return <BuilderSetupCard fullWidth layout="sidebar" />;
+  }
+  return <AgentRunFailure error={error} runId={runId} threadId={threadId} />;
 }
 
 function ChatLifecycleTracking({ threadId }: { threadId: string }) {

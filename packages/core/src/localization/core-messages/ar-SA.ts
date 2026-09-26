@@ -75,6 +75,7 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "أخرى",
   "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
+  "onboarding.useOwnApiKeys": "استخدام مفاتيح API الخاصة بي",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
   "onboarding.builderCreateAccount": "إنشاء حساب Builder.io",
   "onboarding.builderSignInWithAccount": "تسجيل الدخول بحساب Builder.io",
