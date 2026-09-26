@@ -1074,8 +1074,14 @@ export default function RecordingPage() {
   const canComment = role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID;
   // Where the panel lands when the requested tab does not apply. Transcript is
   // the video default; a screenshot has no transcript tab at all, so it falls
-  // back to the conversation.
-  const defaultPanel: SidePanel = isImage ? "comments" : "transcript";
+  // back to the conversation, or to settings when comments are off. A viewer
+  // of a screenshot with comments off has no tab that applies; they stay on
+  // comments rather than bounce between two tabs the guard below rejects.
+  const defaultPanel: SidePanel = !isImage
+    ? "transcript"
+    : recording && !recording.enableComments && canEdit
+      ? "settings"
+      : "comments";
   useEffect(() => {
     if (
       (!canEdit && panel === "settings") ||
@@ -1083,9 +1089,7 @@ export default function RecordingPage() {
       (recording && !recording.enableComments && panel === "comments") ||
       (isImage && panel === "transcript")
     ) {
-      setPanel(
-        isImage && !recording?.enableComments ? "settings" : defaultPanel,
-      );
+      setPanel(defaultPanel);
     }
   }, [browserDiagnostics, canEdit, defaultPanel, isImage, panel, recording]);
 
@@ -2665,6 +2669,7 @@ export default function RecordingPage() {
                       {redacting ? (
                         <ScreenshotEditor
                           recordingId={recording.id}
+                          mediaRevision={recording.mediaUpdatedAt ?? ""}
                           // Edit from the un-marked base so existing boxes,
                           // arrows and text stay movable rather than being
                           // part of the picture.

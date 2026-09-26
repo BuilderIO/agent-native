@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
-import { resolveRecordingKind } from "@shared/recording-kind.js";
+import { resolveRecordingKind } from "@shared/recording-kind";
 import {
   and,
   asc,

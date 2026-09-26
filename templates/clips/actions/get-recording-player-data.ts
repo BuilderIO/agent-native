@@ -23,10 +23,7 @@ import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
-import {
-  isImageRecording,
-  resolveRecordingKind,
-} from "@shared/recording-kind.js";
+import { isImageRecording, resolveRecordingKind } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 

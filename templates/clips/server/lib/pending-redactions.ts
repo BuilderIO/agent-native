@@ -29,12 +29,37 @@ export function canViewWhileRedacting(
   return typeof role === "string" && EDITOR_ROLES.has(role);
 }
 
+/**
+ * Files a screenshot burn replaced but has not yet deleted. The burn writes
+ * this before it deletes anything and clears it after, so the hold covers the
+ * window in which the unredacted original is still in storage — including
+ * when the redactions were never saved as pending boxes first.
+ */
+export const BURN_IN_PROGRESS_KEY = "burnInProgress";
+
+export function burnInProgressUrls(
+  editsJson: string | null | undefined,
+): string[] | null {
+  const marker = (parseEdits(editsJson) as unknown as Record<string, unknown>)[
+    BURN_IN_PROGRESS_KEY
+  ];
+  if (!marker || typeof marker !== "object") return null;
+  const urls = (marker as { staleUrls?: unknown }).staleUrls;
+  return Array.isArray(urls)
+    ? urls.filter((url): url is string => typeof url === "string" && !!url)
+    : [];
+}
+
 /** True when this viewer must be held back from this recording's media. */
 export function isHeldForRedaction(
   editsJson: string | null | undefined,
   role: string | null | undefined,
 ): boolean {
-  return countPendingRedactions(editsJson) > 0 && !canViewWhileRedacting(role);
+  if (canViewWhileRedacting(role)) return false;
+  return (
+    countPendingRedactions(editsJson) > 0 ||
+    burnInProgressUrls(editsJson) !== null
+  );
 }
 
 /** What the viewer is told. Deliberately says nothing about what is covered. */

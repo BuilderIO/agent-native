@@ -118,6 +118,11 @@ export interface ScreenshotEditorProps {
   recordingId: string;
   /** What the editor draws on: the capture with any blur already burned in. */
   baseImageUrl: string;
+  /**
+   * The recording's `mediaUpdatedAt` for that picture. Sent with every save
+   * so a tab left open across a burn cannot put the old pixels back.
+   */
+  mediaRevision: string;
   /** Marks saved previously, still movable. */
   initialAnnotations: Annotation[];
   /**
@@ -231,6 +236,7 @@ function nextPaint(): Promise<void> {
 export function ScreenshotEditor({
   recordingId,
   baseImageUrl,
+  mediaRevision,
   initialAnnotations,
   pendingOverlays,
   initialCrop,
@@ -1197,6 +1203,7 @@ export function ScreenshotEditor({
         "save-screenshot-edits" as any,
         {
           recordingId,
+          mediaRevision,
           dataUrl: served.toDataURL(SCREENSHOT_MIME_TYPE, SCREENSHOT_QUALITY),
           crop,
           background,

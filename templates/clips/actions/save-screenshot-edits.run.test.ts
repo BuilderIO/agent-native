@@ -42,19 +42,25 @@ vi.mock("../server/db/index.js", () => ({
     }),
     update: () => ({
       set: (values: Record<string, unknown>) => ({
-        where: () => ({
-          returning: async () => {
+        where: () => {
+          const write = async () => {
             if (mocks.matching <= 0) return [];
             mocks.matching -= 1;
             mocks.updates.push(values);
-            return [{ id: "shot-1" }];
-          },
-        }),
+            return [{ id: "shot-1", ...values }];
+          };
+          return {
+            returning: write,
+            then: (resolve: (rows: unknown) => void, reject: () => void) =>
+              write().then(resolve, reject),
+          };
+        },
       }),
     }),
   }),
 }));
 
+import { isHeldForRedaction } from "../server/lib/pending-redactions";
 import action from "./save-screenshot-edits";
 
 // The smallest bytes that pass the PNG signature check.
@@ -67,6 +73,7 @@ let uploads = 0;
 function run(args: Record<string, unknown>) {
   const parsed = (action as any).schema.parse({
     recordingId: "shot-1",
+    mediaRevision: "rev-1",
     dataUrl: PNG,
     width: 1000,
     height: 800,
@@ -104,8 +111,13 @@ beforeEach(() => {
     thumbnailUrl: "https://store.example/flattened.png",
     baseImageUrl: "https://store.example/original.png",
     editsJson: null,
+    mediaUpdatedAt: "rev-1",
   };
 });
+
+function marker(update: Record<string, unknown>) {
+  return JSON.parse(String(update.editsJson)).burnInProgress;
+}
 
 describe("save-screenshot-edits", () => {
   it("does not fail an ordinary save over an old copy it could not delete", async () => {
@@ -134,9 +146,68 @@ describe("save-screenshot-edits", () => {
         redactions: [{ x: 1, y: 1, width: 50, height: 50 }],
       }),
     ).rejects.toThrow(/unredacted original could not be deleted/);
-    expect(mocks.updates).toHaveLength(1);
-    expect(mocks.updates[0]).not.toHaveProperty("editsJson");
-    expect(mocks.updates[0]).not.toHaveProperty("title");
+    expect(mocks.updates).toHaveLength(2);
+    expect(mocks.updates.some((u) => "title" in u)).toBe(false);
+    // Narrowed to the file still in storage, for the next save to retry.
+    expect(marker(mocks.updates[1])).toEqual({
+      staleUrls: ["https://store.example/original.png"],
+    });
+    expect(isHeldForRedaction(String(mocks.updates[1].editsJson), null)).toBe(
+      true,
+    );
+  });
+
+  it("holds a first burn before deleting, with no boxes saved as pending", async () => {
+    // Boxes placed and burned in one go were never stored as pending, so the
+    // pending list cannot be what holds the screenshot while the original is
+    // deleted.
+    let heldDuringDelete = false;
+    mocks.deleteStoredMediaUrl.mockImplementation(async () => {
+      heldDuringDelete = isHeldForRedaction(
+        String(mocks.updates.at(-1)?.editsJson ?? null),
+        null,
+      );
+      return false;
+    });
+    await expect(
+      run({
+        baseDataUrl: PNG,
+        redactions: [{ x: 1, y: 1, width: 50, height: 50 }],
+      }),
+    ).rejects.toThrow(/unredacted original could not be deleted/);
+    expect(heldDuringDelete).toBe(true);
+    expect(
+      isHeldForRedaction(String(mocks.updates.at(-1)!.editsJson), null),
+    ).toBe(true);
+  });
+
+  it("refuses a save from an editor that loaded an older picture", async () => {
+    // The row it would compare against is the one it reads now, so without
+    // its own revision a tab left open across a burn would pass the check.
+    await expect(
+      run({ mediaRevision: "rev-0", annotations: [] }),
+    ).rejects.toThrow(/changed somewhere else/);
+    expect(mocks.uploadFile).not.toHaveBeenCalled();
+    expect(mocks.updates).toHaveLength(0);
+  });
+
+  it("finishes an interrupted burn before saving anything else", async () => {
+    mocks.existing!.editsJson = JSON.stringify({
+      burnInProgress: { staleUrls: ["https://store.example/leftover.png"] },
+    });
+    mocks.deleteStoredMediaUrl.mockResolvedValueOnce(false);
+    await expect(run({ annotations: [] })).rejects.toThrow(
+      /unredacted original could not be deleted/,
+    );
+    expect(mocks.uploadFile).not.toHaveBeenCalled();
+    expect(mocks.updates).toHaveLength(0);
+
+    await run({ annotations: [] });
+    expect(mocks.deleteStoredMediaUrl).toHaveBeenCalledWith(
+      "https://store.example/leftover.png",
+    );
+    expect(marker(mocks.updates[0])).toBeUndefined();
+    expect(marker(mocks.updates.at(-1)!)).toBeUndefined();
   });
 
   it("lifts the hold on a burn only after the original is deleted", async () => {
@@ -153,8 +224,14 @@ describe("save-screenshot-edits", () => {
       redactions: [{ x: 1, y: 1, width: 50, height: 50 }],
     });
     expect(mocks.updates).toHaveLength(2);
-    expect(mocks.updates[0]).not.toHaveProperty("editsJson");
+    expect(marker(mocks.updates[0])).toEqual({
+      staleUrls: [
+        "https://store.example/flattened.png",
+        "https://store.example/original.png",
+      ],
+    });
     expect(JSON.parse(String(mocks.updates[1].editsJson)).overlays).toEqual([]);
+    expect(marker(mocks.updates[1])).toBeUndefined();
     expect(mocks.updates[1].title).toBe("(Redacted) Checkout");
     expect(order).toContain("delete original.png");
   });

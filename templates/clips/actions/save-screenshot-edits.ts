@@ -15,6 +15,11 @@
  *    delete fails the action fails: claiming a redaction while the unredacted
  *    original is still fetchable is the one outcome worth refusing.
  *
+ * Between those writes the row carries a burn-in-progress marker listing the
+ * files still to delete (`server/lib/pending-redactions.ts`). It holds the
+ * screenshot on its own, so the hold never depends on the boxes having been
+ * saved as pending first, and every other save is refused until it clears.
+ *
  * A burn has no undo. Burned regions are recorded (where, never what).
  */
 
@@ -22,7 +27,7 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { assertAccess } from "@agent-native/core/sharing";
-import { isImageRecording } from "@shared/recording-kind.js";
+import { isImageRecording } from "@shared/recording-kind";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -31,6 +36,10 @@ import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { otherOverlays, parseRedactions } from "../app/lib/video-redactions.js";
 import { getDb, schema } from "../server/db/index.js";
 import { IMAGE_EXTENSION_BY_MIME } from "../server/lib/image-signature.js";
+import {
+  BURN_IN_PROGRESS_KEY,
+  burnInProgressUrls,
+} from "../server/lib/pending-redactions.js";
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { STORAGE_SETUP_REQUIRED_REASON } from "../server/lib/video-storage.js";
@@ -46,6 +55,11 @@ const redactionRect = z.object({
 
 export const saveScreenshotEditsSchema = z.object({
   recordingId: z.string().describe("Screenshot to update"),
+  mediaRevision: z
+    .string()
+    .describe(
+      "The recording's mediaUpdatedAt when the editor loaded its picture. A save from an editor that loaded an older picture is refused, so it cannot put back pixels a burn destroyed.",
+    ),
   dataUrl: z
     .string()
     .describe(
@@ -141,6 +155,41 @@ export function nextScreenshotEdits(
   return edits as unknown as ReturnType<typeof parseEdits>;
 }
 
+function withBurnMarker(editsJson: string | null, staleUrls: string[]) {
+  const edits = parseEdits(editsJson) as unknown as Record<string, unknown>;
+  edits[BURN_IN_PROGRESS_KEY] = { staleUrls };
+  return serializeEdits(edits as unknown as ReturnType<typeof parseEdits>);
+}
+
+function withoutBurnMarker(editsJson: string | null) {
+  const edits = parseEdits(editsJson) as unknown as Record<string, unknown>;
+  delete edits[BURN_IN_PROGRESS_KEY];
+  return serializeEdits(edits as unknown as ReturnType<typeof parseEdits>);
+}
+
+/** Deletes each URL; returns the ones that are still in storage. */
+async function deleteAll(recordingId: string, urls: string[]) {
+  const left: string[] = [];
+  for (const url of urls) {
+    try {
+      if (!(await deleteStoredMediaUrl(url))) left.push(url);
+    } catch (err) {
+      left.push(url);
+      console.warn(
+        `[save-screenshot-edits] could not delete a stale file for ${recordingId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return left;
+}
+
+const CHANGED_ELSEWHERE =
+  "This screenshot was changed somewhere else while you were editing. Nothing was saved — reload it and try again.";
+
+const ORIGINAL_NOT_DELETED =
+  "The redactions were burned in, but the unredacted original could not be deleted from storage. The screenshot is held back from viewers until it is — reload it and save again to retry. Until then, treat what you redacted as still exposed.";
+
 export default defineAction({
   description:
     "Permanently burn a screenshot's edits (blur, boxes, arrows, text) into the stored image: uploads the flattened picture, points the recording at it, and deletes the previous file. Cannot be undone.",
@@ -162,6 +211,37 @@ export default defineAction({
     }
     if (!isImageRecording(existing)) {
       throw new Error("Only screenshots can be edited this way.");
+    }
+
+    // A burn that could not delete the original left its marker, and the
+    // hold, on the row. Finish that first: no save may lift the hold while
+    // the unredacted file is still in storage.
+    const leftover = burnInProgressUrls(existing.editsJson);
+    if (leftover) {
+      const left = await deleteAll(args.recordingId, leftover);
+      if (left.length) throw new Error(ORIGINAL_NOT_DELETED);
+      const cleared = await db
+        .update(schema.recordings)
+        .set({ editsJson: withoutBurnMarker(existing.editsJson) })
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            eq(schema.recordings.editsJson, existing.editsJson ?? ""),
+          ),
+        )
+        .returning({ editsJson: schema.recordings.editsJson });
+      if (!cleared.length) {
+        throw new Error(
+          "This screenshot is still finishing a redaction. Reload it and try again.",
+        );
+      }
+      existing.editsJson = cleared[0].editsJson;
+    }
+
+    // The CAS below only compares against the row as read here, which a
+    // stale editor would read too. Its own revision is what gives it away.
+    if (existing.mediaUpdatedAt !== args.mediaRevision) {
+      throw new Error(CHANGED_ELSEWHERE);
     }
 
     // A pending redaction the stored form would drop — too small, or outside
@@ -248,6 +328,7 @@ export default defineAction({
     // after it and put the unredacted picture back, with the hold cleared.
     const unchanged = and(
       eq(schema.recordings.id, args.recordingId),
+      eq(schema.recordings.mediaUpdatedAt, existing.mediaUpdatedAt),
       existing.editsJson == null
         ? isNull(schema.recordings.editsJson)
         : eq(schema.recordings.editsJson, existing.editsJson),
@@ -259,11 +340,25 @@ export default defineAction({
         : eq(schema.recordings.baseImageUrl, existing.baseImageUrl),
     );
 
+    // A first burn with no separate base yet has the original under both
+    // names; deleting it twice would read the second 404 as a failure.
+    const staleUrls = [
+      ...new Set(
+        [previousUrl, previousBaseUrl].filter(
+          (url): url is string =>
+            Boolean(url) && url !== uploaded.url && url !== baseUrl,
+        ),
+      ),
+    ];
+
     // Point the recording at the new files BEFORE deleting the old ones, so a
     // failure never leaves the row referencing a file that is gone. A burn
-    // does not write its edits yet: clearing the pending list is what lifts
-    // the hold, and the unredacted original has not been deleted. That waits
-    // for the second write below, the way the video burn does it.
+    // writes its marker instead of its edits: the hold has to be on before
+    // the original is deleted, and must not lift until it is gone. The edits
+    // wait for the second write below, the way the video burn does it.
+    const heldEditsJson = burning
+      ? withBurnMarker(existing.editsJson, staleUrls)
+      : null;
     const updated = await db
       .update(schema.recordings)
       .set({
@@ -274,7 +369,7 @@ export default defineAction({
         width: args.width,
         height: args.height,
         videoSizeBytes: bytes.byteLength,
-        ...(burning ? {} : { editsJson: serializeEdits(edits) }),
+        editsJson: heldEditsJson ?? serializeEdits(edits),
         updatedAt: now,
         mediaUpdatedAt: now,
       })
@@ -296,51 +391,34 @@ export default defineAction({
           );
         }
       }
-      throw new Error(
-        "This screenshot was changed somewhere else while you were editing. Nothing was saved — reload it and try again.",
-      );
+      throw new Error(CHANGED_ELSEWHERE);
     }
 
     // Now destroy what was replaced. For a burn that includes the unredacted
     // original, and the hold stays on until it is gone.
-    let originalDeleted = true;
-    // A first burn with no separate base yet has the original under both
-    // names; deleting it twice would read the second 404 as a failure.
-    const staleUrls = [
-      ...new Set(
-        [previousUrl, previousBaseUrl].filter(
-          (url): url is string =>
-            Boolean(url) && url !== uploaded.url && url !== baseUrl,
-        ),
-      ),
-    ];
-    for (const staleUrl of staleUrls) {
-      try {
-        originalDeleted =
-          (await deleteStoredMediaUrl(staleUrl)) && originalDeleted;
-      } catch (err) {
-        originalDeleted = false;
-        console.warn(
-          `[save-screenshot-edits] could not delete a stale file for ${args.recordingId}:`,
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    }
+    const left = await deleteAll(args.recordingId, staleUrls);
+    const originalDeleted = left.length === 0;
 
     if (burning && !originalDeleted) {
-      // The pending list is still on the row, so every route that serves the
-      // screenshot keeps it held. That is the right state: the unredacted
-      // original is still in storage.
+      // The marker keeps the screenshot held; narrowed to what is left, so
+      // the next save's retry does not trip over files already gone.
+      await db
+        .update(schema.recordings)
+        .set({ editsJson: withBurnMarker(existing.editsJson, left) })
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            eq(schema.recordings.editsJson, heldEditsJson!),
+          ),
+        );
       await writeAppState("refresh-signal", { ts: Date.now() });
-      throw new Error(
-        "The redactions were burned in, but the unredacted original could not be deleted from storage. The screenshot is held back from viewers until it is. Treat what you redacted as still exposed, and delete the screenshot.",
-      );
+      throw new Error(ORIGINAL_NOT_DELETED);
     }
 
     if (burning) {
-      // Only now: the original is gone, so clearing the pending list can no
-      // longer publish anything it covered. Pinned to the edits the first
-      // write left alone, so a box placed in between keeps the hold on.
+      // Only now: the original is gone, so clearing the marker and the
+      // pending list can no longer publish anything they covered. Every other
+      // save is refused while the marker is on, so the row is as written.
       const released = await db
         .update(schema.recordings)
         .set({
@@ -351,18 +429,16 @@ export default defineAction({
         .where(
           and(
             eq(schema.recordings.id, args.recordingId),
-            existing.editsJson == null
-              ? isNull(schema.recordings.editsJson)
-              : eq(schema.recordings.editsJson, existing.editsJson),
+            eq(schema.recordings.editsJson, heldEditsJson!),
           ),
         )
         .returning({ id: schema.recordings.id });
       if (!released.length) {
-        // Nothing is exposed — the pixels are burned and the original is
-        // deleted — but the boxes stay listed as pending, and the screenshot
-        // held, until the next save.
+        // Something outside the editor rewrote the edits. Nothing is exposed
+        // — the pixels are burned and the original deleted — and the next
+        // save clears the marker, whose files are already gone.
         console.warn(
-          `[save-screenshot-edits] burned ${args.recordingId}, but its edits changed meanwhile, so the redactions were left pending`,
+          `[save-screenshot-edits] burned ${args.recordingId}, but its edits changed meanwhile, so it stays held until the next save`,
         );
       }
     }
