@@ -73,23 +73,21 @@ export default defineAction({
     // batch share a `createdAt` to the millisecond and fall back to the id
     // tiebreak. Nothing may depend on the index matching the order a generator
     // wrote in — see the order-independence case in variant-lineup.test.ts.
+    const fileFieldsWithoutContent = {
+      id: schema.designFiles.id,
+      filename: schema.designFiles.filename,
+      fileType: schema.designFiles.fileType,
+      createdAt: schema.designFiles.createdAt,
+      updatedAt: schema.designFiles.updatedAt,
+    };
+    const fileFieldsWithContent = {
+      ...fileFieldsWithoutContent,
+      content: schema.designFiles.content,
+    };
     const fileFields =
       includeFileContent === false
-        ? {
-            id: schema.designFiles.id,
-            filename: schema.designFiles.filename,
-            fileType: schema.designFiles.fileType,
-            createdAt: schema.designFiles.createdAt,
-            updatedAt: schema.designFiles.updatedAt,
-          }
-        : {
-            id: schema.designFiles.id,
-            filename: schema.designFiles.filename,
-            fileType: schema.designFiles.fileType,
-            content: schema.designFiles.content,
-            createdAt: schema.designFiles.createdAt,
-            updatedAt: schema.designFiles.updatedAt,
-          };
+        ? fileFieldsWithoutContent
+        : fileFieldsWithContent;
     const files = await db
       .select(fileFields)
       .from(schema.designFiles)
@@ -134,14 +132,20 @@ export default defineAction({
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       accessRole: access.role,
-      files: files.map((f) => ({
-        id: f.id,
-        filename: f.filename,
-        fileType: f.fileType,
-        ...(includeFileContent === false ? {} : { content: f.content }),
-        createdAt: f.createdAt,
-        updatedAt: f.updatedAt,
-      })),
+      files: files.map((f) => {
+        const metadata = {
+          id: f.id,
+          filename: f.filename,
+          fileType: f.fileType,
+          createdAt: f.createdAt,
+          updatedAt: f.updatedAt,
+        };
+        if (includeFileContent === false) return metadata;
+        if (!("content" in f)) {
+          throw new Error("File content was requested but not selected");
+        }
+        return { ...metadata, content: f.content };
+      }),
     };
   },
 });

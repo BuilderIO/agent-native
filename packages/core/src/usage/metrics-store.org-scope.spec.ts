@@ -16,7 +16,7 @@ const rawClient = {
     }
     const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
-    if (/^\s*select/i.test(input.sql)) {
+    if (/^\s*(?:select|with)\b/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
     const info = await stmt.run(...args);
@@ -65,6 +65,12 @@ const ORG_MEMBERS_SQL = `CREATE TABLE IF NOT EXISTS org_members (
   federation_removal_pending_at BIGINT
 )`;
 
+const CHAT_THREADS_SQL = `CREATE TABLE IF NOT EXISTS chat_threads (
+  id TEXT PRIMARY KEY,
+  preview TEXT,
+  thread_data TEXT
+)`;
+
 beforeEach(async () => {
   // recordUsage derives its primary key from Date.now()*1000 + random(0..999),
   // which collides inside a tight loop. Make it monotonic for the test only.
@@ -77,6 +83,7 @@ beforeEach(async () => {
   pglite = await createTestPglite();
   await pglite.exec(TABLE_SQL);
   await pglite.exec(ORG_MEMBERS_SQL);
+  await pglite.exec(CHAT_THREADS_SQL);
   for (const [orgId, email, role] of [
     ["org-1", "a@example.com", "owner"],
     ["org-1", "admin@example.com", "admin"],
@@ -137,6 +144,96 @@ function recordInOrg(orgId: string, inputTokens: number) {
 }
 
 describe("listAppUsageMetrics organization scoping", () => {
+  it("shows one recent prompt per turn while preserving repeated submissions", async () => {
+    const now = Date.now();
+    const messages = [
+      {
+        message: {
+          id: "user-1",
+          createdAt: new Date(now - 60_000).toISOString(),
+          role: "user",
+          content: [{ type: "text", text: "same prompt" }],
+        },
+      },
+      {
+        message: {
+          id: "assistant-1",
+          createdAt: new Date(now - 50_000).toISOString(),
+          role: "assistant",
+          content: [{ type: "text", text: "first answer" }],
+          metadata: { custom: { turnId: "turn-1" } },
+        },
+      },
+      {
+        message: {
+          id: "user-2",
+          createdAt: new Date(now - 40_000).toISOString(),
+          role: "user",
+          content: [{ type: "text", text: "second prompt" }],
+        },
+      },
+      {
+        message: {
+          id: "assistant-2",
+          createdAt: new Date(now - 30_000).toISOString(),
+          role: "assistant",
+          content: [{ type: "text", text: "second answer" }],
+          metadata: { custom: { turnId: "turn-2" } },
+        },
+      },
+      {
+        message: {
+          id: "user-3",
+          createdAt: new Date(now - 20_000).toISOString(),
+          role: "user",
+          content: [{ type: "text", text: "same prompt" }],
+        },
+      },
+      {
+        message: {
+          id: "assistant-3",
+          createdAt: new Date(now - 10_000).toISOString(),
+          role: "assistant",
+          content: [{ type: "text", text: "third answer" }],
+          metadata: { custom: { turnId: "turn-3" } },
+        },
+      },
+    ];
+    await pglite
+      .prepare(
+        `INSERT INTO chat_threads (id, preview, thread_data) VALUES (?, ?, ?)`,
+      )
+      .run("thread-1", "same prompt", JSON.stringify({ messages }));
+
+    const usageRows = [
+      [1, "turn-1", "chat", now - 3_000],
+      [2, "turn-1", "custom-agent:research", now - 2_000],
+      [3, "turn-2", "chat", now - 1_500],
+      [4, "turn-3", "chat", now - 1_000],
+    ] as const;
+    for (const [id, taskId, label, createdAt] of usageRows) {
+      await pglite
+        .prepare(
+          `INSERT INTO token_usage (id, owner_email, label, app, thread_id, task_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(id, "a@example.com", label, "", "thread-1", taskId, createdAt);
+    }
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "me" },
+      { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+    );
+
+    expect(metrics.recent).toHaveLength(3);
+    expect(metrics.recent.map(({ prompt }) => prompt)).toEqual([
+      "same prompt",
+      "second prompt",
+      "same prompt",
+    ]);
+    expect(metrics.recent.map(({ id }) => id)).toEqual([4, 3, 2]);
+  });
+
   it("keeps estimated Builder credits visible while exact reporting is disabled", async () => {
     process.env.AGENT_ENGINE = "builder";
     await runWithRequestContext(
