@@ -33,6 +33,8 @@ const messages = {
     pinChat: "チャットをピン留め",
     pinned: "ピン留め",
     recents: "最近",
+    retryPreviousRequest:
+      "モデルプロバイダーに接続できたので、前のリクエストを再試行してください。",
     renameChat: "チャット名を変更",
     renameFailed: "名前の変更に失敗しました",
     renameThread: "スレッド名を変更",

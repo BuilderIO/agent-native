@@ -167,24 +167,14 @@ function ChatRunFailure({
 }: AgentRunFailureRenderProps) {
   const thread = useAgentThread(threadId);
   const { controller } = useAgentKit();
-  const firstUserMessage = thread.messages.find(
-    (message) => message.role === "user",
-  );
+  const t = useT();
   const retryFirstMessage = useCallback(() => {
-    if (!firstUserMessage) return;
-    const text = firstUserMessage.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("\n");
-    const attachments = firstUserMessage.parts.flatMap((part) =>
-      part.type === "file" ? [part] : [],
-    );
     void controller.sendMessage({
       threadId,
-      text,
-      ...(attachments.length ? { attachments } : {}),
+      text: t("chat.retryPreviousRequest"),
+      metadata: { custom: { agentNativeRecoveryAction: "retry" } },
     });
-  }, [controller, firstUserMessage, threadId]);
+  }, [controller, t, threadId]);
   const isFirstMessage =
     thread.messages.filter((message) => message.role === "user").length === 1;
   if (

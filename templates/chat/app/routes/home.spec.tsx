@@ -289,7 +289,7 @@ describe("ChatRoute AgentKit surface", () => {
     ).not.toBeNull();
   });
 
-  it("detects missing provider details and retries the original first message", () => {
+  it("detects missing provider details and retries the original turn once", () => {
     routeState.threadId = "thread-one";
     routeState.messages = [
       {
@@ -336,17 +336,11 @@ describe("ChatRoute AgentKit surface", () => {
         ?.click(),
     );
 
-    expect(routeState.sendMessage).toHaveBeenCalledWith({
+    expect(routeState.sendMessage).toHaveBeenCalledOnce();
+    expect(routeState.sendMessage.mock.calls[0]?.[0]).toEqual({
       threadId: "thread-one",
-      text: "Summarize this file",
-      attachments: [
-        {
-          type: "file",
-          name: "brief.pdf",
-          url: "/uploads/brief.pdf",
-          mediaType: "application/pdf",
-        },
-      ],
+      text: "chat.retryPreviousRequest",
+      metadata: { custom: { agentNativeRecoveryAction: "retry" } },
     });
   });
 

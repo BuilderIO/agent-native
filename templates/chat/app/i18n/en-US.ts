@@ -33,6 +33,8 @@ const messages = {
     pinChat: "Pin Chat",
     pinned: "Pinned",
     recents: "Recents",
+    retryPreviousRequest:
+      "Retry my previous request now that the model provider is connected.",
     renameChat: "Rename Chat",
     renameFailed: "Rename Failed",
     renameThread: "Rename Thread",

@@ -34,6 +34,8 @@ const messages = {
     pinChat: "Chat anheften",
     pinned: "Angepinnt",
     recents: "Kürzlich",
+    retryPreviousRequest:
+      "Wiederhole meine vorherige Anfrage, jetzt wo der KI-Anbieter verbunden ist.",
     renameChat: "Chat umbenennen",
     renameFailed: "Umbenennen fehlgeschlagen",
     renameThread: "Thread umbenennen",

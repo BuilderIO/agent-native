@@ -34,6 +34,8 @@ const messages = {
     pinChat: "Fijar chat",
     pinned: "Fijados",
     recents: "Recientes",
+    retryPreviousRequest:
+      "Reintenta mi solicitud anterior ahora que el proveedor del modelo está conectado.",
     renameChat: "Renombrar chat",
     renameFailed: "No se pudo renombrar",
     renameThread: "Renombrar hilo",
