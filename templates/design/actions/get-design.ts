@@ -73,10 +73,12 @@ export default defineAction({
     // batch share a `createdAt` to the millisecond and fall back to the id
     // tiebreak. Nothing may depend on the index matching the order a generator
     // wrote in — see the order-independence case in variant-lineup.test.ts.
-    const fileFields = {
+    const baseFileFields = {
       id: schema.designFiles.id,
       filename: schema.designFiles.filename,
       fileType: schema.designFiles.fileType,
+      createdAt: schema.designFiles.createdAt,
+      updatedAt: schema.designFiles.updatedAt,
     };
     const fileFilter = fileId
       ? and(
@@ -87,11 +89,7 @@ export default defineAction({
     const files =
       includeFileContent === false
         ? await db
-            .select({
-              ...fileFields,
-              createdAt: schema.designFiles.createdAt,
-              updatedAt: schema.designFiles.updatedAt,
-            })
+            .select(baseFileFields)
             .from(schema.designFiles)
             .where(fileFilter)
             .orderBy(
@@ -99,12 +97,7 @@ export default defineAction({
               asc(schema.designFiles.id),
             )
         : await db
-            .select({
-              ...fileFields,
-              content: schema.designFiles.content,
-              createdAt: schema.designFiles.createdAt,
-              updatedAt: schema.designFiles.updatedAt,
-            })
+            .select({ ...baseFileFields, content: schema.designFiles.content })
             .from(schema.designFiles)
             .where(fileFilter)
             .orderBy(
@@ -136,13 +129,21 @@ export default defineAction({
       description: row.description,
       projectType: row.projectType,
       designSystemId: row.designSystemId,
+      liveCollaborationEnabled: row.liveCollaborationEnabled === true,
       designSystem,
       data: designDataForAccessRole(row.data ?? null, access.role),
       visibility: row.visibility,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       accessRole: access.role,
-      files,
+      files: files.map((f) => ({
+        id: f.id,
+        filename: f.filename,
+        fileType: f.fileType,
+        ...("content" in f ? { content: f.content } : {}),
+        createdAt: f.createdAt,
+        updatedAt: f.updatedAt,
+      })),
     };
   },
 });
