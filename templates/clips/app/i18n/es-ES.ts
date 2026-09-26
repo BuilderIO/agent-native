@@ -841,6 +841,8 @@ const messages = {
     uploadWorkspaceSaveFailed: "No se pudo actualizar el espacio activo",
     whatsNew: "Novedades",
     changelogEmpty: "Aún no hay actualizaciones.",
+    changelogCommentSignup:
+      "La barra lateral de comentarios vacía explica brevemente por qué probar Clips y ofrece una forma clara de registrarse.",
     viewAllUpdates: "Ver todas las actualizaciones",
     expand: "Expandir",
     collapse: "Contraer",

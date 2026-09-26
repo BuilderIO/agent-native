@@ -820,6 +820,8 @@ const messages = {
     uploadWorkspaceSaveFailed: "활성 워크스페이스를 업데이트할 수 없음",
     whatsNew: "새 소식",
     changelogEmpty: "아직 업데이트가 없습니다.",
+    changelogCommentSignup:
+      "댓글이 없을 때 사이드바에서 Clips를 사용해 볼 이유를 간단히 설명하고 쉽게 가입할 수 있도록 안내합니다.",
     viewAllUpdates: "모든 업데이트 보기",
     expand: "펼치기",
     collapse: "접기",

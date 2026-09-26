@@ -781,6 +781,8 @@ const messages = {
     uploadWorkspaceSaveFailed: "无法更新当前工作区",
     whatsNew: "最新变化",
     changelogEmpty: "暂无更新。",
+    changelogCommentSignup:
+      "没有评论时，侧边栏会简要说明 Clips 的价值，并提供清晰的注册入口。",
     viewAllUpdates: "查看所有更新",
     expand: "展开",
     collapse: "收起",

@@ -454,7 +454,11 @@ export default function SettingsIndexRoute() {
         whatsNew={
           <div className="mx-auto w-full max-w-3xl">
             <ChangelogSettingsCard
-              markdown={changelog}
+              markdown={changelog
+                .split(
+                  "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
+                )
+                .join(t("settings.changelogCommentSignup"))}
               title={t("settings.whatsNew")}
               closeLabel={t("common.cancel")}
               emptyText={t("settings.changelogEmpty")}

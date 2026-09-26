@@ -833,6 +833,8 @@ const messages = {
       "アクティブなワークスペースを更新できませんでした",
     whatsNew: "最新情報",
     changelogEmpty: "まだ更新はありません。",
+    changelogCommentSignup:
+      "コメントがないときのサイドバーでClipsを試すメリットを簡潔に伝え、登録への分かりやすい導線を用意しました。",
     viewAllUpdates: "すべての更新を見る",
     expand: "展開",
     collapse: "折りたたむ",

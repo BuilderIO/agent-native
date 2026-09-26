@@ -446,7 +446,11 @@ export function ClipsCommandMenu({
     <CommandMenu
       open={open}
       onOpenChange={onOpenChange}
-      changelog={changelog}
+      changelog={changelog
+        .split(
+          "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
+        )
+        .join(t("settings.changelogCommentSignup"))}
       changelogLabel={t("settings.whatsNew")}
       changelogKey="clips"
       renderResults={renderResults}

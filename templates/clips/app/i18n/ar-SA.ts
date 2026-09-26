@@ -818,6 +818,8 @@ const messages = {
     uploadWorkspaceSaveFailed: "تعذر تحديث مساحة العمل النشطة",
     whatsNew: "ما الجديد",
     changelogEmpty: "لا توجد تحديثات بعد.",
+    changelogCommentSignup:
+      "توضح لوحة التعليقات الفارغة بإيجاز سبب تجربة Clips وتوفر مسارًا واضحًا للتسجيل.",
     viewAllUpdates: "عرض كل التحديثات",
     expand: "توسيع",
     collapse: "طي",

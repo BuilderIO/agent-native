@@ -807,6 +807,8 @@ const messages = {
     uploadWorkspaceSaveFailed: "सक्रिय वर्कस्पेस अपडेट नहीं किया जा सका",
     whatsNew: "नया क्या है",
     changelogEmpty: "अभी कोई अपडेट नहीं है।",
+    changelogCommentSignup:
+      "खाली टिप्पणियों वाला साइडबार Clips आज़माने की वजह संक्षेप में बताता है और साइन अप करने का स्पष्ट रास्ता देता है।",
     viewAllUpdates: "सभी अपडेट देखें",
     expand: "फैलाएं",
     collapse: "समेटें",

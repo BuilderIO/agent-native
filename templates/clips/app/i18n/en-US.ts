@@ -753,6 +753,8 @@ const messages = {
     uploadWorkspaceSaveFailed: "Could not update active workspace",
     whatsNew: "What's new",
     changelogEmpty: "No updates yet.",
+    changelogCommentSignup:
+      "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
     viewAllUpdates: "View all updates",
     expand: "Expand",
     collapse: "Collapse",
