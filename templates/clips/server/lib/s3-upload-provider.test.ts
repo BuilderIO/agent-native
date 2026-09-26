@@ -457,6 +457,38 @@ describe("s3FileUploadProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not start SSRF dispatch when DNS validation finishes after timeout", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    let resolveDns!: (blocked: boolean) => void;
+    const dnsValidation = new Promise<boolean>((resolve) => {
+      resolveDns = resolve;
+    });
+    mockIsBlockedExtensionUrlWithDns.mockReturnValueOnce(dnsValidation);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = fetchS3ObjectByUrl(
+      "https://s3.example.com/clips-bucket/clips/recording/video.webm",
+      { recordingId: "recording", timeoutMs: 10 },
+    );
+    await expect(request).rejects.toMatchObject({ name: "TimeoutError" });
+
+    resolveDns(false);
+    await dnsValidation;
+    await Promise.resolve();
+
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("does not expose multipart staging objects through signed reads", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "clips-bucket",

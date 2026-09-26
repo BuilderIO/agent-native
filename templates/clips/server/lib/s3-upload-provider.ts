@@ -86,6 +86,7 @@ async function fetchWithTimeout(
   try {
     const request = (async () => {
       const allowsPrivateOrigin = await isBlockedExtensionUrlWithDns(url);
+      if (controller.signal.aborted) throw controller.signal.reason;
       return ssrfSafeFetch(
         url,
         {
