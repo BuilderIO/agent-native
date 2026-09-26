@@ -255,9 +255,11 @@ export interface DialogProps extends DesignSystemOverlayProps {
   children: ReactNode;
   description?: ReactNode;
   footer?: ReactNode;
+  headerAction?: ReactNode;
   trigger?: ReactElement;
   size?: "small" | "medium" | "large" | "viewport" | "fullscreen";
   dismissible?: boolean;
+  hideClose?: boolean;
   closeLabel?: string;
   initialFocusRef?: RefObject<HTMLElement | null>;
   restoreFocusRef?: RefObject<HTMLElement | null>;

@@ -798,6 +798,7 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    suggestedPrompts: "추천 프롬프트",
     importMenu: {
       import: "가져오기",
       options: "가져오기 옵션",

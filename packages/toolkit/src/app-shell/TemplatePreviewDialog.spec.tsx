@@ -20,6 +20,7 @@ import { TemplatePreviewDialog } from "./TemplatePreviewDialog.js";
 
 const labels = {
   close: "Close preview",
+  useTemplate: "Use template",
   loading: "Loading preview",
   empty: "No preview available",
   retry: "Retry",
@@ -70,7 +71,7 @@ describe("template preview dialog", () => {
       ),
     );
 
-  it("opens a title-only semantic dialog without a dangling description or a use action", async () => {
+  it("opens a title-only semantic dialog without a dangling description", async () => {
     const warning = vi.spyOn(console, "warn");
     await render(
       <TemplatePreviewDialog {...props} open={false}>
@@ -98,6 +99,21 @@ describe("template preview dialog", () => {
       ),
     ).toEqual([labels.close]);
     expect(warning).not.toHaveBeenCalled();
+  });
+
+  it("replaces the close control with the primary use action without disabling click-away dismissal", async () => {
+    const useTemplate = vi.fn();
+    await render(
+      <TemplatePreviewDialog {...props} onUseTemplate={useTemplate}>
+        <div>Real preview</div>
+      </TemplatePreviewDialog>,
+    );
+    expect(button(labels.useTemplate)).toBeTruthy();
+    expect(
+      document.querySelector(`button[aria-label="${labels.close}"]`),
+    ).toBeNull();
+    act(() => button(labels.useTemplate).click());
+    expect(useTemplate).toHaveBeenCalledOnce();
   });
 
   it("preserves the semantic description association when supplied", async () => {

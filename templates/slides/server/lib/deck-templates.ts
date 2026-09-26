@@ -66,6 +66,25 @@ function escapeHtml(value: string): string {
   );
 }
 
+function titleArt(category: DeckTemplateCategory): string {
+  if (category === "pitch") {
+    return `<div class="deck-art deck-art-pitch"><span class="art-orbit"></span><span class="art-orbit art-orbit-small"></span><span class="art-card"><b>01</b><small>THE IDEA</small></span><span class="art-caption">MAKE<br />THE<br />SHIFT</span></div>`;
+  }
+  if (category === "update") {
+    return `<div class="deck-art deck-art-update"><div class="art-date">Q3<br /><b>25</b></div><div class="art-bars"><span></span><span></span><span></span><span></span></div><div class="art-caption">IN<br />MOTION</div></div>`;
+  }
+  if (category === "company") {
+    return `<div class="deck-art deck-art-company"><div class="art-window"><span></span><span></span><span></span></div><div class="art-circle"></div><div class="art-caption">PEOPLE<br />MAKE<br />MEANING</div></div>`;
+  }
+  if (category === "quarterly") {
+    return `<div class="deck-art deck-art-quarterly"><div class="art-chart"><span></span><span></span><span></span><span></span><span></span></div><div class="art-line"></div><div class="art-caption">LOOK<br />BACK<br />MOVE<br />FORWARD</div></div>`;
+  }
+  if (category === "case-study") {
+    return `<div class="deck-art deck-art-case-study"><div class="art-photo"><span></span><span></span><span></span></div><div class="art-quote">“</div><div class="art-caption">A STORY<br />WORTH<br />SHARING</div></div>`;
+  }
+  return `<div class="deck-art deck-art-workshop"><div class="art-note note-one">NOTICE</div><div class="art-note note-two">QUESTION</div><div class="art-note note-three">TRY</div><div class="art-caption">MAKE<br />SPACE<br />FOR IT</div></div>`;
+}
+
 function renderSlide(
   page: Page,
   palette: Palette,
@@ -87,15 +106,29 @@ function renderSlide(
     titlePage && (category === "company" || category === "case-study");
   const agenda =
     titlePage && (category === "update" || category === "quarterly");
+  const titleLayout =
+    "display:grid;grid-template-columns:minmax(0,1.12fr) minmax(260px,.88fr);gap:34px;align-items:center;";
   const mainStyle = points
     ? "display:grid;grid-template-columns:320px 1fr;gap:44px;align-items:center;"
-    : `display:flex;flex-direction:column;justify-content:${editorial ? "flex-end" : "center"};${centered ? "align-items:center;text-align:center;" : ""}${editorial ? "padding-bottom:36px;" : ""}`;
+    : titlePage
+      ? titleLayout
+      : `display:flex;flex-direction:column;justify-content:${editorial ? "flex-end" : "center"};${centered ? "align-items:center;text-align:center;" : ""}${editorial ? "padding-bottom:36px;" : ""}`;
   const heading = `<h1 style="font-family:var(--deck-heading-font);font-size:${headingSize}px;line-height:1.06;font-weight:600;letter-spacing:-0.035em;max-width:${editorial ? "690" : "810"}px;margin:0 0 18px;">${escapeHtml(page.title)}</h1>`;
   const introduction = `<p style="font-size:${titlePage ? "24" : "18"}px;line-height:1.4;color:var(--deck-muted);max-width:730px;margin:0;">${escapeHtml(page.body)}</p>`;
   return `<div class="fmd-slide" style="--deck-bg:${palette.background};--deck-ink:${palette.ink};--deck-muted:${palette.muted};--deck-accent:${palette.accent};--deck-surface:${palette.surface};--deck-heading-font:${palette.heading};--deck-body-font:Arial,sans-serif;--deck-radius:0px;width:960px;height:540px;box-sizing:border-box;padding:42px 56px;background:var(--deck-bg);color:var(--deck-ink);font-family:var(--deck-body-font);display:flex;flex-direction:column;">
+<style>
+.deck-title-copy{min-width:0}.deck-art{position:relative;height:260px;overflow:hidden;border:1px solid color-mix(in srgb,var(--deck-ink) 18%,transparent);background:var(--deck-surface)}.deck-art span,.deck-art div{box-sizing:border-box}.art-caption{position:absolute;right:18px;bottom:16px;font-size:13px;line-height:1.05;font-weight:700;letter-spacing:.14em;text-align:right;color:var(--deck-ink)}
+.deck-art-pitch{background:var(--deck-accent);transform:rotate(2deg)}.deck-art-pitch .art-orbit{position:absolute;width:190px;height:190px;right:-34px;top:-26px;border:24px solid var(--deck-surface);border-radius:50%}.deck-art-pitch .art-orbit-small{width:122px;height:122px;right:46px;top:44px;border-width:8px;border-color:var(--deck-ink)}.art-card{position:absolute;left:24px;top:28px;width:132px;height:164px;padding:18px;background:var(--deck-bg);box-shadow:10px 10px 0 var(--deck-ink);transform:rotate(-7deg);display:flex;flex-direction:column;justify-content:space-between}.art-card b{font-size:46px;line-height:1}.art-card small{font-size:11px;letter-spacing:.15em}.deck-art-pitch .art-caption{color:var(--deck-bg)}
+.deck-art-update{background:linear-gradient(145deg,var(--deck-surface),var(--deck-bg));}.art-date{position:absolute;left:22px;top:20px;font-size:26px;line-height:.9;letter-spacing:-.06em}.art-date b{font-size:86px;letter-spacing:-.1em}.art-bars{position:absolute;right:22px;top:28px;display:flex;align-items:end;gap:10px;height:160px}.art-bars span{display:block;width:24px;background:var(--deck-accent)}.art-bars span:nth-child(1){height:54px}.art-bars span:nth-child(2){height:94px;background:var(--deck-ink)}.art-bars span:nth-child(3){height:128px}.art-bars span:nth-child(4){height:160px;background:var(--deck-muted)}
+.deck-art-company{background:var(--deck-bg)}.art-window{position:absolute;inset:28px 26px 42px;background:var(--deck-surface);padding:18px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.art-window span{display:block;background:var(--deck-accent)}.art-window span:nth-child(2){background:var(--deck-ink);margin-top:22px}.art-window span:nth-child(3){background:var(--deck-muted);margin-top:48px}.art-circle{position:absolute;width:108px;height:108px;right:28px;top:56px;border-radius:50%;background:var(--deck-accent);mix-blend-mode:multiply}.deck-art-company .art-caption{color:var(--deck-bg)}
+.deck-art-quarterly{background:var(--deck-surface)}.art-chart{position:absolute;left:22px;right:22px;bottom:32px;height:164px;display:flex;align-items:end;gap:12px;border-bottom:2px solid var(--deck-ink)}.art-chart span{display:block;flex:1;background:var(--deck-accent)}.art-chart span:nth-child(1){height:38%}.art-chart span:nth-child(2){height:62%;background:var(--deck-muted)}.art-chart span:nth-child(3){height:48%}.art-chart span:nth-child(4){height:82%;background:var(--deck-ink)}.art-chart span:nth-child(5){height:100%}.art-line{position:absolute;left:22px;right:22px;top:76px;border-top:3px solid var(--deck-accent);transform:rotate(-10deg)}.deck-art-quarterly .art-caption{top:18px;right:20px;bottom:auto}
+.deck-art-case-study{background:var(--deck-ink)}.art-photo{position:absolute;left:24px;top:24px;width:56%;height:182px;background:var(--deck-accent);display:grid;grid-template-columns:1.4fr .7fr;gap:10px;padding:10px;transform:rotate(-4deg)}.art-photo span{background:var(--deck-surface)}.art-photo span:nth-child(2){background:var(--deck-muted)}.art-photo span:nth-child(3){grid-column:1 / -1;background:var(--deck-bg)}.art-quote{position:absolute;right:34px;top:24px;color:var(--deck-accent);font-family:var(--deck-heading-font);font-size:130px;line-height:.7}.deck-art-case-study .art-caption{color:var(--deck-bg)}
+.deck-art-workshop{background:var(--deck-surface)}.art-note{position:absolute;width:116px;height:92px;padding:12px;background:var(--deck-accent);font-size:13px;font-weight:700;letter-spacing:.1em;box-shadow:7px 7px 0 var(--deck-ink)}.note-one{left:24px;top:34px;transform:rotate(-8deg)}.note-two{left:112px;top:118px;background:var(--deck-bg);transform:rotate(5deg)}.note-three{left:214px;top:46px;background:var(--deck-muted);transform:rotate(8deg)}.deck-art-workshop .art-caption{color:var(--deck-ink)}
+@media (max-width:700px){.deck-art{height:180px}.art-card{transform:scale(.8) rotate(-7deg);transform-origin:top left}.art-caption{font-size:10px}}
+</style>
 <header style="display:flex;justify-content:space-between;align-items:center;font-size:16px;line-height:1.25;color:var(--deck-muted);"><span>${escapeHtml(page.label)}</span><span>${String(index + 1).padStart(2, "0")} / ${String(count).padStart(2, "0")}</span></header>
 <main style="flex:1;${mainStyle}">
-${points ? `<div>${heading}${introduction}</div><div>${points}</div>` : `${heading}${introduction}`}
+${points ? `<div>${heading}${introduction}</div><div>${points}</div>` : titlePage ? `<div class="deck-title-copy">${heading}${introduction}</div><div>${titleArt(category)}</div>` : `${heading}${introduction}`}
 ${agenda ? `<div style="display:flex;gap:24px;margin-top:36px;border-top:2px solid var(--deck-accent);padding-top:16px;font-size:17px;">${category === "update" ? "<span>Progress</span><span>Decisions</span><span>Next</span>" : "<span>Evidence</span><span>Learning</span><span>Priorities</span>"}</div>` : titlePage ? `<div style="height:${editorial ? "2" : "8"}px;width:${centered ? "64px" : editorial ? "100%" : "112px"};background:var(--deck-accent);margin-top:34px;"></div>` : ""}
 </main>
 <footer style="display:flex;justify-content:space-between;align-items:center;padding-top:14px;font-size:16px;line-height:1.2;color:var(--deck-muted);"><span>Editable starter</span><span style="color:var(--deck-accent);">${escapeHtml(page.label.split(" / ")[0])}</span></footer>

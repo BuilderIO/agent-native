@@ -1678,6 +1678,7 @@ export default {
       "Create a polished slide deck with a title slide, a clear narrative, visual data, and a concise closing slide.",
   },
   home: {
+    suggestedPrompts: "Suggested prompts",
     import: "Import",
     importOptions: "Import options",
     figmaLink: "Figma link",
@@ -1693,7 +1694,7 @@ export default {
       "A mobile app prototype shown on a phone frame, with a tab bar at the bottom and three list cards on the home screen.",
     starterPricingPrompt:
       "A three-tier pricing page with a monthly/annual toggle, feature checklists, and a highlighted recommended tier.",
-    designPromptTitle: "What do you want to design?",
+    designPromptTitle: "Let's create your first design",
     recent: "Recent",
     browseAllTemplates: "Browse all",
     connectBuilderIo: "Connect Builder.io",

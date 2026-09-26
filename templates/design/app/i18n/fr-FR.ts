@@ -1708,6 +1708,7 @@ export default {
       "Créez une présentation soignée avec une diapositive de titre, un récit clair, des données visuelles et une conclusion concise.",
   },
   home: {
+    suggestedPrompts: "Prompts suggérés",
     import: "Importer",
     importOptions: "Options d’importation",
     figmaLink: "Lien Figma",
@@ -1723,7 +1724,7 @@ export default {
       "Un prototype d’application mobile dans un cadre de téléphone, avec une barre d’onglets en bas et trois cartes de liste sur l’écran d’accueil.",
     starterPricingPrompt:
       "Une page de tarifs à trois offres avec un sélecteur mensuel/annuel, des listes de fonctionnalités et une offre recommandée mise en avant.",
-    designPromptTitle: "Que voulez-vous concevoir ?",
+    designPromptTitle: "Créons votre premier design",
     recent: "Récents",
     browseAllTemplates: "Tout parcourir",
     connectBuilderIo: "Connecter Builder.io",

@@ -155,6 +155,11 @@ describe("home Figma import", () => {
         (item) => item.textContent,
       ),
     ).toEqual(["home.figmaFile", "home.figmaLink"]);
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).every((item) => !item.querySelector("svg")),
+    ).toBe(true);
     await click("home.figmaFile");
     expect(picker).toHaveBeenCalledOnce();
     expect(document.querySelector('input[type="url"]')).toBeNull();

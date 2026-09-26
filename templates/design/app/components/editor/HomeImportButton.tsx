@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { parseFigmaFileKey } from "@shared/figma-url";
-import { IconChevronDown, IconLink, IconUpload } from "@tabler/icons-react";
+import { IconChevronDown, IconUpload } from "@tabler/icons-react";
 import { useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -126,7 +126,6 @@ export function HomeImportButton() {
               >
                 <DropdownMenuGroup>
                   <DropdownMenuItem onSelect={pickFile}>
-                    <IconUpload />
                     {t("home.figmaFile")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -134,7 +133,6 @@ export function HomeImportButton() {
                       openLinkAfterMenu.current = true;
                     }}
                   >
-                    <IconLink />
                     {t("home.figmaLink")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>

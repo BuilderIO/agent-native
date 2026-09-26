@@ -27,9 +27,13 @@ export type TemplatePreviewDialogProps = {
   loading?: boolean;
   error?: string | null;
   onRetry?: () => void;
+  onUseTemplate?: () => void;
+  useTemplatePending?: boolean;
+  useTemplateDisabled?: boolean;
   empty?: boolean;
   labels: {
     close: string;
+    useTemplate: string;
     loading: string;
     empty: string;
     retry: string;
@@ -62,6 +66,9 @@ export function TemplatePreviewDialog({
   onSelectedIdChange,
   initialFocusRef,
   restoreFocusRef,
+  onUseTemplate,
+  useTemplatePending = false,
+  useTemplateDisabled = false,
 }: TemplatePreviewDialogProps) {
   const thumbnailElements = useRef(new Map<string, HTMLDivElement>());
   const ready = !loading && !error && !empty;
@@ -109,6 +116,21 @@ export function TemplatePreviewDialog({
       size={size}
       className="agent-template-preview-dialog"
       closeLabel={labels.close}
+      hideClose={Boolean(onUseTemplate)}
+      headerAction={
+        onUseTemplate ? (
+          <ActionButton
+            intent="primary"
+            emphasis="solid"
+            size="compact"
+            pending={useTemplatePending}
+            disabled={useTemplateDisabled || useTemplatePending || !ready}
+            onPress={onUseTemplate}
+          >
+            {labels.useTemplate}
+          </ActionButton>
+        ) : undefined
+      }
       initialFocusRef={initialFocusRef}
       restoreFocusRef={restoreFocusRef}
     >

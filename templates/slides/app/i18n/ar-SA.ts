@@ -820,6 +820,7 @@ const messages = {
     chooseAnotherFile: "اختيار ملف آخر",
   },
   home: {
+    suggestedPrompts: "الاقتراحات المقترحة",
     importMenu: {
       import: "استيراد",
       options: "خيارات الاستيراد",

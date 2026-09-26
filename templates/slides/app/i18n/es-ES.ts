@@ -827,6 +827,7 @@ const messages = {
     chooseAnotherFile: "Elegir otro archivo",
   },
   home: {
+    suggestedPrompts: "Indicaciones sugeridas",
     importMenu: {
       import: "Importar",
       options: "Opciones de importación",

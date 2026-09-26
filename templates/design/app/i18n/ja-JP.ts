@@ -1692,6 +1692,7 @@ export default {
       "タイトルスライド、明確なストーリー、視覚化されたデータ、簡潔な締めのスライドを含む洗練されたプレゼンテーションを作成してください。",
   },
   home: {
+    suggestedPrompts: "おすすめのプロンプト",
     import: "インポート",
     importOptions: "インポートオプション",
     figmaLink: "Figmaリンク",
@@ -1707,7 +1708,7 @@ export default {
       "スマートフォンのフレーム内に表示するモバイルアプリのプロトタイプ。下部にタブバーを配置し、ホーム画面には3枚のリストカードを表示してください。",
     starterPricingPrompt:
       "月払い・年払いの切り替え、機能チェックリスト、おすすめプランの強調表示を備えた3段階の料金ページ。",
-    designPromptTitle: "何をデザインしますか？",
+    designPromptTitle: "最初のデザインを作りましょう",
     recent: "最近",
     browseAllTemplates: "すべて見る",
     connectBuilderIo: "Builder.io に接続",

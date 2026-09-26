@@ -103,16 +103,16 @@ export default function DeckCard({
   };
 
   return (
-    <div className="group relative">
+    <div className="agent-template-library-card group relative min-w-0">
       <Link
         to={`/deck/${deck.id}`}
-        className="block overflow-hidden rounded-xl border border-transparent bg-card transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
+        className="agent-template-library-primary block overflow-hidden rounded-xl border border-transparent bg-card transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
         onClick={(e) => {
           if (isRenaming) e.preventDefault();
         }}
       >
         {/* Slide Preview */}
-        <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-muted/30">
+        <div className="agent-template-library-preview relative flex items-center justify-center bg-muted/30">
           {firstSlide && (
             <div className="relative overflow-hidden" style={previewFrameStyle}>
               <SlideRenderer
@@ -126,7 +126,7 @@ export default function DeckCard({
         </div>
 
         {/* Info */}
-        <div className="p-4">
+        <div className="agent-template-library-caption p-4">
           <div className="flex items-center gap-2 min-w-0">
             {isRenaming ? (
               <input

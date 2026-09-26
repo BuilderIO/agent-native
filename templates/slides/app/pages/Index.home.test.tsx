@@ -39,7 +39,7 @@ const {
   promptProps: vi.fn(),
   referenceProps: vi.fn(),
   signedIn: { value: true },
-  agentEngine: { missing: false },
+  agentEngine: { state: "configured", missing: false },
   builderConnect: { connecting: false, error: null as string | null },
   useBuilderConnectFlow: vi.fn(),
   agentSubmit: vi.fn(),
@@ -76,6 +76,22 @@ vi.mock("@agent-native/core/client/settings", () => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
+  useActionQuery: (name: string) =>
+    name === "generate-home-suggestions"
+      ? {
+          data: {
+            suggestions: [
+              {
+                id: "suggestion-1",
+                label: "Build a pitch",
+                prompt: "Create a pitch deck for a new product.",
+              },
+            ],
+          },
+          isLoading: false,
+          isError: false,
+        }
+      : { data: undefined, isLoading: false },
   getBrowserTabId: () => "home-test",
   deleteClientAppState: vi.fn().mockResolvedValue(undefined),
   useSession: () => ({
@@ -212,6 +228,7 @@ beforeEach(() => {
   systemFlag.enabled = true;
   createDeck.mockReset();
   signedIn.value = true;
+  agentEngine.state = "configured";
   agentEngine.missing = false;
   builderConnect.connecting = false;
   builderConnect.error = null;
@@ -498,15 +515,12 @@ describe("Slides prompt-led home", () => {
     expect(screen.queryByText("Couldn't load your content")).toBeNull();
   });
 
-  it("opens a source picker without submitting a blank quick start or replacing the composer", async () => {
+  it("submits a generated quick action without replacing the composer", async () => {
     renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
     const prompt = screen.getByRole("textbox", { name: "Presentation prompt" });
-    fireEvent.click(
-      screen.getByRole("button", { name: "home.quickStart.trends.label" }),
-    );
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "home.cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Build a pitch" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
       prompt,
     );
@@ -517,6 +531,14 @@ describe("Slides prompt-led home", () => {
       }),
     );
     expect(createDeck).not.toHaveBeenCalled();
+  });
+
+  it("hides home suggestions until the provider status is confirmed", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    expect(screen.queryByRole("button", { name: "Build a pitch" })).toBeNull();
   });
 
   it("reopens the inline prompt on reference cancellation without discarding uploads just for hiding it", async () => {

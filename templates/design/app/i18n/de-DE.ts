@@ -1714,6 +1714,7 @@ export default {
       "Erstelle eine ansprechende Präsentation mit Titelfolie, klarer Erzählung, visuellen Daten und einer prägnanten Abschlussfolie.",
   },
   home: {
+    suggestedPrompts: "Vorgeschlagene Prompts",
     import: "Importieren",
     importOptions: "Importoptionen",
     figmaLink: "Figma-Link",
@@ -1729,7 +1730,7 @@ export default {
       "Ein mobiler App-Prototyp in einem Smartphone-Rahmen mit einer Tab-Leiste unten und drei Listenkarten auf dem Startbildschirm.",
     starterPricingPrompt:
       "Eine Preisseite mit drei Tarifen, einer monatlichen/jährlichen Umschaltung, Funktionslisten und einem hervorgehobenen empfohlenen Tarif.",
-    designPromptTitle: "Was möchtest du gestalten?",
+    designPromptTitle: "Lass uns dein erstes Design erstellen",
     recent: "Zuletzt verwendet",
     browseAllTemplates: "Alle ansehen",
     connectBuilderIo: "Builder.io verbinden",

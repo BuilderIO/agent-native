@@ -9,7 +9,7 @@ import {
   TemplateLibraryGrid,
   TemplatePreviewDialog,
 } from "@agent-native/toolkit/app-shell";
-import { IconDots, IconEye, IconTrash } from "@tabler/icons-react";
+import { IconDots } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState, type RefObject } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -46,6 +46,26 @@ export interface DesignLibraryTemplate {
   previewHtml?: string | null;
   isBuiltIn: boolean;
   isOwner?: boolean;
+}
+
+function previewFilenameForHref(
+  href: string,
+  currentFilename: string,
+  files: readonly { filename: string }[],
+): string | null {
+  let target: URL;
+  try {
+    target = new URL(href, `https://design-preview.invalid/${currentFilename}`);
+  } catch {
+    // coercion-ok: malformed preview href is an absent local target.
+    return null;
+  }
+  if (target.origin !== "https://design-preview.invalid") return null;
+  const filename = decodeURIComponent(target.pathname).replace(/^\/+/, "");
+  return (
+    files.find((file) => file.filename.replace(/^\/+/, "") === filename)
+      ?.filename ?? null
+  );
 }
 
 export function DesignTemplateLibrary({
@@ -159,6 +179,9 @@ export function DesignTemplateLibrary({
           key={preview.id}
           template={preview}
           restoreFocusRef={restoreFocusRef}
+          onUseTemplate={() => void copy(preview)}
+          useTemplatePending={pendingId === preview.id}
+          useTemplateDisabled={pendingId !== null}
           onClose={() => selectPreview(null)}
         />
       ) : null}
@@ -235,7 +258,6 @@ function TemplateMenu({
               onPreview(trigger.current);
             }}
           >
-            <IconEye />
             {t("creativeContext.preview")}
           </DropdownMenuItem>
           {!template.isBuiltIn && template.isOwner ? (
@@ -248,7 +270,6 @@ function TemplateMenu({
                 trigger="label"
               />
               <DropdownMenuItem disabled={disabled} onSelect={onDelete}>
-                <IconTrash />
                 {t("home.delete")}
               </DropdownMenuItem>
             </>
@@ -263,10 +284,16 @@ function DesignTemplatePreviewDialog({
   template,
   onClose,
   restoreFocusRef,
+  onUseTemplate,
+  useTemplatePending,
+  useTemplateDisabled,
 }: {
   template: DesignLibraryTemplate;
   onClose: () => void;
   restoreFocusRef: RefObject<HTMLElement | null>;
+  onUseTemplate: () => void;
+  useTemplatePending: boolean;
+  useTemplateDisabled: boolean;
 }) {
   const t = useT();
   const { data, isLoading, isError, refetch } = useActionQuery(
@@ -286,12 +313,16 @@ function DesignTemplatePreviewDialog({
       onOpenChange={(open) => !open && onClose()}
       title={template.title}
       restoreFocusRef={restoreFocusRef}
+      onUseTemplate={onUseTemplate}
+      useTemplatePending={useTemplatePending}
+      useTemplateDisabled={useTemplateDisabled}
       loading={isLoading}
       error={isError ? t("common.genericError") : null}
       onRetry={() => void refetch()}
       empty={!isLoading && !isError && files.length === 0}
       labels={{
         close: t("designEditor.close"),
+        useTemplate: t("templatesPage.useTemplate"),
         loading: t("templatesPage.loading"),
         empty: t("templatesPage.previewEmpty"),
         retry: t("homeContext.retry"),
@@ -326,7 +357,11 @@ function DesignTemplatePreviewDialog({
           interactive
           onEscape={onClose}
           onNavigate={(href) => {
-            const filename = href.replace(/^\.\//, "").split("#")[0];
+            const filename = previewFilenameForHref(
+              href,
+              active.filename,
+              files,
+            );
             const next = files.find((file) => file.filename === filename);
             if (next) setSelectedId(next.templateFileId);
           }}

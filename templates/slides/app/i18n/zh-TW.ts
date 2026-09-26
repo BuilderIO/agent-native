@@ -777,6 +777,7 @@ const messages = {
     chooseAnotherFile: "選取其他檔案",
   },
   home: {
+    suggestedPrompts: "建議提示",
     importMenu: {
       import: "匯入",
       options: "匯入選項",

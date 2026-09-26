@@ -26,6 +26,8 @@ export type TemplateLibraryCardProps<T extends TemplateLibraryItem> = {
   item: T;
   preview: ReactNode;
   actions?: ReactNode;
+  metadata?: ReactNode;
+  actionsVisible?: boolean;
   selected?: boolean;
   pending?: boolean;
   disabled?: boolean;
@@ -35,6 +37,8 @@ export function TemplateLibraryCard<T extends TemplateLibraryItem>({
   item,
   preview,
   actions,
+  metadata,
+  actionsVisible = false,
   selected = false,
   pending = false,
   disabled = false,
@@ -72,6 +76,11 @@ export function TemplateLibraryCard<T extends TemplateLibraryItem>({
             {item.description}
           </p>
         ) : null}
+        {metadata ? (
+          <div className="min-w-0 text-xs text-muted-foreground">
+            {metadata}
+          </div>
+        ) : null}
       </div>
     </Surface>
   );
@@ -91,7 +100,11 @@ export function TemplateLibraryCard<T extends TemplateLibraryItem>({
         {renderLink && !unavailable ? renderLink(item, card) : card}
       </div>
       {actions ? (
-        <div className="agent-template-library-actions flex items-center gap-2 pt-3">
+        <div
+          className={`agent-template-library-actions flex items-center gap-2 pt-3${
+            actionsVisible ? " !opacity-100" : ""
+          }`}
+        >
           {actions}
         </div>
       ) : null}
@@ -103,6 +116,9 @@ export type TemplateLibraryGridProps<T extends TemplateLibraryItem> = {
   items: readonly T[];
   renderPreview: (item: T) => ReactNode;
   renderActions?: (item: T) => ReactNode;
+  renderMetadata?: (item: T) => ReactNode;
+  actionsVisible?: (item: T) => boolean;
+  isSelected?: (item: T) => boolean;
   selectedId?: string | null;
   pendingId?: string | null;
   disabled?: boolean;
@@ -117,6 +133,9 @@ export function TemplateLibraryGrid<T extends TemplateLibraryItem>({
   items,
   renderPreview,
   renderActions,
+  renderMetadata,
+  actionsVisible,
+  isSelected,
   selectedId,
   pendingId,
   disabled,
@@ -152,7 +171,9 @@ export function TemplateLibraryGrid<T extends TemplateLibraryItem>({
               item={item}
               preview={renderPreview(item)}
               actions={renderActions?.(item)}
-              selected={item.id === selectedId}
+              metadata={renderMetadata?.(item)}
+              actionsVisible={actionsVisible?.(item)}
+              selected={isSelected?.(item) ?? item.id === selectedId}
               pending={item.id === pendingId}
               disabled={disabled}
               {...(renderLink ? { renderLink } : { onSelect: onSelect! })}

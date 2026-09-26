@@ -124,6 +124,21 @@ vi.mock("@agent-native/core/client/hooks", () => ({
         refetch: mocks.refetch,
       };
     }
+    if (name === "generate-home-suggestions") {
+      return {
+        data: {
+          suggestions: [
+            {
+              id: "design-suggestion",
+              label: "Generated dashboard",
+              prompt: mocks.starterPrompt,
+            },
+          ],
+          isLoading: false,
+          isError: false,
+        },
+      };
+    }
     return { data: undefined, isLoading: false };
   },
   useActionMutation: (name: string) => ({
@@ -336,7 +351,7 @@ describe("Index skip to editor", () => {
   it("explains an unaccepted quick start without replacing the draft or creating a design", async () => {
     mocks.submitWithText.mockResolvedValueOnce(false);
     const suggestion = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "homeContext.quickDashboard",
+      (button) => button.textContent === "Generated dashboard",
     );
     await act(async () => suggestion?.click());
     expect(mocks.toastError).toHaveBeenCalledWith("homeContext.notReady");
@@ -352,7 +367,7 @@ describe("Index skip to editor", () => {
       mocks.promptProps?.onTemplateChange("saved-template"),
     );
     const suggestion = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "homeContext.quickDashboard",
+      (button) => button.textContent === "Generated dashboard",
     );
     await act(async () => suggestion?.click());
     expect(mocks.submitWithText).toHaveBeenCalledWith(mocks.starterPrompt);
@@ -449,6 +464,12 @@ describe("Index skip to editor", () => {
       modelStatusChecksEnabled: true,
     });
     expect(container.textContent).not.toContain("home.connectBuilderIo");
+  });
+
+  it("hides home suggestions until the provider status is confirmed", async () => {
+    mocks.agentEngine = { state: "missing", missing: true };
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).not.toContain("Generated dashboard");
   });
 
   it("does not navigate on failure and allows a successful retry", async () => {
@@ -568,7 +589,7 @@ describe("Index search empty state", () => {
     expect(container.textContent).toContain("Try a different search.");
     expect(container.textContent).not.toContain("home.createFirstDesign");
     expect(container.textContent).not.toContain("home.pickStartingPoint");
-    expect(container.textContent).toContain("homeContext.quickDashboard");
+    expect(container.textContent).toContain("Generated dashboard");
   });
 });
 

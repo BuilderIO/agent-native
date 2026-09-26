@@ -829,6 +829,7 @@ const messages = {
     chooseAnotherFile: "Choisir un autre fichier",
   },
   home: {
+    suggestedPrompts: "Prompts suggérés",
     importMenu: {
       import: "Importer",
       options: "Options d’importation",

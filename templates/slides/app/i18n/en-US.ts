@@ -803,6 +803,7 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    suggestedPrompts: "Suggested prompts",
     importMenu: {
       import: "Import",
       options: "Import options",

@@ -1669,6 +1669,7 @@ export default {
       "제목 슬라이드, 명확한 이야기, 시각화된 데이터와 간결한 마무리 슬라이드가 있는 세련된 프레젠테이션을 만들어 주세요.",
   },
   home: {
+    suggestedPrompts: "추천 프롬프트",
     import: "가져오기",
     importOptions: "가져오기 옵션",
     figmaLink: "Figma 링크",
@@ -1684,7 +1685,7 @@ export default {
       "휴대폰 프레임 안에 표시되는 모바일 앱 프로토타입. 하단에는 탭 바가 있고 홈 화면에는 목록 카드 3개가 있습니다.",
     starterPricingPrompt:
       "월간/연간 전환, 기능 체크리스트, 강조된 추천 요금제가 있는 3단계 요금 페이지.",
-    designPromptTitle: "무엇을 디자인할까요?",
+    designPromptTitle: "첫 번째 디자인을 만들어 볼까요?",
     recent: "최근",
     browseAllTemplates: "모두 둘러보기",
     connectBuilderIo: "Builder.io 연결",

@@ -4,6 +4,7 @@ import type { PromptComposerSubmitOptions } from "@agent-native/core/client/comp
 import {
   callAction,
   deleteClientAppState,
+  useActionQuery,
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -20,6 +21,10 @@ import {
 } from "@agent-native/core/client/settings";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
+  AgentSuggestionBar,
+  agentSuggestionPrompt,
+} from "@agent-native/toolkit/agentkit";
+import {
   PromptHome,
   PromptHomeLibrary,
   type PromptHomeLibraryTab,
@@ -33,10 +38,6 @@ import {
   IconArrowRight,
   IconRefresh,
   IconSearch,
-  IconTrendingUp,
-  IconNotes,
-  IconFileTypePdf,
-  IconWorld,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import {
@@ -55,10 +56,6 @@ import { toast } from "sonner";
 import DeckCard from "@/components/deck/DeckCard";
 import { DeckFilterMenu } from "@/components/deck/DeckFilterMenu";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
-import {
-  HomeQuickStartDialog,
-  type HomeQuickStart,
-} from "@/components/editor/HomeQuickStartDialog";
 import { ImportDeckButton } from "@/components/editor/ImportDeckButton";
 import {
   NewDeckReferenceStep,
@@ -182,6 +179,16 @@ const RETRY_REASONING_EFFORTS = new Set([
   "xhigh",
   "max",
 ]);
+
+interface HomeSuggestion {
+  id?: string;
+  label: string;
+  prompt: string;
+}
+
+interface HomeSuggestionsResult {
+  suggestions: HomeSuggestion[];
+}
 
 /** Router-state payload for recovering the new-deck prompt after a failed
  *  generation kickoff forces a navigate away from and back to this route. */
@@ -418,6 +425,17 @@ export default function Index() {
     provisionAccount: true,
     trackingSource: "slides_home",
   });
+  const quickActionsEnabled =
+    agentEngine.state === "configured" && !agentEngine.missing;
+  const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
+    "generate-home-suggestions",
+    {},
+    {
+      enabled: quickActionsEnabled,
+      retry: false,
+      staleTime: 5 * 60 * 1000,
+    },
+  );
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -425,7 +443,6 @@ export default function Index() {
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
     useState<Deck | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(true);
-  const [quickStart, setQuickStart] = useState<HomeQuickStart | null>(null);
   const homeComposerRef = useRef<PromptPopoverHandle>(null);
   const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
     text: string;
@@ -2107,41 +2124,28 @@ export default function Index() {
         </div>
       }
       quickActions={
-        <>
-          {(
-            [
-              ["trends", IconTrendingUp],
-              ["notes", IconNotes],
-              ["pdf", IconFileTypePdf],
-              ["website", IconWorld],
-            ] as const
-          ).map(([starter, Icon]) => (
-            <Button
-              key={starter}
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!showNewDeckPrompt || generating}
-              onClick={() => setQuickStart(starter)}
-            >
-              <Icon />
-              {t(`home.quickStart.${starter}.label`)}
-            </Button>
-          ))}
-        </>
+        quickActionsEnabled && homeSuggestionsQuery.data?.suggestions.length ? (
+          <AgentSuggestionBar
+            suggestions={homeSuggestionsQuery.data.suggestions.map(
+              (suggestion, index) => ({
+                ...suggestion,
+                id: suggestion.id ?? `slides-home-${index}`,
+                disabled: !showNewDeckPrompt || generating,
+              }),
+            )}
+            ariaLabel={t("home.suggestedPrompts")}
+            className="px-0 py-0"
+            onSelect={(suggestion) => {
+              if (!showNewDeckPrompt || generating) return;
+              void homeComposerRef.current?.submitSource(
+                agentSuggestionPrompt(suggestion),
+                [],
+              );
+            }}
+          />
+        ) : null
       }
     >
-      <HomeQuickStartDialog
-        kind={quickStart}
-        onClose={() => setQuickStart(null)}
-        disabled={generating}
-        connectionRequired={agentEngine.missing}
-        onSubmit={async (prompt, files, sourceContext) =>
-          homeComposerRef.current?.submitSource(prompt, files, sourceContext) ??
-          false
-        }
-      />
-
       {viewState === "error" ? (
         <div className="flex min-h-40 items-center justify-center">
           <div
@@ -2182,29 +2186,27 @@ export default function Index() {
         }
         templates={<DeckTemplateLibrary home />}
         recent={
-          <div className="deck-grid-container">
-            <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {visibleDecks.map((deck) => (
-                <DeckCard
-                  key={deck.id}
-                  deck={deck}
-                  onDelete={(id) => setDeckToDelete(id)}
-                  onRename={handleRename}
-                  onDuplicate={handleDuplicate}
-                  onToggleStar={handleToggleStar}
-                  isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
-                  canSetWorkspaceDefault={canManageWorkspaceDefaults}
-                  onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
-                />
-              ))}
-              {visibleDecks.length === 0 && (
-                <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
-                  {normalizedDeckSearch
-                    ? t("home.noDecksMatchSearch")
-                    : t("home.noMineDecks")}
-                </div>
-              )}
-            </div>
+          <div className="agent-template-library-grid">
+            {visibleDecks.map((deck) => (
+              <DeckCard
+                key={deck.id}
+                deck={deck}
+                onDelete={(id) => setDeckToDelete(id)}
+                onRename={handleRename}
+                onDuplicate={handleDuplicate}
+                onToggleStar={handleToggleStar}
+                isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
+                canSetWorkspaceDefault={canManageWorkspaceDefaults}
+                onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
+              />
+            ))}
+            {visibleDecks.length === 0 && (
+              <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                {normalizedDeckSearch
+                  ? t("home.noDecksMatchSearch")
+                  : t("home.noMineDecks")}
+              </div>
+            )}
           </div>
         }
       />

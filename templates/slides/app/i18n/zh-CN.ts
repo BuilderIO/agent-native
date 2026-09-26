@@ -782,6 +782,7 @@ const messages = {
     chooseAnotherFile: "选择其他文件",
   },
   home: {
+    suggestedPrompts: "推荐提示",
     importMenu: {
       import: "导入",
       options: "导入选项",

@@ -612,9 +612,11 @@ const DefaultDialog: DesignSystemComponents["Dialog"] = ({
   description,
   children,
   footer,
+  headerAction,
   trigger,
   size = "medium",
   dismissible = true,
+  hideClose,
   closeLabel,
   initialFocusRef,
   restoreFocusRef,
@@ -626,7 +628,7 @@ const DefaultDialog: DesignSystemComponents["Dialog"] = ({
     {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
     <DialogContent
       container={portalContainer}
-      hideClose={!dismissible}
+      hideClose={hideClose || !dismissible}
       closeLabel={closeLabel}
       {...(!description ? { "aria-describedby": undefined } : {})}
       style={style}
@@ -658,8 +660,17 @@ const DefaultDialog: DesignSystemComponents["Dialog"] = ({
         if (!dismissible) event.preventDefault();
       }}
     >
-      <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
+      <DialogHeader
+        className={
+          headerAction
+            ? "flex-row items-center justify-between gap-3 space-y-0"
+            : undefined
+        }
+      >
+        <DialogTitle className={headerAction ? "min-w-0" : undefined}>
+          {title}
+        </DialogTitle>
+        {headerAction}
         {description ? (
           <DialogDescription>{description}</DialogDescription>
         ) : null}

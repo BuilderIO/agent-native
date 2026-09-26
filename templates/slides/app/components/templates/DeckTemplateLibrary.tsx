@@ -10,7 +10,7 @@ import {
   TemplateLibraryGrid,
   TemplatePreviewDialog,
 } from "@agent-native/toolkit/app-shell";
-import { IconDots, IconEye } from "@tabler/icons-react";
+import { IconDots } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { lazy, Suspense, useRef, useState, type RefObject } from "react";
@@ -146,6 +146,11 @@ export function DeckTemplateLibrary({
           id={selectedId}
           onClose={() => select(null)}
           restoreFocusRef={previewTriggerRef}
+          onUseTemplate={() => void copyTemplate(selectedId)}
+          useTemplatePending={pendingId === selectedId}
+          useTemplateDisabled={pendingId !== null}
+          copyError={copyError?.id === selectedId ? copyError.message : null}
+          onRetryCopy={() => void copyTemplate(selectedId)}
         />
       ) : null}
     </>
@@ -193,7 +198,6 @@ function TemplateActions({
               onPreview(trigger.current);
             }}
           >
-            <IconEye size={16} />
             {t("templatesPage.previewAction")}
           </DropdownMenuItem>
         </DropdownMenuGroup>
@@ -206,10 +210,20 @@ function DeckTemplateDialog({
   id,
   onClose,
   restoreFocusRef,
+  onUseTemplate,
+  useTemplatePending,
+  useTemplateDisabled,
+  copyError,
+  onRetryCopy,
 }: {
   id: string;
   onClose: () => void;
   restoreFocusRef: RefObject<HTMLElement | null>;
+  onUseTemplate: () => void;
+  useTemplatePending: boolean;
+  useTemplateDisabled: boolean;
+  copyError: string | null;
+  onRetryCopy: () => void;
 }) {
   const t = useT();
   const query = useActionQuery("get-deck-template", { id });
@@ -230,15 +244,20 @@ function DeckTemplateDialog({
       }}
       title={query.data?.title ?? t("templatesPage.preview")}
       restoreFocusRef={restoreFocusRef}
+      onUseTemplate={onUseTemplate}
+      useTemplatePending={useTemplatePending}
+      useTemplateDisabled={useTemplateDisabled}
       loading={query.isLoading}
       error={
-        !query.isLoading && (query.isError || !validTemplate)
+        copyError ??
+        (!query.isLoading && (query.isError || !validTemplate)
           ? (actionErrorMessage(query.error) ?? t("templatesPage.loadFailed"))
-          : null
+          : null)
       }
-      onRetry={() => void query.refetch()}
+      onRetry={copyError ? onRetryCopy : () => void query.refetch()}
       labels={{
         close: t("comments.close"),
+        useTemplate: t("templatesPage.useTemplate"),
         loading: t("templatesPage.loading"),
         empty: t("templatesPage.empty"),
         retry: t("home.retry"),

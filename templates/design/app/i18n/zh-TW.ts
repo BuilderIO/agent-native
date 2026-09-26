@@ -1720,6 +1720,7 @@ export default {
       "建立精美的簡報，包含標題頁、清晰的敘事、視覺化資料和簡潔的結尾頁。",
   },
   home: {
+    suggestedPrompts: "建議提示",
     import: "匯入",
     importOptions: "匯入選項",
     figmaLink: "Figma 連結",
@@ -1735,7 +1736,7 @@ export default {
       "一個顯示在手機外框內的行動應用程式原型，底部有分頁列，主畫面上有三張清單卡片。",
     starterPricingPrompt:
       "一個三層級定價頁面，包含月繳/年繳切換、功能清單，並醒目標示推薦方案。",
-    designPromptTitle: "您想設計什麼？",
+    designPromptTitle: "讓我們建立你的第一個設計",
     recent: "最近",
     browseAllTemplates: "瀏覽全部",
     connectBuilderIo: "連線 Builder.io",

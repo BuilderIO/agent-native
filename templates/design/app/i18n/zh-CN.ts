@@ -1617,6 +1617,7 @@ export default {
       "创建精美的演示文稿，包含标题页、清晰的叙事、可视化数据和简洁的结束页。",
   },
   home: {
+    suggestedPrompts: "推荐提示",
     import: "导入",
     importOptions: "导入选项",
     figmaLink: "Figma 链接",
@@ -1632,7 +1633,7 @@ export default {
       "一个展示在手机边框内的移动应用原型，底部带有标签栏，主屏幕上有三张列表卡片。",
     starterPricingPrompt:
       "一个三档定价页面，包含月付/年付切换、功能清单，并突出显示推荐方案。",
-    designPromptTitle: "你想设计什么？",
+    designPromptTitle: "让我们创建你的第一个设计",
     recent: "最近",
     browseAllTemplates: "浏览全部",
     connectBuilderIo: "连接 Builder.io",

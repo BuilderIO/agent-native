@@ -823,6 +823,7 @@ const messages = {
     chooseAnotherFile: "Andere Datei wählen",
   },
   home: {
+    suggestedPrompts: "Vorgeschlagene Prompts",
     importMenu: {
       import: "Importieren",
       options: "Importoptionen",

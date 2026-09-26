@@ -808,6 +808,7 @@ const messages = {
     chooseAnotherFile: "別のファイルを選択",
   },
   home: {
+    suggestedPrompts: "おすすめのプロンプト",
     importMenu: {
       import: "インポート",
       options: "インポートのオプション",

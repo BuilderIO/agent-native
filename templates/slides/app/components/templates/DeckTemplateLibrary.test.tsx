@@ -181,19 +181,19 @@ describe("real starter template library", () => {
       name: `Actions ${first.title}`,
     });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    fireEvent.click(
-      await screen.findByRole("menuitem", {
-        name: "templatesPage.previewAction",
-      }),
-    );
+    const previewAction = await screen.findByRole("menuitem", {
+      name: "templatesPage.previewAction",
+    });
+    expect(previewAction.querySelector("svg")).toBeNull();
+    fireEvent.click(previewAction);
     const dialog = await screen.findByRole("dialog");
     expect(screen.getByTestId("location").textContent).toContain(
       `templateId=${first.id}`,
     );
     expect(dialog.querySelector('[data-size="viewport"]')).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "templatesPage.useTemplate" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "templatesPage.useTemplate" }),
+    ).toBeTruthy();
     await waitFor(
       () => expect(dialog.querySelector(".fmd-slide")).toBeTruthy(),
       { timeout: 5000 },
@@ -211,12 +211,41 @@ describe("real starter template library", () => {
         .getAttribute("aria-pressed"),
     ).toBe("true");
     expect(mocks.create).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "comments.close" }));
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByTestId("location").textContent).toBe("/home");
     expect(screen.getByRole("textbox", { name: "Home prompt" })).toBe(draft);
     expect((draft as HTMLTextAreaElement).value).toBe("Keep my draft");
     await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+  it("copies and opens the deck from the preview header action", async () => {
+    mount({ home: true, entry: "/home" });
+    const trigger = screen.getByRole("button", {
+      name: `Actions ${first.title}`,
+    });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "templatesPage.previewAction",
+      }),
+    );
+    await screen.findByRole("button", { name: "templatesPage.useTemplate" });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "templatesPage.useTemplate" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.create).toHaveBeenCalledWith({
+        templateId: first.id,
+        newId: expect.any(String),
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/deck/new-editable-deck",
+      ),
+    );
   });
   it.each(["/templates", "/home"])(
     "clicking a thumbnail on %s directly copies and opens without a dialog or AI gate",
@@ -246,8 +275,8 @@ describe("real starter template library", () => {
     ).toBeTruthy();
     expect(mocks.create).not.toHaveBeenCalled();
     expect(
-      screen.queryByRole("button", { name: "templatesPage.useTemplate" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "templatesPage.useTemplate" }),
+    ).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "templatesPage.previous" }),
     ).toBeNull();
@@ -290,8 +319,12 @@ describe("real starter template library", () => {
       "templatesPage.loadFailed",
     );
     expect(
-      screen.queryByRole("button", { name: "templatesPage.useTemplate" }),
-    ).toBeNull();
+      (
+        screen.getByRole("button", {
+          name: "templatesPage.useTemplate",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "home.retry" }));
     expect(mocks.retry).toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();

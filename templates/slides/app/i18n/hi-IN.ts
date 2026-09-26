@@ -796,6 +796,7 @@ const messages = {
     chooseAnotherFile: "दूसरी फ़ाइल चुनें",
   },
   home: {
+    suggestedPrompts: "सुझाए गए प्रॉम्प्ट",
     importMenu: {
       import: "आयात करें",
       options: "आयात के विकल्प",

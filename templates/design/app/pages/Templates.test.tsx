@@ -140,7 +140,9 @@ vi.mock("@/components/templates/TemplatePreview", () => ({
     >
       {interactive ? (
         <>
-          <button onClick={() => onNavigate?.("second.html")}>
+          <button
+            onClick={() => onNavigate?.("./second.html?from=preview#hero")}
+          >
             Local next fixture
           </button>
           <button
@@ -213,7 +215,9 @@ async function openMenu(index = 0) {
 }
 async function preview(index = 0) {
   await openMenu(index);
-  await click(get("menuitem", "creativeContext.preview"));
+  const previewAction = get("menuitem", "creativeContext.preview");
+  expect(previewAction.querySelector("svg")).toBeNull();
+  await click(previewAction);
   return get("dialog");
 }
 beforeEach(() => {
@@ -309,7 +313,7 @@ describe("Design template library", () => {
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
-  it("previews full HTML read-only and switches known screens without copying", async () => {
+  it("runs full HTML as a live preview and switches known screens without copying", async () => {
     await render();
     const dialog = await preview();
     expect(
@@ -340,27 +344,38 @@ describe("Design template library", () => {
     expect(mocks.remove).not.toHaveBeenCalled();
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
-  it.each(["designEditor.close", "Escape fixture"])(
-    "restores focus and clears only preview URL state via %s",
-    async (closeLabel) => {
-      await render(<Templates />, "/templates?search=template&keep=fixture");
-      const trigger = get(
-        "button",
-        "templatesPage.templateActions:Saved template",
+  it("uses the template from the preview header action", async () => {
+    await render();
+    await preview(1);
+    await click(get("button", "templatesPage.useTemplate"));
+    expect(mocks.create).toHaveBeenCalledExactlyOnceWith({
+      templateId: "starter",
+      title: "Starter template",
+    });
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/new-copy");
+  });
+  it("restores focus and clears only preview URL state via Escape", async () => {
+    await render(<Templates />, "/templates?search=template&keep=fixture");
+    const trigger = get(
+      "button",
+      "templatesPage.templateActions:Saved template",
+    );
+    await preview();
+    expect(container.querySelector("[data-location]")?.textContent).toBe(
+      "?search=template&keep=fixture&templateId=saved",
+    );
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );
-      await preview();
-      expect(container.querySelector("[data-location]")?.textContent).toBe(
-        "?search=template&keep=fixture&templateId=saved",
-      );
-      await click(get("button", closeLabel));
-      expect(named("dialog")).toHaveLength(0);
-      expect(container.querySelector("[data-location]")?.textContent).toBe(
-        "?search=template&keep=fixture",
-      );
-      await vi.waitFor(() => expect(document.activeElement).toBe(trigger));
-      expect(mocks.create).not.toHaveBeenCalled();
-    },
-  );
+    });
+    expect(named("dialog")).toHaveLength(0);
+    expect(container.querySelector("[data-location]")?.textContent).toBe(
+      "?search=template&keep=fixture",
+    );
+    await vi.waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
   it("retains saved-owner sharing roles and delete only in the menu", async () => {
     await render();
     expect(named("button", "Share fixture")).toHaveLength(0);
@@ -385,7 +400,11 @@ describe("Design template library", () => {
     expect(container.querySelector("[data-location]")?.textContent).toBe(
       "?keep=draft&templateId=starter",
     );
-    await click(get("button", "designEditor.close"));
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
     expect(container.querySelector("[data-location]")?.textContent).toBe(
       "?keep=draft",
     );

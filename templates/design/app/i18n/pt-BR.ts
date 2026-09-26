@@ -1690,6 +1690,7 @@ export default {
       "Crie uma apresentação refinada com slide de título, narrativa clara, dados visuais e um slide final conciso.",
   },
   home: {
+    suggestedPrompts: "Prompts sugeridos",
     import: "Importar",
     importOptions: "Opções de importação",
     figmaLink: "Link do Figma",
@@ -1705,7 +1706,7 @@ export default {
       "Um protótipo de aplicativo móvel em uma moldura de celular, com uma barra de abas na parte inferior e três cartões de lista na tela inicial.",
     starterPricingPrompt:
       "Uma página de preços com três planos, alternância mensal/anual, listas de funcionalidades e o plano recomendado em destaque.",
-    designPromptTitle: "O que você quer criar?",
+    designPromptTitle: "Vamos criar seu primeiro design",
     recent: "Recentes",
     browseAllTemplates: "Ver todos",
     connectBuilderIo: "Conectar o Builder.io",

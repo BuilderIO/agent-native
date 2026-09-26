@@ -32,10 +32,11 @@ Read the relevant skill before deeper work:
 | `get-deck` | Read a deck or one targeted slide's full HTML |
 | `list-decks` | List decks with metadata, paged |
 | `list-deck-templates` / `get-deck-template` | Browse template HTML |
+| `generate-home-suggestions` | Personalized home prompts |
 | `create-deck-from-template` | Copy a template without AI |
 | `read-composer-source` | Read bounded Slides, Design, or Figma references |
-| `apply-design-system` | Link a design system's colors and typography to a deck |
-| `export-pptx` / `export-html` / `export-google-slides` | Export PowerPoint, HTML, or a Google-Slides-importable PPTX |
+| `apply-design-system` | Link design system to deck |
+| `export-pptx` / `export-html` / `export-google-slides` | Export decks |
 | `generate-image-api` | Generate a slide image via the Assets app |
 
 ## Core Rules
