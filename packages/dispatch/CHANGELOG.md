@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 0.38.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [7e8a10a]
+- Updated dependencies
+  - @agent-native/toolkit@0.22.1
+
 ## 0.38.12
 
 ### Patch Changes
@@ -1020,13 +1029,5 @@
 - aa17e22: Recover embedded workspace apps when their one-time session expires and keep account name editing available while profile data loads.
 - Updated dependencies [aa17e22]
   - @agent-native/toolkit@0.14.0
-
-## 0.23.5
-
-### Patch Changes
-
-- 62a17be: Add the authenticated, nonce-only completion route used by packaged Desktop clients during cross-app identity federation.
-
-  Let Dispatch register rollout-gated identity routes on its primary auth guard so security checks remain unconditional while the capability is default-off.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

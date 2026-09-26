@@ -11,8 +11,50 @@ import {
   type ContentRecentTarget,
 } from "@shared/content-personal-navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+
+const contentRecentRecoveries = new WeakMap<
+  ReturnType<typeof useQueryClient>,
+  Map<string, Promise<void>>
+>();
+
+function recoverContentRecentScope(
+  queryClient: ReturnType<typeof useQueryClient>,
+  scopeKey: string,
+  refresh: () => Promise<void>,
+) {
+  let recoveries = contentRecentRecoveries.get(queryClient);
+  if (!recoveries) {
+    recoveries = new Map();
+    contentRecentRecoveries.set(queryClient, recoveries);
+  }
+  const recovery = recoveries.get(scopeKey);
+  if (recovery) return recovery;
+
+  let nextRecovery: Promise<void>;
+  nextRecovery = Promise.resolve()
+    .then(refresh)
+    .finally(() => {
+      if (recoveries.get(scopeKey) === nextRecovery) {
+        recoveries.delete(scopeKey);
+      }
+    });
+  recoveries.set(scopeKey, nextRecovery);
+  return nextRecovery;
+}
+
+function contentRecentScopeKey(
+  org: ReturnType<typeof useOrg>["data"],
+  spaceId?: string,
+) {
+  if (!org) return undefined;
+  return JSON.stringify([
+    org.email.trim().toLowerCase(),
+    org.orgId ?? null,
+    spaceId ?? null,
+  ]);
+}
 
 export function contentRecentQueryArgs(
   scopeKey: string | undefined,
@@ -22,31 +64,110 @@ export function contentRecentQueryArgs(
   return { scopeKey, ...(spaceId ? { spaceId } : {}) };
 }
 
+export function isContentRecentContextChanged(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { errorCode?: unknown }).errorCode === "context_changed"
+  );
+}
+
 export function useContentRecent(spaceId?: string) {
   const org = useOrg();
-  const scopeKey = org.data
-    ? JSON.stringify([
-        org.data.email.trim().toLowerCase(),
-        org.data.orgId ?? null,
-        spaceId ?? null,
-      ])
-    : undefined;
-  const query = useActionQuery(
-    "get-content-recent",
-    contentRecentQueryArgs(scopeKey, spaceId),
-    {
-      enabled: Boolean(scopeKey) && !org.isFetching,
-      placeholderData: undefined,
-    },
+  const queryClient = useQueryClient();
+  const scopeKey = contentRecentScopeKey(org.data, spaceId);
+  const args = useMemo(
+    () => contentRecentQueryArgs(scopeKey, spaceId),
+    [scopeKey, spaceId],
   );
+  const query = useActionQuery("get-content-recent", args, {
+    enabled: Boolean(scopeKey) && !org.isFetching,
+    placeholderData: undefined,
+  });
+  const [refreshingScopes, setRefreshingScopes] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const resyncedScopesRef = useRef(new Set<string>());
+  const contextChanged = isContentRecentContextChanged(query.error);
+
+  useEffect(() => {
+    if (!contextChanged) {
+      if (scopeKey) {
+        resyncedScopesRef.current.delete(scopeKey);
+      }
+      return;
+    }
+    if (!scopeKey) return;
+    if (resyncedScopesRef.current.has(scopeKey)) return;
+
+    resyncedScopesRef.current.add(scopeKey);
+    setRefreshingScopes((current) => new Set(current).add(scopeKey));
+    void recoverContentRecentScope(queryClient, scopeKey, async () => {
+      try {
+        const refreshedOrg = await org.refetch({ cancelRefetch: false });
+        if (refreshedOrg.isError) return;
+        const refreshedArgs = contentRecentQueryArgs(
+          contentRecentScopeKey(refreshedOrg.data, spaceId),
+          spaceId,
+        );
+        if (!refreshedArgs) return;
+        await queryClient.invalidateQueries(
+          {
+            queryKey: ["action", "get-content-recent", refreshedArgs],
+            exact: true,
+          },
+          { cancelRefetch: false },
+        );
+      } catch (error) {
+        console.warn(
+          "Could not refresh the Content Recent context after a scope mismatch.",
+          error,
+        );
+      }
+    }).finally(() => {
+      setRefreshingScopes((current) => {
+        if (!current.has(scopeKey)) return current;
+        const next = new Set(current);
+        next.delete(scopeKey);
+        return next;
+      });
+    });
+  }, [
+    contextChanged,
+    org.refetch,
+    query.error,
+    query.isError,
+    queryClient,
+    scopeKey,
+    spaceId,
+  ]);
+
+  const refetch = useCallback(
+    (...args: Parameters<typeof query.refetch>) => {
+      if (contextChanged && scopeKey) {
+        resyncedScopesRef.current.delete(scopeKey);
+        contentRecentRecoveries.get(queryClient)?.delete(scopeKey);
+      }
+      return query.refetch(...args);
+    },
+    [contextChanged, query.refetch, scopeKey],
+  );
+
+  const recoveringContext =
+    contextChanged &&
+    (!scopeKey ||
+      refreshingScopes.has(scopeKey) ||
+      !resyncedScopesRef.current.has(scopeKey));
   return {
     ...query,
+    refetch,
     data:
       !org.isFetching && query.data?.scopeKey === scopeKey
         ? query.data
         : undefined,
-    isLoading: org.isLoading || org.isFetching || query.isLoading,
-    isError: org.isError || query.isError,
+    isLoading:
+      org.isLoading || org.isFetching || query.isLoading || recoveringContext,
+    isError: org.isError || (query.isError && !recoveringContext),
   };
 }
 

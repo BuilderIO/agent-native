@@ -17,11 +17,17 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The bookings list shows the latest bookings first and keeps dates and times together.
+- Colleague events use the saved accent color shown in the calendar sidebar.
 - If Zoom cannot confirm a meeting, Calendar keeps the booking and follows up with meeting details
 - Public booking links show their title, description, and duration in previews.
 
 ### Fixed
 
+- Bookings with an uncertain Zoom response stay reserved for review without appearing as confirmed calendar events.
+- Canceling a booking now resolves its Zoom meeting first.
+- Public booking pages reject malformed meeting settings before reserving a slot.
+- Shared booking cancellations require editor access, and unresolved Zoom meetings stay protected when meeting settings change.
 - Calendar rule Undo stays consistent during RSVP updates, and one failed event no longer blocks later activity.
 - Gong requests keep legacy credentials paired with their saved API endpoint
 - Reserved bookings reach Google Calendar when Zoom fails, and guests can retry when meeting creation never started.

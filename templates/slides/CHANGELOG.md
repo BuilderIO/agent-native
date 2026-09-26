@@ -7,11 +7,19 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Double-clicking slide text selects the word under the pointer.
+- Empty decks no longer start exports or presentations or expose presentation links.
+- Invalid or expired upload references stop instead of retrying
+- Slides ask for a file when a prompt refers to an unattached document
 - Reference file imports now check storage availability before opening the file picker.
 
 ### Changed
 
 - The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+### Removed
+
+- Create decks directly from the prompt without a separate New Deck button.
 
 ## 2026-09-25
 
@@ -38,6 +46,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Pressing Enter in a flex-anchored text box no longer adds extra blank lines when you leave editing, and Arabic text stays joined while you type
+- Slides generation recovers from long pauses and lets you continue from the saved deck
+- Slides guides users to connect AI before continuing deck questions.
+- Slides checks object storage before uploads and offers Builder.io or your own S3-compatible keys when storage is missing.
 - Human Review previews show same-organization slides for organization admins without changing deck data.
 - Searching presentations keeps the results panel visible even when your workspace has no owned decks.
 - Shared-only presentations now open in Recent by default, copied templates wait for deck hydration, and retries remain idempotent.
