@@ -1992,7 +1992,8 @@ export async function removeSession(token: string): Promise<void> {
  * token. Deleting the `"session"` row directly by tokens from either cookie
  * family closes that gap. Better Auth's own cookies are also cleared across
  * host/domain and partition scopes because its signOut only clears the current
- * scope.
+ * scope. Failed revocation preserves session cookies so the same token can be
+ * retried instead of making the browser appear signed out while it stays live.
  */
 async function performLogout(
   event: H3Event,
@@ -2012,12 +2013,8 @@ async function performLogout(
   try {
     auth = await getAuth();
   } catch (error) {
-    // The fallback route's `getAuth` retries resolving Better Auth here and
-    // may still find it unavailable — expected on that route, not tracked.
-    console.warn(
-      "[auth] could not resolve Better Auth instance during logout:",
-      error,
-    );
+    revocationFailed = true;
+    captureAuthError(error, { route: "logout" });
   }
 
   for (const token of candidates) {
@@ -2043,30 +2040,32 @@ async function performLogout(
   }
   invalidateSessionEmailCache();
 
-  clearFrameworkSessionCookies(event);
-  clearIdentityGoogleAuthCookie(event);
-  clearFirstRunOnboardingCookie(event);
-  optOutOfAuthDisabledSession(event);
+  if (!revocationFailed) {
+    clearFrameworkSessionCookies(event);
+    clearIdentityGoogleAuthCookie(event);
+    clearFirstRunOnboardingCookie(event);
+    optOutOfAuthDisabledSession(event);
 
-  if (auth) {
-    try {
-      const result = await auth.api.signOut({
-        headers: event.headers,
-        returnHeaders: true,
-      });
-      forwardBetterAuthSetCookies(event, result);
-    } catch (error) {
-      // Better Auth's own signOut looks for its own session cookie, which
-      // this framework never issues to the browser (see the doc comment
-      // above) — expected to fail on essentially every call today, so this
-      // is logged for local debugging rather than tracked as an anomaly.
-      console.warn("[auth] Better Auth signOut failed during logout:", error);
+    if (auth) {
+      try {
+        const result = await auth.api.signOut({
+          headers: event.headers,
+          returnHeaders: true,
+        });
+        forwardBetterAuthSetCookies(event, result);
+      } catch (error) {
+        // Better Auth's own signOut looks for its own session cookie, which
+        // this framework never issues to the browser (see the doc comment
+        // above) — expected to fail on essentially every call today, so this
+        // is logged for local debugging rather than tracked as an anomaly.
+        console.warn("[auth] Better Auth signOut failed during logout:", error);
+      }
     }
+
+    clearBetterAuthSessionCookies(event);
+
+    if (isElectronRequest(event)) await clearDesktopSso();
   }
-
-  clearBetterAuthSessionCookies(event);
-
-  if (isElectronRequest(event)) await clearDesktopSso();
 
   if (revocationFailed) {
     setResponseStatus(event, 503);

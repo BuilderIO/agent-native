@@ -1972,17 +1972,19 @@ describe("server/auth", () => {
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
+      const signOut = vi.fn(async () => ({ headers: new Headers() }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
         getBetterAuth: async () => ({
-          api: { signOut: vi.fn(async () => ({ headers: new Headers() })) },
+          api: { signOut },
         }),
         getBetterAuthSync: () => null,
       }));
       const captureAuthError = vi.fn();
       vi.doMock("./sentry.js", () => ({ captureAuthError }));
 
-      const { autoMountAuth } = await import("./auth.js");
+      const { autoMountAuth, BETTER_AUTH_COOKIE_PREFIX } =
+        await import("./auth.js");
       const app = createMockApp();
       await autoMountAuth(app);
 
@@ -1992,18 +1994,88 @@ describe("server/auth", () => {
       const logoutEvent = createJsonPostEvent(
         "/_agent-native/auth/logout",
         {},
-        { cookie: "an_session=ba_session_token" },
+        {
+          cookie: [
+            "an_session=ba_session_token",
+            `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token=ba_cookie_token`,
+          ].join("; "),
+        },
       );
 
       await expect(logoutHandler(logoutEvent)).resolves.toEqual({
         error: "Unable to revoke session",
       });
       expect(logoutEvent.res.status).toBe(503);
+      expect(signOut).not.toHaveBeenCalled();
+      expect(
+        logoutEvent.res.headers
+          .getSetCookie()
+          .some((cookie) =>
+            /^(?:an_session|__Secure-an\.session_token)=;/.test(cookie),
+          ),
+      ).toBe(false);
 
       expect(captureAuthError).toHaveBeenCalledWith(
         expect.objectContaining({ message: "connection reset" }),
         { route: "logout" },
       );
+    });
+
+    it("reports an unavailable Better Auth instance during logout", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const authError = new Error("auth store unavailable");
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => {
+          throw authError;
+        },
+        getBetterAuthSync: () => null,
+      }));
+      const captureAuthError = vi.fn();
+      vi.doMock("./sentry.js", () => ({ captureAuthError }));
+
+      const { autoMountAuth, BETTER_AUTH_COOKIE_PREFIX } =
+        await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const logoutEvent = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        {
+          cookie: [
+            "an_session=ba_session_token",
+            `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token=ba_cookie_token`,
+          ].join("; "),
+        },
+      );
+
+      await expect(logoutHandler(logoutEvent)).resolves.toEqual({
+        error: "Unable to revoke session",
+      });
+      expect(logoutEvent.res.status).toBe(503);
+      expect(
+        logoutEvent.res.headers
+          .getSetCookie()
+          .some((cookie) =>
+            /^(?:an_session|__Secure-an\.session_token)=;/.test(cookie),
+          ),
+      ).toBe(false);
+      expect(captureAuthError).toHaveBeenCalledWith(authError, {
+        route: "logout",
+      });
     });
 
     it("mounts generic Google OAuth routes by default when credentials are configured", async () => {
