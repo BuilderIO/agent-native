@@ -223,6 +223,27 @@ describe("runDuplicateScreen", () => {
     );
   });
 
+  it("stacks an Alt-drag copy above overlapping screens", async () => {
+    const args = duplicateArgsWithOccupiedFrame({
+      x: 600,
+      y: 0,
+      width: 640,
+      height: 480,
+      z: 90,
+    });
+
+    await runDuplicateScreen(args, "source", {
+      mode: "alt-drag",
+      canvasPosition: { x: 696, y: 0 },
+    });
+
+    expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+      "copy",
+      expect.objectContaining({ x: 696, y: 0, z: 91 }),
+      expect.any(Object),
+    );
+  });
+
   it("cleans up a partial create so the same duplicate can be retried", async () => {
     let activeFilename: string | undefined;
     let sequence = 0;

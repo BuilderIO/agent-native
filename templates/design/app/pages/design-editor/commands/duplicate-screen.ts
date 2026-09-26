@@ -91,13 +91,14 @@ function getFirstFreeDuplicateGeometry(
 function duplicateGeometriesOverlap(
   left: FrameGeometry,
   right: FrameGeometry,
+  gap = DUPLICATE_SCREEN_GAP,
 ): boolean {
   const sameRow =
     left.y < right.y + right.height && right.y < left.y + left.height;
   return (
     sameRow &&
-    left.x < right.x + right.width + DUPLICATE_SCREEN_GAP &&
-    right.x < left.x + left.width + DUPLICATE_SCREEN_GAP
+    left.x < right.x + right.width + gap &&
+    right.x < left.x + left.width + gap
   );
 }
 
@@ -121,6 +122,14 @@ function reserveDuplicateGeometry(
           ...occupiedGeometries,
           ...otherPending,
         ]);
+  if (reserved.x === candidate.x && reserved.y === candidate.y) {
+    const overlappingZ = occupiedGeometries
+      .filter((geometry) => duplicateGeometriesOverlap(candidate, geometry, 0))
+      .map((geometry) => geometry.z ?? 0);
+    if (overlappingZ.length > 0) {
+      reserved.z = Math.max(reserved.z ?? 0, ...overlappingZ) + 1;
+    }
+  }
   const pendingZ = [...pendingGeometries.values()].map(
     (geometry) => geometry.z ?? 0,
   );
