@@ -174,7 +174,10 @@ evidence:
    - Verify before fixing: reproduce locally, read the relevant code, inspect logs, or confirm with a stack trace.
    - Keep each fix narrow and mapped to a feedback item.
    - Follow existing project conventions and nearby patterns.
-   - Do not switch branches, stash, reset, force-push, or open a PR unless the user asks.
+   - Keep the current checkout intact. Steve has authorized a separate
+     task-owned worktree branch when isolation helps; fetch `origin/main` first
+     and preserve the existing checkout. Do not stash, reset, force-push, or
+     open a PR unless the task authorizes it.
    - Add or update focused tests when the bug risk warrants it.
 
 7. Treat UX feedback with product judgment.

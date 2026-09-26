@@ -399,10 +399,11 @@ missing, preserve the source branch. Continue through:
    cadence of at most 60 seconds.
 2. Rerun both final review audits below. If new actionable feedback appears
    after merge, record a post-merge follow-up and retain the source branch.
-3. If there is no post-merge follow-up, retain the source branch unless the
-   user explicitly requested its exact rotation in this task. If requested,
-   follow `/new-branch` safety checks and compare local and remote tips before
-   any branch operation.
+3. If there is no post-merge follow-up, follow `/ship` branch disposition:
+   rotate a clean user-owned worktree through `/new-branch` under Steve's
+   standing branch authorization. If unpushed work or dirty publishable paths
+   remain, retain the source branch and report them; keep platform-assigned
+   branches unchanged.
 
 The foreground task owns this continuation; no watcher or lease is required.
 

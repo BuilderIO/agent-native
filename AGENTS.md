@@ -43,12 +43,16 @@ contract.
 - Scale effort to the task. A small, well-specified change is a short read, the
   edit, and the existing checks — not a codebase survey, unrequested tests, or
   browser automation. Save deep exploration for ambiguous or cross-cutting work.
-- Stay on the current git branch. Never create, switch, delete, reset, rebase,
-  stash, or otherwise move branches unless the user explicitly asks for that exact
-  branch operation in the current task.
+- Keep each shared checkout on its current branch. Steve has granted standing
+  permission to create a task-owned worktree on a new branch when isolation is
+  useful; do not ask again. Fetch `origin/main` first and use it as the base.
+  Never delete, reset, rebase, stash, force-push, or overwrite a peer's branch
+  or worktree without task-specific authorization.
 - Never add `Co-Authored-By` or other agent attribution to commits.
-- PRs use the current branch unless the user explicitly requests a new branch.
-  PRs are ready for review by default, not drafts, unless requested.
+- Use the current branch for PRs from an existing checkout. When a task-owned
+  worktree is a better fit, use its branch for the commit, push, and PR; do not
+  copy changes into the shared checkout. PRs are ready for review by default,
+  not drafts, unless requested.
 - Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
   sole automatic beta publisher. It builds in GitHub Actions and uploads
   prebuilt artifacts to the independent Netlify beta sites at

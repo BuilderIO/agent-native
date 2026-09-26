@@ -77,8 +77,10 @@ Classify each issue as:
 When the user authorized repair:
 
 1. Fix only gaps with clear evidence.
-2. Preserve unrelated local changes and do not move branches unless explicitly
-   asked for that branch operation.
+2. Preserve unrelated local changes in the existing checkout. Steve has
+   authorized a separate task-owned worktree branch from fresh `origin/main`
+   when isolation is useful; do not move or overwrite the source or a peer's
+   branch to create it.
 3. Use existing repo patterns and targeted tests.
 4. Re-run the smallest useful validation after each meaningful fix.
 5. If a fix would require a product decision, credential, destructive action, or

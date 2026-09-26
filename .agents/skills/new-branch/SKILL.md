@@ -1,9 +1,9 @@
 ---
 name: new-branch
 description: >-
-  Use when explicitly asked for /new-branch or a fresh git branch. A /ship
-  request alone does not authorize post-merge branch movement. Keep
-  platform-assigned Builder.io and Fusion branches in place.
+  Create a task-owned worktree on a fresh branch or safely rotate after merge.
+  Use when task isolation or branch disposition needs a new branch; Steve has
+  granted standing authorization for task-owned branch creation.
 user-invocable: true
 scope: dev
 metadata:
@@ -14,36 +14,33 @@ metadata:
 
 ## Activation guard
 
-Use this skill when the user explicitly invokes `/new-branch`, mentions this
-skill as the workflow to run, or directly asks you to create a fresh git branch
-from main. A post-merge branch move during `/ship` requires the user to
-explicitly request that exact branch operation in the current task, and only
-after `/ship` verifies its merge commit on `origin/main`. Platform-assigned
-Builder.io and Fusion branches stay in place. This never authorizes moving
-branches earlier or touching another checkout.
-
-If neither an explicit new-branch request nor the explicitly requested
-post-merge branch operation above applies, **stop here** and continue the
-original task without branch movement.
+Steve has granted standing permission to create and switch branches inside a
+task-owned worktree without asking for per-task approval. Use this skill when
+the user invokes `/new-branch`, a task benefits from isolated work, or its
+authorized ship flow reaches branch disposition. Fetch `origin/main` first and
+base a new branch on that remote-tracking ref. For task isolation, create a
+separate worktree and leave the existing checkout, branch, and dirty changes
+untouched. Platform-assigned Builder.io and Fusion branches stay in place;
+never move or overwrite another task's checkout.
 
 ### Do NOT invoke this skill in any of these situations
 
 These are mistakes other agents have made that stranded concurrent work:
 
-- The user said "fix the bug" / "open a PR" / "ship this" / "address review feedback" — those work on the **current** branch. PR and ship workflows in this repo push the current branch; they don't branch-then-push. A `/ship` request alone does not authorize post-merge branch movement.
+- The user said "fix the bug" / "open a PR" / "ship this" / "address review feedback" — use the current branch when it already owns the work. If isolation is useful, the standing authorization covers a separate task-owned worktree and branch; do not branch-then-push from or switch the shared checkout.
 - The current branch name looks unusual (`ai_*`, `claude/*`, `codex/*`, `changes-N`, `updates-N`, `pr-NNN`, `feat/...`). Those are platform-managed or other agents' branches; moving off looks like work-loss to whoever started them.
 - You're running inside Builder.io / Fusion / a project container. The platform tracks the user's work by the branch it assigned — leaving silently breaks their UI.
-- The working tree has uncommitted changes. For normal branch requests,
-  checkpoint all nonignored work before branching; do not classify by authorship
-  or stash it silently. An explicitly requested `/ship` rotation may carry only
-  its documented `learnings.md`, `bridge/**`, and `data/**` exclusions to its
-  post-merge branch, preserving and verifying those local changes. Any other
-  dirty path blocks rotation.
+- The current checkout has uncommitted changes. That does not block a separate
+  task-owned worktree: leave the source checkout untouched and create the new
+  branch from fresh `origin/main`. For post-merge rotation in the same worktree,
+  unpushed commits and dirty publishable paths still block rotation; preserve
+  and verify any documented exclusions.
 - You think a fresh branch would be "tidier." Tidiness is not a goal here; concurrent-agent durability is.
 
-When in doubt: stay on the current branch. Ask the user before moving.
-
-Quickly stash any local changes, pull latest from origin/main, and create a new working branch. Designed to be as fast as possible since other agents may be working concurrently on this repo.
+Keep the existing checkout on its current branch. For isolated work, fetch
+`origin/main` and create a separate task-owned worktree from that ref; never
+stash or move the source checkout just to start another task. Ask only before
+destructive changes to existing or peer-owned branch state.
 
 ## Pre-flight: verify main has the latest merge
 
@@ -57,10 +54,11 @@ git log origin/main --oneline -1
 
 Compare the merge commit SHA. If `origin/main` doesn't include it yet, wait and re-fetch — GitHub can take a few seconds to update after a squash merge. **Never create a branch off stale main.** Creating a branch that's missing a just-merged PR causes chaos: subsequent work assumes the merged code is there, leading to conflicts, regressions, and duplicated changes.
 
-## Explicitly requested post-merge `/ship` rotation
+## Guarded post-merge `/ship` rotation
 
-When the user explicitly requests the exact branch operation during `/ship`,
-use this path after verifying the merge commit on `origin/main`. In the current
+When the authorized ship workflow reaches post-merge branch rotation, use this
+path after verifying the merge commit on `origin/main`. The standing branch
+authorization means no second permission request is needed. In the current
 user-owned worktree, confirm there are no unpushed commits on any path
 and no dirty publishable paths; only `learnings.md`, `bridge/**`, and `data/**`
 may remain dirty. If any unpushed commit remains, keep the source branch checked

@@ -49,30 +49,18 @@ Shallow clones and grafted worktrees do not have complete ancestry. Treat
 inconclusive; fetch complete history or verify the date through the remote
 commit or pull-request record before calling a change the first occurrence.
 
-## Never move branches without an explicit instruction
+## Create isolated task work safely
 
-Don't create, switch, delete, reset, rebase, stash, or worktree-add a branch
-unless the user asked for that exact operation in the current task — it
-strands every other agent on it. This isn't a tool-level block anymore —
-`.agents/skills/new-branch/SKILL.md` carries it now, through an activation
-guard that refuses to fire unless the user explicitly asked for `/new-branch`
-or a fresh branch. That guard is what took unrequested branch creation from a
-recurring complaint to zero; read it before any branch operation instead of
-assuming a prohibition still lives at the tool layer.
+Steve has granted standing permission to create a task-owned worktree on a new
+branch when isolation helps; do not ask for branch-creation permission again.
+Fetch `origin/main` first and use that remote-tracking ref as the base. Leave
+the existing shared checkout and peer worktrees on their current branches.
+Do not delete, reset, rebase, stash, force-push, or overwrite peer work to make
+room for a new task.
 
-## Timing the next branch
-
-Before running `/new-branch`, even on an explicit request, confirm that the
-current branch has been fully checkpointed and inspect the active worktrees:
-
-```bash
-git status --short
-ls .claude/worktrees/ 2>/dev/null
-gh pr list --head "$(git branch --show-current)" --state open
-```
-
-Run `corepack pnpm ship:push` for any nonignored changes before moving to the
-next branch. Do not leave local work behind during branch rotation.
+For deliberate post-merge branch rotation, follow `new-branch`'s freshness and
+unpublished-work checks. Do not rotate a platform-assigned branch or strand
+unpublished commits.
 
 ## Before you ship
 
@@ -95,6 +83,5 @@ a peer's task without interrupting it or the user.
 
 ## Related
 
-- `new-branch` — the one workflow allowed to move branches, only on explicit
-  `/new-branch` invocation.
+- `new-branch` — isolated task worktrees and guarded post-merge branch rotation.
 - `ship` — the commit/push/PR workflow for the complete branch snapshot.
