@@ -128,6 +128,78 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
+  it("restores host keyboard focus only when the trusted live frame reports it is safe", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="<!doctype html><html><body></body></html>"
+            contentKey="live-url-frame-reported-focus"
+            sourceType="localhost"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(iframe?.contentWindow).toBeTruthy();
+      expect(scrollSurface).not.toBeNull();
+
+      const reportFocus = async (type: string, focusSafe: boolean) => {
+        await act(async () =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: { type, focusSafe },
+              origin: window.location.origin,
+              source: iframe!.contentWindow,
+            }),
+          ),
+        );
+      };
+
+      iframe!.focus();
+      expect(document.activeElement).toBe(iframe);
+      await reportFocus("agent-native:editor-chrome-ready", true);
+      expect(document.activeElement).toBe(scrollSurface);
+
+      for (const role of ["textbox", "combobox", "searchbox"]) {
+        const input = iframe!.contentDocument!.createElement("div");
+        input.setAttribute("role", role);
+        input.tabIndex = 0;
+        iframe!.contentDocument!.body.append(input);
+        input.focus();
+        iframe!.focus();
+        expect(document.activeElement).toBe(iframe);
+        await reportFocus("agent-native:canvas-focus-state", false);
+        expect(document.activeElement).toBe(iframe);
+        input.remove();
+      }
+
+      iframe!.focus();
+      await reportFocus("agent-native:canvas-focus-state", true);
+      expect(document.activeElement).toBe(scrollSurface);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   it("preserves focus inside a cross-origin live iframe after load", async () => {
     const container = document.createElement("div");
     document.body.append(container);

@@ -114,6 +114,47 @@ test.describe("URL-backed live auto-layout probe", () => {
     if (rootPath) fs.rmSync(rootPath, { recursive: true, force: true });
   });
 
+  test("returns keyboard focus to the host when a live iframe becomes ready", async ({
+    page,
+  }) => {
+    const localNetworkCdp = await page.context().newCDPSession(page);
+    await localNetworkCdp.send("Browser.grantPermissions", {
+      origin: new URL(baseURL).origin,
+      permissions: ["localNetworkAccess"],
+    });
+    await localNetworkCdp.detach();
+    await page.goto(`${baseURL}/visual-edit/${designId}?editorView=overview`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 90_000 });
+
+    const iframe = page.locator("iframe[data-design-preview-iframe]").first();
+    const frame = iframe.contentFrame();
+    await expect(
+      frame.locator('[data-agent-native-node-id="flow-root"]'),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(
+      frame.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached({ timeout: 15_000 });
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const active = document.activeElement;
+          const liveFrame = document.querySelector(
+            "iframe[data-design-preview-iframe]",
+          );
+          return (
+            active instanceof HTMLElement &&
+            active.tabIndex === -1 &&
+            Boolean(liveFrame && active.contains(liveFrame))
+          );
+        }),
+      )
+      .toBe(true);
+  });
+
   test("opens signed-out capability and inspects URL-backed frames", async ({
     page,
   }) => {
