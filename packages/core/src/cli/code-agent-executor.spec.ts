@@ -590,8 +590,6 @@ describe("executeCodeAgentRun", () => {
             event.message.includes("Could not remove the temporary"),
         ),
       ).toHaveLength(2);
-      // The `finally` cleanup retried each failed delete, and the follow-up
-      // started only after the first run's config was gone.
       expect(failedOnce.size).toBe(2);
       for (const dir of failedOnce) expect(fs.existsSync(dir)).toBe(false);
       const runs = JSON.parse(fs.readFileSync(logPath, "utf8")) as Array<{
