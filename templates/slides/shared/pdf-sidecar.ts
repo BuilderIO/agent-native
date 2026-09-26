@@ -1,4 +1,3 @@
-
 export const SLIDES_PDF_SIDECAR_NAMESPACE =
   "https://agent-native.com/ns/slides-deck/1.0/";
 

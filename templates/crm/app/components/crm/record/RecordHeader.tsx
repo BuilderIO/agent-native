@@ -1,4 +1,3 @@
-
 import { useT } from "@agent-native/core/client/i18n";
 import { IconExternalLink } from "@tabler/icons-react";
 

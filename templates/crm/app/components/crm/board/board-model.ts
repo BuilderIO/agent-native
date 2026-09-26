@@ -1,4 +1,3 @@
-
 export const BOARD_UNGROUPED = "__ungrouped__";
 
 export const CARD_ATTRIBUTE_LIMIT = 3;

@@ -202,7 +202,6 @@ export function parseCssColor(value: string): RgbaColor | null {
   return null;
 }
 
-
 const MODERN_RGB_PATTERN =
   /^rgba?\(\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)(?:\s*\/\s*([0-9.]+%?))?\s*\)$/i;
 

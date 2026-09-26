@@ -1,7 +1,6 @@
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import * as React from "react";
 
-
 function TooltipProvider({
   delayDuration = 150,
   skipDelayDuration = 300,

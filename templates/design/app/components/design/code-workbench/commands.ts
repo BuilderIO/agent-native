@@ -2,7 +2,6 @@ import type * as monaco from "monaco-editor";
 
 import type { WorkbenchApi } from "./store";
 
-
 export interface WorkbenchUiHandles {
   openQuickInput(prefill: string): void;
   focusExplorer(): void;

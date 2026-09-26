@@ -89,7 +89,6 @@ function pickFields(data: unknown, fields: string[]): unknown {
   return data;
 }
 
-
 import { getDbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server";
 
@@ -120,7 +119,6 @@ export async function resolveOwnerEmail(): Promise<string> {
 
   throw new Error("no authenticated user");
 }
-
 
 import { gmailListLabels } from "../server/lib/google-api.js";
 import { getClientsWithErrors } from "../server/lib/google-auth.js";

@@ -14,7 +14,6 @@ import {
   parsePlanMdxFolder,
 } from "./plan-mdx.js";
 
-
 function wireframeContent(): PlanContent {
   return planContentSchema.parse({
     version: 2,

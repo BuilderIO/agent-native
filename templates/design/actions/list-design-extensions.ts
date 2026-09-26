@@ -23,7 +23,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-
 export type DesignExtensionAvailability =
   | "available"
   | "preview-only"
@@ -255,7 +254,6 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     slotId: "design.editor.inspector",
   },
 ];
-
 
 export default defineAction({
   description: `

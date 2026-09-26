@@ -7,7 +7,6 @@ import type { ElementInfo } from "@/components/design/types";
 import { runRenderPngBlob } from "./commands/render-png-blob";
 import { PngCaptureError, resolveExportCropTarget } from "./png-export-render";
 
-
 vi.mock("html2canvas", () => ({ default: vi.fn() }));
 
 function fakeCanvas(tag: string): HTMLCanvasElement {

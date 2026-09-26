@@ -32,7 +32,6 @@ import {
   getAccountToken,
 } from "./email-state.js";
 
-
 vi.mock("@agent-native/core/settings", () => ({
   getSettingsEmitter: () => ({ emit: vi.fn() }),
   getUserSetting: vi.fn(),
@@ -107,7 +106,6 @@ import {
   writeLocalEmails,
 } from "./local-email-store.js";
 import { invalidateThreadCache } from "./thread-cache.js";
-
 
 const OWNER = "owner@example.com";
 const ACCT = "connected@example.com";
@@ -251,7 +249,6 @@ beforeEach(() => {
   inboxStoreMocks.findAccountForThread.mockResolvedValue(null);
   inboxStoreMocks.findAccountForMessage.mockResolvedValue(null);
 });
-
 
 describe("archiveEmail", () => {
   describe("local mode", () => {
@@ -445,7 +442,6 @@ describe("archiveEmail", () => {
   });
 });
 
-
 describe("unarchiveEmail", () => {
   describe("local mode", () => {
     it("unarchives entire thread and adds inbox label", async () => {
@@ -498,7 +494,6 @@ describe("unarchiveEmail", () => {
     });
   });
 });
-
 
 describe("toggleStar", () => {
   describe("local mode", () => {
@@ -608,7 +603,6 @@ describe("toggleStar", () => {
   });
 });
 
-
 describe("trashEmail", () => {
   describe("local mode", () => {
     it("marks entire thread as trashed and clears isArchived", async () => {
@@ -665,7 +659,6 @@ describe("trashEmail", () => {
   });
 });
 
-
 describe("untrashEmail", () => {
   describe("local mode", () => {
     it("clears isTrashed and restores inbox label on entire thread", async () => {
@@ -716,7 +709,6 @@ describe("untrashEmail", () => {
     });
   });
 });
-
 
 describe("markRead", () => {
   describe("local mode", () => {
@@ -986,7 +978,6 @@ describe("markAllLocalUnreadRead", () => {
   });
 });
 
-
 describe("markThreadRead", () => {
   describe("local mode", () => {
     it("sets isRead on all thread messages and recomputes label counts", async () => {
@@ -1132,7 +1123,6 @@ describe("markThreadRead", () => {
   });
 });
 
-
 describe("resolveMutationAccounts", () => {
   it("passes an explicit accountEmail through without a store lookup", async () => {
     const { resolved, unresolved } = await resolveMutationAccounts(OWNER, [
@@ -1211,7 +1201,6 @@ describe("resolveMutationAccounts", () => {
     expect(unresolved).toEqual([{ id: "m2", error: expect.any(String) }]);
   });
 });
-
 
 describe("managed workspace grant (no OAuth rows)", () => {
   const MANAGED = "managed@example.com";

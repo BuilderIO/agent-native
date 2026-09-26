@@ -1,4 +1,3 @@
-
 export interface WaveformPeaks {
   peaks: number[];
   bucketCount: number;

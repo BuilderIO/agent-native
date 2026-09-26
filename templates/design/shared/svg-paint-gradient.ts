@@ -3,7 +3,6 @@ import {
   readGradientFillOpacity,
 } from "./gradient-opacity";
 
-
 export type SvgPaintGradientKind = "fill" | "stroke";
 
 export const SVG_FILL_GRADIENT_PROPERTY = "--an-vector-fill-gradient";

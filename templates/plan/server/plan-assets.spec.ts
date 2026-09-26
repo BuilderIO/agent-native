@@ -34,7 +34,6 @@ import {
   parsePlanMdxFolder,
 } from "./plan-mdx.js";
 
-
 type SqlStatement = string | { sql: string; args?: unknown[] };
 
 function postgresSql(sql: string): string {
@@ -160,7 +159,6 @@ beforeEach(async () => {
   `);
 });
 
-
 describe("mimeTypeFromFilename", () => {
   it("returns correct MIME for supported extensions", () => {
     expect(mimeTypeFromFilename("photo.png")).toBe("image/png");
@@ -183,7 +181,6 @@ describe("mimeTypeFromFilename", () => {
     expect(mimeTypeFromFilename("PHOTO.JPG")).toBe("image/jpeg");
   });
 });
-
 
 describe("upsertPlanAsset size caps", () => {
   const planId = "plan-size-cap-test";
@@ -232,7 +229,6 @@ describe("upsertPlanAsset size caps", () => {
   });
 });
 
-
 describe("importPlanAssets", () => {
   const planId = "plan-import-assets-test";
 
@@ -268,7 +264,6 @@ describe("importPlanAssets", () => {
     expect(srcMap["ok.png"]).toBeDefined();
   });
 });
-
 
 describe("applyImportedAssets", () => {
   it("rewrites assets/filename url to resolved src", () => {
@@ -350,7 +345,6 @@ describe("applyImportedAssets", () => {
   });
 });
 
-
 describe("MDX round-trip: image block with assetId", () => {
   const planId = "plan-roundtrip-test";
 
@@ -431,7 +425,6 @@ describe("MDX round-trip: image block with assetId", () => {
     expect(block.data.url).toBe("https://cdn.example.com/banner.png");
   });
 });
-
 
 describe("plan-asset access control", () => {
   const privatePlanId = "plan-private";

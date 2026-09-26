@@ -1,4 +1,3 @@
-
 export interface DesignEdit {
   search: string;
   replace: string;

@@ -8,7 +8,6 @@ import { useApolloStatus, useApolloConnect } from "@/hooks/use-apollo";
 
 import { IntegrationsSidebar } from "./IntegrationsSidebar";
 
-
 function ApolloLogo({ className }: { className?: string }) {
   return (
     <svg
@@ -36,7 +35,6 @@ function ApolloLogo({ className }: { className?: string }) {
     </svg>
   );
 }
-
 
 export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
   const t = useT();
@@ -100,7 +98,6 @@ export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
     </div>
   );
 }
-
 
 interface AttendeeWithApolloProps {
   attendee: NonNullable<CalendarEvent["attendees"]>[number];
@@ -185,7 +182,6 @@ export function AttendeeApolloPopover({
     </>
   );
 }
-
 
 export function ResearchMeetingButton({ event }: { event: CalendarEvent }) {
   const t = useT();

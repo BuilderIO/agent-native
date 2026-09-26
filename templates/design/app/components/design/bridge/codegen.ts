@@ -1,4 +1,3 @@
-
 import { execSync } from "node:child_process";
 import { readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";

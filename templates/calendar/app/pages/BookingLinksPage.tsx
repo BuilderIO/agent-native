@@ -2315,7 +2315,6 @@ export default function BookingLinksPage({
   );
 }
 
-
 const WEEKDAY_HEADER_KEYS = [
   "sundayShort",
   "mondayShort",

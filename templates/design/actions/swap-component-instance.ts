@@ -80,7 +80,6 @@ import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import { applyRootAttributeEdit } from "./apply-component-prop-edit.js";
 
-
 export function findOpenTagEnd(markup: string): number {
   let quote: '"' | "'" | null = null;
   for (let i = 0; i < markup.length; i++) {
@@ -195,7 +194,6 @@ export function mergeComponentSwapOverrides(
   return { markup, overriddenProps, droppedProps, defaultedProps };
 }
 
-
 async function persistEdit(file: {
   id: string;
   designId: string;
@@ -229,7 +227,6 @@ async function persistEdit(file: {
     agentLeaveDocument(file.id);
   }
 }
-
 
 export default defineAction({
   description:

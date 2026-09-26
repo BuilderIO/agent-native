@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -14,7 +13,6 @@ import type {
   VisualDiffChangeKind,
   VisualDiffEntry,
 } from "../shared/design-review.js";
-
 
 function snapshotNodes(
   files: ReadonlyArray<{ filename: string; content: string }>,
@@ -73,7 +71,6 @@ function diffSnapshotNodes(
 
   return entries;
 }
-
 
 export default defineAction({
   description:

@@ -17,11 +17,9 @@ import { applyVisualEdit } from "./code-layer.js";
 const SOURCE = { kind: "inline-html" as const };
 const TARGET = { selector: "div.target" };
 
-
 function html(classAttr: string): string {
   return `<div class="${classAttr} target"><p>Hello</p></div>`;
 }
-
 
 describe("no-op-reports-applied (Edge 1)", () => {
   it("class 'add' when the class is already present: changed=false, status=applied", () => {
@@ -89,7 +87,6 @@ describe("no-op-reports-applied (Edge 1)", () => {
     expect(result.content).toBe(src);
   });
 });
-
 
 describe("multi-token edits at a breakpoint (Edge 2)", () => {
   it("class 'add' with multiple classNames adds all tokens, not just the first", () => {
@@ -165,7 +162,6 @@ describe("multi-token edits at a breakpoint (Edge 2)", () => {
     expect(afterClasses).toContain("md:font-bold");
   });
 });
-
 
 describe("replace honoring 'from' (Edge 3)", () => {
   it("class 'replace' is a no-op / conflict when 'from' does not match any current class", () => {

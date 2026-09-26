@@ -2,7 +2,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-
 interface SnapGuide {
   orientation: "vertical" | "horizontal";
   position: number;

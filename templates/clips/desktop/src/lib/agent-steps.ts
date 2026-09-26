@@ -1,4 +1,3 @@
-
 export type AgentFrame =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }

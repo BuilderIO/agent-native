@@ -9,7 +9,6 @@ import { toPublicFormSettings, type FormSettings } from "../../shared/types.js";
 import { getDb } from "../db/index.js";
 import { findFormBySlugOrId } from "../lib/form-lookup.js";
 
-
 export const getPublicForm = defineEventHandler(async (event: H3Event) => {
   const url = getRequestURL(event).pathname;
   const afterPublic = url.split("/api/forms/public/")[1] || "";

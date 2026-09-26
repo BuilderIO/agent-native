@@ -3,7 +3,6 @@ import { expect, test, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers, gotoEditor } from "./helpers";
 
-
 const PAGE_W = 900;
 const PAGE_H = 700;
 const MOD = process.platform === "darwin" ? "Meta" : "Control";

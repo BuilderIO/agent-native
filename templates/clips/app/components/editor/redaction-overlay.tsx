@@ -14,7 +14,6 @@ import {
   type VideoRedaction,
 } from "@/lib/video-redactions";
 
-
 export interface RedactionOverlayProps {
   redactions: VideoRedaction[];
   playheadMs: number;

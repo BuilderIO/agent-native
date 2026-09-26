@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import {
   agentEnterDocument,
@@ -25,7 +24,6 @@ import {
   type A11yFinding,
 } from "../shared/design-review.js";
 
-
 const findingSchema = z
   .object({
     id: z.string(),
@@ -48,7 +46,6 @@ const findingSchema = z
       });
     }
   });
-
 
 async function resolveEditableDesignFile(source: {
   designId?: string;
@@ -159,7 +156,6 @@ async function persistDesignFileEdit(file: {
     agentLeaveDocument(file.id);
   }
 }
-
 
 export default defineAction({
   description:

@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import { assertPathInside } from "./verify-write-grant.js";

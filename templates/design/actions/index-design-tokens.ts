@@ -12,7 +12,6 @@ import {
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
 
-
 function classifyVar(
   name: string,
   value: string,
@@ -55,7 +54,6 @@ function friendlyName(cssVar: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-
 export interface DesignToken {
   name: string;
   cssVar: string;
@@ -66,7 +64,6 @@ export interface DesignToken {
   sourceValues?: Record<string, string>;
   isTweakOverride?: boolean;
 }
-
 
 export default defineAction({
   description:

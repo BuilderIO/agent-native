@@ -32,7 +32,6 @@ function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
   };
 }
 
-
 describe("isTextElement", () => {
   it("treats known text tags as text regardless of primitiveKind", () => {
     expect(isTextElement(makeElement({ tagName: "p" }))).toBe(true);
@@ -119,7 +118,6 @@ describe("mergeOptimisticInteractionStateStyles", () => {
   });
 });
 
-
 describe("authoredStyleValue", () => {
   it("prefers inlineStyles over computedStyles when present", () => {
     const element = makeElement({
@@ -150,7 +148,6 @@ describe("authoredStyleValue", () => {
     expect(authoredStyleValue(element, "top")).toBe("12px");
   });
 });
-
 
 describe("isLayerHiddenBySize / withLayerSizeMarker", () => {
   it("detects the zero-size marker", () => {
@@ -185,7 +182,6 @@ describe("isLayerHiddenBySize / withLayerSizeMarker", () => {
   });
 });
 
-
 describe("strokeHiddenByColor", () => {
   it("is true for a zero-alpha rgba color with real RGB preserved", () => {
     expect(strokeHiddenByColor("rgba(37, 99, 235, 0)")).toBe(true);
@@ -201,7 +197,6 @@ describe("strokeHiddenByColor", () => {
     expect(strokeHiddenByColor("")).toBe(false);
   });
 });
-
 
 describe("textStrokeIsVisible", () => {
   it("is true for a non-zero width with an opaque color", () => {
@@ -271,7 +266,6 @@ describe("textStrokeAddPatch", () => {
   });
 });
 
-
 describe("readTextStrokeStyle", () => {
   it("reads the longhand keys when present (live DOM selection shape)", () => {
     expect(
@@ -316,7 +310,6 @@ describe("readTextStrokeStyle", () => {
   });
 });
 
-
 describe("roundToOneDecimal", () => {
   it("preserves a 0.5 fractional value", () => {
     expect(roundToOneDecimal(1.5)).toBe(1.5);
@@ -331,7 +324,6 @@ describe("roundToOneDecimal", () => {
     expect(roundToOneDecimal(4)).toBe(4);
   });
 });
-
 
 describe("readStrokeOutlinePosition", () => {
   it("reads offset 0 (or unset) as outside", () => {
@@ -375,7 +367,6 @@ describe("outlineOffsetForPosition", () => {
   });
 });
 
-
 describe("deriveLockedAspectSize", () => {
   it("derives height from a width edit using width/height ratio", () => {
     expect(deriveLockedAspectSize("width", 300, 2)).toBe(150);
@@ -396,7 +387,6 @@ describe("deriveLockedAspectSize", () => {
     expect(width).toBeCloseTo(150, 1);
   });
 });
-
 
 describe("mixedElementFromSelection", () => {
   it("mixes inlineStyles across the selection like computedStyles", () => {
@@ -473,7 +463,6 @@ describe("mixedElementFromSelection", () => {
     expect(merged?.parentLayout).toEqual(parentLayout);
   });
 });
-
 
 describe("fourValuesEqual", () => {
   it("is true when all four sides/corners match", () => {

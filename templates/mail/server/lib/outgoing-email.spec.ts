@@ -61,7 +61,6 @@ describe("encodeAddressHeader", () => {
 });
 
 describe("buildRawEmail — CRLF header injection", () => {
-
   const base = {
     from: "sender@example.com",
     to: "recipient@example.com",

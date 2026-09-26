@@ -1,4 +1,3 @@
-
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +9,6 @@ import {
   generateShaderFillFallbackCss,
 } from "../shared/shader-fill";
 import type { ShaderDescriptor } from "../shared/shader-presets";
-
 
 describe("buildShaderFillBackground — persisted CSS background", () => {
   it("returns the same gradient the preview renders for a MeshGradient", () => {
@@ -111,7 +109,6 @@ describe("buildShaderFillBackground — persisted CSS background", () => {
     expect(fallback).toContain("#ffe53d");
   });
 });
-
 
 describe("apply-shader-fill action contract", () => {
   const actionPath = path.resolve(

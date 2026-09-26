@@ -1,6 +1,4 @@
-
 import type { GlslShaderMode, GlslUniformManifest } from "./shader-fills";
-
 
 export type ParamKind = "number" | "color" | "enum" | "bool" | "colors";
 
@@ -54,7 +52,6 @@ export interface ShaderPresetDef {
   maxColorCount?: number;
   isEffect?: boolean;
 }
-
 
 export const UNIVERSAL_PARAMS: ParamDef[] = [
   {
@@ -119,7 +116,6 @@ export const UNIVERSAL_PARAMS: ParamDef[] = [
     step: 1,
   },
 ];
-
 
 export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
   {
@@ -634,13 +630,11 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
   },
 ] as const;
 
-
 export const SHADER_PRESET_MAP: Record<ShaderPresetName, ShaderPresetDef> =
   Object.fromEntries(SHADER_PRESETS.map((p) => [p.name, p])) as Record<
     ShaderPresetName,
     ShaderPresetDef
   >;
-
 
 export function getPreset(name: string): ShaderPresetDef | undefined {
   return SHADER_PRESET_MAP[name as ShaderPresetName];
@@ -708,7 +702,6 @@ export function validateDescriptor(descriptor: ShaderDescriptor): {
 
   return { valid: errors.length === 0, errors };
 }
-
 
 export type GlslShaderPresetCategory =
   | "gradient-flow"

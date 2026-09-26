@@ -485,9 +485,7 @@ function SidebarSectionSettingsPopover({
   );
 }
 
-
 type Visibility = DashboardVisibility;
-
 
 function SortableRow({
   id,
@@ -913,7 +911,6 @@ function SortableRow({
     </div>
   );
 }
-
 
 function SortableDashboardItem({
   d,
@@ -1547,7 +1544,6 @@ function restoreQuerySnapshots<T>(
     queryClient.setQueryData(key, data);
   }
 }
-
 
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();

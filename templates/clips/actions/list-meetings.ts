@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -297,8 +296,7 @@ export default defineAction({
                   ? agendaFloorIso
                   : startedWithinMin > 0
                     ? upcomingWindowMinIso
-                    :
-                      new Date(now.getTime() - 60 * 1000).toISOString();
+                    : new Date(now.getTime() - 60 * 1000).toISOString();
           const timeMax =
             args.view === "past"
               ? nowIso

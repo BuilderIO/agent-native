@@ -1,4 +1,3 @@
-
 export interface RepeatSpan {
   start: number;
   end: number;

@@ -1,4 +1,3 @@
-
 export const BREAKPOINT_FRAME_GAP = 24;
 
 export const MAX_SANE_FRAME_DIMENSION_PX = 100_000;

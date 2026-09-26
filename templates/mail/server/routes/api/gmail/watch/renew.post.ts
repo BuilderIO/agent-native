@@ -12,7 +12,6 @@ import {
   startWatch,
 } from "../../../../lib/google-auth.js";
 
-
 const GOOGLE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/oauth2/v3/certs"),
 );

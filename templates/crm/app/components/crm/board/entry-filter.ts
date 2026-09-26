@@ -1,4 +1,3 @@
-
 export class BoardFilterError extends Error {
   constructor(message: string) {
     super(message);

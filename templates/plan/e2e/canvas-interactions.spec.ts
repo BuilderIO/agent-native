@@ -1,6 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
 
-
 type Box = {
   left: number;
   top: number;
@@ -256,7 +255,6 @@ function richBoard(title: string) {
     ],
   };
 }
-
 
 test("pan drag moves the world; zoom % readout tracks the transform scale", async ({
   page,
@@ -605,7 +603,6 @@ test("modifier wheel zooms at the cursor", async ({ page }) => {
   );
 });
 
-
 test("artboard labels and section headers scale WITH the board on zoom", async ({
   page,
 }) => {
@@ -655,7 +652,6 @@ test("artboard labels and section headers scale WITH the board on zoom", async (
   ).toBeGreaterThan(zoomRatio * 0.85);
   expect(headerRatio).toBeLessThan(zoomRatio * 1.15);
 });
-
 
 test("annotation text does not overlap any artboard frame", async ({
   page,
@@ -824,7 +820,6 @@ test("EDGE: many annotations crowding one frame's gutter never overlap each othe
   }
 });
 
-
 test("annotation arrows point at the target frame edge with a small gap (not touching, not away)", async ({
   page,
 }) => {
@@ -927,7 +922,6 @@ test("connector between two frames is drawn and spans both", async ({
     .filter({ hasText: "open detail" });
   await expect(connectorLabel).toHaveCount(1);
 });
-
 
 test("sketchy frames draw a visible rough.js border", async ({
   page,
@@ -1070,7 +1064,6 @@ test("skeleton frames still draw a neutral frame border", async ({ page }) => {
   ).toBeGreaterThanOrEqual(1);
   expect(info.borderStyle).toBe("solid");
 });
-
 
 test("EDGE: a popover artboard stays ~square regardless of model width/height", async ({
   page,

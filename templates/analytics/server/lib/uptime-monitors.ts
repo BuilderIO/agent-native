@@ -48,7 +48,6 @@ declare global {
   var __AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__: boolean | undefined;
 }
 
-
 export type MonitorMethod =
   | "GET"
   | "HEAD"
@@ -241,7 +240,6 @@ export interface AccessCtx {
   orgId: string | null;
 }
 
-
 const MAX_RESPONSE_BODY_BYTES = 512 * 1024;
 const MAX_REDIRECT_HOPS = 5;
 const MONITOR_RUNNING_STALE_MS = 5 * 60 * 1000;
@@ -270,7 +268,6 @@ const ASSERTION_TYPES: AssertionType[] = [
   "header_equals",
   "max_latency_ms",
 ];
-
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -484,7 +481,6 @@ export function hostFromUrl(url: string): string {
     return url;
   }
 }
-
 
 function badRequest(message: string): Error {
   return Object.assign(new Error(message), { statusCode: 400 });
@@ -712,7 +708,6 @@ function monitorNotifyDeliveryMetadata(
   return Object.keys(delivery).length > 0 ? delivery : undefined;
 }
 
-
 export function matchesStatus(
   statusCode: number | null,
   matcher: StatusMatcher,
@@ -859,7 +854,6 @@ export function evaluateCheck(params: EvaluateCheckParams): {
 
   return { status, ok: status === "up", failedAssertions: messages };
 }
-
 
 let sharedSsrfDispatcherPromise: Promise<unknown> | undefined;
 
@@ -1276,7 +1270,6 @@ export async function runMonitorCheck(
   }
 }
 
-
 function rowToMonitor(row: any): Monitor {
   return {
     id: row.id,
@@ -1378,7 +1371,6 @@ function incidentsOwnerWhere(ctx: AccessCtx) {
     ctx.orgId ? eq(table.orgId, ctx.orgId) : isNull(table.orgId),
   );
 }
-
 
 export async function listMonitors(ctx: AccessCtx): Promise<MonitorSummary[]> {
   const db = getDb() as any;
@@ -1640,7 +1632,6 @@ export async function deleteMonitor(id: string, ctx: AccessCtx): Promise<void> {
   });
 }
 
-
 function monitorNotRunningWhere(now: Date) {
   const table = schema.monitors;
   const staleBefore = new Date(
@@ -1730,7 +1721,6 @@ export async function claimMonitorRun(
   return rows.length > 0;
 }
 
-
 export async function recordMonitorResult(
   monitor: Monitor,
   outcome: CheckOutcome,
@@ -1776,7 +1766,6 @@ export async function recordMonitorResult(
     orgId: monitor.orgId ?? undefined,
   });
 }
-
 
 function describeCause(outcome: CheckOutcome): string {
   if (outcome.error) return outcome.error.slice(0, 300);
@@ -2101,7 +2090,6 @@ export async function runMonitorNow(
   }
   return runAndProcessMonitor(monitor, ctx, { source: "manual" });
 }
-
 
 export async function pruneOldCheckResults(
   now: Date = new Date(),

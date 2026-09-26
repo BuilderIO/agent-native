@@ -1,4 +1,3 @@
-
 import type { AuthSession } from "@agent-native/core";
 
 export type AnalyticsAuth = AuthSession;

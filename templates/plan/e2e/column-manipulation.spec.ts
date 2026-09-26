@@ -1,6 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-
 const CREATE = "/_agent-native/actions/create-visual-plan";
 const GET = "/_agent-native/actions/get-visual-plan";
 

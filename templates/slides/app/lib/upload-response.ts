@@ -1,4 +1,3 @@
-
 export interface UploadResponseEnvelope {
   error?: string;
   [key: string]: unknown;

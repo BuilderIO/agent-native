@@ -67,7 +67,6 @@ export function CanvasEditor({
   );
 }
 
-
 function UserNotesBlock({
   value,
   onChange,
@@ -98,7 +97,6 @@ function UserNotesBlock({
     />
   );
 }
-
 
 function AiSummaryBlock({
   value,
@@ -177,7 +175,6 @@ function RichContentBlock({
   );
 }
 
-
 function AiBulletsBlock({
   bullets,
   renderBullet,
@@ -202,7 +199,6 @@ function AiBulletsBlock({
     </div>
   );
 }
-
 
 function AiTabIndicator() {
   return null;

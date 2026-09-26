@@ -68,7 +68,6 @@ type Translate = ReturnType<typeof useT>;
 
 const EMPTY = "—";
 
-
 const TYPE_ICONS: Record<
   CrmAttributeType,
   React.ComponentType<{ className?: string }>
@@ -103,7 +102,6 @@ export function AttributeTypeIcon({
   return <Icon className={className} />;
 }
 
-
 export type CrmAvatarShape = "person" | "company";
 
 function initials(name: string): string {
@@ -136,7 +134,6 @@ export function RecordAvatar({
     </span>
   );
 }
-
 
 const PROVENANCE_TINT: Record<CrmCellProvenance["actorType"], string> = {
   user: "",
@@ -235,7 +232,6 @@ export function ProvenanceMarker({
     </HoverCard>
   );
 }
-
 
 function copyToClipboard(text: string, t: Translate) {
   void navigator.clipboard
@@ -479,7 +475,6 @@ export function CellDisplay({
   if (!text) return <span className="text-content-ghost">{EMPTY}</span>;
   return <span className="block min-w-0 truncate">{text}</span>;
 }
-
 
 const INPUT_CLASS =
   "h-full w-full border-0 bg-transparent px-3 text-sm outline-none ring-0 placeholder:text-content-ghost";

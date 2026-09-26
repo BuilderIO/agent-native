@@ -1,4 +1,3 @@
-
 import {
   assertCredentialCanReachEndpoint,
   type CredentialEndpointOwner,
@@ -131,7 +130,6 @@ async function readS3Config(): Promise<S3Config | null> {
     )?.value,
   });
 }
-
 
 async function hmac(key: ArrayBuffer, msg: string): Promise<ArrayBuffer> {
   const k = await crypto.subtle.importKey(
@@ -276,7 +274,6 @@ async function putObject(
     ? `${cfg.publicBaseUrl}/${key}`
     : `${cfg.endpoint}/${cfg.bucket}/${key}`;
 }
-
 
 export const s3FileUploadProvider: FileUploadProvider = {
   id: "s3",

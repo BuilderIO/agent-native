@@ -1,4 +1,3 @@
-
 import { describe, expect, it, vi } from "vitest";
 
 import { buildCodeLayerProjection } from "../shared/code-layer.js";

@@ -79,7 +79,6 @@ import {
   type RawExceptionInput,
 } from "./error-capture";
 
-
 describe("parseStack", () => {
   it("parses V8/Chrome frames with function + location", () => {
     const frames = parseStack(
@@ -450,7 +449,6 @@ describe("extractExceptionInput", () => {
     ).toBe(false);
   });
 });
-
 
 function baseRaw(
   overrides: Partial<RawExceptionInput> = {},

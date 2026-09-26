@@ -1,4 +1,3 @@
-
 import { readFileSync } from "node:fs";
 
 import { QueryClient } from "@tanstack/react-query";

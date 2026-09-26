@@ -1,6 +1,5 @@
 #!/usr/bin/env tsx
 
-
 import { mkdir, writeFile } from "node:fs/promises";
 import path, { join } from "node:path";
 import { pathToFileURL } from "node:url";

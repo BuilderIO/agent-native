@@ -13,7 +13,6 @@ import {
   waitForBridge,
 } from "./helpers";
 
-
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
 const FREE_DRAG_HTML = `<!doctype html>
@@ -713,7 +712,6 @@ test.describe.serial("rare-but-real unique paths", () => {
     ).toBe("");
   });
 });
-
 
 function layerTree(page: Page) {
   return page.getByRole("tree", { name: "Layers" });

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { createPlanUndoStack } from "./usePlanUndoStack";
 
-
 const rich = (id: string, markdown: string): PlanBlock =>
   ({ id, type: "rich-text", data: { markdown } }) as PlanBlock;
 

@@ -12,7 +12,6 @@ import {
   planE2eAuthEmailPath,
 } from "./auth-state";
 
-
 const REVIEWER_EMAIL =
   process.env.PLAN_E2E_EMAIL ||
   (() => {

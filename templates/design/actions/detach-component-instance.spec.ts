@@ -6,7 +6,6 @@ import action, {
   stripComponentAnnotations,
 } from "./detach-component-instance.js";
 
-
 describe("detach-component-instance schema", () => {
   it("accepts the minimal designId + nodeId payload", () => {
     expect(
@@ -31,7 +30,6 @@ describe("detach-component-instance schema", () => {
     );
   });
 });
-
 
 function findNode(html: string, nodeId: string) {
   const projection = buildCodeLayerProjection(html, {

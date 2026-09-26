@@ -24,7 +24,6 @@ body {
   height: 100%;
 }
 
-
 .bubble {
   position: absolute;
   inset: 0;
@@ -63,7 +62,6 @@ body {
   width: 38%;
   height: 38%;
 }
-
 
 .countdown {
   position: absolute;
@@ -184,7 +182,6 @@ body {
   padding: 8px 16px;
   border-radius: 999px;
 }
-
 
 .toolbar-v {
   position: absolute;
@@ -307,7 +304,6 @@ body {
   background: rgba(239, 68, 68, 0.22);
   color: #fca5a5;
 }
-
 
 .saving-card {
   position: absolute;

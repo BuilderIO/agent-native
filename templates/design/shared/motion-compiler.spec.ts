@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -12,7 +11,6 @@ import {
   parsePlaybackMode,
 } from "./motion-compiler";
 import type { MotionTimeline } from "./motion-timeline";
-
 
 function makeTimeline(property: string): MotionTimeline {
   return {
@@ -37,7 +35,6 @@ function makeTimeline(property: string): MotionTimeline {
     updatedAt: "2024-01-01T00:00:00.000Z",
   };
 }
-
 
 describe("assertSafeCssProperty — allowlist validation", () => {
   it("accepts standard animatable CSS properties", () => {
@@ -130,7 +127,6 @@ describe("assertSafeCssProperty — allowlist validation", () => {
   });
 });
 
-
 describe("assertSafeMotionCssToken — CSS injection validation", () => {
   it("accepts common motion values and easing functions", () => {
     for (const value of [
@@ -165,7 +161,6 @@ describe("assertSafeMotionCssToken — CSS injection validation", () => {
     }
   });
 });
-
 
 describe("compile — property is emitted safely", () => {
   it("emits the property name verbatim for valid identifiers", () => {
@@ -352,7 +347,6 @@ describe("parse — managed style fallback", () => {
   });
 });
 
-
 describe("compile — keyframe stop edge cases", () => {
   it("keeps a near-100% stop distinct from a real 100% stop", () => {
     const timeline = makeTimeline("opacity");
@@ -397,7 +391,6 @@ describe("compile — keyframe stop edge cases", () => {
   });
 });
 
-
 describe("compile — reduced-motion block scoping", () => {
   it("targets only the animated node ids, not every stamped node", () => {
     const { css } = compile(makeTimeline("opacity"));
@@ -407,7 +400,6 @@ describe("compile — reduced-motion block scoping", () => {
     expect(reduced).not.toContain('[style*="');
   });
 });
-
 
 describe("parseFirstAnimationDurationMs", () => {
   it("recovers the compiled duration from managed CSS", () => {
@@ -439,7 +431,6 @@ describe("parseFirstAnimationDurationMs", () => {
     ).toBeNull();
   });
 });
-
 
 function fullTimeline(overrides: Partial<MotionTimeline>): MotionTimeline {
   return {
@@ -592,7 +583,6 @@ describe("compile — spring easing → CSS linear()", () => {
     expect(parsed.keyframes[1].ease).toBe("cubic-bezier(0.42, 0, 0.58, 1)");
   });
 });
-
 
 const MAX_MOTION_TRACKS = 64;
 const MAX_MOTION_KEYFRAMES_PER_TRACK = 128;

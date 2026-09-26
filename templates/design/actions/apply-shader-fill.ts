@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import {
   agentEnterDocument,
@@ -33,7 +32,6 @@ import {
   type ShaderPresetName,
   validateDescriptor,
 } from "../shared/shader-presets.js";
-
 
 const PRESET_NAMES = Object.keys(SHADER_PRESET_MAP) as [
   ShaderPresetName,
@@ -117,7 +115,6 @@ const targetSchema = z
   .describe(
     "Target element by nodeId (data-agent-native-node-id) or selector.",
   );
-
 
 interface ResolvedDesignFile {
   id: string;
@@ -276,7 +273,6 @@ async function persistDesignFileEdit(file: {
     agentLeaveDocument(file.id);
   }
 }
-
 
 export default defineAction({
   description: `

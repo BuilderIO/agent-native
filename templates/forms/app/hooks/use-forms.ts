@@ -17,7 +17,6 @@ type FormListMutationContext = {
   }>;
 };
 
-
 export function useForms(opts: { archived?: boolean } = {}) {
   const archived = !!opts.archived;
   return useActionQuery("list-forms", archived ? { archived: true } : {});
@@ -140,7 +139,6 @@ export function useRestoreForm() {
     },
   });
 }
-
 
 export function usePublicForm(formId: string) {
   return useQuery({

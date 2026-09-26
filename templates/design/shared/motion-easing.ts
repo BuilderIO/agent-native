@@ -1,5 +1,3 @@
-
-
 export interface MotionCurvePreset {
   label: string;
   value: string;
@@ -18,7 +16,6 @@ export const MOTION_CURVE_PRESETS: MotionCurvePreset[] = [
     value: "cubic-bezier(0.68, -0.6, 0.32, 1.6)",
   },
 ];
-
 
 export interface MotionSpring {
   bounce: number;
@@ -111,7 +108,6 @@ export function motionEaseToCss(ease: string): string {
   const spring = parseSpringToken(ease);
   return spring ? springToCssLinear(spring) : ease;
 }
-
 
 interface LinearStop {
   value: number;

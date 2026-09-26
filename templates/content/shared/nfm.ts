@@ -1,4 +1,3 @@
-
 import { matchInlineMathAt } from "./inline-math.js";
 import { registryBlockSpecByTag } from "./nfm-registry.js";
 
@@ -180,7 +179,6 @@ function splitBlockAttrs(line: string): {
   return { text: m[1], toggle, color };
 }
 
-
 function markOf(node: PMNode, type: string): PMMark | undefined {
   return node.marks?.find((m) => m.type === type);
 }
@@ -321,7 +319,6 @@ export function serializeInlineNode(node: PMNode): string {
   if (textNode) return textNode.source;
   return node.text ? escapeInlineText(node.text) : "";
 }
-
 
 function textNode(text: string, marks: PMMark[]): PMNode {
   return marks.length ? { type: "text", text, marks } : { type: "text", text };
@@ -636,7 +633,6 @@ function matchLink(
     end: closeParen + 1,
   };
 }
-
 
 const TAB = "\t";
 function indentStr(n: number): string {
@@ -1073,7 +1069,6 @@ function serializeTable(node: PMNode, ind: number): string[] {
   out.push(indentStr(ind) + "</table>");
   return out;
 }
-
 
 function leadingTabs(line: string): number {
   let n = 0;
@@ -2208,7 +2203,6 @@ function parseLeafTag(
   }
   return null;
 }
-
 
 export function canonicalizeNfm(nfm: string | null | undefined): string {
   const previous = suppressTerminalFillerTrim;

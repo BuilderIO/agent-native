@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";

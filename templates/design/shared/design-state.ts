@@ -1,5 +1,3 @@
-
-
 export type TailwindBreakpointPrefix =
   | "base"
   | "sm"
@@ -19,7 +17,6 @@ export interface BreakpointSet {
   id: string;
   breakpoints: BreakpointDefinition[];
 }
-
 
 export const DESIGN_STATE_KINDS = ["state", "fixture", "capture"] as const;
 

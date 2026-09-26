@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { languageDisplayName } from "./status-bar-lang";
 
-
 describe("languageDisplayName", () => {
   it("maps known language ids to display names", () => {
     expect(languageDisplayName("typescript")).toBe("TypeScript");

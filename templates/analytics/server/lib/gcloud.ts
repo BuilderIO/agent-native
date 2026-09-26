@@ -1,4 +1,3 @@
-
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
@@ -315,7 +314,6 @@ async function apiPost<T>(
   return data as T;
 }
 
-
 export interface CloudRunService {
   name: string;
   uid: string;
@@ -360,7 +358,6 @@ export interface LogEntry {
   logName: string;
   insertId: string;
 }
-
 
 export async function listCloudRunServices(): Promise<CloudRunService[]> {
   const projectId = await getProjectId();

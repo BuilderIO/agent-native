@@ -556,7 +556,6 @@ function ShareOptionRow({
   );
 }
 
-
 function PeopleTab({
   recordingId,
   sharesQuery,
@@ -1076,7 +1075,6 @@ function formatExpiry(iso: string | null): string {
   }).format(date);
 }
 
-
 function SocialTab({
   shareUrl,
   recordingId,
@@ -1214,7 +1212,6 @@ function SocialTab({
     </div>
   );
 }
-
 
 function ClipsEmbedConfigurator({
   recordingId,

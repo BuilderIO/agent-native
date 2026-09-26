@@ -983,7 +983,6 @@ function HighlightedCode({
   );
 }
 
-
 type PlanImageData = Extract<PlanBlock, { type: "image" }>["data"];
 
 function ImageBlock({

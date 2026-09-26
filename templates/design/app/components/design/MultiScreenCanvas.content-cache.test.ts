@@ -10,7 +10,6 @@ import {
 } from "./multi-screen/screen-content-cache";
 import type { FrameGeometry } from "./multi-screen/types";
 
-
 function makeScreen(id: string, content: string) {
   return { id, filename: `${id}.html`, content };
 }
@@ -46,7 +45,6 @@ function makeRender() {
   };
   return { render, calls };
 }
-
 
 describe("getCachedScreenContentNode", () => {
   it("retains an evicted screen's cached node and prunes it only on deletion", () => {
@@ -368,7 +366,6 @@ describe("getCachedScreenContentNode", () => {
     expect(calls.length).toBe(3);
   });
 });
-
 
 describe("resolveScreenMetadataCached", () => {
   it("returns the identical result object for unchanged inputs", () => {

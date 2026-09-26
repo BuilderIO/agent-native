@@ -6,7 +6,6 @@ import { getDb, schema } from "../server/db/index.js";
 import type { PlanContent } from "../shared/plan-content.js";
 import createVisualPlan from "./create-visual-plan.js";
 
-
 const DM_FIELD_BEFORE = `export interface DataModelField {
   name: string;
   type?: string;

@@ -1,4 +1,3 @@
-
 function readType(bytes: Uint8Array, offset: number): string {
   return String.fromCharCode(
     bytes[offset],

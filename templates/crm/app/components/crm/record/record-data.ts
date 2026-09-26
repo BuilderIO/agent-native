@@ -1,4 +1,3 @@
-
 import {
   ATTRIBUTE_TYPE_SPECS,
   type CrmAttributeType,
@@ -80,7 +79,6 @@ export interface CrmRecordPage {
   recordUrlUnavailableReason: string | null;
 }
 
-
 const PANEL_CONTROLS: ReadonlySet<CrmAttributeControl> = new Set([
   "text",
   "number",
@@ -125,7 +123,6 @@ export function fieldEditability(
   return { editable: true };
 }
 
-
 export type FieldDisplay =
   | { kind: "empty" }
   | { kind: "boolean"; value: boolean }
@@ -167,7 +164,6 @@ export function formatFieldValue(
     return { kind: "tokens", tokens: valueTokens(attribute, value) };
   return { kind: "text", text: formatAttributeValue(attribute, value) };
 }
-
 
 export type FieldParseResult =
   | { ok: true; value: CrmValue }
@@ -239,7 +235,6 @@ export function entryAttributeAsEditable(
   };
 }
 
-
 const HIGHLIGHT_ORDER: Record<string, readonly string[]> = {
   account: ["name", "domain", "industry", "ownerName", "nextContactAt"],
   person: [
@@ -309,7 +304,6 @@ export function splitHighlights<
   };
 }
 
-
 function sameCrmValue(a: CrmValue, b: CrmValue | undefined): boolean {
   if (a === b) return true;
   if (a === null || b === null || b === undefined) return false;
@@ -337,7 +331,6 @@ export function withoutSuppressedDuplicates<T extends { apiSlug: string }>(
     (attribute) => !isSuppressedDuplicateAttribute(attribute.apiSlug, values),
   );
 }
-
 
 export interface FieldHistoryChange {
   id: string;
@@ -385,7 +378,6 @@ export function historyTransitions(
   });
 }
 
-
 export interface CrmActivityItem {
   id: string;
   title: string;
@@ -405,7 +397,6 @@ export function resolveActivityState(
     ? { kind: "items", items }
     : { kind: "not-ingested" };
 }
-
 
 export interface OptimisticFieldEdit {
   apiSlug: string;
@@ -484,7 +475,6 @@ export function rollbackEntryValue(
     })),
   };
 }
-
 
 export const RECORD_TABS = ["activity", "notes", "tasks", "related"] as const;
 

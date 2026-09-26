@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { NO_MIC_DEVICE_ID, RecorderEngine } from "./recorder-engine";
 
-
 class FakeTrack {
   readonly kind = "video";
   private listeners = new Map<string, Set<() => void>>();

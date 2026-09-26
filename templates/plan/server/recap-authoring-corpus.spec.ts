@@ -4,7 +4,6 @@ import { describePlanBlocksForAgent } from "../shared/plan-block-registry.js";
 import { planBlockSchema, type PlanContent } from "../shared/plan-content.js";
 import { normalizePlanContent } from "./plan-content.js";
 
-
 const UNKNOWN_MARKER = "__unknown_block__:";
 
 const LEADING_RICH_TEXT = {
@@ -24,7 +23,6 @@ function isUnknownPlaceholder(block: PlanContent["blocks"][number]): boolean {
 function countPlaceholders(content: PlanContent): number {
   return content.blocks.filter(isUnknownPlaceholder).length;
 }
-
 
 describe("recap golden degradation corpus", () => {
   it("ai-services#5448: tabs block missing tabs[0].id and tabs[0].blocks[0].data salvages, plans still reject", () => {
@@ -205,7 +203,6 @@ describe("recap golden degradation corpus", () => {
   });
 });
 
-
 describe("recap good corpus (no salvage on valid content)", () => {
   it("columns before/after with proper nested blocks parses with no placeholders", () => {
     const input = {
@@ -325,7 +322,6 @@ describe("recap good corpus (no salvage on valid content)", () => {
     expect(result?.blocks[1]?.type).toBe("api-endpoint");
   });
 });
-
 
 const MINIMAL_BLOCK_DATA: Record<string, unknown> = {
   "annotated-code": { code: "const x = 1;\n" },

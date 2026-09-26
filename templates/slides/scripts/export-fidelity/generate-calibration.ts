@@ -22,7 +22,6 @@ const SLIDE_W_PT = 960;
 const SLIDE_H_PT = 540;
 const emu = (pt: number) => Math.round(pt * EMU_PER_POINT);
 
-
 type LnSpc =
   | { kind: "pts"; val: number }
   | { kind: "pct"; val: number }
@@ -59,7 +58,6 @@ const threeLineBr = (label: string) => [
 ];
 const twoLineBr = (label: string) => [`${label} L1 Alpha`, "L2 Bravo"];
 const oneLine = (label: string, text: string) => [`${label} ${text}`];
-
 
 const GRID_A = [
   { x: 20, y: 60 },

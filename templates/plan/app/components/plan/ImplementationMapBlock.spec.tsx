@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanBlockView } from "./DocumentArea";
 import { createPlanBlockRenderContext, planBlockRegistry } from "./planBlocks";
 
-
 function fileRowButtons(container: HTMLElement): HTMLButtonElement[] {
   return Array.from(
     container.querySelectorAll<HTMLButtonElement>("button[data-file-path]"),

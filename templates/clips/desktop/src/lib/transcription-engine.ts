@@ -1,4 +1,3 @@
-
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
@@ -42,7 +41,6 @@ interface MicSelection {
   label?: string | null;
 }
 
-
 export function speakerFor(
   source: TranscriptSource | undefined,
 ): "Me" | "Them" {
@@ -61,7 +59,6 @@ function transcriptWords(text: string): string[] {
   const normalized = normalizedTranscriptText(text);
   return normalized ? normalized.split(/\s+/) : [];
 }
-
 
 const ECHO_MATCH_RATIO = 0.65;
 const ECHO_MIN_WORDS = 4;
@@ -133,7 +130,6 @@ function retractMicEcho(lines: TranscriptLine[]): void {
   }
   for (const index of removals) lines.splice(index, 1);
 }
-
 
 export interface TranscriptLine {
   source: TranscriptSource;
@@ -266,7 +262,6 @@ export function recordingTranscriptionLanguage(): string | null {
   return null;
 }
 
-
 export async function restartTranscriptionEngine(
   engine: TranscriptionEngine,
   mic?: MicSelection,
@@ -374,7 +369,6 @@ export async function resetTranscriptionTimeline(
     offsetMs: Math.max(0, Math.round(offsetMs)),
   });
 }
-
 
 export function onFinalTranscript(
   cb: (event: FinalTranscriptEvent) => void,

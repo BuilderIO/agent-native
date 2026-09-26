@@ -85,7 +85,6 @@ async function slackApi<T>(
   return data as T;
 }
 
-
 export interface SlackChannel {
   id: string;
   name: string;
@@ -169,7 +168,6 @@ export interface SlackAuthorCoverageMetadata {
 }
 
 const userCache = new Map<string, SlackUser>();
-
 
 export async function getTeamInfo(
   workspace: Workspace,

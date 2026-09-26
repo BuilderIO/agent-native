@@ -1,6 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-
 const SUITE = `genrender-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
 let seq = 0;
 const uniqueTitle = (label: string) => `${SUITE} ${label} #${++seq}`;
@@ -88,7 +87,6 @@ function assertConsoleClean(watch: ConsoleWatch, where: string) {
     `console.error at ${where}: ${watch.errors.join(" | ")}`,
   ).toEqual([]);
 }
-
 
 function htmlFrame(surface: string, id: string, label: string, html: string) {
   return {
@@ -363,7 +361,6 @@ function richDocContent(title: string) {
   };
 }
 
-
 async function openPlanActionsMenu(page: Page) {
   const trigger = page.getByRole("button", { name: "Plan actions" });
   await expect(trigger).toBeVisible();
@@ -372,7 +369,6 @@ async function openPlanActionsMenu(page: Page) {
   await expect(menu).toBeVisible();
   return menu;
 }
-
 
 test.describe("plan generation + rendering", () => {
   test("HTML-wireframe canvas renders all four surfaces, no error toast/console", async ({

@@ -194,7 +194,6 @@ export function importResultNotification(
   };
 }
 
-
 export interface JsonParsableResponse {
   ok: boolean;
   status: number;
@@ -238,7 +237,6 @@ function truncateForToast(value: string): string {
   if (trimmed.length <= MAX_TOAST_BODY_CHARS) return trimmed;
   return `${trimmed.slice(0, MAX_TOAST_BODY_CHARS)}…`;
 }
-
 
 export interface DesignClipboardLayerEntry {
   html: string;

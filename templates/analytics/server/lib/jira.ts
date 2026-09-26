@@ -1,4 +1,3 @@
-
 import { scopedCredentialCacheKey } from "./credentials-context";
 import { executeProviderApiRequest } from "./provider-api";
 
@@ -46,7 +45,6 @@ async function jiraGet<T>(
 
   return data as T;
 }
-
 
 export interface JiraUser {
   accountId: string;
@@ -125,7 +123,6 @@ export interface JiraBoard {
   location?: { projectKey: string; name: string };
 }
 
-
 const DEFAULT_FIELDS = [
   "summary",
   "status",
@@ -192,7 +189,6 @@ export async function getSprints(boardId: number): Promise<JiraSprint[]> {
   );
   return data.values;
 }
-
 
 export interface JiraAnalytics {
   totalOpen: number;

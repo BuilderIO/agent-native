@@ -1,4 +1,3 @@
-
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 import {

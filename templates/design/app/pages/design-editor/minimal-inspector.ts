@@ -1,4 +1,3 @@
-
 export function hasMinimalInspectorSelection({
   selectedElement,
   selectedLayerIds,

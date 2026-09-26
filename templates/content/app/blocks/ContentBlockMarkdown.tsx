@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-
 type InlineSegment =
   | { kind: "text"; value: string }
   | { kind: "code"; value: string }

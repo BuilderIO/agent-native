@@ -1,4 +1,3 @@
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -220,7 +219,6 @@ beforeAll(async () => {
 afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
-
 
 describe("loadCrmStatusLifecycle", () => {
   it("takes the allowed values from the attribute's options, not an enum", async () => {
@@ -607,7 +605,6 @@ describe("update-crm-record routes a status field through the lifecycle", () => 
     expect(proposal.status).toBe("pending");
   });
 });
-
 
 describe("find-crm-duplicates", () => {
   it("returns scored pairs with a reason and never changes a record", async () => {
@@ -1025,7 +1022,6 @@ describe("merge-crm-records", () => {
     ).rejects.toMatchObject({ code: "crm-merge-duplicate-tombstoned" });
   });
 });
-
 
 describe("get-crm-workspace", () => {
   it("derives identity, book of business, and queues from the session alone", async () => {

@@ -1,4 +1,3 @@
-
 import type { FigmaFileDepthNode } from "./figma-node-import.js";
 
 export interface FigmaNodeCandidate {

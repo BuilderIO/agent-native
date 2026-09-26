@@ -1,4 +1,3 @@
-
 import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,
@@ -55,7 +54,6 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
-
 export interface AmplitudeEvent {
   event_type: string;
   event_properties: Record<string, unknown>;
@@ -82,7 +80,6 @@ export interface AmplitudeSegmentationResponse {
     xValues: string[];
   };
 }
-
 
 export async function getAmplitudeClient() {
   const creds = await getCredentials();

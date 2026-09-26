@@ -24,7 +24,6 @@ import {
 import type { BoardObjectEntry } from "../shared/board-objects.js";
 import migrateBoardObjectsAction from "./migrate-board-objects-to-file.js";
 
-
 describe("migrate-board-objects-to-file schema", () => {
   it("accepts a valid designId", () => {
     const result = migrateBoardObjectsAction.schema.safeParse({
@@ -46,7 +45,6 @@ describe("migrate-board-objects-to-file schema", () => {
   });
 });
 
-
 describe("BOARD_FILENAME is the reserved board filename", () => {
   it("is __board__.html", () => {
     expect(BOARD_FILENAME).toBe("__board__.html");
@@ -58,7 +56,6 @@ describe("BOARD_FILENAME is the reserved board filename", () => {
     expect(isBoardFile("board.html")).toBe(false);
   });
 });
-
 
 describe("negative-coordinate preservation in boardObjectEntryToHtmlFragment", () => {
   it("preserves negative x without clamping", () => {
@@ -111,7 +108,6 @@ describe("negative-coordinate preservation in boardObjectEntryToHtmlFragment", (
     expect(fragment).toContain("top:-8888px");
   });
 });
-
 
 describe("fragment injection pipeline", () => {
   it("injects a single fragment before </body>", () => {
@@ -196,7 +192,6 @@ describe("fragment injection pipeline", () => {
   });
 });
 
-
 describe("boardObjectEntryToHtmlFragment — node id and layer attributes", () => {
   it("embeds data-agent-native-node-id matching the entry id", () => {
     const entry: BoardObjectEntry = {
@@ -232,7 +227,6 @@ describe("boardObjectEntryToHtmlFragment — node id and layer attributes", () =
     expect(fragment).toContain(`data-agent-native-layer-name="Ellipse"`);
   });
 });
-
 
 describe("boardObjectEntryToHtmlFragment — all kinds", () => {
   const kinds: BoardObjectEntry["kind"][] = [

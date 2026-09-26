@@ -1,4 +1,3 @@
-
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
@@ -86,7 +85,6 @@ function cacheSet(key: string, data: unknown) {
   cache.set(key, { data, ts: Date.now() });
 }
 
-
 export interface GA4DateRange {
   startDate: string;
   endDate: string;
@@ -103,7 +101,6 @@ export interface GA4ReportResponse {
   rows: GA4ReportRow[];
   rowCount: number;
 }
-
 
 export async function getGA4Client() {
   const config = await getConfig();

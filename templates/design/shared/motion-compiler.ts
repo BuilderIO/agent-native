@@ -1,4 +1,3 @@
-
 import { motionEaseToCss } from "./motion-easing";
 import type {
   MotionEase,
@@ -12,7 +11,6 @@ import {
   getMotionTrackTiming,
   readTimelinePlaybackMode,
 } from "./motion-timeline";
-
 
 export interface CompileResult {
   css: string;
@@ -256,7 +254,6 @@ export function assertSafeMotionCssProperty(
   }
   return property;
 }
-
 
 const CSS_TOKEN_BREAKOUT_RE = /[;{}<>]|\/\*|\*\/|\burl\s*\(/i;
 const CSS_TOKEN_CONTROL_RE = /[\u0000-\u001f\u007f]/;

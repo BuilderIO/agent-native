@@ -1,4 +1,3 @@
-
 import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
 import { emailStrong, renderEmail } from "@agent-native/core/server";
 

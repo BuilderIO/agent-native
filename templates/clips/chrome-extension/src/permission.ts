@@ -1,4 +1,3 @@
-
 import { writeCachedMediaPermission } from "./media-permission";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 

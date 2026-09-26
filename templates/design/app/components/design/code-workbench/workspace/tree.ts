@@ -1,6 +1,5 @@
 import type { WorkspaceFileEntry } from "./types";
 
-
 export interface TreeFileNode {
   kind: "file";
   path: string;

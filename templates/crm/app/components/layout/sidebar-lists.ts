@@ -1,4 +1,3 @@
-
 export interface CrmSidebarList {
   id: string;
   name: string;

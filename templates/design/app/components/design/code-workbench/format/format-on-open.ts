@@ -8,7 +8,6 @@ import { formatWithPrettier, isFormattablePath } from "./prettier-format";
 
 export { shouldApplyFormatResult } from "./format-on-open-guard";
 
-
 const MAX_FORMAT_ON_OPEN_BYTES = 200_000;
 
 const attemptedKeys = new Set<string>();

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { isMessageFromOwnPreviewIframe } from "./component-section";
 
-
 describe("isMessageFromOwnPreviewIframe", () => {
   function appendPreviewIframe(): HTMLIFrameElement {
     const iframe = document.createElement("iframe");

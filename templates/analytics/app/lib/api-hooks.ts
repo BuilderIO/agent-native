@@ -55,7 +55,6 @@ export function useTopBlogKeywords(limit = 500) {
   );
 }
 
-
 export interface HubSpotDeal {
   id: string;
   properties: {
@@ -120,7 +119,6 @@ export function useHubspotMetrics() {
     retry: 1,
   });
 }
-
 
 export interface StripeCustomerSummary {
   id: string;

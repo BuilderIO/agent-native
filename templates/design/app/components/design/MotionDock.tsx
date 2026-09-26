@@ -82,7 +82,6 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-
 const RULER_HEIGHT = 24;
 const ROW_HEIGHT = 32;
 const LAYER_SIDEBAR_WIDTH = 200;
@@ -134,7 +133,6 @@ function easeLabel(
   return String(ease);
 }
 
-
 export interface MotionDockTrack extends MotionTrack {
   label: string;
 }
@@ -159,7 +157,6 @@ export interface MotionDockProps {
   livePlayheadRef?: React.MutableRefObject<number | null>;
   selectedTarget?: { nodeId: string; label: string } | null;
 }
-
 
 export function MotionDock({
   tracks,
@@ -1097,7 +1094,6 @@ export function MotionDock({
   );
 }
 
-
 interface AddTrackMenuProps {
   selectedTarget: { nodeId: string; label: string } | null;
   onCreateTrack: (preset: MotionPropertyPreset) => void;
@@ -1402,7 +1398,6 @@ function LayerTrackRows({
     </>
   );
 }
-
 
 interface LayerSpanBarProps {
   spanStartMs: number;
@@ -1713,7 +1708,6 @@ function KeyframeDiamond({
   );
 }
 
-
 interface EasingSegmentProps {
   left: number;
   width: number;
@@ -1761,7 +1755,6 @@ function EasingSegment({
     </Popover>
   );
 }
-
 
 interface EasingPanelProps {
   ease: MotionEase;
@@ -1935,7 +1928,6 @@ function EasingPanel({ ease, onChange }: EasingPanelProps) {
     </div>
   );
 }
-
 
 const CURVE_W = 216;
 const CURVE_H = 132;
@@ -2129,7 +2121,6 @@ function CurveEditor({ value, onChange }: CurveEditorProps) {
     </div>
   );
 }
-
 
 function SpringCurvePreview({
   bounce,

@@ -1,4 +1,3 @@
-
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";

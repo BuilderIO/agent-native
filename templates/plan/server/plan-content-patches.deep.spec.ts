@@ -6,8 +6,6 @@ import {
   type PlanContent,
 } from "../shared/plan-content.js";
 
-
-
 describe("update-block on a wireframe screen", () => {
   const wireframePlan = (): PlanContent =>
     planContentSchema.parse({
@@ -98,7 +96,6 @@ describe("update-block on a wireframe screen", () => {
   });
 });
 
-
 describe("update-wireframe-node patch boundaries", () => {
   const wf = (): PlanContent =>
     planContentSchema.parse({
@@ -156,7 +153,6 @@ describe("update-wireframe-node patch boundaries", () => {
   });
 });
 
-
 describe("patch-wireframe-html count math (split-based)", () => {
   const htmlWireframe = (html: string): PlanContent =>
     planContentSchema.parse({
@@ -198,7 +194,6 @@ describe("patch-wireframe-html count math (split-based)", () => {
   });
 });
 
-
 describe("legacy canvas structures survive patching", () => {
   it("keeps legacy notes, sections, and flow connectors after an unrelated block patch", () => {
     const content = planContentSchema.parse({
@@ -232,7 +227,6 @@ describe("legacy canvas structures survive patching", () => {
     expect(next.canvas?.annotations?.[0]?.text).toBe("Annotation.");
   });
 });
-
 
 describe("update-design-element-style", () => {
   const designPlan = (): PlanContent =>
@@ -503,7 +497,6 @@ describe("update-design-element-style", () => {
     ).toThrow(/matched 2 elements/i);
   });
 });
-
 
 describe("multi-patch batches", () => {
   it("applies append then update of the just-appended block in one batch", () => {

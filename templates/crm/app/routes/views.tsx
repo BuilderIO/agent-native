@@ -1,4 +1,3 @@
-
 import {
   useActionMutation,
   useActionQuery,
@@ -137,7 +136,6 @@ export default function SavedViewsRoute() {
   return <ViewsIndex views={views} lists={lists} />;
 }
 
-
 function ViewsIndex({
   views,
   lists,
@@ -254,7 +252,6 @@ function BackToViews() {
     </Button>
   );
 }
-
 
 function SavedViewSurface({
   view,
@@ -537,7 +534,6 @@ function SaveFork({
   );
 }
 
-
 function AdHocListSurface({ listId, name }: { listId: string; name: string }) {
   const t = useT();
   const [params, setParams] = useSearchParams();
@@ -581,7 +577,6 @@ function AdHocListSurface({ listId, name }: { listId: string; name: string }) {
     </>
   );
 }
-
 
 function CreateSavedViewDialog() {
   const t = useT();

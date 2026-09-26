@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import rough from "roughjs";
 
-
 const gen = rough.generator();
 
 export type RoughPath = { d: string; stroke: string; strokeWidth: number };

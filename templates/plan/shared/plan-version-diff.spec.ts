@@ -7,7 +7,6 @@ import {
   type PlanVersionDiff,
 } from "./plan-version-diff.js";
 
-
 function makeContent(blocks: PlanContent["blocks"]): PlanContent {
   return { version: 2, blocks };
 }
@@ -35,7 +34,6 @@ function diagram(id: string, caption: string) {
     data: { caption, nodes: [{ id: "n1", label: "A" }], edges: [] },
   };
 }
-
 
 describe("diffPlanVersions — block diffs", () => {
   it("detects added blocks", () => {
@@ -107,7 +105,6 @@ describe("diffPlanVersions — block diffs", () => {
     expect(result.kind).toBe("initial");
   });
 });
-
 
 describe("diffPlanVersions — nested containers", () => {
   it("finds added leaf blocks inside a tabs container", () => {
@@ -199,7 +196,6 @@ describe("diffPlanVersions — nested containers", () => {
   });
 });
 
-
 describe("diffPlanVersions — legacy sections", () => {
   it("detects added and removed sections", () => {
     const olderSections = [
@@ -235,7 +231,6 @@ describe("diffPlanVersions — legacy sections", () => {
   });
 });
 
-
 describe("diffPlanVersions — html-only plans", () => {
   it("returns html-only for plans with no content or sections", () => {
     const result = diffPlanVersions(
@@ -253,7 +248,6 @@ describe("diffPlanVersions — html-only plans", () => {
     expect(result.kind).toBe("html-only");
   });
 });
-
 
 describe("formatVersionDiffSummary", () => {
   it("returns 'Initial version' for initial kind", () => {
@@ -336,7 +330,6 @@ describe("formatVersionDiffSummary", () => {
     expect(summary).toContain("+2 more");
   });
 });
-
 
 describe("block label extraction", () => {
   it("uses block.title when present", () => {

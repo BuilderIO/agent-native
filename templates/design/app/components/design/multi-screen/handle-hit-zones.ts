@@ -1,4 +1,3 @@
-
 export const EDGE_HANDLE_HIT_OUTWARD_PX = 7;
 
 export const EDGE_HANDLE_HIT_INWARD_PX = 7;

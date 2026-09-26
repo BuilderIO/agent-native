@@ -2,7 +2,6 @@ import { createRegistryBlockNode } from "@agent-native/toolkit/editor";
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 
-
 export function createContentBlockId(blockType: string): string {
   const safePrefix = blockType
     .toLowerCase()

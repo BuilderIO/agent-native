@@ -52,7 +52,6 @@ const SOURCE_CONTEXT_AFTER = 4;
 const MAX_SOURCE_CONTEXT_FILE_BYTES = 2_000_000;
 const MAX_SOURCE_CONTEXT_LINE_CHARS = 500;
 
-
 export interface ParsedStackFrame {
   function: string | null;
   file: string | null;
@@ -475,7 +474,6 @@ function coerceLevel(
     ? (value as ExceptionLevel)
     : fallback;
 }
-
 
 export interface IngestScope {
   ownerEmail: string;
@@ -956,7 +954,6 @@ async function errorEmailNotificationsEnabled(
     return false;
   }
 }
-
 
 export interface ErrorReadScope {
   userEmail: string;
@@ -1552,7 +1549,6 @@ export async function updateErrorIssue(
     assignee: row.assignee ?? null,
   };
 }
-
 
 export async function captureTestError(
   scope: ErrorReadScope,

@@ -1,4 +1,3 @@
-
 type PrettierStandalone = typeof import("prettier/standalone");
 
 type SupportedLanguage =

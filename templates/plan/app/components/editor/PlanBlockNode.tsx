@@ -7,7 +7,6 @@ import {
 import { createPlanBlockId, type PlanBlock } from "@shared/plan-content";
 import type { ReactNode } from "react";
 
-
 export type PlanBlockDataValue = RegistryBlockDataValue<PlanBlock>;
 
 export function PlanBlockDataProvider({

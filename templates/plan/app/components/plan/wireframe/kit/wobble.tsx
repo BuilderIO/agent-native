@@ -1,6 +1,5 @@
 import { type CSSProperties } from "react";
 
-
 const PLAN_WOBBLE_FILTER_BASE_ID = "plan-wobble";
 
 export const DEFAULT_SKETCH = 12;

@@ -1009,7 +1009,6 @@ describe("collectImageFillRefs", () => {
   });
 });
 
-
 describe("mapFigmaNodeToHtml - per-paint opacity and blend mode", () => {
   function styleOf(html: string, nodeId: string): string {
     const match = html.match(

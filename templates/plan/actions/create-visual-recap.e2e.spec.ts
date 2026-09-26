@@ -101,7 +101,6 @@ function storedBlocks(
   }>;
 }
 
-
 const CLEAN_RECAP_MDX = {
   "plan.mdx": `---
 title: Clean Recap

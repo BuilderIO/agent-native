@@ -1,4 +1,3 @@
-
 export interface AudioCue {
   playBeforeCapture(): Promise<void>;
   cleanup(): void;

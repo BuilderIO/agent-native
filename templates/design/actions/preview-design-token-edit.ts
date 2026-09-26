@@ -9,7 +9,6 @@ import {
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
 
-
 const tokenEditSchema = z.object({
   cssVar: z
     .string()
@@ -27,7 +26,6 @@ const tokenEditSchema = z.object({
     )
     .describe("New value for the token"),
 });
-
 
 export default defineAction({
   description:

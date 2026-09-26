@@ -1,4 +1,3 @@
-
 import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,
@@ -67,7 +66,6 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
-
 export interface SentryProject {
   id: string;
   slug: string;
@@ -132,7 +130,6 @@ export interface SentryOrgStats {
     series: Record<string, number[]>;
   }[];
 }
-
 
 export async function listOrganizations(): Promise<SentryOrganization[]> {
   return apiGet<SentryOrganization[]>("/organizations/");

@@ -8,7 +8,6 @@ import rough from "roughjs";
 
 import { cn } from "@/lib/utils";
 
-
 const roughGenerator = rough.generator();
 
 export function LegacyRegionWireframe({

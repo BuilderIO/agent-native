@@ -7,7 +7,6 @@ import type {
   PlanSection,
 } from "../../shared/types.js";
 
-
 vi.mock("@agent-native/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core")>()),
   defineAction: (entry: unknown) => entry,

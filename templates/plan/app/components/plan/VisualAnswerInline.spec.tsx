@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import VisualAnswerInline from "./VisualAnswerInline";
 
-
 class MockResizeObserver {
   observe() {}
   unobserve() {}

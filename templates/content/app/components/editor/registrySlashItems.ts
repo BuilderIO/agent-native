@@ -9,7 +9,6 @@ import { IconComponents } from "@tabler/icons-react";
 
 import { createContentBlockId } from "./extensions/registryBlocks";
 
-
 export interface RegistrySlashItem {
   title: string;
   description: string;

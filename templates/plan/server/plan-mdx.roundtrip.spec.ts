@@ -7,7 +7,6 @@ import {
   parsePlanMdxFolder,
 } from "./plan-mdx.js";
 
-
 async function roundTrip(content: PlanContent): Promise<PlanContent> {
   const parsed = planContentSchema.parse(content);
   const folder = await exportPlanContentToMdxFolder({

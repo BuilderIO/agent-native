@@ -9,7 +9,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { appPath, elementInner, expandAllLayers } from "./helpers";
 
-
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
@@ -24,7 +23,6 @@ const FOOTER = { x: 0, y: 944, w: 1440, h: 80 };
 
 test.use({ viewport: { width: 1680, height: 1000 } });
 test.describe.configure({ mode: "serial" });
-
 
 async function action(
   request: APIRequestContext,
@@ -50,7 +48,6 @@ async function dumpTrace(page: Page) {
     .evaluate(() => (window as any).__designTrace?.dump?.() ?? "(no trace)")
     .catch(() => "(trace unavailable)");
 }
-
 
 function layerTree(page: Page): Locator {
   return page.getByRole("tree", { name: "Layers" });
@@ -210,7 +207,6 @@ async function renameSelected(
   }
 }
 
-
 async function screenIframeBox(page: Page, screenId: string) {
   const box = await page
     .locator(
@@ -351,7 +347,6 @@ async function openOverview(
   await page.waitForTimeout(500);
 }
 
-
 let designId = "";
 let deskScreenId = "";
 let mobileScreenId = "";
@@ -386,7 +381,6 @@ test.beforeAll(async ({ request }) => {
 test.afterAll(async ({ request }) => {
   await deleteDesign(request);
 });
-
 
 test("step 1: Screen tool draws the root Landing Page frame at 1440x1024 with Figma frame-tool defaults", async ({
   page,
@@ -987,7 +981,6 @@ test("steps 16-17: HeroImage is drawn and Hero's own auto layout is enabled hori
   expect(heroDisplay).toBe("flex");
 });
 
-
 test("FD4B footer: Cmd+D duplicates the Navbar frame, renamed 'Footer', with its wordmark retyped", async ({
   page,
 }) => {
@@ -1296,7 +1289,6 @@ test("group: marquee-selects two sections, Cmd+G groups them with Figma Group se
   // here so this spec doesn't stay red for other areas' runs.
 });
 
-
 test("mobile: Cmd+D duplicates the Landing Page screen; the copy becomes an independent sibling screen", async ({
   page,
 }) => {
@@ -1423,7 +1415,6 @@ test("mobile: Hero and CardRow are re-laid-out to vertical stacking for the narr
   );
   expect(desktopDirection, "desktop Hero must stay horizontal").toBe("row");
 });
-
 
 function topLevelOrder(html: string): string[] {
   return [...html.matchAll(/data-agent-native-layer-name="([^"]+)"/g)].map(
@@ -1749,7 +1740,6 @@ test("layers panel: dragging a row reorders it in the DOM", async ({
     `dragging CardRow above Hero in the layers panel must reorder the DOM; order was ${JSON.stringify(topLevel)}; trace: ${await dumpTrace(page)}`,
   ).toBeLessThan(topLevel.indexOf("Hero"));
 });
-
 
 async function setScrubField(
   page: Page,

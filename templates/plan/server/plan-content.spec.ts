@@ -1480,7 +1480,6 @@ describe("patch-diagram-html (granular diagram edits)", () => {
   });
 });
 
-
 describe("parsePlanContent per-block salvage", () => {
   const ZWSP = "​";
   const UNKNOWN_MARKER = `${ZWSP}__unknown_block__:`;

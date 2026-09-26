@@ -53,7 +53,6 @@ const PROGRAM_SEEDS: ProgramSeedDef[] = [
   },
 ];
 
-
 const seedCodeCache = new Map<string, string>();
 
 function loadProgramCode(filename: string): string {

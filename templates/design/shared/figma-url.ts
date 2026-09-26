@@ -1,4 +1,3 @@
-
 const FIGMA_FILE_KEY_RE = /^[A-Za-z0-9_-]{8,}$/;
 const FILE_PATH_SEGMENTS = ["design", "file", "proto"] as const;
 

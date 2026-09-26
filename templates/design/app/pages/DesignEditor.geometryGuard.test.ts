@@ -8,7 +8,6 @@ import {
   sanitizeCanvasFrameGeometryForPersist,
 } from "./design-editor/geometry-persistence";
 
-
 describe("isSaneCanvasFrameGeometryForPersist", () => {
   it("accepts normal screen-frame geometry", () => {
     expect(

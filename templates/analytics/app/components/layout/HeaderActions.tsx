@@ -8,7 +8,6 @@ import {
 
 import { Skeleton } from "@/components/ui/skeleton";
 
-
 type Listener = () => void;
 
 let currentTitle: ReactNode = null;

@@ -15,7 +15,6 @@ import {
 } from "./drag-and-drop.shared";
 import { appPath, expandAllLayers } from "./helpers";
 
-
 const UNDO = `${MOD}+Z`;
 const REDO = process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z";
 

@@ -1,4 +1,3 @@
-
 import { getActiveFileUploadProvider } from "@agent-native/core/file-upload";
 import {
   createOnboardingPlugin,

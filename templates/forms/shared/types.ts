@@ -6,7 +6,6 @@ import type {
   DataWidgetDisplay,
 } from "@agent-native/core/data-widgets";
 
-
 export type FormFieldType =
   | "text"
   | "email"
@@ -61,7 +60,6 @@ export interface FormFileValue {
   handle?: string;
 }
 
-
 export type IntegrationType = "webhook" | "slack" | "discord" | "google-sheets";
 
 export interface FormIntegration {
@@ -71,7 +69,6 @@ export interface FormIntegration {
   enabled: boolean;
   url: string;
 }
-
 
 export type FormCompletionMode =
   | "message"
@@ -195,7 +192,6 @@ export function toPublicFormSettings(
   };
 }
 
-
 export interface Form {
   id: string;
   title: string;
@@ -209,7 +205,6 @@ export interface Form {
   createdAt: string;
   updatedAt: string;
 }
-
 
 export interface FormResponse {
   id: string;
@@ -228,7 +223,6 @@ export interface FormResponse {
     promotedBy?: string | null;
   } | null;
 }
-
 
 export type ResponseInsightsTableColumn = DataTableColumn;
 

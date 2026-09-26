@@ -43,7 +43,6 @@ import { renderWireframeIconHtml } from "./wireframe-icons";
 
 import "./html-artboard.css";
 
-
 type SurfacePreset = {
   width: number;
   height: number;
@@ -141,7 +140,6 @@ export function Wireframe({
     />
   );
 }
-
 
 function ArtboardFrame({
   surface,
@@ -309,7 +307,6 @@ function WireframeStyleToggleButton() {
     </button>
   );
 }
-
 
 function HtmlArtboard({
   data,
@@ -560,7 +557,6 @@ function renderKitScreen(
     </Screen>
   );
 }
-
 
 const DIAGRAM_ROUGH_SELECTOR =
   "[data-rough],.diagram-panel,.diagram-node,.diagram-box,.diagram-pill,.diagram-card,[class*='card'],[class*='box'],[class*='panel'],[class*='pill'],[class*='chip'],[class*='badge'],hr";

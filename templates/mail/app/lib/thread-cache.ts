@@ -1,4 +1,3 @@
-
 import { appApiPath } from "@agent-native/core/client/api-path";
 import type { EmailMessage } from "@shared/types";
 import { useEffect, useState } from "react";
@@ -153,7 +152,6 @@ async function fetchThread(
   }
   return { messages: await res.json(), providerSnapshotId };
 }
-
 
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 

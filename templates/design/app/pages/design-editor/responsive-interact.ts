@@ -1,4 +1,3 @@
-
 export type InteractDeviceCategory = "phone" | "tablet" | "desktop" | "custom";
 
 export interface InteractDevicePreset {

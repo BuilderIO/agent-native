@@ -77,7 +77,6 @@ const DEFAULT_LABELS: ConstraintsWidgetLabels = {
   mixed: "Mixed", // i18n-ignore fallback component label
 };
 
-
 const BOX = 40;
 const INNER_W = 18;
 const INNER_H = 14;
@@ -139,7 +138,6 @@ function toggleVPin(
     return "bottom";
   }
 }
-
 
 interface PinBoxProps {
   value: ConstraintsValue;
@@ -204,7 +202,6 @@ function PinBox({
   const rDash = hScale ? SCALE_DASH : undefined;
   const tDash = vScale ? SCALE_DASH : undefined;
   const bDash = vScale ? SCALE_DASH : undefined;
-
 
   return (
     <svg
@@ -383,7 +380,6 @@ function PinBox({
     </svg>
   );
 }
-
 
 export function ConstraintsPreview({
   value,

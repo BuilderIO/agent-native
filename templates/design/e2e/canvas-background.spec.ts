@@ -24,7 +24,6 @@ async function boardHtml(
   );
 }
 
-
 async function postAction(
   request: APIRequestContext,
   name: string,

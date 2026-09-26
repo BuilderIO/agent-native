@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";

@@ -8,7 +8,6 @@ import {
 } from "../../../shared/code-layer";
 import { resolveElementNudgeIntent } from "./nudge-intent";
 
-
 function elementInfoFor(
   nodeId: string,
   tagName = "div",

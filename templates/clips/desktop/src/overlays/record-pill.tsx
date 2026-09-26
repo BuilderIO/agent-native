@@ -692,7 +692,6 @@ export function RecordingPill() {
     setDoneStage(completion.stage);
   }
 
-
   useEffect(() => {
     const unlistens: Array<() => void> = [];
     const registrations: Array<Promise<() => void>> = [];
@@ -1063,7 +1062,6 @@ export function RecordingPill() {
     const beat = setInterval(() => writeTrayStatus(true, liveTrayTitle()), 800);
     return () => clearInterval(beat);
   }, [trayLive]);
-
 
   function queueToolbarDragMove(
     generation: number,

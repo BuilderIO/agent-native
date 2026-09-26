@@ -1969,8 +1969,7 @@ const LayerRow = memo(function LayerRow({
           : null;
       const panelIntent: LayersPanelMoveIntent =
         storedIntent && storedIntent.draggedIds.length > 0
-          ?
-            { ...storedIntent, duplicate: event.altKey }
+          ? { ...storedIntent, duplicate: event.altKey }
           : ({
               draggedIds: cleanedIds,
               targetId: node.id,

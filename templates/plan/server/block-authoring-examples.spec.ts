@@ -11,7 +11,6 @@ import {
 } from "./plan-block-examples.js";
 import { parsePlanMdxFolder } from "./plan-mdx.js";
 
-
 const UNKNOWN_MARKER = "__unknown_block__:";
 
 function isUnknownPlaceholder(block: PlanContent["blocks"][number]): boolean {

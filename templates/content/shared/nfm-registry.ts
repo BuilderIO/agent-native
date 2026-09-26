@@ -83,7 +83,6 @@ export interface ParsedRegistryBlock {
   data: unknown;
 }
 
-
 type MdxModule = {
   unified: typeof import("unified").unified;
   remarkParse: typeof import("remark-parse").default;

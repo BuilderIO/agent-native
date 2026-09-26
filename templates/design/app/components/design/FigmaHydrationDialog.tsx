@@ -1,4 +1,3 @@
-
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useRef, useState } from "react";

@@ -1863,7 +1863,6 @@ export default function CalendarView() {
 
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-
       const isArrowKey =
         e.key === "ArrowLeft" ||
         e.key === "ArrowRight" ||

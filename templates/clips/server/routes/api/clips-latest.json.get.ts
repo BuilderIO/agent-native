@@ -5,7 +5,6 @@ import {
   setResponseHeaders,
 } from "h3";
 
-
 const RELEASES_URL_BASE =
   "https://api.github.com/repos/BuilderIO/agent-native/releases";
 const PER_PAGE = 100;

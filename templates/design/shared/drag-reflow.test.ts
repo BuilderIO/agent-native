@@ -13,7 +13,6 @@ import {
   resolveTargetHysteresis,
 } from "./drag-reflow";
 
-
 function candidate(
   over: Partial<DragTargetCandidate> & Pick<DragTargetCandidate, "key">,
 ): DragTargetCandidate {
@@ -256,7 +255,6 @@ describe("resolveTargetHysteresis", () => {
   });
 });
 
-
 describe("isContainerTooSmallForDrag", () => {
   it("allows a container that fits the dragged element", () => {
     expect(
@@ -322,7 +320,6 @@ describe("isContainerTooSmallForDrag", () => {
     ).toBe(false);
   });
 });
-
 
 function packed(over: Partial<PackedContainerInfo> = {}): PackedContainerInfo {
   return {
@@ -411,7 +408,6 @@ describe("mainAxisForDirection", () => {
     expect(mainAxisForDirection("column-reverse")).toBe("y");
   });
 });
-
 
 describe("computeReorderOffsets", () => {
   const slotMain = 60;

@@ -13,7 +13,6 @@ import action, {
   setAttributeOnMarkup,
 } from "./swap-component-instance.js";
 
-
 describe("swap-component-instance schema", () => {
   const base = { designId: "design_1", nodeId: "node_1" };
 
@@ -43,7 +42,6 @@ describe("swap-component-instance schema", () => {
   });
 });
 
-
 describe("findOpenTagEnd", () => {
   it("finds the end of a simple opening tag", () => {
     const markup = '<button class="a">Save</button>';
@@ -61,7 +59,6 @@ describe("findOpenTagEnd", () => {
     expect(findOpenTagEnd(markup)).toBe(markup.length);
   });
 });
-
 
 describe("setAttributeOnMarkup", () => {
   it("replaces an existing attribute value", () => {
@@ -101,7 +98,6 @@ describe("setAttributeOnMarkup", () => {
     );
   });
 });
-
 
 describe("mergeComponentSwapOverrides", () => {
   it("carries over overrides for prop names both components share", () => {

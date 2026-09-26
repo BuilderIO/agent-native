@@ -1,4 +1,3 @@
-
 function readU32(buf: Uint8Array, off: number): number {
   return (
     ((buf[off] << 24) |

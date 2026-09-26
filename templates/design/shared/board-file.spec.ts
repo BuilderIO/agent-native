@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,13 +13,11 @@ import {
 } from "./board-file.js";
 import type { BoardObjectEntry } from "./board-objects.js";
 
-
 describe("BOARD_FILENAME", () => {
   it("equals __board__.html", () => {
     expect(BOARD_FILENAME).toBe("__board__.html");
   });
 });
-
 
 describe("isBoardFile", () => {
   it("returns true for the exact board filename", () => {
@@ -35,7 +32,6 @@ describe("isBoardFile", () => {
     expect(isBoardFile("")).toBe(false);
   });
 });
-
 
 describe("emptyBoardHtml", () => {
   it("returns a string containing the required body style", () => {
@@ -66,7 +62,6 @@ describe("emptyBoardHtml", () => {
     expect(bodyContent).toBe("");
   });
 });
-
 
 describe("boardObjectEntryToHtmlFragment — basic geometry", () => {
   const baseEntry: BoardObjectEntry = {
@@ -143,7 +138,6 @@ describe("boardObjectEntryToHtmlFragment — basic geometry", () => {
   });
 });
 
-
 describe("boardObjectEntryToHtmlFragment — negative coordinate preservation", () => {
   it("preserves negative x (left)", () => {
     const entry: BoardObjectEntry = {
@@ -192,7 +186,6 @@ describe("boardObjectEntryToHtmlFragment — negative coordinate preservation", 
   });
 });
 
-
 describe("boardObjectEntryToHtmlFragment — rotation and z-index", () => {
   it("includes transform:rotate when rotation is set", () => {
     const entry: BoardObjectEntry = {
@@ -227,7 +220,6 @@ describe("boardObjectEntryToHtmlFragment — rotation and z-index", () => {
     expect(fragment).toContain("z-index:5");
   });
 });
-
 
 describe("boardObjectEntryToHtmlFragment — ellipse", () => {
   it("uses border-radius:50% for ellipse kind", () => {
@@ -464,7 +456,6 @@ describe("boardObjectEntryToHtmlFragment — id escaping", () => {
   });
 });
 
-
 describe("backfillBoardPrimitiveMarkers — no-op cases", () => {
   it("returns the original string when there are no node-id-bearing elements", () => {
     const html = emptyBoardHtml();
@@ -653,7 +644,6 @@ describe("backfillBoardPrimitiveMarkers — mixed content", () => {
   });
 });
 
-
 describe("boardObjectEntryToHtmlFragment — default layer names", () => {
   const kinds: BoardObjectEntry["kind"][] = [
     "frame",
@@ -681,7 +671,6 @@ describe("boardObjectEntryToHtmlFragment — default layer names", () => {
     });
   }
 });
-
 
 describe("stripBoardSurfaceOffsetFromCoord", () => {
   it("strips a single surface offset from poisoned coordinates (real values from the nest findings)", () => {
@@ -712,7 +701,6 @@ describe("stripBoardSurfaceOffsetFromCoord", () => {
   });
 });
 
-
 describe("computeReparentedChildPosition", () => {
   it("rebases a viewport-poisoned source against a clean board-space target", () => {
     expect(
@@ -738,7 +726,6 @@ describe("computeReparentedChildPosition", () => {
     ).toEqual({ x: 1017, y: -137 });
   });
 });
-
 
 describe("normalizePoisonedBoardNestedCoords", () => {
   const wrap = (body: string) =>

@@ -3,7 +3,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers } from "./helpers";
 
-
 const PAGE_W = 1440;
 const PAGE_H = 900;
 

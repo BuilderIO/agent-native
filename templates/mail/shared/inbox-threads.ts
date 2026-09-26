@@ -1,6 +1,5 @@
 import type { EmailMessage, Label, SavedMailFilter } from "./types";
 
-
 export const IMPORTANT_TAB_ID = "important";
 export const OTHER_TAB_ID = "other";
 export const ALL_TAB_ID = "__inbox_all__";

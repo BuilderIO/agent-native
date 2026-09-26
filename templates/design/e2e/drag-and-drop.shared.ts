@@ -8,7 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { designFrame, expandAllLayers } from "./helpers";
 
-
 export const PAGE_W = 1440;
 export const PAGE_H = 900;
 export const MOD = process.platform === "darwin" ? "Meta" : "Control";

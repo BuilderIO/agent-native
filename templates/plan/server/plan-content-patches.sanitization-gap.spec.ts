@@ -7,7 +7,6 @@ import {
 } from "../shared/plan-content.js";
 import { sanitizeCustomHtml, serializePlanContent } from "./plan-content.js";
 
-
 const wireframeHtml = (html: string): PlanContent =>
   planContentSchema.parse({
     version: 2,

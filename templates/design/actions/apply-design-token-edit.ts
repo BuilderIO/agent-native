@@ -19,7 +19,6 @@ import {
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
 
-
 const tokenEditSchema = z.object({
   cssVar: z
     .string()
@@ -68,7 +67,6 @@ function readSelections(data: DesignDataRecord): TweakSelections {
 function selectionKeyForCssVar(tweaks: TweakDef[], cssVar: string): string {
   return tweaks.find((tweak) => tweak.cssVar === cssVar)?.id ?? cssVar;
 }
-
 
 export default defineAction({
   description:

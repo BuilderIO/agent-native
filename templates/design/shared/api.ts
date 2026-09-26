@@ -1,6 +1,4 @@
-
 export const API_BASE = "/api";
-
 
 import type {
   BrandKitData,
@@ -39,7 +37,6 @@ export interface DesignSystemData extends BrandKitData {
   defaults: BrandKitDefaults;
 }
 
-
 export interface DesignProject {
   id: string;
   title: string;
@@ -60,7 +57,6 @@ export interface DesignFile {
   fileType: "html" | "css" | "jsx" | "asset";
 }
 
-
 export interface TweakDefinition {
   id: string;
   label: string;
@@ -73,7 +69,6 @@ export interface TweakDefinition {
   cssVar?: string;
   unit?: string;
 }
-
 
 export interface QuestionFlowQuestion {
   id: string;

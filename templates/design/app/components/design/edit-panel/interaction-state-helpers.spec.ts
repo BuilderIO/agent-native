@@ -50,7 +50,6 @@ describe("authoredStyleValue", () => {
   });
 });
 
-
 describe("resolveInteractionStateValue", () => {
   it("returns the base value when no state is active (stateStyles undefined)", () => {
     expect(resolveInteractionStateValue(undefined, "color", "black")).toBe(

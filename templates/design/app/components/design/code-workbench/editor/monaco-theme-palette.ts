@@ -1,6 +1,5 @@
 import { normalizeMonacoThemeColor } from "../../code-workbench-theme";
 
-
 export interface MonacoThemeRule {
   token: string;
   foreground?: string;

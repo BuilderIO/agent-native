@@ -1,4 +1,3 @@
-
 export const WAVEFORM_BAR_COUNT = 5;
 
 export const WAVEFORM_MIN_PX = 3;

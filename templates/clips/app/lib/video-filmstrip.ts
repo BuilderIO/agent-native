@@ -1,4 +1,3 @@
-
 import { canvasHasVisibleContent } from "./thumbnail-capture";
 
 export interface FilmstripFrame {

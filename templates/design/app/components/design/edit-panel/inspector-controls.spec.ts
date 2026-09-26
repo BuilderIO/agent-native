@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { nextRowDragOverIndex, resolveRowDrop } from "./inspector-controls";
 
-
 describe("nextRowDragOverIndex", () => {
   it("reports the hovered row when it differs from the dragged row", () => {
     expect(nextRowDragOverIndex(2, 0)).toBe(2);
@@ -13,7 +12,6 @@ describe("nextRowDragOverIndex", () => {
     expect(nextRowDragOverIndex(1, 1)).toBeNull();
   });
 });
-
 
 describe("resolveRowDrop", () => {
   it("resolves a downward drag (from < to)", () => {

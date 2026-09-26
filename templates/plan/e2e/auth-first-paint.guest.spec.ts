@@ -1,6 +1,5 @@
 import { test, expect } from "@playwright/test";
 
-
 const AUTH_ENTRYPOINTS = [
   { path: "/signup", label: "signup" },
   { path: "/login", label: "login" },

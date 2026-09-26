@@ -1,4 +1,3 @@
-
 import {
   evaluateCssLinear,
   parseSpringToken,
@@ -47,7 +46,6 @@ export interface MotionTimeline {
   createdAt: string;
   updatedAt: string;
 }
-
 
 export interface MotionPropertyPreset {
   property: string;
@@ -162,7 +160,6 @@ export function hasTrackFor(
   );
 }
 
-
 export const MOTION_KEYFRAME_TIME_EPSILON = 0.002;
 
 export function sortMotionKeyframes(
@@ -181,7 +178,6 @@ export function upsertMotionKeyframeAtTime(
   );
   return sortMotionKeyframes([...withoutCurrentTime, keyframe]);
 }
-
 
 const EASE_KEYWORD_BEZIERS: Record<string, [number, number, number, number]> = {
   ease: [0.25, 0.1, 0.25, 1],
@@ -288,7 +284,6 @@ export function evaluateMotionEase(
 
   return clamped;
 }
-
 
 type MotionValueSegment =
   | { kind: "lit"; text: string }
@@ -457,7 +452,6 @@ export function sampleMotionKeyframesAt(
   return last.value;
 }
 
-
 export interface MotionTrackTiming {
   startMs: number;
   durationMs: number;
@@ -503,7 +497,6 @@ export function sampleMotionTrackAtTimelineTime(
   );
 }
 
-
 const MOTION_PLAYBACK_MODES: MotionPlaybackMode[] = [
   "loop",
   "once",
@@ -539,7 +532,6 @@ export function withTimelinePlaybackMode<T extends MotionTrack>(
     return rest as T;
   });
 }
-
 
 export interface MotionAutoKeyframeEdit {
   targetNodeId: string;
@@ -587,7 +579,6 @@ export function applyMotionAutoKeyframe(
   };
   return next;
 }
-
 
 export interface MotionAnimationClip {
   tracks: Array<Omit<MotionTrack, "targetNodeId" | "timelinePlaybackMode">>;

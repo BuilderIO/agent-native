@@ -1,6 +1,5 @@
 import { toast } from "sonner";
 
-
 export function imageDownloadName(src: string, alt: string): string {
   const cleanAlt = alt.trim().replace(/[^a-z0-9._-]+/gi, "-");
   if (cleanAlt) return cleanAlt.toLowerCase();

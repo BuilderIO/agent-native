@@ -1,4 +1,3 @@
-
 const CALL_ACTION_PREFIX = /^Action [\w.-]+ failed:\s*/;
 
 export function actionErrorDetail(error: unknown): string | undefined {

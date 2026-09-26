@@ -1,4 +1,3 @@
-
 export function isFrameworkDirectiveAttributeName(name: string): boolean {
   return name.startsWith("@") || name.startsWith(":") || /^x-[a-z]/i.test(name);
 }

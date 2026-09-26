@@ -1,6 +1,5 @@
 import { Extension, Node, mergeAttributes } from "@tiptap/core";
 
-
 const COLOR_TYPES = [
   "paragraph",
   "heading",

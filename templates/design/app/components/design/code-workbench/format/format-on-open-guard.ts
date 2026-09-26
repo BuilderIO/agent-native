@@ -1,4 +1,3 @@
-
 export function shouldApplyFormatResult(
   currentModelValue: string,
   snapshotContent: string,

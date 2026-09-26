@@ -2,7 +2,6 @@ import { createServer, type Server } from "node:http";
 
 import { expect, test } from "@playwright/test";
 
-
 const STUB_APP = `<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>Stub app</title></head>
 <body style="margin:0;font-family:system-ui">
   <main data-agent-native-node-id="runtime-root" data-agent-native-layer-name="Main">

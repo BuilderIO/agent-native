@@ -7,7 +7,6 @@ import type {
 import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
 import { resolveFigmaPasteTargetScreenId } from "@/lib/figma-paste-layers";
 
-
 function intersect(a: PasteRect, b: PasteRect): PasteRect | null {
   const x = Math.max(a.x, b.x);
   const y = Math.max(a.y, b.y);

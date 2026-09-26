@@ -23,7 +23,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-
 interface EngineCapabilities {
   thinking: boolean;
   promptCaching: boolean;
@@ -48,7 +47,6 @@ interface EnginesResponse {
   current: { engine: string; model: string };
 }
 
-
 async function manageAgentEngine<T>(body: Record<string, unknown>): Promise<T> {
   const res = await fetch(
     agentNativePath("/_agent-native/actions/manage-agent-engine"),
@@ -72,7 +70,6 @@ async function manageAgentEngine<T>(body: Record<string, unknown>): Promise<T> {
   }
 }
 
-
 function CapBadge({ label, enabled }: { label: string; enabled: boolean }) {
   return (
     <span
@@ -87,7 +84,6 @@ function CapBadge({ label, enabled }: { label: string; enabled: boolean }) {
     </span>
   );
 }
-
 
 function EngineCard({
   engine,
@@ -153,7 +149,6 @@ function EngineCard({
     </button>
   );
 }
-
 
 export function AgentEnginePicker() {
   const t = useT();

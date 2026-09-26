@@ -2,7 +2,6 @@ import type { BrowserContext, Page, Request } from "@playwright/test";
 
 import { renderedText } from "./app";
 
-
 export const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
 
 export const LUNA_OPENAI_MODEL = "gpt-5.6-luna";

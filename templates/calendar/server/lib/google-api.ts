@@ -1,4 +1,3 @@
-
 const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 const PEOPLE_BASE = "https://people.googleapis.com/v1";
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
@@ -10,7 +9,6 @@ function googleRequestSignal(signal?: AbortSignal): AbortSignal {
   const timeout = AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS);
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
-
 
 export function createOAuth2Client(
   clientId: string,
@@ -104,7 +102,6 @@ export function createOAuth2Client(
   };
 }
 
-
 export class GoogleApiError extends Error {
   readonly status: number;
 
@@ -159,7 +156,6 @@ export async function googleFetch(
   return data;
 }
 
-
 function qs(
   params: Record<
     string,
@@ -178,7 +174,6 @@ function qs(
   const str = sp.toString();
   return str ? `?${str}` : "";
 }
-
 
 export function gmailGetProfile(accessToken: string) {
   return googleFetch(`${GMAIL_BASE}/profile`, accessToken);
@@ -261,7 +256,6 @@ export function gmailListLabels(accessToken: string) {
   return googleFetch(`${GMAIL_BASE}/labels`, accessToken);
 }
 
-
 export function peopleGetProfile(accessToken: string, personFields: string) {
   return googleFetch(
     `${PEOPLE_BASE}/people/me${qs({ personFields })}`,
@@ -312,7 +306,6 @@ export function peopleSearchDirectoryPeople(
     accessToken,
   );
 }
-
 
 export function calendarGetEvent(
   accessToken: string,
@@ -457,7 +450,6 @@ export function calendarDeleteEvent(
     { method: "DELETE" },
   );
 }
-
 
 export function oauth2GetUserInfo(accessToken: string) {
   return googleFetch(

@@ -89,7 +89,6 @@ describe("scrub input expression parsing", () => {
   });
 });
 
-
 describe("startScrubDrag / updateScrubDrag", () => {
   it("ignores a move with zero net delta", () => {
     const drag = startScrubDrag(100);
@@ -131,7 +130,6 @@ describe("startScrubDrag / updateScrubDrag", () => {
     expect(tiny.deltaX).toBe(1);
   });
 });
-
 
 describe("scrubSnapsToInteger", () => {
   it("snaps px-unit fields", () => {

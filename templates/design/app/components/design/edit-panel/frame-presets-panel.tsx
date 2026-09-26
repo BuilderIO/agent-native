@@ -52,7 +52,7 @@ function FramePresetCategoryGroup({
               </span>
               <span className="shrink-0 !text-[11px] tabular-nums text-muted-foreground">
                 {preset.width}
-                {"×" }
+                {"×"}
                 {preset.height}
               </span>
             </button>

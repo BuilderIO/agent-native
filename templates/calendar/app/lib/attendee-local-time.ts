@@ -1,4 +1,3 @@
-
 export type AttendeeTimezoneSource = {
   email: string;
   self?: boolean;

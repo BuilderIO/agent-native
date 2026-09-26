@@ -1,4 +1,3 @@
-
 import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,
@@ -70,7 +69,6 @@ async function apiGet<T>(
 
   return data as T;
 }
-
 
 export interface StripeCustomer {
   id: string;
@@ -180,7 +178,6 @@ interface StripeList<T> {
   has_more: boolean;
   url: string;
 }
-
 
 export async function getCustomersByEmail(
   email: string,

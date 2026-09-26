@@ -1,6 +1,4 @@
-
 import type { CodeLayerNode, CodeLayerProjection } from "./code-layer";
-
 
 export const COMPONENT_NAME_ATTR = "data-agent-native-component";
 
@@ -23,7 +21,6 @@ export function componentIndexId(designId: string, name: string): string {
   return `ci_${designId}_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
 }
 
-
 export interface ComponentPropValue {
   name: string;
   value: string;
@@ -37,7 +34,6 @@ export function propNameToDataAttribute(propName: string): string {
     .toLowerCase();
   return `${COMPONENT_PROP_PREFIX}${suffix}`;
 }
-
 
 export interface ComponentInstance {
   instanceId: string;
@@ -58,7 +54,6 @@ export interface ComponentInstance {
 
   componentRef?: string;
 }
-
 
 export function isComponentInstance(node: CodeLayerNode): boolean {
   return typeof node.dataAttributes[COMPONENT_NAME_ATTR] === "string";
@@ -148,7 +143,6 @@ export function detectInstances(
   }
   return instances;
 }
-
 
 export interface ComponentDefinition {
   name: string;

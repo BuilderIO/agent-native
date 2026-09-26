@@ -1,4 +1,3 @@
-
 export type TranscriptFailureCode =
   | "NO_AUDIO_TRACK"
   | "NO_SPEECH_DETECTED"

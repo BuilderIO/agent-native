@@ -1,6 +1,4 @@
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn().mockResolvedValue(undefined),
@@ -13,7 +11,6 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("nanoid", () => ({ nanoid: () => "fixed_grant_id" }));
-
 
 type ConnectionRow = {
   id: string;
@@ -78,7 +75,6 @@ beforeEach(() => {
   insertedValues = null;
   updatedSet = null;
 });
-
 
 describe("grant-localhost-write-consent", () => {
   it("is available to the capability-scoped visual-edit editor", () => {

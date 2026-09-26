@@ -1,6 +1,5 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 
-
 type Listener = () => void;
 
 let currentTitle: ReactNode = null;

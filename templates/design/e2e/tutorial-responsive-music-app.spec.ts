@@ -13,7 +13,6 @@ import {
   pickFrameMode,
 } from "./helpers";
 
-
 type DesignRecord = {
   data?: unknown;
   files?: Array<{ id: string; filename?: string; content?: string }>;

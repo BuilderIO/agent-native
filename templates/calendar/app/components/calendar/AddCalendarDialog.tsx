@@ -173,7 +173,6 @@ function GoogleTab() {
   );
 }
 
-
 function PeopleTab({
   open,
   onPersonAdded,
@@ -417,7 +416,6 @@ function PeopleTab({
     </>
   );
 }
-
 
 function UrlTab({ onClose }: { onClose: () => void }) {
   const t = useT();

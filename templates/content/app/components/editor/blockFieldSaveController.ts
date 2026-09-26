@@ -1,4 +1,3 @@
-
 export interface BlockFieldSaveController {
   change(content: string): void;
   flush(): Promise<void>;

@@ -46,7 +46,6 @@ function safeExternalHref(value?: string | null): string | null {
   }
 }
 
-
 type ProviderId = "apollo" | "hubspot" | "gong" | "pylon";
 
 interface IntegrationDef {
@@ -158,7 +157,6 @@ const INTEGRATIONS: IntegrationDef[] = [
   },
 ];
 
-
 export function IntegrationsSidebar({
   email,
   displayName,
@@ -225,7 +223,6 @@ export function IntegrationsSidebar({
     </div>
   );
 }
-
 
 function IntegrationSetup() {
   const t = useT();
@@ -508,7 +505,6 @@ function IntegrationKeyEntry({
   );
 }
 
-
 function ApolloSection({ email }: { email: string }) {
   const { data: person, isLoading } = useApolloPerson(email);
 
@@ -704,7 +700,6 @@ function ApolloSection({ email }: { email: string }) {
   );
 }
 
-
 function HubSpotSection({ email }: { email: string }) {
   const { data: contact, isLoading } = useHubSpotContact(email);
 
@@ -784,7 +779,6 @@ function HubSpotSection({ email }: { email: string }) {
   );
 }
 
-
 function GongSection({ email }: { email: string }) {
   const { data: calls, isLoading } = useGongCalls(email);
 
@@ -824,7 +818,6 @@ function GongSection({ email }: { email: string }) {
     </>
   );
 }
-
 
 function PylonSection({ email }: { email: string }) {
   const { data, isLoading } = usePylonContact(email);
@@ -895,7 +888,6 @@ function PylonSection({ email }: { email: string }) {
     </>
   );
 }
-
 
 function SectionHeader({
   logo,

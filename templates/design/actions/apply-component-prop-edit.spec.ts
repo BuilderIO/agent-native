@@ -5,7 +5,6 @@ import action, {
   escapeAttributeValue,
 } from "./apply-component-prop-edit.js";
 
-
 describe("apply-component-prop-edit schema", () => {
   const base = { designId: "design_1", nodeId: "node_1" };
 
@@ -216,7 +215,6 @@ describe("apply-component-prop-edit schema", () => {
   });
 });
 
-
 describe("escapeAttributeValue", () => {
   it("escapes the HTML-significant characters", () => {
     expect(escapeAttributeValue('"<&>"')).toBe("&quot;&lt;&amp;&gt;&quot;");
@@ -230,7 +228,6 @@ describe("escapeAttributeValue", () => {
     expect(escapeAttributeValue("outline")).toBe("outline");
   });
 });
-
 
 describe("applyRootAttributeEdit", () => {
   it("preserves replacement tokens in an existing attribute value", () => {

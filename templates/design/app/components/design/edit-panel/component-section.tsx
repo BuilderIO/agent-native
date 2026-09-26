@@ -84,7 +84,6 @@ function isLocalhostWriteConsentError(error: unknown): boolean {
   );
 }
 
-
 interface ConnectBuilderAppResult {
   connected: boolean;
   builderEnabled: boolean;
@@ -289,7 +288,6 @@ function MakeItRealCard({
     </div>
   );
 }
-
 
 interface ComponentDetailsResult {
   nodeId: string;

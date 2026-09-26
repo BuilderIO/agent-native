@@ -53,11 +53,11 @@ function isSafeUrl(value: string): boolean {
 }
 
 function walkNode(node: Node, doc: Document): Node | null {
-  if (node.nodeType === 3 ) {
+  if (node.nodeType === 3) {
     return doc.createTextNode(node.textContent ?? "");
   }
 
-  if (node.nodeType !== 1 ) return null;
+  if (node.nodeType !== 1) return null;
 
   const el = node as Element;
   const tag = el.tagName.toLowerCase();
@@ -108,7 +108,6 @@ export function sanitizeHtml(html: string): string {
   wrapper.appendChild(fragment);
   return wrapper.innerHTML;
 }
-
 
 const GCAL_STRIP_PATTERNS = [
   /Reply\s+for/i,

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { loader, clientLoader } from "../routes/adhoc.$id";
 
-
 function locationFromLoader(
   fn: typeof loader,
   url: string,

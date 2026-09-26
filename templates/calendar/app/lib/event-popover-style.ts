@@ -1,4 +1,3 @@
-
 export const eventPopoverShell =
   "flex max-h-[var(--radix-popover-content-available-height)] flex-col overflow-hidden rounded-xl border-border/60 bg-popover/85 p-0 text-[13px] leading-[18px] shadow-[0_24px_48px_-8px_rgb(0_0_0/0.22),0_4px_12px_-1px_rgb(0_0_0/0.12)] backdrop-blur-md backdrop-saturate-150";
 

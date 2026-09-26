@@ -39,7 +39,6 @@ import {
   getGlslShaderPreset,
 } from "./shader-presets";
 
-
 const SIMPLE_GLSL = `precision highp float;
 uniform vec2 u_resolution;
 uniform float u_time;
@@ -84,7 +83,6 @@ const DOC = `<!doctype html>
   </section>
 </body>
 </html>`;
-
 
 describe("validateGlslSource", () => {
   it("accepts a well-formed fragment shader", () => {
@@ -221,7 +219,6 @@ describe("fallback color safety", () => {
   });
 });
 
-
 describe("shader block serialization", () => {
   it("round-trips a definition through serialize + parse", () => {
     const def = makeDef();
@@ -273,7 +270,6 @@ describe("shader block serialization", () => {
     expect(getShaderFromHtml(removed, def.id)).toBeUndefined();
   });
 });
-
 
 const GLSL_WITH_BREAKOUT_COMMENT =
   SIMPLE_GLSL + "\n// this is a </script> breakout attempt";
@@ -381,7 +377,6 @@ describe("shader script breakout hardening (serialize/parse)", () => {
   });
 });
 
-
 describe("shader runtime embedding", () => {
   it("runtime source is embeddable (no closing script tag, IIFE, versioned)", () => {
     expect(SHADER_RUNTIME_SOURCE.length).toBeGreaterThan(1000);
@@ -415,7 +410,6 @@ describe("shader runtime embedding", () => {
     expect(upgraded).toContain("__anShaders");
   });
 });
-
 
 describe("element annotation", () => {
   it("annotates a fill node with attrs + fallback background", () => {
@@ -552,7 +546,6 @@ describe("element annotation", () => {
   });
 });
 
-
 describe("applyShaderToHtml", () => {
   it("performs the full persistence transform in one call", () => {
     const def = makeDef();
@@ -616,7 +609,6 @@ describe("applyShaderToHtml", () => {
   });
 });
 
-
 describe("misc helpers", () => {
   it("newShaderId produces valid unique ids", () => {
     const ids = new Set(Array.from({ length: 64 }, () => newShaderId()));
@@ -634,7 +626,6 @@ describe("misc helpers", () => {
     });
   });
 });
-
 
 describe("GLSL shader preset library", () => {
   it("ships 12 presets: 9 fills + 3 effects", () => {

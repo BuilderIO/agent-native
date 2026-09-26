@@ -1,4 +1,3 @@
-
 import type { SlideStylePatch, SlideStyleSnapshot } from "./slide-style";
 
 export interface CopiedStyle {

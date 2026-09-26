@@ -1,4 +1,3 @@
-
 export const ASK_SHEET_DEFAULT = 0.45;
 export const ASK_SHEET_MIN = 0.2;
 export const ASK_SHEET_MAX = 0.7;

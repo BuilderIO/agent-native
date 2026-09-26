@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import { originFor, selectedSites } from "../lib/fleet";
 import { mustRespond, parseJson } from "../lib/http";
 
-
 const sites = selectedSites();
 
 test.describe("fleet-wide auth configuration", () => {

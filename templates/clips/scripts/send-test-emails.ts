@@ -1,4 +1,3 @@
-
 import { getEmailProvider, isEmailConfigured } from "@agent-native/core/server";
 
 import { sendClipsTransactionalEmail } from "../server/lib/transactional-email-templates.js";

@@ -133,7 +133,6 @@ async function apiPost<T>(
   return data as T;
 }
 
-
 export const HUBSPOT_OBJECT_TYPES = [
   "contacts",
   "companies",
@@ -250,7 +249,6 @@ interface PipelineListResponse {
     }[];
   }[];
 }
-
 
 const REQUIRED_DEAL_PROPERTIES = [
   "dealname",
@@ -701,7 +699,6 @@ export async function getAllDeals(
   cache.set(fullCacheKey, { data: all, ts: Date.now() });
   return all;
 }
-
 
 const POV_STAGE_IDS = [
   "2121599", // Enterprise: New Business

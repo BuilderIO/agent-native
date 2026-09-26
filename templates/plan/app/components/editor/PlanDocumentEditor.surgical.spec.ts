@@ -13,7 +13,6 @@ import { describe, expect, it } from "vitest";
 
 import { PlanBlockNode } from "./PlanBlockNode";
 
-
 function makePlanEditor(blocks: PlanBlock[]): Editor {
   const editor = new Editor({
     extensions: createSharedEditorExtensions({

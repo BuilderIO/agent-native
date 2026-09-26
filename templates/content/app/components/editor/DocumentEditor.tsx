@@ -2282,7 +2282,6 @@ function PageEditorSessionBody({
     }
   }, [document, documentId]);
 
-
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
     if (isLinkedLocalSourceDocument) return;

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-
 const recording = vi.hoisted(() => ({
   id: "rec_1",
   title: "Test recording",

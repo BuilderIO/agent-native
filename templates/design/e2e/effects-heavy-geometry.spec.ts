@@ -8,7 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { enterDirectMode, gotoEditor } from "./helpers";
 
-
 const EFFECTS_FIXTURE_HTML = `<!doctype html>
 <html data-agent-native-node-id="an-root">
 <head><meta charset="utf-8"/><title>Effects Torture TW</title>

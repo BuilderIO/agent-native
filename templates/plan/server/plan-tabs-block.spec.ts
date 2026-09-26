@@ -15,7 +15,6 @@ import {
   parsePlanMdxFolder,
 } from "./plan-mdx.js";
 
-
 const TABS_DATA = {
   tabs: [
     {

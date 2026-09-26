@@ -1,4 +1,3 @@
-
 const SUPPORTED = "supports(background-clip: border-area)";
 
 export const BORDER_AREA_FALLBACK_PROPERTIES = [

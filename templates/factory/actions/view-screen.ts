@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { dispatchActions } from "@agent-native/dispatch/actions";

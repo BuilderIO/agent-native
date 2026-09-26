@@ -1,4 +1,3 @@
-
 import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
 
 import { renderNewResponseEmail } from "./response-email.js";

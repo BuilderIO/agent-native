@@ -1,4 +1,3 @@
-
 import type { Dirent } from "node:fs";
 import * as fsSync from "node:fs";
 import fs from "node:fs/promises";

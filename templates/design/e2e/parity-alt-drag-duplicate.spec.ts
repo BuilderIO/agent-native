@@ -17,7 +17,6 @@ import {
   installBridge,
 } from "./helpers";
 
-
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 
 async function action(

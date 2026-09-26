@@ -1,4 +1,3 @@
-
 export const BUBBLE_PLAY_HEARTBEAT_MS = 2000;
 
 export const BUBBLE_RENDER_GRACE_MS = 2500;

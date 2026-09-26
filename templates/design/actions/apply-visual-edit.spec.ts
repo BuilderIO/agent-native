@@ -125,7 +125,6 @@ describe("apply-visual-edit schema", () => {
   });
 });
 
-
 const html = `<div id="card" class="text-sm p-4">Hello</div>`;
 
 describe("apply-visual-edit breakpoint-aware class edits", () => {
@@ -430,7 +429,6 @@ describe("apply-visual-edit Framer-scoped edits (maxWidthPx)", () => {
     expect(result.patchedContent).toContain("top: 24px;");
   });
 });
-
 
 describe("apply-visual-edit batched intent failure", () => {
   it("returns a projection consistent with the rolled-back content when a later intent fails", async () => {

@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import { compile } from "./motion-compiler";
@@ -28,7 +27,6 @@ import {
   type MotionTimeline,
   type MotionTrack,
 } from "./motion-timeline";
-
 
 describe("createMotionTrack", () => {
   it("seeds exactly two keyframes at t=0 and t=1", () => {
@@ -68,7 +66,6 @@ describe("createMotionTrack", () => {
     expect(track.keyframes[1].ease).toBeUndefined();
   });
 });
-
 
 describe("createMotionTrackFromPreset", () => {
   it("forwards the preset property + from/to into the track", () => {
@@ -131,7 +128,6 @@ describe("createMotionTrackFromPreset", () => {
   });
 });
 
-
 describe("hasTrackFor", () => {
   const tracks: MotionTrack[] = [
     createMotionTrack("node-1", "opacity"),
@@ -157,7 +153,6 @@ describe("hasTrackFor", () => {
     expect(hasTrackFor([], "node-1", "opacity")).toBe(false);
   });
 });
-
 
 describe("first-track flow → CSS compile", () => {
   it("a single seeded track produces compilable CSS that targets the node id", () => {
@@ -202,7 +197,6 @@ describe("first-track flow → CSS compile", () => {
   });
 });
 
-
 describe("sortMotionKeyframes", () => {
   it("returns a sorted copy without mutating the input", () => {
     const keyframes: MotionKeyframe[] = [
@@ -215,7 +209,6 @@ describe("sortMotionKeyframes", () => {
     expect(keyframes.map((k) => k.t)).toEqual([1, 0, 0.5]);
   });
 });
-
 
 describe("upsertMotionKeyframeAtTime", () => {
   const base: MotionKeyframe[] = [
@@ -251,7 +244,6 @@ describe("upsertMotionKeyframeAtTime", () => {
     expect(keyframes[1]).toMatchObject({ t: 0.25, value: "4" });
   });
 });
-
 
 describe("evaluateMotionEase", () => {
   it("is identity for linear", () => {
@@ -304,7 +296,6 @@ describe("evaluateMotionEase", () => {
   });
 });
 
-
 describe("sampleMotionKeyframesAt", () => {
   it("lerps plain numeric values linearly", () => {
     const keyframes: MotionKeyframe[] = [
@@ -356,7 +347,6 @@ describe("sampleMotionKeyframesAt", () => {
   });
 });
 
-
 describe("evaluateMotionEase — springs and linear()", () => {
   it("evaluates spring tokens with real physics (settles, overshoots)", () => {
     expect(evaluateMotionEase("spring(0.69)", 0)).toBe(0);
@@ -381,7 +371,6 @@ describe("evaluateMotionEase — springs and linear()", () => {
     );
   });
 });
-
 
 describe("getMotionTrackTiming / timelineTimeToTrackTime", () => {
   it("spans the whole timeline when delay/duration are omitted (legacy)", () => {
@@ -424,7 +413,6 @@ describe("getMotionTrackTiming / timelineTimeToTrackTime", () => {
   });
 });
 
-
 describe("timeline playback mode stamping", () => {
   const twoTracks = (): MotionTrack[] => [
     {
@@ -466,7 +454,6 @@ describe("timeline playback mode stamping", () => {
     expect(parseMotionPlaybackMode(undefined)).toBeNull();
   });
 });
-
 
 describe("applyMotionAutoKeyframe", () => {
   const baseTracks = (): MotionTrack[] => [
@@ -545,7 +532,6 @@ describe("applyMotionAutoKeyframe", () => {
     ).toBeNull();
   });
 });
-
 
 describe("copyLayerAnimation / pasteLayerAnimation / staggerLayerTracks", () => {
   const tracks = (): MotionTrack[] => [

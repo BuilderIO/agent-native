@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import type { PlanBlock } from "./plan-content";
 import { blocksToProseJSON, proseJSONToBlocks } from "./plan-doc";
 
-
 function roundTrip(blocks: PlanBlock[], prev: PlanBlock[]): PlanBlock[] {
   return proseJSONToBlocks(blocksToProseJSON(blocks), prev);
 }

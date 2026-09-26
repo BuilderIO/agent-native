@@ -1,8 +1,6 @@
-
 export interface DemoResponse {
   message: string;
 }
-
 
 export const DEFAULT_STYLE_REFERENCE_URLS: string[] = [];
 
@@ -19,7 +17,6 @@ export function normalizeReferenceUrls(
   return normalized;
 }
 
-
 export type ImageGenModel = "gemini" | "openai" | "auto";
 
 export interface ImageGenRequest {
@@ -35,7 +32,6 @@ export interface ImageGenStatusResponse {
   openai: boolean;
   preferredProvider: string | null;
 }
-
 
 export interface SlideGenerateRequest {
   topic: string;
@@ -57,7 +53,6 @@ export interface GeneratedSlide {
 export interface SlideGenerateResponse {
   slides: GeneratedSlide[];
 }
-
 
 export interface ShareDeckRequest {
   deck: {
@@ -252,7 +247,6 @@ export function toSharedDeckSlide(
   return shared;
 }
 
-
 export interface DeckVersionSlidePreview {
   slideNumber: number;
   id: string | null;
@@ -288,7 +282,6 @@ export interface DeckVersion extends DeckVersionSummary {
     background?: string;
   }>;
 }
-
 
 export interface DesignSystemData {
   colors: {
@@ -329,7 +322,6 @@ export interface DesignSystemAsset {
   url: string;
   mimeType: string;
 }
-
 
 export interface QuestionFlowQuestion {
   id: string;

@@ -1,6 +1,5 @@
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 
-
 export const CRM_NEW_RECORD_EVENT = "crm:new-record";
 export const CRM_NEW_TASK_EVENT = "crm:new-task";
 export const CRM_EDIT_RECORD_EVENT = "crm:edit-record";

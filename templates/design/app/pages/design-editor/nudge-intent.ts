@@ -11,7 +11,6 @@ import type { ElementInfo } from "@/components/design/types";
 
 import { resolveCodeLayerNodeFromElementInfo } from "./code-layer-state";
 
-
 export type NudgeDirection = "up" | "right" | "down" | "left";
 
 export interface NudgeAmounts {
@@ -476,8 +475,7 @@ export function resolveElementNudgeIntent(
                 : "horizontal",
               reversed: renderedFlexDirection?.endsWith("-reverse") ?? false,
             }
-          :
-            isRenderedBlockDisplay(rendered) ||
+          : isRenderedBlockDisplay(rendered) ||
               (rendered === undefined && parent !== null)
             ? BLOCK_FLOW_CONTAINER
             : parsedContainer
@@ -494,7 +492,6 @@ export function resolveElementNudgeIntent(
   ) {
     return { kind: "none" };
   }
-
 
   const renderedOrder = args.selectedElement.computedStyles?.order;
   if (

@@ -1,4 +1,3 @@
-
 import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
 
 import { renderDocumentCommentEmail } from "./comment-notifications.js";

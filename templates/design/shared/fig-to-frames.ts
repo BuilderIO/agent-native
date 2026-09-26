@@ -1,4 +1,3 @@
-
 import {
   assertSafeDecodedFigDocument,
   decodeFig,

@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import {
   accessFilter,
@@ -180,7 +179,6 @@ export class ComponentDetailsLiveProjectionError extends Error {
     this.name = "ComponentDetailsLiveProjectionError";
   }
 }
-
 
 export default defineAction({
   description:

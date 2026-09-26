@@ -1,4 +1,3 @@
-
 import type { VectorEndpointStyle } from "./vector-endpoints.js";
 
 export type CanvasPrimitiveKindLike =
@@ -36,7 +35,6 @@ export interface BoardObjectEntry {
   createdAt: string;
 }
 
-
 const VALID_KINDS = new Set<string>([
   "frame",
   "rectangle",
@@ -48,7 +46,6 @@ const VALID_KINDS = new Set<string>([
   "text",
   "path",
 ]);
-
 
 export function parseBoardObjects(
   value: unknown,
@@ -74,7 +71,6 @@ export function parseBoardObjects(
   }
   return result;
 }
-
 
 export interface DraftPrimitiveLike {
   id: string;
@@ -118,7 +114,6 @@ export function draftToBoardObjectEntry(
   if (draft.autoSize !== undefined) entry.autoSize = draft.autoSize;
   return entry;
 }
-
 
 export interface BoardObjectGeometry {
   x: number;

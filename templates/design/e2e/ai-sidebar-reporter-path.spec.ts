@@ -10,7 +10,6 @@ const GENERATION_PROMPT =
 const FOLLOW_UP =
   "The selected mobile heading needs a stronger visual hierarchy. Make the selected mobile heading larger.";
 
-
 test.use({ viewport: { width: 2800, height: 1200 } });
 
 type DesignFile = { id: string; filename: string; content: string };

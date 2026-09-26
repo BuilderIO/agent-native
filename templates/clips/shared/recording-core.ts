@@ -1,4 +1,3 @@
-
 export function pickMimeTypeCandidates(): string[] {
   return [
     "video/webm;codecs=vp8,opus",

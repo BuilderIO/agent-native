@@ -9,7 +9,6 @@ import {
   type WorkspaceWriteResult,
 } from "./types";
 
-
 export class LocalWriteConsentRequiredError extends Error {
   connectionId: string;
   path?: string;

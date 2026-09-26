@@ -17,7 +17,6 @@ import {
   selectByText,
 } from "./helpers";
 
-
 let baseURLForActions: string;
 let currentDesignId = "";
 

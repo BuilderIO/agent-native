@@ -8,7 +8,6 @@ import {
   type BlockAgentDoc,
 } from "@agent-native/core/blocks/server";
 
-
 const PLAN_SERVER_LIBRARY_OVERRIDES: LibraryBlockConfigOverrides = {
   mermaid: {
     description:

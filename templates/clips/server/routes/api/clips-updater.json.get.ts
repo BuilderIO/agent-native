@@ -1,6 +1,5 @@
 import { defineEventHandler, getQuery, setResponseHeaders } from "h3";
 
-
 type ClipsUpdateChannel = "production" | "nightly";
 
 const GITHUB_MANIFEST_URL: Record<ClipsUpdateChannel, string> = {

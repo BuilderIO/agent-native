@@ -500,8 +500,7 @@ export function parseSlideHtml(
       if (marginStr) {
         const parts = marginStr.split(/\s+/).map((s) => parseInt(s));
         if (parts.length === 4) marginBottom = parts[2] || 0;
-        else if (parts.length >= 2)
-          marginBottom = 0;
+        else if (parts.length >= 2) marginBottom = 0;
         else marginBottom = parts[0] || 0;
       }
       const mbStr = getStyle(style, "margin-bottom");

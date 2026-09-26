@@ -49,7 +49,6 @@ const SHADER_COMPONENTS: Record<ShaderPresetName, AnyShaderComponent> = {
   PaperTexture: PaperTexture as AnyShaderComponent,
 };
 
-
 export function descriptorFromPreset(
   preset: ShaderPresetDef,
 ): ShaderDescriptor {
@@ -76,7 +75,6 @@ export function shaderDescriptorToCss(descriptor: ShaderDescriptor): string {
       : (preset?.defaultColors ?? []);
   return buildFallbackGradient(colors, preset?.defaultColorBack);
 }
-
 
 class ShaderBoundary extends Component<
   { fallback: ReactNode; children: ReactNode },
@@ -152,7 +150,6 @@ function ShaderThumbnail({
     </div>
   );
 }
-
 
 export interface ShaderFillsPanelProps {
   descriptor?: ShaderDescriptor;

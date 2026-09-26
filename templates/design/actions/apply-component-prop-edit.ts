@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import {
   agentEnterDocument,
@@ -356,7 +355,6 @@ function componentArchiveFailureReceipt(args: {
     error: args.error.message,
   };
 }
-
 
 export function escapeAttributeValue(value: string): string {
   return value
@@ -782,7 +780,6 @@ async function persistLinkedComponentEdit(args: {
     for (const id of entered) agentLeaveDocument(id);
   }
 }
-
 
 export default defineAction({
   description:
@@ -1287,7 +1284,6 @@ export default defineAction({
         `Node "${nodeId}" is not a component root (no data-agent-native-component attribute).`,
       );
     }
-
 
     let patchedContent = html;
     let changed = false;

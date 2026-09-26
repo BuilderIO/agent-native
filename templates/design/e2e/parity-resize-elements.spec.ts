@@ -16,7 +16,6 @@ import {
 } from "./drag-and-drop.shared";
 import { appPath, expandAllLayers, gotoEditor } from "./helpers";
 
-
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test.beforeEach(async ({}, testInfo) => {

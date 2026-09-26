@@ -1,4 +1,3 @@
-
 import { describe, expect, it, vi } from "vitest";
 
 const { mockAccessFilter, mockGetDb } = vi.hoisted(() => {
@@ -90,7 +89,6 @@ describe("public design screenshot access", () => {
   });
 });
 
-
 describe("resolveViewports", () => {
   it("defaults to desktop (1280) + mobile (375) when widths is omitted", () => {
     const viewports = resolveViewports();
@@ -131,7 +129,6 @@ describe("resolveViewports", () => {
     expect(viewports[1]).toMatchObject({ widthPx: 375, heightPx: 812 });
   });
 });
-
 
 describe("isMissingBrowserError", () => {
   it("recognizes a missing-executable Playwright error", () => {
@@ -176,7 +173,6 @@ describe("chromiumUnavailableReason", () => {
     expect(reason.toLowerCase()).not.toContain("stack trace");
   });
 });
-
 
 describe("parseRgbColor", () => {
   it("parses an rgb() string", () => {

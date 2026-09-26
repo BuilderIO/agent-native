@@ -1,4 +1,3 @@
-
 import type { BlockFieldSaveController } from "./blockFieldSaveController";
 
 interface Entry {

@@ -186,7 +186,6 @@ export function CrmGrid(props: CrmGridProps) {
   );
   const bounds = { rows: props.rows.length, cols: visible.length };
 
-
   const commit = useCallback(
     async (ref: CellRef, raw: CrmCellValue, isRawText: boolean) => {
       const row = props.rows[ref.row];
@@ -218,7 +217,6 @@ export function CrmGrid(props: CrmGridProps) {
     },
     [props.rows, props.onCommitCell, t, visible],
   );
-
 
   function selectionTsv(): string {
     if (!selection) return "";
@@ -275,7 +273,6 @@ export function CrmGrid(props: CrmGridProps) {
     if (written) toast.success(t("grid.pasteApplied", { count: written }));
     if (skipped) toast.error(t("grid.pasteSkipped", { count: skipped }));
   }
-
 
   function onKeyDown(event: React.KeyboardEvent) {
     if (!selection) return;
@@ -359,7 +356,6 @@ export function CrmGrid(props: CrmGridProps) {
     }
   }
 
-
   function toggleSort(attribute: CrmGridAttribute) {
     const current = props.sort[0];
     const isCurrent = current?.attributeId === attribute.apiSlug;
@@ -416,7 +412,6 @@ export function CrmGrid(props: CrmGridProps) {
       props.onColumnsChange(columns);
     },
   });
-
 
   const virtualizer = useVirtualizer({
     count: props.rows.length,

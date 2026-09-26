@@ -3,7 +3,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { EDGE_HANDLE_HIT_INWARD_PX } from "../app/components/design/multi-screen/handle-hit-zones";
 import { canvasZoom, expandAllLayers } from "./helpers";
 
-
 const PAGE_W = 320;
 const PAGE_H = 820;
 

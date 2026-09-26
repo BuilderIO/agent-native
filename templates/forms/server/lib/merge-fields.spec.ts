@@ -1,4 +1,3 @@
-
 import { it } from "vitest";
 
 import type { FormField } from "../../shared/types.js";
@@ -17,7 +16,6 @@ function field(id: string, label = `Field ${id}`): FormField {
 }
 
 const base: FormField[] = [field("a"), field("b"), field("c")];
-
 
 check("upsert of existing field updates it in-place", () => {
   const result = applyFieldOps(base, [
@@ -48,7 +46,6 @@ check("two concurrent upserts on different fields both survive", () => {
   assert(result[1].id === "b", "b untouched");
   assert(result[2].label === "Updated C", `c: ${result[2].label}`);
 });
-
 
 check("remove deletes the target field", () => {
   const result = applyFieldOps(base, [{ op: "remove", id: "b" }]);
@@ -90,7 +87,6 @@ check("remove does not resurrect a field that was already removed", () => {
   assert(result.length === 2, `expected 2, got ${result.length}`);
 });
 
-
 check("reorder rearranges listed fields", () => {
   const result = applyFieldOps(base, [{ op: "reorder", ids: ["c", "a", "b"] }]);
   assert(result.length === 3, `expected 3, got ${result.length}`);
@@ -108,7 +104,6 @@ check("reorder appends unlisted fields after listed ones", () => {
   assert(result[2].id === "c", `2: ${result[2].id}`);
   assert(result[3].id === "d", `3: ${result[3].id}`);
 });
-
 
 check("does not mutate the input array", () => {
   const original = [field("x"), field("y")];

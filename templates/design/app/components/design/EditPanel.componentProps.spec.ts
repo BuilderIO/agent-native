@@ -15,7 +15,6 @@ import {
   truncateOpeningTag,
 } from "./EditPanel";
 
-
 describe("openingTagOf", () => {
   it("extracts the opening tag with attributes from outer HTML", () => {
     expect(
@@ -101,7 +100,6 @@ describe("elementHtmlPreview", () => {
   });
 });
 
-
 describe("parseAlpineDataObject", () => {
   it("parses a flat object of strings, booleans, and numbers", () => {
     expect(
@@ -157,7 +155,6 @@ describe("serializeAlpineDataObject", () => {
   });
 });
 
-
 describe("alpineDataValueLiteral", () => {
   it("single-quotes string values and escapes single quotes", () => {
     expect(alpineDataValueLiteral("outline")).toBe(`'outline'`);
@@ -171,7 +168,6 @@ describe("alpineDataValueLiteral", () => {
     expect(alpineDataValueLiteral("-1.5")).toBe("-1.5");
   });
 });
-
 
 describe("replaceAlpineDataKeyValue", () => {
   it("edits one key while preserving a sibling method byte-for-byte", () => {
@@ -251,7 +247,6 @@ describe("replaceAlpineDataKeyValue", () => {
   });
 });
 
-
 describe("canRebuildAlpineDataLosslessly", () => {
   it("allows rebuild for an empty / absent literal", () => {
     expect(canRebuildAlpineDataLosslessly("")).toBe(true);
@@ -286,8 +281,6 @@ describe("canRebuildAlpineDataLosslessly", () => {
     );
   });
 });
-
-
 
 describe("buildComponentPropRows", () => {
   it("lists Alpine x-data keys first, tagged for the alpineData surface", () => {
@@ -369,7 +362,6 @@ describe("isBooleanPropValue", () => {
     expect(isBooleanPropValue("")).toBe(false);
   });
 });
-
 
 describe("normalizeRotationDegrees", () => {
   it("maps angles into (-180, 180]", () => {

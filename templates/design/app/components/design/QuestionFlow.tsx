@@ -525,7 +525,6 @@ function SliderQuestion({
   const current =
     typeof value === "number" ? value : Math.round((min + max) / 2);
 
-
   return (
     <div className="max-w-xl rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-3 py-3">
       <div className="mb-3 flex items-center justify-between text-[11px] text-muted-foreground">

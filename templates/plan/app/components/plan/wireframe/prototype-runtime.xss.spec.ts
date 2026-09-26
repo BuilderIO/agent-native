@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { mountPrototypeRuntime } from "./prototype-runtime";
 
-
 const flush = async () => {
   await Promise.resolve();
   await new Promise((resolve) => window.setTimeout(resolve, 0));

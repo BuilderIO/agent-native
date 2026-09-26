@@ -1,4 +1,3 @@
-
 export type PillDoneStage = "finishing" | "uploading" | "uploaded" | "failed";
 
 export type NativeUploadFinished = {

@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import { parsePlanMdxFolder, planMdxFileSchema } from "../server/plan-mdx.js";
 
-
 const MAX_MDX_BYTES = 16 * 1024 * 1024;
 
 type ValidationIssue = { path: string; message: string };

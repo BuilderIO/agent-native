@@ -13,7 +13,6 @@ import {
   redactReactSourceAnchor,
 } from "./react-semantic-handoff";
 
-
 function infoWith(
   provenance: NonNullable<ElementInfo["provenance"]>,
 ): ElementInfo {

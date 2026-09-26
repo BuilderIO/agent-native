@@ -1,4 +1,3 @@
-
 export const CRM_ATTRIBUTE_TYPES = [
   "text",
   "number",
@@ -241,7 +240,6 @@ export function legacyValueTypeFor(
   const base = LEGACY_VALUE_TYPES[type];
   return multi && base === "enum" ? "multi-enum" : base;
 }
-
 
 export type CrmParsedEmail =
   | { status: "absent" }

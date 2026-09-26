@@ -1,4 +1,3 @@
-
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm";
 
@@ -54,7 +53,6 @@ export interface CrmStatusBlock {
   code: CrmStatusBlockCode;
   message: string;
 }
-
 
 export async function loadCrmStatusLifecycle(
   db: CrmFieldWriteDb,
@@ -159,7 +157,6 @@ export async function loadCrmStatusLifecycle(
   };
 }
 
-
 function quoteList(values: readonly string[]): string {
   return values.length ? values.join(", ") : "(none defined)";
 }
@@ -202,7 +199,6 @@ export function crmStatusBlockReason(
   }
   return null;
 }
-
 
 export interface CrmStatusTarget {
   recordId: string;
@@ -325,7 +321,6 @@ export async function claimCrmStatusTransition(input: {
 
   return claimed;
 }
-
 
 export type CrmStatusOutcome = "changed" | "unchanged" | "skipped";
 
@@ -477,7 +472,6 @@ export async function applyCrmStatusTransitions(
     rows,
   };
 }
-
 
 export async function applyOneCrmStatusTransition(
   input: Omit<CrmStatusTransitionInput, "targets"> & {

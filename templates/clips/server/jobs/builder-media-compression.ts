@@ -1,4 +1,3 @@
-
 import { runBuilderMediaCompressionSweepOnce } from "../lib/builder-media-compression.js";
 
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;

@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { getFreshScreenContent } from "./design-editor/editor-state";
 import { applyScopedVisualStyleEdit } from "./design-editor/pending-edits";
 
-
 const containerScreenHtml = [
   "<html><head></head><body>",
   '<div data-agent-native-node-id="container" style="position: absolute; left: 40px; top: 40px; width: 240px; height: 180px; background: #eeeeee;">',

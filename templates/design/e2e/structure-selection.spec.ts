@@ -4,7 +4,6 @@ import { DEFAULT_BIG_NUDGE_PX } from "../shared/canvas-math";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers } from "./helpers";
 
-
 const PAGE_W = 1440;
 const PAGE_H = 900;
 const MOD = process.platform === "darwin" ? "Meta" : "Control";

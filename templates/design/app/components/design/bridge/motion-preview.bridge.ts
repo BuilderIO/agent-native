@@ -259,7 +259,6 @@
     return parts.join("\x1f");
   }
 
-
   function cubicBezierY(
     x1: number,
     y1: number,

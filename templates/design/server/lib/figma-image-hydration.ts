@@ -23,7 +23,6 @@ import {
 import { mutateDesignData } from "./design-data-mutation.js";
 import { decodeFigImages, type DecodedFigImage } from "./fig-file-decoder.js";
 
-
 const DATA_IMAGE_REF_ATTR_RE = /\sdata-figma-image-ref="([^"]*)"/;
 
 const IMAGE_URL_PLACEHOLDER_RE = /url\((&quot;|')about:blank\1\)/g;
@@ -99,7 +98,6 @@ export function hydrateImageRefsInHtml(
 
   return { html: newHtml, resolved: resolvedCount, missing };
 }
-
 
 export interface HydratableFile {
   workspaceFile: SourceWorkspaceFile;
@@ -249,7 +247,6 @@ export async function applyHydration(opts: {
 
   return { resolved, missing: uniqueMissing.length, skipped };
 }
-
 
 const FIG_HYDRATE_UPLOAD_CONCURRENCY = 4;
 

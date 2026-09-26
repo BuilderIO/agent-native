@@ -1,4 +1,3 @@
-
 export function escapeAttrValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }

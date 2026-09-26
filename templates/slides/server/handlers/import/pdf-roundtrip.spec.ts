@@ -11,7 +11,6 @@ import {
 import { parsePdfFidelity } from "./pdf-fidelity-parser.js";
 import { readSlidesPdfSidecar } from "./pdf-sidecar-reader.js";
 
-
 function newPdf(): jsPDF {
   return new jsPDF({
     orientation: "landscape",

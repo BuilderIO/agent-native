@@ -1,4 +1,3 @@
-
 import { spawn } from "node:child_process";
 
 import type { RedactionRect } from "../../app/lib/video-redactions.js";

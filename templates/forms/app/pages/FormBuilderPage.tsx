@@ -991,7 +991,6 @@ export function FormBuilderPage() {
   );
 }
 
-
 function BuilderContent({
   form,
   fields,
@@ -1275,7 +1274,6 @@ function BuilderContent({
     </div>
   );
 }
-
 
 function responseValueAsString(val: unknown): string {
   if (val === undefined || val === null) return "";
@@ -1666,7 +1664,6 @@ function ResultsSortableHeader({
   );
 }
 
-
 function SettingsEditor({
   form,
   onSave,
@@ -1824,7 +1821,6 @@ function SettingsEditor({
     </div>
   );
 }
-
 
 const integrationMeta: Record<
   IntegrationType,

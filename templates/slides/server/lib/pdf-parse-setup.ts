@@ -1,4 +1,3 @@
-
 interface Minimal2DMatrix {
   a: number;
   b: number;

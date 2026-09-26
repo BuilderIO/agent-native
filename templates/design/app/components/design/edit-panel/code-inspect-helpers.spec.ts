@@ -13,7 +13,6 @@ import {
   truncateOpeningTag,
 } from "./code-inspect-helpers";
 
-
 describe("parseAlpineDataObject", () => {
   it("parses simple flat string/boolean/number literals", () => {
     expect(

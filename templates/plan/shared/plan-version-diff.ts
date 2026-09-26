@@ -1,7 +1,5 @@
-
 import type { PlanBlock, PlanContent } from "./plan-content.js";
 import type { PlanSection } from "./types.js";
-
 
 export interface BlockRef {
   id: string;
@@ -22,7 +20,6 @@ export type PlanVersionDiffResult =
   | { kind: "diff"; diff: PlanVersionDiff }
   | { kind: "html-only" }
   | { kind: "initial" };
-
 
 function flattenBlocks(blocks: PlanBlock[]): PlanBlock[] {
   const result: PlanBlock[] = [];
@@ -142,7 +139,6 @@ function blockLabel(block: PlanBlock): string {
   return blockTypeLabel(block.type);
 }
 
-
 export function diffPlanVersions(
   newer: {
     content?: PlanContent | null;
@@ -225,7 +221,6 @@ export function diffPlanVersions(
 
   return { kind: "html-only" };
 }
-
 
 const MAX_LABELS = 2;
 

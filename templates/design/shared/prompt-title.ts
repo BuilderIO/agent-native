@@ -1,4 +1,3 @@
-
 const PLACEHOLDER_MAX = 40;
 const GENERATED_MAX = 60;
 const TITLE_CASE_MINOR_WORDS = new Set([

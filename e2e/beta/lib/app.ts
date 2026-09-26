@@ -1,6 +1,5 @@
 import type { Page } from "@playwright/test";
 
-
 const SIGN_IN_TEXT = /sign in|sign up|continue with google|create an account/i;
 const SIGN_IN_PATH = /\/(sign-in|login)\b/;
 const VECTOR_HOST_PATTERN =
@@ -160,8 +159,7 @@ export function collectAppPageErrors(
     );
     const fromApp =
       !fromKnownThirdParty &&
-      (stack.includes(appOrigin) ||
-        !/https?:\/\//.test(stack));
+      (stack.includes(appOrigin) || !/https?:\/\//.test(stack));
     if (fromApp)
       errors.push(
         `${error.message}\n${stack.split("\n").slice(0, 3).join("\n")}`,

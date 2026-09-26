@@ -1,4 +1,3 @@
-
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 
 import type { DrawAnnotation } from "../components/visual-editor/DrawOverlay";

@@ -14,7 +14,6 @@ import type {
 } from "../../shared/types.js";
 import { isFormFileValue, isSafeFormFileUrl } from "./file-upload-policy.js";
 
-
 export function assertIntegrationUrlsAllowed(settings: FormSettings): void {
   const list = settings.integrations ?? [];
   for (const integration of list) {
@@ -88,7 +87,6 @@ function pageLabelFromUrl(pageUrl: string): string {
   if (label.length > 80) label = `${label.slice(0, 79)}…`;
   return escapeSlackMrkdwn(label);
 }
-
 
 function isStoredFileReference(value: unknown): value is FormFileValue {
   return isFormFileValue(value) && isSafeFormFileUrl(value.url);
@@ -355,7 +353,6 @@ export async function deliverIntegrationDelivery(
       : "destination request failed",
   );
 }
-
 
 export type DeliveryStatus = "pending" | "succeeded" | "failed";
 export type DeliveryStatuses = Record<string, DeliveryStatus>;

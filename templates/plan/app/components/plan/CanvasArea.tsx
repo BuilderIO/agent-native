@@ -33,7 +33,6 @@ import { Wireframe, type DesignElementSelection } from "./wireframe/Wireframe";
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
-
 const DEFAULT_VIEW = { zoom: 0.72, pan: { x: 96, y: 64 } };
 const MIN_ZOOM = 0.18;
 const MAX_ZOOM = 2.4;
@@ -937,7 +936,6 @@ export function CanvasArea({
   );
 }
 
-
 const DESK_W = 840;
 const DESK_H = 520;
 const PHONE_W = 300;
@@ -1137,7 +1135,6 @@ function CanvasArtboard({
   );
 }
 
-
 const SECTION_PAD_X = 56;
 const SECTION_PAD_TOP = 128;
 const SECTION_PAD_BOTTOM = 64;
@@ -1196,7 +1193,6 @@ function CanvasSection({
     </div>
   );
 }
-
 
 const ANNOTATION_GAP = 32;
 const ANNOTATION_BOX_W = 280;
@@ -1724,7 +1720,6 @@ function parseBullets(text: string): string[] | null {
   }
   return bulletLines.map((line) => line.replace(/^[-*•]\s+/, ""));
 }
-
 
 function SketchFilter({
   id,

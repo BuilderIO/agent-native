@@ -3,7 +3,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { canvasZoom } from "./helpers";
 
-
 const PAGE_W = 1440;
 const PAGE_H = 900;
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -553,7 +552,6 @@ test.describe("inspector reports the truth", () => {
   });
 });
 
-
 test.describe("auto layout", () => {
   test("children of a column do not overlap each other", async ({ page }) => {
     const id = await newDesign(page, INTRO_PAGE);
@@ -673,7 +671,6 @@ test.describe("auto layout", () => {
     ).toBe(true);
   });
 });
-
 
 test.describe("drawing fidelity", () => {
   for (const tool of ["Rectangle", "Frame"]) {
@@ -991,7 +988,6 @@ test.describe("drawing fidelity", () => {
   });
 });
 
-
 test.describe("moving", () => {
   test("a canvas drag moves the element by the drag delta", async ({
     page,
@@ -1065,7 +1061,6 @@ test.describe("moving", () => {
     expect(bad, `move surfaced: ${bad.join(" | ")}`).toHaveLength(0);
   });
 });
-
 
 test.describe("selection", () => {
   test("clicking selects the deepest node, and Backslash walks up to the parent", async ({
@@ -1162,7 +1157,6 @@ test.describe("selection", () => {
   });
 });
 
-
 test.describe("persistence and history", () => {
   test("a reload changes nothing", async ({ page }) => {
     const id = await newDesign(page, INTRO_PAGE);
@@ -1208,7 +1202,6 @@ test.describe("persistence and history", () => {
     expect(await indexHtml(page, id)).toBe(edited);
   });
 });
-
 
 test.describe("layers panel", () => {
   test("tree nesting matches DOM nesting", async ({ page }) => {
@@ -1265,7 +1258,6 @@ test.describe("layers panel", () => {
     );
   });
 });
-
 
 test("basic authoring raises no uncaught page errors", async ({ page }) => {
   const id = await newDesign(page, BLANK_PAGE);

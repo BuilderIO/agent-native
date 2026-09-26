@@ -1,4 +1,3 @@
-
 export function setUrlSearchParam(
   url: string,
   key: string,

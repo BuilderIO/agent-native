@@ -1,4 +1,3 @@
-
 export const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
 
 export function getLocalPlanOwnerEmail(): string {

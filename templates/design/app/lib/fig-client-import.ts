@@ -1,4 +1,3 @@
-
 import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 
 import { bytesToBase64, utf8ByteLength } from "../../shared/fig-bytes.js";

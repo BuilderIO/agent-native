@@ -1860,7 +1860,6 @@ function BodySkeleton() {
   );
 }
 
-
 const CollapsedMessageRow = forwardRef<
   HTMLDivElement,
   {
@@ -1894,7 +1893,6 @@ const CollapsedMessageRow = forwardRef<
     </div>
   );
 });
-
 
 const ExpandedMessageCard = forwardRef<
   HTMLDivElement,
@@ -2241,7 +2239,6 @@ const ExpandedMessageCard = forwardRef<
   );
 });
 
-
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
   const s = Math.floor(diff / 1000);
@@ -2280,7 +2277,6 @@ function TrackingFooter({ messageId }: { messageId: string }) {
     </div>
   );
 }
-
 
 function findSignatureStart(lines: string[], beforeLine?: number): number {
   const limit = beforeLine != null ? beforeLine : lines.length;
@@ -2514,7 +2510,6 @@ function PlainTextBody({
   );
 }
 
-
 const IFRAME_BG_DARK = "transparent";
 const IFRAME_BG_LIGHT = "#ffffff";
 
@@ -2592,7 +2587,6 @@ function buildEmailIframeCss(
     .quote-toggle:hover, .sig-toggle:hover { color: rgba(0,0,0,0.7); }
 `;
 }
-
 
 const NAMED_COLORS: Record<string, [number, number, number]> = {
   black: [0, 0, 0],
@@ -3653,7 +3647,6 @@ function HtmlEmailBody({
     </div>
   );
 }
-
 
 function ThreadSearchBar({
   query,

@@ -16,7 +16,6 @@ import {
   parsePlanMdxFolder,
 } from "./plan-mdx.js";
 
-
 function planWith(blocks: PlanContent["blocks"]): PlanContent {
   return planContentSchema.parse({ version: 2, title: "P", blocks });
 }

@@ -3,7 +3,6 @@ import { defineEventHandler, createError } from "h3";
 
 import { triggerAutomationsDebounced } from "../lib/automation-engine.js";
 
-
 export const triggerAutomations = defineEventHandler(async (event) => {
   const session = await getSession(event);
   if (!session?.email) {

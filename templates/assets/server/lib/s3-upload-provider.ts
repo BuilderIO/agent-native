@@ -1,4 +1,3 @@
-
 import type { FileUploadProvider } from "@agent-native/core/file-upload";
 
 interface S3Config {
@@ -60,7 +59,6 @@ function readS3Config(): S3Config | null {
       ).replace(/\/+$/, "") || null,
   };
 }
-
 
 async function hmac(key: ArrayBuffer, msg: string): Promise<ArrayBuffer> {
   const k = await crypto.subtle.importKey(
@@ -359,7 +357,6 @@ export async function getPresignedS3ObjectUrl(
     expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
   };
 }
-
 
 export const s3FileUploadProvider: FileUploadProvider = {
   id: "s3",

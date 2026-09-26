@@ -1,4 +1,3 @@
-
 import {
   notifyActivity,
   runActivityNotification,

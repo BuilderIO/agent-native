@@ -8,7 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
 
-
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 
 const SCREEN_HTML = `<!doctype html>

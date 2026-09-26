@@ -60,7 +60,6 @@ function offeredTypes(options: Parameters<typeof buildRegistrySlashItems>[1]) {
   );
 }
 
-
 function fakeEditor() {
   let inserted: any = null;
   const chain = {

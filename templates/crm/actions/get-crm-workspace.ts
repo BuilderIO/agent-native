@@ -6,7 +6,6 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { requireCrmScope } from "./_crm-action-utils.js";
 
-
 const MAX_BOOK_SCAN = 500;
 const MAX_TASK_SCAN = 200;
 const MAX_QUEUE_SCAN = 100;

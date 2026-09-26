@@ -6,7 +6,6 @@ import {
 } from "./culling";
 import type { FrameGeometry } from "./types";
 
-
 const SUPPRESSED_MARKER_ATTRIBUTE = "screenPaintSuppressed";
 
 export interface ScreenPaintCandidate {

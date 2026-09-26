@@ -1,6 +1,5 @@
 import { registerRequiredSecret } from "@agent-native/core/secrets";
 
-
 registerRequiredSecret({
   key: "GEMINI_API_KEY",
   label: "Gemini API Key",

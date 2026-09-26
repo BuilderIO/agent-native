@@ -14,7 +14,6 @@ import {
   type VideoRedaction,
 } from "@/lib/video-redactions";
 
-
 const ROW_HEIGHT = 16;
 const ROW_GAP = 2;
 const MAX_ROWS = 4;

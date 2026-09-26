@@ -1,4 +1,3 @@
-
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -167,7 +166,6 @@ describe("isAllowedFigmaSvgRenderRequest", () => {
   });
 });
 
-
 describe("escapeXmlAttr / escapeXmlText", () => {
   it("escapes attribute-unsafe characters", () => {
     expect(escapeXmlAttr('a "quoted" <tag>&')).toBe(
@@ -191,7 +189,6 @@ describe("isUniformRadius / isZeroRadii", () => {
     expect(isZeroRadii({ tl: 0, tr: 1, br: 0, bl: 0 })).toBe(false);
   });
 });
-
 
 describe("roundedRectPath", () => {
   it("emits line + arc segments for differing per-corner radii", () => {
@@ -223,7 +220,6 @@ describe("roundedRectPath", () => {
   });
 });
 
-
 describe("insetRectForStroke / insetRadiiForStroke", () => {
   it("insets the rect by half the stroke width on every side", () => {
     const rect = insetRectForStroke(
@@ -244,7 +240,6 @@ describe("insetRectForStroke / insetRadiiForStroke", () => {
     expect(radii).toEqual({ tl: 8, tr: 0, br: 0, bl: 18 });
   });
 });
-
 
 describe("gradientAngleToRotation", () => {
   it("maps CSS 90deg (to right) to SVG's unrotated default vector", () => {
@@ -303,7 +298,6 @@ describe("buildRadialGradientDef", () => {
     expect(def).toContain('stop-color="rgb(255, 0, 0)" stop-opacity="0.25"');
   });
 });
-
 
 describe("splitTopLevelCommas", () => {
   it("does not split commas nested inside rgba()/rgb()", () => {
@@ -411,7 +405,6 @@ describe("parseComputedRadialGradient", () => {
   });
 });
 
-
 describe("objectFitToPreserveAspectRatio", () => {
   it("maps cover to xMidYMid slice", () => {
     expect(objectFitToPreserveAspectRatio("cover")).toBe("xMidYMid slice");
@@ -424,8 +417,6 @@ describe("objectFitToPreserveAspectRatio", () => {
     expect(objectFitToPreserveAspectRatio("none")).toBe("none");
   });
 });
-
-
 
 describe("buildFigmaSvgDocument", () => {
   it("renders a box with a solid fill and a uniform border as a plain <rect> pair with inset stroke geometry", () => {
@@ -767,7 +758,6 @@ describe("safeFigmaSvgFilename", () => {
     expect(safeFigmaSvgFilename(undefined)).toMatch(/^design-figma-\d+\.svg$/);
   });
 });
-
 
 describe("buildFillLayersFromComputedStyle", () => {
   it("returns just the solid background-color when there is no background-image", () => {

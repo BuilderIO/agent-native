@@ -119,7 +119,6 @@ vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
 
-
 describe("applyOperation — patch-slide", () => {
   it("updates only the specified fields of a slide", () => {
     const deck = {
@@ -1518,7 +1517,6 @@ describe("patch-deck agent schema", () => {
   });
 });
 
-
 describe("withDeckLock", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1572,7 +1570,6 @@ describe("withDeckLock", () => {
     expect(order).toContain("a-end");
   });
 });
-
 
 describe("resolveDeckColumnUpdates", () => {
   const current = { title: "Old", designSystemId: null };

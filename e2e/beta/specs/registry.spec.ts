@@ -7,7 +7,6 @@ import {
 } from "../lib/authed";
 import { authenticatableSites, originFor } from "../lib/fleet";
 
-
 skipUnlessAuthed();
 
 const sites = authenticatableSites();

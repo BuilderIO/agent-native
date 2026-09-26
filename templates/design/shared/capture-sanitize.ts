@@ -1,7 +1,6 @@
 import { decodeHTML } from "entities";
 import { parseFragment } from "parse5";
 
-
 export const CAPTURE_DATA_MAX_BYTES = 256 * 1024;
 
 const URL_ATTRIBUTE_NAMES = new Set([

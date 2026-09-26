@@ -1,7 +1,6 @@
 import type { PlanBlock } from "@shared/plan-content";
 import { useRef, type MutableRefObject } from "react";
 
-
 type ChangeKind = "text" | "data" | "structural";
 
 interface Snapshot {

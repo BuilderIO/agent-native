@@ -3,7 +3,6 @@ import { expect, test, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers, gotoEditor } from "./helpers";
 
-
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
 const HOME_HTML = `<!doctype html>
@@ -307,7 +306,6 @@ test.beforeEach(async ({ page }, testInfo) => {
     process.env.E2E_BASE_URL ??
     e2eBaseURL();
 });
-
 
 test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
   let navFilename = "";

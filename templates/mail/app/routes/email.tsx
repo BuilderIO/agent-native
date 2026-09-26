@@ -20,7 +20,6 @@ export function meta() {
   return [{ title: mailMessages.mail.routeTitles.emailThread }];
 }
 
-
 function MessageCard({ message }: { message: EmailMessage }) {
   const fromName = message.from.name || message.from.email;
   const toList = message.to.map((a) => a.name || a.email).join(", ");
@@ -70,7 +69,6 @@ function MessageCard({ message }: { message: EmailMessage }) {
   );
 }
 
-
 function ErrorState({ message }: { message: string }) {
   const t = useT();
   return (
@@ -84,7 +82,6 @@ function ErrorState({ message }: { message: string }) {
     </div>
   );
 }
-
 
 function LoadingSkeleton() {
   return (
@@ -106,7 +103,6 @@ function LoadingSkeleton() {
     </div>
   );
 }
-
 
 export default function EmailEmbedRoute() {
   const t = useT();

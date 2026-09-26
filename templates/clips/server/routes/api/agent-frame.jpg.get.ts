@@ -1,4 +1,3 @@
-
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,

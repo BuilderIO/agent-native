@@ -1,4 +1,3 @@
-
 import { sha1 as nobleSha1 } from "@noble/hashes/legacy.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { Inflate } from "fflate";

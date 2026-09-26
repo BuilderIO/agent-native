@@ -1,4 +1,3 @@
-
 const config = async () => {
   try {
     const m = await import("dotenv");

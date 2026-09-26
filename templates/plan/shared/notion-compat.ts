@@ -1,7 +1,6 @@
 import { planNotionCompatibleBlockTypes } from "./plan-block-registry.js";
 import type { PlanBlock } from "./plan-content.js";
 
-
 const PROSE_NOTION_COMPATIBLE_TYPES: readonly string[] = [
   "rich-text",
   "callout",

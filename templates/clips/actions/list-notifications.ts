@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";

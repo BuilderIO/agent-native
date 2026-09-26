@@ -1,4 +1,3 @@
-
 export type BucketStatus = "up" | "down" | "degraded" | "no-data";
 
 export interface UptimeWindows {

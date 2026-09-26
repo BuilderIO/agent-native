@@ -34,7 +34,6 @@ function nodeIdForText(html: string, text: string, occurrence = 0): string {
   return last[1];
 }
 
-
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
 

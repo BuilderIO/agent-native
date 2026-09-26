@@ -39,7 +39,6 @@ function textAnnotation(
   };
 }
 
-
 describe("drawAnnotationsOnContext", () => {
   function fakeCtx() {
     return {
@@ -91,7 +90,6 @@ describe("drawAnnotationsOnContext", () => {
     expect(ctx.fillText).toHaveBeenCalledWith("Label", 40, 60);
   });
 });
-
 
 describe("captureAnnotatedScreenshot", () => {
   afterEach(() => {

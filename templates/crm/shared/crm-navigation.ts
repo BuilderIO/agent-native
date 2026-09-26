@@ -1,4 +1,3 @@
-
 export const CRM_SETTINGS_SECTIONS = [
   "connection",
   "fields",

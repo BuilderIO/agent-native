@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -15,7 +14,6 @@ import {
   extractProps,
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
-
 
 async function liveContent(
   fileId: string,
@@ -34,7 +32,6 @@ async function liveContent(
   ).content;
 }
 
-
 export interface ComponentPropPreviewMessage {
   type: "style-change" | "replace-document-content" | "select-element";
   selector?: string;
@@ -47,7 +44,6 @@ export interface ComponentPropPreviewMessage {
     to: string;
   };
 }
-
 
 export default defineAction({
   description:
@@ -152,7 +148,6 @@ export default defineAction({
         `Node "${nodeId}" is not a component root (no data-agent-native-component attribute).`,
       );
     }
-
 
     const messages: ComponentPropPreviewMessage[] = [];
 

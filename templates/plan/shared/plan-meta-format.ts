@@ -1,4 +1,3 @@
-
 export function buildPlanMetaDescription(brief: string): string {
   const trimmed = brief.trim();
   if (trimmed.length <= 160) return trimmed;

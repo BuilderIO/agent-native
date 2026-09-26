@@ -20,7 +20,6 @@ function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
   };
 }
 
-
 describe("sameOrMixed", () => {
   it("returns the shared value when every entry matches", () => {
     expect(sameOrMixed(["16px", "16px", "16px"])).toBe("16px");
@@ -51,7 +50,6 @@ describe("sameOrMixed", () => {
   });
 });
 
-
 describe("isMixedValue", () => {
   it("is true only for the exact MIXED_VALUE sentinel", () => {
     expect(isMixedValue(MIXED_VALUE)).toBe(true);
@@ -69,7 +67,6 @@ describe("isMixedValue", () => {
     expect(isMixedValue(undefined)).toBe(false);
   });
 });
-
 
 describe("mixedElementFromSelection", () => {
   it("returns null for an empty selection", () => {
@@ -116,7 +113,6 @@ describe("mixedElementFromSelection", () => {
     expect(merged?.computedStyles.fontSize).toBe(MIXED_VALUE);
   });
 
-
   it("keeps the shared component name when every element is the same component", () => {
     const a = makeElement({ componentName: "Button" });
     const b = makeElement({ componentName: "Button" });
@@ -146,7 +142,6 @@ describe("mixedElementFromSelection", () => {
     expect(merged?.componentName).toBeUndefined();
   });
 
-
   it("keeps isGridContainer true only when every element is a grid container", () => {
     const a = makeElement({ isGridContainer: true });
     const b = makeElement({ isGridContainer: true });
@@ -163,7 +158,6 @@ describe("mixedElementFromSelection", () => {
       false,
     );
   });
-
 
   it("preserves parentDisplay/parentAutoLayout/parentLayout when every element shares the same parent", () => {
     const parentBoundingRect = { x: 0, y: 0, width: 300, height: 100 };
@@ -248,7 +242,6 @@ describe("mixedElementFromSelection", () => {
     expect(merged?.parentAutoLayout).toEqual(only.parentAutoLayout);
     expect(merged?.parentLayout).toEqual(parentLayout);
   });
-
 
   it("clears pendingNodeId on the merged element instead of leaking it from the last element", () => {
     const a = makeElement({ pendingNodeId: undefined });

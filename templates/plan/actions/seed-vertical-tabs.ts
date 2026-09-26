@@ -6,7 +6,6 @@ import { getDb, schema } from "../server/db/index.js";
 import type { PlanContent } from "../shared/plan-content.js";
 import createVisualPlan from "./create-visual-plan.js";
 
-
 const SAMPLE_TS = `export function renderTab(tab: TabsTab, active: boolean) {
   return (
     <button role="tab" aria-selected={active} className={cx(active && "is-active")}>

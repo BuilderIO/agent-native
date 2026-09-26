@@ -1,4 +1,3 @@
-
 import {
   isBlockedExtensionUrlWithDns,
   ssrfSafeFetch,
@@ -32,7 +31,6 @@ const EMBEDDED_IMAGE_MIME_TYPES = new Set([
   "image/gif",
   "image/avif",
 ]);
-
 
 export interface RenderFigmaSvgOptions {
   html: string;

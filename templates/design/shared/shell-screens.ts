@@ -1,4 +1,3 @@
-
 import type { CanvasFramePlacement } from "./canvas-frames.js";
 
 export const SHELL_CANVAS_PATH = "/visual-edit/shell";

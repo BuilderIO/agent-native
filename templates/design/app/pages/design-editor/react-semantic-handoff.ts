@@ -1,4 +1,3 @@
-
 import {
   type ElementProvenanceMethod,
   sourcePositionPrecision,

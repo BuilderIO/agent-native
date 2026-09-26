@@ -97,7 +97,6 @@ import { cn } from "@/lib/utils";
 
 import changelog from "../../CHANGELOG.md?raw";
 
-
 function AliasEditRow({
   alias,
   onSave,
@@ -164,7 +163,6 @@ function AliasEditRow({
     </div>
   );
 }
-
 
 function AliasRow({
   alias,
@@ -298,7 +296,6 @@ function AliasRow({
   );
 }
 
-
 function AliasesSection() {
   const t = useT();
   const { data: aliases = [], isLoading } = useAliases();
@@ -410,7 +407,6 @@ function AliasesSection() {
   );
 }
 
-
 function ActionBadge({ action }: { action: AutomationAction }) {
   const label =
     action.type === "label" ? `label: ${action.labelName}` : action.type;
@@ -420,7 +416,6 @@ function ActionBadge({ action }: { action: AutomationAction }) {
     </span>
   );
 }
-
 
 const ACTION_TYPES = [
   { value: "label", labelKey: "settings.applyLabel" },
@@ -508,7 +503,6 @@ function ActionBuilder({
   );
 }
 
-
 function AutomationEditRow({
   rule,
   onSave,
@@ -593,7 +587,6 @@ function AutomationEditRow({
     </div>
   );
 }
-
 
 function AutomationRow({
   rule,
@@ -718,7 +711,6 @@ function AutomationRow({
     </div>
   );
 }
-
 
 interface FrameworkTrigger {
   id: string;
@@ -854,7 +846,6 @@ function TriggersSubsection() {
     </div>
   );
 }
-
 
 type AutomationSettings = {
   engine?: string;
@@ -1114,7 +1105,6 @@ function AutomationsSection() {
     </div>
   );
 }
-
 
 function DraftingSection() {
   const t = useT();
@@ -1459,7 +1449,6 @@ function TrackingSection() {
   );
 }
 
-
 type SlackStatus = {
   enabled: boolean;
   configured: boolean;
@@ -1576,7 +1565,6 @@ function SlackIntakeSection() {
   );
 }
 
-
 function GeneralSection() {
   const t = useT();
   return (
@@ -1625,7 +1613,6 @@ function WhatsNewSection() {
     </div>
   );
 }
-
 
 export function SettingsPage() {
   const t = useT();

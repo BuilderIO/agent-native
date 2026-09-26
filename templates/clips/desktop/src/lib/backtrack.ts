@@ -1,4 +1,3 @@
-
 const SCRATCH_PHRASES = [
   "scratch that",
   "no wait",

@@ -173,7 +173,6 @@ export type Alias = {
   updatedAt: string;
 };
 
-
 export type AutomationAction =
   | { type: "label"; labelName: string }
   | { type: "archive" }
@@ -193,7 +192,6 @@ export type AutomationRule = {
   createdAt: string;
   updatedAt: string;
 };
-
 
 export type GmailFilterCriteria = {
   from?: string;

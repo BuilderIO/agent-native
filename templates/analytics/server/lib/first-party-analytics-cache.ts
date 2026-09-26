@@ -4,7 +4,6 @@ import { getDbExec } from "@agent-native/core/db";
 
 import type { AnalyticsQueryResult } from "./first-party-analytics.js";
 
-
 interface L1Entry {
   result: AnalyticsQueryResult;
   createdAt: number;

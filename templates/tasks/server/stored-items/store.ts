@@ -6,7 +6,6 @@ import { tasks, type StoredItem } from "../db/schema.js";
 import type { DbHandle } from "../db/transaction.js";
 import { AuthError, NotFoundError, UserInputError } from "../errors.js";
 
-
 export type { StoredItem };
 
 const SORT_GAP = 1000;

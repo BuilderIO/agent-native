@@ -1,4 +1,3 @@
-
 import type { DocumentPropertyValue } from "../shared/api.js";
 import { evaluateNormalizationFormula } from "../shared/properties.js";
 

@@ -1,4 +1,3 @@
-
 export function loadString(key: string, fallback: string): string {
   try {
     const v = localStorage.getItem(key);

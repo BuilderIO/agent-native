@@ -1,4 +1,3 @@
-
 export interface FuzzyMatch {
   score: number;
   matches: number[];

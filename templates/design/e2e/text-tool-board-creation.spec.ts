@@ -4,7 +4,6 @@ import { PENDING_TEXT_INTERCEPT_CAP_MS } from "../app/components/design/design-c
 import { FIXTURE_HTML } from "./global-setup";
 import { appPath, createFixtureDesign, gotoEditor } from "./helpers";
 
-
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const BOARD_IFRAME = "[data-board-surface-layer] iframe";
 

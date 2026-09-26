@@ -1,6 +1,5 @@
 import { arrayMove } from "@dnd-kit/sortable";
 
-
 function countItemsBeforeIndex<T extends { id: string }>(
   items: T[],
   endIndex: number,

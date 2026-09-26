@@ -14,7 +14,6 @@ import {
   toggleWireframeStyle,
 } from "./wireframe/use-wireframe-style";
 
-
 function recapContent(): PlanContent {
   return {
     version: 2,

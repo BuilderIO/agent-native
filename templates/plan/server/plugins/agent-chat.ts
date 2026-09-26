@@ -95,7 +95,6 @@ async function autosavePlanAfterAgentTurn(
   });
 }
 
-
 registerEvent({
   name: "plan.created",
   description: "A new visual plan or recap was created.",

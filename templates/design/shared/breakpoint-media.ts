@@ -1,11 +1,9 @@
-
 import {
   breakpointUpperBoundPx,
   maxWidthOverridesForStem,
   normalizeCssPropertyName,
   utilityStemsForCssProperty,
 } from "./responsive-classes.js";
-
 
 export type BreakpointMediaModel = Record<
   string,
@@ -18,7 +16,6 @@ export interface BreakpointMediaDeclaration {
   property: string;
   value: string;
 }
-
 
 const CSS_VALUE_BREAKOUT_RE = /[;{}<>]|\/\*|\*\//;
 const CSS_VALUE_URL_RE = /\burl\s*\(/i;
@@ -99,7 +96,6 @@ export function isSafeBreakpointCssProperty(property: string): boolean {
   return /^-?[a-zA-Z][a-zA-Z0-9-]*$/.test(property);
 }
 
-
 const OPEN_RE = /<style\b(?=[^>]*\bdata-agent-native-breakpoints\b)[^>]*>/i;
 
 export function extractManagedBreakpointCss(html: string): string | null {
@@ -146,7 +142,6 @@ export function injectManagedBreakpointCss(html: string, css: string): string {
   }
   return block + "\n" + html;
 }
-
 
 export function parseBreakpointMediaCss(css: string): BreakpointMediaModel {
   const model: BreakpointMediaModel = {};
@@ -224,7 +219,6 @@ export function serializeBreakpointMediaModel(
   }
   return blocks.join("\n\n");
 }
-
 
 export function setBreakpointMediaDeclaration(
   html: string,
@@ -305,7 +299,6 @@ export function getBreakpointMediaDeclarations(
   );
 }
 
-
 export interface BreakpointPropertyOverride {
   maxWidthPx: number;
   source: "class" | "media";
@@ -372,7 +365,6 @@ export function getBreakpointOverrideState(args: {
     activeUpperBoundPx,
   };
 }
-
 
 function escAttr(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');

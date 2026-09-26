@@ -4,7 +4,6 @@ import { repairFilesSystemPropertyDefinitions } from "../../actions/_files-syste
 import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
 import * as schema from "../db/schema.js";
 
-
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&

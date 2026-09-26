@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -15,7 +14,6 @@ import type {
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
-
 interface StoredBranchEntry {
   branchName?: string;
   projectId?: string;
@@ -25,7 +23,6 @@ interface StoredBranchEntry {
   preSnapshotVersionId?: string | null;
   createdAt?: string;
 }
-
 
 function parseDesignData(raw: unknown): Record<string, unknown> {
   if (typeof raw !== "string") return {};
@@ -112,7 +109,6 @@ function diffSnapshotFiles(
 
   return entries;
 }
-
 
 export default defineAction({
   description:

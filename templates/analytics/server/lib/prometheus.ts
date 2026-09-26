@@ -1,4 +1,3 @@
-
 import { z } from "zod";
 
 import {
@@ -9,7 +8,6 @@ import {
   requireRequestCredentialContext,
   scopedCredentialCacheKey,
 } from "./credentials-context";
-
 
 export interface PrometheusAuth {
   username?: string;
@@ -81,7 +79,6 @@ function assertAuthCanReachEndpoint(
   }
 }
 
-
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
@@ -93,7 +90,6 @@ function cacheSet(key: string, data: unknown) {
   }
   cache.set(key, { data, ts: Date.now() });
 }
-
 
 async function doFetch<T>(
   url: string,
@@ -149,7 +145,6 @@ async function apiGet<T>(
   }
   return doFetch<T>(url, headers);
 }
-
 
 export async function queryInstant(promql: string, time?: string) {
   return apiGet<{ resultType: string; result: unknown }>("/api/v1/query", {
@@ -211,7 +206,6 @@ export async function listMetricMetadata(metric?: string): Promise<unknown> {
 export async function listAlerts(): Promise<unknown> {
   return apiGet("/api/v1/alerts", {});
 }
-
 
 const PanelDescriptorSchema = z.object({
   promql: z.string().min(1, "promql is required"),
@@ -296,7 +290,6 @@ export function resolveRangeWindow(
     : defaultStep(endSec - startSec);
   return { startSec, endSec, stepSec };
 }
-
 
 function seriesLabel(metric: Record<string, string>): string {
   const name = metric.__name__ ?? "";

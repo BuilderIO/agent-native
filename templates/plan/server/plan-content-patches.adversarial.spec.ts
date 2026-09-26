@@ -7,7 +7,6 @@ import {
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
 
-
 function findWireframeNode(
   nodes: PlanWireframeNode[],
   predicate: (node: PlanWireframeNode) => boolean,
@@ -36,7 +35,6 @@ function basePlan(): PlanContent {
     ],
   });
 }
-
 
 describe("patch ops: missing / wrong ids", () => {
   it("throws on update-rich-text for a missing block id", () => {
@@ -137,7 +135,6 @@ describe("patch ops: missing / wrong ids", () => {
   });
 });
 
-
 describe("patch ops: wrong block type", () => {
   it("throws when update-rich-text targets a non-rich-text block", () => {
     expect(() =>
@@ -205,7 +202,6 @@ describe("patch ops: wrong block type", () => {
     ).toThrow(/no html mockup/i);
   });
 });
-
 
 describe("patch ops: duplicate id creation is rejected at the final validate", () => {
   it("rejects append-block that introduces a duplicate top-level block id", () => {
@@ -284,7 +280,6 @@ describe("patch ops: duplicate id creation is rejected at the final validate", (
     ).toThrow(/already exists/i);
   });
 });
-
 
 describe("patch ops: sanitization defenses on patched html", () => {
   const htmlWireframe = (html: string): PlanContent =>
@@ -369,7 +364,6 @@ describe("patch ops: sanitization defenses on patched html", () => {
   });
 });
 
-
 describe("patch ops: idempotency and order", () => {
   it("update-rich-text applied twice yields the same result", () => {
     const once = applyPlanContentPatches(basePlan(), [
@@ -424,7 +418,6 @@ describe("patch ops: idempotency and order", () => {
     expect(readded.blocks.some((b) => b.id === "call")).toBe(true);
   });
 });
-
 
 describe("update-block: shallow data merge edge cases", () => {
   it("merges data shallowly for a callout (keeps tone, swaps body)", () => {
@@ -493,7 +486,6 @@ describe("update-block: shallow data merge edge cases", () => {
     ).toThrow();
   });
 });
-
 
 describe("deeply nested tabs", () => {
   const nestedTabs = (): PlanContent =>
@@ -644,7 +636,6 @@ describe("deeply nested tabs", () => {
     ).toThrow(/duplicate block id/i);
   });
 });
-
 
 describe("canvas frame / annotation patch interactions", () => {
   const canvasPlan = (): PlanContent =>
@@ -1032,7 +1023,6 @@ describe("canvas frame / annotation patch interactions", () => {
   });
 });
 
-
 describe("replace-blocks and replace-block validation", () => {
   it("replace-blocks rejects a set with duplicate ids", () => {
     expect(() =>
@@ -1067,7 +1057,6 @@ describe("replace-blocks and replace-block validation", () => {
     expect(blk?.type).toBe("callout");
   });
 });
-
 
 describe("patch-wireframe-html: find/replace mechanics", () => {
   const htmlWireframe = (html: string): PlanContent =>
@@ -1132,7 +1121,6 @@ describe("patch-wireframe-html: find/replace mechanics", () => {
     expect(htmlOf(next)).toBe("<p>xx xx</p>");
   });
 });
-
 
 describe("applyPlanContentPatches validates the input plan first", () => {
   it("throws when the starting content is already invalid", () => {

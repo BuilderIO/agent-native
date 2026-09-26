@@ -9,7 +9,6 @@ import {
   type WorkspaceWriteResult,
 } from "./types";
 
-
 interface ListSourceFilesResponse {
   files: Array<{
     path: string;

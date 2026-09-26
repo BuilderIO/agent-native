@@ -214,7 +214,6 @@ export function polygonPointsForHtmlShape(
     .join(" ");
 }
 
-
 function absoluteRect(
   element: Element,
 ): { x: number; y: number; w: number; h: number } | null {

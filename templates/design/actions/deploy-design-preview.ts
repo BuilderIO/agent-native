@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import {
   runBuilderAgent,
@@ -17,7 +16,6 @@ import {
 } from "../shared/capability-resolver.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
-
 
 function parseDesignData(raw: unknown): Record<string, unknown> {
   if (typeof raw !== "string") return {};
@@ -72,7 +70,6 @@ function buildDeployPrompt(
     "in a real browser before merging to production.",
   ].join("\n");
 }
-
 
 export default defineAction({
   description:
@@ -136,7 +133,6 @@ export default defineAction({
         branch: null,
       };
     }
-
 
     const branches = parseBranches(designData);
 

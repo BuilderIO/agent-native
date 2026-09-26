@@ -9,7 +9,6 @@ import { emailMessageMatchesSearch } from "@shared/search";
 import { isSelfAddressedThread } from "@shared/self-notes";
 import type { EmailMessage, SavedMailFilter } from "@shared/types";
 
-
 export const COLLAPSIBLE_VIEW_IDS = [
   "unread",
   "starred",

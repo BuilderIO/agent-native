@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useLocation } from "react-router";
 
-
 type ParamDef =
   | { type: "string"; default: string }
   | { type: "string[]"; default: string[] }

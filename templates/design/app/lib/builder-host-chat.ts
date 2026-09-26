@@ -1,4 +1,3 @@
-
 import { sendToBuilderChat } from "@agent-native/core/client/host";
 
 function chipAttribute(value: string, max: number): string {

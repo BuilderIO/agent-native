@@ -1,4 +1,3 @@
-
 export const ZERO_WIDTH_SPACE = "\u200B";
 
 export function stripCopiedIdentity(root: Element) {

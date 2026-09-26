@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
@@ -18,7 +17,6 @@ import {
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
-
 async function liveContent(
   fileId: string,
   storedContent: string,
@@ -35,7 +33,6 @@ async function liveContent(
     })
   ).content;
 }
-
 
 export default defineAction({
   description:

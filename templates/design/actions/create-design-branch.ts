@@ -44,7 +44,6 @@ import {
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
-
 function parseDesignData(raw: unknown): Record<string, unknown> {
   if (typeof raw !== "string") return {};
   try {
@@ -77,7 +76,6 @@ function buildBranchPrompt(
     "iterative edits via the Builder Visual Editor.",
   ].join("\n");
 }
-
 
 export default defineAction({
   description:
@@ -146,7 +144,6 @@ export default defineAction({
         versionId: null,
       };
     }
-
 
     const files = await db
       .select({

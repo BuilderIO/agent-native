@@ -1,4 +1,3 @@
-
 const DEFAULT_RISK_STATUSES = [
   "On the Radar",
   "Churn Risk",

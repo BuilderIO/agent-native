@@ -1,4 +1,3 @@
-
 export interface FigmetaPayload {
   fileKey: string;
   pasteID?: number;

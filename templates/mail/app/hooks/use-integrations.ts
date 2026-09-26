@@ -14,7 +14,6 @@ import {
 } from "@/lib/integration-status";
 import { TAB_ID } from "@/lib/tab-id";
 
-
 function useIntegrationStatuses() {
   return useQuery<MailIntegrationStatuses>({
     queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
@@ -105,7 +104,6 @@ function useIntegrationDisconnect(provider: MailIntegrationProvider) {
     },
   });
 }
-
 
 export function useAllIntegrations() {
   const { data } = useIntegrationStatuses();

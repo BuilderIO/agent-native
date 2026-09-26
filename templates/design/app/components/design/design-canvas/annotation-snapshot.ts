@@ -2,7 +2,6 @@ import { callAction } from "@agent-native/core/client/hooks";
 
 import type { DrawAnnotation } from "@/components/visual-editor";
 
-
 const CAPTURE_TIMEOUT_MS = 9000;
 
 const MIN_DIMENSION_PX = 200;

@@ -7,7 +7,6 @@
 
 @source "./**/*.{ts,tsx}";
 
-
 :root {
   --background: 0 0% 100%;
   --foreground: 0 0% 15%;
@@ -279,7 +278,6 @@
   font-size: 0.75rem;
   color: hsl(var(--muted-foreground));
 }
-
 
 .visual-editor-wrapper {
   position: relative;

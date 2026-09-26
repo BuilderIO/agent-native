@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import {
   agentEnterDocument,
@@ -17,7 +16,6 @@ import {
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
 
-
 const MOTION_STYLE_OPEN = "<style data-agent-native-motion>";
 const MOTION_STYLE_CLOSE = "</style>";
 
@@ -33,7 +31,6 @@ function removeMotionStyleBlock(html: string): string {
   const tail = html[end] === "\n" ? end + 1 : end;
   return html.slice(0, openIdx) + html.slice(tail);
 }
-
 
 export default defineAction({
   description:

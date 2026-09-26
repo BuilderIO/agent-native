@@ -35,7 +35,6 @@ import {
 } from "@/hooks/use-notion";
 import { cn } from "@/lib/utils";
 
-
 function NotionIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 100 100" className={cn("notion-logo-icon", className)}>
@@ -52,7 +51,6 @@ function NotionIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-
 
 const OAUTH_STEPS = [
   {
@@ -84,7 +82,6 @@ interface EnvKeyStatus {
   required: boolean;
   configured: boolean;
 }
-
 
 export function NotionButton() {
   const t = useT();
@@ -228,7 +225,6 @@ export function NotionButton() {
       setSaving(false);
     }
   }
-
 
   if (showWizard) {
     return (
@@ -449,7 +445,6 @@ export function NotionButton() {
       </Popover>
     );
   }
-
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

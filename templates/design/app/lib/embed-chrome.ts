@@ -1,4 +1,3 @@
-
 const EMBED_CHROME_QUERY_PARAM = "embedChrome";
 
 function readFromUrl(win: Window): boolean {

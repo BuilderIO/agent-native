@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-
 interface SavedDashboard {
   config: Record<string, unknown>;
 }

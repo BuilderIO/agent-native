@@ -261,8 +261,7 @@ export function runApplyLocalContentUpdate(
         ...old,
         files: old.files.map((file: DesignFile) =>
           file.id === activeFile.id
-            ?
-              {
+            ? {
                 ...file,
                 content: nextContent,
                 ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),

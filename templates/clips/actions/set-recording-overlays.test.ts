@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-
 const state = vi.hoisted(() => ({
   reads: [] as Array<{ id: string; editsJson: string | null }>,
   writeWins: [] as boolean[],

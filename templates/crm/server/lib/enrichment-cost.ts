@@ -1,4 +1,3 @@
-
 import {
   spendSlots,
   verifySlots,
@@ -175,7 +174,6 @@ export function assertWithinEnrichmentBudget(
     decision,
   );
 }
-
 
 export const MAX_ENRICHMENT_RECORDS_PER_RUN = 2000;
 

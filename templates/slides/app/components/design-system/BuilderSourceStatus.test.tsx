@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 
-
 describe("BuilderSourceStatus state logic", () => {
   function computeState(builder: {
     builderStatus?: string;

@@ -1,4 +1,3 @@
-
 export const PLAN_ASSET_MAX_SINGLE_BYTES = 2 * 1024 * 1024;
 
 export const PLAN_ASSET_MAX_TOTAL_BYTES = 10 * 1024 * 1024;

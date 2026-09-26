@@ -1,4 +1,3 @@
-
 import { parseCssColorExtended } from "./color-utils.js";
 import {
   isZeroRadii,
@@ -9,7 +8,6 @@ import {
   type FigmaSvgNode,
   type FigmaSvgTextStyle,
 } from "./figma-svg-scene.js";
-
 
 export type FigmaLayoutMode = "NONE" | "HORIZONTAL" | "VERTICAL";
 export type FigmaPrimaryAxisAlign = "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN";
@@ -123,7 +121,6 @@ export interface FigmaNodeSpecReport {
 }
 
 export const POSITION_EPSILON = 0.75;
-
 
 function toFigmaRgb(css: string): { color: FigmaRgb; opacity: number } | null {
   const parsed = parseCssColorExtended(css);
@@ -243,7 +240,6 @@ function toEffects(
   return effects;
 }
 
-
 type ModeCandidate = FigmaLayoutMode | "GRID_CANDIDATE";
 
 function candidateMode(node: FigmaSvgNode): ModeCandidate {
@@ -326,7 +322,6 @@ function stretchesCounterAxis(
   return false;
 }
 
-
 function isPaintNeutral(node: FigmaSvgNode): boolean {
   return (
     node.kind === "box" &&
@@ -399,7 +394,6 @@ function collapseWrappers(
   }
   return { ...node, children: next };
 }
-
 
 interface FlowItem {
   spec: FigmaNodeSpec;
@@ -508,7 +502,6 @@ function groupIntoLines(items: FlowItem[], horizontal: boolean): FlowItem[][] {
   if (current.length > 0) lines.push(current);
   return lines;
 }
-
 
 const NO_LAYOUT: FigmaAutoLayoutSpec = {
   mode: "NONE",
@@ -942,7 +935,6 @@ function resolveContainer(
     children,
   };
 }
-
 
 function measure(node: FigmaSvgNode): { count: number; depth: number } {
   let count = 1;

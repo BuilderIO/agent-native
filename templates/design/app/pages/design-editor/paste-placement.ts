@@ -9,7 +9,6 @@ import type { ElementInfo } from "@/components/design/types";
 import { resolveCodeLayerNodeFromElementInfo } from "./code-layer-state";
 import { describeFlowContainer, type FlowContainerInfo } from "./nudge-intent";
 
-
 const REPLACED_TAGS = new Set([
   "area",
   "audio",

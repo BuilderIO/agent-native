@@ -1,4 +1,3 @@
-
 export interface FigmaPasteLayer {
   title: string;
   width: number | null;

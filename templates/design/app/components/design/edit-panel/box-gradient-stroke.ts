@@ -5,7 +5,6 @@ import {
   splitCssLayers,
 } from "./fill-gradient-helpers";
 
-
 const LAYER_PROPERTIES = [
   "backgroundImage",
   "backgroundSize",

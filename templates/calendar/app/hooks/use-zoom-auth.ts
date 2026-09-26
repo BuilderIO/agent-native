@@ -36,7 +36,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-
 const zoomAuthSubscribers = new Set<() => void>();
 let zoomAuthChannel: BroadcastChannel | null = null;
 let zoomAuthWindowListenerAttached = false;

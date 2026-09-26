@@ -1,4 +1,3 @@
-
 const NEEDS_QUOTING = /[\t\n\r"]/;
 
 export function encodeTsvCell(value: string): string {

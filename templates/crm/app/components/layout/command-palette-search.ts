@@ -1,4 +1,3 @@
-
 export function commandPaletteKeywords(
   ...parts: Array<string | null | undefined>
 ): string[] {

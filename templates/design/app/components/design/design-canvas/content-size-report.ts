@@ -1,6 +1,5 @@
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 
-
 const CONTENT_SIZE_REPORT_BRIDGE = `
 <style data-agent-native-content-size-guard>
   .min-h-screen { min-height: var(--agent-native-device-vh, 100vh) !important; }

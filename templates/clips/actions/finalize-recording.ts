@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
@@ -1673,7 +1672,6 @@ export default defineAction({
         );
         return result;
       }
-
 
       const compressionRaw = await readAppState(`recording-compression-${id}`);
       const compressionMeta: {

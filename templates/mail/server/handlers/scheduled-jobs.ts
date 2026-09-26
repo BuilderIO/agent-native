@@ -15,7 +15,6 @@ import {
   type SendLaterPayload,
 } from "../lib/jobs.js";
 
-
 function ianaToOffsetMinutes(iana: string, ref: Date): number {
   try {
     const formatter = new Intl.DateTimeFormat("en", {
@@ -50,7 +49,6 @@ export function parseNlDate(input: string, timezone: string): Date | null {
   }
   return result;
 }
-
 
 export const sendScheduledJobNow = defineEventHandler(
   async (event: H3Event) => {

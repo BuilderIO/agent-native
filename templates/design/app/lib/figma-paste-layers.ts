@@ -1,6 +1,5 @@
 import type { FigmaPasteLayer } from "@shared/figma-paste-plan";
 
-
 export function resolveFigmaPasteTargetScreenId(args: {
   viewMode: "single" | "overview";
   activeFileId: string | undefined;

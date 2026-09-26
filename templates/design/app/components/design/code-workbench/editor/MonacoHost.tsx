@@ -186,7 +186,6 @@ export function MonacoHost({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeUri, activeBuffer?.readonly, activeBuffer?.loading, editorRef]);
 
-
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || !activeUri) return;

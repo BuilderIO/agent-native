@@ -1,4 +1,3 @@
-
 const ID_EBML = 0x1a45dfa3;
 const ID_SEGMENT = 0x18538067;
 const ID_INFO = 0x1549a966;

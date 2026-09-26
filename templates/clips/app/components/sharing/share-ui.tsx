@@ -42,7 +42,6 @@ import {
 import { useVisibleAvatarUrl } from "@/lib/use-visible-avatar-url";
 import { cn } from "@/lib/utils";
 
-
 export type Visibility = "private" | "org" | "public";
 export type Role = "viewer" | "commenter" | "editor" | "admin";
 export type ShareSettingsView = "people" | null;
@@ -92,7 +91,6 @@ export function copyToClipboard(value: string): Promise<boolean> {
   return writeClipboardText(value);
 }
 
-
 const NESTED_LAYER_SELECTOR = [
   "[data-radix-popper-content-wrapper]",
   "[data-radix-menu-content]",
@@ -136,7 +134,6 @@ export function nestedLayerDismissGuards(): {
     },
   };
 }
-
 
 export function useResourceVisibilityMutation(
   resourceType: string,
@@ -183,7 +180,6 @@ export function useResourceVisibilityMutation(
   return { setResourceVisibility, isPending: setVisibility.isPending };
 }
 
-
 export function ShareSectionLabel({
   children,
   className,
@@ -197,7 +193,6 @@ export function ShareSectionLabel({
     </div>
   );
 }
-
 
 export function CopyButton({
   value,
@@ -274,7 +269,6 @@ export function CopyButton({
   );
 }
 
-
 export function Avatar({ label, org }: { label: string; org?: boolean }) {
   const { avatarRef, avatarUrl } = useVisibleAvatarUrl(org ? null : label);
 
@@ -298,7 +292,6 @@ export function Avatar({ label, org }: { label: string; org?: boolean }) {
     </UserAvatar>
   );
 }
-
 
 export function AccessAccordionRow({
   icon,
@@ -362,7 +355,6 @@ export function AccessAccordionRow({
     </Collapsible>
   );
 }
-
 
 const ACCESS_ORDER: Visibility[] = ["public", "org", "private"];
 
@@ -434,7 +426,6 @@ export function GeneralAccessSelect({
     </Select>
   );
 }
-
 
 export function InvitePeopleField({
   resourceType,

@@ -1,4 +1,3 @@
-
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -21,7 +20,6 @@ import {
 } from "vitest";
 
 import * as planSchema from "../db/schema.js";
-
 
 type SqlStatement = string | { sql: string; args?: unknown[] };
 
@@ -52,7 +50,6 @@ vi.mock("../db/index.js", () => ({
   getDb: () => db,
   schema: planSchema,
 }));
-
 
 const OWNER = "coalesce-test@example.com";
 const PLAN_ID = "plan_coalesce_test";
@@ -145,7 +142,6 @@ async function countVersionRows(): Promise<number> {
     .where(eq(planSchema.planVersions.planId, PLAN_ID));
   return rows.length;
 }
-
 
 beforeAll(async () => {
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-coalesce-"));
@@ -241,7 +237,6 @@ beforeEach(async () => {
 afterEach(() => {
   vi.useRealTimers();
 });
-
 
 describe("createPlanVersionSnapshot — burst coalescing", () => {
   it("creates a snapshot on first forced call", async () => {

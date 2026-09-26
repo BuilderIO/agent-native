@@ -1,8 +1,6 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
-
 
 const FIRST_PARTY_IDS = [
   "design.asset-library",
@@ -12,7 +10,6 @@ const FIRST_PARTY_IDS = [
 ] as const;
 
 type FirstPartyId = (typeof FIRST_PARTY_IDS)[number];
-
 
 interface CapabilityRoute {
   action: string;
@@ -121,7 +118,6 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
       "CSS module write-back is planned pending fusion bridge hardening.",
   },
 };
-
 
 export default defineAction({
   description: `

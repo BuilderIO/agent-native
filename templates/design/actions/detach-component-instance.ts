@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import {
   agentEnterDocument,
@@ -39,7 +38,6 @@ import {
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
-
 
 export function stripComponentAnnotations(
   html: string,
@@ -116,7 +114,6 @@ export function stripComponentAnnotations(
   };
 }
 
-
 async function persistEdit(file: {
   id: string;
   designId: string;
@@ -150,7 +147,6 @@ async function persistEdit(file: {
     agentLeaveDocument(file.id);
   }
 }
-
 
 export default defineAction({
   description:

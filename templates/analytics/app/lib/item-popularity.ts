@@ -2,7 +2,6 @@ import { useSession } from "@agent-native/core/client/hooks";
 import { useOrg } from "@agent-native/core/client/org";
 import { useEffect, useState } from "react";
 
-
 const KEY_PREFIX = "item-popularity:v1:";
 const CHANGE_EVENT = "item-popularity-change";
 const ANONYMOUS_SCOPE = "anonymous:none";

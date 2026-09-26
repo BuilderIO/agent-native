@@ -1,6 +1,5 @@
 import type { WorkspaceFileEntry, WorkspaceProvider } from "../workspace/types";
 
-
 export interface SearchMatch {
   line: number;
   column: number;

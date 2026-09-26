@@ -22,7 +22,6 @@ import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import type { AccessCtx, MonitorStatus } from "./uptime-monitors.js";
 
-
 export type BucketStatus = "up" | "down" | "degraded" | "no-data";
 
 export interface UptimeWindows {
@@ -69,14 +68,12 @@ export interface MonitorStatsOptions {
   responseWindowHours?: number;
 }
 
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const DEFAULT_TIMELINE_DAYS = 90;
 const DEFAULT_RESPONSE_WINDOW_HOURS = 24;
 const MAX_TIMELINE_DAYS = 365;
 const MAX_RESPONSE_WINDOW_HOURS = 24 * 90;
-
 
 export interface UptimeWindowAggregate {
   total24h: number;
@@ -207,7 +204,6 @@ export function averageResponse(series: ResponseTimePoint[]): number | null {
   return count > 0 ? weighted / count : null;
 }
 
-
 function ownerScope(table: { ownerEmail: any; orgId: any }, ctx: AccessCtx) {
   return and(
     sql`lower(${table.ownerEmail}) = ${ctx.email.toLowerCase()}`,
@@ -223,7 +219,6 @@ export async function listOwnedMonitorIds(ctx: AccessCtx): Promise<string[]> {
     .where(ownerScope(schema.monitors, ctx));
   return rows.map((row: any) => row.id as string);
 }
-
 
 export async function getMonitorStats(
   ctx: AccessCtx,

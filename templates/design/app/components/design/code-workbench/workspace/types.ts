@@ -1,4 +1,3 @@
-
 export type WorkspaceRootKind = "inline" | "localhost";
 
 export interface WorkspaceCapabilities {

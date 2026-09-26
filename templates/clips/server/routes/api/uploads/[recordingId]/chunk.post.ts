@@ -1,4 +1,3 @@
-
 import {
   compareAndSetAppState,
   deleteAppState,

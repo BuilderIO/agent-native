@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import { applyVisualEdit, type EditIntent } from "../shared/code-layer.js";
@@ -10,7 +9,6 @@ import {
 import action from "./apply-a11y-fix.js";
 import { checkTapTargets } from "./run-design-audit.js";
 
-
 function finding(partial: Partial<A11yFinding>): A11yFinding {
   return {
     id: "x",
@@ -21,7 +19,6 @@ function finding(partial: Partial<A11yFinding>): A11yFinding {
     ...partial,
   };
 }
-
 
 describe("a11yFindingToEdit mapping", () => {
   it("maps a contrast finding to a style color edit (default near-black)", () => {
@@ -117,7 +114,6 @@ describe("a11yFindingToEdit mapping", () => {
   });
 });
 
-
 describe("apply-a11y-fix produced content (via applyVisualEdit)", () => {
   function applyPlan(html: string, f: A11yFinding, color?: string) {
     const plan = a11yFindingToEdit(f, color ? { color } : undefined);
@@ -165,7 +161,6 @@ describe("apply-a11y-fix produced content (via applyVisualEdit)", () => {
     expect(out.content).toContain("focus-visible:ring-2");
   });
 });
-
 
 describe("tap-target fix clears on re-audit", () => {
   it("re-flags nothing after the inline min-size fix is applied", () => {
@@ -236,7 +231,6 @@ describe("tap-target fix clears on re-audit", () => {
   });
 });
 
-
 describe("apply-a11y-fix schema", () => {
   it("requires the finding to carry a node id or selector", () => {
     expect(
@@ -273,7 +267,6 @@ describe("apply-a11y-fix schema", () => {
     if (parsed.success) expect(parsed.data.filename).toBe("index.html");
   });
 });
-
 
 describe("apply-a11y-fix run — non-fixable finding", () => {
   it("reports autoFixable:false and does not write for attribute-only findings", async () => {

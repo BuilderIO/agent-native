@@ -432,7 +432,6 @@ describe("design clipboard marker round-trip", () => {
   });
 });
 
-
 function fakeResponse(status: number, body: string): JsonParsableResponse {
   return {
     ok: status >= 200 && status < 300,

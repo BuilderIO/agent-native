@@ -1,4 +1,3 @@
-
 function escapeSqlValue(value: string): string {
   return value.replace(/'/g, "''");
 }

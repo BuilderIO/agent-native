@@ -18,7 +18,6 @@ import {
 } from "./extensions/registryBlocks";
 import { seedRegistryBlockRaw } from "./registrySlashItems";
 
-
 const DEV_DOC_BLOCK_TYPES = [
   "mermaid",
   "api-endpoint",

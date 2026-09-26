@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -13,7 +12,6 @@ import {
   springToCssLinear,
   springToken,
 } from "./motion-easing";
-
 
 describe("MOTION_CURVE_PRESETS", () => {
   it("lists Figma Motion's Curve tab presets verbatim, in order", () => {
@@ -56,7 +54,6 @@ describe("MOTION_CURVE_PRESETS", () => {
   });
 });
 
-
 describe("spring token", () => {
   it("serialises and parses spring(bounce) round-trip", () => {
     const token = springToken({ bounce: 0.69, settle: 1 });
@@ -95,7 +92,6 @@ describe("spring token", () => {
   });
 });
 
-
 describe("MOTION_SPRING_PRESETS", () => {
   it("lists Figma Motion's Spring tab presets verbatim, in order", () => {
     expect(MOTION_SPRING_PRESETS.map((p) => p.label)).toEqual([
@@ -121,7 +117,6 @@ describe("MOTION_SPRING_PRESETS", () => {
     }
   });
 });
-
 
 describe("sampleSpring", () => {
   it("starts at 0 and settles at exactly 1", () => {
@@ -170,7 +165,6 @@ describe("sampleSpring", () => {
     expect(sampleSpring(spring, 0.05)).toBeLessThan(1);
   });
 });
-
 
 describe("springToCssLinear", () => {
   it("emits a deterministic linear(...) stop list from 0 to 1", () => {
@@ -226,7 +220,6 @@ describe("motionEaseToCss", () => {
     }
   });
 });
-
 
 describe("evaluateCssLinear / parseCssLinearStops", () => {
   it("evaluates evenly distributed stops without percentages", () => {

@@ -14,7 +14,6 @@ import {
   siteById,
 } from "../../lib/fleet";
 
-
 skipUnlessAuthed();
 
 const selected = new Set(selectedSites().map((site) => site.id));

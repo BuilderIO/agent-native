@@ -97,7 +97,6 @@ export async function getPublicFormBySlugOrId(
   return result;
 }
 
-
 function toSafeString(value: unknown): string {
   if (typeof value === "string") return value;
   if (value == null) return "";
@@ -338,7 +337,6 @@ function renderField(field: FormField): string {
     ${desc}${input}</div>`;
 }
 
-
 export async function renderPublicFormHtml(
   url: string,
 ): Promise<{ html: string; status: number }> {
@@ -361,7 +359,6 @@ export async function renderPublicFormHtml(
   return { html: renderFormPage(form, parsedUrl.origin), status: 200 };
 }
 
-
 export async function renderPublicForm(event: H3Event) {
   const reqUrl = getRequestURL(event);
   const url = reqUrl.toString();
@@ -379,7 +376,6 @@ export async function renderPublicForm(event: H3Event) {
     headers,
   });
 }
-
 
 function renderFormPage(
   form: {
@@ -892,7 +888,6 @@ function renderFormPage(
 </html>`;
 }
 
-
 function notFoundPage(origin?: string) {
   const appBasePath = getAppBasePath();
   const ogImagePath = `${appBasePath}/_agent-native/og-image.png`;
@@ -933,7 +928,6 @@ function notFoundPage(origin?: string) {
 </body>
 </html>`;
 }
-
 
 function CSS() {
   return `

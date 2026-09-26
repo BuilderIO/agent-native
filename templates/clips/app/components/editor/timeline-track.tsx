@@ -15,7 +15,6 @@ import {
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 
-
 export type TrackSelection =
   | { kind: "clip"; anchorMs: number }
   | { kind: "gap"; cutId: string }

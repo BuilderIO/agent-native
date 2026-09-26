@@ -1,4 +1,3 @@
-
 import {
   hasCollabState,
   applyText,

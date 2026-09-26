@@ -18,7 +18,6 @@ import {
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
-
 let baseURLForActions: string;
 
 test.use({ viewport: { width: 1440, height: 1000 } });

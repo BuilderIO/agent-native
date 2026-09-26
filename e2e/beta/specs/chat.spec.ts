@@ -17,7 +17,6 @@ import {
 } from "../lib/chat";
 import { authenticatedEntryPath, chatSites, originFor } from "../lib/fleet";
 
-
 skipUnlessAuthed();
 
 /**

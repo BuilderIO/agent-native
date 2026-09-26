@@ -9,7 +9,6 @@ import type {
 } from "./calendar-view-preferences";
 import { isPersonCalendarId } from "./person-calendar";
 
-
 export const EVENT_CATEGORY_COLORS = {
   focus: "#7C9C6B", // sage — self-holds, focus time
   internal1on1: "#5B9BD5", // steel blue — internal 1:1
@@ -58,7 +57,6 @@ export function applyOverlayOwnerMarkers(
   });
 }
 
-
 const FREE_DOMAINS = new Set([
   "gmail.com",
   "googlemail.com",
@@ -76,7 +74,6 @@ const FREE_DOMAINS = new Set([
 function getDomain(email: string): string {
   return email.split("@")[1]?.toLowerCase() ?? "";
 }
-
 
 export function classifyEvent(event: CalendarEvent): EventCategory {
   if (event.allDay) return "allDay";
@@ -109,7 +106,6 @@ export function classifyEvent(event: CalendarEvent): EventCategory {
   return "externalGroup";
 }
 
-
 export function allOtherDeclined(event: CalendarEvent): boolean {
   const attendees = event.attendees;
   if (!attendees || attendees.length < 2) return false;
@@ -118,7 +114,6 @@ export function allOtherDeclined(event: CalendarEvent): boolean {
   if (others.length === 0) return false;
   return others.every((a) => a.responseStatus === "declined");
 }
-
 
 export function getEventAutoColor(event: CalendarEvent): string {
   if (event.color) return event.color;

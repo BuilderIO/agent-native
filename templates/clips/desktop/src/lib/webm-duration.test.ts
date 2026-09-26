@@ -66,7 +66,7 @@ const CLUSTER = el(CLUSTER_ID, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]));
 
 function readDuration(buf: Uint8Array): number {
   const ebmlLen = buf[5] & 0x7f;
-  let offset = 4  + 1  + ebmlLen;
+  let offset = 4 + 1 + ebmlLen;
   offset += 4 + 1;
   offset += 4;
   const infoSizeFirst = buf[offset];

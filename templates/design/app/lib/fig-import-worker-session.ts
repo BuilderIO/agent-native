@@ -1,4 +1,3 @@
-
 import { decodeFig } from "../../server/lib/fig-file-decoder.js";
 import type { DecodedFig } from "../../server/lib/fig-file-decoder.js";
 import {

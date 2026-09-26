@@ -24,7 +24,6 @@ import {
   type FormSettings,
 } from "./types.js";
 
-
 let passed = 0;
 const failures: string[] = [];
 
@@ -43,7 +42,6 @@ function check(name: string, fn: () => void) {
 function assert(cond: unknown, message: string) {
   if (!cond) throw new Error(message);
 }
-
 
 const SLACK_WEBHOOK =
   "https://hooks.slack.com/services/T00000000/B11111111/SECRETxxxxxxxxxxxxxxxx";
@@ -93,7 +91,6 @@ const ownerSettings: FormSettings = {
   ],
   allowedOrigins: ["https://app.example.com", SECRET_ORIGIN],
 };
-
 
 console.log("toPublicFormSettings projection");
 
@@ -232,7 +229,6 @@ check("rejects invalid completion settings at the action boundary", () => {
   assert(threw, "invalid completion mode was accepted");
 });
 
-
 console.log("public handler payload (stubbed DB row)");
 
 const stubbedRow = {
@@ -290,7 +286,6 @@ check("public payload still exposes what the renderer needs", () => {
   assert(publicResult.title === "Customer Feedback", "title missing");
   assert(Array.isArray(publicResult.fields), "fields missing");
 });
-
 
 const total = passed + failures.length;
 console.log("");

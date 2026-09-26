@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { PlanContent } from "../shared/plan-content.js";
 import { sanitizeCustomHtml, serializePlanContent } from "./plan-content.js";
 
-
 function storePrototypeScreen(html: string): string {
   return serializePlanContent({
     version: 2,

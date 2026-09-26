@@ -392,7 +392,6 @@ function restoreRawPayloadCodeFences(source: string, fences: string[]) {
   );
 }
 
-
 function serializeNode(node: PlanWireframeNode, indent = ""): string {
   const name = NODE_TO_COMPONENT[node.el] ?? "Box";
   const attrs = Object.entries(node)
@@ -1336,7 +1335,6 @@ function findAttribute(node: MdxNode, name: string): MdxAttribute | undefined {
     (attr) => attr.type === "mdxJsxAttribute" && attr.name === name,
   );
 }
-
 
 function stringAttr(node: MdxNode, name: string): string | undefined {
   const value = attributeValue(findAttribute(node, name));

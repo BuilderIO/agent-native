@@ -1,4 +1,3 @@
-
 const KEY = "design.figmaPasteImageNotice.dismissed";
 
 export function figmaPasteImageNoticeDismissed(): boolean {

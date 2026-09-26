@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-
 const request = vi.hoisted(() => ({
   email: undefined as string | undefined,
   name: undefined as string | undefined,
@@ -15,7 +14,6 @@ const getDbMock = vi.hoisted(() => vi.fn());
 
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
-
 
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
@@ -109,7 +107,6 @@ vi.mock("../server/plans.js", async () => {
   };
 });
 
-
 const { default: replyToComment } = await import("./reply-to-plan-comment.js");
 const { default: resolveComment } = await import("./resolve-plan-comment.js");
 const { default: deleteComment } = await import("./delete-plan-comment.js");
@@ -132,7 +129,6 @@ function runDelete(args: Record<string, unknown>) {
 function runConsume(args: Record<string, unknown>) {
   return (consumeFeedback as ActionWithRun).run(args);
 }
-
 
 const BASE_BUNDLE = {
   plan: {
@@ -214,7 +210,6 @@ function makeDb(
   };
 }
 
-
 beforeEach(() => {
   request.email = "agent@example.com";
   request.name = "Agent";
@@ -245,7 +240,6 @@ afterEach(() => {
   if (originalPlanLocalMode === undefined) delete process.env.PLAN_LOCAL_MODE;
   else process.env.PLAN_LOCAL_MODE = originalPlanLocalMode;
 });
-
 
 describe("reply-to-plan-comment", () => {
   it("happy path: inserts a reply and returns the comment id", async () => {
@@ -332,30 +326,25 @@ describe("reply-to-plan-comment", () => {
   });
 });
 
-
 describe("resolve-plan-comment", () => {
   it("happy path: resolves an open comment and returns the new status", async () => {
     const updates: Record<string, unknown>[] = [];
-    const db = makeDb(
-      [],
-      updates,
-      [
-        {
-          id: "root_cmt",
-          planId: "plan_1",
-          parentCommentId: null,
-          sectionId: null,
-          kind: "comment",
-          anchor: null,
-          message: "Please update the CTA",
-          createdBy: "human",
-          authorEmail: "reviewer@example.com",
-          resolutionTarget: "agent",
-          mentionsJson: null,
-          status: "open",
-        },
-      ],
-    );
+    const db = makeDb([], updates, [
+      {
+        id: "root_cmt",
+        planId: "plan_1",
+        parentCommentId: null,
+        sectionId: null,
+        kind: "comment",
+        anchor: null,
+        message: "Please update the CTA",
+        createdBy: "human",
+        authorEmail: "reviewer@example.com",
+        resolutionTarget: "agent",
+        mentionsJson: null,
+        status: "open",
+      },
+    ]);
     getDbMock.mockReturnValue(db);
 
     const result = (await runResolve({
@@ -507,7 +496,6 @@ describe("resolve-plan-comment", () => {
   });
 });
 
-
 describe("delete-plan-comment", () => {
   it("soft-deletes a root comment and its descendants", async () => {
     const updates: Record<string, unknown>[] = [];
@@ -626,7 +614,6 @@ describe("delete-plan-comment", () => {
     expect(resolveAccessMock).not.toHaveBeenCalled();
   });
 });
-
 
 describe("consume-plan-feedback", () => {
   it("marks comments consumed and returns the consumed ids", async () => {

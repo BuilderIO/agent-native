@@ -1,4 +1,3 @@
-
 import type { ClipsNotificationPrefs } from "./clips-notification-prefs.js";
 
 export const CLIPS_USER_PREFS_KEY = "clips-user-prefs";

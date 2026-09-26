@@ -3,7 +3,6 @@ import { expect, test, type Frame, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { enterDirectMode, enterInteractView, gotoEditor } from "./helpers";
 
-
 const SCREEN_ONE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Screen One</title></head>

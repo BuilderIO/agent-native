@@ -1,4 +1,3 @@
-
 export interface HttpOutcome {
   ok: boolean;
   status: number;

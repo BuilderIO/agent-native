@@ -1,4 +1,3 @@
-
 export interface TrimRange {
   id?: string;
   startMs: number;
@@ -277,7 +276,6 @@ export function formatMs(ms: number): string {
   const mmss = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return h > 0 ? `${h}:${mmss}` : mmss;
 }
-
 
 export interface TimelineClipPiece {
   kind: "clip";

@@ -6,7 +6,6 @@ import {
 } from "../shared/plan-content.js";
 import { exportPlanContentToMdxFolder } from "./plan-mdx.js";
 
-
 export const PRIORITY_EXAMPLE_BLOCK_TYPES = [
   "columns",
   "tabs",

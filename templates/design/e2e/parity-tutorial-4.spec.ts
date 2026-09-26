@@ -9,7 +9,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { gotoEditor } from "./helpers";
 
-
 let designId: string;
 let baseURLForActions: string;
 
@@ -85,7 +84,6 @@ test.afterEach(async ({ page }) => {
   );
   designId = "";
 });
-
 
 function toolButton(page: Page, name: string): Locator {
   return page.locator(`button[aria-label="${name}"]`).first();
@@ -223,7 +221,6 @@ function renameInput(page: Page): Locator {
 
 const undoShortcut = process.platform === "darwin" ? "Meta+z" : "Control+z";
 const groupShortcut = process.platform === "darwin" ? "Meta+g" : "Control+g";
-
 
 test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
   const card = await homeScreenCard(page).boundingBox();
@@ -575,7 +572,6 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
       .toBe(true);
   });
 });
-
 
 test("tutorial 4 (overview) — a board rectangle drawn, renamed, and dragged into the screen", async ({
   page,

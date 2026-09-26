@@ -35,7 +35,6 @@ import {
 } from "./local-email-store.js";
 import { invalidateThreadCache } from "./thread-cache.js";
 
-
 interface StoredTokens {
   access_token: string;
   refresh_token?: string;
@@ -196,7 +195,6 @@ async function listMutableAccounts(
   }));
 }
 
-
 async function readLocalLabels(ownerEmail: string): Promise<Label[]> {
   const data = await getUserSetting(ownerEmail, "labels");
   if (data && Array.isArray((data as any).labels)) {
@@ -231,7 +229,6 @@ function recomputeUnreadCounts(
     };
   });
 }
-
 
 export interface ArchiveEmailInput {
   id: string;
@@ -338,7 +335,6 @@ export async function archiveEmail(
   throw lastErr ?? new Error("Archive failed");
 }
 
-
 export interface UnarchiveEmailInput {
   id: string;
   ownerEmail: string;
@@ -398,7 +394,6 @@ export async function unarchiveEmail(
   });
   return { id, threadId: msg.threadId, isArchived: false };
 }
-
 
 export interface ToggleStarInput {
   id: string;
@@ -481,7 +476,6 @@ export async function toggleStar(
   throw lastErr ?? new Error("Toggle star failed");
 }
 
-
 export interface TrashEmailInput {
   id: string;
   ownerEmail: string;
@@ -551,7 +545,6 @@ export async function trashEmail(
   throw lastErr ?? new Error("Trash failed");
 }
 
-
 export interface UntrashEmailInput {
   id: string;
   ownerEmail: string;
@@ -611,7 +604,6 @@ export async function untrashEmail(
   });
   return { id, threadId: msg.threadId, isTrashed: false };
 }
-
 
 export interface MarkReadInput {
   id: string;
@@ -763,7 +755,6 @@ export async function markAllLocalUnreadRead(input: {
     };
   });
 }
-
 
 export interface MarkThreadReadInput {
   threadId: string;

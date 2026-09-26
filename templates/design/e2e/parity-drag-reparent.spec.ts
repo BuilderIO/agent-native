@@ -9,7 +9,6 @@ import {
   gotoEditor,
 } from "./helpers";
 
-
 const SCREEN_ONE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Screen One</title></head>

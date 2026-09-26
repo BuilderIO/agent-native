@@ -1,4 +1,3 @@
-
 import type { CrmCellValue, CrmGridAttribute } from "./model";
 
 export interface CrmGridSortEntry {
@@ -49,7 +48,6 @@ export function listRecordsParams(
     ...(cursor ? { cursor } : {}),
   };
 }
-
 
 export interface CrmGridColumn {
   attributeId: string;
@@ -154,7 +152,6 @@ export function moveGridColumn(
   next.splice(Math.max(0, Math.min(toIndex, next.length)), 0, moved);
   return next;
 }
-
 
 export interface CrmRecordValuesEntry {
   recordId: string;

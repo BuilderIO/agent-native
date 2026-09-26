@@ -1,4 +1,3 @@
-
 import {
   defineTransactionalEmail,
   getTransactionalEmail,

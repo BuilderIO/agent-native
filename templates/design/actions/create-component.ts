@@ -1,4 +1,3 @@
-
 import { randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core/action";
@@ -47,7 +46,6 @@ import {
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import readLocalFileAction from "./read-local-file.js";
 import writeLocalFileAction from "./write-local-file.js";
-
 
 export interface ComponentAttributeStamp {
   name: string;
@@ -211,7 +209,6 @@ export function applyComponentAnnotations(
     changed: true,
   };
 }
-
 
 export default defineAction({
   description:

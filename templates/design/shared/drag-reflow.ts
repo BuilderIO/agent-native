@@ -1,5 +1,3 @@
-
-
 export interface DragTargetKey {
   containerKey: string;
   index: number;
@@ -121,7 +119,6 @@ export function resolveTargetHysteresis(
   };
 }
 
-
 export interface SizeGuardBox {
   width: number;
   height: number;
@@ -150,7 +147,6 @@ export function isContainerTooSmallForDrag(
     !hugsHeight && containerContentBox.height + tol < draggedRect.height;
   return tooNarrow || tooShort;
 }
-
 
 export interface PackedContainerInfo {
   display: string;
@@ -181,7 +177,6 @@ export function mainAxisForDirection(flexDirection: string): "x" | "y" {
     ? "y"
     : "x";
 }
-
 
 export interface ReorderOffsetsInput {
   count: number;

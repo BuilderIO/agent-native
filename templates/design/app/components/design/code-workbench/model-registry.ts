@@ -2,7 +2,6 @@ import * as monaco from "monaco-editor";
 
 import { parseWorkbenchUri, providerKindFromKey } from "./workspace/types";
 
-
 export interface WorkbenchModelEntry {
   model: monaco.editor.ITextModel;
   savedAltVersionId: number;

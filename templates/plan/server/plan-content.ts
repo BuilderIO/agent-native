@@ -269,7 +269,6 @@ export function normalizePlanDesignContent(
   );
 }
 
-
 const FORBIDDEN_ELEMENT =
   /<(script|style|iframe|object|embed|noscript|svg|math|applet|portal|frameset|marquee)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi;
 
@@ -3393,7 +3392,6 @@ function renderDiagramHtml(data: PlanDiagramBlock["data"]) {
       .join("")}
   </svg>`;
 }
-
 
 function renderKitWireframeHtml(data: PlanWireframeBlock["data"]): string {
   const surface = escapeHtml(data.surface || "desktop");

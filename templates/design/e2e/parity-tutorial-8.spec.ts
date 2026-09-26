@@ -9,7 +9,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers, gotoEditor } from "./helpers";
 
-
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 

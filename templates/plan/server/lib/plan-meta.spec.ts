@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-
 vi.mock("drizzle-orm", () => ({
   eq: (col: unknown, val: unknown) => ({ col, val }),
 }));

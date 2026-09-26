@@ -2305,7 +2305,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
 }
 
-
 function StandardLayout({ children }: AppLayoutProps) {
   const t = useT();
   const location = useLocation();
@@ -2551,7 +2550,6 @@ function StandardLayout({ children }: AppLayoutProps) {
     </div>
   );
 }
-
 
 function CheckboxRow({
   checked,
@@ -2933,7 +2931,6 @@ function TabSettingsPopover({
     </>
   );
 }
-
 
 function AccountPopover({
   accounts,

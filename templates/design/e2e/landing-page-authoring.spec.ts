@@ -3,7 +3,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers } from "./helpers";
 
-
 const PAGE_W = 1440;
 const PAGE_H = 900;
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -221,7 +220,6 @@ test.beforeEach(async ({ page }, testInfo) => {
   });
 });
 
-
 test("0:53 — a frame commits the rectangle you dragged", async ({ page }) => {
   const designId = await newDesign(page);
   await openEditor(page, designId);
@@ -263,7 +261,6 @@ test("1:16 — header text is readable against the canvas background", async ({
       `data-an-auto-text-color on every text primitive.`,
   ).not.toBe("currentcolor");
 });
-
 
 test("6:03 — every shape you draw lands inside the page", async ({ page }) => {
   const designId = await newDesign(page);
@@ -387,7 +384,6 @@ test("8:09 — enabling auto layout keeps the container's children", async ({
       `Clip 8:09 "it has the rectangle but doesn't have title and the description".`,
   ).toBe(textsBefore);
 });
-
 
 test("3:17 — dragging a layer on the canvas moves it", async ({ page }) => {
   const designId = await newDesign(page);
@@ -665,7 +661,6 @@ test("5:30 — dragging does not repaint the canvas background", async ({
   ).toBe(before);
 });
 
-
 test("4:39 — aligning a multi-selection moves every selected layer", async ({
   page,
 }) => {
@@ -730,7 +725,6 @@ test("0:28 — a deleted screen stays deleted", async ({ page }) => {
     `Clip 0:28 "that screen was never deleted, it seems".`,
   ).not.toContain("scratch.html");
 });
-
 
 test("a header + hero + footer landing page renders entirely on the page", async ({
   page,

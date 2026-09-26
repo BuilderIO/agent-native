@@ -19,7 +19,6 @@ import TypeScriptWorker from "monaco-editor/esm/vs/language/typescript/ts.worker
 const monacoTypescript =
   monacoTypescriptRuntime as unknown as (typeof import("monaco-editor"))["typescript"];
 
-
 let monacoEnvironmentInstalled = false;
 
 export function ensureMonacoEnvironment() {

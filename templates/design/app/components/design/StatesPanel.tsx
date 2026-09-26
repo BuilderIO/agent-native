@@ -37,7 +37,6 @@ import type {
   DesignStateKind,
 } from "../../../shared/design-state.js";
 
-
 interface DesignStateRow {
   id: string;
   designId: string;
@@ -65,7 +64,6 @@ export interface StatesPanelProps {
   onCapture?: () => void;
 }
 
-
 function BreakpointIcon({
   widthPx,
   className,
@@ -81,7 +79,6 @@ function BreakpointIcon({
   }
   return <IconDeviceMobile className={cn("size-3.5", className)} />;
 }
-
 
 const KIND_LABELS: Record<DesignStateKind, string> = {
   state: "State",
@@ -107,7 +104,6 @@ function KindBadge({ kind }: { kind: DesignStateKind }) {
     </span>
   );
 }
-
 
 function StateRow({
   row,
@@ -186,7 +182,6 @@ function StateRow({
     </div>
   );
 }
-
 
 export function StatesPanel({
   designId,
@@ -499,7 +494,6 @@ export function StatesPanel({
     </div>
   );
 }
-
 
 function BreakpointButton({
   id,

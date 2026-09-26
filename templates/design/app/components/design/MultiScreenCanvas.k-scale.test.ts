@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import { applyDraftGeometry } from "./multi-screen/draft-primitives";

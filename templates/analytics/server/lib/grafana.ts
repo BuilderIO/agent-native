@@ -1,4 +1,3 @@
-
 import {
   assertCredentialCanReachEndpoint,
   resolveCredentialDetailed,
@@ -61,7 +60,6 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   cacheSet(key, data);
   return data as T;
 }
-
 
 export interface GrafanaDashboardSummary {
   id: number;
@@ -131,7 +129,6 @@ export interface GrafanaAlertInstance {
   value?: string;
   [key: string]: unknown;
 }
-
 
 export async function listDashboards(
   query?: string,

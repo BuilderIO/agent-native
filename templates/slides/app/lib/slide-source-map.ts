@@ -8,7 +8,6 @@ import {
 import { mermaidBlockPattern } from "./mermaid-blocks";
 import { ALLOWED_TAGS, DROP_WITH_CHILDREN } from "./sanitize-slide-html";
 
-
 export const SOURCE_STAMP_ATTR = "data-src-i";
 
 export interface SlideSourceRange {
@@ -65,7 +64,6 @@ const VOID_TAGS = new Set([
   "track",
   "wbr",
 ]);
-
 
 interface SourceElement {
   node: P5.Element;
@@ -212,7 +210,6 @@ export function stampSlideSource(
     ranges: located.elements.map((element) => element.range),
   };
 }
-
 
 type Kid = Element | string;
 
@@ -843,7 +840,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
         emitKids(kids(live), ROOT));
   return { mergeRoot, emit };
 }
-
 
 export const SCOPED_STYLE_SELECTOR_MARKER = "scoped-style-selector";
 const SCOPED_SELECTOR = /\[data-slide-content-scope\s*=/g;

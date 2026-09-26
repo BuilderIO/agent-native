@@ -1,10 +1,7 @@
-
-
 export function prefersReducedMotion(): boolean {
   if (typeof window === "undefined") return false;
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
-
 
 let _webGLAvailable: boolean | null = null;
 
@@ -23,7 +20,6 @@ export function isWebGLAvailable(): boolean {
 
   return _webGLAvailable;
 }
-
 
 export const MAX_SHADERS_PER_ARTBOARD = 5;
 
@@ -50,7 +46,6 @@ export function getShaderCount(artboardId: string): number {
   return _shaderCounts.get(artboardId) ?? 0;
 }
 
-
 export function buildFallbackGradient(
   colors: string[],
   colorBack?: string,
@@ -63,7 +58,6 @@ export function buildFallbackGradient(
 
   return `linear-gradient(135deg, ${stops.join(", ")})`;
 }
-
 
 export function resolveShaderSpeed(
   requestedSpeed: number,

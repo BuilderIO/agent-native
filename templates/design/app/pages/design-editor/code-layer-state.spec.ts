@@ -1243,7 +1243,6 @@ describe("canonicalElementInfoForCodeLayerNode runtime identity", () => {
   });
 });
 
-
 describe("canonicalElementInfoForCodeLayerNode grid-template source overlay", () => {
   const gridNode = makeNode({
     id: "html:grid-a",

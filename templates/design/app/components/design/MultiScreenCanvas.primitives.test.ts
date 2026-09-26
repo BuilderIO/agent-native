@@ -78,7 +78,6 @@ import {
 } from "./multi-screen/vector-edit-geometry";
 import { isApplePlatform } from "./MultiScreenCanvas";
 
-
 type ScreenStub = {
   id: string;
   filename: string;
@@ -370,7 +369,6 @@ describe("board surface pointer capture", () => {
   });
 
   it("keeps the opaque board replica off when the board has nothing on it", () => {
-
     const active = makeGeom(-12288, -12288, 24576, 24576);
     const viewport = makeGeom(-36000, -22500, 72000, 45000);
 
@@ -1804,7 +1802,6 @@ describe("vector edit: hit-test priority (handles over anchors when overlapping)
     });
   });
 });
-
 
 describe("computeAltHoverMeasurement (Figma-parity alt-hover distance lines)", () => {
   function bounds(x: number, y: number, w: number, h: number): FrameBounds {

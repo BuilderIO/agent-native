@@ -1,4 +1,3 @@
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -73,7 +72,6 @@ import {
   hydrateImageRefsInHtml,
 } from "./hydrate-figma-paste-images.js";
 import action from "./hydrate-figma-paste-images.js";
-
 
 describe("collectImageRefHashes", () => {
   it("returns empty array for HTML with no data-figma-image-ref attrs", () => {
@@ -191,7 +189,6 @@ describe("hydrateImageRefsInHtml", () => {
     expect(out).toContain("url('https://cdn.example.com/img?a=1&amp;b=2')");
   });
 });
-
 
 const FILE_KEY = "testFileKey123";
 

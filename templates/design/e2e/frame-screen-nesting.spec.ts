@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 
-
 const BLANK = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Home</title></head>

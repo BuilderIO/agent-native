@@ -1,4 +1,3 @@
-
 import {
   readAppState,
   writeAppState,

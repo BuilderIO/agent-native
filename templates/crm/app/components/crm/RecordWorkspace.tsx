@@ -1,4 +1,3 @@
-
 import { setClientAppState } from "@agent-native/core/client/application-state";
 import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {

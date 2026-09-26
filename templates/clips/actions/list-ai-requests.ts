@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { listAppState } from "@agent-native/core/application-state";
 import { accessFilter } from "@agent-native/core/sharing";

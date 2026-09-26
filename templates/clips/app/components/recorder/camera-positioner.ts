@@ -1,4 +1,3 @@
-
 export type Corner = "tl" | "tr" | "bl" | "br";
 
 export interface BubblePosition {

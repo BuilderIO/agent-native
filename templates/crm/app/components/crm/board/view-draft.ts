@@ -1,4 +1,3 @@
-
 export const BOARD_DRAFT_PARAMS = {
   mode: "mode",
   group: "group",

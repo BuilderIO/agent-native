@@ -765,7 +765,6 @@ export function AutoLayoutMatrix({
   );
 }
 
-
 function resolveSizingOptions(
   available: AutoLayoutSizing[] | undefined,
   current: AutoLayoutSizing,
@@ -788,7 +787,6 @@ const ALIGNMENT_CELLS: Array<{
   { horizontal: "center", vertical: "bottom" },
   { horizontal: "right", vertical: "bottom" },
 ];
-
 
 function GridControls({
   value,
@@ -1345,9 +1343,7 @@ function AlignmentBars({
   const shortLength = 3.5;
   const gap = 1.5;
 
-  const total = stack
-    ? thickness * 2 + gap
-    : thickness * 2 + gap;
+  const total = stack ? thickness * 2 + gap : thickness * 2 + gap;
 
   const along = (h: AlignmentHorizontal | AlignmentVertical, size: number) => {
     if (h === "left" || h === "top") return pad;

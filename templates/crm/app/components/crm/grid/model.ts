@@ -1,4 +1,3 @@
-
 import {
   ATTRIBUTE_TYPE_SPECS,
   CRM_ATTRIBUTE_TYPES,
@@ -77,7 +76,6 @@ export interface CrmCellSpec extends CrmValueSpec {
   editor: CrmCellEditor;
   defaultWidth: number;
 }
-
 
 const COLUMN_WIDTHS: Record<CrmAttributeType, number> = {
   text: 220,
@@ -170,7 +168,6 @@ export function parseCell(
   return parseAttributeValue(attribute, text, locale);
 }
 
-
 function sameCellValue(a: CrmCellValue, b: CrmCellValue | undefined): boolean {
   if (a === b) return true;
   if (a === null || b === null || b === undefined) return false;
@@ -189,7 +186,6 @@ export function isSuppressedDisplayNameCell(
   if (!name) return false;
   return sameCellValue(name, rowValues.displayName);
 }
-
 
 const PROVENANCE_ACTORS: readonly CrmActorType[] = [
   "user",

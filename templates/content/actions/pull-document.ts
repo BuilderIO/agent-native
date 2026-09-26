@@ -7,7 +7,6 @@ import "../server/db/index.js";
 import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
-
 function formatDocumentContent(markdown: string, format: "markdown" | "text") {
   return format === "text"
     ? markdown

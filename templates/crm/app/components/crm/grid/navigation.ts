@@ -1,4 +1,3 @@
-
 export interface CellRef {
   row: number;
   col: number;

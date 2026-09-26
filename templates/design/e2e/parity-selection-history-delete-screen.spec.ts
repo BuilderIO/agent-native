@@ -9,7 +9,6 @@ import {
   setBaseURL,
 } from "./drag-and-drop.shared";
 
-
 const UNDO = process.platform === "darwin" ? "Meta+z" : "Control+z";
 const REDO = process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z";
 

@@ -1,4 +1,3 @@
-
 export const VECTOR_ENDPOINT_STYLES = [
   "none",
   "round",

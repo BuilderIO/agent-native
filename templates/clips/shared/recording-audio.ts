@@ -1,4 +1,3 @@
-
 export function scheduleReadyChime(ctx: AudioContext): Promise<void> {
   return new Promise<void>((resolve) => {
     const t0 = ctx.currentTime + 0.005;

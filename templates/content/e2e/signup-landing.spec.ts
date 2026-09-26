@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 
-
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
   "X-Agent-Native-Client-Compatibility": "content-spaces-v1",

@@ -1,6 +1,4 @@
-
 import { shaderRuntimeBridgeScript } from "../.generated/bridge/shader-runtime.generated";
-
 
 export type GlslUniformType = "float" | "vec2" | "color";
 
@@ -34,7 +32,6 @@ export interface GlslShaderMountRef {
   values?: Record<string, GlslUniformValue>;
 }
 
-
 export const SHADER_SCRIPT_TYPE = "application/x-agent-native-shader";
 export const SHADER_FILL_ATTR = "data-an-shader-fill";
 export const SHADER_EFFECT_ATTR = "data-an-shader-effect";
@@ -66,7 +63,6 @@ const VOID_TAGS = new Set([
   "wbr",
 ]);
 
-
 function escapeAttr(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -96,7 +92,6 @@ export function newShaderId(): string {
   }
   return "an-shader-" + suffix.slice(0, 8);
 }
-
 
 const GLSL_TYPE_FOR_UNIFORM: Record<GlslUniformType, string> = {
   float: "float",
@@ -288,7 +283,6 @@ export function validateShaderDef(def: GlslShaderDef): ShaderValidationResult {
   return { valid: errors.length === 0, errors };
 }
 
-
 const MANIFEST_COMMENT_RE = /^\s*\/\*!\s*an-shader\s+v(\d+)\s*([\s\S]*?)\*\//;
 
 export function serializeManifestComment(
@@ -472,7 +466,6 @@ export function removeShaderFromHtml(html: string, id: string): string {
   return html.slice(0, start) + html.slice(end);
 }
 
-
 export const SHADER_RUNTIME_SOURCE: string = shaderRuntimeBridgeScript;
 
 export function buildShaderRuntimeScriptTag(): string {
@@ -528,7 +521,6 @@ export function pruneUnusedShaders(html: string): string {
   }
   return out;
 }
-
 
 function findTagBounds(
   html: string,
@@ -777,7 +769,6 @@ export function listShaderMounts(html: string): GlslShaderMountRef[] {
   }
   return mounts;
 }
-
 
 export interface ApplyShaderOptions {
   nodeId: string;

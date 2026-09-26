@@ -25,7 +25,6 @@ import {
   type VisualDiffEntry,
 } from "../../../shared/design-review.js";
 
-
 export interface ReviewFixSource {
   designId?: string;
   fileId?: string;
@@ -39,7 +38,6 @@ export interface ReviewFixResult {
 }
 
 type FixStatus = "idle" | "pending" | "fixed" | "error";
-
 
 export interface ReviewVersionOption {
   id: string;
@@ -68,7 +66,6 @@ export interface ReviewPanelProps {
   onFixApplied?: (finding: A11yFinding, result?: ReviewFixResult) => void;
   className?: string;
 }
-
 
 interface SeverityConfig {
   dot: string;
@@ -114,7 +111,6 @@ const DIFF_KIND_CONFIG: Record<
     label: "Moved",
   },
 };
-
 
 function FindingRow({
   finding,
@@ -291,7 +287,6 @@ function FindingRow({
   );
 }
 
-
 function A11ySection({
   findings,
   loading,
@@ -438,7 +433,6 @@ function A11ySection({
     </section>
   );
 }
-
 
 function VersionLabel({
   options,
@@ -596,7 +590,6 @@ function VisualDiffSection({
     </section>
   );
 }
-
 
 export function ReviewPanel({
   findings,

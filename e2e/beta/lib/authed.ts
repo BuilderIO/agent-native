@@ -15,7 +15,6 @@ import {
   installBetaE2ETrafficMarker,
 } from "./test-traffic";
 
-
 export function authedLaneEnabled(): boolean {
   return authedLaneReady();
 }

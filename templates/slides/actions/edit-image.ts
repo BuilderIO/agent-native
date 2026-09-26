@@ -1,4 +1,3 @@
-
 import { resolveSecret } from "@agent-native/core/server";
 
 const config = async () => {

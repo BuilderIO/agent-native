@@ -122,7 +122,6 @@ export function computeRecipientMove(
   };
 }
 
-
 interface AliasPopoverProps {
   alias: Alias;
   anchorEl: HTMLElement;
@@ -238,7 +237,6 @@ function AliasPopover({
   );
 }
 
-
 interface SaveAliasModalProps {
   emails: string[];
   onClose: () => void;
@@ -302,7 +300,6 @@ function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
     </Dialog>
   );
 }
-
 
 export function RecipientInput({
   value,

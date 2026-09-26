@@ -1,4 +1,3 @@
-
 import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle, IconPlus, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";

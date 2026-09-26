@@ -38,7 +38,6 @@ import {
   Toolbar,
 } from "./primitives";
 
-
 type NodeRenderer = (node: PlanWireframeNode, children: ReactNode) => ReactNode;
 
 const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {

@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -147,7 +146,6 @@ describe("canPatchManagedMotionCss", () => {
   });
 });
 
-
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -214,7 +212,6 @@ describe("apply-motion-edit write ordering (Issue 2 — non-atomic write)", () =
   });
 });
 
-
 describe("motionTrackKey (Issue 6 — NUL separator made the file binary)", () => {
   it("does not contain a literal NUL byte", () => {
     expect(motionTrackKey("node-1", "opacity")).not.toContain("\0");
@@ -252,7 +249,6 @@ describe("motionTrackKey (Issue 6 — NUL separator made the file binary)", () =
     expect(src.includes("\0")).toBe(false);
   });
 });
-
 
 describe("assertValidMotionEase", () => {
   it("accepts CSS keywords, beziers, steps, linear() lists, and spring tokens", () => {
@@ -315,7 +311,6 @@ describe("playback mode + track timing plumbing (source contract)", () => {
     expect(src).toContain('assertValidMotionEase(defaultEase, "defaultEase")');
   });
 });
-
 
 function fadeKeyframe(t: number) {
   return { t, value: String(t) };

@@ -11,7 +11,6 @@ type BridgeMessage = {
   };
 };
 
-
 interface FrameworkDebugProvenance {
   framework?: "html" | "react" | "vue" | "svelte" | "angular" | "lwc";
   sourceFile?: string;

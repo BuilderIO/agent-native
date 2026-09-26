@@ -1,4 +1,3 @@
-
 import {
   ATTRIBUTE_TYPE_SPECS,
   CRM_ATTRIBUTE_TYPES,
@@ -11,7 +10,6 @@ import {
   type CrmAttributeOption,
   type CrmConnectionMode,
 } from "../../../../shared/crm-contract";
-
 
 export const AUTHORED_ATTRIBUTE_TYPES: readonly CrmAttributeType[] =
   CRM_ATTRIBUTE_TYPES.filter((type) => !ATTRIBUTE_TYPE_SPECS[type].systemOnly);
@@ -44,7 +42,6 @@ export function isImmutableAttributeField(
   return (IMMUTABLE_ATTRIBUTE_FIELDS as readonly string[]).includes(field);
 }
 
-
 export interface AttributeAuthorityInfo {
   labelKey: string;
   descriptionKey: string;
@@ -75,7 +72,6 @@ export const ATTRIBUTE_AUTHORITY_INFO: Record<
     badge: "default",
   },
 };
-
 
 export interface AttributeOptionDraft {
   value: string;
@@ -228,7 +224,6 @@ export function hasAttributeEdits(input: UpdateAttributeInput): boolean {
   return Object.keys(input).length > 1;
 }
 
-
 export interface CrmAttributeListResult {
   target: "object" | "list";
   targetId: string;
@@ -248,7 +243,6 @@ export function applyAttributePatch(
     ),
   };
 }
-
 
 export function moveItem<T>(
   items: readonly T[],
@@ -277,7 +271,6 @@ export function reorderedOptionIds(
 ): string[] {
   return moveItem(options, from, to).map((option) => option.id);
 }
-
 
 export interface CrmConnectionModeInfo {
   mode: CrmConnectionMode;

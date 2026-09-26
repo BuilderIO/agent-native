@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -13,7 +12,6 @@ import {
   type ShaderPresetName,
   validateDescriptor,
 } from "../shared/shader-presets.js";
-
 
 const PRESET_NAMES = Object.keys(SHADER_PRESET_MAP) as [
   ShaderPresetName,
@@ -56,7 +54,6 @@ const targetSchema = z
   .describe(
     "Target element.  Provide nodeId or CSS selector.  When omitted, the root artboard container is targeted.",
   );
-
 
 export default defineAction({
   description: `

@@ -164,7 +164,6 @@
     /* noop */
   }
 
-
   function parseBlock(text: string): {
     uniforms: Record<string, AnUniformDef>;
     glsl: string;
@@ -198,7 +197,6 @@
     return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
   }
 
-
   function invalidateMountsFor(defId: string): void {
     for (let i = mounts.length - 1; i >= 0; i--) {
       if (mounts[i].defId === defId) unmount(mounts[i]);
@@ -229,7 +227,6 @@
       if (prev && prev.glsl !== parsed.glsl) invalidateMountsFor(id);
     }
   }
-
 
   function compileProgram(
     gl: WebGLRenderingContext,
@@ -523,7 +520,6 @@
     startLoop();
   }
 
-
   function parseOverrides(
     el: HTMLElement,
     attr: string,
@@ -584,7 +580,6 @@
       scan();
     }, 100);
   }
-
 
   function resolveTarget(target: {
     nodeId?: string;
@@ -696,7 +691,6 @@
     setUniform: setUniform,
     updateShader: updateShader,
   };
-
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {

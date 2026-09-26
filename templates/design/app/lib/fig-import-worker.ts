@@ -1,4 +1,3 @@
-
 import { createFigImportSession } from "./fig-import-worker-session";
 
 export type FigImportWorkerRequest =

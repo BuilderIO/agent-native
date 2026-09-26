@@ -1,4 +1,3 @@
-
 import { parseEdits } from "../../app/lib/timestamp-mapping.js";
 import { parseRedactions } from "../../app/lib/video-redactions.js";
 

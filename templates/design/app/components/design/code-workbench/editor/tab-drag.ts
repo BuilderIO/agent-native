@@ -1,4 +1,3 @@
-
 export function resolveTabDropIndex(
   fromIndex: number,
   overIndex: number,
