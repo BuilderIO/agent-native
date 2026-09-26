@@ -114,6 +114,7 @@ type ShareButtonProps = {
   resourceTitle?: string;
   panelTitle?: string;
   shareUrl?: string;
+  showShareLinks?: boolean;
   secondaryShareUrl?: string;
   shareUrlLabel?: string;
   shareUrlDescription?: string;
@@ -461,6 +462,34 @@ describe("<EditorToolbar>", () => {
       }
     },
   );
+
+  it("hides the presentation copy link for an empty public deck", () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={{ ...deck, visibility: "public" }}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+        />
+      </TooltipProvider>,
+    );
+
+    const shareButtonCalls = mocks.shareButton.mock.calls as unknown as Array<
+      [ShareButtonProps]
+    >;
+    const shareButtonProps = shareButtonCalls.at(-1)?.[0];
+
+    expect(shareButtonProps?.shareUrl).toBeUndefined();
+    expect(shareButtonProps?.showShareLinks).toBe(false);
+  });
 
   it("delegates Present so the editor can flush pending changes first", () => {
     const onPresent = vi.fn();

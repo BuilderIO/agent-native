@@ -280,6 +280,7 @@ export default function EditorToolbar({
   };
   const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
   const primaryShareLink = shareLinks[shareLinkOrder.primary];
+  const showShareLink = hasSlides || shareLinkOrder.primary === "editor";
 
   // Live save state for the toolbar indicator, so users always see whether
   // their work has committed (a lost-deck report motivated surfacing this).
@@ -1032,9 +1033,10 @@ export default function EditorToolbar({
               description: t("editorToolbar.commenterRoleDescription"),
             },
           }}
-          shareUrl={primaryShareLink.url}
+          shareUrl={showShareLink ? primaryShareLink.url : undefined}
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}
+          showShareLinks={showShareLink}
           shareTabs={
             creativeContextEnabled
               ? {
