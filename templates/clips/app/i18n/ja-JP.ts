@@ -833,6 +833,10 @@ const messages = {
       "アクティブなワークスペースを更新できませんでした",
     whatsNew: "最新情報",
     changelogEmpty: "まだ更新はありません。",
+    changelogCommentSignup:
+      "コメントがないときのサイドバーでClipsを試すメリットを簡潔に伝え、登録への分かりやすい導線を用意しました。",
+    changelogShareLink:
+      "ログイン中のユーザーが利用不可・期限切れ・非公開の共有リンクで「ホームに戻る」を選ぶと、公開マーケティングページではなくライブラリに移動するようになりました。",
     viewAllUpdates: "すべての更新を見る",
     expand: "展開",
     collapse: "折りたたむ",
