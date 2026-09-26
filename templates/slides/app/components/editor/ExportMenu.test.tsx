@@ -1,10 +1,12 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
 } from "@testing-library/react";
+import { createRef, type Ref } from "react";
 const requestString = (value: unknown) =>
   typeof value === "string"
     ? value
@@ -90,7 +92,11 @@ import {
   DropdownMenuContent,
 } from "@/components/ui/dropdown-menu";
 
-import { canExportPptxFromServer, ExportMenu } from "./ExportMenu";
+import {
+  canExportPptxFromServer,
+  ExportMenu,
+  type ExportMenuHandle,
+} from "./ExportMenu";
 
 const PPTX_MIME =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -138,10 +144,15 @@ function captureDownloadNames() {
 
 let queryClient: QueryClient;
 
-function renderMenu(overrides: Partial<Parameters<typeof ExportMenu>[0]> = {}) {
+function renderMenu(
+  overrides: Partial<Parameters<typeof ExportMenu>[0]> = {},
+  ref?: Ref<ExportMenuHandle>,
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ExportMenu
+        ref={ref}
+        hasSlides
         deckId="deck-1"
         deckTitle="Quarterly Review"
         onDuplicate={vi.fn()}
@@ -203,6 +214,40 @@ describe("<ExportMenu>", () => {
     await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
     expect(fetch).not.toHaveBeenCalled();
     expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it("disables export actions and ignores direct exports when the deck is empty", async () => {
+    const ref = createRef<ExportMenuHandle>();
+    const onExportPdf = vi.fn();
+    const onExportPptx = vi.fn();
+    const onExportGoogleSlides = vi.fn();
+    renderMenu(
+      {
+        hasSlides: false,
+        onExportPdf,
+        onExportPptx,
+        onExportGoogleSlides,
+      },
+      ref,
+    );
+
+    expect(
+      screen
+        .getByRole("button", { name: /^export$/i })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
+    await act(async () => {
+      await ref.current?.exportHtml();
+      await ref.current?.exportPdf();
+      await ref.current?.exportPptx();
+      await ref.current?.exportGoogleSlides();
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(onExportPdf).not.toHaveBeenCalled();
+    expect(onExportPptx).not.toHaveBeenCalled();
+    expect(onExportGoogleSlides).not.toHaveBeenCalled();
   });
 
   it("exports an imported deck through the vector-capable server path", async () => {
@@ -318,6 +363,7 @@ describe("<ExportMenu>", () => {
           <DropdownMenuContent>
             <ExportMenu
               inline
+              hasSlides
               deckId="deck-1"
               deckTitle="Quarterly Review"
               onDuplicate={vi.fn()}
