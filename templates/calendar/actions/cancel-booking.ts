@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { getAppProductionUrl } from "@agent-native/core/server";
+import {
+  getAppProductionUrl,
+  getRequestContext,
+} from "@agent-native/core/server";
 import { z } from "zod";
 
 import { cancelBookingById } from "../server/handlers/bookings.js";
@@ -19,7 +22,8 @@ export default defineAction({
   needsApproval: true,
   run: async ({ id, zoomMeetingResolved }) => {
     requireActionUserEmail();
-    return cancelBookingById(id, getAppProductionUrl(), {
+    const origin = getRequestContext()?.requestOrigin ?? getAppProductionUrl();
+    return cancelBookingById(id, origin, {
       zoomMeetingResolved,
     });
   },

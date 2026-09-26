@@ -103,6 +103,14 @@ export async function writeWorkspaceDefaults(
   };
 }
 
+/**
+ * A default nobody else can open is worse than no default: every teammate's
+ * first prompt would 404 on the reference lookup and silently produce an
+ * off-brand deck. Refuse to set one that is still private, and refuse an
+ * `org`-visible resource that belongs to a different org than the one it is
+ * being set as the default for — an individual viewer share on the caller's
+ * side must not make a foreign org's resource resolvable workspace-wide.
+ */
 export async function assertWorkspaceVisible(
   kind: "deck" | "design-system",
   id: string,

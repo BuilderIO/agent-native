@@ -149,10 +149,15 @@ export const recordings = table("recordings", {
     .notNull()
     .default("uploading"),
   uploadProgress: integer("upload_progress").notNull().default(0),
+  // Authoritative liveness for an in-flight upload: renewed by every chunk
+  // POST, and the only thing the upload reaper is allowed to consult.
   uploadLeaseExpiresAt: text("upload_lease_expires_at"),
   // Fences resumed writers: every recovery claim rotates this token so stale
   // chunks and delayed interruption callbacks cannot mutate the new attempt.
   uploadAttemptId: text("upload_attempt_id"),
+  // Every destructive restart receives a new generation. Unlike the attempt
+  // id (which is deliberately stable across a lost response), this fences the
+  // provider handle and buffered scratch that the restart replaces.
   uploadGenerationId: text("upload_generation_id"),
   failureReason: text("failure_reason"),
   failureCode: text("failure_code"),
@@ -340,6 +345,7 @@ export const recordingViewers = table(
     lastViewedAt: text("last_viewed_at").notNull().default(now()),
     totalWatchMs: integer("total_watch_ms").notNull().default(0),
     completedPct: integer("completed_pct").notNull().default(0),
+    // True once they meet the 5s / 75% / end-scrub rule.
     countedView: boolean("counted_view").notNull().default(false),
     ctaClicked: boolean("cta_clicked").notNull().default(false),
   },
@@ -379,13 +385,19 @@ export const recordingPlaybackPositions = table(
   }),
 );
 
+// Agent views — one row per (clip, agent, time bucket). Deliberately separate
+// from `recording_viewers` / `recording_views` so no human-view count can ever
+// pick agents up by forgetting a filter: the human tables stay agent-free.
 export const recordingAgentViews = table(
   "recording_agent_views",
   {
     id: text("id").primaryKey(),
     recordingId: text("recording_id").notNull(),
+    // sha256 of user-agent + request IP. Never stores the raw IP.
     agentKey: text("agent_key").notNull(),
     agentLabel: text("agent_label"),
+    // Raw (truncated) user-agent, kept so an unnamed agent stays identifiable
+    // and new AGENT_LABELS patterns come from real traffic, not guesses.
     userAgent: text("user_agent"),
     viewSessionId: text("view_session_id").notNull(),
     firstSeenAt: text("first_seen_at").notNull().default(now()),

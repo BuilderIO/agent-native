@@ -24,6 +24,16 @@ export type RemoteImageResult =
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
+/**
+ * A `lookup` implementation that only ever hands the socket an address we have
+ * classified as public.
+ *
+ * Validating the hostname separately and then calling `fetch` leaves a gap: the
+ * two resolutions are independent, so a DNS-rebinding host can answer with a
+ * public address for the check and a loopback or metadata address for the
+ * actual connection. Because Node passes this straight to `net.connect`, the
+ * address that is checked here is the address that gets dialled.
+ */
 export const publicOnlyLookup: LookupFunction = (
   hostname,
   options,

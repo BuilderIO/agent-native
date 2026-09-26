@@ -18,6 +18,15 @@ export interface SlidesPdfSidecarAnimation {
   type: "appear" | "fade" | "slide-up" | "zoom";
 }
 
+/**
+ * One slide, carried whole — with one deliberate omission. Everything the
+ * editor stores about how a slide *looks* travels, because dropping
+ * animations, transitions, or an Excalidraw scene would make the restore
+ * another partial reconstruction. Speaker notes do not: a PDF is the artifact
+ * people forward, and notes are private commentary the page never shows.
+ * `toSharedDeckSlide` already blanks them on every public surface, and
+ * PowerPoint and Google Slides both leave them out of a PDF export.
+ */
 export interface SlidesPdfSidecarSlide {
   content: string;
   layout?: string;
