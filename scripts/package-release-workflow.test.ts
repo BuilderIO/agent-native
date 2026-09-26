@@ -262,6 +262,11 @@ describe("npm package release workflow", () => {
     assert.match(String(consume.run), /git push origin HEAD:main/);
     assert.match(String(consume.run), /main:refs\/remotes\/origin\/main/);
     assert.match(String(consume.run), /git rebase --autostash origin\/main/);
+    assert.match(String(consume.run), /git diff --name-only --diff-filter=U/);
+    assert.match(
+      String(consume.run),
+      /Autostash restoration conflicted after rebase/,
+    );
     assert.match(String(consume.run), /git cat-file -e/);
     assert.match(String(consume.run), /\[skip ci\]/);
 
