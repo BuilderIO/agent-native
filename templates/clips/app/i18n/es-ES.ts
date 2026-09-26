@@ -848,6 +848,10 @@ const messages = {
     uploadWorkspaceSaveFailed: "No se pudo actualizar el espacio activo",
     whatsNew: "Novedades",
     changelogEmpty: "Aún no hay actualizaciones.",
+    changelogCommentSignup:
+      "La barra lateral de comentarios vacía explica brevemente por qué probar Clips y ofrece una forma clara de registrarse.",
+    changelogShareLink:
+      "Quienes hayan iniciado sesión y abran un enlace compartido no disponible, vencido o privado llegarán a su biblioteca al elegir «Ir al inicio», en lugar de a la página pública de marketing.",
     viewAllUpdates: "Ver todas las actualizaciones",
     expand: "Expandir",
     collapse: "Contraer",
@@ -1465,6 +1469,12 @@ const messages = {
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
     connectBuilder: "Usar Builder.io",
+    createBuilderAccount: "Crear cuenta de Builder.io",
+    signInWithBuilderAccount: "Iniciar sesión con una cuenta de Builder.io",
+    builderConsentPrefix: "Al crear una cuenta de Builder.io, aceptas nuestros",
+    builderTerms: "Términos de servicio",
+    builderConsentAnd: "y",
+    builderPrivacy: "Política de privacidad",
     free: "Gratis",
     configureS3: "configurar almacenamiento compatible con S3",
     whyPrompt: "¿Por qué veo esto?",

@@ -849,6 +849,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
   "usage.builderCredits": "Builder クレジット",
+  "usage.inviteFriends": "友だちを招待",
+  "usage.inviteCredits":
+    "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",
+  "usage.copyInviteLink": "招待リンクをコピー",
+  "usage.inviteLinkCopied": "招待リンクをコピーしました",
   "usage.creditBalance": "ワークスペース残高",
   "usage.monthlyPlan": "月間プラン",
   "usage.dailyFreeLimit": "無料の日次上限",

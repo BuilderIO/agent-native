@@ -814,6 +814,10 @@ const messages = {
     uploadWorkspaceSaveFailed: "सक्रिय वर्कस्पेस अपडेट नहीं किया जा सका",
     whatsNew: "नया क्या है",
     changelogEmpty: "अभी कोई अपडेट नहीं है।",
+    changelogCommentSignup:
+      "खाली टिप्पणियों वाला साइडबार Clips आज़माने की वजह संक्षेप में बताता है और साइन अप करने का स्पष्ट रास्ता देता है।",
+    changelogShareLink:
+      "साइन इन किए हुए दर्शक अनुपलब्ध, समाप्त या निजी शेयर लिंक पर “होम जाएं” चुनने पर अब सार्वजनिक मार्केटिंग पेज के बजाय अपनी लाइब्रेरी पर पहुंचेंगे।",
     viewAllUpdates: "सभी अपडेट देखें",
     expand: "फैलाएं",
     collapse: "समेटें",
@@ -1407,6 +1411,12 @@ const messages = {
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
     connectBuilder: "Builder.io इस्तेमाल करें",
+    createBuilderAccount: "Builder.io खाता बनाएँ",
+    signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
+    builderConsentPrefix: "Builder.io खाता बनाकर, आप हमारी",
+    builderTerms: "सेवा की शर्तों",
+    builderConsentAnd: "और",
+    builderPrivacy: "गोपनीयता नीति",
     free: "मुफ्त",
     configureS3: "S3-संगत स्टोरेज कॉन्फ़िगर करें",
     whyPrompt: "मैं यह क्यों देख रहा हूं?",

@@ -3,16 +3,15 @@
  * uploads the app needs. The video upload path lives under /api/uploads/
  * because it's chunked; this route is a one-shot file POST.
  *
- * POST /api/media?filename=<name>
+ * POST /api/media?organizationId=<id>&filename=<name>
  *   Body: raw file bytes (Content-Type header determines the MIME type)
- *   Response: { url, filename, mimeType, size }
+ *   Response: { reference, filename, mimeType, size }
  *
- * Max size: 5 MB (logos). Storage: the configured file-upload provider
- * (Builder.io / S3 / …) via `uploadFile`. Fails closed with setup guidance
- * when no provider is configured — bytes never touch SQL or local disk.
+ * Max size: 5 MB (logos). Storage uses private blob storage; SQL stores only
+ * the returned opaque reference, never the image bytes.
  */
 
-import { uploadFile } from "@agent-native/core/file-upload";
+import { putPrivateBlob } from "@agent-native/core/private-blob";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
@@ -22,6 +21,12 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+
+import {
+  encodeOrganizationLogoReference,
+  ORGANIZATION_LOGO_PURPOSE,
+} from "../../../lib/organization-logo.js";
+import { requireOrganizationAccess } from "../../../lib/recordings.js";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -79,6 +84,15 @@ export default defineEventHandler(async (event: H3Event) => {
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId },
     async () => {
+      const query = getQuery(event);
+      const organizationId =
+        typeof query.organizationId === "string" ? query.organizationId : "";
+      if (!organizationId) {
+        setResponseStatus(event, 400);
+        return { error: "organizationId is required" };
+      }
+      await requireOrganizationAccess(organizationId, ["admin"]);
+
       const raw = await readRawBody(event, false);
       if (!raw || !(raw as Buffer | Uint8Array).length) {
         setResponseStatus(event, 400);
@@ -113,26 +127,32 @@ export default defineEventHandler(async (event: H3Event) => {
         return { error: "Uploaded image bytes do not match Content-Type" };
       }
 
-      const query = getQuery(event);
       const originalName =
         typeof query.filename === "string" ? query.filename : "upload";
 
       const filename = `logo-${randId()}${ext}`;
-      const uploaded = await uploadFile({
-        data: bytes,
-        mimeType,
-        filename,
-        ownerEmail: session.email,
-        recordAsset: false,
-      });
+      const handle = await runWithRequestContext(
+        { userEmail: session.email, orgId: organizationId },
+        () =>
+          putPrivateBlob({
+            data: bytes,
+            mimeType,
+            filename,
+            ownerEmail: session.email,
+            metadata: {
+              purpose: ORGANIZATION_LOGO_PURPOSE,
+              organizationId,
+            },
+          }),
+      );
 
-      if (!uploaded?.url) {
-        setResponseStatus(event, 503);
+      if (!handle) {
+        setResponseStatus(event, 409);
         return { error: STORAGE_SETUP_REQUIRED_REASON };
       }
 
       return {
-        url: uploaded.url,
+        reference: encodeOrganizationLogoReference(handle),
         filename,
         originalName,
         mimeType,

@@ -7,10 +7,17 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.
 - Shared clips remember your sidebar choice and help new viewers understand why to sign up.
 
 ### Fixed
 
+- Clips clears a stale recording overlay after an interrupted save
+- Concurrent workflow requests no longer replace an active generation.
+- Generated workflows stay tied to the request that created them.
+- Organization logos can be stored privately and load in settings, shared clips, and email.
+- Private MinIO and S3-compatible endpoints now work with Clips.
+- Workflow drafts are saved before the agent reports them complete
 - Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."
 
 ## 2026-09-24

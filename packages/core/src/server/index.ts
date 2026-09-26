@@ -696,6 +696,7 @@ export {
   type BuilderDesignSystemSourceKind,
 } from "./builder-design-systems.js";
 export {
+  cdnSafeOriginStatus,
   createBuilderProject,
   ensureBuilderProject,
   findBuilderProjectForRepo,

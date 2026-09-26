@@ -1,7 +1,7 @@
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  BuilderConnectPopover,
+  hasBuilderOAuthCredential,
   useBuilderConnectFlow,
 } from "@agent-native/core/client/settings";
 import {
@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -168,6 +169,18 @@ export function StorageSetupCard({
     },
     [builderConnect.start],
   );
+  const handleBuilderCancel = useCallback(() => {
+    connectRequestedRef.current = false;
+    builderConnect.cancel();
+  }, [builderConnect.cancel]);
+  const hasBuilderAccount =
+    builderConnect.accountExists || hasBuilderOAuthCredential(builderConnect);
+  const provisionAccount =
+    !hasBuilderAccount &&
+    builderConnect.statusResolved &&
+    builderConnect.agentNativeProvisioningEnabled;
+  const builderConnecting = builderConnect.connecting;
+  const actionConnecting = connecting || builderConnecting;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -191,14 +204,13 @@ export function StorageSetupCard({
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
 
-      {/* Builder.io — primary option, one-click Connect flow. */}
-      <BuilderConnectPopover
-        flow={builderConnect}
-        onConnect={handleBuilderConnect}
-      >
+      {/* Builder.io — primary option. */}
+      <div className="space-y-2">
         <button
           type="button"
-          disabled={connecting || connected}
+          disabled={actionConnecting || connected}
+          data-testid="storage-setup-builder-primary"
+          onClick={() => handleBuilderConnect(provisionAccount)}
           className={
             "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start transition-colors " +
             (connected
@@ -216,7 +228,7 @@ export function StorageSetupCard({
           >
             {connected ? (
               <IconCheck className="h-5 w-5" />
-            ) : connecting ? (
+            ) : actionConnecting ? (
               <IconLoader2 className="h-5 w-5 animate-spin" />
             ) : (
               <BuilderBMark className="h-5 w-5" />
@@ -227,9 +239,13 @@ export function StorageSetupCard({
               <span className="text-sm font-medium">
                 {connected
                   ? t("storageSetup.builderConnected")
-                  : connecting
+                  : actionConnecting
                     ? t("storageSetup.waitingForBuilder")
-                    : t("storageSetup.connectBuilder")}
+                    : provisionAccount
+                      ? t("storageSetup.createBuilderAccount")
+                      : hasBuilderAccount
+                        ? t("storageSetup.signInWithBuilderAccount")
+                        : t("storageSetup.connectBuilder")}
               </span>
             </div>
             <span
@@ -244,7 +260,54 @@ export function StorageSetupCard({
             </span>
           </div>
         </button>
-      </BuilderConnectPopover>
+        {provisionAccount && (
+          <button
+            type="button"
+            disabled={actionConnecting || connected}
+            data-testid="storage-setup-builder-sign-in"
+            onClick={() => handleBuilderConnect(false)}
+            className="w-full text-center text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {t("storageSetup.signInWithBuilderAccount")}
+          </button>
+        )}
+      </div>
+      {builderConnecting && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-testid="storage-setup-builder-cancel"
+          className="self-end text-xs font-normal text-muted-foreground"
+          onClick={handleBuilderCancel}
+        >
+          {t("common.cancel")}
+        </Button>
+      )}
+
+      {provisionAccount && (
+        <p className="text-center text-xs leading-5 text-muted-foreground">
+          {t("storageSetup.builderConsentPrefix")}{" "}
+          <a
+            href="https://www.builder.io/legal/terms"
+            target="_blank"
+            rel="noreferrer"
+            className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("storageSetup.builderTerms")}
+          </a>{" "}
+          {t("storageSetup.builderConsentAnd")}{" "}
+          <a
+            href="https://www.builder.io/legal/privacy"
+            target="_blank"
+            rel="noreferrer"
+            className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("storageSetup.builderPrivacy")}
+          </a>
+          .
+        </p>
+      )}
 
       {err && <p className="text-xs text-muted-foreground">{err}</p>}
 

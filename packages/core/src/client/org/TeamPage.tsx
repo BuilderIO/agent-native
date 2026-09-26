@@ -1119,13 +1119,13 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
               className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
             >
               <span>{t("onboarding.fileStorage.title")}</span>
-              <button
+              <Button
                 type="button"
                 className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => void fileUploadStatus.refetch()}
               >
                 {t("agentChat.common.retry")}
-              </button>
+              </Button>
             </div>
           ) : null)}
         <ErrorText error={setVisualIdentity.error} />

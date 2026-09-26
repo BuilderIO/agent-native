@@ -4073,6 +4073,21 @@ export default function DeckEditor() {
             </div>
           ) : null)}
 
+        {deck.slides.length === 0 &&
+          !generatingSlideVisible &&
+          !showQuestionFlow && (
+            <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
+              <div className="m-auto w-full max-w-6xl">
+                <GeneratingSlidePreview
+                  aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
+                  thumbnail={false}
+                  busy={false}
+                />
+              </div>
+            </div>
+          )}
+
         {showCurrentSlideEditor && currentSlide && (
           <SlideEditor
             slide={editorSlide ?? currentSlide}

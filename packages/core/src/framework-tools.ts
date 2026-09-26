@@ -32,6 +32,7 @@ export const FRAMEWORK_TOOL_GROUPS = [
   "automation",
   "docs",
   "resources",
+  "browserSessions",
   "web",
   "workspaceApps",
   "chat",
@@ -99,6 +100,8 @@ export interface FrameworkToolsOption {
   docs?: boolean;
   /** The `resources` tool — workspace notes, memory, and context files. */
   resources?: boolean;
+  /** Raw browser-session controls such as `run-browser-session-action`. */
+  browserSessions?: boolean;
   /** `web-request` and `web-search`. */
   web?: boolean;
   /** `describe-workspace-apps` and `call-agent` for cross-app delegation. */
@@ -315,6 +318,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "manage-usage-alert": "automation",
   "get-usage-metrics": "automation",
   "get-builder-credit-usage": "automation",
+  "get-builder-referral-info": "automation",
 
   "context-manifest-get": "contextXray",
   "context-preview-get": "contextXray",

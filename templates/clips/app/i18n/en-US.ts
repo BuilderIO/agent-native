@@ -760,6 +760,10 @@ const messages = {
     uploadWorkspaceSaveFailed: "Could not update active workspace",
     whatsNew: "What's new",
     changelogEmpty: "No updates yet.",
+    changelogCommentSignup:
+      "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
+    changelogShareLink:
+      'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
     viewAllUpdates: "View all updates",
     expand: "Expand",
     collapse: "Collapse",
@@ -1360,6 +1364,12 @@ const messages = {
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
     connectBuilder: "Use Builder.io",
+    createBuilderAccount: "Create Builder.io account",
+    signInWithBuilderAccount: "Sign in with Builder.io account",
+    builderConsentPrefix: "By creating a Builder.io account, you agree to our",
+    builderTerms: "Terms of Service",
+    builderConsentAnd: "and",
+    builderPrivacy: "Privacy Policy",
     free: "Free",
     configureS3: "configure S3-compatible storage",
     whyPrompt: "Why am I seeing this?",

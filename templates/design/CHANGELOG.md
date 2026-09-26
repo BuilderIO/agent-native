@@ -11,10 +11,16 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Design-system empty states show one creation action
 - Live preview snapshots stay private until an editor signs in and enables collaboration.
 
 ### Fixed
 
+- Builder design-system failures preserve readable JSON errors behind Cloudflare.
+- Standalone HTML exports with multiple screens now show each screen in its own
+  viewport instead of overlapping.
+- Effect values stay editable after blur, and the shader picker stays open during selection
+- Escape cancels unfinished Pen paths, and Enter selects the finished vector.
 - Live canvas sharing requires an account, with a sign-up path for signed-out owners.
 - Cross-screen moves preserve Flex and Grid sizing through undo and redo.
 - Moving a layer from one live app screen into another now lands it instead of failing with "Could not move that layer", and a failed move no longer leaves the layer stuck to the cursor.

@@ -1,8 +1,23 @@
+import { fail } from "@agent-native/core/action";
+import {
+  getJevContextCredentials,
+  isJevEnabled,
+} from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import type { AutomationAction, AutomationRule } from "../../shared/types.js";
 import { db, schema } from "../db/index.js";
+
+export async function assertMailJevEnabled(ownerEmail: string): Promise<void> {
+  const credentials = await getJevContextCredentials(ownerEmail);
+  if (!(await isJevEnabled(credentials))) {
+    fail("Jev is not enabled for this account.", {
+      errorCode: "jev_not_enabled",
+      statusCode: 403,
+    });
+  }
+}
 
 export function toApiRule(row: any): AutomationRule {
   const kind = row.kind ?? "automation";
@@ -85,6 +100,24 @@ export async function updateAutomationRule(
     kind?: "automation" | "ai-filter";
   },
 ): Promise<AutomationRule> {
+  const [existing] = await db
+    .select()
+    .from(schema.automationRules)
+    .where(ownedRule(ownerEmail, id));
+  if (!existing) throw new Error("Rule not found");
+
+  const existingIsMailAiFilter =
+    existing.domain === "mail" &&
+    (existing.kind ?? "automation") === "ai-filter";
+  const nextDomain = patch.domain ?? existing.domain;
+  const nextKind = patch.kind ?? existing.kind ?? "automation";
+  const disableOnly =
+    Object.keys(patch).length === 1 && patch.enabled === false;
+  const nextIsMailAiFilter = nextDomain === "mail" && nextKind === "ai-filter";
+  if ((existingIsMailAiFilter || nextIsMailAiFilter) && !disableOnly) {
+    await assertMailJevEnabled(ownerEmail);
+  }
+
   const updates: Record<string, any> = {
     updatedAt: Math.floor(Date.now() / 1_000),
   };
@@ -134,6 +167,7 @@ export async function consolidateAutomationRules(
     actions: AutomationAction[];
   },
 ): Promise<boolean> {
+  await assertMailJevEnabled(ownerEmail);
   const ids = [input.id, ...input.duplicateIds];
   if (new Set(ids).size !== ids.length) return false;
 

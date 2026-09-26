@@ -856,6 +856,10 @@ const messages = {
       "Aktiver Arbeitsbereich konnte nicht aktualisiert werden",
     whatsNew: "Neuigkeiten",
     changelogEmpty: "Noch keine Updates.",
+    changelogCommentSignup:
+      "Die leere Kommentar-Seitenleiste erklärt kurz, warum sich Clips lohnt, und bietet einen klaren Weg zur Registrierung.",
+    changelogShareLink:
+      "Angemeldete Nutzer mit einem nicht verfügbaren, abgelaufenen oder privaten Freigabelink gelangen bei „Zur Startseite“ jetzt zu ihrer Bibliothek statt zur öffentlichen Marketingseite.",
     viewAllUpdates: "Alle Updates anzeigen",
     expand: "Erweitern",
     collapse: "Einklappen",
@@ -1470,6 +1474,13 @@ const messages = {
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
     connectBuilder: "Builder.io nutzen",
+    createBuilderAccount: "Builder.io-Konto erstellen",
+    signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
+    builderConsentPrefix:
+      "Mit der Erstellung eines Builder.io-Kontos stimmst du unseren",
+    builderTerms: "Nutzungsbedingungen",
+    builderConsentAnd: "und",
+    builderPrivacy: "Datenschutzrichtlinien",
     free: "Kostenlos",
     configureS3: "S3-kompatiblen Speicher konfigurieren",
     whyPrompt: "Warum sehe ich das?",

@@ -827,6 +827,10 @@ const messages = {
     uploadWorkspaceSaveFailed: "활성 워크스페이스를 업데이트할 수 없음",
     whatsNew: "새 소식",
     changelogEmpty: "아직 업데이트가 없습니다.",
+    changelogCommentSignup:
+      "댓글이 없을 때 사이드바에서 Clips를 사용해 볼 이유를 간단히 설명하고 쉽게 가입할 수 있도록 안내합니다.",
+    changelogShareLink:
+      "로그인한 사용자가 사용할 수 없거나 만료되었거나 비공개인 공유 링크에서 '홈으로 이동'을 선택하면 공개 마케팅 페이지 대신 라이브러리로 이동합니다.",
     viewAllUpdates: "모든 업데이트 보기",
     expand: "펼치기",
     collapse: "접기",
@@ -1426,6 +1430,12 @@ const messages = {
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
     connectBuilder: "Builder.io 사용",
+    createBuilderAccount: "Builder.io 계정 만들기",
+    signInWithBuilderAccount: "Builder.io 계정으로 로그인",
+    builderConsentPrefix: "Builder.io 계정을 만들면 당사의",
+    builderTerms: "서비스 약관",
+    builderConsentAnd: "및",
+    builderPrivacy: "개인정보 처리방침",
     free: "무료",
     configureS3: "S3 호환 스토리지 구성",
     whyPrompt: "왜 이 화면이 보이나요?",

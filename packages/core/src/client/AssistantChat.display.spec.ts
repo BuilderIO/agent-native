@@ -3529,6 +3529,30 @@ describe("waitForThreadRunToClear", () => {
     expect(helperSource).toContain("continue;");
   });
 
+  it("includes run identity in reconnect running events", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const startReconnectToRun = useCallback");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const helperSource = source.slice(start, end);
+    const eventDetails = [
+      ...helperSource.matchAll(
+        /new CustomEvent\("agentNative\.chatRunning", \{\s*detail: \{([^}]*)\}/g,
+      ),
+    ].map((match) => match[1] ?? "");
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(eventDetails).toHaveLength(4);
+    expect(
+      eventDetails.every((detail) =>
+        detail.includes("...reconnectEventIdentity"),
+      ),
+    ).toBe(true);
+    expect(helperSource).toContain("const reconnectEventIdentity = {");
+  });
+
   it("shows active tool activity before falling back to calm recovery labels", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",

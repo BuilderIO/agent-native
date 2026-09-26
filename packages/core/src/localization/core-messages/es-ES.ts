@@ -892,6 +892,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Correo electrónico nuevo",
   "settings.emailNewPlaceholder": "Introduce un correo nuevo",
   "usage.builderCredits": "Créditos de Builder",
+  "usage.inviteFriends": "Invita a tus amigos",
+  "usage.inviteCredits":
+    "Gana {{amount}} créditos de Builder cuando un amigo se suscriba.",
+  "usage.copyInviteLink": "Copiar enlace de invitación",
+  "usage.inviteLinkCopied": "Enlace de invitación copiado",
   "usage.creditBalance": "Saldo del espacio de trabajo",
   "usage.monthlyPlan": "Plan mensual",
   "usage.dailyFreeLimit": "Límite diario gratuito",

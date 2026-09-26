@@ -842,6 +842,11 @@ const messages = {
   "settings.emailNewLabel": "New email",
   "settings.emailNewPlaceholder": "Enter new email",
   "usage.builderCredits": "Builder credits",
+  "usage.inviteFriends": "Invite friends",
+  "usage.inviteCredits":
+    "Earn {{amount}} Builder credits when a friend subscribes.",
+  "usage.copyInviteLink": "Copy invite link",
+  "usage.inviteLinkCopied": "Invite link copied",
   "usage.creditBalance": "Workspace balance",
   "usage.monthlyPlan": "Monthly plan",
   "usage.dailyFreeLimit": "Free daily limit",
