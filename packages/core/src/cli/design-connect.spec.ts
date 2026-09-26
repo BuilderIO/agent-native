@@ -495,6 +495,41 @@ describe("design connect CLI", () => {
     }
   });
 
+  it("does not persist the child token before daemon authentication", async () => {
+    for (const key of bridgeTokenEnvKeys) delete process.env[key];
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const persistedPath = path.join(
+      root,
+      ".agent-native",
+      "design-bridge-token",
+    );
+    const savedToken = crypto.randomBytes(32).toString("hex");
+    fs.mkdirSync(path.dirname(persistedPath), { recursive: true });
+    fs.writeFileSync(persistedPath, `${savedToken}\n`);
+    const childToken = crypto.randomBytes(32).toString("hex");
+    const bridge = await startDesignConnectBridge(manifest, {
+      bridgeToken: childToken,
+      persistBridgeToken: false,
+    });
+
+    try {
+      expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(savedToken);
+      await expect(
+        getJson(`${manifest.bridgeUrl}/manifest.json`, {
+          "x-design-preview-token": bridge.previewToken,
+        }),
+      ).resolves.toMatchObject({ status: 200 });
+    } finally {
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+  });
+
   it("does not persist a losing token when another daemon wins the port race", async () => {
     for (const key of bridgeTokenEnvKeys) delete process.env[key];
     const root = tmpDir();
@@ -541,6 +576,12 @@ describe("design connect CLI", () => {
         ]),
       ).resolves.toBe(1);
       expect(spawnMock).toHaveBeenCalledOnce();
+      const childEnvironment = spawnMock.mock.calls[0]?.[2]?.env as
+        | Record<string, string | undefined>
+        | undefined;
+      expect(
+        childEnvironment?.["AGENT_NATIVE_DESIGN_CONNECT_DEFER_TOKEN_PERSIST"],
+      ).toBe("true");
       expect(winningBridge).toBeDefined();
       expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(winningToken);
       expect(JSON.stringify(error.mock.calls)).toContain(

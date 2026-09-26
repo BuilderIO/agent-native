@@ -684,6 +684,7 @@ import {
   crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
   crossScreenSourceDeleteCancellation,
+  retryCrossScreenRollbackRequest,
   scheduleCrossScreenDeleteTimeout,
   scheduleCrossScreenInsertTimeout,
   scheduleCrossScreenRollbackTimeout,
@@ -17653,16 +17654,18 @@ function DesignEditor() {
         return;
       }
       if (request.cancelRequested) {
-        if (details.reason === "cancelled") {
-          if (
-            runtimeStructureRollbackRequest?.transactionId ===
-            request.transactionId
-          ) {
+        if (
+          runtimeStructureRollbackRequest?.transactionId ===
+          request.transactionId
+        ) {
+          if (details.reason === "cancelled") {
             setRuntimeStructureDeleteRequest((current) =>
               current?.transactionId === request.transactionId ? null : current,
             );
-            return;
           }
+          return;
+        }
+        if (details.reason === "cancelled") {
           const recoveryRollbackRequest =
             crossScreenRollbackAfterSourceCancellation(
               request,
@@ -17749,8 +17752,7 @@ function DesignEditor() {
     if (
       runtimeStructureRollbackRequest?.transactionId &&
       runtimeStructureRollbackRequest.transactionId ===
-        deleteRequest?.transactionId &&
-      !deleteRequest.cancelRequested
+        deleteRequest?.transactionId
     ) {
       return;
     }
@@ -17786,6 +17788,25 @@ function DesignEditor() {
       );
       const rollbackRequest = runtimeStructureRollbackRequest;
       const transactionId = rollbackRequest.transactionId;
+      const destinationScreenExists =
+        rollbackRequest.screenId === boardFileId ||
+        overviewScreens.some(
+          (screen) => screen.id === rollbackRequest.screenId,
+        );
+      if (
+        details.reason === "rollback-timeout" &&
+        transactionId &&
+        destinationScreenExists
+      ) {
+        runtimeStructureRollbackRevisionRef.current += 1;
+        const requestId = `${transactionId}:rollback:${runtimeStructureRollbackRevisionRef.current}`;
+        setRuntimeStructureRollbackRequest((current) =>
+          current?.requestId === rollbackRequest.requestId
+            ? retryCrossScreenRollbackRequest(rollbackRequest, requestId)
+            : current,
+        );
+        return;
+      }
       const hasPendingInsert = Boolean(
         transactionId &&
         (pendingLiveNonStyleEditsRef.current.some(
@@ -17807,11 +17828,6 @@ function DesignEditor() {
               ),
           )),
       );
-      const destinationScreenExists =
-        rollbackRequest.screenId === boardFileId ||
-        overviewScreens.some(
-          (screen) => screen.id === rollbackRequest.screenId,
-        );
       const rollbackIsComplete = crossScreenRollbackIsComplete(
         rollbackRequest,
         details,

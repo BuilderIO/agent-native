@@ -62,6 +62,12 @@ export function cancelCrossScreenRollbackTimeout(timeoutRef: {
   timeoutRef.current = null;
 }
 
+export function retryCrossScreenRollbackRequest<
+  T extends RuntimeStructureRollbackRequest,
+>(request: T, requestId: string): T {
+  return { ...request, requestId };
+}
+
 export function crossScreenSourceDeleteCancellation(
   request: (RuntimeStructureDeleteRequest & { screenId: string }) | null,
   transactionId: string,

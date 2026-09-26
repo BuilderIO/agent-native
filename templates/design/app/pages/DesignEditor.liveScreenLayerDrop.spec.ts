@@ -97,7 +97,23 @@ describe("DesignEditor Layers-panel live-screen row drop", () => {
       deleteTimeoutStart,
       rollbackResultStart,
     );
-    expect(deleteTimeoutEffect).toContain("!deleteRequest.cancelRequested");
+    expect(deleteTimeoutEffect).toMatch(
+      /runtimeStructureRollbackRequest\.transactionId ===\s*deleteRequest\?\.transactionId/,
+    );
+    expect(deleteTimeoutEffect).not.toContain("!deleteRequest.cancelRequested");
+
+    const rollbackResultEnd = source.indexOf(
+      "const runtimeStructureRollbackResultHandlerRef = useRef(",
+      rollbackResultStart,
+    );
+    const rollbackResultHandler = source.slice(
+      rollbackResultStart,
+      rollbackResultEnd,
+    );
+    expect(rollbackResultHandler).toContain(
+      'details.reason === "rollback-timeout"',
+    );
+    expect(rollbackResultHandler).toContain("retryCrossScreenRollbackRequest(");
   });
 
   it("cancels rollback timeout on the first bridge result without rearming per render", () => {

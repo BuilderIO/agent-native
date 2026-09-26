@@ -144,6 +144,7 @@ export interface DesignConnectBridge {
 export interface DesignConnectBridgeOptions {
   bridgeToken?: string;
   previewToken?: string;
+  persistBridgeToken?: boolean;
   /** Extra exact browser origins allowed to make CORS requests to the bridge.
    *  The production Design origin and loopback development origins are always
    *  recognized; custom deployments should pass their app origin here. */
@@ -4107,11 +4108,13 @@ export async function startDesignConnectBridge(
     });
   });
 
-  try {
-    await persistBridgeToken(manifest.rootPath, bridgeToken);
-  } catch (error) {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    throw error;
+  if (options.persistBridgeToken !== false) {
+    try {
+      await persistBridgeToken(manifest.rootPath, bridgeToken);
+    } catch (error) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      throw error;
+    }
   }
 
   return { server, manifest, bridgeToken, previewToken, bridgeInstanceId };
@@ -4373,7 +4376,11 @@ async function startDetachedDesignBridge(
   const child = spawn(invocation.command, invocation.args, {
     cwd: process.cwd(),
     detached: true,
-    env: { ...process.env, AGENT_NATIVE_BRIDGE_TOKEN: bridgeToken },
+    env: {
+      ...process.env,
+      AGENT_NATIVE_BRIDGE_TOKEN: bridgeToken,
+      AGENT_NATIVE_DESIGN_CONNECT_DEFER_TOKEN_PERSIST: "true",
+    },
     stdio: ["ignore", logFd.fd, logFd.fd],
     shell: process.platform === "win32",
   });
@@ -4545,6 +4552,8 @@ export async function runDesign(argv: string[]) {
     bridgeToken: seedBridgeToken,
     previewToken: seedPreviewToken,
     allowedOrigins: appUrl ? [appUrl] : [],
+    persistBridgeToken:
+      process.env["AGENT_NATIVE_DESIGN_CONNECT_DEFER_TOKEN_PERSIST"] !== "true",
   });
   console.error("Design localhost bridge running");
   console.error(`Bridge:   ${manifest.bridgeUrl}`);

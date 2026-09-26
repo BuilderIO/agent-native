@@ -9,6 +9,7 @@ import {
   crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
   crossScreenSourceDeleteCancellation,
+  retryCrossScreenRollbackRequest,
   scheduleCrossScreenDeleteTimeout,
   scheduleCrossScreenInsertTimeout,
   scheduleCrossScreenRollbackTimeout,
@@ -160,6 +161,23 @@ describe("crossScreenRollbackDisposition", () => {
         disposition: "discard",
       }),
     ).toBe(true);
+  });
+});
+
+describe("retryCrossScreenRollbackRequest", () => {
+  it("keeps the rollback transaction while assigning a fresh bridge request id", () => {
+    const request = {
+      requestId: "move-1:rollback:1",
+      transactionId: "move-1",
+      screenId: "target",
+      selector: "#inserted",
+      sourceId: "inserted-id",
+      idempotent: true,
+    };
+
+    expect(
+      retryCrossScreenRollbackRequest(request, "move-1:rollback:2"),
+    ).toEqual({ ...request, requestId: "move-1:rollback:2" });
   });
 });
 
