@@ -249,6 +249,11 @@ describe("AiFilterSection prompt blur saves", () => {
         }) as HTMLTextAreaElement
       ).disabled,
     ).toBe(true);
+    expect(
+      screen.queryByRole("button", {
+        name: "mail.aiFilter.deleteInstruction",
+      }),
+    ).toBeNull();
 
     fireEvent.click(
       screen.getByRole("button", { name: "mail.error.tryAgain" }),

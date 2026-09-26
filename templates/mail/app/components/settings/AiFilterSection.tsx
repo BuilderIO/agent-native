@@ -203,6 +203,10 @@ export function AiFilterSection() {
   );
   const jevConfigured =
     !jevAvailability.isError && jevAvailability.data?.configured === true;
+  const jevUnavailable =
+    !jevAvailability.isLoading &&
+    !jevAvailability.isError &&
+    jevAvailability.data?.configured === false;
   const updateSettings = useManageAiFilter();
   const updatePreferences = useUpdateSettings();
   const clearAiFilterRules = useClearAiFilterRules();
@@ -696,7 +700,7 @@ export function AiFilterSection() {
                     ? t("mail.aiFilter.skipInboxMode")
                     : t("mail.aiFilter.spamMode")}
               </h3>
-              {!jevConfigured && promptRules[mode].length > 0 && (
+              {jevUnavailable && promptRules[mode].length > 0 && (
                 <Button
                   variant="ghost"
                   size="icon"
