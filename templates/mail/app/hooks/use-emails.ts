@@ -834,6 +834,38 @@ function rollbackBooleanMutation(
 
 const readMutationVersions = new Map<string, BooleanMutationState>();
 
+type ThreadReadIntent = { threadId: string; version: number };
+type ThreadReadIntentState = { version: number; pending: Set<number> };
+
+const threadReadIntentStates = new Map<string, ThreadReadIntentState>();
+const threadReadIntentByVariables = new WeakMap<object, ThreadReadIntent>();
+const threadReadRetryIntentByError = new WeakMap<object, ThreadReadIntent>();
+
+export function beginThreadReadIntent(threadId: string): ThreadReadIntent {
+  const state = threadReadIntentStates.get(threadId) ?? {
+    version: 0,
+    pending: new Set<number>(),
+  };
+  const intent = { threadId, version: state.version + 1 };
+  state.version = intent.version;
+  state.pending.add(intent.version);
+  threadReadIntentStates.set(threadId, state);
+  return intent;
+}
+
+export function isCurrentThreadReadIntent(intent: ThreadReadIntent): boolean {
+  const state = threadReadIntentStates.get(intent.threadId);
+  return state?.version === intent.version && state.pending.has(intent.version);
+}
+
+export function finishThreadReadIntent(intent: ThreadReadIntent | undefined) {
+  if (!intent) return;
+  const state = threadReadIntentStates.get(intent.threadId);
+  if (!state) return;
+  state.pending.delete(intent.version);
+  if (state.pending.size === 0) threadReadIntentStates.delete(intent.threadId);
+}
+
 export function beginReadMutation(
   emailId: string,
   currentState: boolean | undefined,
@@ -1533,7 +1565,8 @@ export function useMarkRead() {
         accountEmail,
         flag: isRead,
       }),
-    onMutate: async ({ id, isRead, accountEmail, threadId }) => {
+    onMutate: async (variables) => {
+      const { id, isRead, accountEmail, threadId } = variables;
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
@@ -1556,6 +1589,9 @@ export function useMarkRead() {
         previousReadState ?? target?.isRead,
         isRead,
       );
+      const readIntent = resolvedThreadId
+        ? beginThreadReadIntent(resolvedThreadId)
+        : undefined;
       setOptimisticOverride(id, { isRead });
       // Message-scoped: this only touches one message, so the row's unread
       // count must move by ±1, not snap the whole thread to read/unread —
@@ -1581,12 +1617,18 @@ export function useMarkRead() {
           );
         }
       }
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
+      try {
+        await Promise.all([
+          qc.cancelQueries({ queryKey: ["emails"] }),
+          cancelInboxThreadsQueries(qc),
+        ]);
+      } catch (error) {
+        finishThreadReadIntent(readIntent);
+        throw error;
+      }
       return {
         mutationVersion,
+        readIntent,
         threadId: resolvedThreadId,
         inboxMutationId,
         refreshThread:
@@ -1618,6 +1660,7 @@ export function useMarkRead() {
       toast.error(toError(err).message);
     },
     onSettled: (_data, _error, _variables, context) => {
+      finishThreadReadIntent(context?.readIntent);
       if (context?.refreshThread) {
         refreshThreadAfterMutations(context.refreshThread);
       }
@@ -1635,21 +1678,36 @@ export function useMarkThreadRead() {
   const qc = useQueryClient();
   const t = useT();
   return useMutation({
-    mutationFn: ({
-      threadId,
-      accountEmail,
-    }: {
+    mutationFn: async (variables: {
       threadId: string;
       accountEmail?: string;
-    }) =>
-      callAction("mark-thread-read", { threadId, accountEmail }).then(
-        assertActionSuccess,
-      ),
-    retry: (failureCount, error) =>
-      failureCount < 1 && markThreadReadRetryAfterMs(error) !== undefined,
+    }) => {
+      const intent = threadReadIntentByVariables.get(variables);
+      if (intent && !isCurrentThreadReadIntent(intent)) return undefined;
+      try {
+        return assertActionSuccess(
+          await callAction("mark-thread-read", variables),
+        );
+      } catch (error) {
+        if (intent && error && typeof error === "object") {
+          threadReadRetryIntentByError.set(error, intent);
+        }
+        throw error;
+      }
+    },
+    retry: (failureCount, error) => {
+      const intent =
+        error && typeof error === "object"
+          ? threadReadRetryIntentByError.get(error)
+          : undefined;
+      return shouldRetryMarkThreadRead(failureCount, error, intent);
+    },
     retryDelay: (_failureCount, error) =>
       markThreadReadRetryAfterMs(error) ?? 0,
-    onMutate: async ({ threadId, accountEmail }) => {
+    onMutate: async (variables) => {
+      const { threadId, accountEmail } = variables;
+      const retryIntent = beginThreadReadIntent(threadId);
+      threadReadIntentByVariables.set(variables, retryIntent);
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
@@ -1684,12 +1742,19 @@ export function useMarkThreadRead() {
           previousThread.map((message) => ({ ...message, isRead: true })),
         );
       }
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
+      try {
+        await Promise.all([
+          qc.cancelQueries({ queryKey: ["emails"] }),
+          cancelInboxThreadsQueries(qc),
+        ]);
+      } catch (error) {
+        threadReadIntentByVariables.delete(variables);
+        finishThreadReadIntent(retryIntent);
+        throw error;
+      }
       return {
         mutations,
+        retryIntent,
         inboxMutationId,
         refreshThread: restartThread
           ? {
@@ -1732,6 +1797,7 @@ export function useMarkThreadRead() {
       );
     },
     onSettled: (_data, _error, _variables, context) => {
+      finishThreadReadIntent(context?.retryIntent);
       if (context?.refreshThread) {
         refreshThreadAfterMutations(context.refreshThread);
       }
@@ -1762,6 +1828,19 @@ export function markThreadReadRetryAfterMs(error: unknown): number | undefined {
     return undefined;
   }
   return Math.min(details.retryAfterMs, 300_000);
+}
+
+export function shouldRetryMarkThreadRead(
+  failureCount: number,
+  error: unknown,
+  intent: ThreadReadIntent | undefined,
+): boolean {
+  return (
+    failureCount < 1 &&
+    intent !== undefined &&
+    isCurrentThreadReadIntent(intent) &&
+    markThreadReadRetryAfterMs(error) !== undefined
+  );
 }
 
 export function useToggleStar() {
@@ -2548,6 +2627,9 @@ export function useBulkMarkRead() {
         flattenInfiniteEmails(data),
       );
       const threadIdsByEmailId = resolveBulkThreadIds(qc, targets);
+      const threadReadIntents = [
+        ...new Set(Object.values(threadIdsByEmailId)),
+      ].map(beginThreadReadIntent);
       const mutationVersions: Record<string, number> = {};
       for (const id of ids) {
         mutationVersions[id] = beginReadMutation(
@@ -2562,11 +2644,21 @@ export function useBulkMarkRead() {
         new Set(Object.values(threadIdsByEmailId)),
         isRead,
       );
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
-      return { mutationVersions, threadIdsByEmailId, inboxMutationId };
+      try {
+        await Promise.all([
+          qc.cancelQueries({ queryKey: ["emails"] }),
+          cancelInboxThreadsQueries(qc),
+        ]);
+      } catch (error) {
+        threadReadIntents.forEach(finishThreadReadIntent);
+        throw error;
+      }
+      return {
+        mutationVersions,
+        threadIdsByEmailId,
+        inboxMutationId,
+        threadReadIntents,
+      };
     },
     onSuccess: (_data, vars, context) => {
       if (!context) return;
@@ -2611,13 +2703,15 @@ export function useBulkMarkRead() {
       }
       toast.error(toError(err).message);
     },
-    onSettled: (_data, _error, _variables, context) =>
-      delayedInvalidate(
+    onSettled: (_data, _error, _variables, context) => {
+      context?.threadReadIntents.forEach(finishThreadReadIntent);
+      return delayedInvalidate(
         qc,
         [["emails"], LABELS_QUERY_KEY, INBOX_THREADS_QUERY_KEY],
         3_000,
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
-      ),
+      );
+    },
   });
 }
 

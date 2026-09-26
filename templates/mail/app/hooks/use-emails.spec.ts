@@ -7,10 +7,12 @@ import {
   apiFetch,
   type ApiError,
   consumeExternalEmailRefresh,
+  beginThreadReadIntent,
   beginReadMutation,
   confirmReadMutation,
   clearOptimisticOverride,
   forgetSuppressionClaim,
+  finishThreadReadIntent,
   filterSuppressedThreads,
   markExternalEmailRefresh,
   parseAccountErrorsHeader,
@@ -24,6 +26,7 @@ import {
   hasFreshOptimisticOverrideEvidence,
   keepLatestEmailPage,
   markThreadReadRetryAfterMs,
+  shouldRetryMarkThreadRead,
 } from "./use-emails";
 
 function makeEmail(id: string, threadId: string): EmailMessage {
@@ -564,6 +567,38 @@ describe("useMarkThreadRead", () => {
     expect(hook).toContain('t("mail.error.rateLimitDescription")');
   });
 
+  it("skips a cooldown retry after a newer read or unread intent", () => {
+    const error = Object.assign(new Error("cooldown"), {
+      status: 429,
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 45_000,
+    });
+    const first = beginThreadReadIntent("thread-retry-order");
+
+    expect(shouldRetryMarkThreadRead(0, error, first)).toBe(true);
+    const newer = beginThreadReadIntent("thread-retry-order");
+    expect(shouldRetryMarkThreadRead(0, error, first)).toBe(false);
+    expect(shouldRetryMarkThreadRead(0, error, newer)).toBe(true);
+
+    finishThreadReadIntent(newer);
+    expect(shouldRetryMarkThreadRead(0, error, first)).toBe(false);
+    finishThreadReadIntent(first);
+
+    const source = emailsHookSource();
+    const threadReadHook = source.slice(
+      source.indexOf("export function useMarkThreadRead()"),
+      source.indexOf("export function markThreadReadRetryAfterMs"),
+    );
+    expect(threadReadHook).toContain(
+      "if (intent && !isCurrentThreadReadIntent(intent)) return undefined;",
+    );
+    expect(threadReadHook).toContain(
+      "threadReadIntentByVariables.set(variables, retryIntent)",
+    );
+    expect(source).toContain("beginThreadReadIntent(resolvedThreadId)");
+    expect(source).toContain("].map(beginThreadReadIntent)");
+  });
+
   it("supersedes a cold thread fetch before the optimistic update", () => {
     const source = emailsHookSource();
     const hook = source.slice(
@@ -587,10 +622,9 @@ describe("useMarkThreadRead", () => {
       source.indexOf("export function useToggleStar()"),
     );
 
-    expect(hook).toContain(
-      'mutationFn: ({\n      threadId,\n      accountEmail,\n    }: {\n      threadId: string;\n      accountEmail?: string;\n    }) =>\n      callAction("mark-thread-read", { threadId, accountEmail })',
-    );
-    expect(hook).toContain("onMutate: async ({ threadId, accountEmail }) => {");
+    expect(hook).toContain('await callAction("mark-thread-read", variables)');
+    expect(hook).toContain("threadId: string;\n      accountEmail?: string;");
+    expect(hook).toContain("const { threadId, accountEmail } = variables;");
   });
 });
 
