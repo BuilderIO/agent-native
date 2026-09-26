@@ -66,10 +66,15 @@ export function ImportDeckButton({
             size="sm"
             disabled={busy}
             aria-busy={busy}
+            aria-label={t(
+              busy ? "editorToolbar.importing" : "home.importMenu.import",
+            )}
             onClick={() => openPicker()}
           >
             <IconUpload />
-            {t(busy ? "editorToolbar.importing" : "home.importMenu.import")}
+            <span className="slides-home-import-label">
+              {t(busy ? "editorToolbar.importing" : "home.importMenu.import")}
+            </span>
           </Button>
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>

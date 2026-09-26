@@ -93,6 +93,12 @@
   }
 }
 
+@container design-home-toolbar (max-width: 36rem) {
+  .design-home-header .design-home-import-label {
+    display: none;
+  }
+}
+
 .design-home-prompt-composer-area.agent-composer-area--hero {
   padding: 0;
 }

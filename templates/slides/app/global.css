@@ -48,6 +48,12 @@
   }
 }
 
+@container (max-width: 36rem) {
+  .slides-home-toolbar .slides-home-import-label {
+    display: none;
+  }
+}
+
 @container (max-width: 28rem) {
   .slides-home-toolbar {
     height: 7rem;

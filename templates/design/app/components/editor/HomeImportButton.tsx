@@ -100,9 +100,16 @@ export function HomeImportButton() {
       <Popover open={open} onOpenChange={changeOpen}>
         <PopoverAnchor asChild>
           <ButtonGroup aria-label={t("home.import")}>
-            <Button size="sm" disabled={busy} onClick={pickFile}>
+            <Button
+              size="sm"
+              disabled={busy}
+              aria-label={t("home.import")}
+              onClick={pickFile}
+            >
               <IconUpload />
-              {t("home.import")}
+              <span className="design-home-import-label">
+                {t("home.import")}
+              </span>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
