@@ -583,6 +583,49 @@ describe("s3FileUploadProvider", () => {
     expect(requestSignals[0]?.aborted).toBe(true);
   });
 
+  it("times out a successful S3 response body that callers never read", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const requestSignals: AbortSignal[] = [];
+    mockSsrfSafeFetch.mockImplementation(
+      async (_url: string, init: RequestInit) => {
+        const signal = init.signal as AbortSignal;
+        requestSignals.push(signal);
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(streamController) {
+              signal.addEventListener(
+                "abort",
+                () => streamController.error(signal.reason),
+                { once: true },
+              );
+            },
+          }),
+        );
+      },
+    );
+
+    const response = await fetchS3ObjectByUrl(
+      "https://s3.example.com/clips-bucket/clips/recording/video.webm",
+      { recordingId: "recording", timeoutMs: 25 },
+    );
+
+    expect(response?.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(requestSignals[0]?.aborted).toBe(true);
+    await expect(response!.arrayBuffer()).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+  });
+
   it("lets progressing S3 playback streams outlast the idle timeout", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "clips-bucket",
