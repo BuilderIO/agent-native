@@ -119,11 +119,10 @@ export function TemplatePreview({
         )}
         style={
           {
+            ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
             "--design-template-width": `${naturalWidth}px`,
             "--design-template-height": `${naturalHeight}px`,
             "--design-template-scale": scale,
-            "--design-template-paint-retention":
-              SCALED_IFRAME_PAINT_RETENTION_STYLE.backfaceVisibility,
           } as CSSProperties
         }
       />

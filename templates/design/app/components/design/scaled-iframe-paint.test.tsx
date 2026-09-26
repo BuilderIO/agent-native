@@ -254,7 +254,9 @@ describe("canvas iframe paint retention", () => {
       const elements = iframeElements(source);
       expect(elements.length).toBeGreaterThan(0);
       for (const element of elements) {
-        const painted = element.includes("SCALED_IFRAME_PAINT_RETENTION_STYLE");
+        const painted = element.includes(
+          "...SCALED_IFRAME_PAINT_RETENTION_STYLE,",
+        );
         const optedOut = element.includes("scaled-iframe-paint-ignore");
         expect(
           painted || optedOut,

@@ -2,56 +2,67 @@
   "effects-transforms": {
     "maxDiffPercent": 1.56,
     "maxOmitted": 0,
-    "maxApproximated": 0
+    "maxApproximated": 0,
+    "sourceHash": "de4832fb2f18e3956f7e380044e9f54b7f626645e9586d309e328a3cbd572105"
   },
   "image-scale-modes": {
     "maxDiffPercent": 2.336,
     "maxOmitted": 0,
-    "maxApproximated": 3
+    "maxApproximated": 3,
+    "sourceHash": "9997b47064d75032b2b9f7f5398a9e5a64e2910035e1c8243b58690456f89697"
   },
   "layout-stress": {
     "maxDiffPercent": 0.365,
     "maxOmitted": 0,
-    "maxApproximated": 0
+    "maxApproximated": 0,
+    "sourceHash": "7a90e5b6175e0b08acb210c082879c5084347a32c1c4414e2cc815711b306e35"
   },
   "media-cards": {
     "maxDiffPercent": 1.244,
     "maxOmitted": 0,
-    "maxApproximated": 0
+    "maxApproximated": 0,
+    "sourceHash": "a1bf9d99959b84b196efaee8ae339662876f80c70a5d1436a4b736957beb7399"
   },
   "mobile-icons": {
     "maxDiffPercent": 0.366,
     "maxOmitted": 0,
-    "maxApproximated": 0
+    "maxApproximated": 0,
+    "sourceHash": "ed09aaa70a136c0b2c479da951e9d58777e9f626b791dba45f74f9c83356b15c"
   },
   "preset-display-ad": {
     "maxDiffPercent": 9.364,
     "maxOmitted": 0,
-    "maxApproximated": 0
+    "maxApproximated": 0,
+    "sourceHash": "4cc8963191f5b35c1245fb92dd16f4ada4f8becb0ada7e9b537bb9e5dfe6fb78"
   },
   "preset-landing-page": {
     "maxDiffPercent": 5.224,
     "maxOmitted": 0,
-    "maxApproximated": 0
+    "maxApproximated": 0,
+    "sourceHash": "35de4252d4f1ba9879547fe151e2d6170eb519a6492db70517a21f60c6374bb5"
   },
   "preset-one-pager": {
     "maxDiffPercent": 0.48,
     "maxOmitted": 0,
-    "maxApproximated": 0
+    "maxApproximated": 0,
+    "sourceHash": "a49ca0ad82eb0c35ab69a11b3ef1ae32aa27446b019ffe5ddbbbdd039126dd66"
   },
   "preset-social-square": {
     "maxDiffPercent": 1.612,
     "maxOmitted": 0,
-    "maxApproximated": 0
+    "maxApproximated": 0,
+    "sourceHash": "850817544b98158f18c130eb4d003f6ef9c995c66adcc9eb86c63b9c4a01f6bb"
   },
   "typography": {
     "maxDiffPercent": 6.218,
     "maxOmitted": 0,
-    "maxApproximated": 0
+    "maxApproximated": 0,
+    "sourceHash": "aa675cbdb0c05097810f637ee9dc661ea42e84fce0e8a3818c816a0e26f01e73"
   },
   "whole-screen-padded-body": {
     "maxDiffPercent": 0.125,
     "maxOmitted": 0,
-    "maxApproximated": 0
+    "maxApproximated": 0,
+    "sourceHash": "e92d1c08a8a359f9d0194fab918022212bb8d19327733a9ec6e3ecda28d5d9f3"
   }
 }

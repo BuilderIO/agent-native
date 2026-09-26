@@ -21,7 +21,7 @@
   transform-origin: center;
   border: 0;
   pointer-events: none;
-  backface-visibility: var(--design-template-paint-retention, hidden);
+  backface-visibility: hidden;
 }
 
 .design-template-preview-interactive {
