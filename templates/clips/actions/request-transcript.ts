@@ -660,6 +660,7 @@ export async function importLoomTranscriptForRecording({
           {
             app_name: "clips",
             template_name: "clips",
+            recording_attempt_id: recordingId,
             output_id: recordingId,
             output_type: "clip",
             duration_s: Math.round((recording.durationMs ?? 0) / 1000),
@@ -1323,6 +1324,7 @@ const requestTranscriptAction = defineAction({
               {
                 app_name: "clips",
                 template_name: "clips",
+                recording_attempt_id: args.recordingId,
                 output_id: args.recordingId,
                 output_type: "clip",
                 duration_s: Math.round((rec.durationMs ?? 0) / 1000),
