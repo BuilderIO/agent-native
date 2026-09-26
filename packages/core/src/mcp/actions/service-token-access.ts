@@ -40,6 +40,7 @@ export async function getOrgRoleForEmail(
       ? role
       : null;
   } catch {
+    // org tables not provisioned (template without orgs) → no membership.
     return null;
   }
 }

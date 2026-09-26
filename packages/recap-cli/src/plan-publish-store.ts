@@ -81,6 +81,8 @@ export function writePlanPublishAuth(
     fs.renameSync(tmp, filePath);
     return filePath;
   } catch {
+    // Best-effort: the per-client MCP config is the primary write. A failed
+    // canonical write must never fail the connect flow.
     return null;
   }
 }

@@ -723,6 +723,8 @@ async function resumeA2AContinuationProgress(
     });
     return progress;
   } catch {
+    // A continuation still has a normal reply fallback. Do not log the
+    // opaque provider reference or the inbound message payload.
     return null;
   }
 }

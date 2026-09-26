@@ -88,6 +88,10 @@ export function sanitizeSlotContextForPostMessage(
   try {
     return JSON.parse(JSON.stringify(context ?? {}));
   } catch {
+    // Circular reference or other non-serializable shape — fail safe to an
+    // empty context rather than letting postMessage throw and skip every
+    // other message this handler sends in the same tick (theme update,
+    // ready signal).
     return {};
   }
 }

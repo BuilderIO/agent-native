@@ -53,6 +53,7 @@ function describeZone(zone: string, now: Date): ZoneOption | null {
       timeZoneName: "longOffset",
     }).formatToParts(now);
   } catch {
+    // A zone this runtime cannot resolve would otherwise throw during render.
     return null;
   }
 

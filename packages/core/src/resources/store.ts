@@ -951,6 +951,7 @@ async function grantedWorkspaceResources(input: {
     });
     return rows.map(rowToGrantedWorkspaceResource);
   } catch {
+    // Dispatch workspace-resource tables are optional for standalone apps.
     return [];
   }
 }

@@ -124,6 +124,8 @@ async function readCredentialSetting(
   try {
     return decryptSecretValue(stored);
   } catch {
+    // Key rotated, corrupt, or tampered row — treat as not set rather than
+    // surfacing ciphertext or throwing into every credential lookup.
     return undefined;
   }
 }
@@ -136,6 +138,8 @@ async function readScopedAppSecret(
   try {
     return (await readAppSecret({ key, scope, scopeId }))?.value;
   } catch {
+    // Older databases may not have app_secrets yet. Keep the legacy
+    // credential store available while the table bootstraps.
     return undefined;
   }
 }
@@ -353,6 +357,8 @@ async function hasForeignPersonalCredentialInOrg(
     });
     return rows.length > 0;
   } catch {
+    // Missing app_secrets/org_members table, or any other read failure — a
+    // diagnostic must never replace the real "not configured" error.
     return false;
   }
 }

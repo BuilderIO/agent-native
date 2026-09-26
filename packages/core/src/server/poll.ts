@@ -156,6 +156,7 @@ async function readMaxUpdatedAtRaw(
     );
     return result.rows[0]?.max_ts;
   } catch {
+    // Optional framework tables may not exist in every app yet.
     return undefined;
   }
 }

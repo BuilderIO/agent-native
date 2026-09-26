@@ -4154,6 +4154,7 @@ async function readDaemonLogTail(
     const contents = await fs.readFile(logPath, "utf8");
     return contents.slice(-maxBytes).trim();
   } catch {
+    // An unreadable log must not mask the timeout the caller is reporting.
     return "";
   }
 }

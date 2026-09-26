@@ -3242,6 +3242,7 @@ function createReactTransformPlugin(): any {
       reactTransformPlugin = reactTransformPlugin.default;
     return reactTransformPlugin?.();
   } catch {
+    // Will be resolved at runtime by Vite
     return null;
   }
 }
@@ -3253,6 +3254,7 @@ function createTailwindPlugin(options: Pick<ClientConfigOptions, "tailwind">) {
     if (tailwindPlugin.default) tailwindPlugin = tailwindPlugin.default;
     return tailwindPlugin({ optimize: false });
   } catch {
+    // Plugin not installed — silently skip. Old templates may still be on v3.
     return null;
   }
 }

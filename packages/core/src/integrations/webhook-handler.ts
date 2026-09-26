@@ -380,7 +380,6 @@ export async function handleWebhook(
     }
   }
 
-
   if (beforeProcess) {
     const result = await beforeProcess(incoming, adapter);
     if (result.handled) {
@@ -2261,6 +2260,7 @@ async function persistThreadData(
       ...(assistantMsg?.id ? { assistantMessageId: assistantMsg.id } : {}),
     };
   } catch {
+    // Best-effort persistence
     return undefined;
   }
 }

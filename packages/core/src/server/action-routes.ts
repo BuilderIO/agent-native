@@ -435,6 +435,7 @@ async function resolveRequestAuthCapability(
       await resolveEmbedSessionFromRequest(event),
     );
   } catch {
+    // Invalid or unavailable embed auth must fail closed as no capability.
     return undefined;
   }
 }

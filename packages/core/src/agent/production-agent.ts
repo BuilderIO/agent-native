@@ -3473,6 +3473,8 @@ function normalizeToolInputSchema(
   try {
     cloned = JSON.parse(JSON.stringify(schema)) as ToolParams;
   } catch {
+    // A schema that will not round-trip cannot be safely rewritten, and
+    // shipping it unsanitized is how this class of 400 reaches the provider.
     return null;
   }
   const safe = stripUnsupportedSchemaKeywords(cloned);

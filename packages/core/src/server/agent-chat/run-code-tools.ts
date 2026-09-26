@@ -45,6 +45,7 @@ export async function loadRunCodeToolEntries(
 
     return entries;
   } catch {
+    // Module unavailable (e.g. bundled browser build) — skip silently.
     return {};
   }
 }

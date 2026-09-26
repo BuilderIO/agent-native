@@ -16,7 +16,6 @@ import {
   getRequestUserEmail,
 } from "../request-context.js";
 
-
 function wrapCliScript(
   tool: ActionTool,
   cliDefault: (args: string[]) => Promise<void>,
@@ -608,6 +607,7 @@ export async function createResourceScriptEntries(): Promise<
       ),
     };
   } catch {
+    // Resources not available — skip silently
     return {};
   }
 }

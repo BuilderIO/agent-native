@@ -326,6 +326,7 @@ export async function evaluateFeatureFlag(
       scope,
     );
   } catch {
+    // A feature flag must never become an availability dependency.
     return false;
   }
 }

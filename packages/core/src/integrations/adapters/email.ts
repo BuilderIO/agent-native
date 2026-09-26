@@ -673,6 +673,7 @@ async function isRateLimited(senderEmail: string): Promise<boolean> {
     );
     return count >= RATE_LIMIT_MAX;
   } catch {
+    // Table doesn't exist yet (first webhook on a fresh deployment) — allow.
     return false;
   }
 }

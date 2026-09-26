@@ -309,6 +309,7 @@ export async function drainDueSandboxExecutions(
       queuedOlderThanMs: SANDBOX_EXECUTION_REDRIVE_AFTER_MS,
     });
   } catch {
+    // Table may not exist yet (background run-code never used) — nothing due.
     return 0;
   }
   let driven = 0;

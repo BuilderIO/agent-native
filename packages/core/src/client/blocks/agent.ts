@@ -34,6 +34,8 @@ function safeJsonSchema(schema: z.ZodType<unknown>): unknown {
   try {
     return z.toJSONSchema(schema, { io: "input" });
   } catch {
+    // Some schemas (recursive lazy, custom refinements) can't convert; the
+    // agent still gets the type/label/description, which is the essential part.
     return undefined;
   }
 }

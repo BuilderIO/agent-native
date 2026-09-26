@@ -131,6 +131,8 @@ export async function isBlockedExtensionUrlWithDns(
     const records = await lookup(hostname, { all: true, verbatim: true });
     return records.some((record) => isPrivateHost(record.address));
   } catch {
+    // Some edge runtimes do not expose DNS lookup. Keep the deterministic
+    // parser-based protections instead of failing every outbound request.
     return false;
   }
 }
@@ -473,7 +475,6 @@ export async function ssrfSafeFetch(
     `SSRF blocked: too many redirects (>${maxRedirects}) while fetching ${url}`,
   );
 }
-
 
 export { isBlockedExtensionUrl as isBlockedToolUrl };
 export { isBlockedExtensionUrlWithDns as isBlockedToolUrlWithDns };

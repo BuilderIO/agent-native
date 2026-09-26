@@ -1449,6 +1449,8 @@ export async function runScreenMemoryMCPStdio(
             try {
               return [readScreenMemoryFrame(storeDir, timestamp, decoder)];
             } catch {
+              // A chapter may span a brief coverage gap. Keep the clean retained
+              // frames instead of failing the entire bounded contact sheet.
               return [];
             }
           });

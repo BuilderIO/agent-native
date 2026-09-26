@@ -1834,6 +1834,10 @@ async function readWorkspaceFileContent(path: string): Promise<string | null> {
     try {
       bridgeFile = await readWorkspaceFile(bridgeScope, trimmed);
     } catch {
+      // A THROW here is a transient store error or invalid path — NOT a
+      // definitive "not found". Fail closed rather than silently hosting a
+      // possibly-different same-path Resources body than workspaceRead
+      // inspected. A retry re-runs this read cleanly.
       return null;
     }
     if (bridgeFile && typeof bridgeFile.content === "string") {

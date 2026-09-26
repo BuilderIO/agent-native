@@ -365,6 +365,8 @@ async function readAppSecretUncached(
       updatedAt: Number(rows[0].updated_at ?? 0),
     };
   } catch {
+    // Decryption failure — key rotated, tampered row, etc. Don't throw up the
+    // stack in a way that could leak the ciphertext; just report missing.
     return null;
   }
 }

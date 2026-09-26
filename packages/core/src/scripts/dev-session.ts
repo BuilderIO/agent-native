@@ -50,6 +50,10 @@ export async function resolveDevUserEmail(): Promise<string | undefined> {
     );
     return email;
   } catch {
+    // The sessions table doesn't exist yet (fresh install where the web
+    // server has never booted) or the DB isn't reachable. Either way,
+    // we can't produce an identity — let the caller throw with the
+    // friendlier "sign in first" hint.
     return undefined;
   }
 }

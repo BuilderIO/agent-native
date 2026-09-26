@@ -36,7 +36,6 @@ function cacheKey(): string {
   return `postgres:${getDatabaseUrl() || ""}`;
 }
 
-
 async function introspectPostgres(db: DbExec): Promise<TableSchema[]> {
   const tablesRes = await db.execute({
     sql: `SELECT table_name AS name,
@@ -108,7 +107,6 @@ async function introspectPostgres(db: DbExec): Promise<TableSchema[]> {
   return tables;
 }
 
-
 let _inflight: {
   key: string;
   promise: Promise<TableSchema[]>;
@@ -142,7 +140,6 @@ async function getSchema(): Promise<TableSchema[]> {
 export function invalidateSchemaPromptCache(): void {
   _cache = null;
 }
-
 
 function shortType(type: string): string {
   const t = type.toLowerCase();
@@ -181,7 +178,6 @@ function formatTable(table: TableSchema): string {
   return [header, ...cols].join("\n");
 }
 
-
 export async function loadSchemaPromptBlock(opts: {
   owner?: string | null;
   orgId?: string | null;
@@ -193,6 +189,7 @@ export async function loadSchemaPromptBlock(opts: {
   try {
     tables = await getSchema();
   } catch {
+    // DB not ready, or introspection blew up — don't take the chat down.
     return "";
   }
 

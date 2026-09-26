@@ -1761,6 +1761,7 @@ function useRealtimeVoiceModeController(
       setMicrophones(inputs);
       return inputs;
     } catch {
+      // Enumeration is progressive enhancement; system default remains usable.
       return null;
     }
   }, [t]);
