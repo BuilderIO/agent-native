@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getBuilderReferralInfoMock, canViewWorkspaceUsageMock } = vi.hoisted(
-  () => ({
-    getBuilderReferralInfoMock: vi.fn(),
-    canViewWorkspaceUsageMock: vi.fn(),
-  }),
-);
+import { BUILDER_CREDIT_USAGE_REPORTING_FLAG } from "../../feature-flags/registry.js";
+
+const {
+  getBuilderReferralInfoMock,
+  canViewWorkspaceUsageMock,
+  isFeatureFlagEnabledMock,
+} = vi.hoisted(() => ({
+  getBuilderReferralInfoMock: vi.fn(),
+  canViewWorkspaceUsageMock: vi.fn(),
+  isFeatureFlagEnabledMock: vi.fn(),
+}));
 
 vi.mock("../../action.js", () => ({
   defineAction: (definition: unknown) => definition,
@@ -13,6 +18,10 @@ vi.mock("../../action.js", () => ({
 
 vi.mock("../../server/fusion-app.js", () => ({
   getBuilderReferralInfo: getBuilderReferralInfoMock,
+}));
+
+vi.mock("../../feature-flags/store.js", () => ({
+  isFeatureFlagEnabled: isFeatureFlagEnabledMock,
 }));
 
 vi.mock("../metrics-store.js", () => ({
@@ -23,6 +32,7 @@ import getBuilderReferralInfo from "./get-builder-referral-info.js";
 
 describe("get-builder-referral-info action", () => {
   beforeEach(() => {
+    isFeatureFlagEnabledMock.mockResolvedValue(true);
     canViewWorkspaceUsageMock.mockResolvedValue(true);
     getBuilderReferralInfoMock.mockResolvedValue({
       eligible: false,
@@ -65,6 +75,27 @@ describe("get-builder-referral-info action", () => {
       ownerEmail: "member@example.com",
       orgId: "org-1",
     });
+    expect(isFeatureFlagEnabledMock).toHaveBeenCalledWith(
+      BUILDER_CREDIT_USAGE_REPORTING_FLAG,
+      { userEmail: "member@example.com", orgId: "org-1" },
+    );
+  });
+
+  it("does not read referral data when Builder credit reporting is disabled", async () => {
+    isFeatureFlagEnabledMock.mockResolvedValue(false);
+
+    await expect(
+      getBuilderReferralInfo.run(
+        {},
+        {
+          caller: "frontend",
+          userEmail: "admin@example.com",
+          orgId: "org-1",
+        },
+      ),
+    ).resolves.toBeNull();
+    expect(canViewWorkspaceUsageMock).not.toHaveBeenCalled();
+    expect(getBuilderReferralInfoMock).not.toHaveBeenCalled();
   });
 
   it("does not expose workspace referral details to regular members", async () => {
