@@ -1782,6 +1782,10 @@ export function DesignCanvas({
     null,
   );
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const focusScrollSurfaceRef = useRef<
+    | ((fromIframeLoad?: boolean, iframeReportedFocusSafe?: boolean) => void)
+    | null
+  >(null);
   const reviewCanvasId = useId();
   const zoomLayerRef = useRef<HTMLDivElement>(null);
   const zoomSizeLayerRef = useRef<HTMLDivElement>(null);
@@ -4283,6 +4287,22 @@ export function DesignCanvas({
       }
       if (!e.data || !e.data.type) return;
       if (
+        trustedCurrentFrame &&
+        sourceType === "localhost" &&
+        !readOnly &&
+        editMode &&
+        !interactMode &&
+        ((e.data.type === "agent-native:editor-chrome-ready" &&
+          e.data.focusSafe === true) ||
+          (e.data.type === "agent-native:canvas-focus-state" &&
+            e.data.focusSafe === true))
+      ) {
+        focusScrollSurfaceRef.current?.(
+          e.data.type === "agent-native:editor-chrome-ready",
+          true,
+        );
+      }
+      if (
         e.data.type === "agent-native:runtime-layer-snapshot-error" ||
         e.data.type === "agent-native:runtime-layer-snapshot-unchanged"
       ) {
@@ -5719,6 +5739,9 @@ export function DesignCanvas({
     sourceType,
     bridgeUrl,
     liveEditBridgeKey,
+    readOnly,
+    editMode,
+    interactMode,
     runtimeVerificationRequest,
     runtimeStructureTargetTransactionId,
     fusionUrl,
@@ -7693,7 +7716,7 @@ export function DesignCanvas({
         ? "100%"
         : (iframeHeight ?? undefined);
   const focusScrollSurface = useCallback(
-    (fromIframeLoad = false) => {
+    (fromIframeLoad = false, iframeReportedFocusSafe = false) => {
       const surface = scrollContainerRef.current;
       if (
         !surface ||
@@ -7712,13 +7735,16 @@ export function DesignCanvas({
       }
       const focusedElement = document.activeElement;
       if (
-        fromIframeLoad &&
+        (iframeReportedFocusSafe || fromIframeLoad) &&
         focusedElement !== document.body &&
         focusedElement !== iframeRef.current
       ) {
         return;
       }
-      if (focusedElement instanceof HTMLIFrameElement) {
+      if (
+        focusedElement instanceof HTMLIFrameElement &&
+        !iframeReportedFocusSafe
+      ) {
         try {
           const frameDocument = focusedElement.contentDocument;
           if (!frameDocument) {
@@ -7748,6 +7774,7 @@ export function DesignCanvas({
     },
     [editMode, interactMode],
   );
+  focusScrollSurfaceRef.current = focusScrollSurface;
   const handleCanvasPointerEnter = useCallback(
     () => focusScrollSurface(),
     [focusScrollSurface],
@@ -8018,6 +8045,20 @@ export function DesignCanvas({
           })}
           allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
           data-design-preview-iframe
+          onFocus={(event) => {
+            if (
+              sourceType !== "localhost" ||
+              readOnly ||
+              !editMode ||
+              interactMode
+            ) {
+              return;
+            }
+            event.currentTarget.contentWindow?.postMessage(
+              { type: "agent-native:canvas-focus-state-probe" },
+              "*",
+            );
+          }}
           onLoad={(event) => {
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
