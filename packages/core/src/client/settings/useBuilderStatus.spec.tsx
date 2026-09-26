@@ -917,6 +917,22 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("configured connecting resolved");
     expect(onConnected).not.toHaveBeenCalled();
 
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(container.textContent).toContain("configured connecting resolved");
+    expect(onConnected).not.toHaveBeenCalled();
+
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse({
         ...deploymentManagedStatus,

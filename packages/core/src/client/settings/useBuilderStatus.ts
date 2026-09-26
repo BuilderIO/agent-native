@@ -1571,8 +1571,8 @@ export function useBuilderConnectFlow(
         setHasFetchedStatus(true);
         if (s) {
           setStatusResolved(true);
-          setConfigured(false);
-          setCodeChangeConfigured(false);
+          setConfigured(!!s.configured);
+          setCodeChangeConfigured(isCodeChangeConfigured(s));
           setEnvManaged(!!s.envManaged);
           setCredentialSource(s.credentialSource ?? null);
           setCanDisconnect(!!s.canDisconnect);
