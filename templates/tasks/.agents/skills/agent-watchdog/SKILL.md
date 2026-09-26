@@ -80,8 +80,10 @@ When the user authorized repair:
 2. Preserve unrelated local changes in the existing checkout. When isolation
    is useful, create a separate task-owned worktree from fresh `origin/main` if
    it contains the audited task's commits; otherwise base it on the resolved
-   task or PR head. Do not move or overwrite the source or a peer's branch to
-   create it.
+   task or PR head. If the audited changes are uncommitted, keep working in the
+   source checkout or carry only those task-owned paths over after verifying
+   them; a new worktree will not include them. Do not move or overwrite the
+   source or a peer's branch to create it.
 3. Use existing repo patterns and targeted tests.
 4. Re-run the smallest useful validation after each meaningful fix.
 5. If a fix would require a product decision, credential, destructive action, or
