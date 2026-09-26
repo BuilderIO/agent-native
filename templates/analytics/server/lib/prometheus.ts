@@ -3,7 +3,10 @@
 
 import { z } from "zod";
 
-import { resolveCredential } from "./credentials";
+import {
+  assertCredentialCanReachEndpoint,
+  resolveCredentialDetailed,
+} from "./credentials";
 import {
   requireRequestCredentialContext,
   scopedCredentialCacheKey,
@@ -16,6 +19,12 @@ export interface PrometheusAuth {
   password?: string;
   bearer?: string;
 }
+
+type ResolvedPrometheusAuth = {
+  username?: NonNullable<Awaited<ReturnType<typeof resolveCredentialDetailed>>>;
+  password?: NonNullable<Awaited<ReturnType<typeof resolveCredentialDetailed>>>;
+  bearer?: NonNullable<Awaited<ReturnType<typeof resolveCredentialDetailed>>>;
+};
 
 /** Build the Authorization header. Basic auth wins over bearer when both are
  *  fully present. Partial basic (username XOR password) is ignored — falls
@@ -32,25 +41,50 @@ export function buildAuthHeader(auth: PrometheusAuth): string | null {
   return null;
 }
 
-async function resolveAuth(): Promise<PrometheusAuth> {
+async function resolveAuth(): Promise<ResolvedPrometheusAuth> {
   const ctx = requireRequestCredentialContext("PROMETHEUS_URL");
   const [username, password, bearer] = await Promise.all([
-    resolveCredential("PROMETHEUS_USERNAME", ctx),
-    resolveCredential("PROMETHEUS_PASSWORD", ctx),
-    resolveCredential("PROMETHEUS_BEARER_TOKEN", ctx),
+    resolveCredentialDetailed("PROMETHEUS_USERNAME", ctx),
+    resolveCredentialDetailed("PROMETHEUS_PASSWORD", ctx),
+    resolveCredentialDetailed("PROMETHEUS_BEARER_TOKEN", ctx),
   ]);
+  return { username, password, bearer };
+}
+
+async function resolveBase() {
+  const ctx = requireRequestCredentialContext("PROMETHEUS_URL");
+  const url = await resolveCredentialDetailed("PROMETHEUS_URL", ctx);
+  if (!url) throw new Error("PROMETHEUS_URL not configured");
+  return { ...url, value: url.value.replace(/\/+$/, "") };
+}
+
+function resolveAuthHeader(auth: ResolvedPrometheusAuth) {
+  const usesBasic = Boolean(auth.username?.value && auth.password?.value);
+  const credentials = usesBasic
+    ? [
+        { credential: auth.username!, key: "PROMETHEUS_USERNAME" },
+        { credential: auth.password!, key: "PROMETHEUS_PASSWORD" },
+      ]
+    : auth.bearer?.value
+      ? [{ credential: auth.bearer, key: "PROMETHEUS_BEARER_TOKEN" }]
+      : [];
   return {
-    username: username ?? undefined,
-    password: password ?? undefined,
-    bearer: bearer ?? undefined,
+    credentials,
+    header: buildAuthHeader({
+      username: auth.username?.value,
+      password: auth.password?.value,
+      bearer: auth.bearer?.value,
+    }),
   };
 }
 
-async function resolveBase(): Promise<string> {
-  const ctx = requireRequestCredentialContext("PROMETHEUS_URL");
-  const url = await resolveCredential("PROMETHEUS_URL", ctx);
-  if (!url) throw new Error("PROMETHEUS_URL not configured");
-  return url.replace(/\/+$/, "");
+function assertAuthCanReachEndpoint(
+  endpoint: Awaited<ReturnType<typeof resolveBase>>,
+  auth: ResolvedPrometheusAuth,
+) {
+  for (const { credential, key } of resolveAuthHeader(auth).credentials) {
+    assertCredentialCanReachEndpoint(endpoint, credential, key);
+  }
 }
 
 // --- Cache (metadata only, never query results) ---
@@ -101,14 +135,15 @@ async function apiGet<T>(
   const base = await resolveBase();
   const auth = await resolveAuth();
   const headers: Record<string, string> = { Accept: "application/json" };
-  const authHeader = buildAuthHeader(auth);
+  assertAuthCanReachEndpoint(base, auth);
+  const authHeader = resolveAuthHeader(auth).header;
   if (authHeader) headers.Authorization = authHeader;
 
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== "") qs.set(k, v);
   }
-  const url = `${base}${path}?${qs.toString()}`;
+  const url = `${base.value}${path}?${qs.toString()}`;
 
   if (options.cache) {
     const ck = scopedCredentialCacheKey(url, "PROMETHEUS_URL");
@@ -169,12 +204,13 @@ export async function listSeries(
   const base = await resolveBase();
   const auth = await resolveAuth();
   const headers: Record<string, string> = { Accept: "application/json" };
-  const a = buildAuthHeader(auth);
+  assertAuthCanReachEndpoint(base, auth);
+  const a = resolveAuthHeader(auth).header;
   if (a) headers.Authorization = a;
   const qs = new URLSearchParams();
   for (const m of matchers) qs.append("match[]", m);
   return doFetch<Record<string, string>[]>(
-    `${base}/api/v1/series?${qs.toString()}`,
+    `${base.value}/api/v1/series?${qs.toString()}`,
     headers,
   );
 }
@@ -359,10 +395,11 @@ export async function testConnection(): Promise<{
   try {
     const base = await resolveBase(); // throws if PROMETHEUS_URL not set
     const auth = await resolveAuth();
+    assertAuthCanReachEndpoint(base, auth);
     const headers: Record<string, string> = { Accept: "application/json" };
-    const authHeader = buildAuthHeader(auth);
+    const authHeader = resolveAuthHeader(auth).header;
     if (authHeader) headers.Authorization = authHeader;
-    const res = await fetch(`${base}/api/v1/labels`, { headers });
+    const res = await fetch(`${base.value}/api/v1/labels`, { headers });
     if (!res.ok) {
       const text = await res.text();
       return {

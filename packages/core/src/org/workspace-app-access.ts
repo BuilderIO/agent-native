@@ -1,3 +1,4 @@
+import { isLoopbackAddress } from "../a2a/auth-policy.js";
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, type DbExec } from "../db/client.js";
@@ -12,6 +13,7 @@ const WORKSPACE_APPS_ACTION_PATH = "/_agent-native/actions/list-workspace-apps";
 const WORKSPACE_APP_CLAIM_ACTION_PATH =
   "/_agent-native/actions/claim-workspace-app-organization";
 const WORKSPACE_APP_ACCESS_TIMEOUT_MS = 2_500;
+const inFlightWorkspaceAppAccess = new Map<string, Promise<boolean>>();
 
 export interface WorkspaceAppAccessContext {
   email: string;
@@ -42,9 +44,27 @@ export function isStandaloneDispatchRuntime(): boolean {
 
 function configuredWorkspaceDirectory(): string | null {
   const workspace = getAppConfig().workspace;
-  return (
-    workspace.orgDirectoryUrl?.trim() || workspace.gatewayUrl?.trim() || null
-  );
+  const orgDirectoryUrl = workspace.orgDirectoryUrl?.trim();
+  if (orgDirectoryUrl) return orgDirectoryUrl;
+
+  const gatewayUrl = workspace.gatewayUrl?.trim();
+  if (!gatewayUrl) return null;
+
+  try {
+    const url = new URL(gatewayUrl);
+    if (!isLoopbackAddress(url.hostname.replace(/^\[|\]$/g, ""))) {
+      return gatewayUrl;
+    }
+    const basePath = url.pathname.replace(/\/+$/, "");
+    url.pathname = basePath.endsWith("/dispatch")
+      ? basePath
+      : `${basePath}/dispatch`;
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return gatewayUrl;
+  }
 }
 
 function workspaceAppsActionUrl(base: string): URL | null {
@@ -116,6 +136,37 @@ async function hostedWorkspaceAppAccess(
   const configuredDirectory = configuredWorkspaceDirectory();
   if (!configuredDirectory) return null;
 
+  const key = JSON.stringify([
+    configuredDirectory,
+    appId,
+    email,
+    context.orgId?.trim() || null,
+  ]);
+  const pending = inFlightWorkspaceAppAccess.get(key);
+  if (pending) return pending;
+
+  const request = fetchHostedWorkspaceAppAccess(
+    configuredDirectory,
+    appId,
+    context,
+    email,
+  );
+  inFlightWorkspaceAppAccess.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (inFlightWorkspaceAppAccess.get(key) === request) {
+      inFlightWorkspaceAppAccess.delete(key);
+    }
+  }
+}
+
+async function fetchHostedWorkspaceAppAccess(
+  configuredDirectory: string,
+  appId: string,
+  context: WorkspaceAppAccessContext,
+  email: string,
+): Promise<boolean> {
   const url = workspaceAppsActionUrl(configuredDirectory);
   if (!url) return false;
 

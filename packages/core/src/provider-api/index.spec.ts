@@ -1,6 +1,47 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveCredential = vi.fn();
+const resolveCredentialDetailed = vi.fn();
+const assertCredentialCanReachEndpoint = vi.fn(
+  (
+    endpoint: {
+      scope: string;
+      scopeId?: string;
+      source?: string;
+      connectionId?: string;
+    },
+    credential:
+      | {
+          scope?: string;
+          scopeId?: string;
+          source?: string;
+          connectionId?: string;
+        }
+      | undefined,
+    key?: string,
+  ) => {
+    if (
+      endpoint.source === "workspace_connection" &&
+      endpoint.connectionId &&
+      credential?.source === "workspace_connection" &&
+      credential.connectionId === endpoint.connectionId
+    ) {
+      return;
+    }
+    if (endpoint.scope !== "user" && endpoint.scope !== "unknown") return;
+    if (
+      endpoint.scope === "user" &&
+      credential?.scope === "user" &&
+      endpoint.scopeId &&
+      credential.scopeId === endpoint.scopeId
+    ) {
+      return;
+    }
+    throw new Error(
+      `Refusing to send ${key ?? "a credential"} to a user-scoped endpoint unless it is saved by the same user.`,
+    );
+  },
+);
 const describeCredentialScopeGap = vi.fn();
 const isBlockedExtensionUrlWithDns = vi.fn();
 const createSsrfSafeDispatcher = vi.fn();
@@ -13,8 +54,10 @@ const resolveSecret = vi.fn();
 const writeWorkspaceFile = vi.fn();
 
 vi.mock("../credentials/index.js", () => ({
+  assertCredentialCanReachEndpoint,
   describeCredentialScopeGap,
   resolveCredential,
+  resolveCredentialDetailed,
 }));
 
 vi.mock("../extensions/url-safety.js", () => ({
@@ -83,6 +126,8 @@ describe("provider API runtime", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     resolveCredential.mockReset();
+    resolveCredentialDetailed.mockReset();
+    assertCredentialCanReachEndpoint.mockClear();
     describeCredentialScopeGap.mockReset();
     describeCredentialScopeGap.mockResolvedValue(null);
     isBlockedExtensionUrlWithDns.mockReset();
@@ -114,6 +159,12 @@ describe("provider API runtime", () => {
     isBlockedExtensionUrlWithDns.mockResolvedValue(false);
     createSsrfSafeDispatcher.mockResolvedValue(null);
     resolveCredential.mockResolvedValue(null);
+    resolveCredentialDetailed.mockImplementation(async (key: string) => {
+      const value = await resolveCredential(key);
+      return typeof value === "string"
+        ? { value, scope: "org", scopeId: "org-1" }
+        : undefined;
+    });
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ files: [] }), {
         status: 200,
@@ -155,6 +206,85 @@ describe("provider API runtime", () => {
     expect(catalog.find(({ id }) => id === "slack")?.label).toBe("Acme Slack");
     expect(catalog.find(({ id }) => id === "stripe")?.label).toBe("Stripe");
   });
+
+  it("rejects an org credential before sending it to a member-owned built-in endpoint", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["grafana"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ key }) =>
+        key === "GRAFANA_URL"
+          ? {
+              key,
+              value: "https://member-grafana.example.test",
+              source: "app_local",
+              provider: "grafana",
+              scope: "user",
+              scopeId: "ada@example.com",
+            }
+          : key === "GRAFANA_API_TOKEN"
+            ? {
+                key,
+                value: "org-grafana-token",
+                source: "app_local",
+                provider: "grafana",
+                scope: "org",
+                scopeId: "org-1",
+              }
+            : null,
+    });
+
+    await expect(
+      runtime.executeRequest({ provider: "grafana", path: "/api/search" }),
+    ).rejects.toThrow(/GRAFANA_API_TOKEN.*user-scoped endpoint/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["CUSTOM_USERNAME", "CUSTOM_PASSWORD"])(
+    "rejects an org-scoped %s before sending it to a member-owned custom endpoint",
+    async (sharedKey) => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["grafana"],
+        getCredentialContext: () => credentialContext,
+        getCustomProviders: async () => [
+          {
+            id: "member-api",
+            scope: "user",
+            scopeId: "ada@example.com",
+            label: "Member API",
+            baseUrl: "https://member-api.example.test",
+            auth: {
+              type: "basic",
+              usernameKey: "CUSTOM_USERNAME",
+              passwordKey: "CUSTOM_PASSWORD",
+            },
+            docsUrls: [],
+            allowedHostSuffixes: [],
+            defaultHeaders: {},
+            notes: "",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+        resolveCredential: async ({ key }) => ({
+          key,
+          value: `${key.toLowerCase()}-test-value`,
+          source: "app_local",
+          provider: "member-api",
+          scope: key === sharedKey ? "org" : "user",
+          scopeId: key === sharedKey ? "org-1" : "ada@example.com",
+        }),
+      });
+
+      await expect(
+        runtime.executeRequest({ provider: "member-api", path: "/records" }),
+      ).rejects.toThrow(new RegExp(`${sharedKey}.*user-scoped endpoint`, "i"));
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("reports a Slack send as failed when the body says ok:false, even though the HTTP status is 200", async () => {
     // Slack's Web API always answers HTTP 200, success or failure — the real

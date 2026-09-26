@@ -107,6 +107,85 @@ describe("credentials encryption at rest", () => {
     ]);
   });
 
+  it("retains credential scope and blocks shared credentials from user endpoints", async () => {
+    readAppSecret.mockImplementation(async (ref: any) =>
+      ref.scope === "org" && ref.scopeId === "org-1"
+        ? { value: "shared-token", last4: "oken", updatedAt: 1 }
+        : null,
+    );
+    const { assertCredentialCanReachEndpoint, resolveCredentialDetailed } =
+      await import("./index.js");
+    const credential = await resolveCredentialDetailed("TOKEN", {
+      userEmail: "member@example.test",
+      orgId: "org-1",
+    });
+
+    expect(credential).toMatchObject({
+      value: "shared-token",
+      scope: "org",
+      scopeId: "org-1",
+    });
+    expect(() =>
+      assertCredentialCanReachEndpoint(
+        { scope: "user", scopeId: "member@example.test" },
+        credential!,
+        "TOKEN",
+      ),
+    ).toThrow(/user-controlled endpoint/i);
+    expect(() =>
+      assertCredentialCanReachEndpoint(
+        { scope: "user", scopeId: "member@example.test" },
+        {
+          value: "personal-token",
+          scope: "user",
+          scopeId: "member@example.test",
+        },
+        "TOKEN",
+      ),
+    ).not.toThrow();
+  });
+
+  it("blocks org credentials from retained solo-workspace endpoints", async () => {
+    readAppSecret.mockImplementation(async (ref: any) =>
+      ref.scope === "org" && ref.scopeId === "org-1"
+        ? { value: "org-token", last4: "oken", updatedAt: 1 }
+        : null,
+    );
+    const { assertCredentialCanReachEndpoint, resolveCredentialDetailed } =
+      await import("./index.js");
+    const endpoint = {
+      scope: "workspace",
+      scopeId: "solo:owner@example.test",
+    };
+    const orgCredential = await resolveCredentialDetailed("TOKEN", {
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+    });
+
+    expect(orgCredential).toMatchObject({ scope: "org", scopeId: "org-1" });
+    expect(() =>
+      assertCredentialCanReachEndpoint(endpoint, orgCredential, "TOKEN"),
+    ).toThrow(/user-controlled endpoint/i);
+
+    readAppSecret.mockImplementation(async (ref: any) =>
+      ref.scope === "workspace" && ref.scopeId === endpoint.scopeId
+        ? { value: "pre-org-token", last4: "oken", updatedAt: 1 }
+        : null,
+    );
+    const soloCredential = await resolveCredentialDetailed("TOKEN", {
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+    });
+
+    expect(soloCredential).toMatchObject({
+      scope: "workspace",
+      scopeId: endpoint.scopeId,
+    });
+    expect(() =>
+      assertCredentialCanReachEndpoint(endpoint, soloCredential, "TOKEN"),
+    ).not.toThrow();
+  });
+
   it("reads solo workspace app secrets when there is no active org", async () => {
     readAppSecret.mockImplementation(async (ref: any) =>
       ref.scope === "workspace" && ref.scopeId === "solo:owner@example.test"

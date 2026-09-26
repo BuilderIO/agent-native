@@ -504,6 +504,14 @@ function killChildProcessTree(
         { stdio: "ignore" },
       );
       if (result.status === 0) return;
+      if (signal !== "SIGKILL") {
+        const forcedResult = spawnSync(
+          "taskkill",
+          ["/pid", String(child.pid), "/T", "/F"],
+          { stdio: "ignore" },
+        );
+        if (forcedResult.status === 0) return;
+      }
     } else {
       process.kill(-child.pid, signal);
       return;

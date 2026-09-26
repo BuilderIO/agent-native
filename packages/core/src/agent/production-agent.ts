@@ -37,6 +37,10 @@ import {
 } from "../artifacts/detect.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
+import {
+  CredentialEndpointMismatchError,
+  type CredentialProvenance,
+} from "../credentials/index.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import {
@@ -573,11 +577,13 @@ async function readAppStateForBrowserTab<T>(
  *      data that hasn't been backfilled yet. Surfaced for compat only;
  *      writes always go to app_secrets now.
  */
-export async function getOwnerApiKey(
+async function getOwnerApiKeyDetailed(
   provider: string,
   ownerEmail: string | null | undefined,
   options?: { onLookupFailure?: () => void },
-): Promise<string | undefined> {
+): Promise<
+  { apiKey: string; credentialProvenance: CredentialProvenance } | undefined
+> {
   if (!ownerEmail) return undefined;
   let lookupFailed = false;
   const reportLookupFailure = (): void => {
@@ -616,7 +622,10 @@ export async function getOwnerApiKey(
           value: fromSecrets.value,
         }))
       ) {
-        return fromSecrets.value;
+        return {
+          apiKey: fromSecrets.value,
+          credentialProvenance: ref,
+        };
       }
     }
   } catch {
@@ -641,7 +650,10 @@ export async function getOwnerApiKey(
       key &&
       !(await getProviderCredentialAuthFailure({ key: secretKey, value: key }))
     ) {
-      return key;
+      return {
+        apiKey: key,
+        credentialProvenance: { scope: "user", scopeId: ownerEmail },
+      };
     }
     if (provider === "anthropic") {
       const legacy = await getSetting(`user-anthropic-api-key:${ownerEmail}`);
@@ -654,7 +666,10 @@ export async function getOwnerApiKey(
           value: legacyKey,
         }))
       ) {
-        return legacyKey;
+        return {
+          apiKey: legacyKey,
+          credentialProvenance: { scope: "user", scopeId: ownerEmail },
+        };
       }
       reportLookupFailure();
       return undefined;
@@ -666,6 +681,14 @@ export async function getOwnerApiKey(
     reportLookupFailure();
     return undefined;
   }
+}
+
+export async function getOwnerApiKey(
+  provider: string,
+  ownerEmail: string | null | undefined,
+  options?: { onLookupFailure?: () => void },
+): Promise<string | undefined> {
+  return (await getOwnerApiKeyDetailed(provider, ownerEmail, options))?.apiKey;
 }
 
 /**
@@ -792,6 +815,7 @@ export interface ResolvedOwnerApiKey {
   apiKey: string | undefined;
   /** Undefined when no key was found, or when the key's provider is unknown. */
   apiKeyEnvVar: string | undefined;
+  credentialProvenance?: CredentialProvenance;
 }
 
 const NO_OWNER_API_KEY: ResolvedOwnerApiKey = {
@@ -815,8 +839,14 @@ export async function getOwnerApiKeyForEngine(
   try {
     const provider = engineToProvider(engineName);
     const envVar = PROVIDER_TO_ENV[provider];
-    const userKey = await getOwnerApiKey(provider, ownerEmail);
-    if (userKey) return { apiKey: userKey, apiKeyEnvVar: envVar };
+    const ownerKey = await getOwnerApiKeyDetailed(provider, ownerEmail);
+    if (ownerKey) {
+      return {
+        apiKey: ownerKey.apiKey,
+        apiKeyEnvVar: envVar,
+        credentialProvenance: ownerKey.credentialProvenance,
+      };
+    }
     if (!envVar || !canUseDeployCredentialFallbackForRequest(envVar)) {
       return NO_OWNER_API_KEY;
     }
@@ -825,7 +855,11 @@ export async function getOwnerApiKeyForEngine(
       envKey &&
       !(await getProviderCredentialAuthFailure({ key: envVar, value: envKey }))
     ) {
-      return { apiKey: envKey, apiKeyEnvVar: envVar };
+      return {
+        apiKey: envKey,
+        apiKeyEnvVar: envVar,
+        credentialProvenance: { scope: "deployment" },
+      };
     }
     return NO_OWNER_API_KEY;
   } catch {
@@ -888,13 +922,24 @@ export async function resolveOwnerEngineApiKey(input: {
     );
     if (resolved.apiKey) return resolved;
   } else {
-    const activeKey = await getOwnerActiveApiKey(input.ownerEmail);
-    if (activeKey) return { apiKey: activeKey, apiKeyEnvVar: undefined };
+    const { getSetting } = await import("../settings/store.js");
+    const engineSetting = await getSetting("agent-engine");
+    const activeEngine =
+      (engineSetting?.engine as string | undefined) ?? "anthropic";
+    const activeKey = await getOwnerApiKeyForEngine(
+      activeEngine,
+      input.ownerEmail,
+    );
+    if (activeKey.apiKey) return { ...activeKey, apiKeyEnvVar: undefined };
   }
   const fallback = input.anthropicFallback?.trim();
   return fallback &&
     canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")
-    ? { apiKey: fallback, apiKeyEnvVar: "ANTHROPIC_API_KEY" }
+    ? {
+        apiKey: fallback,
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
+        credentialProvenance: { scope: "deployment" },
+      }
     : NO_OWNER_API_KEY;
 }
 
@@ -9820,6 +9865,10 @@ export function createProductionAgentHandler(
       harness: requestHarness,
       trackInRunsTray,
     } = body;
+    if (requestEngine !== undefined && typeof requestEngine !== "string") {
+      setResponseStatus(event, 400);
+      return { error: "engine must be a string" };
+    }
     const requestParentId =
       parentId === null
         ? null
@@ -10235,13 +10284,16 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: bracket per-owner API-key resolution (settings/app_secrets reads).
     workerStep("apikey_start");
     const engineOption = requestEngine ?? options.engine;
-    const { apiKey: effectiveApiKey, apiKeyEnvVar: effectiveApiKeyEnvVar } =
-      await resolveOwnerEngineApiKey({
-        engineOption,
-        ownerEmail,
-        anthropicFallback:
-          options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"),
-      });
+    const {
+      apiKey: effectiveApiKey,
+      apiKeyEnvVar: effectiveApiKeyEnvVar,
+      credentialProvenance: apiKeyProvenance,
+    } = await resolveOwnerEngineApiKey({
+      engineOption,
+      ownerEmail,
+      anthropicFallback:
+        options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"),
+    });
     // DIAGNOSTIC-ONLY: API-key resolution finished.
     workerStep("apikey_done");
 
@@ -10259,14 +10311,17 @@ export function createProductionAgentHandler(
         engineOption,
         apiKey: effectiveApiKey,
         apiKeyEnvVar: effectiveApiKeyEnvVar,
+        apiKeyProvenance,
         model: configuredModel,
         appId: options.appId,
         credentialIdentity,
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof CredentialEndpointMismatchError) throw error;
       engine = await resolveEngine({
         apiKey: effectiveApiKey,
         apiKeyEnvVar: effectiveApiKeyEnvVar,
+        apiKeyProvenance,
         appId: options.appId,
         credentialIdentity,
       });

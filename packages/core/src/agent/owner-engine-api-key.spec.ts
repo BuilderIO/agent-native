@@ -75,6 +75,10 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "sk-openai-owner",
       apiKeyEnvVar: "OPENAI_API_KEY",
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+      },
     });
   });
 
@@ -101,18 +105,29 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "sk-openai-owner",
       apiKeyEnvVar: "OPENAI_API_KEY",
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+      },
     });
   });
 
-  it("falls back to the active engine's key, untagged, when no engine is named", async () => {
-    // No explicit engine means the registry picks one and re-derives the
-    // credential itself, so an opaque key is the honest answer here.
+  it("preserves the active engine key's provenance when no engine is named", async () => {
+    // The registry may select another engine, so the key must stay tagged for
+    // provider matching while retaining the scope that owns its value.
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
     ownerSecrets({ ANTHROPIC_API_KEY: "sk-ant-owner" });
 
     await expect(
       resolveOwnerEngineApiKey({ ownerEmail: "owner@example.com" }),
-    ).resolves.toEqual({ apiKey: "sk-ant-owner", apiKeyEnvVar: undefined });
+    ).resolves.toEqual({
+      apiKey: "sk-ant-owner",
+      apiKeyEnvVar: undefined,
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+      },
+    });
   });
 
   it("pairs an explicit OpenAI engine with the OpenAI deploy key", async () => {
@@ -129,6 +144,7 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "sk-openai-deploy",
       apiKeyEnvVar: "OPENAI_API_KEY",
+      credentialProvenance: { scope: "deployment" },
     });
   });
 
@@ -142,6 +158,7 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "sk-ant-plugin-key",
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      credentialProvenance: { scope: "deployment" },
     });
   });
 
@@ -158,6 +175,10 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "scoped-owner-key",
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+      },
     });
   });
 

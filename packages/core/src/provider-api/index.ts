@@ -3,8 +3,10 @@ import { createHash } from "node:crypto";
 import { AgentConnectionRequiredError } from "../action.js";
 import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
 import {
+  assertCredentialCanReachEndpoint,
   describeCredentialScopeGap,
-  resolveCredential,
+  resolveCredentialDetailed,
+  type CredentialEndpointOwner,
   type CredentialContext,
 } from "../credentials/index.js";
 import {
@@ -474,6 +476,7 @@ export interface ProviderApiResolvedCredential {
   accountId?: string;
   accountLabel?: string | null;
   scope?: string;
+  scopeId?: string;
 }
 
 export interface ProviderApiCredentialLookupOptions {
@@ -553,6 +556,11 @@ interface ResolvedAuth {
   headers: Record<string, string>;
   credentialSources: Array<Omit<ProviderApiResolvedCredential, "value">>;
   secretValues: string[];
+}
+
+interface ResolvedProviderEndpoint {
+  url: string;
+  owner?: CredentialEndpointOwner;
 }
 
 interface ProviderApiHttpResponse {
@@ -1890,12 +1898,12 @@ export async function executeProviderApiRequest(
     runtime,
     config.credentialKeys[0] ?? config.id,
   );
-  const baseUrl = await resolveBaseUrl(config, runtime, ctx, args);
+  const endpoint = await resolveBaseUrl(config, runtime, ctx, args);
   const placeholders = await resolvePlaceholders(config, runtime, ctx, args);
   const method = normalizeMethod(args.method);
   const url = buildProviderUrl({
     config,
-    baseUrl,
+    baseUrl: endpoint.url,
     rawPath: substituteString(args.path, placeholders),
     query: substituteUnknown(args.query, placeholders),
   });
@@ -1907,6 +1915,15 @@ export async function executeProviderApiRequest(
     args.auth === "none"
       ? emptyAuth()
       : await resolveAuth(config, runtime, ctx, args);
+  if (endpoint.owner) {
+    for (const credential of auth.credentialSources) {
+      assertCredentialCanReachEndpoint(
+        endpoint.owner,
+        credential,
+        credential.key,
+      );
+    }
+  }
   const extraHeaders = substituteUnknown(args.headers ?? {}, placeholders);
   const headers = sanitizeOutboundHeaders({
     ...(config.defaultHeaders ?? {}),
@@ -1946,7 +1963,7 @@ export async function executeProviderApiRequest(
         : substituteUnknown(args.query, placeholders);
       const pageUrl = buildProviderUrl({
         config,
-        baseUrl,
+        baseUrl: endpoint.url,
         rawPath: substituteString(args.path, placeholders),
         query: queryWithCursor,
       });
@@ -2892,6 +2909,15 @@ async function executeCustomProviderApiRequest(
     args.auth === "none"
       ? emptyAuth()
       : await resolveCustomAuth(customConfig, runtime, ctx, args);
+  if (customConfig.scope === "user") {
+    for (const credential of auth.credentialSources) {
+      assertCredentialCanReachEndpoint(
+        { scope: customConfig.scope, scopeId: customConfig.scopeId },
+        credential,
+        credential.key,
+      );
+    }
+  }
 
   const extraHeaders = args.headers ?? {};
   const headers = sanitizeOutboundHeaders({
@@ -3173,7 +3199,10 @@ async function resolveRequiredCredentialByKey(options: {
   };
   const resolver =
     options.runtime.resolveCredential ?? defaultProviderApiCredentialResolver;
-  const credential = await resolver(lookup);
+  const credential = withCredentialConnectionIdentity(
+    await resolver(lookup),
+    options.connectionId,
+  );
   if (!credential?.value) {
     throw new Error(
       `Credential "${options.key}" not configured for custom provider "${options.provider}".`,
@@ -3351,17 +3380,25 @@ export async function defaultProviderApiCredentialResolver(
           typeof result.provenance?.secretScope === "string"
             ? result.provenance.secretScope
             : undefined,
+        ...(result.provenance?.secretScope === "user"
+          ? { scopeId: options.ctx.userEmail }
+          : result.provenance?.secretScope === "org" ||
+              result.provenance?.secretScope === "workspace"
+            ? { scopeId: options.ctx.orgId ?? undefined }
+            : {}),
       };
     }
   }
 
-  const value = await resolveCredential(options.key, options.ctx);
-  if (!value) return null;
+  const credential = await resolveCredentialDetailed(options.key, options.ctx);
+  if (!credential) return null;
   return {
     key: options.key,
-    value,
+    value: credential.value,
     source: options.localCredentialSource,
     provider: options.provider,
+    scope: credential.scope,
+    scopeId: credential.scopeId,
   };
 }
 
@@ -3430,14 +3467,14 @@ async function resolveBaseUrl(
   runtime: ProviderApiRuntimeOptions,
   ctx: CredentialContext,
   args: ProviderApiRequestArgs,
-): Promise<string> {
+): Promise<ResolvedProviderEndpoint> {
   const oauthBaseUrl = await resolveWorkspaceOAuthBaseUrl(
     config,
     runtime,
     args,
   );
-  if (oauthBaseUrl) return oauthBaseUrl;
-  if (!config.baseUrlCredentialKey) return config.defaultBaseUrl;
+  if (oauthBaseUrl) return { url: oauthBaseUrl };
+  if (!config.baseUrlCredentialKey) return { url: config.defaultBaseUrl };
   const auth = config.auth;
   const workspaceProvider =
     auth.type === "oauth-bearer" ||
@@ -3446,7 +3483,7 @@ async function resolveBaseUrl(
     auth.type === "oauth-bearer-or-basic"
       ? auth.workspaceProvider
       : undefined;
-  const configured = await resolveCredentialValue({
+  const configured = await resolveCredentialResult({
     config,
     runtime,
     ctx,
@@ -3454,7 +3491,19 @@ async function resolveBaseUrl(
     args,
     workspaceProvider,
   });
-  return (configured || config.defaultBaseUrl).replace(/\/+$/, "");
+  return {
+    url: (configured?.value || config.defaultBaseUrl).replace(/\/+$/, ""),
+    ...(configured
+      ? {
+          owner: {
+            scope: configured.scope ?? "unknown",
+            scopeId: configured.scopeId,
+            source: configured.source,
+            connectionId: configured.connectionId,
+          },
+        }
+      : {}),
+  };
 }
 
 async function resolveWorkspaceOAuthBaseUrl(
@@ -3548,7 +3597,18 @@ async function resolveCredentialValue(options: {
   args: ProviderApiRequestArgs;
   workspaceProvider?: string;
 }): Promise<string | undefined> {
-  const credential = await resolveOptionalCredential({
+  return (await resolveCredentialResult(options))?.value;
+}
+
+async function resolveCredentialResult(options: {
+  config: ProviderApiConfig;
+  runtime: ProviderApiRuntimeOptions;
+  ctx: CredentialContext;
+  key: string;
+  args: ProviderApiRequestArgs;
+  workspaceProvider?: string;
+}): Promise<ProviderApiResolvedCredential | null> {
+  return resolveOptionalCredential({
     provider: options.config.id,
     workspaceProvider: options.workspaceProvider,
     key: options.key,
@@ -3556,7 +3616,6 @@ async function resolveCredentialValue(options: {
     runtime: options.runtime,
     connectionId: options.args.connectionId,
   });
-  return credential?.value;
 }
 
 function substituteString(
@@ -4150,9 +4209,23 @@ async function resolveOptionalCredential(options: {
     localCredentialSource,
   };
   if (options.runtime.resolveCredential) {
-    return options.runtime.resolveCredential(lookup);
+    return withCredentialConnectionIdentity(
+      await options.runtime.resolveCredential(lookup),
+      options.connectionId,
+    );
   }
   return defaultProviderApiCredentialResolver(lookup);
+}
+
+function withCredentialConnectionIdentity(
+  credential: ProviderApiResolvedCredential | null,
+  connectionId?: string | null,
+): ProviderApiResolvedCredential | null {
+  return credential?.source === "workspace_connection" &&
+    !credential.connectionId &&
+    connectionId
+    ? { ...credential, connectionId }
+    : credential;
 }
 
 function omitCredentialValue(

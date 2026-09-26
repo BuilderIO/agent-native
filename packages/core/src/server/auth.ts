@@ -1077,18 +1077,30 @@ function forwardBetterAuthSetCookies(
   const headers = (result as { headers?: Headers }).headers;
   if (!headers || typeof headers.get !== "function") return;
   for (const cookie of getSetCookieHeaders(headers)) {
-    if (
-      options.excludeSessionCookies &&
-      /(?:^|;\s*)(?:__Secure-)?[^=;\s]+(?:[.-])(?:session_token|session_data)=/i.test(
-        cookie,
-      )
-    ) {
+    if (options.excludeSessionCookies && isBetterAuthSessionCookie(cookie)) {
       continue;
     }
     for (const upgraded of upgradeBetterAuthCookieForRequest(event, cookie)) {
       event.res?.headers?.append("set-cookie", upgraded);
     }
   }
+}
+
+function isBetterAuthSessionCookie(cookie: string): boolean {
+  return /(?:^|;\s*)(?:__Secure-)?[^=;\s]+(?:[.-])(?:session_token|session_data)=/i.test(
+    cookie,
+  );
+}
+
+function betterAuthChallengeCookieHeader(result: unknown): string {
+  if (!result || typeof result !== "object") return "";
+  const headers = (result as { headers?: Headers }).headers;
+  if (!headers || typeof headers.get !== "function") return "";
+  return getSetCookieHeaders(headers)
+    .filter((cookie) => !isBetterAuthSessionCookie(cookie))
+    .map((cookie) => cookie.split(";", 1)[0]?.trim() ?? "")
+    .filter((cookie) => cookie.includes("="))
+    .join("; ");
 }
 
 async function rotateTwoFactorSession(
@@ -1276,6 +1288,13 @@ function shouldExposeSessionTokenInBody(event: H3Event): boolean {
   const requestSource = getHeader(event, "x-request-source");
   return (
     !origin && (requestSource === "clips-desktop" || requestSource === "mobile")
+  );
+}
+
+function isClipsDesktopAuthRequest(event: H3Event): boolean {
+  return (
+    getHeader(event, "x-request-source") === "clips-desktop" &&
+    shouldExposeSessionTokenInBody(event)
   );
 }
 
@@ -6079,14 +6098,83 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: "Enter the six-digit code from your authenticator." };
       }
-      const existingSession = await getSession(event);
+      const desktopChallengeRequest =
+        isClipsDesktopAuthRequest(event) &&
+        !!body &&
+        ("email" in body || "password" in body);
+      const existingSession = desktopChallengeRequest
+        ? null
+        : await getSession(event);
       try {
+        let verifyHeaders: Headers | undefined;
+        let challengeEmail: string | undefined;
+        if (desktopChallengeRequest) {
+          const rawEmail = typeof body.email === "string" ? body.email : "";
+          const email = normalizeAuthEmail(rawEmail);
+          const password =
+            typeof body.password === "string" ? body.password : "";
+          if (!rawEmail.trim() || !password) {
+            setResponseStatus(event, 400);
+            return { error: AUTH_CREDENTIALS_REQUIRED_MESSAGE };
+          }
+          if (!email) {
+            setResponseStatus(event, 400);
+            return { error: VALID_AUTH_EMAIL_MESSAGE };
+          }
+
+          const requiredProvider = await requiredAuthProviderForEmail(email);
+          if (requiredProvider) {
+            setResponseStatus(event, 403);
+            return { error: authProviderRequiredMessage(requiredProvider) };
+          }
+
+          const signInResult = await auth.api.signInEmail({
+            body: { email, password },
+            headers: new Headers(),
+            returnHeaders: true,
+          });
+          const signInBody = betterAuthApiBody(signInResult);
+          if (signInBody.twoFactorRedirect !== true) {
+            const token =
+              typeof signInBody.token === "string" ? signInBody.token : "";
+            if (!token) {
+              setResponseStatus(event, 403);
+              return { error: AUTH_EMAIL_NOT_VERIFIED_MESSAGE };
+            }
+            setFrameworkSessionCookie(event, token);
+            clearIdentityGoogleAuthCookie(event);
+            setFirstRunOnboardingCookie(event);
+            await addSession(token, email);
+            if (isElectronRequest(event)) {
+              await writeDesktopSso({
+                email,
+                token,
+                expiresAt: Date.now() + sessionMaxAge * 1000,
+              });
+            }
+            return authLoginResponse(event, token, email);
+          }
+
+          const challengeCookies =
+            betterAuthChallengeCookieHeader(signInResult);
+          if (!challengeCookies) {
+            setResponseStatus(event, 500);
+            return {
+              error: "Couldn't create a two-factor sign-in challenge.",
+            };
+          }
+          verifyHeaders = new Headers({ cookie: challengeCookies });
+          challengeEmail = email;
+        }
+
         const result = await auth.api.verifyTOTP({
           body: {
             code,
             ...(body?.trustDevice === true ? { trustDevice: true } : {}),
           },
-          headers: betterAuthHeadersForSession(event, existingSession?.token),
+          headers:
+            verifyHeaders ??
+            betterAuthHeadersForSession(event, existingSession?.token),
           returnHeaders: true,
         });
         const responseBody = betterAuthApiBody(result);
@@ -6095,7 +6183,7 @@ async function mountBetterAuthRoutes(
         const email =
           typeof responseBody.user?.email === "string"
             ? responseBody.user.email
-            : existingSession?.email;
+            : (existingSession?.email ?? challengeEmail);
         if (!existingSession) {
           if (!token || !email) {
             setResponseStatus(event, 500);

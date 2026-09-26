@@ -11,8 +11,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const sentryMock = vi.hoisted(() => ({
   captureException: vi.fn(),
 }));
+const spawnSyncMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@sentry/node", () => sentryMock);
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawnSync: spawnSyncMock,
+}));
 
 import {
   initialWorkspaceAppIds,
@@ -32,6 +37,7 @@ let handle: WorkspaceDevHandle | undefined;
 afterEach(() => {
   handle?.shutdown();
   vi.restoreAllMocks();
+  spawnSyncMock.mockReset();
   handle = undefined;
   sentryMock.captureException.mockClear();
   if (tmpDir) {
@@ -877,6 +883,58 @@ describe("workspace dev startup", () => {
     handle.shutdown();
     expect(handle.apps[0].restartTimer).toBeUndefined();
   });
+
+  it("force-kills the Windows process tree when taskkill cannot kill it softly", async () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(
+      process,
+      "platform",
+    );
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: "win32",
+    });
+    const killProcessGroup = vi.spyOn(process, "kill").mockReturnValue(true);
+    spawnSyncMock
+      .mockReturnValueOnce({ status: 1 })
+      .mockReturnValueOnce({ status: 0 });
+
+    try {
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn(489);
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: {
+          ...testEnv(),
+          WORKSPACE_EAGER: "1",
+        },
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+      });
+      await handle.ready;
+      const appCall = fake.calls().at(-1);
+      appCall?.child.kill.mockClear();
+      handle.shutdown();
+
+      expect(spawnSyncMock).toHaveBeenNthCalledWith(
+        1,
+        "taskkill",
+        ["/pid", "489", "/T"],
+        { stdio: "ignore" },
+      );
+      expect(spawnSyncMock).toHaveBeenNthCalledWith(
+        2,
+        "taskkill",
+        ["/pid", "489", "/T", "/F"],
+        { stdio: "ignore" },
+      );
+      expect(appCall?.child.kill).not.toHaveBeenCalled();
+      expect(killProcessGroup).not.toHaveBeenCalled();
+    } finally {
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform);
+      }
+    }
+  });
 });
 
 describe("workspace dev helpers", () => {
@@ -1067,7 +1125,7 @@ async function waitUntil(
   throw new Error("Timed out waiting for condition");
 }
 
-function fakeSpawn(): {
+function fakeSpawn(pid?: number): {
   spawnProcess: typeof spawn;
   calls: () => Array<{
     command: string;
@@ -1102,6 +1160,12 @@ function fakeSpawn(): {
       },
     ) => {
       const child = new EventEmitter() as ChildProcess;
+      if (pid !== undefined) {
+        Object.defineProperty(child, "pid", {
+          configurable: true,
+          value: pid,
+        });
+      }
       child.stdout = new EventEmitter() as ChildProcess["stdout"];
       child.stderr = new EventEmitter() as ChildProcess["stderr"];
       child.killed = false;

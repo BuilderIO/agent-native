@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockResolveSecret = vi.fn();
+const mockResolveSecretDetailed = vi.fn();
 
 vi.mock("@agent-native/core/server", () => ({
-  resolveSecret: (...args: any[]) => mockResolveSecret(...args),
+  resolveSecretDetailed: (...args: any[]) => mockResolveSecretDetailed(...args),
 }));
 
 import { s3FileUploadProvider } from "./s3-upload-provider.js";
@@ -13,6 +13,7 @@ describe("s3FileUploadProvider", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
     process.env = { ...originalEnv };
     for (const key of [
       "S3_BUCKET",
@@ -39,8 +40,13 @@ describe("s3FileUploadProvider", () => {
       S3_SECRET_ACCESS_KEY: "secret",
       S3_ENDPOINT: "https://s3.example.com",
     };
-    mockResolveSecret.mockImplementation(async (key: string) => {
-      return values[key] ?? null;
+    mockResolveSecretDetailed.mockImplementation(async (key: string) => {
+      const value = values[key] ?? null;
+      return {
+        value,
+        lookupFailed: false,
+        ...(value ? { source: "user", scopeId: "user@example.test" } : {}),
+      };
     });
 
     expect(s3FileUploadProvider.isConfigured()).toBe(false);
@@ -63,8 +69,13 @@ describe("s3FileUploadProvider", () => {
     process.env.S3_ACCESS_KEY_ID = "access";
     process.env.S3_SECRET_ACCESS_KEY = "secret";
     process.env.S3_ENDPOINT = "https://s3.example.com";
-    mockResolveSecret.mockImplementation(async (key: string) => {
-      return process.env[key] ?? null;
+    mockResolveSecretDetailed.mockImplementation(async (key: string) => {
+      const value = process.env[key] ?? null;
+      return {
+        value,
+        lookupFailed: false,
+        ...(value ? { source: "env" } : {}),
+      };
     });
 
     const fetchMock = vi
@@ -88,4 +99,59 @@ describe("s3FileUploadProvider", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it.each(["S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"] as const)(
+    "rejects a member endpoint when %s belongs to another scope before fetching",
+    async (mismatchedKey) => {
+      const values: Record<string, unknown> = {
+        S3_BUCKET: {
+          value: "replays",
+          lookupFailed: false,
+          source: "org",
+          scopeId: "org-1",
+        },
+        S3_ACCESS_KEY_ID: {
+          value: "access",
+          lookupFailed: false,
+          source: "user",
+          scopeId: "user@example.test",
+        },
+        S3_SECRET_ACCESS_KEY: {
+          value: "secret",
+          lookupFailed: false,
+          source: "user",
+          scopeId: "user@example.test",
+        },
+        S3_ENDPOINT: {
+          value: "https://member-storage.example.test",
+          lookupFailed: false,
+          source: "user",
+          scopeId: "user@example.test",
+        },
+      };
+      values[mismatchedKey] = {
+        value: "other-scope-credential",
+        lookupFailed: false,
+        source: "org",
+        scopeId: "org-1",
+      };
+      mockResolveSecretDetailed.mockImplementation(
+        async (key: string) =>
+          values[key] ?? { value: null, lookupFailed: false },
+      );
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        s3FileUploadProvider.upload({
+          data: new Uint8Array([1, 2, 3]),
+          filename: "session.json",
+          mimeType: "application/json",
+        }),
+      ).rejects.toThrow(
+        new RegExp(`${mismatchedKey}.*user-scoped endpoint`, "i"),
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 });
