@@ -1143,7 +1143,11 @@ interface DesignCanvasProps {
    * `draftPrimitiveToInsert` on the overview side).
    */
   onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
-  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
+  onUpdatePenPath?: (
+    nodeId: string,
+    path: PenPath,
+    nextTool?: "move",
+  ) => boolean;
   /**
    * OS file drag-and-drop (Figma parity): fired when the user drops native
    * OS files (e.g. images dragged from Finder/Explorer) onto this single-
@@ -8633,7 +8637,11 @@ interface SingleScreenCreationOverlayProps {
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   selectedPenPathNodeId?: string | null;
   onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
-  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
+  onUpdatePenPath?: (
+    nodeId: string,
+    path: PenPath,
+    nextTool?: "move",
+  ) => boolean;
 }
 
 /**
@@ -8778,7 +8786,11 @@ function SingleScreenCreationOverlay({
 
       const continuation = continuationPenPathRef.current;
       if (continuation) {
-        const updated = onUpdatePenPath?.(continuation.nodeId, committed);
+        const updated = onUpdatePenPath?.(
+          continuation.nodeId,
+          committed,
+          options?.preserveActiveTool === false ? "move" : undefined,
+        );
         if (!updated) {
           continuationPenPathRef.current = null;
           updatePenPath(committed);
@@ -9165,9 +9177,13 @@ function SingleScreenCreationOverlay({
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
+      if (event.key === "Escape") {
+        clearPenPath();
+        return;
+      }
       finishPenPath(path, {
-        preserveActiveTool: true,
-        continueAfterCommit: event.key === "Enter",
+        preserveActiveTool: false,
+        continueAfterCommit: true,
       });
     };
 

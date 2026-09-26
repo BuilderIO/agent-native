@@ -875,6 +875,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
   const [penPointer, setPenPointer] = useState<Point | null>(null);
   const [penCloseHover, setPenCloseHover] = useState(false);
+  const clearActivePenPath = useCallback(() => {
+    activePenPathRef.current = null;
+    setActivePenPath(null);
+    setPenGesturePreview(null);
+    setPenPointer(null);
+    setPenCloseHover(false);
+  }, []);
+  const cancelActivePenPath = useCallback(() => {
+    clearActivePenPath();
+    penContinuesVectorEditRef.current = false;
+    penContinuationBaseCountRef.current = 0;
+  }, [clearActivePenPath]);
   // Last raw client point the pen ghost/close-hover preview was computed
   // from (P18). A wheel pan/zoom gesture mutates pan/zoom every animation
   // frame via applyViewToDom without the mouse itself moving, so the
@@ -5583,10 +5595,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      const hasActivePenPath =
+        Boolean(activePenPathRef.current) &&
+        !isEditableHotkeyTarget(event.target);
       const cancelled = cancelActiveDrag(
         eventEpochMilliseconds(event.timeStamp),
       );
-      if (cancelled) {
+      if (hasActivePenPath) cancelActivePenPath();
+      if (cancelled || hasActivePenPath) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -5606,7 +5622,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [cancelActiveDrag, vectorEdit]);
+  }, [cancelActiveDrag, cancelActivePenPath, vectorEdit]);
 
   const beginPan = useCallback(
     (e: React.MouseEvent) => {
@@ -6317,19 +6333,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     retryPersistedDraftPrimitives();
   }, [frameGeometry, retryPersistedDraftPrimitives, screens]);
 
-  const clearActivePenPath = useCallback(() => {
-    activePenPathRef.current = null;
-    setActivePenPath(null);
-    setPenGesturePreview(null);
-    setPenPointer(null);
-    setPenCloseHover(false);
-  }, []);
-
   const finishPenPath = useCallback(
     (
       path = activePenPathRef.current,
-      options?: { continueAfterCommit?: boolean },
+      options?: {
+        continueAfterCommit?: boolean;
+        nextTool?: "move" | "pen";
+      },
     ) => {
+      const nextTool = options?.nextTool ?? "pen";
       // Clear before committing: the commit flushes React synchronously, and
       // an effect it wakes can re-enter here and commit the same path twice.
       clearActivePenPath();
@@ -6364,7 +6376,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             "commit",
           );
         }
-        onActiveToolChange?.("pen");
+        onActiveToolChange?.(nextTool);
         return;
       }
 
@@ -6389,7 +6401,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             : { ...continuation, path: clonePenPath(path) };
       } else {
         const persisted = commitDraftPrimitive(draft, undefined, {
-          nextTool: "pen",
+          nextTool,
         });
         continuationPenPathRef.current =
           persisted && !path.closed && options?.continueAfterCommit
@@ -6400,12 +6412,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               }
             : null;
       }
-      // Keep the Pen tool armed after Enter/Escape/closing a path, matching
-      // Figma. The parent selection callback also receives nextTool="pen",
-      // but board primitives intentionally bypass that generic callback and
+      // The parent selection callback receives nextTool, but board primitives
+      // intentionally bypass that generic callback and
       // asynchronous selection reconciliation can otherwise paint Move for a
       // frame. Drive the controlled tool explicitly at the commit boundary.
-      onActiveToolChange?.("pen");
+      onActiveToolChange?.(nextTool);
     },
     [
       clearActivePenPath,
@@ -10460,20 +10471,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        finishPenPath(path, { continueAfterCommit: true });
-        return;
-      }
-
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        // Figma: Escape ends the path in progress and keeps what's drawn so
-        // far (no data loss), rather than discarding the whole path.
-        // finishPenPath already falls back to a discard for a path with
-        // fewer than 2 nodes (P16), where there's nothing meaningful to
-        // commit.
-        finishPenPath(path);
+        finishPenPath(path, {
+          continueAfterCommit: true,
+          nextTool: "move",
+        });
         return;
       }
 

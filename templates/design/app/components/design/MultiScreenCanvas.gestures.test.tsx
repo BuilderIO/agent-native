@@ -9,6 +9,7 @@ import { findCanvasIframeForScreen } from "./multi-screen/iframe-targeting";
 import { SURFACE_PADDING } from "./multi-screen/overview-layout";
 import type {
   DuplicateRequest,
+  MultiScreenCanvasProps,
   MultiScreenCanvasTool,
 } from "./multi-screen/types";
 import { MultiScreenCanvas } from "./MultiScreenCanvas";
@@ -21,15 +22,29 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-function ToolHarness({ initialTool }: { initialTool: MultiScreenCanvasTool }) {
+function ToolHarness({
+  initialTool,
+  onBoardDrawPrimitive,
+  onToolChange,
+}: {
+  initialTool: MultiScreenCanvasTool;
+  onBoardDrawPrimitive?: MultiScreenCanvasProps["onBoardDrawPrimitive"];
+  onToolChange?: (tool: MultiScreenCanvasTool) => void;
+}) {
   const [tool, setTool] = useState(initialTool);
+  const handleToolChange = (nextTool: MultiScreenCanvasTool) => {
+    setTool(nextTool);
+    onToolChange?.(nextTool);
+  };
   return (
     <MultiScreenCanvas
       screens={[]}
       zoom={100}
       activeTool={tool}
-      onActiveToolChange={setTool}
+      onActiveToolChange={handleToolChange}
       onPick={() => {}}
+      boardFileId={onBoardDrawPrimitive ? "board-file" : undefined}
+      onBoardDrawPrimitive={onBoardDrawPrimitive}
     />
   );
 }
@@ -134,6 +149,66 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(surface).not.toBeNull();
     return surface!;
   }
+
+  it("Escape cancels a Pen draft and Enter commits it on Move", async () => {
+    let boardDrawCalls = 0;
+    let committedOptions: Parameters<
+      NonNullable<MultiScreenCanvasProps["onBoardDrawPrimitive"]>
+    >[1];
+    const onBoardDrawPrimitive: NonNullable<
+      MultiScreenCanvasProps["onBoardDrawPrimitive"]
+    > = (_primitive, options) => {
+      boardDrawCalls += 1;
+      committedOptions = options;
+      return "created-path";
+    };
+    const onToolChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <ToolHarness
+          initialTool="pen"
+          onBoardDrawPrimitive={onBoardDrawPrimitive}
+          onToolChange={onToolChange}
+        />,
+      );
+    });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+
+    const addAnchor = async (x: number, y: number) => {
+      await act(async () => {
+        dispatchMouse(surface!, "mousedown", x, y);
+        dispatchMouse(window, "mouseup", x, y);
+      });
+    };
+    const pressKey = async (key: "Enter" | "Escape") => {
+      await act(async () => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+    };
+
+    await addAnchor(120, 120);
+    await addAnchor(180, 180);
+    expect(container.querySelector("[data-pen-path-overlay]")).not.toBeNull();
+    await pressKey("Escape");
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(boardDrawCalls).toBe(0);
+    expect(onToolChange).not.toHaveBeenCalledWith("move");
+
+    await addAnchor(220, 120);
+    await addAnchor(280, 180);
+    await pressKey("Enter");
+    expect(boardDrawCalls).toBe(1);
+    expect(committedOptions).toEqual({ nextTool: "move" });
+    expect(onToolChange).toHaveBeenLastCalledWith("move");
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+  });
 
   async function createSelectedDraft(surface: HTMLElement) {
     await act(async () => {
