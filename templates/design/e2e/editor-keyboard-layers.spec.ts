@@ -120,7 +120,23 @@ test.describe("editor keyboard layer clipboard", () => {
         expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
         expect(count(html, ">Nested CTA<")).toBe(1);
         expect(html).toContain("border-radius: 16px");
-        expect(html).toContain("transform: rotate(2deg)");
+        // The portable-style snapshot captures appearance via
+        // getComputedStyle so a cross-design paste still looks like the
+        // source even when the two documents' stylesheets differ (see
+        // portable-style.ts). CSSOM always resolves a captured `transform`
+        // to matrix() — never the authored function syntax — so assert the
+        // matrix terms this produces rather than a literal "rotate(2deg)".
+        // All six terms are checked (not just the rotation angle) so a
+        // scale, skew, or translate folded into the same matrix still fails.
+        const pastedTransform = transformMatrixTerms(html);
+        expect(pastedTransform).not.toBeNull();
+        const twoDegrees = (2 * Math.PI) / 180;
+        expect(pastedTransform!.a).toBeCloseTo(Math.cos(twoDegrees), 3);
+        expect(pastedTransform!.b).toBeCloseTo(Math.sin(twoDegrees), 3);
+        expect(pastedTransform!.c).toBeCloseTo(-Math.sin(twoDegrees), 3);
+        expect(pastedTransform!.d).toBeCloseTo(Math.cos(twoDegrees), 3);
+        expect(pastedTransform!.e).toBeCloseTo(0, 1);
+        expect(pastedTransform!.f).toBeCloseTo(0, 1);
         expect(html).toContain("IBM Plex Sans");
         expect(html).toContain('src="/favicon.ico"');
         expect(html).not.toContain("agent-native-clipboard-v1");
@@ -844,6 +860,37 @@ async function pressEditorKey(page: Page, key: string): Promise<void> {
 
 function count(value: string, needle: string): number {
   return value.split(needle).length - 1;
+}
+
+// Extracts all six `matrix(a, b, c, d, e, f)` terms from the first
+// `transform:` declaration in `html` — the form getComputedStyle always
+// resolves a captured transform to, never the authored function syntax.
+// Anchored on a preceding boundary char so `text-transform:` never matches.
+// Returns null when no transform declaration is present or it isn't a matrix.
+function transformMatrixTerms(html: string): {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  f: number;
+} | null {
+  const declaration = html.match(/(?:^|[;\s"'])transform:\s*([^;"']+)/);
+  if (!declaration) return null;
+  const value = declaration[1].trim();
+  const matrix = value.match(
+    /^matrix\(\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+)\s*\)$/,
+  );
+  if (!matrix) return null;
+  const [, a, b, c, d, e, f] = matrix;
+  return {
+    a: Number(a),
+    b: Number(b),
+    c: Number(c),
+    d: Number(d),
+    e: Number(e),
+    f: Number(f),
+  };
 }
 
 function allNodeIdsAreUnique(html: string): boolean {

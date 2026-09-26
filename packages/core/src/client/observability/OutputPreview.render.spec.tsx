@@ -292,6 +292,7 @@ describe("OutputPreview artifact reads", () => {
         "Real design",
       ),
     );
+    expect(container.querySelector("iframe")?.className).toContain("w-[400%]");
     expect(container.querySelector("iframe")?.srcdoc).not.toContain(
       "window.leak",
     );
@@ -357,6 +358,8 @@ describe("OutputPreview artifact reads", () => {
     await vi.waitFor(() =>
       expect(container.querySelector("iframe")?.srcdoc).toContain("Slide"),
     );
+    expect(container.querySelector("iframe")?.className).toContain("w-[400%]");
+    expect(container.querySelector("iframe")?.className).toContain("top-10");
   });
 });
 
@@ -438,8 +441,8 @@ describe("OutputPreview authenticated artifact frames", () => {
     expect(iframe?.getAttribute("loading")).toBe("lazy");
     expect(iframe?.getAttribute("referrerpolicy")).toBe("no-referrer");
     expect(iframe?.getAttribute("sandbox")).toBe("");
-    expect(iframe?.className).toContain("h-[600%]");
-    expect(iframe?.className).toContain("w-[600%]");
+    expect(iframe?.className).toContain("h-[1200%]");
+    expect(iframe?.className).toContain("w-[1200%]");
     expect(preview?.className).toContain("overflow-hidden");
   });
 

@@ -3,6 +3,16 @@ name: Deploy app workspace bundle
 on:
   push:
     branches: [main]
+    paths:
+      - ".github/workflows/deploy-community-app-workspace.yml"
+      - "community-templates/**"
+      - "packages/**"
+      - "scripts/prebuild-workspace-packages.ts"
+      - ".nvmrc"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig*.json"
   schedule:
     # Run at both UTC hours that can be noon in America/Los_Angeles. The job
     # keeps only the local-noon invocation, so daylight-saving changes do not

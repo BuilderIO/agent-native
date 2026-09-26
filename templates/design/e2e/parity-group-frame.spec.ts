@@ -430,7 +430,12 @@ test.describe("Cmd+Opt+G frame selection", () => {
       fillSection,
       "a Frame should expose a Fill section (unlike a Group)",
     ).toBeVisible();
-    await fillSection.getByRole("button", { name: "Add fill" }).click();
+    // The empty Fill section's heading doubles as a clickable "Add fill"
+    // action alongside the header's own "+" icon button — both carry
+    // aria-label "Add fill" (see boolean-subtract.spec.ts and
+    // parity-tutorial-4.spec.ts's note on the same ambiguity), so an
+    // unscoped role/name query resolves to 2 elements.
+    await fillSection.getByRole("button", { name: "Add fill" }).first().click();
 
     const frame = previewFrame(page)
       .locator('[data-agent-native-layer-name="Frame"]')
@@ -473,7 +478,16 @@ test.describe("Cmd+Shift+G ungroup", () => {
       `Cmd+Shift+G left the Group layer in place — trace: ${JSON.stringify(await dump(page))}`,
     ).toHaveCount(0);
 
-    const html = await indexHtml(page, id);
+    // The layers panel above reflects the in-memory doc synchronously, but
+    // get-design (indexHtml) reads the persisted file, which lands a
+    // write-debounce cycle later — see persistedHtml's own comment. A
+    // one-shot indexHtml read here races that persist; poll for Red's own
+    // ungrouped style instead of reading once right after the panel settles.
+    const html = await persistedHtml(
+      page,
+      id,
+      (h) => styleNum(styleOf(h, "red"), "left") === 20,
+    );
     expect(
       styleNum(styleOf(html, "red"), "left"),
       "ungroup must restore Red's original absolute left (20px)",

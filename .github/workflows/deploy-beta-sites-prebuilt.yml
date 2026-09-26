@@ -7,6 +7,8 @@ name: Deploy Agent-Native beta sites from GitHub
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - ".changeset/**"
   workflow_dispatch:
     inputs:
       source_ref:
@@ -118,9 +120,8 @@ jobs:
     needs: [resolve-source, discover-sites]
     strategy:
       fail-fast: false
-      # Artifact builds do not touch the production database or publish queue;
-      # keep the 17-site fleet from waiting behind the eight-job publish cap.
-      max-parallel: 16
+      # Leave shared runner capacity for PR CI while the beta fleet builds.
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
