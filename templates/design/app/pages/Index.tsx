@@ -248,7 +248,10 @@ export default function Index() {
     isError: templatesError,
     isFetching: templatesFetching,
     refetch: refetchTemplates,
-  } = useActionQuery("list-design-templates", { includePreview: "true" });
+  } = useActionQuery("list-design-templates", {
+    includePreview: "true",
+    includeSavedPreview: "false",
+  });
   const createMutation = useActionMutation("create-design");
   const createFromTemplateMutation = useActionMutation(
     "create-design-from-template",
