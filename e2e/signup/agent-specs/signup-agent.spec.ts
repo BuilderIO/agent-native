@@ -338,7 +338,6 @@ for (const target of targets) {
       }
       const message = result.message;
       const link = verificationLinkFor(message, target.origin);
-      // The link-sent page redirects itself when its session poll sees verification.
       const verificationPage = await page.context().newPage();
       const { errors: verificationErrors } = collectAppPageErrors(
         verificationPage,

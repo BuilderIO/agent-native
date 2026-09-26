@@ -177,7 +177,6 @@ for (const target of targets) {
     });
     if (!message) return;
 
-    // The link-sent page redirects itself when its session poll sees verification.
     const verificationStartedAt = Date.now();
     const verificationPage = await page.context().newPage();
     const verificationPageDiagnostics = observePage(verificationPage);
