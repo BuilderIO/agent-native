@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const database = vi.hoisted(() => {
   const rows: Array<Record<string, any>> = [];
   let id = 0;
+  const advisoryLocks = new Map<string, Promise<void>>();
   const aiFilterBackfills = Object.fromEntries(
     [
       "id",
@@ -104,7 +105,32 @@ const database = vi.hoisted(() => {
         },
       }),
     }),
-    transaction: async (callback: (tx: any) => unknown) => callback(db),
+    transaction: async (callback: (tx: any) => unknown) => {
+      const releases: Array<() => void> = [];
+      const tx = {
+        ...db,
+        execute: async (query: { values?: unknown[] }) => {
+          const key = String(query.values?.[0] ?? "");
+          const previous = advisoryLocks.get(key) ?? Promise.resolve();
+          let release = () => {};
+          const pending = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          advisoryLocks.set(key, pending);
+          await previous;
+          releases.push(() => {
+            release();
+            if (advisoryLocks.get(key) === pending) advisoryLocks.delete(key);
+          });
+          return { rows: [] };
+        },
+      };
+      try {
+        return await callback(tx);
+      } finally {
+        releases.reverse().forEach((release) => release());
+      }
+    },
   };
 
   return {
@@ -129,6 +155,11 @@ const mocks = vi.hoisted(() => ({
   writeLocalEmails: vi.fn(),
   getUserSetting: vi.fn(),
   mutateUserSetting: vi.fn(),
+  buildLabelCache: vi.fn(),
+  ensureGmailLabel: vi.fn(),
+  gmailGetThread: vi.fn(),
+  gmailModifyThread: vi.fn(),
+  syncInboxLabelDelta: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -154,6 +185,10 @@ vi.mock("drizzle-orm", () => ({
   isNull: (column: unknown) => ({ op: "isNull", column }),
   lt: (column: unknown, value: unknown) => ({ op: "lt", column, value }),
   or: (...conditions: unknown[]) => ({ op: "or", conditions }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings,
+    values,
+  }),
 }));
 vi.mock("nanoid", () => ({ nanoid: () => database.nextId() }));
 vi.mock("../db/index.js", () => ({ db: database.db, schema: database.schema }));
@@ -169,20 +204,22 @@ vi.mock("./automations.js", () => ({
   listAutomationRules: mocks.listAutomationRules,
 }));
 vi.mock("./automation-actions.js", () => ({
-  buildLabelCache: vi.fn(),
-  ensureGmailLabel: vi.fn(),
+  buildLabelCache: mocks.buildLabelCache,
+  ensureGmailLabel: mocks.ensureGmailLabel,
 }));
 vi.mock("./google-api.js", () => ({
   gmailBatchGetThreads: vi.fn(),
-  gmailGetThread: vi.fn(),
+  gmailGetThread: mocks.gmailGetThread,
   gmailListThreads: vi.fn(),
   gmailModifyMessage: vi.fn(),
-  gmailModifyThread: vi.fn(),
+  gmailModifyThread: mocks.gmailModifyThread,
 }));
 vi.mock("./google-auth.js", () => ({
   getClientsWithErrors: mocks.getClientsWithErrors,
 }));
-vi.mock("./inbox-store-sync.js", () => ({ syncInboxLabelDelta: vi.fn() }));
+vi.mock("./inbox-store-sync.js", () => ({
+  syncInboxLabelDelta: mocks.syncInboxLabelDelta,
+}));
 vi.mock("./local-email-store.js", () => ({
   readLocalEmails: mocks.readLocalEmails,
   withLocalEmailMutationLock: mocks.withLocalEmailMutationLock,
@@ -347,6 +384,8 @@ describe("startMailAiFilterBackfill", () => {
     );
     mocks.getUserSetting.mockResolvedValue({ labels: [] });
     mocks.mutateUserSetting.mockResolvedValue(undefined);
+    mocks.buildLabelCache.mockResolvedValue(new Map());
+    mocks.ensureGmailLabel.mockResolvedValue("label-id");
   });
 
   it("rejects an omitted selection above the enabled-rule limit before inserting a run", async () => {
@@ -377,6 +416,23 @@ describe("startMailAiFilterBackfill", () => {
     ).toHaveLength(1);
     expect(database.rows).toHaveLength(1);
     expect(database.rows[0].ruleSetKey).toBe('["rule-a","rule-b"]');
+  });
+
+  it("rejects concurrent starts whose rule sets overlap", async () => {
+    mocks.rules = [rule("rule-a"), rule("rule-b")];
+
+    const results = await Promise.allSettled([
+      startMailAiFilterBackfill(ownerEmail, ["rule-a"]),
+      startMailAiFilterBackfill(ownerEmail, ["rule-a", "rule-b"]),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+    expect(database.rows).toHaveLength(1);
   });
 
   it("rejects a repeat start while that rule set is being undone", async () => {
@@ -481,6 +537,63 @@ describe("startMailAiFilterBackfill", () => {
     expect(mocks.emails[0].isArchived).toBe(true);
     expect(mocks.emails[0].labelIds).toContain(AI_FILTER_LABEL.toLowerCase());
     expect(mocks.emails[0].labelIds).not.toContain("label rule-third");
+  });
+
+  it("checkpoints the expected Gmail labels before inbox cache sync can fail", async () => {
+    const tagRule = rule("rule-tag-archive");
+    tagRule.actions = [
+      { type: "label", labelName: "Tag A" },
+      { type: "archive" },
+    ];
+    mocks.rules = [tagRule];
+    const state = backfillState(mocks.rules);
+    const candidate = state.candidates[0];
+    candidate.key = "gmail:account@example.test:thread-a";
+    Object.assign(candidate, { accountEmail: "account@example.test" });
+    Object.assign(state.evaluations, {
+      [candidate.key]: [{ ruleId: tagRule.id, confidence: 0.95 }],
+    });
+    database.rows.push({
+      ...runningRow(mocks.rules),
+      stateJson: JSON.stringify(state),
+    });
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [{ email: "account@example.test", accessToken: "test-token" }],
+      errors: [],
+    });
+    mocks.ensureGmailLabel.mockResolvedValue("tag-a-id");
+    mocks.gmailGetThread.mockResolvedValue({
+      messages: [{ id: "gmail-message", labelIds: ["INBOX"] }],
+    });
+    mocks.gmailModifyThread.mockResolvedValue({ historyId: "history-1" });
+    mocks.syncInboxLabelDelta.mockImplementation(async () => {
+      const saved = JSON.parse(database.rows[0].stateJson).snapshots[
+        candidate.key
+      ];
+      expect(saved.messages[0].afterLabels).toEqual({
+        "tag-a-id": true,
+        INBOX: false,
+      });
+      expect(saved.messages[0].afterArchived).toBe(true);
+      throw new Error("inbox cache sync failed");
+    });
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(mocks.gmailModifyThread).toHaveBeenCalledWith(
+      "test-token",
+      "thread-a",
+      ["tag-a-id"],
+      ["INBOX"],
+    );
+    expect(database.rows[0].status).toBe("failed");
+    const saved = JSON.parse(database.rows[0].stateJson).snapshots[
+      candidate.key
+    ];
+    expect(saved.messages[0].afterLabels).toEqual({
+      "tag-a-id": true,
+      INBOX: false,
+    });
   });
 
   it("checkpoints an applied mutation while an undo request owns the run", async () => {
