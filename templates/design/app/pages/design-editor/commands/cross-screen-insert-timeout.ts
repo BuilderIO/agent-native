@@ -80,6 +80,28 @@ export function crossScreenSourceDeleteCancellation(
   return { ...request, cancelRequested: true };
 }
 
+export function crossScreenRollbackAfterSourceCancellation(
+  request: RuntimeStructureDeleteRequest & { screenId: string },
+  sourcePresent: boolean,
+  requestId: string,
+): (RuntimeStructureRollbackRequest & { screenId: string }) | null {
+  if (
+    !sourcePresent ||
+    !request.rollbackScreenId ||
+    !request.rollbackSelector
+  ) {
+    return null;
+  }
+  return {
+    screenId: request.rollbackScreenId,
+    requestId,
+    transactionId: request.transactionId,
+    selector: request.rollbackSelector,
+    sourceId: request.rollbackSourceId,
+    idempotent: true,
+  };
+}
+
 export function crossScreenRollbackIsComplete(
   request: RuntimeStructureRollbackRequest,
   result: { applied: boolean; reason?: string },

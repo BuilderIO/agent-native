@@ -680,6 +680,7 @@ import {
 } from "./design-editor/commands/cross-screen-element-drop";
 import {
   cancelCrossScreenRollbackTimeout,
+  crossScreenRollbackAfterSourceCancellation,
   crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
   crossScreenSourceDeleteCancellation,
@@ -17640,6 +17641,7 @@ function DesignEditor() {
       requestId: string;
       transactionId?: string;
       reason: string;
+      sourcePresent?: boolean;
     }) => {
       const request = runtimeStructureDeleteRequest;
       if (
@@ -17651,14 +17653,39 @@ function DesignEditor() {
         return;
       }
       if (request.cancelRequested) {
-        if (
-          details.reason === "cancelled" &&
-          runtimeStructureRollbackRequest?.transactionId ===
+        if (details.reason === "cancelled") {
+          if (
+            runtimeStructureRollbackRequest?.transactionId ===
             request.transactionId
-        ) {
+          ) {
+            setRuntimeStructureDeleteRequest((current) =>
+              current?.transactionId === request.transactionId ? null : current,
+            );
+            return;
+          }
+          const recoveryRollbackRequest =
+            crossScreenRollbackAfterSourceCancellation(
+              request,
+              details.sourcePresent === true,
+              `${request.transactionId}:recovery-rollback:${runtimeStructureRollbackRevisionRef.current + 1}`,
+            );
           setRuntimeStructureDeleteRequest((current) =>
             current?.transactionId === request.transactionId ? null : current,
           );
+          if (recoveryRollbackRequest) {
+            runtimeStructureRollbackRevisionRef.current += 1;
+            setRuntimeStructureRollbackRequest(recoveryRollbackRequest);
+            return;
+          }
+          releaseCrossScreenDropAdmission(
+            runtimeStructurePendingTransactionRef,
+            request.transactionId,
+          );
+          if (request.rollbackSelector) {
+            toast.error(t("designEditor.toasts.layerMoveFailed"), {
+              duration: 4000,
+            });
+          }
           return;
         }
         releaseCrossScreenDropAdmission(

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
   cancelCrossScreenRollbackTimeout,
+  crossScreenRollbackAfterSourceCancellation,
   crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
   crossScreenSourceDeleteCancellation,
@@ -162,6 +163,34 @@ describe("crossScreenRollbackDisposition", () => {
   });
 });
 
+describe("crossScreenRollbackAfterSourceCancellation", () => {
+  const request = {
+    requestId: "move-1:source",
+    transactionId: "move-1",
+    screenId: "source",
+    selector: "#source",
+    rollbackScreenId: "target",
+    rollbackSelector: "#inserted",
+    rollbackSourceId: "inserted-id",
+  };
+
+  it("waits for source restoration before rolling back the destination", () => {
+    expect(
+      crossScreenRollbackAfterSourceCancellation(request, false, "rollback-1"),
+    ).toBeNull();
+    expect(
+      crossScreenRollbackAfterSourceCancellation(request, true, "rollback-1"),
+    ).toEqual({
+      screenId: "target",
+      requestId: "rollback-1",
+      transactionId: "move-1",
+      selector: "#inserted",
+      sourceId: "inserted-id",
+      idempotent: true,
+    });
+  });
+});
+
 describe("cross-screen destination failure recovery", () => {
   it("restores the source and keeps an idempotent destination rollback for bridge recovery", () => {
     const sourceDeleteAfterInsertAck = {
@@ -308,7 +337,7 @@ describe("scheduleCrossScreenInsertTimeout", () => {
     cancel();
   });
 
-  it("cancels the failure toast timeout when the bridge replies", () => {
+  it("shows one failure toast when a rollback result arrives before its timeout", () => {
     vi.useFakeTimers();
     const toastError = vi.fn();
     const request = {
@@ -317,12 +346,16 @@ describe("scheduleCrossScreenInsertTimeout", () => {
       screenId: "target",
       selector: "",
     };
-    const timeoutRef = {
-      current: scheduleCrossScreenRollbackTimeout(request, toastError),
+    const timeoutRef: { current: (() => void) | null } = { current: null };
+    const handleResult = ({ applied }: { applied: boolean }) => {
+      cancelCrossScreenRollbackTimeout(timeoutRef);
+      if (!applied) toastError();
     };
+    timeoutRef.current = scheduleCrossScreenRollbackTimeout(request, () =>
+      handleResult({ applied: false }),
+    );
 
-    cancelCrossScreenRollbackTimeout(timeoutRef);
-    toastError();
+    handleResult({ applied: false });
     vi.advanceTimersByTime(CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
 
     expect(toastError).toHaveBeenCalledTimes(1);

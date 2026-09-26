@@ -34,6 +34,7 @@ import {
 } from "./cross-screen-element-drop";
 import {
   CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
+  crossScreenRollbackAfterSourceCancellation,
   scheduleCrossScreenRollbackTimeout,
 } from "./cross-screen-insert-timeout";
 import type { FileContentSaveCompletion } from "./save-file-content";
@@ -2469,7 +2470,7 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     expect(applyFileContentUpdate).not.toHaveBeenCalled();
   });
 
-  it("requests source restoration on rollback timeout and holds admission for its ack", () => {
+  it("restores the source before requesting destination rollback", () => {
     const pendingTransactionRef = { current: "move-rejected" as string | null };
     const recovery = resolveCrossScreenMoveFailureRecovery({
       reason: "rollback-timeout",
@@ -2492,15 +2493,82 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     expect(recovery.sourceDeleteRequest).toMatchObject({
       cancelRequested: true,
       rollbackScreenId: "target",
+      rollbackSelector: "#inserted",
+      rollbackSourceId: "inserted-id",
     });
-    expect(recovery.sourceDeleteRequest?.rollbackSelector).toBeUndefined();
-    expect(recovery.rollbackRequest).toMatchObject({
+    expect(recovery.rollbackRequest).toBeNull();
+    expect(pendingTransactionRef.current).toBe("move-rejected");
+  });
+
+  it("holds admission until source restoration and destination rollback settle", () => {
+    const pendingTransactionRef = { current: "move-rejected" as string | null };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "rollback-timeout",
+      transactionId: "move-rejected",
+      insertRequest: null,
+      sourceDeleteRequest: {
+        requestId: "move-rejected:source",
+        transactionId: "move-rejected",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "#inserted",
+        rollbackSourceId: "inserted-id",
+      },
+      rollbackRequestId: "move-rejected:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.rollbackRequest).toBeNull();
+    expect(pendingTransactionRef.current).toBe("move-rejected");
+    const rollbackAfterSourceAck = crossScreenRollbackAfterSourceCancellation(
+      recovery.sourceDeleteRequest!,
+      true,
+      "move-rejected:recovery-rollback",
+    );
+    expect(rollbackAfterSourceAck).toMatchObject({
       screenId: "target",
+      transactionId: "move-rejected",
       selector: "#inserted",
-      sourceId: "inserted-id",
-      idempotent: true,
     });
     expect(pendingTransactionRef.current).toBe("move-rejected");
+    expect(
+      releaseCrossScreenDropAdmission(pendingTransactionRef, "move-rejected"),
+    ).toBe(true);
+    expect(pendingTransactionRef.current).toBeNull();
+  });
+
+  it("keeps an acknowledged destination until a timed-out source delete is confirmed", () => {
+    const pendingTransactionRef = {
+      current: "move-delete-timeout" as string | null,
+    };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "source-delete-timeout",
+      transactionId: "move-delete-timeout",
+      insertRequest: null,
+      sourceDeleteRequest: {
+        requestId: "move-delete-timeout:source",
+        transactionId: "move-delete-timeout",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "#inserted",
+        rollbackSourceId: "inserted-id",
+      },
+      rollbackRequestId: "move-delete-timeout:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.rollbackRequest).toBeNull();
+    expect(recovery.sourceDeleteRequest).toMatchObject({
+      cancelRequested: true,
+      rollbackScreenId: "target",
+      rollbackSelector: "#inserted",
+      rollbackSourceId: "inserted-id",
+    });
+    expect(pendingTransactionRef.current).toBe("move-delete-timeout");
   });
 
   it("cancels source deletion after the acknowledged destination is lost", () => {

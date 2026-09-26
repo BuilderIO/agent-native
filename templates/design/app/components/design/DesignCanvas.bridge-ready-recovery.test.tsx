@@ -553,13 +553,35 @@ describe("DesignCanvas one-shot bridge queue", () => {
         type: "visual-structure-ack",
         requestId: "move-1:source",
         applied: false,
+        cancelRuntimeStructureDelete: {
+          transactionId: "move-1",
+          selector: "#source",
+          selectorCandidates: [],
+        },
       },
     ]);
+    expect(onRuntimeStructureDeleteRejected).not.toHaveBeenCalled();
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "runtime-structure-delete-cancelled",
+            requestId: "move-1:source",
+            transactionId: "move-1",
+            sourcePresent: true,
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
     expect(onRuntimeStructureDeleteRejected).toHaveBeenCalledExactlyOnceWith({
       screenId: "screen-live",
       requestId: "move-1:source",
       transactionId: "move-1",
+      routePath: "/",
       reason: "cancelled",
+      sourcePresent: true,
     });
     await act(async () => root.render(null));
     expect(onRuntimeStructureInsertRejected).toHaveBeenCalledExactlyOnceWith(
@@ -779,7 +801,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
       "target-unresolved",
       "move-rejected",
     );
-    expect(recovery?.admissionReleased).toBe(true);
     expect(recovery?.sourceDeleteRequest).toBeNull();
     expect(recovery?.rollbackRequest).toBeNull();
     expect(pendingTransactionRef.current).toBeNull();

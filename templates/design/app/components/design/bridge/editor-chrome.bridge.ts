@@ -27812,8 +27812,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         requestId: e.data.requestId,
         applied: Boolean(e.data.applied),
       });
+      var cancelRuntimeStructureDelete = e.data.cancelRuntimeStructureDelete;
+      var postRuntimeStructureDeleteCancellationResult = function (
+        sourcePresentOverride?: boolean,
+      ) {
+        if (
+          !cancelRuntimeStructureDelete ||
+          typeof cancelRuntimeStructureDelete.transactionId !== "string"
+        ) {
+          return;
+        }
+        var restoredSource = findRuntimeTarget(
+          String(cancelRuntimeStructureDelete.selector || ""),
+          Array.isArray(cancelRuntimeStructureDelete.selectorCandidates)
+            ? cancelRuntimeStructureDelete.selectorCandidates
+            : [],
+        );
+        (window.parent as Window).postMessage(
+          {
+            type: "runtime-structure-delete-cancelled",
+            requestId: String(e.data.requestId || ""),
+            transactionId: cancelRuntimeStructureDelete.transactionId,
+            routePath: window.location.pathname + window.location.search,
+            sourcePresent:
+              typeof sourcePresentOverride === "boolean"
+                ? sourcePresentOverride
+                : Boolean(restoredSource),
+          },
+          "*",
+        );
+      };
       var move = pendingStructureMoves[e.data.requestId];
-      if (!move) return;
+      if (!move) {
+        postRuntimeStructureDeleteCancellationResult();
+        return;
+      }
       delete pendingStructureMoves[e.data.requestId];
       var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
       var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
@@ -27841,6 +27874,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
         }
         refreshOverlays();
+        postRuntimeStructureDeleteCancellationResult();
         return;
       }
       if (moveWasRemoval) {
@@ -27868,6 +27902,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
         }
         refreshOverlays();
+        postRuntimeStructureDeleteCancellationResult(
+          Boolean(move.el && move.el.isConnected),
+        );
         return;
       }
       if (e.data.applied) {
@@ -27912,6 +27949,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
           if (hoveredEl === move.el) hoveredEl = null;
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult();
           return;
         }
         if (
@@ -27943,6 +27981,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           postElementSelect(selectedEl);
         }
       }
+      postRuntimeStructureDeleteCancellationResult();
       return;
     }
     if (e.data.type === "replace-document-content") {

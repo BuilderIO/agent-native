@@ -151,8 +151,16 @@ export function resolveCrossScreenMoveFailureRecovery(args: {
       Boolean(sourceDeleteRequest?.rollbackSelector));
   const rollbackScreenId =
     sourceDeleteRequest?.rollbackScreenId ?? insertRequest?.screenId;
+  const sourceDeleteMayHaveApplied = Boolean(
+    sourceDeleteRequest &&
+    (sourceDeleteRequest.cancelRequested ||
+      sourceDeleteRequest.waitForInsertTransaction !== true ||
+      sourceDeleteRequest.rollbackSelector),
+  );
+  const sourceRestorationMustPrecedeRollback =
+    needsRollback && sourceDeleteMayHaveApplied;
   const rollbackRequest =
-    needsRollback && rollbackScreenId
+    needsRollback && !sourceRestorationMustPrecedeRollback && rollbackScreenId
       ? {
           screenId: rollbackScreenId,
           requestId: args.rollbackRequestId,
@@ -162,19 +170,14 @@ export function resolveCrossScreenMoveFailureRecovery(args: {
           idempotent: true,
         }
       : null;
-  const sourceDeleteMayHaveApplied = Boolean(
-    sourceDeleteRequest &&
-    (sourceDeleteRequest.cancelRequested ||
-      sourceDeleteRequest.waitForInsertTransaction !== true ||
-      sourceDeleteRequest.rollbackSelector),
-  );
   const recoveredSourceDeleteRequest = sourceDeleteRequest
     ? sourceDeleteMayHaveApplied
       ? {
           ...sourceDeleteRequest,
           cancelRequested: true,
-          rollbackSelector: undefined,
-          rollbackSourceId: undefined,
+          ...(sourceRestorationMustPrecedeRollback
+            ? {}
+            : { rollbackSelector: undefined, rollbackSourceId: undefined }),
         }
       : null
     : undefined;

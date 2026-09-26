@@ -782,6 +782,7 @@ interface DesignCanvasProps {
     transactionId?: string;
     routePath?: string;
     reason: string;
+    sourcePresent?: boolean;
   }) => void;
   onRuntimeStructureRollbackResult?: (details: {
     requestId: string;
@@ -4852,6 +4853,25 @@ export function DesignCanvas({
         });
         return;
       }
+      if (e.data.type === "runtime-structure-delete-cancelled") {
+        const requestId = String(e.data.requestId || "");
+        if (!requestId) return;
+        onRuntimeStructureDeleteRejected?.({
+          screenId,
+          requestId,
+          transactionId:
+            typeof e.data.transactionId === "string"
+              ? e.data.transactionId
+              : undefined,
+          routePath:
+            typeof e.data.routePath === "string"
+              ? e.data.routePath
+              : (liveRoutePathRef.current ?? undefined),
+          reason: "cancelled",
+          sourcePresent: e.data.sourcePresent === true,
+        });
+        return;
+      }
       if (e.data.type === "runtime-structure-rollback-result") {
         const requestId = String(e.data.requestId || "");
         if (!requestId) return;
@@ -6941,12 +6961,11 @@ export function DesignCanvas({
       type: "visual-structure-ack",
       requestId: request.requestId,
       applied: false,
-    });
-    onRuntimeStructureDeleteRejected?.({
-      screenId,
-      requestId: request.requestId,
-      transactionId: request.transactionId,
-      reason: "cancelled",
+      cancelRuntimeStructureDelete: {
+        transactionId: request.transactionId,
+        selector: request.selector,
+        selectorCandidates: request.selectorCandidates ?? [],
+      },
     });
   }, [
     iframeDocumentIdentity,

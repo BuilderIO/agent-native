@@ -19651,8 +19651,31 @@ export const editorChromeBridgeScript: string = `"use strict";
           requestId: e.data.requestId,
           applied: Boolean(e.data.applied)
         });
+        var cancelRuntimeStructureDelete = e.data.cancelRuntimeStructureDelete;
+        var postRuntimeStructureDeleteCancellationResult = function(sourcePresentOverride) {
+          if (!cancelRuntimeStructureDelete || typeof cancelRuntimeStructureDelete.transactionId !== "string") {
+            return;
+          }
+          var restoredSource = findRuntimeTarget(
+            String(cancelRuntimeStructureDelete.selector || ""),
+            Array.isArray(cancelRuntimeStructureDelete.selectorCandidates) ? cancelRuntimeStructureDelete.selectorCandidates : []
+          );
+          window.parent.postMessage(
+            {
+              type: "runtime-structure-delete-cancelled",
+              requestId: String(e.data.requestId || ""),
+              transactionId: cancelRuntimeStructureDelete.transactionId,
+              routePath: window.location.pathname + window.location.search,
+              sourcePresent: typeof sourcePresentOverride === "boolean" ? sourcePresentOverride : Boolean(restoredSource)
+            },
+            "*"
+          );
+        };
         var move = pendingStructureMoves[e.data.requestId];
-        if (!move) return;
+        if (!move) {
+          postRuntimeStructureDeleteCancellationResult();
+          return;
+        }
         delete pendingStructureMoves[e.data.requestId];
         var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
         var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
@@ -19673,6 +19696,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult();
           return;
         }
         if (moveWasRemoval) {
@@ -19690,6 +19714,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult(
+            Boolean(move.el && move.el.isConnected)
+          );
           return;
         }
         if (e.data.applied) {
@@ -19714,6 +19741,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             if (hoveredEl === move.el) hoveredEl = null;
             refreshOverlays();
+            postRuntimeStructureDeleteCancellationResult();
             return;
           }
           if (move.el && move.el.isConnected && move.origin && "prevParent" in move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
@@ -19736,6 +19764,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           }
         }
+        postRuntimeStructureDeleteCancellationResult();
         return;
       }
       if (e.data.type === "replace-document-content") {

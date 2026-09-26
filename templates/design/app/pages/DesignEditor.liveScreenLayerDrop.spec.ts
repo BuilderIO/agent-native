@@ -79,6 +79,13 @@ describe("DesignEditor Layers-panel live-screen row drop", () => {
     expect(rejectionHandler).toContain(
       "runtimeStructureRollbackRequest?.transactionId ===",
     );
+    expect(rejectionHandler).toContain("details.sourcePresent");
+    expect(rejectionHandler).toContain(
+      "crossScreenRollbackAfterSourceCancellation(",
+    );
+    expect(rejectionHandler).toContain(
+      "setRuntimeStructureRollbackRequest(recoveryRollbackRequest)",
+    );
 
     const deleteTimeoutStart = source.indexOf(
       "const deleteRequest = runtimeStructureDeleteRequest;",
