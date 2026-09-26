@@ -213,6 +213,7 @@ function screenFrame(page: Page, screenTarget?: string): FrameLocator {
   return iframe.contentFrame();
 }
 
+/** Frame identity: explicit target, URL screen target, then last authored Screen. */
 export function designFrame(page: Page, screenId?: string): FrameLocator {
   return screenFrame(page, screenId ?? activeScreenTargetFromUrl(page));
 }
