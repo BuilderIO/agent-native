@@ -27,6 +27,7 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
+import { getAppConfig } from "../app-config/index.js";
 import type { AgentNativeWorkspaceRootPage } from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
@@ -126,19 +127,6 @@ const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH = "/_agent-native/google/callback";
 const VERCEL_OUTPUT_DIR = ".vercel/output";
 
-const WORKSPACE_DIRECTORY_ENV_SNIPPET = `
-  const directoryOrigin =
-    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
-    processRef.env.WORKSPACE_GATEWAY_URL ||
-    processRef.env.APP_URL ||
-    processRef.env.URL ||
-    processRef.env.DEPLOY_URL ||
-    processRef.env.BETTER_AUTH_URL;
-  if (directoryOrigin) {
-    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL = directoryOrigin;
-  }
-`;
-
 interface WorkspaceAppManifestEntry {
   id: string;
   name: string;
@@ -155,9 +143,23 @@ interface WorkspaceAppManifestEntry {
 function workspaceDirectoryEnvSnippet(
   workspaceApps: WorkspaceAppManifestEntry[],
 ): string {
-  return workspaceApps.some((app) => app.isDispatch)
-    ? WORKSPACE_DIRECTORY_ENV_SNIPPET
-    : "";
+  const orgDirectoryUrl = getAppConfig().workspace.orgDirectoryUrl?.trim();
+  if (!orgDirectoryUrl && !workspaceApps.some((app) => app.isDispatch)) {
+    return "";
+  }
+  return `
+  const directoryOrigin =
+    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
+    ${JSON.stringify(orgDirectoryUrl ?? null)} ||
+    processRef.env.WORKSPACE_GATEWAY_URL ||
+    processRef.env.APP_URL ||
+    processRef.env.URL ||
+    processRef.env.DEPLOY_URL ||
+    processRef.env.BETTER_AUTH_URL;
+  if (directoryOrigin) {
+    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL = directoryOrigin;
+  }
+`;
 }
 
 interface WorkspaceAppManifestOverride {
@@ -334,7 +336,7 @@ function buildOneApp(
   const workspaceGatewayUrl =
     process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl();
   const orgDirectoryUrl =
-    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL?.trim() ||
+    getAppConfig().workspace.orgDirectoryUrl?.trim() ||
     (workspaceApps.some((entry) => entry.isDispatch)
       ? workspaceGatewayUrl
       : null);

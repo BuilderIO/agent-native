@@ -1399,6 +1399,34 @@ describe("workspace deploy", () => {
     expect(server).not.toContain("directoryOrigin");
   });
 
+  it("embeds an explicit directory URL in runtimes without Dispatch", async () => {
+    const orgDirectoryUrl = "https://directory.example.test";
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = orgDirectoryUrl;
+    makeWorkspaceApp(tmpDir, "account-expert");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(
+      buildCallForApp("account-expert")?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL,
+    ).toBe(orgDirectoryUrl);
+    const server = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "account-expert-server",
+        "account-expert-server.mjs",
+      ),
+      "utf8",
+    );
+    expect(server).toContain(`    "${orgDirectoryUrl}" ||`);
+  });
+
   it("rejects app ids that conflict with reserved workspace routes", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "login");
