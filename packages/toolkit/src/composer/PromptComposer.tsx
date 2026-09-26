@@ -725,31 +725,6 @@ function PromptComposerInner({
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
-  const ensureEngineReadyBeforeSubmit = useCallback(async () => {
-    if (!resolvedModelStatusChecksEnabled) return true;
-    if (agentEngineConfigured.state === "configured") return true;
-    if (agentEngineConfigured.state === "missing") {
-      bounceMissingKeySetup();
-      return false;
-    }
-    const state = await modelsAdapter.fetchAgentEngineConfiguredState?.(true, {
-      timeoutMs: 5_000,
-    });
-    if (state === "configured") return true;
-    if (state === "missing") {
-      bounceMissingKeySetup();
-      return false;
-    }
-    retryEngineStatus();
-    return false;
-  }, [
-    agentEngineConfigured.state,
-    bounceMissingKeySetup,
-    modelsAdapter,
-    resolvedModelStatusChecksEnabled,
-    retryEngineStatus,
-  ]);
-
   useEffect(() => {
     if (!autoFocus || disabled || gateComposer) return;
     const id = window.setTimeout(() => {
@@ -863,7 +838,7 @@ function PromptComposerInner({
         <PromptAttachmentStrip />
         <TiptapComposer
           contextItems={contextItems}
-          contextMenuItems={contextMenuItems}
+          contextMenuItems={gateComposer ? undefined : contextMenuItems}
           onRemoveContextItem={onRemoveContextItem}
           onInspectContextItem={onInspectContextItem}
           onRetryContextItem={onRetryContextItem}
@@ -888,17 +863,18 @@ function PromptComposerInner({
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
-          onBeforeSubmit={ensureEngineReadyBeforeSubmit}
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
-            disabled || gateComposer
+            gateComposer
               ? "hidden"
               : (plusMenuMode ??
                 (attachmentsEnabled ? "upload-only" : "hidden"))
           }
           terminalModeControl={terminalModeControl}
           extensionTools={extensionTools}
-          attachButton={disabled || gateComposer ? null : attachButton}
+          attachButton={
+            gateComposer || !attachmentsEnabled ? null : attachButton
+          }
           modeControl={modeControl}
           execMode={execMode}
           onExecModeChange={onExecModeChange}

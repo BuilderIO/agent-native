@@ -4294,8 +4294,7 @@ export function TiptapComposer({
       >
         {!disabled && attachmentsEnabled && attachButton ? (
           attachButton
-        ) : disabled ? null : contextMenuItems !== undefined ||
-          plusMenuMode === "upload-only" ? (
+        ) : contextMenuItems !== undefined || plusMenuMode === "upload-only" ? (
           <ComposerContextMenu
             items={contextMenuItems ?? []}
             addAttachment={
@@ -4305,7 +4304,7 @@ export function TiptapComposer({
             onAttachmentError={onAttachmentError}
             disabled={disabled}
           />
-        ) : plusMenuMode === "hidden" ? null : (
+        ) : disabled || plusMenuMode === "hidden" ? null : (
           <ComposerPlusMenu
             addAttachment={addAttachmentForCurrentScope}
             attachmentsEnabled={attachmentsEnabled}
