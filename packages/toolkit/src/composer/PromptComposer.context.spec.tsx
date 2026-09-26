@@ -94,7 +94,7 @@ describe("controlled composer context", () => {
   }
 
   it.each(["host", "provider"] as const)(
-    "%s submission gating allows staging and blocks every send path until ready",
+    "%s submission gating prevents sends until ready",
     async (gate) => {
       const composerRef = React.createRef<TiptapComposerHandle>();
       const onSubmit = vi.fn();
@@ -152,6 +152,29 @@ describe("controlled composer context", () => {
         });
       };
       await render();
+      if (gate === "provider") {
+        expect(
+          container.querySelector('[data-testid="provider-setup"]'),
+        ).not.toBeNull();
+        expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+        expect(
+          container.querySelector('button[aria-label="Add context"]'),
+        ).toBeNull();
+        expect(
+          container.querySelector<HTMLButtonElement>(
+            'button[aria-label="Send message"]',
+          )?.disabled,
+        ).toBe(true);
+        await act(async () =>
+          expect(
+            await composerRef.current!.submitWithText("Blocked prompt"),
+          ).toBe(false),
+        );
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(onDisabledClick).not.toHaveBeenCalled();
+        blocked = false;
+        await render();
+      }
       const editor = container.querySelector<HTMLElement>(
         '[contenteditable="true"]',
       )!;
@@ -196,33 +219,37 @@ describe("controlled composer context", () => {
       const send = container.querySelector<HTMLButtonElement>(
         'button[aria-label="Send message"]',
       )!;
-      expect(send.disabled).toBe(true);
-      await act(async () => {
-        send.click();
-        editor.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-        );
-        editor.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "Enter",
-            metaKey: true,
-            bubbles: true,
-          }),
-        );
-        editor.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "Enter",
-            ctrlKey: true,
-            bubbles: true,
-          }),
-        );
-        expect(await composerRef.current!.submitWithText("Quick start")).toBe(
-          false,
-        );
-      });
-      expect(onSubmit).not.toHaveBeenCalled();
-      expect(editor.textContent).toBe("Staged draft");
-      expect(files).toEqual([file]);
+      if (gate === "host") {
+        expect(send.disabled).toBe(true);
+        await act(async () => {
+          send.click();
+          editor.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+          );
+          editor.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Enter",
+              metaKey: true,
+              bubbles: true,
+            }),
+          );
+          editor.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Enter",
+              ctrlKey: true,
+              bubbles: true,
+            }),
+          );
+          expect(await composerRef.current!.submitWithText("Quick start")).toBe(
+            false,
+          );
+        });
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(editor.textContent).toBe("Staged draft");
+        expect(files).toEqual([file]);
+      } else {
+        expect(send.disabled).toBe(false);
+      }
       blocked = false;
       await render();
       await act(async () => {
@@ -378,10 +405,9 @@ describe("controlled composer context", () => {
     ).toBe("Keep the editable draft");
   });
 
-  it("a failed provider preflight leaves the draft untouched and returns false", async () => {
+  it("keeps chat locked while provider status is unresolved", async () => {
     const composerRef = React.createRef<TiptapComposerHandle>();
     const onSubmit = vi.fn();
-    const preflight = vi.fn().mockResolvedValue("missing");
     await act(async () =>
       root.render(
         <ComposerRuntimeAdaptersProvider
@@ -391,7 +417,6 @@ describe("controlled composer context", () => {
                 state: "unknown",
                 missing: false,
               }),
-              fetchAgentEngineConfiguredState: preflight,
             },
           }}
         >
@@ -411,11 +436,12 @@ describe("controlled composer context", () => {
         false,
       ),
     );
-    expect(preflight).toHaveBeenCalledOnce();
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
     expect(
-      container.querySelector('[contenteditable="true"]')?.textContent,
-    ).toBe("Keep my draft");
+      container.querySelector('[contenteditable="false"]')?.textContent,
+    ).toContain("Keep my draft");
   });
 
   it.each(["click", "enter"])(

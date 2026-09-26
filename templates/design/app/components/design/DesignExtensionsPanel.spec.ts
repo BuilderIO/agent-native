@@ -156,6 +156,29 @@ describe("DesignExtensionsPanel source — extension discovery capability", () =
   });
 });
 
+describe("Design extension creation — LLM readiness gate", () => {
+  const source = readFileSync(
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "DesignExtensionsPanel.tsx",
+    ),
+    "utf8",
+  );
+
+  it("keeps prompt entry and submission behind the readiness state", () => {
+    expect(source).toContain('providerStatus.state === "configured"');
+    expect(source).toContain('providerStatus === "configured"');
+    expect(source).toContain("disabled={!providerReady}");
+    expect(source).toMatch(
+      /if \(!providerReady\) return;[\s\S]*?sendToDesignAgentChat\(/,
+    );
+    expect(source).toMatch(/if \(!providerReady \|\| !canSubmit\) return;/);
+    expect(source).toContain("<form onSubmit={handleSubmit}");
+    expect(source).toContain("<BuilderSetupCard");
+    expect(source).toContain('t("agentChat.setup.checkingProvider")');
+  });
+});
+
 describe("AssetLibraryPanel source — screen-local drop coordinates", () => {
   it("receives the DesignEditor screen-point resolver", () => {
     const source = readFileSync(

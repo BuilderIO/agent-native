@@ -106,10 +106,11 @@ const messages: AgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "Background Agent सेटिंग्स खोलें",
   "onboarding.capability.llm.keySummary": "अपना स्वयं का AI मॉडल कनेक्ट करें",
   "onboarding.capability.fileStorage.keySummary": "फ़ाइल अपलोड और स्टोरेज",
-  "onboarding.fileStorage.title": "फ़ाइल स्टोरेज चुनें",
+  "onboarding.fileStorage.title": "फ़ाइलें अपलोड करने के लिए स्टोरेज कनेक्ट करें",
   "onboarding.fileStorage.description":
-    "प्रबंधित Builder स्टोरेज चुनें या अपने S3-संगत बकेट के लिए कस्टम स्टोरेज कुंजियों का उपयोग करें।",
-  "onboarding.fileStorage.custom": "कस्टम स्टोरेज कुंजियों का उपयोग करें",
+    "Builder.io (मुफ़्त) कनेक्ट करें या अपना S3-संगत ऑब्जेक्ट स्टोरेज कॉन्फ़िगर करें।",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io फिर से कनेक्ट करें",
+  "onboarding.fileStorage.custom": "अपनी ऑब्जेक्ट स्टोरेज कुंजियाँ जोड़ें",
   "onboarding.fileStorage.customDescription":
     "स्थिर सार्वजनिक URL वाला S3-संगत बकेट कॉन्फ़िगर करें।",
   "onboarding.capability.voiceInput.label": "वॉइस इनपुट",
@@ -655,7 +656,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
   "recovery.credentialRejected":
-    "मौजूदा Builder.io या मॉडल प्रदाता क्रेडेंशियल अस्वीकार कर दिया गया। Builder.io को दोबारा कनेक्ट करें, फिर इस संदेश को दोबारा आज़माएँ।",
+    "मॉडल प्रदाता ने सहेजे गए क्रेडेंशियल अस्वीकार कर दिए। अपना Builder.io कनेक्शन या प्रदाता कुंजी अपडेट करें, फिर इस संदेश को दोबारा आज़माएँ।",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents कनेक्ट नहीं हैं। इस होस्टेड कोड-चेंज ऑपरेशन को चलाने के लिए सेटिंग्स में Builder.io कनेक्ट करें। मॉडल-प्रदाता कुंजियाँ चैट और अन्य AI सुविधाओं के लिए काम करती हैं, लेकिन Builder Cloud Agent को अधिकृत नहीं करतीं।",
   "recovery.diagnoseRetry": "समस्या जाँचें और फिर प्रयास करें",
   "recovery.forkDescription": "इस बातचीत को एक अलग चैट थ्रेड में शाखित करें।",
   "recovery.forkFailed": "इस चैट की शाखा नहीं बनाई जा सकी। नई चैट शुरू करके देखें।",
@@ -711,6 +714,10 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "चैट शुरू करने के लिए AI कनेक्ट करें...",
   "setup.connectToChat": "चैट करने के लिए AI कनेक्ट करें",
   "setup.connectToStart": "चैट शुरू करने के लिए AI कनेक्ट करें",
+  "setup.checkingProvider": "AI कनेक्शन की जाँच हो रही है…",
+  "setup.providerStatusUnavailable": "AI कनेक्शन की जाँच नहीं हो सकी।",
+  "agentNativeClips.meetingAsk.placeholder": "कुछ भी पूछें",
+  "agentNativeClips.meetingAsk.ariaLabel": "इस मीटिंग के बारे में कुछ भी पूछें",
   "setup.connected": "कनेक्ट हो गया",
   "setup.connectedOrganization": "कनेक्ट हो गया — {{organization}}",
   "setup.connectedTo": "{{organization}} से कनेक्ट है",

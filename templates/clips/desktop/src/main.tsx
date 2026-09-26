@@ -1,3 +1,4 @@
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { invoke } from "@tauri-apps/api/core";
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -253,5 +254,9 @@ if (rootEl) {
   // camera bubble re-created itself ~30 times a second. Tauri windows
   // are real OS resources — not an environment where double-mount is
   // harmless.
-  ReactDOM.createRoot(rootEl).render(pickRoute(route));
+  ReactDOM.createRoot(rootEl).render(
+    <AgentNativeI18nProvider persistPreference={false}>
+      {pickRoute(route)}
+    </AgentNativeI18nProvider>,
+  );
 }

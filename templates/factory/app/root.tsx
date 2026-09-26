@@ -130,6 +130,7 @@ function AppContent() {
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="factory"
+        chatStorageKey="chat"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
           {location.pathname.startsWith("/factory") ? (

@@ -4,6 +4,7 @@ import {
   type GuidedQuestionAnswers,
 } from "@agent-native/core/client/agent-chat";
 import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { isLocalRuntimeEngine } from "@agent-native/toolkit/composer";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { useCallback } from "react";
 
@@ -129,8 +130,12 @@ export function useQuestionFlow(
 ) {
   const stateKey = designQuestionsStateKey(designId);
   const existingDesignContext = existingDesignContinuationContext(designId);
+  const providerStatusChecksEnabled = !isLocalRuntimeEngine(
+    getModelSelection?.()?.engine,
+  );
   const flow = useGuidedQuestionFlow({
     enabled,
+    providerStatusChecksEnabled,
     stateKey,
     queryKey: [stateKey],
     submitMessage: "Here are my answers — go ahead.",
@@ -222,6 +227,7 @@ export function useQuestionFlow(
 
   const handleSubmit = useCallback(
     (answers: GuidedQuestionAnswers) => {
+      if (flow.isSubmissionBlocked) return;
       const formattedAnswers = formatGuidedAnswersForAgent(
         answers,
         flow.questions ?? undefined,
@@ -246,17 +252,18 @@ export function useQuestionFlow(
 
       void sendContinuation("Here are my answers — go ahead.", context);
     },
-    [designId, flow.questions, sendContinuation],
+    [designId, flow.isSubmissionBlocked, flow.questions, sendContinuation],
   );
 
   const handleSkip = useCallback(() => {
+    if (flow.isSubmissionBlocked) return;
     void sendContinuation(
       "Skip the questions — decide for me.",
       designId
         ? `${existingDesignContext} The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults. ${RESPONSIVE_GENERATION_REQUIREMENTS} Generate one polished first direction unless the original prompt explicitly requested options.`
         : `The user skipped the pre-generation questions. Proceed with reasonable defaults. ${RESPONSIVE_GENERATION_REQUIREMENTS} Generate one polished first direction unless the original prompt explicitly requested options.`,
     );
-  }, [designId, sendContinuation]);
+  }, [designId, flow.isSubmissionBlocked, sendContinuation]);
 
   return {
     ...flow,

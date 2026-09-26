@@ -185,6 +185,18 @@ export default {
     teamCreateOrgDescription:
       "Configura un equipo para compartir diseños con tus compañeros.",
   },
+  onboarding: {
+    fileStorage: {
+      title: "Conecta almacenamiento para subir archivos",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Comprobando la conexión de IA…",
+      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+    },
+    common: { retry: "Reintentar" },
+  },
   chat: {
     emptyState: "Describe el diseño que quieres crear",
     suggestionLandingPage: "Diseña una landing page para mi startup",

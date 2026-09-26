@@ -5,6 +5,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
+import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
+
 interface Asset {
   id: string;
   url: string;
@@ -27,6 +31,9 @@ export default function AssetLibraryPanel({
   anchorRef,
 }: AssetLibraryPanelProps) {
   const t = useT();
+  const storageQuery = useSlideFileStorageStatus(open);
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -68,8 +75,13 @@ export default function AssetLibraryPanel({
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    if (!fileStorageConfigured) {
+      e.target.value = "";
+      return;
+    }
     setUploading(true);
     const failures: string[] = [];
+    let storageSetupRequired = false;
     try {
       for (const file of Array.from(files)) {
         const form = new FormData();
@@ -81,6 +93,14 @@ export default function AssetLibraryPanel({
           });
           if (!res.ok) {
             const body = await res.json().catch(() => null);
+            if (
+              isMissingUploadProviderError(
+                res.status,
+                typeof body?.error === "string" ? body.error : undefined,
+              )
+            ) {
+              storageSetupRequired = true;
+            }
             failures.push(
               `${file.name}: ${body?.error || `HTTP ${res.status}`}`,
             );
@@ -90,6 +110,13 @@ export default function AssetLibraryPanel({
         }
       }
       await fetchAssets();
+      if (storageSetupRequired) {
+        void storageQuery.refetch();
+        toast.error(t("raw.assetUploadFailed"), {
+          description: t("home.fileStorageSetupRequired"),
+        });
+        return;
+      }
       if (failures.length > 0) {
         toast.error(t("raw.assetUploadFailed"), {
           description: failures.join("\n"),
@@ -191,9 +218,16 @@ export default function AssetLibraryPanel({
             multiple
             onChange={handleUpload}
             className="hidden"
-            disabled={uploading}
+            disabled={uploading || !fileStorageConfigured}
           />
         </label>
+        {!storageQuery.isLoading ? (
+          <UploadStorageGate
+            configured={fileStorageConfigured}
+            unavailable={storageQuery.isError}
+            onRetry={() => void storageQuery.refetch()}
+          />
+        ) : null}
 
         {/* Grid */}
         {loading ? (

@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 연결을 확인하는 중…",
+      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+    },
+    common: { retry: "다시 시도" },
+  },
   timelineTrack: {
     helpOtherSide:
       "먼저 그 구간을 클릭한 다음 빨간 선을 오른쪽으로 드래그하세요.",

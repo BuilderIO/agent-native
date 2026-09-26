@@ -15,6 +15,7 @@
  *   </CommandMenu>
  */
 
+import { isLocalRuntimeEngine } from "@agent-native/toolkit/composer";
 import {
   Command as CommandPrimitive,
   CommandGroup as CommandGroupPrimitive,
@@ -50,10 +51,16 @@ import {
   getChangelogLatestId,
   useChangelogSeen,
 } from "./changelog/use-changelog-seen.js";
+import { BuilderSetupCard } from "./chat/run-recovery.js";
 import { Dialog, DialogContent, DialogTitle } from "./components/ui/dialog.js";
 import { useT } from "./i18n.js";
 import { LazyChunkErrorBoundary } from "./lazy-chunk-error-boundary.js";
 import { signOut, SIGN_OUT_SEARCH_TERMS } from "./sign-out.js";
+import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
+import {
+  chatModelSelectionStorageKey,
+  useChatModels,
+} from "./use-chat-models.js";
 import { cn } from "./utils.js";
 
 const LazyChangelogDialog = lazy(async () => {
@@ -301,6 +308,8 @@ export interface CommandMenuProps {
   emptyText?: string;
   /** Whether to show the "Ask AI" fallback when no commands match. Default: true */
   showAgentFallback?: boolean;
+  /** Chat model selection namespace used by this app's agent sidebar. */
+  chatStorageKey?: string;
   /** Clear the current command query on Escape before dismissing the menu. */
   clearSearchOnEscape?: boolean;
   /** Customize focus restoration when the dialog closes. */
@@ -340,6 +349,7 @@ export function CommandMenu({
   inputLabel = placeholder,
   emptyText: _emptyText = "No commands found.",
   showAgentFallback = true,
+  chatStorageKey,
   clearSearchOnEscape = false,
   onCloseAutoFocus,
   className,
@@ -349,6 +359,19 @@ export function CommandMenu({
   showAbout: showAboutProp,
 }: CommandMenuProps) {
   const [search, setSearch] = useState("");
+  const models = useChatModels({
+    enabled: false,
+    storageKey: chatModelSelectionStorageKey(chatStorageKey),
+  });
+  const shouldCheckProviderStatus =
+    showAgentFallback && !isLocalRuntimeEngine(models.selectedEngine);
+  const agentEngineConfigured = useAgentEngineConfigured(
+    shouldCheckProviderStatus,
+  );
+  const providerStatus = shouldCheckProviderStatus
+    ? agentEngineConfigured.state
+    : "configured";
+  const chatReady = providerStatus === "configured";
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const nestedDialogsRef = useRef<Array<() => void>>([]);
@@ -405,13 +428,18 @@ export function CommandMenu({
   }, [open]);
 
   const handleSubmitToAgent = useCallback(() => {
-    onOpenChange(false);
     if (!search.trim()) {
+      onOpenChange(false);
       focusAgentChat();
       return;
     }
+    if (!chatReady) return;
+    onOpenChange(false);
     submitToAgent(search.trim());
-  }, [search, onOpenChange]);
+  }, [chatReady, search, onOpenChange]);
+  const retryProviderStatus = useCallback(() => {
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+  }, []);
 
   // The built-in "What's new" row matches changelog-ish search terms.
   const changelogRowMatches =
@@ -610,8 +638,36 @@ export function CommandMenu({
             showSignOutRow ||
             Boolean(results)) && <CommandSeparator />}
           <div className="p-1">
+            {providerStatus === "missing" ? (
+              <BuilderSetupCard attached fullWidth layout="sidebar" />
+            ) : providerStatus === "unknown" ||
+              providerStatus === "unavailable" ? (
+              <div
+                className="mb-1 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+                role="status"
+              >
+                <span>
+                  {providerStatus === "unknown"
+                    ? t("agentChat.setup.checkingProvider")
+                    : t("agentChat.setup.providerStatusUnavailable")}
+                </span>
+                {providerStatus === "unavailable" ? (
+                  <button
+                    type="button"
+                    className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline"
+                    onClick={retryProviderStatus}
+                  >
+                    {t("agentChat.common.retry")}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             <CommandItemPrimitive
-              className="cursor-pointer gap-2 py-2"
+              className={cn(
+                "gap-2 py-2",
+                chatReady ? "cursor-pointer" : "cursor-not-allowed opacity-50",
+              )}
+              disabled={!chatReady}
               onSelect={handleSubmitToAgent}
             >
               <IconMessage className="h-4 w-4 text-muted-foreground" />
