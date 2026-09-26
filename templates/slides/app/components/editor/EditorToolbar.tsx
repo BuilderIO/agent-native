@@ -722,10 +722,6 @@ export default function EditorToolbar({
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
   const handlePresentClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
-    if (!hasSlides) {
-      event.preventDefault();
-      return;
-    }
     if (event.button !== 0 && event.button !== 1) return;
     const preserveNativeNavigation =
       event.button === 1 ||
@@ -1069,19 +1065,26 @@ export default function EditorToolbar({
         />
       </div>
       {/* Present button — matches Share trigger height (h-9) */}
-      <Link
-        to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
-        aria-disabled={!hasSlides || undefined}
-        tabIndex={hasSlides ? undefined : -1}
-        onClick={handlePresentClick}
-        onAuxClick={handlePresentClick}
-        className={`inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors ${
-          hasSlides ? "hover:bg-primary/90" : "cursor-not-allowed opacity-50"
-        }`}
-      >
-        <IconPlayerPlay className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
-      </Link>
+      {hasSlides ? (
+        <Link
+          to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
+          onClick={onPresent ? handlePresentClick : undefined}
+          onAuxClick={onPresent ? handlePresentClick : undefined}
+          className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          <IconPlayerPlay className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
+        </Link>
+      ) : (
+        <button
+          type="button"
+          disabled
+          className="inline-flex h-9 flex-shrink-0 cursor-not-allowed items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground opacity-50 transition-colors"
+        >
+          <IconPlayerPlay className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
+        </button>
+      )}
 
       {/* Hidden file input for "Import" overflow menu item */}
       <input

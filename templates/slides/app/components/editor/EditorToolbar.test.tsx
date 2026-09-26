@@ -80,8 +80,14 @@ vi.mock("next-themes", () => ({
 }));
 
 vi.mock("react-router", () => ({
-  Link: ({ children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    <a {...props}>{children}</a>
+  Link: ({
+    children,
+    to,
+    ...props
+  }: AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
   ),
 }));
 
@@ -272,10 +278,12 @@ describe("<EditorToolbar>", () => {
       ]),
     );
 
-    const presentLink = screen.getByText("editorToolbar.present").closest("a");
-    expect(presentLink?.getAttribute("aria-disabled")).toBe("true");
-    expect(presentLink?.getAttribute("tabindex")).toBe("-1");
-    fireEvent.click(presentLink!);
+    const presentButton = screen.getByRole("button", {
+      name: "editorToolbar.present",
+    });
+    expect(presentButton.hasAttribute("disabled")).toBe(true);
+    expect(presentButton.closest("a")).toBeNull();
+    fireEvent.click(presentButton);
     expect(onPresent).not.toHaveBeenCalled();
   });
 
@@ -560,5 +568,30 @@ describe("<EditorToolbar>", () => {
     expect(onPresent).toHaveBeenCalledWith({
       preserveNativeNavigation: true,
     });
+  });
+
+  it("keeps native Present navigation when no owner is provided", () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deckWithSlides}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+        />
+      </TooltipProvider>,
+    );
+
+    const presentLink = screen.getByText("editorToolbar.present").closest("a");
+    expect(presentLink?.getAttribute("href")).toBe(
+      "/deck/deck-1/present?slide=1",
+    );
   });
 });
