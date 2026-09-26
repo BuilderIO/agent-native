@@ -112,9 +112,12 @@ function Greeting({ name }: { name: string }) {
 Use `useFormatters()` for dates, numbers, relative time, and lists. Do not put
 locale-sensitive date/number formatting inside translation strings.
 
-Put `<LanguagePicker />` wherever the app lets a user change their language.
-See [Toolkit: Settings](/docs/toolkit-settings) for the standard settings
-page pattern, including where `openAgentSettings()` fits in.
+Settings already has an **Interface language** row on Account › Preferences,
+and a change there applies in every app, so an app's own Settings pages don't
+add a second picker. With the `settings-redesign` flag off, put the picker in
+the tabbed page's General tab. Put `<LanguagePicker />` anywhere else the app
+lets a user change their language, such as a header shortcut. See
+[Toolkit: Settings](/docs/toolkit-settings) for the Settings page contract.
 
 ## Actions And Persistence
 
@@ -160,5 +163,5 @@ names.
 ## What's next
 
 - [**Overview**](/docs/client-overview#app-shell) — the `AppProviders` wrapper and other browser hooks i18n builds on
-- [**Toolkit: Settings**](/docs/toolkit-settings) — put `<LanguagePicker>` on the standard settings page
+- [**Toolkit: Settings**](/docs/toolkit-settings) — the Settings page contract, where Account › Preferences owns the interface language
 - [**Getting Started**](/docs/getting-started) — build your first app on a template that already ships localized catalogs

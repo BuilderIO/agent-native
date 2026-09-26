@@ -52,9 +52,12 @@ whether `loadMessages` can actually resolve it.
   Account › Preferences page already renders the Interface language row
   (with Timezone; both are the per-user `localization` record, so a change
   applies in every app); don't add a second picker to a redesigned page.
-- Settings pages should include an "Agent settings" row/card that calls
-  `openAgentSettings()` from `@agent-native/core/client` to open the right
-  agent sidebar's Settings tab. Localize the title, description, and button.
+- Don't add an "Agent settings" row to an app's settings page: the Agent
+  group's pages are part of Settings. Link to a page with
+  `buildSettingsRoute(page, sub?)`, and localize the link's label.
+- Settings copy follows the same rules: page and group labels are core
+  `agentChat.settingsShell.*` keys, and an app's own rows, areas, and search
+  entries take already translated strings from the app catalog.
 - Use `useFormatters()` for dates, numbers, relative time, and lists instead
   of embedding formatted values in translation strings.
 - Do not translate stable identifiers: action names, route names, enum values,

@@ -75,15 +75,15 @@ description: "エージェント チャット コンポーザーでの音声デ�
 
 ## プロバイダの有効化 {#enabling-providers}
 
-Builder が最も簡単なパスです。設定から Builder.io（無料プランあり）に接続すると、デフォルトのプロバイダーは Builder Gemini Flash-Lite になります。 BYOK プロバイダーの場合は、[設定] → [API キー] で一致するキーを追加します。
+Builder が最も簡単なパスです。**Settings → Connections → Integrations** から Builder.io（無料プランあり）に接続すると、デフォルトのプロバイダーは Builder Gemini Flash-Lite になります。BYOK プロバイダーの場合は、対応する Gemini、Groq、または OpenAI のキーを追加します。
 
 ### ユーザーごと (SaaS に推奨)
 
-ユーザーは、エージェントのサイドバー設定 UI を介して独自のキーを設定します。これは、ユーザー スコープの暗号化されたシークレットとして保存されます (`readAppSecret` 経由)。各ユーザーは自分の文字起こしに対して料金を支払います。ホストへのコストはゼロです。
+ユーザーは **Settings → Agent → Model** の **Personal providers** に自分のキーを追加します。これはユーザー スコープの暗号化されたシークレットとして保存されます (`readAppSecret` 経由)。各ユーザーは自分の文字起こしに対して料金を支払います。ホストへのコストはゼロです。
 
 ### 共有 (内部ツール用)
 
-`GEMINI_API_KEY`、`GROQ_API_KEY`、または `OPENAI_API_KEY` を環境変数として、または `settings` テーブルに設定します。すべてのユーザーの文字起こしは共有キーにヒットします。
+`GEMINI_API_KEY`、`GROQ_API_KEY`、または `OPENAI_API_KEY` を環境変数として設定するか、オーナーまたは管理者に **Settings → Agent → Model** の **Organization providers** で組織用に追加してもらいます。**Settings → Organization → Infrastructure** の **Voice input** 行で、最初に応答するプロバイダーを選びます。すべてのユーザーの文字起こしは共有キーを使います。
 
 <Callout id="doc-block-1ws8jta" tone="info">
 

@@ -75,15 +75,15 @@ description: "에이전트 채팅 작성기의 음성 받아쓰기 — Builder G
 
 ## 공급자 활성화 {#enabling-providers}
 
-Builder는 가장 쉬운 경로입니다. 설정에서 Builder.io(무료 요금제 제공)를 연결하면 기본 공급자가 Builder Gemini Flash-Lite가 됩니다. BYOK 공급자의 경우 설정 → API 키에 일치하는 키를 추가하세요.
+Builder는 가장 쉬운 경로입니다. **Settings → Connections → Integrations**에서 Builder.io(무료 요금제 제공)를 연결하면 기본 공급자가 Builder Gemini Flash-Lite가 됩니다. BYOK 공급자의 경우 일치하는 Gemini, Groq 또는 OpenAI 키를 추가하세요.
 
 ### 사용자별(SaaS에 권장)
 
-사용자는 에이전트 사이드바 설정 UI를 통해 자신의 키를 설정합니다. 이는 사용자 범위의 암호화된 비밀(`readAppSecret`를 통해)로 저장됩니다. 각 사용자는 자신의 트랜스크립션 비용을 지불합니다. 호스트 비용은 전혀 들지 않습니다.
+사용자는 **Settings → Agent → Model**의 **Personal providers**에 자신의 키를 추가합니다. 이는 사용자 범위의 암호화된 비밀(`readAppSecret`를 통해)로 저장됩니다. 각 사용자는 자신의 트랜스크립션 비용을 지불합니다. 호스트 비용은 전혀 들지 않습니다.
 
 ### 공유(내부 도구용)
 
-`GEMINI_API_KEY`, `GROQ_API_KEY` 또는 `OPENAI_API_KEY`를 환경 변수로 설정하거나 `settings` 테이블에 설정합니다. 모든 사용자의 기록은 공유 키에 도달합니다.
+`GEMINI_API_KEY`, `GROQ_API_KEY` 또는 `OPENAI_API_KEY`를 환경 변수로 설정하거나, 소유자 또는 관리자가 **Settings → Agent → Model**의 **Organization providers**에서 조직용으로 추가하도록 하세요. **Settings → Organization → Infrastructure**의 **Voice input** 행에서 먼저 응답할 공급자를 고릅니다. 모든 사용자의 트랜스크립션은 공유 키를 사용합니다.
 
 <Callout id="doc-block-gqc8n6" tone="info">
 

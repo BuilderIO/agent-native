@@ -135,26 +135,32 @@ against `@agent-native/toolkit/conformance` in customer CI before adopting it.
 
 ## Settings Direction
 
-Durable settings belong in the Settings app or a registered settings route. The
-agent sidebar should not become a second settings app. It can show contextual
-quick controls and deep links such as:
+Durable settings belong in Settings. The agent sidebar should not become a
+second settings app; it can show contextual quick controls and deep links. The
+redesigned Settings (`settings-redesign` flag) has the same groups in every app,
+and page ids are stable URL segments (`/settings/<page>/<sub>`):
 
-- `/settings/ai`
-- `/settings/connections`
-- `/settings/secrets`
-- `/settings/usage`
-- `/settings/apps/:appId`
+- Account: `profile`, `preferences`, `security`
+- Connections: `integrations` (`integrations/builder`), `api-keys`
+- Agent: `model`, `instructions`, `memory`, `skills`, `files`, `sub-agents`
+- Organization: `org`, `members`, `usage`, and for owners and admins `auth`,
+  `apps`, `infra`, `audit`
+- The app's group: `app` (areas at `app/<id>`), `notifications`,
+  `automations`, `channels` (`channels/<platform>`), `mcp`, `creative-context`
+- Footer: `labs`, `whats-new`
 
-The shared Account section is the canonical profile surface at
-`/settings#account`. It owns the editable display name and existing avatar
-control through the authenticated `get-user-profile` and `update-user-profile`
-actions. Shared workspace chrome such as `OrgSwitcher` should link to this
-surface rather than creating an app-local profile page.
+Link with `buildSettingsRoute(page, sub?, { anchor? })`; old tab and section
+ids resolve through the redirect table in
+`packages/core/src/navigation/settings-redirects.ts`, the only place that maps
+them. Account › Profile is the canonical profile surface (`get-user-profile`,
+`update-user-profile`); don't build an app-local profile page.
 
 When adding a new API key, OAuth grant, provider connection, model selector, app
-preference, notification preference, or usage/billing surface, register it as a
-settings tab or app settings panel first. Only add sidebar UI when it is needed
-in the moment of agent use.
+preference, notification preference, or usage/billing surface, find the page
+that owns that kind of setting first: provider keys go through the one provider
+dialog on Model, other keys on API keys, channels on Channels, and app-only
+preferences in the app's group. Only add sidebar UI when it is needed in the
+moment of agent use.
 
 ### The app's group in the redesigned Settings
 
@@ -177,6 +183,14 @@ only its own content, through these `SettingsTabsPage` props:
   in this app.
 - Labs come from `labs`; What's new comes from `whatsNewMarkdown`, or from the
   `ChangelogSettingsCard` passed as `whatsNew`.
+- Any other `extraTabs` item becomes its own page in the app's group. To swap a
+  core page for a variant, `registerSettingsPages([{ ...corePage, component }])`
+  at module scope (Dispatch's Members keeps its app-role column this way). To
+  add a group to one channel's page, `registerChannelSettingsExtensions`.
+
+The route needs a `settings.$.tsx` splat next to `settings.tsx`, and the layout
+hides its own sidebar and header on Settings routes while the flag is on or
+loading (`isSettingsPathname`), because the shell brings its own.
 
 Search entries per area: each `searchEntries` item's `hash` is the row's
 `SettingsRow` id, and a hit opens that area's tab and scrolls to the row. With
@@ -214,10 +228,10 @@ than duplicating their storage or transport.
 
 ## Reusable Kits
 
-- **Settings kit**: a searchable settings page with account, workspace, AI
-  models, LLM keys, connections, secrets, usage, notifications, changelog, and
-  app-specific panels. Search is on by default; register a `SettingsSearchEntry`
-  per control so users find settings by name across tabs.
+- **Settings kit**: one searchable Settings page with Account, Connections,
+  Agent, and Organization groups plus a group for the app's own settings. The
+  index is built from page declarations; give every row a search entry whose
+  anchor is its `SettingsRow` id so users find settings by name.
 - **Collaboration kit**: Yjs docs, presence, agent presence, live cursors,
   remote selections, recent edit highlights, real-time sync indicators, and
   undo/redo grouping.

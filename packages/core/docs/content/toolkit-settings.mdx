@@ -1,125 +1,256 @@
 ---
 title: "Settings Kit"
-description: "A standard, searchable settings-page contract for app, agent, provider, team, and language settings."
+description: "One searchable Settings page with the same Account, Connections, Agent, and Organization groups in every app, plus one group for the app's own settings."
 ---
 
 # Settings Kit
 
-The Settings Kit gives every app one predictable settings surface. Users should
-not have to wonder whether model keys live in an app settings page, a giant
-agent sidebar panel, or a provider-specific setup card. The app route owns the
-page; framework tabs can be mounted inside it.
+The Settings Kit gives every app one Settings page with the same shape. Where a
+setting lives says what it affects: **Account**, **Connections**, **Agent**, and
+**Organization** are the same in every app, and one group named after the app
+holds what only affects that app. Users never wonder whether a model key lives
+in an app page, the agent sidebar, or a provider setup card.
 
-Every settings page is **searchable out of the box**: `<SettingsTabsPage>`
-renders a search box that indexes tabs and their controls, so a user can type
-"language", "S3", or "API key" and jump straight to the right section across any
-tab — no hunting through the nav. This is a core value prop of the kit and comes
-free the moment an app adopts the shared page.
+Settings opens from the account menu (your photo and name at the bottom of the
+sidebar) and with **⌘,** (**Ctrl+,** on Windows and Linux) from anywhere in the
+app. The command menu (⌘K) has a **Settings** command too. Every page is
+searchable out of the box: typing "language", "S3", or "API key" jumps to the
+row across every page the viewer can see.
+
+<Callout>
+
+The redesigned Settings ships behind the `settings-redesign` feature flag while
+it rolls out. With the flag off, the same `<SettingsTabsPage>` props render the
+earlier tabbed page, so an app written for the new Settings works either way.
+
+</Callout>
 
 <WireframeBlock id="doc-block-toolkit-settings">
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:200px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:6px'><strong style='margin-bottom:4px'>Settings</strong><div class='wf-box' style='display:flex;align-items:center;gap:8px;margin-bottom:4px'><span data-icon='search'></span><span class='wf-muted'>Search settings</span></div><div style='padding:7px 9px;border-radius:8px'>General</div><div style='padding:7px 9px;border-radius:8px;background:var(--wf-accent-soft);display:flex;align-items:center;gap:8px'><span data-icon='settings'></span> AI and models</div><div style='padding:7px 9px;border-radius:8px'>Connections</div><div style='padding:7px 9px;border-radius:8px'>Team</div><div style='padding:7px 9px;border-radius:8px'>Developer</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>AI and models</h2><div style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>Default model</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>GPT-5</div><span data-icon='chevronDown'></span></div></div><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>Provider keys</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='check'></span><div style='flex:1'>OpenAI</div><span class='wf-pill'>Connected</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='lock'></span><div style='flex:1'>Anthropic</div><button>Add key</button></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='check'></span><div style='flex:1'>Builder</div><span class='wf-pill'>Connected</span></div></div><div style='flex:1'></div><div style='display:flex;gap:10px'><button>Open agent settings</button><div style='flex:1'></div><button class='primary'>Save changes</button></div></main></div>"
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:200px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:3px'><div class='wf-muted' style='display:flex;align-items:center;gap:6px;margin-bottom:6px'><span data-icon='chevronLeft'></span> Back to Mail</div><div class='wf-box' style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><span data-icon='search'></span><span class='wf-muted' style='flex:1'>Search</span><span class='wf-pill'>/</span></div><small class='wf-muted'>Account</small><div style='padding:4px 9px'>Profile</div><div style='padding:4px 9px'>Preferences</div><small class='wf-muted' style='margin-top:6px'>Connections</small><div style='padding:4px 9px'>Integrations</div><div style='padding:4px 9px'>API keys</div><small class='wf-muted' style='margin-top:6px'>Agent</small><div style='padding:4px 9px;border-radius:8px;background:var(--wf-accent-soft)'>Model</div><div style='padding:4px 9px'>Instructions</div><div style='padding:4px 9px'>Sub-agents</div><small class='wf-muted' style='margin-top:6px'>Organization</small><div style='padding:4px 9px'>Members</div><div style='padding:4px 9px'>Usage</div><small class='wf-muted' style='margin-top:6px'>Mail</small><div style='padding:4px 9px'>General</div><div style='padding:4px 9px'>Channels</div><div style='flex:1'></div><div class='wf-muted' style='padding:4px 9px'>Labs · What's new</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>Model</h2><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>Organization providers</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Builder.io</div><span class='wf-pill'>Connected</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Anthropic</div><button>Manage</button></div></div><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>Personal providers</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>OpenAI</div><button>Add</button></div></div><div style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>Default model</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>Claude Sonnet</div><span data-icon='chevronDown'></span></div></div></main></div>"
     }
   />
 </WireframeBlock>
 
-## Pieces {#pieces}
+## Groups and pages {#groups-and-pages}
 
-| Piece                    | Purpose                                                                                            |
-| ------------------------ | -------------------------------------------------------------------------------------------------- |
-| `<SettingsTabsPage>`     | Standard tabbed settings route surface with a built-in settings search box.                        |
-| `useAgentSettingsTabs()` | Framework-provided agent, model, key, automation, and voice tabs that apps can mount.              |
-| `SettingsSearchEntry`    | A deep-link target (label, keywords, tab, and hash) that makes a control findable.                 |
-| `<LanguagePicker>`       | Standard language selector for app settings.                                                       |
-| `openAgentSettings()`    | Opens the canonical `/settings` page at the requested section.                                     |
-| Deep links               | Stable links such as `/settings/integrations/secrets/OPENAI_API_KEY` and `/settings/integrations`. |
+Page ids are stable URL segments (`/settings/<page>` and
+`/settings/<page>/<sub>`), search targets, and the agent's name for a page.
 
-## Page Contract {#page-contract}
+| Group        | Page (id)                                                                                                                                                       | Visible to        |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Account      | Profile (`profile`), Preferences (`preferences`), Security (`security`)                                                                                         | Everyone          |
+| Connections  | Integrations (`integrations`, with `integrations/builder` for Builder.io), API keys (`api-keys`)                                                                | Everyone          |
+| Agent        | Model (`model`), Instructions (`instructions`), Memory (`memory`), Skills (`skills`), Files (`files`), Sub-agents (`sub-agents`)                                | Everyone          |
+| Organization | General (`org`), Members (`members`), Usage (`usage`)                                                                                                           | Everyone          |
+| Organization | Authentication (`auth`), Apps (`apps`), Infrastructure (`infra`), Audit log (`audit`)                                                                           | Owners and admins |
+| App name     | General (`app`), Notifications (`notifications`), Automations (`automations`), Channels (`channels`), MCP server (`mcp`), Creative context (`creative-context`) | Everyone          |
+| Footer       | Labs (`labs`), What's new (`whats-new`)                                                                                                                         | Everyone          |
 
-Every app should expose `/settings`. App-specific tabs can sit beside framework
-tabs; framework tabs should not be hidden in a second settings universe.
+The app's group uses the app's name and icon. Notifications shows only when the
+app passes notification settings, and Creative context only while its lab is on.
+A page the viewer can't see opens Profile instead, and Settings opens on Profile
+unless a link names a page. Hiding a page is presentation only: every action
+behind a page enforces the viewer's role on the server.
+
+## Page contract {#page-contract}
+
+Every app exposes `/settings` plus a splat route (`settings.$.tsx` re-exporting
+the settings route) so `/settings/<page>/<sub>` resolves. The route renders
+`<SettingsTabsPage>`; core owns the Account, Connections, Agent, and
+Organization pages, and the app supplies only its own content.
 
 ```tsx
-import { LanguagePicker } from "@agent-native/core/client/i18n";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import {
   SettingsTabsPage,
   useAgentSettingsTabs,
 } from "@agent-native/core/client/settings";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 
 export default function SettingsRoute() {
   const agentSettingsTabs = useAgentSettingsTabs();
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+
   return (
-    <SettingsTabsPage
-      extraTabs={agentSettingsTabs}
-      general={<LanguagePicker label="Interface language" />}
-    />
+    <div
+      className={
+        redesign.enabled || redesign.status === "loading" ? "h-dvh" : undefined
+      }
+    >
+      <SettingsTabsPage
+        extraTabs={agentSettingsTabs}
+        generalGroups={<RecordingDefaults />}
+        appAreas={[
+          { id: "meetings", label: "Meetings", content: <MeetingSettings /> },
+        ]}
+        notifications={<EmailNotificationSettings />}
+        mcpAbout="Record, search, and share clips from any MCP host."
+        whatsNewMarkdown={changelog}
+      />
+    </div>
   );
 }
 ```
 
-## Search {#search}
+The redesigned Settings brings its own back link to the app, navigation, and
+page header, so the app layout hides its sidebar and header on Settings routes
+(`isSettingsPathname(pathname)` while the flag is on or loading).
 
-The search box is enabled by default. With no extra work it matches on tab
-labels, so users can already filter the nav. To make individual controls
-discoverable, register `SettingsSearchEntry` items — each result switches to the
-right tab and scrolls to the target section:
+| Prop                                          | Where it shows                                                                                                                         |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `generalGroups`                               | The app's own `SettingsGroup`s on App › General, between core's Agent › Default model and This browser › Demo mode.                    |
+| `appAreas`                                    | Tabs on App › General, routed `/settings/app/<id>`: `{ id, label, content, visible?, icon?, keywords?, searchEntries? }`.              |
+| `notifications`, `notificationsSearchEntries` | App › Notifications. The page shows only when `notifications` is passed.                                                               |
+| `mcpAbout`                                    | The translated about line on App › MCP server, naming what an MCP host can do in this app.                                             |
+| `labs`                                        | Lab definitions on the Labs page.                                                                                                      |
+| `whatsNewMarkdown` or `whatsNew`              | What's new, with an unread dot until visited.                                                                                          |
+| `appName`, `appIcon`, `appId`                 | The app group's label and icon. They default to the template's own.                                                                    |
+| `extraTabs`                                   | Other app tabs. Each becomes its own page in the app's group; `settingsPlacement: "app-area"` makes it a tab on App › General instead. |
+
+Set `visible: false` on an app area while the lab behind it is off. `useLab(ref)`
+and `useLabState(ref)` take a `LabReference`, either a key or
+`{ key, defaultEnabled? }`; pass the lab definition rather than a bare key so
+the lab reads as its `defaultEnabled` while labs load. Don't add a default-model, language, or demo
+mode row to the app's groups: core already renders them.
+
+### Registering a page {#registering-a-page}
+
+An app page usually starts as an `extraTabs` item, which becomes its own page
+in the app's group. For more control, register a `SettingsPageDefinition`
+(`id`, `group`, `order`, `label`, `icon`, `component`, and optional `visible`,
+`subpages`, and `searchEntries`) with `registerSettingsPages` at module scope. A definition
+with the same id as an existing page replaces it, which is how an app swaps a
+core page for its own variant. Dispatch keeps its app-role column on Members
+this way:
 
 ```tsx
-const agentSettingsTabs = useAgentSettingsTabs(); // already ships search entries
+import { OrgMembersPage } from "@agent-native/core/client/org";
+import {
+  CORE_SETTINGS_PAGES,
+  registerSettingsPages,
+} from "@agent-native/core/client/settings";
 
-return (
-  <SettingsTabsPage
-    extraTabs={[
-      {
-        id: "alerts",
-        label: "Alerts",
-        content: <AlertRulesSettingsCard />,
-        keywords: "notifications thresholds monitors",
-        searchEntries: [
-          { id: "alert-rules", label: "Alert rules", hash: "alert-rules" },
-        ],
-      },
-      ...agentSettingsTabs,
-    ]}
-    general={<LanguagePicker label="Interface language" />}
-    // Deep-link targets that live inside the General tab.
-    generalSearchEntries={[
-      {
-        id: "language",
-        label: "Language",
-        keywords: "locale translation interface",
-        hash: "language",
-      },
-    ]}
-  />
-);
+const coreMembersPage = CORE_SETTINGS_PAGES.find(
+  (page) => page.id === "members",
+)!;
+
+registerSettingsPages([
+  {
+    ...coreMembersPage,
+    component: () => <OrgMembersPage appRoles={dispatchAccessDescriptor} />,
+  },
+]);
 ```
 
-Give each searchable card a matching `id` (e.g. `id="language"`) so the entry's
-`hash` can scroll to it. Add `keywords` for synonyms and provider names the
-label does not contain (e.g. "S3", "R2", "bucket" for replay storage). Set
-`enableSearch={false}` only for trivial single-section pages; prefer keeping it
-on so settings stay findable everywhere.
+A page component receives `{ pageId, sub, context, bridge }`, where `context`
+carries the viewer's role, labs, and flags. Inside a page,
+`useSettingsPageHeader({ title?, action?, badge? })` sets a sub-page breadcrumb,
+the header's primary action, or a chip beside the title.
 
-## UX Standard {#ux-standard}
+An app adds a section to one channel's page with
+`registerChannelSettingsExtensions([{ id, platform, component }])` at module
+scope next to its settings route. Clips and Mail use it for their Slack groups.
 
-- Keep model keys, OAuth connections, Builder connect (free tier available), language, team, and app
-  preferences in one route.
-- Keep search on and register a `SettingsSearchEntry` for every meaningful
-  control so users can find settings by name instead of scanning tabs.
-- Link to tabs by hash so setup prompts can send users to the exact missing
-  credential.
-- Keep settings in the canonical `/settings` pages. Agent chat should remain
-  focused on conversation and never render settings inline.
+## Links {#links}
+
+Never hand-write `/settings/...` strings. Build links with the route helper:
+
+```ts
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+
+buildSettingsRoute("integrations", "builder"); // /settings/integrations/builder
+buildSettingsRoute("app", "recordings"); // /settings/app/recordings
+buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limits
+```
+
+Older links keep working. Earlier tab ids (`agent`, `keys`, `team`), nested ids
+(`agent:resources:memory`), section hashes (`#llm`, `#secrets:OPENAI_API_KEY`),
+and `agent-panel:open-settings` sections all resolve through one redirect table
+in `packages/core/src/navigation/settings-redirects.ts`. To move an old link,
+change its row there and add a case to `settings-redirects.spec.ts`.
+
+`openSettingsPage(page?)` from `@agent-native/core/client/navigation` opens
+Settings from anywhere, including outside the router. `AppProviders` already
+binds ⌘, through `useSettingsShortcut()`, so an app never binds it again.
+
+## Search {#search}
+
+Search indexes page names plus the `searchEntries` each page declares, without
+rendering the pages. A result shows the row label and its location
+("Agent › Model"); Enter opens it and flashes the row.
+
+- On a page definition, a search entry's `anchor` is the row's `SettingsRow` id.
+- On an app area or `notificationsSearchEntries`, the entry's `hash` is the
+  row's `SettingsRow` id.
+- Add `keywords` for synonyms and provider names the label doesn't contain,
+  for example "S3", "R2", and "bucket" for file storage.
+
+Give each searchable `SettingsRow` or `SettingsGroup` a stable `id`. Those ids
+are link anchors too, so don't rename one.
+
+## Agent parity {#agent-parity}
+
+Everything on these pages can be read and changed by the agent through actions,
+and the agent knows which page the user has open:
+
+- The Settings shell writes application state `settings-view` =
+  `{ page, sub, label }` for the browser tab, and `<current-url>` shows it as
+  `settingsPage: integrations/builder (Connections › Integrations › Builder.io)`.
+- The built-in `open-settings-page` tool opens any page by id, with an optional
+  `sub` and `anchor`. Earlier tab and section ids work there too.
+
+| Page                      | Actions                                                                                                                                            |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Profile                   | `get-user-profile`, `update-user-profile`                                                                                                          |
+| Integrations › Builder.io | `manage-builder-connection`                                                                                                                        |
+| API keys                  | `list-api-keys`, `preview-secret-removal`, `delete-api-key`                                                                                        |
+| Model                     | `list-model-providers`, `check-provider-key`, `get-provider-models`, `manage-provider-models`, `manage-provider-key-policy`, `manage-agent-engine` |
+| Usage                     | `get-usage-metrics`, `manage-usage-alert`                                                                                                          |
+| Authentication            | `list-sign-in-methods`                                                                                                                             |
+| Apps                      | `list-workspace-app-access`, `set-workspace-app-access`                                                                                            |
+| Infrastructure            | `get-infrastructure-status`, `get-file-storage`, `manage-file-storage`, `manage-service-providers`                                                 |
+| Audit log                 | `list-audit-events`, `get-audit-event`, `export-audit-events`                                                                                      |
+| App › Automations         | `manage-automations`                                                                                                                               |
+| App › Channels            | `list-messaging-channels`, `manage-messaging-channel`                                                                                              |
+
+An app's own rows follow the same rule: every control on `generalGroups`,
+`appAreas`, or `notifications` saves through an app action the agent can call.
+
+## Roles {#roles}
+
+| Capability                                                                        | Member                 | Admin                                              | Owner              |
+| --------------------------------------------------------------------------------- | ---------------------- | -------------------------------------------------- | ------------------ |
+| Account pages, connecting integrations for themselves                             | Yes                    | Yes                                                | Yes                |
+| Personal providers and a personal Builder.io connection                           | Yes, unless restricted | Own keys; Builder.io connects for the organization | Same as admin      |
+| Organization providers, default model, max iterations, Restrict personal API keys | Read-only              | Yes                                                | Yes                |
+| Organization instructions, memory, skills, and files                              | Read-only              | Yes                                                | Yes                |
+| Invite members                                                                    | No                     | Members                                            | Members and admins |
+| Change member roles                                                               | No                     | No                                                 | Yes                |
+| Authentication, Apps, Infrastructure, Audit log                                   | Hidden                 | Yes                                                | Yes                |
+| Shared A2A secret, delete the organization                                        | No                     | No                                                 | Yes                |
+
+## UX standard {#ux-standard}
+
+- Keep durable settings in Settings. The agent sidebar links into a page
+  instead of rendering settings inline.
+- A provider key is added, changed, and removed in one dialog, whichever page
+  opened it.
+- Read-only rows show the value with a lock and a tooltip naming who can change
+  it (`ReadOnlySettingValue`). Removing a key, disconnecting Builder.io, or
+  restricting personal keys opens a confirm dialog that lists what stops
+  working.
+- Rows are a label, an optional description, and one control. No page
+  subtitles, eyebrows, or count strips.
+- Register a search entry for every meaningful row.
 
 ## ChatGPT subscription lab {#chatgpt-subscription-lab}
 
-For apps using the shared framework settings surface, the Agent settings page
-includes an experimental way to use Codex through a user's ChatGPT
-subscription. It is a lab, not a general OpenAI API provider, and it exposes a
-fixed set of supported Codex models.
+The Model page includes an experimental way to use Codex through a user's
+ChatGPT subscription. It is a lab, not a general OpenAI API provider, and it
+exposes a fixed set of supported Codex models.
 
 <Steps>
 
@@ -130,11 +261,9 @@ row stays hidden until the lab is enabled.
 
 ### Connect the subscription
 
-Open **Settings → Agent → Overview** and select **Connect ChatGPT** in the
-**ChatGPT subscription** row. Finish sign-in in the popup. After it connects,
-owners and admins can select **Use in chat** to make it the organization's
-default model. Anyone who connected can pick its models in the chat's model
-picker.
+Open **Settings → Agent → Model** and select **Connect** in the **ChatGPT
+subscription** row. Finish sign-in in the popup. After it connects, anyone who
+connected can pick its models in the chat's model picker.
 
 </Steps>
 
@@ -150,8 +279,8 @@ if connection or model access is inconsistent.
 
 ## What's next
 
-- [**Internationalization**](/docs/internationalization) — localize the
-  language picker and settings copy.
+- [**Internationalization**](/docs/internationalization) — localize the app's
+  settings copy.
 - [**Onboarding**](/docs/onboarding) — register the setup steps that settings
   deep links jump users to.
 - [**Workspace Connections**](/docs/workspace-connections) — the shared

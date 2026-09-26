@@ -104,10 +104,14 @@ Use `useFormatters()` para datas, números, tempo relativo e listas. Não
 coloque formatação de data/número sensível à localidade dentro de strings de
 tradução.
 
-Coloque `<LanguagePicker />` em qualquer lugar do aplicativo em que o usuário
-possa alterar o idioma. Consulte [Kit de configurações](/docs/toolkit-settings)
-para o padrão de página de configurações, incluindo onde
-`openAgentSettings()` se encaixa.
+As Configurações já têm uma linha **Interface language** em Account › Preferences,
+e uma mudança ali vale para todos os aplicativos, então as páginas de configurações
+próprias de um aplicativo não adicionam um segundo seletor. Com a flag
+`settings-redesign` desligada, coloque o seletor na aba General da página com abas.
+Coloque `<LanguagePicker />` em qualquer outro lugar do aplicativo em que o usuário
+possa alterar o idioma, como um atalho no cabeçalho. Consulte
+[Kit de configurações](/docs/toolkit-settings) para o contrato da página de
+configurações.
 
 ## Actions e persistência
 
@@ -155,5 +159,5 @@ protocolo, nomes de variáveis de ambiente ou nomes de provedor.
 ## O que vem a seguir
 
 - [**Visão geral**](/docs/client-overview#app-shell) — o wrapper `AppProviders` e outros hooks de navegador em que o i18n se baseia
-- [**Kit de configurações**](/docs/toolkit-settings) — coloque `<LanguagePicker>` na página de configurações padrão
+- [**Kit de configurações**](/docs/toolkit-settings) — o contrato da página de configurações, em que Account › Preferences cuida do idioma da interface
 - [**Primeiros Passos**](/docs/getting-started) — crie seu primeiro aplicativo em um modelo que já vem com catálogos localizados

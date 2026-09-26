@@ -40,7 +40,10 @@ connections, service tokens, and app switching.
 ## API {#api}
 
 Render organization context wherever data scope changes. Put `OrgSwitcher` in
-the persistent shell and make `/settings/organization` or `/team` open `TeamPage`.
+the persistent shell. Organization management lives in Settings: the
+Organization group's General, Members, Usage, Authentication, Apps,
+Infrastructure, and Audit log pages (the last four for owners and admins).
+`/team` and `/settings/organization` redirect there.
 
 `OrgSwitcher` is the account menu (also exported as `AccountMenu`). Its button
 shows the signed-in person's photo, name, and current organization, and
@@ -92,6 +95,11 @@ export function AdminOnlyControl() {
 }
 ```
 
+With the `settings-redesign` flag on, the Settings shell renders the
+Organization pages from `@agent-native/core/client/org`: `OrgGeneralPage`,
+`OrgMembersPage({ appRoles? })`, `OrgAuthenticationPage`, and `OrgAppsPage`.
+With the flag off, `TeamPage` passed as `team` renders the earlier Team tab.
+
 Server code imports the same role helpers from `@agent-native/core/org-team`.
 The route plugin mounts `/_agent-native/org/*` for org creation, switching,
 invites, domains, member roles, app roles, and A2A secret sync.
@@ -99,7 +107,9 @@ invites, domains, member roles, app roles, and A2A secret sync.
 ### Per-app roles {#app-roles}
 
 When an app needs its own permission vocabulary on top of team membership,
-declare it with `defineAppRoles` and pass the descriptor to `TeamPage`. The
+declare it with `defineAppRoles` and pass the descriptor to `TeamPage`, and to
+`OrgMembersPage` by replacing the Members page (see
+[Settings Kit → Registering a page](/docs/toolkit-settings#registering-a-page)). The
 descriptor is the serializable half of the declaration — no database imports —
 so the same object can be handed to `defineAppRoles` on the server and to the
 component in the browser bundle:
@@ -157,7 +167,8 @@ the server-side `authorize` guard.
 ## UX Standard {#ux-standard}
 
 - Users can see which organization they are in before creating or sharing data.
-- Invites and roles live in the team settings surface, not per-resource dialogs.
+- Invites and roles live on Settings › Organization › Members, not in
+  per-resource dialogs.
 - App-specific roles appear as another column on that same team surface, never
   as a separate permissions page or a second organization.
 - Owners and admins change the org domain, and the control explains who

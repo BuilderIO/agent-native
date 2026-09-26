@@ -66,9 +66,9 @@ If you're evaluating agent-native for a CRM, project tracker, support inbox, or 
 
 </Diagram>
 
-## The org switcher UI {#org-switcher}
+## The account menu {#org-switcher}
 
-The org-switcher and members UI render in every template with no extra code. They drive the core org REST routes under `/_agent-native/org/*` (create org, switch org, list/invite/remove members, change roles, set allowed email domain). Users pick the active org from the switcher; the members panel handles invitations and role changes.
+The account menu (`OrgSwitcher`, at the bottom of the sidebar) and the organization pages in Settings render in every template with no extra code. They drive the core org REST routes under `/_agent-native/org/*` (create org, switch org, list/invite/remove members, change roles, set allowed email domain). Users pick the active org from the account menu; **Settings › Organization › Members** handles invitations and role changes.
 
 This is the framework's own `org/` module, not Better Auth's organization
 plugin. The full org-management surface, its routes, and template-authored

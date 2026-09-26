@@ -1,10 +1,11 @@
 ---
 name: agent-page
 description: >-
-  The full-page Agent surface (/agent) with Context, Files, Connections,
-  Automations, and Access tabs. Use when mounting the Agent page in a template, adding an
-  app-specific tab, surfacing context transparency, MCP servers, A2A agents,
-  recurring jobs, or external-client connect flows in the UI.
+  The agent's configuration surfaces: Settings › Agent pages (Instructions,
+  Memory, Skills, Files, Sub-agents) and the full-page `AgentTabsPage`
+  (resources, Snapshots, Agent integrations, Automations, MCP). Use when adding
+  an agent resource group, surfacing context transparency, MCP servers, A2A
+  agents, recurring jobs, or external-client connect flows in the UI.
 scope: dev
 metadata:
   internal: true
@@ -28,13 +29,17 @@ everything that can influence the agent. Design principles:
 
 ## Tabs
 
+`defaultTab` is `files`. Resource tabs re-host `ResourcesPanel` views; the rest
+re-host existing components.
+
 | Tab | Contents |
 | --- | --- |
-| `context` | System-vs-conversation split meter, provenance-grouped system sections (governance tiers: required/inherited/user), live-thread manifest. Backed by `context-preview-get` / `context-manifest-get` (see `context-xray` skill). |
-| `files` | ResourcesPanel (skills, instructions, memory, uploads) with the virtual `mcp-servers/` folder hidden (`showMcpServers={false}`). |
-| `connections` | MCP server management (both scopes, admin-gated org writes) plus A2A remote agents this app can call. |
+| `files`, `instructions`, `agents`, `memory`, `skills`, `learnings`, `remote-agents` | `ResourcesPanel` views (group "resources"). |
+| `snapshots` | Scope preview, token budget, provenance-grouped system sections (governance tiers), and the latest live-thread snapshot. Backed by `context-preview-get` / `context-manifest-get` (see `context-xray`). Old `#context` links land here. |
+| `connections` | "Agent integrations": MCP server management (both scopes, admin-gated org writes). |
 | `jobs` | **Automations**: personal and organization Scheduled/Event tasks with pause/resume/delete. The `jobs` hash is stable for compatibility (see `automations` and `recurring-jobs`). |
-| `access` | Copyable MCP URL and A2A agent-card URL, per-client connect steps (Claude, ChatGPT, Cursor, Claude Code, Codex, Other) from `packages/core/src/shared/mcp-connect-content.ts` (shared with the `/mcp/connect` route — edit the shared module, never fork copy), static-token fallback link. Grants/scopes/revocation UI is future work. |
+| `settings` | The agent settings panel (model, keys, limits, voice). |
+| `access` | "MCP": copyable MCP URL and A2A agent-card URL, per-client connect steps from `packages/core/src/shared/mcp-connect-content.ts` (shared with `/mcp/connect`; edit the shared module, never fork copy), static-token fallback link. |
 
 ## Settings Resource Pages
 
@@ -69,19 +74,22 @@ same rule discovery applies.
 
 ## Mounting In A Template
 
-1. Add an `/agent` route following the template's settings-route pattern
-   (`app/routes/agent.tsx` or `_app.agent.tsx`), mounting `AgentTabsPage`.
-   CSR is fine; keep the app shell in `root.tsx` so navigation does not
-   remount it (`client-side-routing` skill).
-2. Add an "Agent" item to primary navigation and the command palette,
-   mirroring the Settings entries. Link-first (`native-navigation` skill).
-3. Pass `agentPageHref="/agent"` to `AgentSidebar` so the sidebar Resources
-   and settings modes link out to the full page.
-4. Hash deep-links work out of the box: `/agent#context`, `/agent#files`,
-   `/agent#connections`, `/agent#jobs`, `/agent#access`.
-5. App-specific additions go in `extraTabs` (same `SettingsTabItem` shape as
-   the settings page); hide built-ins only with `hiddenTabs` when a template
-   genuinely lacks the underlying capability.
+First-party templates don't mount `AgentTabsPage`. Their `/agent` route
+redirects into Settings with `buildLegacyAgentSettingsRoute(hash, search)`, so
+`/agent#files`, `#jobs`, `#connections`, and `#access` land on the matching
+Settings page, and they pass `agentPageHref="/settings/agent"` to
+`AgentSidebar` (Settings › Agent › Model with the `settings-redesign` flag on).
+New agent-configuration UI belongs on a Settings page, not a new tab here.
+
+For an app that wants the whole surface on one page:
+
+1. Mount `AgentTabsPage` from `@agent-native/core/client/agent-chat` on its
+   own route. CSR is fine; keep the app shell in `root.tsx` so navigation
+   does not remount it (`client-side-routing` skill).
+2. Pass that route as `agentPageHref` to `AgentSidebar`.
+3. App-specific additions go in `extraTabs` (same `SettingsTabItem` shape as
+   the settings page) or `extraTabFactories`; hide built-ins only with
+   `hiddenTabs` when the app genuinely lacks the underlying capability.
 
 ## Scope
 

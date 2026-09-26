@@ -319,10 +319,10 @@ Emails flowing through the API have the shape `{ id, threadId, from, to, cc, sub
 - `/$view.tsx` — a list view (`inbox`, `starred`, `sent`, `drafts`, `scheduled`, `archive`, `trash`, etc.)
 - `/$view.$threadId.tsx` — a list view with a specific thread open
 - `/email` — the embedded thread preview used in agent chat
-- `/agent` — a full-page Agent tab (`AgentTabsPage`)
+- `/agent` — redirects into Settings (Agent › Model)
 - `/draft-queue` and `/draft-queue/:id` — the draft queue list and detail view
-- `/settings` — account connections, tracking, automations, aliases, Slack intake
-- `/team` — redirects to `/settings?section=team`
+- `/settings/:page/:sub` — Settings; Mail's own areas (drafting, snippets, rules, AI filter, Gmail filters, aliases, tracking) are tabs on Mail › General at `/settings/app/<area>`, and Slack intake is on `/settings/channels/slack`
+- `/team` — redirects to Settings › Organization › Members
 - `/extensions` — installed extension widgets (redirects to `/settings/extensions` when no extension id is given)
 
 ## Customizing it

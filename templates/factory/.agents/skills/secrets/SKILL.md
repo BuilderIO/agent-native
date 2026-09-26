@@ -2,7 +2,7 @@
 name: secrets
 description: >-
   Declaratively register API keys and service credentials a template needs so
-  they appear in the agent sidebar settings UI and the onboarding checklist.
+  they appear on Settings › API keys and in the onboarding checklist.
   Use before adding any third-party credential or setup UI so API keys, OAuth
   connections, and scoped configuration use the correct shared primitive.
 scope: dev
@@ -293,7 +293,7 @@ export default defineAction({
     const apiKey = stored?.value;
     if (!apiKey) {
       throw new Error(
-        "OPENAI_API_KEY is not set. Configure it in the sidebar settings.",
+        "OPENAI_API_KEY is not set. Add it in Settings.",
       );
     }
 
@@ -586,7 +586,7 @@ Use `get-vault-access-settings` before deciding whether to create grants, and
 use `set-vault-access-settings` only when the user asks to change the policy.
 
 Vault keys land in the shared `app_secrets` store at `org` scope, so an app's
-Settings → API keys tab reports them as `Set · Vault` through
+Settings › API keys page reports them as `Set · Vault` through
 `resolveSecretDetailed` (`source`/`scopeId`) instead of the registered-scope
 row alone. Runtime precedence is personal (`user`) row → shared `org` row →
 legacy `workspace` row → designated vault org → deploy env. Never add a second

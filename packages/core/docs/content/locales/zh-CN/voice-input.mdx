@@ -75,15 +75,15 @@ description: "代理聊天编辑器中的语音听写 - Builder Gemini、BYOK �
 
 ## 启用提供商 {#enabling-providers}
 
-Builder 是最简单的路径：从“设置”连接 Builder.io（提供免费套餐），默认提供商变为 Builder Gemini Flash-Lite。对于 BYOK 提供商，请在“设置”→“API 密钥”中添加匹配的密钥。
+Builder 是最简单的路径：从 **Settings → Connections → Integrations** 连接 Builder.io（提供免费套餐），默认提供商变为 Builder Gemini Flash-Lite。对于 BYOK 提供商，请添加对应的 Gemini、Groq 或 OpenAI 密钥。
 
 ### 每用户（推荐用于 SaaS）
 
-用户通过代理侧边栏设置 UI 设置自己的密钥。它存储为用户范围的加密秘密（通过 `readAppSecret`）。每个用户为自己的转录付费；主机零成本。
+用户在 **Settings → Agent → Model** 的 **Personal providers** 中添加自己的密钥。它存储为用户范围的加密秘密（通过 `readAppSecret`）。每个用户为自己的转录付费；主机零成本。
 
 ### 共享（用于内部工具）
 
-将 `GEMINI_API_KEY`、`GROQ_API_KEY` 或 `OPENAI_API_KEY` 设置为环境变量或在 `settings` 表中。每个用户的转录都会命中共享密钥。
+将 `GEMINI_API_KEY`、`GROQ_API_KEY` 或 `OPENAI_API_KEY` 设置为环境变量，或请所有者或管理员在 **Settings → Agent → Model** 的 **Organization providers** 中为组织添加。**Settings → Organization → Infrastructure** 中的 **Voice input** 行决定哪个提供商优先响应。每个用户的转录都会使用共享密钥。
 
 <Callout id="doc-block-ar7cnn" tone="info">
 
