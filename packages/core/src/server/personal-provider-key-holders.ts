@@ -9,7 +9,7 @@ import { AGENT_PROVIDER_CATALOG } from "../client/agent-provider-catalog.js";
 import { getDbExec } from "../db/client.js";
 import { ensureTable as ensureAppSecretsTable } from "../secrets/storage.js";
 import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
-import { hasStoredBuilderOAuthGrant } from "./builder-oauth.js";
+import { listUsersWithStoredBuilderOAuthGrant } from "./builder-oauth.js";
 import { listPersonalProviderPolicyKeys } from "./personal-provider-key-policy.js";
 
 export interface PersonalProviderKeyHolderProvider {
@@ -96,12 +96,10 @@ export async function listPersonalProviderKeyHolders(
     stored.set(email, set);
   }
 
-  const oauthGrants = await Promise.all(
-    members.map((email) => hasStoredBuilderOAuthGrant(email, "user")),
-  );
+  const oauthGrants = await listUsersWithStoredBuilderOAuthGrant(members);
 
   const holders: PersonalProviderKeyHolder[] = [];
-  members.forEach((email, index) => {
+  for (const email of members) {
     const memberKeys = stored.get(email) ?? new Set<string>();
     const byProvider = new Map<string, PersonalProviderKeyHolderProvider>();
     for (const key of [...memberKeys].sort()) {
@@ -112,9 +110,9 @@ export async function listPersonalProviderKeyHolders(
       byProvider.set(provider, entry);
     }
     const builder =
-      oauthGrants[index] === true || memberKeys.has("BUILDER_PRIVATE_KEY");
-    if (byProvider.size === 0 && !builder) return;
+      oauthGrants.has(email) || memberKeys.has("BUILDER_PRIVATE_KEY");
+    if (byProvider.size === 0 && !builder) continue;
     holders.push({ email, providers: [...byProvider.values()], builder });
-  });
+  }
   return holders.sort((a, b) => a.email.localeCompare(b.email));
 }

@@ -11,6 +11,7 @@ const getAccessTokenMock = vi.hoisted(() => vi.fn());
 const markReconnectMock = vi.hoisted(() => vi.fn());
 const validateIssuerMock = vi.hoisted(() => vi.fn());
 const getRawTokensMock = vi.hoisted(() => vi.fn());
+const listOwnersMock = vi.hoisted(() => vi.fn());
 const resolveOrgMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../mcp-client/oauth-client.js", () => ({
@@ -26,6 +27,7 @@ vi.mock("../mcp-client/oauth-client.js", () => ({
 
 vi.mock("../oauth-tokens/store.js", () => ({
   getOAuthTokens: getRawTokensMock,
+  listOAuthTokenOwners: listOwnersMock,
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -56,6 +58,7 @@ import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
   hasStoredBuilderOAuthGrant,
+  listUsersWithStoredBuilderOAuthGrant,
   markBuilderOAuthReconnectRequired,
   resolveBuilderOAuthRequestAccess,
   saveBuilderOAuthCredentials,
@@ -857,6 +860,28 @@ describe("Builder organization and personal connections", () => {
     await expect(
       hasStoredBuilderOAuthGrant("admin@example.com", "org", DEFAULT_ORG),
     ).resolves.toBe(true);
+  });
+
+  it("finds personal grants for a whole organization in one batched read", async () => {
+    listOwnersMock.mockImplementation(
+      async (_provider: string, accountIds: string[]) => [
+        { accountId: accountIds[0], owner: "user:ann@example.com" },
+        // A row under the right key but another owner is not this member's.
+        { accountId: accountIds[1], owner: "user:someone-else@example.com" },
+      ],
+    );
+
+    await expect(
+      listUsersWithStoredBuilderOAuthGrant([
+        "ann@example.com",
+        "bob@example.com",
+        "cy@example.com",
+      ]),
+    ).resolves.toEqual(new Set(["ann@example.com"]));
+    expect(listOwnersMock).toHaveBeenCalledTimes(1);
+    expect(listOwnersMock.mock.calls[0]![0]).toBe("mcp");
+    expect(listOwnersMock.mock.calls[0]![1]).toHaveLength(3);
+    expect(getRawTokensMock).not.toHaveBeenCalled();
   });
 
   it("reports both grants when both exist, each on its own", async () => {

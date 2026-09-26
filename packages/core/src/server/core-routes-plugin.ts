@@ -622,6 +622,29 @@ export async function resolveScopelessBuilderConnectRestriction(
 }
 
 /**
+ * A personal grant's eligibility (the member's role and the org's personal-key
+ * restriction) can change during the OAuth round trip just like org authority,
+ * so the callback runs connect start's checks again before saving. Returns the
+ * refusal, or null.
+ */
+export async function resolveBuilderCallbackPersonalDeny(
+  event: H3Event,
+  ownerEmail: string,
+  requestedScope: BuilderConnectionScope | null,
+  pendingRole: string | null,
+): Promise<string | null> {
+  if (requestedScope === "personal") {
+    return (
+      await resolveBuilderConnectAuthorization(event, ownerEmail, "personal")
+    ).deny;
+  }
+  if (requestedScope === null && !isBuilderOrgManagerRole(pendingRole)) {
+    return resolveScopelessBuilderConnectRestriction(event, ownerEmail);
+  }
+  return null;
+}
+
+/**
  * Decide custody when the OAuth callback lands. Authority captured at connect
  * start is re-checked here: a named org connection whose connector is no
  * longer an owner/admin of that org fails instead of landing as a personal
@@ -4948,6 +4971,21 @@ export function createCoreRoutesPlugin(
             typeof pending.orgId === "string" ? pending.orgId : null;
           const pendingRole =
             typeof pending.role === "string" ? pending.role : null;
+          const personalDeny = await resolveBuilderCallbackPersonalDeny(
+            event,
+            ownerEmail,
+            requestedConnectionScope,
+            pendingRole,
+          );
+          if (personalDeny) {
+            return fail(
+              403,
+              personalDeny,
+              ownerEmail,
+              "org_authorization_required",
+              tracking,
+            );
+          }
           // Re-check authority after the external OAuth round trip. A role
           // captured at connect start must not authorize a later org write.
           const needsOrgRecheck =

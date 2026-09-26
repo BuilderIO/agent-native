@@ -59,8 +59,8 @@ vi.mock("../../secrets/storage.js", () => ({
 }));
 
 vi.mock("../../server/builder-oauth.js", () => ({
-  hasStoredBuilderOAuthGrant: async (email: string, scope: string) =>
-    scope === "user" && mocks.personalOAuth.has(email),
+  listUsersWithStoredBuilderOAuthGrant: async (emails: readonly string[]) =>
+    new Set(emails.filter((email) => mocks.personalOAuth.has(email))),
 }));
 
 vi.mock("../../audit/record.js", () => ({

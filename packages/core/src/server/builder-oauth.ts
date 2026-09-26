@@ -11,7 +11,7 @@ import {
   validateMcpOAuthCallbackIssuer,
   type McpOAuthCredentialBundle,
 } from "../mcp-client/oauth-client.js";
-import { getOAuthTokens } from "../oauth-tokens/store.js";
+import { getOAuthTokens, listOAuthTokenOwners } from "../oauth-tokens/store.js";
 import { isPersonalProviderKeyUseRestricted } from "./personal-provider-key-policy.js";
 
 const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
@@ -601,6 +601,30 @@ export async function hasStoredBuilderOAuthGrant(
     if (stored !== null) return true;
   }
   return false;
+}
+
+/**
+ * Which of `ownerEmails` have a personal Builder.io OAuth grant stored, in a
+ * bounded number of reads. Same presence rule as `hasStoredBuilderOAuthGrant`
+ * with scope "user".
+ */
+export async function listUsersWithStoredBuilderOAuthGrant(
+  ownerEmails: readonly string[],
+): Promise<Set<string>> {
+  const expected = new Map<string, { email: string; owner: string }>();
+  for (const email of ownerEmails) {
+    const options = userOwnerOptions(email);
+    expected.set(options.key, {
+      email,
+      owner: `${options.scope}:${options.scopeId}`,
+    });
+  }
+  const holders = new Set<string>();
+  for (const row of await listOAuthTokenOwners("mcp", [...expected.keys()])) {
+    const match = expected.get(row.accountId);
+    if (match && row.owner === match.owner) holders.add(match.email);
+  }
+  return holders;
 }
 
 export async function resolveBuilderOAuthRequestAccess(input: {

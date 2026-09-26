@@ -24,6 +24,7 @@ import {
 import {
   disconnectBuilderConnectionAtScope,
   parseBuilderConnectionScope,
+  resolveBuilderCallbackPersonalDeny,
   resolveBuilderCallbackWrite,
   resolveBuilderConnectAuthorization,
   resolveBuilderOrgMutation,
@@ -202,6 +203,61 @@ describe("Builder connection scope", () => {
       resolveScopelessBuilderConnectRestriction(
         createMockEvent(),
         "owner@example.com",
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("re-checks personal eligibility when the OAuth callback lands", async () => {
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "member" });
+    await expect(
+      resolveBuilderCallbackPersonalDeny(
+        createMockEvent(),
+        "member@example.com",
+        "personal",
+        "member",
+      ),
+    ).resolves.toBeNull();
+
+    // The owner restricted personal keys while the member was on Builder.io.
+    isRestrictedMock.mockResolvedValue(true);
+    await expect(
+      resolveBuilderCallbackPersonalDeny(
+        createMockEvent(),
+        "member@example.com",
+        "personal",
+        "member",
+      ),
+    ).resolves.toBe("Owners and admins restricted personal API keys.");
+    await expect(
+      resolveBuilderCallbackPersonalDeny(
+        createMockEvent(),
+        "member@example.com",
+        null,
+        "member",
+      ),
+    ).resolves.toBe("Owners and admins restricted personal API keys.");
+
+    // The member became an admin mid-flow: a personal grant is no longer theirs.
+    isRestrictedMock.mockResolvedValue(false);
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "admin" });
+    await expect(
+      resolveBuilderCallbackPersonalDeny(
+        createMockEvent(),
+        "admin@example.com",
+        "personal",
+        "member",
+      ),
+    ).resolves.toBe(
+      "Owners and admins connect Builder.io for the organization.",
+    );
+
+    // An org connect is re-checked by resolveBuilderCallbackWrite instead.
+    await expect(
+      resolveBuilderCallbackPersonalDeny(
+        createMockEvent(),
+        "admin@example.com",
+        "org",
+        "admin",
       ),
     ).resolves.toBeNull();
   });
