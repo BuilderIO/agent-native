@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { fail } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { signEmbedSessionToken } from "@agent-native/core/server";
+import { getRequestContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
 import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-request.js";
@@ -25,7 +26,12 @@ export default defineAction({
   mcpTool: false,
   schema: z.object({}),
   run: async (_args, ctx) => {
-    if (!isSameOriginVisualEditBrowserRequest(ctx)) {
+    const requestOrigin = getRequestContext()?.requestOrigin;
+    if (
+      !isSameOriginVisualEditBrowserRequest(ctx) ||
+      !requestOrigin ||
+      !URL.canParse(requestOrigin)
+    ) {
       fail(
         "Visual-edit bootstrap is available only from the same-origin Design page.",
         { errorCode: "signed_out_visual_edit_browser_required" },
@@ -37,6 +43,7 @@ export default defineAction({
       token: signEmbedSessionToken({
         ownerEmail: `bootstrap+${nonce}@${BOOTSTRAP_PRINCIPAL_DOMAIN}`,
         targetPath: "/visual-edit",
+        audienceHost: new URL(requestOrigin).hostname,
         scope,
         ttlSeconds: BOOTSTRAP_TTL_SECONDS,
       }),

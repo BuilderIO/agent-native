@@ -177,7 +177,10 @@ describe("createSecurityHeadersMiddleware", () => {
       app.use(router);
 
       const res = await app.request("http://localhost/apps/design", {
-        headers: { cookie: `${EMBED_SESSION_COOKIE}=${token}` },
+        headers: {
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+          host: "localhost",
+        },
       });
 
       // `no-referrer` here stripped the Referer from every later same-origin

@@ -1,3 +1,5 @@
+import type { IncomingHttpHeaders } from "node:http";
+
 import { getRequestHeader, type H3Event } from "h3";
 
 /**
@@ -6,13 +8,71 @@ import { getRequestHeader, type H3Event } from "h3";
  * CSRF checks match the Referer the browser actually sent.
  */
 export function getForwardedRequestOrigin(event: H3Event): string {
-  const headerHost =
-    getRequestHeader(event, "x-forwarded-host") ||
+  const rawHost =
+    getRequestHeader(event, "x-forwarded-host") ??
     getRequestHeader(event, "host");
+  const headerHost = rawHost?.split(",")[0]?.trim();
+  if (rawHost !== undefined && !headerHost) {
+    throw new Error("Invalid forwarded request hostname");
+  }
   const isProd = process.env.NODE_ENV === "production";
-  const headerProto =
-    getRequestHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
-  return `${headerProto}://${headerHost ?? "localhost"}`;
+  const rawProto =
+    getRequestHeader(event, "x-forwarded-proto") ?? (isProd ? "https" : "http");
+  const headerProto = rawProto.split(",")[0]?.trim().toLowerCase();
+  if (headerProto !== "http" && headerProto !== "https") {
+    throw new Error("Invalid forwarded request protocol");
+  }
+  const origin = new URL(`${headerProto}://${headerHost || "localhost"}`);
+  if (
+    origin.username ||
+    origin.password ||
+    origin.pathname !== "/" ||
+    origin.search ||
+    origin.hash
+  ) {
+    throw new Error("Invalid forwarded request hostname");
+  }
+  return origin.origin;
+}
+
+export function getForwardedRequestHostname(event: H3Event): string {
+  const host =
+    getRequestHeader(event, "x-forwarded-host") ??
+    getRequestHeader(event, "host");
+  if (!host?.split(",")[0]?.trim()) {
+    throw new Error("Missing forwarded request hostname");
+  }
+  return new URL(getForwardedRequestOrigin(event)).hostname
+    .toLowerCase()
+    .replace(/\.$/, "");
+}
+
+export function getForwardedRequestHostnameFromHeaders(
+  headers: Headers | IncomingHttpHeaders,
+): string {
+  const forwardedHost =
+    headers instanceof Headers
+      ? headers.get("x-forwarded-host")
+      : headers["x-forwarded-host"];
+  const rawHost =
+    forwardedHost ??
+    (headers instanceof Headers ? headers.get("host") : headers.host);
+  const firstHost = Array.isArray(rawHost)
+    ? rawHost[0]?.split(",")[0]?.trim()
+    : rawHost?.split(",")[0]?.trim();
+  if (!firstHost) throw new Error("Missing forwarded request hostname");
+
+  const origin = new URL(`https://${firstHost}`);
+  if (
+    origin.username ||
+    origin.password ||
+    origin.pathname !== "/" ||
+    origin.search ||
+    origin.hash
+  ) {
+    throw new Error("Invalid forwarded request hostname");
+  }
+  return origin.hostname.toLowerCase().replace(/\.$/, "");
 }
 
 function isLoopbackHost(host: string): boolean {
