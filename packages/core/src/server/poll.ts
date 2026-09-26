@@ -46,6 +46,7 @@ import {
 } from "../extensions/change-marker.js";
 import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
 import { getSettingsEmitter } from "../settings/store.js";
+import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 
 export interface ChangeEvent {
   version: number;
@@ -2294,32 +2295,40 @@ export function createPollHandler(
   // per-app instance learns of changes by tailing its own DB.
   if (state === getDefaultAppSyncState()) state.wireLocalEmitters();
   return defineEventHandler(async (event) => {
-    // coercion-ok: polling must fail closed when session resolution is unavailable.
-    const session = await import("./auth.js")
-      .then(({ getSession }) => getSession(event))
-      .catch(() => null); // coercion-ok: polling must fail closed when session resolution is unavailable.
-    if (!session?.email) {
-      setResponseStatus(event, 401);
-      return { error: "Unauthenticated" };
-    }
-    // On cold start, seed version from DB so we don't return version: 0
-    await state.seedVersionFromDb();
-    const durableEvents = await state.ensureSyncEventsTable();
-    // Durable sync_events rows are the cheap cross-process path. Keep the
-    // legacy watermark scan as a slower safety net for direct SQL writes and
-    // older processes that have not started writing durable events yet.
-    await state.checkExternalDbChanges({ durableEvents });
+    try {
+      // coercion-ok: polling must fail closed when session resolution is unavailable.
+      const session = await import("./auth.js")
+        .then(({ getSession }) => getSession(event))
+        .catch(() => null); // coercion-ok: polling must fail closed when session resolution is unavailable.
+      if (!session?.email) {
+        setResponseStatus(event, 401);
+        return { error: "Unauthenticated" };
+      }
+      // On cold start, seed version from DB so we don't return version: 0
+      await state.seedVersionFromDb();
+      const durableEvents = await state.ensureSyncEventsTable();
+      // Durable sync_events rows are the cheap cross-process path. Keep the
+      // legacy watermark scan as a slower safety net for direct SQL writes and
+      // older processes that have not started writing durable events yet.
+      await state.checkExternalDbChanges({ durableEvents });
 
-    const query = getQuery(event);
-    const cursor = decodeSyncCursor(query.cursor);
-    const since =
-      cursor?.version ?? (parseInt(String(query.since ?? "0"), 10) || 0);
-    return state.getCombinedChangesSinceForUser(
-      since,
-      session.email,
-      session.orgId,
-      durableEvents,
-      cursor,
-    );
+      const query = getQuery(event);
+      const cursor = decodeSyncCursor(query.cursor);
+      const since =
+        cursor?.version ?? (parseInt(String(query.since ?? "0"), 10) || 0);
+      return state.getCombinedChangesSinceForUser(
+        since,
+        session.email,
+        session.orgId,
+        durableEvents,
+        cursor,
+      );
+    } catch (error) {
+      console.error(
+        `[agent-native] Poll handler failed (request_id=${getHttpRequestTelemetryId(event) ?? "unavailable"})`,
+        error,
+      );
+      throw error;
+    }
   });
 }
