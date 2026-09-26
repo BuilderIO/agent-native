@@ -862,6 +862,20 @@ export async function getDashboard(
   );
 }
 
+export async function getOrgDashboardForReview(
+  id: string,
+  orgId: string,
+): Promise<DashboardRecord | null> {
+  const [row] = await getDb()
+    .select()
+    .from(schema.dashboards)
+    .where(
+      and(eq(schema.dashboards.id, id), eq(schema.dashboards.orgId, orgId)),
+    )
+    .limit(1);
+  return row ? rowToDashboard(row, "viewer") : null;
+}
+
 /**
  * List dashboards visible to the caller. Union of SQL rows + not-yet-migrated
  * legacy keys.

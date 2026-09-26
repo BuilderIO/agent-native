@@ -1,4 +1,6 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
+import { currentRequestUserIsOrgAdmin } from "@agent-native/core/server";
+import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
@@ -47,13 +49,38 @@ export default defineAction({
       .boolean()
       .optional()
       .describe("Set false to return file metadata without HTML contents"),
+    reviewPreview: z
+      .boolean()
+      .optional()
+      .describe(
+        "Human Review only: read a design in the current organization. Requires an organization owner or admin.",
+      ),
   }),
   readOnly: true,
   requiresAuth: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   http: { method: "GET" },
-  run: async ({ id, fileId, includeFileContent }, ctx) => {
-    const access = await resolveAccess("design", id);
+  run: async ({ id, fileId, includeFileContent, reviewPreview }, ctx) => {
+    const db = getDb();
+    let access;
+    if (reviewPreview) {
+      const orgId = getRequestOrgId();
+      if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
+        fail(
+          "Only organization owners and admins can preview reviewed designs.",
+          { statusCode: 403 },
+        );
+      }
+      const [resource] = await db
+        .select()
+        .from(schema.designs)
+        .where(and(eq(schema.designs.id, id), eq(schema.designs.orgId, orgId)))
+        .limit(1);
+      if (!resource) fail("Design not found.", { statusCode: 404 });
+      access = { role: "viewer" as const, resource };
+    } else {
+      access = await resolveAccess("design", id);
+    }
     if (!access) {
       const error = new Error("Design not found") as Error & {
         statusCode: number;
@@ -63,8 +90,6 @@ export default defineAction({
     }
 
     const row = access.resource;
-    const db = getDb();
-
     // Fetch associated files in a stable order. This array feeds the overview
     // canvas's screen stack and each screen's index within its layout group, so
     // unordered rows (Postgres returns heap order, which an UPDATE can change)

@@ -132,7 +132,11 @@ export function firstReviewDashboardPanel(
     ...panels.filter((panel) => !preferredIds.includes(panel.id)),
   ];
   return ordered.find(
-    (panel) => panel.chartType !== "section" && panel.chartType !== "extension",
+    (panel) =>
+      panel.source !== "demo" &&
+      panel.source !== "program" &&
+      panel.chartType !== "section" &&
+      panel.chartType !== "extension",
   );
 }
 
@@ -146,7 +150,7 @@ export function AnalyticsReviewArtifactPreview({
   const t = useT();
   const { data, isLoading, isError } = useActionQuery<Record<string, unknown>>(
     "get-sql-dashboard",
-    { id: artifactId, includeConfig: true },
+    { id: artifactId, includeConfig: true, reviewPreview: true },
     { staleTime: 5 * 60_000 },
   );
   const panel = firstReviewDashboardPanel(data);
