@@ -1,4 +1,4 @@
-import type { CalendarEvent } from "@shared/api";
+import type { CalendarEvent, OverlayPerson } from "@shared/api";
 export {
   GOOGLE_EVENT_COLOR_OPTIONS,
   getGoogleEventColorHex,
@@ -7,6 +7,7 @@ import type {
   CalendarColorMode,
   CalendarColorSourceKey,
 } from "./calendar-view-preferences";
+import { isPersonCalendarId } from "./person-calendar";
 
 // ─── Palette (dark-mode editor inspired) ─────────────────────────────────────
 
@@ -30,6 +31,32 @@ export interface CalendarColorPreferences {
   accountColorModes?: Record<CalendarColorSourceKey, CalendarColorMode>;
   accountColors?: Record<CalendarColorSourceKey, string>;
   googleCalendarColors?: Record<string, string>;
+}
+
+export function applyOverlayOwnerMarkers(
+  events: CalendarEvent[],
+  people: OverlayPerson[],
+): CalendarEvent[] {
+  const ownersByEmail = new Map(
+    people.map((person) => [person.email.trim().toLowerCase(), person]),
+  );
+
+  return events.map((event) => {
+    const ownerEmail =
+      event.overlayEmail ??
+      (event.source === "google" &&
+      event.calendarPrimary === false &&
+      event.calendarId &&
+      isPersonCalendarId(event.calendarId)
+        ? event.calendarId
+        : undefined);
+    const owner = ownerEmail
+      ? ownersByEmail.get(ownerEmail.trim().toLowerCase())
+      : undefined;
+    return owner
+      ? { ...event, ownerColor: owner.color, ownerName: owner.name }
+      : event;
+  });
 }
 
 // ─── Free email providers (skip internal/external when user is on one) ───────
@@ -135,9 +162,7 @@ export function getEventDisplayColor(
   event: CalendarEvent,
   preferences?: CalendarColorPreferences,
 ): string {
-  if (event.overlayEmail && event.ownerColor) {
-    return event.ownerColor;
-  }
+  if (event.ownerColor) return event.ownerColor;
 
   if (event.source === "google" && !event.overlayEmail && preferences) {
     const sourceColor = event.canonicalKey
