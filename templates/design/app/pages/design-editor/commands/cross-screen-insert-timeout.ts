@@ -31,7 +31,6 @@ export function scheduleCrossScreenDeleteTimeout(
 ): () => void {
   if (
     !request?.transactionId ||
-    request.cancelRequested ||
     request.waitForInsertTransaction !== false ||
     request.screenId === boardFileId
   ) {

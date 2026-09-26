@@ -212,7 +212,7 @@ export default defineAction({
       ? normalizeBridgeUrl(args.bridgeUrl)
       : undefined;
     const rootPath = args.routeManifest?.rootPath ?? args.rootPath;
-    const id =
+    let id =
       args.id ?? stableConnectionId(devServerUrl, rootPath, ownerEmail, orgId);
     const rawRoutes = args.routeManifest?.routes ?? args.routes ?? [];
     const routes = rawRoutes.map((route) => ({
@@ -253,10 +253,13 @@ export default defineAction({
     // from devServerUrl + rootPath without user scoping, so two users on the
     // same devcontainer image collide). Detect that up front and fail with a
     // clear error instead of crashing on the primary-key insert below.
-    const existing = await db
+    let existing = await db
       .select({
+        id: schema.designLocalhostConnections.id,
         ownerEmail: schema.designLocalhostConnections.ownerEmail,
         orgId: schema.designLocalhostConnections.orgId,
+        devServerUrl: schema.designLocalhostConnections.devServerUrl,
+        rootPath: schema.designLocalhostConnections.rootPath,
         bridgeUrl: schema.designLocalhostConnections.bridgeUrl,
         previewToken: schema.designLocalhostConnections.previewToken,
         bridgeToken: schema.designLocalhostConnections.bridgeToken,
@@ -264,6 +267,55 @@ export default defineAction({
       .from(schema.designLocalhostConnections)
       .where(eq(schema.designLocalhostConnections.id, id))
       .limit(1);
+
+    // Older CLI versions used a non-user-scoped connection ID. Reuse that
+    // credential only when this owner/org has one unambiguous row for the
+    // exact app URL and root; otherwise a new row could mint a token that an
+    // already-running bridge does not have.
+    if (!args.id && !existing[0] && rootPath) {
+      const priorConnections = await db
+        .select({
+          id: schema.designLocalhostConnections.id,
+          ownerEmail: schema.designLocalhostConnections.ownerEmail,
+          orgId: schema.designLocalhostConnections.orgId,
+          devServerUrl: schema.designLocalhostConnections.devServerUrl,
+          rootPath: schema.designLocalhostConnections.rootPath,
+          bridgeUrl: schema.designLocalhostConnections.bridgeUrl,
+          previewToken: schema.designLocalhostConnections.previewToken,
+          bridgeToken: schema.designLocalhostConnections.bridgeToken,
+        })
+        .from(schema.designLocalhostConnections)
+        .where(
+          and(
+            ownerOrgScope,
+            eq(schema.designLocalhostConnections.devServerUrl, devServerUrl),
+            eq(schema.designLocalhostConnections.rootPath, rootPath),
+            ...(requestedBridgeUrl
+              ? [
+                  eq(
+                    schema.designLocalhostConnections.bridgeUrl,
+                    requestedBridgeUrl,
+                  ),
+                ]
+              : []),
+          ),
+        )
+        .limit(2);
+      if (priorConnections.length > 1) {
+        throw new Error(
+          "Multiple existing localhost connections match this app. Pass the connection ID to choose which bridge to reuse.",
+        );
+      }
+      const prior = priorConnections[0];
+      if (
+        prior &&
+        prior.ownerEmail === ownerEmail &&
+        (prior.orgId ?? null) === orgId
+      ) {
+        id = prior.id;
+        existing = [prior];
+      }
+    }
 
     if (
       existing[0] &&
@@ -353,7 +405,15 @@ export default defineAction({
       .from(schema.designLocalhostConnections)
       .where(and(eq(schema.designLocalhostConnections.id, id), ownerOrgScope))
       .limit(1);
-    const effectiveBridgeToken = stored?.bridgeToken ?? nextBridgeToken;
+    if (!stored?.bridgeToken) {
+      throw Object.assign(
+        new Error(
+          "The localhost connection could not be confirmed for this account. Refresh the connection and retry.",
+        ),
+        { errorCode: "localhost_connection_conflict" },
+      );
+    }
+    const effectiveBridgeToken = stored.bridgeToken;
     const effectivePreviewToken = derivePreviewToken(effectiveBridgeToken);
 
     return {

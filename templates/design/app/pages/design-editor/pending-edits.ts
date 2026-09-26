@@ -1741,13 +1741,10 @@ export function formatVisualEditClipboardPrompt(
       prompt,
     ].join("\n");
   }
-  if (host === "webmcp") {
-    return "Call the get-visual-edit-prompt WebMCP tool in this Design tab and apply the returned instructions.";
-  }
-  if (host === "chatgpt" || host === "claude" || host === "codex") {
-    return `Use the Agent-Native Design MCP tool get-visual-edit-pending${design} to pull the latest edits, then apply its prompt to the connected app source. Verify the running app before acknowledging that revision, then call the tool again to confirm the handoff cleared.`;
-  }
-  return prompt;
+  const mcpHandoff = `Use the Agent-Native Design MCP tool get-visual-edit-pending with${design} to pull the latest edits. Apply its instructions to the connected app source, verify the running app, then call acknowledge-visual-edit-pending with the returned revision and pull again to confirm the handoff cleared.`;
+  return host === "webmcp"
+    ? `${mcpHandoff} If you cannot access the Design MCP server but can use this open Design tab, use its page-local get-visual-edit-prompt WebMCP tool instead.`
+    : mcpHandoff;
 }
 
 export function isVisualEditHandoffAcknowledged(args: {

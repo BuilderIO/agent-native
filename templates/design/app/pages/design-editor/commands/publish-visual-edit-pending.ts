@@ -20,8 +20,7 @@ export interface PublishVisualEditPendingArgs {
     name: "publish-visual-edit-pending",
     payload: PendingVisualEditHandoff,
   ) => Promise<unknown>;
-  /** The durable action verifies editor access or the same-origin live-share
-   *  URL; this only decides whether to attempt that action from the browser. */
+  /** Only account/editor-capability sessions can publish the durable handoff. */
   canPublishDurableHandoff: boolean;
   designId: string;
   fetchImpl: typeof fetch;

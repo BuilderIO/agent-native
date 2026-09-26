@@ -40,6 +40,24 @@ describe("scheduleCrossScreenDeleteTimeout", () => {
     cancel();
   });
 
+  it("releases a canceled source delete when its bridge never acknowledges cancellation", () => {
+    vi.useFakeTimers();
+    const onTimeout = vi.fn();
+    const request = {
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      screenId: "source",
+      selector: "#source",
+      waitForInsertTransaction: false,
+      cancelRequested: true,
+    };
+    scheduleCrossScreenDeleteTimeout(request, "board", onTimeout);
+
+    vi.advanceTimersByTime(CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
+
+    expect(onTimeout).toHaveBeenCalledExactlyOnceWith(request);
+  });
+
   it("skips inserts still awaiting their destination and board deletes", () => {
     vi.useFakeTimers();
     const onTimeout = vi.fn();

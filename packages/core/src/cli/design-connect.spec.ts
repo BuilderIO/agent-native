@@ -223,6 +223,13 @@ const appUrlEnvKeys = [
 const originalAppUrlEnv = new Map(
   appUrlEnvKeys.map((key) => [key, process.env[key]]),
 );
+const bridgeTokenEnvKeys = [
+  "AGENT_NATIVE_BRIDGE_TOKEN",
+  "AGENT_NATIVE_PREVIEW_TOKEN",
+] as const;
+const originalBridgeTokenEnv = new Map(
+  bridgeTokenEnvKeys.map((key) => [key, process.env[key]]),
+);
 
 function tmpDir() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-design-cli-"));
@@ -236,6 +243,11 @@ afterEach(() => {
   }
   for (const key of appUrlEnvKeys) {
     const original = originalAppUrlEnv.get(key);
+    if (original === undefined) delete process.env[key];
+    else process.env[key] = original;
+  }
+  for (const key of bridgeTokenEnvKeys) {
+    const original = originalBridgeTokenEnv.get(key);
     if (original === undefined) delete process.env[key];
     else process.env[key] = original;
   }
@@ -349,7 +361,8 @@ describe("design connect CLI", () => {
     ).toBe(false);
   });
 
-  it("reuses a same-app daemon without knowing its preview token", async () => {
+  it("reuses a same-app daemon after authenticating with its persisted token", async () => {
+    for (const key of bridgeTokenEnvKeys) delete process.env[key];
     const root = tmpDir();
     const port = await freePort();
     const devServerUrl = "http://localhost:5173";
@@ -377,6 +390,64 @@ describe("design connect CLI", () => {
       expect(error).toHaveBeenCalledWith(
         `Design localhost bridge already running at ${manifest.bridgeUrl}`,
       );
+      const output = JSON.stringify([...error.mock.calls, ...log.mock.calls]);
+      expect(output).not.toContain(bridge.bridgeToken);
+      expect(output).not.toContain(bridge.previewToken);
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("rejects a same-app daemon with a mismatched persisted token without stopping it", async () => {
+    for (const key of bridgeTokenEnvKeys) delete process.env[key];
+    const root = tmpDir();
+    const port = await freePort();
+    const devServerUrl = "http://localhost:5173";
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: devServerUrl,
+      port,
+    });
+    const runningToken = crypto.randomBytes(32).toString("hex");
+    const persistedToken = crypto.randomBytes(32).toString("hex");
+    const bridge = await startDesignConnectBridge(manifest, {
+      bridgeToken: runningToken,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agent-native", "design-bridge-token"),
+      `${persistedToken}\n`,
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        runDesign([
+          "connect",
+          "--url",
+          devServerUrl,
+          "--port",
+          String(port),
+          "--root",
+          root,
+          "--daemon",
+        ]),
+      ).resolves.toBe(1);
+      const output = JSON.stringify([...error.mock.calls, ...log.mock.calls]);
+      expect(output).toContain("rejected the current bridge token (HTTP 401)");
+      expect(output).toContain("bridgeToken returned by open-visual-edit");
+      expect(output).toContain("The existing process was left running.");
+      expect(output).not.toContain(runningToken);
+      expect(output).not.toContain(persistedToken);
+      expect(output).not.toContain(bridge.previewToken);
+      expect(log).not.toHaveBeenCalled();
+      await expect(
+        getJson(`${manifest.bridgeUrl}/health`),
+      ).resolves.toMatchObject({ status: 200, body: { ok: true } });
+      expect(bridge.server.listening).toBe(true);
     } finally {
       log.mockRestore();
       error.mockRestore();
@@ -3400,7 +3471,7 @@ describe("design connect bridge endpoints", () => {
         headers: http.IncomingHttpHeaders;
       }>((resolve, reject) => {
         const request = http.request(
-          `${base}/live-edit-pending`,
+          `${base}/live-edit-bridge`,
           {
             method: "OPTIONS",
             headers: {
@@ -3430,6 +3501,39 @@ describe("design connect bridge endpoints", () => {
       expect(
         liveEditPreflight.headers["access-control-allow-headers"],
       ).toContain("x-agent-native-live-edit-registration-capability");
+
+      const pendingReadPreflight = await new Promise<{
+        status: number;
+        headers: http.IncomingHttpHeaders;
+      }>((resolve, reject) => {
+        const request = http.request(
+          `${base}/live-edit-pending?designId=design-1`,
+          {
+            method: "OPTIONS",
+            headers: {
+              origin: "https://design.example.com",
+              "access-control-request-method": "GET",
+              "access-control-request-headers":
+                "x-design-preview-token,x-agent-native-live-edit-capability",
+            },
+          },
+          (response) => {
+            response.resume();
+            response.on("end", () =>
+              resolve({
+                status: response.statusCode ?? 0,
+                headers: response.headers,
+              }),
+            );
+          },
+        );
+        request.on("error", reject);
+        request.end();
+      });
+      expect(pendingReadPreflight.status).toBe(204);
+      expect(
+        pendingReadPreflight.headers["access-control-allow-headers"],
+      ).toContain("x-agent-native-live-edit-capability");
 
       const hostile = await getText(
         `${base}/manifest.json?previewToken=${bridge.previewToken}`,

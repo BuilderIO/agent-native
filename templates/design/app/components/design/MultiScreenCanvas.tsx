@@ -145,10 +145,7 @@ import {
   parseGradientCss,
   type GradientStopValue,
 } from "./inspector/GradientEditor";
-import {
-  sendLinkedScreenPreviewCancelPendingDelete,
-  sendLinkedScreenPreviewPendingDelete,
-} from "./multi-screen/linked-screen-preview";
+import { sendLinkedScreenPreviewCancelPendingDelete } from "./multi-screen/linked-screen-preview";
 import type {
   AltHoverMeasurement,
   AltHoverMeasurementLine,
@@ -3591,23 +3588,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         clearCrossScreenDrag();
         return;
       }
-      const shouldPreviewSourceDelete =
-        !payload.duplicate &&
-        Boolean(payload.sourceDeleteRequestId) &&
-        editableScreenIds?.has(sourceScreenId) === true &&
-        (targetCandidate.id === boardFileId ||
-          editableScreenIds?.has(targetCandidate.id) === true);
-      if (payload.sourceDeleteRequestId) {
-        if (shouldPreviewSourceDelete) {
-          sendLinkedScreenPreviewPendingDelete(sourceScreenId, {
-            selector: payload.selector,
-            selectorCandidates: sourceDeleteCandidates,
-            requestId: payload.sourceDeleteRequestId,
-          });
-        } else {
-          cancelPendingSourceDelete();
-        }
-      }
+      // The source stays visible until the destination insert is acknowledged.
+      // DesignCanvas starts its delete preview only after that acknowledgement.
       crossScreenHostCommittedRef.current = true;
       if (targetCandidate.id === boardFileId) {
         // A successful prior handoff retains its identity until the paired

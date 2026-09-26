@@ -673,7 +673,11 @@ import {
 } from "./design-editor/commands/create-component";
 import { runCreatePrimitive } from "./design-editor/commands/create-primitive";
 import { runCreateScreenFrame } from "./design-editor/commands/create-screen-frame";
-import { runCrossScreenElementDrop } from "./design-editor/commands/cross-screen-element-drop";
+import {
+  releaseCrossScreenDropAdmission,
+  resolveCrossScreenMoveFailureRecovery,
+  runCrossScreenElementDrop,
+} from "./design-editor/commands/cross-screen-element-drop";
 import {
   crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
@@ -17397,12 +17401,10 @@ function DesignEditor() {
   const handleRuntimeStructureInsertRejected = useCallback(
     (reason: string, transactionId?: string) => {
       if (reason.startsWith("verification-")) {
-        if (
-          transactionId &&
-          runtimeStructurePendingTransactionRef.current === transactionId
-        ) {
-          runtimeStructurePendingTransactionRef.current = null;
-        }
+        releaseCrossScreenDropAdmission(
+          runtimeStructurePendingTransactionRef,
+          transactionId,
+        );
         cancelPendingStructureVerification("conflict");
         toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
         return false;
@@ -17413,84 +17415,47 @@ function DesignEditor() {
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure insert rejected", { reason });
       }
-      const sourceDeleteRequest =
-        runtimeStructureDeleteRequest?.transactionId === transactionId
-          ? runtimeStructureDeleteRequest
-          : null;
-      const targetDocumentUnavailable =
-        reason === "target-canvas-unmounted" ||
-        reason === "target-document-replaced";
-      const targetUnavailableCancellation =
-        targetDocumentUnavailable && transactionId
-          ? crossScreenSourceDeleteCancellation(
-              sourceDeleteRequest,
-              transactionId,
-            )
-          : null;
-      if (sourceDeleteRequest && targetUnavailableCancellation) {
-        setRuntimeStructureInsertRequest((current) =>
-          current?.transactionId === transactionId ? null : current,
-        );
-        setRuntimeStructureDeleteRequest((current) =>
-          current?.transactionId === transactionId
-            ? targetUnavailableCancellation
-            : current,
-        );
-        toast.error(t("designEditor.toasts.layerMoveFailed"), {
-          duration: 4000,
-        });
-        return true;
-      }
-      const isInsertTimeout =
-        reason === "board-drop-timeout" ||
-        reason === "cross-screen-insert-timeout";
-      let rollbackScheduled = false;
-      if (
-        isInsertTimeout &&
-        transactionId &&
-        runtimeStructureInsertRequest?.transactionId === transactionId
-      ) {
-        runtimeStructureRollbackRevisionRef.current += 1;
-        setRuntimeStructureRollbackRequest({
-          screenId: runtimeStructureInsertRequest.screenId,
-          requestId: `${transactionId}:timeout-rollback:${runtimeStructureRollbackRevisionRef.current}`,
-          transactionId,
-          selector: "",
-          idempotent: true,
-        });
-        rollbackScheduled = true;
-      }
       if (transactionId) {
-        if (reason === "target-canvas-unmounted") {
-          discardPendingLiveStructureTransaction(transactionId);
-        }
-        if (
-          !rollbackScheduled &&
-          runtimeStructurePendingTransactionRef.current === transactionId
-        ) {
-          runtimeStructurePendingTransactionRef.current = null;
-        }
-        setRuntimeStructureInsertRequest((current) =>
-          current?.transactionId === transactionId ? null : current,
-        );
-        if (
-          reason === "target-canvas-unmounted" &&
+        runtimeStructureRollbackRevisionRef.current += 1;
+        const recovery = resolveCrossScreenMoveFailureRecovery({
+          reason,
+          transactionId,
+          insertRequest: runtimeStructureInsertRequest,
+          sourceDeleteRequest: runtimeStructureDeleteRequest,
+          rollbackRequestId: `${transactionId}:recovery-rollback:${runtimeStructureRollbackRevisionRef.current}`,
+          pendingTransactionRef: runtimeStructurePendingTransactionRef,
+        });
+        if (recovery.rollbackRequest) {
+          setRuntimeStructureRollbackRequest(recovery.rollbackRequest);
+        } else if (
           runtimeStructureRollbackRequest?.transactionId === transactionId
         ) {
           setRuntimeStructureRollbackRequest(null);
         }
-        if (!rollbackScheduled) {
+        setRuntimeStructureInsertRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+        const sourceDeleteRequest = recovery.sourceDeleteRequest;
+        if (sourceDeleteRequest !== undefined) {
           setRuntimeStructureDeleteRequest((current) =>
-            current?.transactionId === transactionId ? null : current,
+            current?.transactionId === transactionId
+              ? sourceDeleteRequest
+              : current,
           );
         }
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return Boolean(
+          recovery.rollbackRequest ||
+          recovery.sourceDeleteRequest?.cancelRequested,
+        );
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
-      return rollbackScheduled;
+      return false;
     },
     [
       cancelPendingStructureVerification,
-      discardPendingLiveStructureTransaction,
       runtimeStructurePendingTransactionRef,
       runtimeStructureInsertRequest,
       runtimeStructureRollbackRequest,
@@ -17548,13 +17513,10 @@ function DesignEditor() {
             ? null
             : current,
         );
-        if (
-          request.transactionId &&
-          runtimeStructurePendingTransactionRef.current ===
-            request.transactionId
-        ) {
-          runtimeStructurePendingTransactionRef.current = null;
-        }
+        releaseCrossScreenDropAdmission(
+          runtimeStructurePendingTransactionRef,
+          request.transactionId,
+        );
         return;
       }
       recordPendingLiveStructureEdit(
@@ -17646,7 +17608,10 @@ function DesignEditor() {
         request.transactionId &&
         runtimeStructurePendingTransactionRef.current === request.transactionId
       ) {
-        runtimeStructurePendingTransactionRef.current = null;
+        releaseCrossScreenDropAdmission(
+          runtimeStructurePendingTransactionRef,
+          request.transactionId,
+        );
       }
       setRuntimeStructureDeleteRequest(null);
     },
@@ -17672,31 +17637,44 @@ function DesignEditor() {
       ) {
         return;
       }
-      let rollbackScheduled = false;
-      if (
-        request.transactionId &&
-        request.rollbackScreenId &&
-        request.rollbackSelector
-      ) {
+      if (request.cancelRequested) {
+        releaseCrossScreenDropAdmission(
+          runtimeStructurePendingTransactionRef,
+          request.transactionId,
+        );
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === request.transactionId ? null : current,
+        );
+        return;
+      }
+      const transactionId = request.transactionId;
+      let recovery:
+        | ReturnType<typeof resolveCrossScreenMoveFailureRecovery>
+        | undefined;
+      if (transactionId) {
         runtimeStructureRollbackRevisionRef.current += 1;
-        setRuntimeStructureRollbackRequest({
-          screenId: request.rollbackScreenId,
-          requestId: `${request.transactionId}:rollback:${runtimeStructureRollbackRevisionRef.current}`,
-          transactionId: request.transactionId,
-          selector: request.rollbackSelector,
-          sourceId: request.rollbackSourceId,
-          idempotent: true,
+        recovery = resolveCrossScreenMoveFailureRecovery({
+          reason: details.reason,
+          transactionId,
+          insertRequest: runtimeStructureInsertRequest,
+          sourceDeleteRequest: request,
+          rollbackRequestId: `${transactionId}:rollback:${runtimeStructureRollbackRevisionRef.current}`,
+          pendingTransactionRef: runtimeStructurePendingTransactionRef,
         });
-        rollbackScheduled = true;
+        if (recovery.rollbackRequest) {
+          setRuntimeStructureRollbackRequest(recovery.rollbackRequest);
+        }
+        const sourceDeleteRequest = recovery.sourceDeleteRequest;
+        if (sourceDeleteRequest !== undefined) {
+          setRuntimeStructureDeleteRequest((current) =>
+            current?.transactionId === transactionId
+              ? sourceDeleteRequest
+              : current,
+          );
+        }
+      } else {
+        setRuntimeStructureDeleteRequest(null);
       }
-      if (
-        !rollbackScheduled &&
-        request.transactionId &&
-        runtimeStructurePendingTransactionRef.current === request.transactionId
-      ) {
-        runtimeStructurePendingTransactionRef.current = null;
-      }
-      if (!rollbackScheduled) setRuntimeStructureDeleteRequest(null);
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure delete rejected", details);
       }
@@ -17709,6 +17687,7 @@ function DesignEditor() {
     [
       runtimeStructureDeleteRequest,
       runtimeStructurePendingTransactionRef,
+      runtimeStructureInsertRequest,
       setRuntimeStructureDeleteRequest,
       setRuntimeStructureRollbackRequest,
       t,
@@ -17789,8 +17768,7 @@ function DesignEditor() {
       });
       const pendingSourceDelete =
         transactionId &&
-        runtimeStructureDeleteRequest?.transactionId === transactionId &&
-        !runtimeStructureDeleteRequest.cancelRequested
+        runtimeStructureDeleteRequest?.transactionId === transactionId
           ? runtimeStructureDeleteRequest
           : null;
       const pendingSourceCancellation =
@@ -17800,11 +17778,16 @@ function DesignEditor() {
               transactionId,
             )
           : null;
-      if (disposition === "discard" && pendingSourceCancellation) {
+      if (pendingSourceCancellation) {
         setRuntimeStructureInsertRequest((current) =>
           current?.transactionId === transactionId ? null : current,
         );
-        setRuntimeStructureRollbackRequest(null);
+        if (disposition === "discard") {
+          if (transactionId) {
+            discardPendingLiveStructureTransaction(transactionId);
+          }
+          setRuntimeStructureRollbackRequest(null);
+        }
         setRuntimeStructureDeleteRequest((current) =>
           current?.transactionId === transactionId
             ? {
@@ -17814,9 +17797,18 @@ function DesignEditor() {
               }
             : current,
         );
+        if (!rollbackIsComplete) {
+          toast.error(t("designEditor.toasts.layerMoveFailed"), {
+            duration: 4000,
+          });
+        }
         return;
       }
       if (disposition === "retain-recovery") {
+        releaseCrossScreenDropAdmission(
+          runtimeStructurePendingTransactionRef,
+          transactionId,
+        );
         toast.error(t("designEditor.toasts.layerMoveFailed"), {
           duration: 4000,
         });
@@ -17825,12 +17817,10 @@ function DesignEditor() {
       if (transactionId && disposition === "discard") {
         discardPendingLiveStructureTransaction(transactionId);
       }
-      if (
-        transactionId &&
-        runtimeStructurePendingTransactionRef.current === transactionId
-      ) {
-        runtimeStructurePendingTransactionRef.current = null;
-      }
+      releaseCrossScreenDropAdmission(
+        runtimeStructurePendingTransactionRef,
+        transactionId,
+      );
       setRuntimeStructureRollbackRequest(null);
       if (transactionId) {
         setRuntimeStructureDeleteRequest((current) =>
@@ -19234,9 +19224,10 @@ function DesignEditor() {
         {
           activeFile,
           canEditDesign,
-          blockInteraction:
-            remoteVisualEditPending ||
-            (isVisualEditSurface && designAccessRole !== "owner"),
+          hasPendingVisualEdits:
+            pendingVisualStyleEdits.length > 0 ||
+            pendingLiveNonStyleEdits.length > 0 ||
+            remoteVisualEditPending,
           clearPendingLiveEditState,
           enterOverviewFromZoom,
           enterSingleScreen,
@@ -19262,8 +19253,6 @@ function DesignEditor() {
     [
       activeFile,
       canEditDesign,
-      designAccessRole,
-      isVisualEditSurface,
       remoteVisualEditPending,
       pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,
@@ -20625,7 +20614,7 @@ function DesignEditor() {
         activeScreenPreviewToken,
         activeScreenLiveEditCapability,
         callAction,
-        canPublishDurableHandoff: canEditDesign || isLiveCanvasShareLink,
+        canPublishDurableHandoff: canEditDesign,
         designId: id,
         fetchImpl: fetch,
         pending,
@@ -20661,7 +20650,6 @@ function DesignEditor() {
     canEditLiveScreen,
     canEditDesign,
     id,
-    isLiveCanvasShareLink,
     pendingVisualEditCount,
     pendingVisualStylePrompt,
     t,

@@ -27,6 +27,8 @@ import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publ
 import { runApplyFileContentUpdate } from "./apply-file-content-update";
 import {
   absolutePlacePointForDrop,
+  releaseCrossScreenDropAdmission,
+  resolveCrossScreenMoveFailureRecovery,
   runCrossScreenElementDrop,
   shouldAbsolutePlaceOnEmptyScreen,
 } from "./cross-screen-element-drop";
@@ -2273,7 +2275,7 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     );
   });
 
-  it("uses the live source outerHTML for an atomic live-to-live move", () => {
+  it("keeps the source visible and serializes viewer moves until rollback settles", () => {
     const sourceMarkup =
       '<div data-agent-native-node-id="runtime-source">Source</div>';
     const sourceNode = buildCodeLayerProjection(sourceMarkup).nodes[0]!;
@@ -2283,78 +2285,133 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     let insertRequest: unknown = null;
     let deleteRequest: unknown = null;
 
-    runCrossScreenElementDrop(
-      {
-        applyFileContentUpdate: () => {
-          throw new Error("live-to-live moves must not write stored content");
-        },
-        boardFileId: undefined,
-        canEditDesign: true,
-        canEditLiveScreen: () => true,
-        clearPendingOverviewLayerSelectionTimer: () => {},
-        codeLayerOwnerByNodeIdRef: {
-          current: new Map([
-            [
-              sourceNode.id,
-              {
-                fileId: "source",
-                node: sourceNode,
-                tree: sourceTree,
-                runtimeOnly: true,
-              },
-            ],
-          ]),
-        },
-        designSourceType: "localhost",
-        getScreenContent: () => "http://localhost:5173/",
-        id: undefined,
-        overviewScreens: [
-          {
-            id: "source",
-            filename: "source.html",
-            content: "http://localhost:5173/",
-            updatedAt: "2026-09-11T00:00:00.000Z",
-            heightPinned: false,
-            sourceType: "localhost",
-          },
-          {
-            id: "target",
-            filename: "target.html",
-            content: "http://localhost:5173/?screen=target",
-            updatedAt: "2026-09-11T00:00:00.000Z",
-            heightPinned: false,
-            sourceType: "localhost",
-          },
-        ],
-        pendingOverviewLayerSelectionRef: { current: null },
-        pendingOverviewScreenSelectionRef: { current: null },
-        recordContentHistoryEntry: vi.fn(),
-        runtimeStructureInsertRevisionRef: { current: 0 },
-        sendRuntimeLayerMoveSemanticHandoff: vi.fn(),
-        setActiveFileId: vi.fn(),
-        setCreatedOverviewLayerSelection: vi.fn(),
-        setOverviewSelectedScreenIds: vi.fn(),
-        setRuntimeStructureDeleteRequest: (value) => {
-          deleteRequest = typeof value === "function" ? value(null) : value;
-        },
-        setRuntimeStructureInsertRequest: (value) => {
-          insertRequest = typeof value === "function" ? value(null) : value;
-        },
-        setSelectedElement: vi.fn(),
-        setSelectedLayerIdsState: vi.fn(),
-        t: (key) => key,
-        viewModeRef: { current: "overview" },
+    const applyFileContentUpdate = vi.fn(() => {
+      throw new Error(
+        "public live-to-live moves must not write stored content",
+      );
+    });
+    const canEditLiveScreen = vi.fn(() => true);
+    const setInsertRequest = vi.fn((value) => {
+      insertRequest = typeof value === "function" ? value(null) : value;
+    });
+    const setDeleteRequest = vi.fn((value) => {
+      deleteRequest = typeof value === "function" ? value(null) : value;
+    });
+    const pendingTransactionRef = {
+      current: "move-timed-out" as string | null,
+    };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "cross-screen-insert-timeout",
+      transactionId: "move-timed-out",
+      insertRequest: {
+        requestId: 1,
+        transactionId: "move-timed-out",
+        screenId: "target",
+        html: '<div data-agent-native-node-id="clone">Source</div>',
+        anchor: { selector: "body" },
+        placement: "inside",
       },
-      {
-        sourceSelector: '[data-agent-native-node-id="runtime-source"]',
-        sourceNodeId: "runtime-source",
-        sourceScreenId: "source",
-        targetScreenId: "target",
-        targetAnchorSelector: "body",
-        targetAnchorPlacement: "inside",
-        sourceCloneHtml: sourceMarkup,
+      sourceDeleteRequest: {
+        requestId: "move-timed-out:source",
+        transactionId: "move-timed-out",
+        screenId: "source",
+        selector: '[data-agent-native-node-id="runtime-source"]',
+        waitForInsertTransaction: true,
+        rollbackScreenId: "target",
       },
-    );
+      rollbackRequestId: "move-timed-out:rollback",
+      pendingTransactionRef,
+    });
+    expect(recovery.admissionReleased).toBe(false);
+    expect(recovery.rollbackRequest).toMatchObject({
+      screenId: "target",
+      transactionId: "move-timed-out",
+      selector: "",
+      idempotent: true,
+    });
+    expect(recovery.sourceDeleteRequest).toBeNull();
+    expect(pendingTransactionRef.current).toBe("move-timed-out");
+
+    const runViewerMove = () =>
+      runCrossScreenElementDrop(
+        {
+          applyFileContentUpdate,
+          boardFileId: undefined,
+          canEditDesign: false,
+          canEditLiveScreen,
+          clearPendingOverviewLayerSelectionTimer: () => {},
+          codeLayerOwnerByNodeIdRef: {
+            current: new Map([
+              [
+                sourceNode.id,
+                {
+                  fileId: "source",
+                  node: sourceNode,
+                  tree: sourceTree,
+                  runtimeOnly: true,
+                },
+              ],
+            ]),
+          },
+          designSourceType: "localhost",
+          getScreenContent: (screenId) =>
+            screenId === "source"
+              ? "http://localhost:5173/library"
+              : "http://localhost:5173/settings",
+          id: undefined,
+          overviewScreens: [
+            {
+              id: "source",
+              filename: "source.html",
+              content: "http://localhost:5173/library",
+              updatedAt: "2026-09-11T00:00:00.000Z",
+              heightPinned: false,
+              sourceType: "localhost",
+            },
+            {
+              id: "target",
+              filename: "target.html",
+              content: "http://localhost:5173/settings",
+              updatedAt: "2026-09-11T00:00:00.000Z",
+              heightPinned: false,
+              sourceType: "localhost",
+            },
+          ],
+          pendingOverviewLayerSelectionRef: { current: null },
+          pendingOverviewScreenSelectionRef: { current: null },
+          recordContentHistoryEntry: vi.fn(),
+          runtimeStructureInsertRevisionRef: { current: 0 },
+          runtimeStructurePendingTransactionRef: pendingTransactionRef,
+          sendRuntimeLayerMoveSemanticHandoff: vi.fn(),
+          setActiveFileId: vi.fn(),
+          setCreatedOverviewLayerSelection: vi.fn(),
+          setOverviewSelectedScreenIds: vi.fn(),
+          setRuntimeStructureDeleteRequest: setDeleteRequest,
+          setRuntimeStructureInsertRequest: setInsertRequest,
+          setSelectedElement: vi.fn(),
+          setSelectedLayerIdsState: vi.fn(),
+          t: (key) => key,
+          viewModeRef: { current: "overview" },
+        },
+        {
+          sourceSelector: '[data-agent-native-node-id="runtime-source"]',
+          sourceNodeId: "runtime-source",
+          sourceScreenId: "source",
+          targetScreenId: "target",
+          targetAnchorSelector: "body",
+          targetAnchorPlacement: "inside",
+          sourceCloneHtml: sourceMarkup,
+        },
+      );
+
+    runViewerMove();
+    expect(insertRequest).toBeNull();
+    expect(deleteRequest).toBeNull();
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
+    expect(
+      releaseCrossScreenDropAdmission(pendingTransactionRef, "move-timed-out"),
+    ).toBe(true);
+    runViewerMove();
 
     expect(insertRequest).toMatchObject({
       screenId: "target",
@@ -2367,6 +2424,95 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       selector: '[data-agent-native-node-id="runtime-source"]',
       waitForInsertTransaction: true,
     });
+    expect((deleteRequest as { transactionId?: string }).transactionId).toBe(
+      (insertRequest as { transactionId?: string }).transactionId,
+    );
+    expect(pendingTransactionRef.current).toBe(
+      (insertRequest as { transactionId?: string }).transactionId,
+    );
+    expect(setInsertRequest).toHaveBeenCalledTimes(1);
+    expect(setDeleteRequest).toHaveBeenCalledTimes(1);
+    expect(canEditLiveScreen).toHaveBeenCalledWith("source");
+    expect(canEditLiveScreen).toHaveBeenCalledWith("target");
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
+  });
+
+  it("requests source restoration on rollback timeout and holds admission for its ack", () => {
+    const pendingTransactionRef = { current: "move-rejected" as string | null };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "rollback-timeout",
+      transactionId: "move-rejected",
+      insertRequest: null,
+      sourceDeleteRequest: {
+        requestId: "move-rejected:source",
+        transactionId: "move-rejected",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "#inserted",
+        rollbackSourceId: "inserted-id",
+      },
+      rollbackRequestId: "move-rejected:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.admissionReleased).toBe(false);
+    expect(recovery.sourceDeleteRequest).toMatchObject({
+      cancelRequested: true,
+      rollbackScreenId: "target",
+    });
+    expect(recovery.sourceDeleteRequest?.rollbackSelector).toBeUndefined();
+    expect(recovery.rollbackRequest).toMatchObject({
+      screenId: "target",
+      selector: "#inserted",
+      sourceId: "inserted-id",
+      idempotent: true,
+    });
+    expect(pendingTransactionRef.current).toBe("move-rejected");
+  });
+
+  it("requests source restoration after target unmount and holds admission for its ack", () => {
+    const pendingTransactionRef = {
+      current: "move-unmounted" as string | null,
+    };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "target-canvas-unmounted",
+      transactionId: "move-unmounted",
+      insertRequest: {
+        requestId: 1,
+        transactionId: "move-unmounted",
+        screenId: "target",
+        html: '<div data-agent-native-node-id="inserted">Moved</div>',
+        anchor: { selector: "body" },
+        placement: "inside",
+      },
+      sourceDeleteRequest: {
+        requestId: "move-unmounted:source",
+        transactionId: "move-unmounted",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "[data-agent-native-node-id=inserted]",
+        rollbackSourceId: "inserted",
+      },
+      rollbackRequestId: "move-unmounted:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.admissionReleased).toBe(false);
+    expect(recovery.sourceDeleteRequest).toMatchObject({
+      cancelRequested: true,
+      selector: "#source",
+    });
+    expect(recovery.sourceDeleteRequest?.rollbackSelector).toBeUndefined();
+    expect(recovery.rollbackRequest).toMatchObject({
+      screenId: "target",
+      selector: "[data-agent-native-node-id=inserted]",
+      idempotent: true,
+    });
+    expect(pendingTransactionRef.current).toBe("move-unmounted");
   });
 
   it("inserts a runtime-projected board node back into a live destination", () => {

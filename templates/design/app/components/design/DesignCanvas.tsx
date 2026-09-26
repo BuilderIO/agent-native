@@ -6872,7 +6872,9 @@ export function DesignCanvas({
       currentPreview.transactionId = request?.transactionId;
       currentPreview.awaitingTransaction = false;
     }
-    if (!request?.waitForInsertTransaction) return;
+    // Keep the source visible until the destination has acknowledged its
+    // insert. A refused or disconnected target must leave the move untouched.
+    if (!request || request.waitForInsertTransaction) return;
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
       if (currentPreview?.requestId === request.requestId) {
         currentPreview.documentIdentity = null;
@@ -7661,7 +7663,13 @@ export function DesignCanvas({
         : (iframeHeight ?? undefined);
   const focusScrollSurface = useCallback(() => {
     const surface = scrollContainerRef.current;
-    if (!surface || document.activeElement === surface) return;
+    if (
+      !surface ||
+      document.activeElement === surface ||
+      !editMode ||
+      interactMode
+    )
+      return;
     // A picker drag ending over the canvas must not take focus from the open
     // picker: losing it ends the inspector gesture and drops a styled text range.
     if (
@@ -7674,15 +7682,17 @@ export function DesignCanvas({
     if (focusedElement instanceof HTMLIFrameElement) {
       try {
         const frameDocument = focusedElement.contentDocument;
-        if (
-          !frameDocument ||
-          frameDocument.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)
-        ) {
+        if (frameDocument?.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)) {
           return;
         }
-      } catch {
-        // Keep focus inside a frame we cannot inspect; it may own an editor.
-        return;
+      } catch (error) {
+        if (
+          !(error instanceof DOMException) ||
+          error.name !== "SecurityError"
+        ) {
+          throw error;
+        }
+        // Cross-origin editable focus is reported separately by the live-frame bridge.
       }
     }
     // Taking focus for keyboard panning must never outrank a field the user
@@ -7690,7 +7700,8 @@ export function DesignCanvas({
     // be focused on mount and silently unfocused by the same pointer motion.
     if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
     surface.focus({ preventScroll: true });
-  }, []);
+  }, [editMode, interactMode]);
+  useLayoutEffect(() => focusScrollSurface(), [focusScrollSurface]);
 
   // Single-screen pan (Figma parity §3): middle-mouse-button drag always
   // pans (mirrors MultiScreenCanvas's unconditional `e.button === 1` branch
@@ -7959,6 +7970,7 @@ export function DesignCanvas({
           onLoad={(event) => {
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
+            focusScrollSurface();
             event.currentTarget.contentWindow?.postMessage(
               { type: "agent-native:editor-chrome-ready-probe" },
               "*",

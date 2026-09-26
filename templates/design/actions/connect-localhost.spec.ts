@@ -14,14 +14,18 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 type ExistingConnection = {
+  id?: string;
   ownerEmail: string;
   orgId: string | null;
+  devServerUrl?: string;
+  rootPath?: string | null;
   bridgeUrl?: string | null;
   bridgeToken: string | null;
   previewToken?: string | null;
 };
 
 let existingConnection: ExistingConnection | null = null;
+let legacyConnections: ExistingConnection[] = [];
 // Row the post-upsert reread sees (the value actually persisted). `undefined`
 // mirrors `existingConnection`; set it explicitly to model a race winner or a
 // cross-user no-op where the owner-scoped reread finds nothing.
@@ -37,11 +41,11 @@ let upsertConfig: {
   setWhere?: unknown;
 } | null = null;
 
-function makeSelectChain(rows: unknown[]) {
+function makeSelectChain(rowsForLimit: (limit: number) => unknown[]) {
   return {
     from: () => ({
       where: () => ({
-        limit: () => Promise.resolve(rows),
+        limit: (limit: number) => Promise.resolve(rowsForLimit(limit)),
       }),
     }),
   };
@@ -50,12 +54,23 @@ function makeSelectChain(rows: unknown[]) {
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     select: () => {
-      // 1st select = ownership pre-check; 2nd = post-upsert reread.
       selectCallCount += 1;
-      if (selectCallCount >= 2 && rereadRow !== undefined) {
-        return makeSelectChain(rereadRow ? [rereadRow] : []);
-      }
-      return makeSelectChain(existingConnection ? [existingConnection] : []);
+      const call = selectCallCount;
+      return makeSelectChain((limit) => {
+        if (limit === 2) return legacyConnections;
+        if (call > 1) {
+          if (rereadRow !== undefined) return rereadRow ? [rereadRow] : [];
+          return insertedValues
+            ? [
+                {
+                  bridgeToken: insertedValues.bridgeToken as string,
+                  previewToken: insertedValues.previewToken as string,
+                },
+              ]
+            : [];
+        }
+        return call === 1 && existingConnection ? [existingConnection] : [];
+      });
     },
     insert: () => ({
       values: (vals: Record<string, unknown>) => {
@@ -81,6 +96,8 @@ vi.mock("../server/db/index.js", () => ({
       bridgeUrl: "bridgeUrl",
       ownerEmail: "ownerEmail",
       orgId: "orgId",
+      devServerUrl: "devServerUrl",
+      rootPath: "rootPath",
     },
   },
 }));
@@ -91,6 +108,7 @@ import action, { derivePreviewToken } from "./connect-localhost.js";
 beforeEach(() => {
   requestContextMock.orgId = "org_1";
   existingConnection = null;
+  legacyConnections = [];
   rereadRow = undefined;
   selectCallCount = 0;
   insertedValues = null;
@@ -174,6 +192,83 @@ describe("connect-localhost", () => {
     const expectedId = `localhost_${hash}`;
     expect(insertedValues?.id).toBe(expectedId);
     expect(upsertConfig?.set.id).toBe(expectedId);
+  });
+
+  it("reuses one legacy connection for the same app so the running bridge token stays paired", async () => {
+    legacyConnections = [
+      {
+        id: "localhost_legacy",
+        ownerEmail: "user@example.com",
+        orgId: "org_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeUrl: "http://127.0.0.1:7331",
+        bridgeToken: "persisted_bridge_token",
+      },
+    ];
+
+    const result = await action.run({
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+    });
+
+    expect(insertedValues?.id).toBe("localhost_legacy");
+    expect(insertedValues?.bridgeToken).toBe("persisted_bridge_token");
+    expect(result.id).toBe("localhost_legacy");
+    expect(result.previewToken).toBe(
+      derivePreviewToken("persisted_bridge_token"),
+    );
+  });
+
+  it("does not reuse a legacy connection owned by another principal", async () => {
+    legacyConnections = [
+      {
+        id: "localhost_foreign",
+        ownerEmail: "other@example.com",
+        orgId: "org_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "foreign_bridge_token",
+      },
+    ];
+
+    const result = await action.run({
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+    });
+
+    expect(insertedValues?.id).not.toBe("localhost_foreign");
+    expect(insertedValues?.bridgeToken).not.toBe("foreign_bridge_token");
+    expect(result.bridgeToken).not.toBe("foreign_bridge_token");
+  });
+
+  it("requires an explicit ID when multiple legacy connections match", async () => {
+    legacyConnections = [
+      {
+        id: "localhost_old_1",
+        ownerEmail: "user@example.com",
+        orgId: "org_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "old_bridge_token_1",
+      },
+      {
+        id: "localhost_old_2",
+        ownerEmail: "user@example.com",
+        orgId: "org_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "old_bridge_token_2",
+      },
+    ];
+
+    await expect(
+      action.run({
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+      }),
+    ).rejects.toThrow(/Multiple existing localhost connections match/);
+    expect(insertedValues).toBeNull();
   });
 
   it("scopes derived connection ids by org", async () => {
@@ -285,22 +380,20 @@ describe("connect-localhost", () => {
     expect(result.previewToken).toBe(derivePreviewToken("winner_token"));
   });
 
-  it("never returns another user's token when the guarded upsert is a no-op", async () => {
+  it("fails closed when the guarded upsert did not persist for this owner", async () => {
     // Pre-check passes (no row yet), but the owner-scoped reread finds nothing —
     // a concurrent insert by another user made our upsert a no-op.
     existingConnection = null;
     rereadRow = null;
 
-    const result = await action.run({
-      id: "conn_1",
-      devServerUrl: "http://localhost:5173",
-      rootPath: "/tmp/app",
-      bridgeToken: "our_token",
-    });
-
-    // Fall back to our own token — never a foreign one from the colliding row.
-    expect(result.bridgeToken).toBe("our_token");
-    expect(result.previewToken).toBe(derivePreviewToken("our_token"));
+    await expect(
+      action.run({
+        id: "conn_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "our_token",
+      }),
+    ).rejects.toMatchObject({ errorCode: "localhost_connection_conflict" });
   });
 
   it("rejects a preview token that is not derived from the bridge token", async () => {

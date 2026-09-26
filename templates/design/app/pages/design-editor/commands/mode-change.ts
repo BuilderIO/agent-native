@@ -16,7 +16,7 @@ import type {
 export interface ModeChangeArgs {
   activeFile: DesignFile;
   canEditDesign: boolean;
-  blockInteraction?: boolean;
+  hasPendingVisualEdits?: boolean;
   clearPendingLiveEditState: () => void;
   enterOverviewFromZoom: (nextMode?: EditorMode) => void;
   enterSingleScreen: (fileId?: string | null) => void;
@@ -44,12 +44,12 @@ export interface ModeChangeArgs {
 export function runModeChange(
   {
     activeFile,
-    blockInteraction = false,
     canEditDesign,
     clearPendingLiveEditState,
     enterOverviewFromZoom,
     enterSingleScreen,
     files,
+    hasPendingVisualEdits = false,
     pendingLiveNonStyleEdits,
     pendingVisualStyleEdits,
     requestPendingLiveNonStyleRevert,
@@ -81,9 +81,7 @@ export function runModeChange(
   }
   if (
     next === "interact" &&
-    (blockInteraction ||
-      pendingVisualStyleEdits.length > 0 ||
-      pendingLiveNonStyleEdits.length > 0) &&
+    hasPendingVisualEdits &&
     !options?.discardPendingLiveEdits &&
     !options?.pendingLiveEditsAlreadyHandled
   ) {

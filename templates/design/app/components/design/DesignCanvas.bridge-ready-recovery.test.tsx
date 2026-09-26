@@ -6,6 +6,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resolveCrossScreenMoveFailureRecovery } from "@/pages/design-editor/commands/cross-screen-element-drop";
+
 import { DesignCanvas } from "./DesignCanvas";
 
 let container: HTMLDivElement;
@@ -470,6 +472,61 @@ describe("DesignCanvas one-shot bridge queue", () => {
     ]);
     expect(onRuntimeStructureInsertRejected).not.toHaveBeenCalled();
     posted.length = 0;
+    await render(null, null, "move-rejected", {
+      screenId: "screen-live",
+      requestId: "move-rejected:source",
+      transactionId: "move-rejected",
+      selector: "#source",
+      waitForInsertTransaction: true,
+    });
+    expect(
+      posted.some(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "pending-delete-element",
+      ),
+    ).toBe(false);
+    posted.length = 0;
+    await render(null);
+    expect(
+      posted.some((message) =>
+        [
+          "pending-delete-element",
+          "delete-element",
+          "cancel-pending-delete-element",
+        ].includes((message as { type?: string }).type ?? ""),
+      ),
+    ).toBe(false);
+
+    posted.length = 0;
+    await render(null, null, "move-1", {
+      screenId: "screen-live",
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      selector: "#source",
+      waitForInsertTransaction: true,
+    });
+    expect(
+      posted.some(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "pending-delete-element",
+      ),
+    ).toBe(false);
+
+    posted.length = 0;
+    await render(null, null, "move-1", {
+      screenId: "screen-live",
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      selector: "#source",
+      waitForInsertTransaction: false,
+    });
+    expect(
+      posted.slice(-2).map((message) => (message as { type?: string }).type),
+    ).toEqual(["pending-delete-element", "delete-element"]);
+
+    posted.length = 0;
     await render(null, null, "move-1", {
       screenId: "screen-live",
       requestId: "move-1:source",
@@ -591,6 +648,141 @@ describe("DesignCanvas one-shot bridge queue", () => {
       "move-3",
     );
     expect(onRuntimeStructureRollbackResult).not.toHaveBeenCalled();
+  });
+
+  it("releases the matching move admission when the target rejects its insert", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const pendingTransactionRef = { current: "move-rejected" as string | null };
+    const sourceDeleteRequest = {
+      requestId: "move-rejected:source",
+      transactionId: "move-rejected",
+      screenId: "screen-source",
+      selector: "#source",
+      waitForInsertTransaction: true,
+      rollbackScreenId: "screen-target",
+    };
+    let recovery:
+      | ReturnType<typeof resolveCrossScreenMoveFailureRecovery>
+      | undefined;
+    const onRejected = vi.fn((reason: string, transactionId?: string) => {
+      if (!transactionId) return;
+      recovery = resolveCrossScreenMoveFailureRecovery({
+        reason,
+        transactionId,
+        insertRequest: {
+          requestId: 1,
+          transactionId: "move-rejected",
+          screenId: "screen-target",
+          sourceScreenId: "screen-source",
+          html: '<button data-agent-native-node-id="clone">Move</button>',
+          anchor: { selector: "body" },
+          placement: "inside",
+        },
+        sourceDeleteRequest,
+        rollbackRequestId: "move-rejected:rollback",
+        pendingTransactionRef,
+      });
+    });
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/target"
+          contentKey="screen-target"
+          screenId="screen-target"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="ready-recovery-preview-token"
+          liveEditCapability="ready-recovery-live-edit-capability"
+          runtimeStructureInsertRequest={{
+            requestId: 1,
+            transactionId: "move-rejected",
+            screenId: "screen-target",
+            sourceScreenId: "screen-source",
+            html: '<button data-agent-native-node-id="clone">Move</button>',
+            anchor: { selector: "body" },
+            placement: "inside",
+          }}
+          onRuntimeStructureInsertRejected={onRejected}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?"),
+    );
+
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframeWindow = iframe.contentWindow as Window;
+    iframeWindow.postMessage = vi.fn() as Window["postMessage"];
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/target",
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "runtime-structure-insert-rejected",
+            reason: "target-unresolved",
+            transactionId: "move-rejected",
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(onRejected).toHaveBeenCalledExactlyOnceWith(
+      "target-unresolved",
+      "move-rejected",
+    );
+    expect(recovery?.admissionReleased).toBe(true);
+    expect(recovery?.sourceDeleteRequest).toBeNull();
+    expect(recovery?.rollbackRequest).toBeNull();
+    expect(pendingTransactionRef.current).toBeNull();
   });
 
   it("cancels an acknowledged insert when the destination document reloads before source ack", async () => {

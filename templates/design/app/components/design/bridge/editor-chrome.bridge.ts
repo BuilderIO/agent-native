@@ -22651,7 +22651,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           crossScreenClaimedByHost
         : false;
       if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
-        var sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
         postCrossScreenDrag("end", dragEl, ev, {
           duplicate: duplicatedForDrag,
           modifiers: {
@@ -22673,21 +22672,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           postElementSelect(selectedEl);
         } else {
           restoreSourceDragPosition();
-          if (crossScreenClaimedByHost && sourceDeleteRequestId) {
-            var selector = getSelector(dragEl);
-            var sourceId = getSourceId(dragEl);
-            var selectorCandidates = [selector];
-            if (sourceId) {
-              selectorCandidates.push(
-                '[data-agent-native-node-id="' + CSS.escape(sourceId) + '"]',
-              );
-            }
-            concealPendingRuntimeDelete(
-              selector,
-              selectorCandidates,
-              sourceDeleteRequestId,
-            );
-          }
+          // The host hides/deletes the source only after the destination
+          // acknowledges its insert; failed or unavailable targets leave this
+          // node visible at its restored source position.
         }
         return;
       }
