@@ -427,13 +427,13 @@ export function AiInboxSetup({
     [rules],
   );
   const visible =
-    forceOpen ||
-    (connected &&
-      !googleStatus.isLoading &&
-      !rulesLoading &&
-      !jevAvailability.isLoading &&
-      settings?.aiSetupCompleted !== true &&
-      aiRules.length === 0);
+    connected &&
+    !googleStatus.isLoading &&
+    !jevAvailability.isLoading &&
+    (forceOpen ||
+      (!rulesLoading &&
+        settings?.aiSetupCompleted !== true &&
+        aiRules.length === 0));
 
   useEffect(() => {
     const wasForceOpen = previousForceOpen.current;

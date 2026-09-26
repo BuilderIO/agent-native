@@ -64,6 +64,12 @@ const mocks = vi.hoisted(() => ({
     isFetching: false,
     refetch: vi.fn(),
   },
+  googleStatus: {
+    data: { accounts: [{ email: "mail-test@example.test" }] } as
+      | { accounts: { email: string }[] }
+      | undefined,
+    isLoading: false,
+  },
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -130,10 +136,7 @@ vi.mock("@/hooks/use-emails", () => ({
 }));
 
 vi.mock("@/hooks/use-google-auth", () => ({
-  useGoogleAuthStatus: () => ({
-    data: { accounts: [{ email: "mail-test@example.test" }] },
-    isLoading: false,
-  }),
+  useGoogleAuthStatus: () => mocks.googleStatus,
 }));
 
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
@@ -162,6 +165,10 @@ describe("AiInboxSetup", () => {
     mocks.jevAvailability.data = { configured: true };
     mocks.jevAvailability.isLoading = false;
     mocks.jevAvailability.isError = false;
+    mocks.googleStatus.data = {
+      accounts: [{ email: "mail-test@example.test" }],
+    };
+    mocks.googleStatus.isLoading = false;
   });
 
   afterEach(() => {
@@ -191,6 +198,45 @@ describe("AiInboxSetup", () => {
     expect((important as HTMLInputElement).placeholder).toBe(
       "mail.sort.aiSetupImportantExample",
     );
+  });
+
+  it("keeps account and Jev loading gates when setup is force-opened", () => {
+    const { rerender } = render(<AiInboxSetup forceOpen />);
+    mocks.googleStatus.isLoading = true;
+    rerender(<AiInboxSetup forceOpen />);
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toBeNull();
+
+    mocks.googleStatus.isLoading = false;
+    mocks.jevAvailability.isLoading = true;
+    rerender(<AiInboxSetup forceOpen />);
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toBeNull();
+
+    mocks.jevAvailability.isLoading = false;
+    mocks.googleStatus.data = { accounts: [] };
+    rerender(<AiInboxSetup forceOpen />);
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toBeNull();
+
+    mocks.googleStatus.data = {
+      accounts: [{ email: "mail-test@example.test" }],
+    };
+    rerender(<AiInboxSetup forceOpen />);
+    expect(
+      screen.getByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).not.toBeNull();
   });
 
   it("advances through setup before completing from the final step", async () => {
