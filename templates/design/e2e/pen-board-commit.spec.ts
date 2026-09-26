@@ -136,7 +136,7 @@ async function screenVectorCount(page: Page) {
   });
 }
 
-test("a pen path drawn on the board commits once and keeps the pen armed", async ({
+test("Escape cancels a pen path drawn on the board", async ({
   page,
   request,
 }) => {
@@ -168,12 +168,11 @@ test("a pen path drawn on the board commits once and keeps the pen armed", async
     await penClick(page, gapX - 40, gapY);
     await penClick(page, gapX + 20, gapY + 60);
     await penClick(page, gapX - 20, gapY + 120);
-    // Escape ends the path and keeps drawing (Figma); Enter would switch to Move.
+    await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(3000);
+    await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
 
-    expect(await allVectors(page)).toHaveLength(1);
-    // The commit must not disarm the tool mid-drawing-session either.
+    await expect.poll(async () => allVectors(page)).toHaveLength(0);
     await expect(
       page
         .locator("[data-design-bottom-toolbar]")
