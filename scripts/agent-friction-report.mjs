@@ -1176,8 +1176,7 @@ const PATTERNS = [
   {
     key: "resource-cleanup",
     label: "Had to ask agents to close spawned tabs or stop processes",
-    fixedBy:
-      "AGENTS.md + personal global resource-cleanup rule (2026-09-25)",
+    fixedBy: "AGENTS.md + personal global resource-cleanup rule (2026-09-25)",
     re: RESOURCE_CLEANUP_RE,
   },
   {
