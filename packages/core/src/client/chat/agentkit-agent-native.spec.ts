@@ -81,6 +81,46 @@ describe("createAgentNativeAgentKitTransport", () => {
     });
   });
 
+  it("restores failed action calls without success widgets", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({
+          id: "thread-failed-widget",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                id: "assistant-1",
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId: "tool-failed",
+                    toolName: "manage-draft",
+                    args: { action: "create" },
+                    result: "Error creating draft",
+                    isError: true,
+                    chatUI: { renderer: "mail.draft-created" },
+                  },
+                ],
+              },
+            ],
+          }),
+        }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-failed-widget",
+    });
+
+    expect(snapshot?.toolCalls).toMatchObject([
+      { id: "tool-failed", status: "failed", messageId: "assistant-1" },
+    ]);
+    expect(snapshot?.widgets).toEqual([]);
+  });
+
   it("loads durable history and promotes queued work into a real stream", async () => {
     const queueWrites: unknown[] = [];
     let activeRunChecks = 0;

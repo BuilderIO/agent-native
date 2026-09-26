@@ -27,6 +27,7 @@ const writeLedgerMock = vi.hoisted(() =>
       toolKey: string,
       result: string,
       artifacts: unknown[],
+      resultIsString?: boolean,
     ) => Promise<void>
   >(),
 );
@@ -34,6 +35,7 @@ const readLedgerMock = vi.hoisted(() =>
   vi.fn<
     () => Promise<{
       result: string;
+      resultIsString?: boolean;
       artifacts: Array<{
         kind: "image";
         id: string;
@@ -175,6 +177,7 @@ describe("tool-call result ledger", () => {
       expect.stringContaining("save-data"),
       "zombie-result",
       [],
+      true,
     );
   });
 
@@ -251,6 +254,7 @@ describe("tool-call result ledger", () => {
       expect.stringContaining("generate-asset"),
       expect.stringContaining('"payload"'),
       [receipt],
+      false,
     );
     const zombieWrite = writeLedgerMock.mock.calls.find(
       ([threadId]) => threadId === "thread-artifact",
@@ -312,7 +316,11 @@ describe("tool-call result ledger", () => {
         runId: "generation-recovered",
       },
     ];
-    readLedgerMock.mockResolvedValue({ result: PRIOR_RESULT, artifacts });
+    readLedgerMock.mockResolvedValue({
+      result: PRIOR_RESULT,
+      resultIsString: true,
+      artifacts,
+    });
 
     const action = makeWriteAction();
     const events: any[] = [];
@@ -368,19 +376,15 @@ describe("tool-call result ledger", () => {
     // The action must NOT have been called again — the ledger result was used.
     expect(action.run).not.toHaveBeenCalled();
 
-    // The tool_done event must contain the recovered result.
+    // The recovered result stays intact so renderers can parse it.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
         tool: "save-data",
-        result: expect.stringContaining(PRIOR_RESULT),
+        result: PRIOR_RESULT,
       }),
     );
-    // The result must indicate recovery.
     const toolDone = events.find((e: any) => e.type === "tool_done");
-    expect(toolDone?.result).toContain(
-      "Recovered from prior interrupted chunk",
-    );
     expect(toolDone?.completedSideEffect).toBe(true);
     expect(toolDone?.artifacts).toEqual(artifacts);
 
@@ -418,6 +422,7 @@ describe("tool-call result ledger", () => {
         draft: { subject: input.subject, to: input.to },
         deepLink: "/_agent-native/open?composeDraftId=draft-1",
       }),
+      resultIsString: false,
       artifacts: [],
     });
 
@@ -482,6 +487,74 @@ describe("tool-call result ledger", () => {
     expect(
       events.find((event: any) => event.type === "tool_done")?.chatUI,
     ).toEqual({ renderer: "mail.draft-created" });
+  });
+
+  it("keeps a JSON-looking string result as a string during recovery", async () => {
+    const input = { action: "create" };
+    const result = '{"deepLink":"/_agent-native/open?composeDraftId=draft-1"}';
+    readLedgerMock.mockResolvedValue({
+      result,
+      resultIsString: true,
+      artifacts: [],
+    });
+
+    const action = makeWriteAction();
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (_args, recovered) => typeof recovered === "string",
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", input),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-draft-string-1",
+              name: "manage-draft",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-draft-string-1",
+              toolName: "manage-draft",
+              toolInput: JSON.stringify(input),
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-resume-string",
+    });
+
+    const toolDone = events.find((event: any) => event.type === "tool_done");
+    expect(action.run).not.toHaveBeenCalled();
+    expect(toolDone?.result).toBe(result);
+    expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
   });
 
   it("waits briefly for a late zombie ledger result before re-executing", async () => {

@@ -59,4 +59,19 @@ describe("MailDraftCreated", () => {
       }),
     ).toBe("");
   });
+
+  it("accepts draft links behind a configured route prefix", () => {
+    const html = renderCard({
+      toolName: "manage-draft",
+      args: { action: "create", subject: "Launch notes" },
+      resultJson: {
+        deepLink:
+          "/workspace/_agent-native/open?app=mail&view=inbox&composeDraftId=draft-1",
+      },
+      isRunning: false,
+    });
+
+    expect(html).toContain("Open in Mail");
+    expect(html).toContain('href="/workspace/_agent-native/open?app=mail');
+  });
 });

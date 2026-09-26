@@ -1140,11 +1140,17 @@ function actionChatUIForResult(
   };
 }
 
-function parseRecoveredActionResult(result: string): unknown {
+function parseRecoveredActionResult(
+  result: string,
+  resultIsString: boolean | undefined,
+): { value: unknown } | undefined {
+  if (resultIsString === undefined) return undefined;
+  if (resultIsString) return { value: result };
   try {
-    return JSON.parse(result) as unknown;
-  } catch {
-    return result;
+    return { value: JSON.parse(result) as unknown };
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
   }
 }
 
@@ -4309,7 +4315,7 @@ async function waitForInterruptedToolLedgerEntry(opts: {
   timeoutMs: number;
   signal: AbortSignal;
   send: (event: AgentChatEvent) => void;
-}): Promise<{ result: string; artifacts: ArtifactReceipt[] } | null> {
+}): Promise<Awaited<ReturnType<typeof readLedgerEntry>>> {
   const pollMs = INTERRUPTED_TOOL_LEDGER_POLL_MS;
   // Wait up to the tool's OWN declared timeout — the abandoned zombie can keep
   // running that long (e.g. a 12-minute image generation, whose provider keeps
@@ -7126,16 +7132,20 @@ export async function runAgentLoop(opts: {
           });
           if (ledgerResult !== null) {
             // Zombie completed — recover the real result without re-executing.
-            const result =
-              `(Recovered from prior interrupted chunk — action already completed.)\n\n` +
-              ledgerResult.result;
-            const chatUI = actionChatUIForResult(
-              toolCall.name,
-              actionEntry,
-              toolCall.input as Record<string, unknown>,
-              parseRecoveredActionResult(ledgerResult.result),
-              false,
+            const result = ledgerResult.result;
+            const recoveredActionResult = parseRecoveredActionResult(
+              ledgerResult.result,
+              ledgerResult.resultIsString,
             );
+            const chatUI = recoveredActionResult
+              ? actionChatUIForResult(
+                  toolCall.name,
+                  actionEntry,
+                  toolCall.input as Record<string, unknown>,
+                  recoveredActionResult.value,
+                  false,
+                )
+              : undefined;
             send({
               type: "tool_start",
               id: toolCall.id,
@@ -7552,6 +7562,7 @@ export async function runAgentLoop(opts: {
                   ledgerToolKey,
                   zombieStr,
                   zombieArtifacts,
+                  typeof zombieResultForAgent === "string",
                 );
               })
               .catch(() => {

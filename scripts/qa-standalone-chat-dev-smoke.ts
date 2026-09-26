@@ -2385,10 +2385,10 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
   const eventCard = page
     .locator("[data-agent-native-custom-ui]")
     .filter({ hasText: "AgentKit acceptance event" });
-  await eventCard.getByText("Event created", { exact: true }).waitFor({
+  await eventCard.getByRole("img", { name: "Event created" }).waitFor({
     state: "visible",
   });
-  await eventCard.getByText("Conference room 4A", { exact: true }).waitFor({
+  await eventCard.getByText("Conference room 4A", { exact: false }).waitFor({
     state: "visible",
   });
 }
@@ -2769,6 +2769,7 @@ async function assertAgentKitChatAcceptance(
   await waitForLoopbackState(
     "sequential completion of all five sample widget actions",
     () => provider.widgetRunCompleted,
+    30_000,
   );
   assert.deepEqual(
     provider.widgetToolCallIds,

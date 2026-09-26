@@ -162,9 +162,9 @@ const mockDb: any = {
     if (/UPDATE agent_runs SET status = 'aborted'/i.test(rawSql)) {
       return { rows: [], rowsAffected: abortRowsAffected };
     }
-    // Tool-call result ledger: SELECT result_summary, artifacts_json FROM ...
+    // Tool-call result ledger: SELECT result_summary, artifacts_json, result_is_string FROM ...
     if (
-      /SELECT result_summary, artifacts_json FROM agent_tool_ledger/i.test(
+      /SELECT result_summary, artifacts_json, result_is_string FROM agent_tool_ledger/i.test(
         rawSql,
       )
     ) {
@@ -271,6 +271,7 @@ const {
 let ledgerRows: Array<{
   result_summary: string;
   artifacts_json?: string | null;
+  result_is_string?: boolean | null;
 }> = [];
 
 describe("run store", () => {
@@ -1155,6 +1156,7 @@ describe("run store", () => {
     expect(insert?.args[1]).toBe("my-tool:{}");
     expect(insert?.args[2]).toBe("the result");
     expect(insert?.args[3]).toBe("[]");
+    expect(insert?.args[4]).toBeNull();
     expect(insert?.sql).toContain("ON CONFLICT");
   });
 
@@ -1198,6 +1200,7 @@ describe("run store", () => {
     ledgerRows = [
       {
         result_summary: "cached output",
+        result_is_string: false,
         artifacts_json:
           '[{"kind":"image","id":"asset-1","url":"/asset/asset-1"}]',
       },
@@ -1207,9 +1210,10 @@ describe("run store", () => {
     expect(result).toEqual({
       result: "cached output",
       artifacts: [{ kind: "image", id: "asset-1", url: "/asset/asset-1" }],
+      resultIsString: false,
     });
     const select = execCalls.find((call) =>
-      /SELECT result_summary, artifacts_json FROM agent_tool_ledger/i.test(
+      /SELECT result_summary, artifacts_json, result_is_string FROM agent_tool_ledger/i.test(
         call.sql,
       ),
     );
@@ -1223,6 +1227,33 @@ describe("run store", () => {
     await expect(
       readLedgerEntry("thread-legacy", "old-tool:{}"),
     ).resolves.toEqual({ result: "legacy output", artifacts: [] });
+  });
+
+  it("preserves JSON-looking string results without inferring their type", async () => {
+    await writeLedgerEntry(
+      "thread-json-string",
+      "tool:key",
+      '{"deepLink":"/_agent-native/open"}',
+      [],
+      true,
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    expect(insert?.args[4]).toBe(true);
+
+    ledgerRows = [
+      {
+        result_summary: '{"deepLink":"/_agent-native/open"}',
+        result_is_string: true,
+      },
+    ];
+    await expect(
+      readLedgerEntry("thread-json-string", "tool:key"),
+    ).resolves.toMatchObject({
+      result: '{"deepLink":"/_agent-native/open"}',
+      resultIsString: true,
+    });
   });
 
   it("readLedgerEntry preserves a completed result when receipt JSON is malformed", async () => {

@@ -105,6 +105,36 @@ describe("Calendar create-event chat renderer", () => {
     expect(markup).not.toContain("PM");
   });
 
+  it("opens an event on its local calendar date near UTC midnight", () => {
+    const markup = renderToStaticMarkup(
+      <CalendarEventCreatedCard
+        context={{
+          toolName: "create-event",
+          args: {},
+          isRunning: false,
+          resultJson: {
+            id: "google-event-local-day",
+            title: "Late planning",
+            start: "2026-10-03T06:30:00.000Z",
+            end: "2026-10-03T06:50:00.000Z",
+            startTimeZone: "America/Los_Angeles",
+            endTimeZone: "America/Los_Angeles",
+          },
+        }}
+      />,
+    );
+    const expectedOpenUrl = buildOpenRouteLink({
+      app: "calendar",
+      view: "calendar",
+      params: { eventId: "google-event-local-day", date: "2026-10-02" },
+    })
+      .url.split("&")
+      .join("&amp;");
+
+    expect(markup).toContain("Oct 2, 2026 · 11:30 PM – 11:50 PM");
+    expect(markup).toContain(expectedOpenUrl);
+  });
+
   it("keeps the event card when a provider time zone is invalid", () => {
     const markup = renderToStaticMarkup(
       <CalendarEventCreatedCard
@@ -136,16 +166,16 @@ describe("Calendar create-event chat renderer", () => {
             fullDay: true,
             start: "2026-10-31",
             end: "2026-11-01",
-            startTimeZone: "America/New_York",
+            startTimeZone: "Asia/Kolkata",
           },
           isRunning: false,
           resultJson: {
             id: "google-event-ooo",
             title: "Out of office",
-            start: "2026-10-31T04:00:00.000Z",
-            end: "2026-11-02T05:00:00.000Z",
-            startTimeZone: "America/New_York",
-            endTimeZone: "America/New_York",
+            start: "2026-10-30T18:30:00.000Z",
+            end: "2026-11-01T18:30:00.000Z",
+            startTimeZone: "Asia/Kolkata",
+            endTimeZone: "Asia/Kolkata",
             allDay: false,
           },
         }}
@@ -153,6 +183,15 @@ describe("Calendar create-event chat renderer", () => {
     );
 
     expect(markup).toContain("All day · Oct 31, 2026 – Nov 1, 2026");
+    expect(markup).toContain(
+      buildOpenRouteLink({
+        app: "calendar",
+        view: "calendar",
+        params: { eventId: "google-event-ooo", date: "2026-10-31" },
+      })
+        .url.split("&")
+        .join("&amp;"),
+    );
     expect(markup).not.toContain("AM");
     expect(markup).not.toContain("PM");
   });

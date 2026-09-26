@@ -329,6 +329,8 @@ function storedActionWidgets(value: unknown): {
         status: part.isError === true ? "failed" : "completed",
         messageId,
       };
+      toolCalls.push(toolCall);
+      if (part.isError === true) continue;
       const widget: AgentWidgetSnapshot["widget"] = {
         id: `${part.toolCallId}:chat-ui`,
         kind: chatUI.renderer,
@@ -338,7 +340,6 @@ function storedActionWidgets(value: unknown): {
           ? { metadata: { description: chatUI.description } }
           : {}),
       };
-      toolCalls.push(toolCall);
       widgets.push({ messageId, widget });
     }
   }

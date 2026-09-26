@@ -152,6 +152,23 @@ function eventDateTime(
     : `${startLabel} ${startTime} – ${endLabel} ${endTime}`;
 }
 
+function eventStartDate(
+  event: EventResult,
+  args: Record<string, unknown>,
+): string | null {
+  const zoneResult = timeZone(event.startTimeZone);
+  if (zoneResult.kind === "invalid") return null;
+  const fullDayOutOfOffice =
+    args.eventType === "outOfOffice" &&
+    (args.fullDay === true || args.fullDay === "true");
+  return fullDayOutOfOffice && typeof args.start === "string"
+    ? args.start
+    : dateKey(
+        event.start,
+        zoneResult.kind === "valid" ? zoneResult.value : undefined,
+      );
+}
+
 type MeetingLinkResult =
   | { kind: "absent" }
   | { kind: "safe"; url: string }
@@ -191,13 +208,15 @@ export function CalendarEventCreatedCard({ context }: ToolRendererProps) {
   const meeting = meetingLink(event);
   const joinUrl = meeting.kind === "safe" ? meeting.url : undefined;
   const eventId = typeof event.id === "string" ? event.id : "";
-  const openUrl = eventId
-    ? buildOpenRouteLink({
-        app: "calendar",
-        view: "calendar",
-        params: { eventId, date: event.start.slice(0, 10) },
-      }).url
-    : undefined;
+  const startDate = eventStartDate(event, context.args);
+  const openUrl =
+    eventId && startDate
+      ? buildOpenRouteLink({
+          app: "calendar",
+          view: "calendar",
+          params: { eventId, date: startDate },
+        }).url
+      : undefined;
   const zoomWarning =
     event.videoConferenceError === "zoom"
       ? t("eventCreation.zoomNotAdded", {

@@ -65,6 +65,9 @@ describe("framework release schema migrations", () => {
     );
     expect(await columns(db, "agent_run_events")).toContain("event_at");
     expect(await columns(db, "agent_tool_ledger")).toContain("result_summary");
+    expect(await columns(db, "agent_tool_ledger")).toContain(
+      "result_is_string",
+    );
     await db.close();
   });
   it("creates harness schemas and tolerates rerunning their migrations", async () => {

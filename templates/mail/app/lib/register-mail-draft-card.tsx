@@ -29,7 +29,7 @@ function mailDeepLink(value: unknown): MailDeepLinkResult {
     if (
       url.origin === "https://mail.agent-native.com" &&
       (url.protocol === "http:" || url.protocol === "https:") &&
-      url.pathname === "/_agent-native/open"
+      url.pathname.endsWith("/_agent-native/open")
     ) {
       return { kind: "safe", url: value };
     }
