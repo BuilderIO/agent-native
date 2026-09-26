@@ -1372,6 +1372,33 @@ describe("workspace deploy", () => {
     ]);
   });
 
+  it("does not synthesize a Dispatch directory for a workspace without Dispatch", async () => {
+    process.env.APP_URL = "https://community.example.test";
+    makeWorkspaceApp(tmpDir, "account-expert");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(
+      buildCallForApp("account-expert")?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL,
+    ).toBeUndefined();
+    const server = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "account-expert-server",
+        "account-expert-server.mjs",
+      ),
+      "utf8",
+    );
+    expect(server).not.toContain("directoryOrigin");
+  });
+
   it("rejects app ids that conflict with reserved workspace routes", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "login");

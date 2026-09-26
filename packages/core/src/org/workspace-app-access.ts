@@ -91,11 +91,12 @@ function workspaceManifestDispatchState(
       (app) =>
         !app ||
         typeof app !== "object" ||
-        typeof (app as { id?: unknown }).id !== "string",
+        typeof (app as { id?: unknown }).id !== "string" ||
+        !(app as { id: string }).id.trim(),
     )
   ) {
     throw new Error(
-      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain apps with string ids.",
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain apps with non-empty string ids.",
     );
   }
 
@@ -121,43 +122,16 @@ export function isStandaloneDispatchRuntime(): boolean {
 }
 
 function configuredWorkspaceDirectory(): string | null {
-  const config = getAppConfig();
-  const workspace = config.workspace;
-  const noDispatch =
-    workspaceManifestDispatchState(workspace.appsJson) === "no-dispatch";
-  const isSelfFallback = (value: string) => {
-    if (!noDispatch || !config.app.url) return false;
-    try {
-      const directoryUrl = new URL(value);
-      const appUrl = new URL(config.app.url);
-      const normalizedPath = (path: string) => path.replace(/\/+$/, "") || "/";
-      const isAppUrl =
-        directoryUrl.origin === appUrl.origin &&
-        normalizedPath(directoryUrl.pathname) ===
-          normalizedPath(appUrl.pathname);
-      const gatewayUrl = workspace.gatewayUrl
-        ? new URL(workspace.gatewayUrl)
-        : null;
-      const isGeneratedRootGateway =
-        gatewayUrl?.origin === directoryUrl.origin &&
-        normalizedPath(gatewayUrl.pathname) === "/" &&
-        normalizedPath(directoryUrl.pathname) === "/" &&
-        directoryUrl.origin === appUrl.origin &&
-        normalizedPath(appUrl.pathname) !== "/";
-      // A same-host Dispatch registry may be mounted at /dispatch; the generated root gateway is not one.
-      return isAppUrl || isGeneratedRootGateway;
-    } catch {
-      // coercion-ok: an invalid URL cannot prove it is this app's fallback.
-      return false;
-    }
-  };
+  const workspace = getAppConfig().workspace;
   const orgDirectoryUrl = workspace.orgDirectoryUrl?.trim();
-  if (orgDirectoryUrl && !isSelfFallback(orgDirectoryUrl)) {
-    return orgDirectoryUrl;
+  if (orgDirectoryUrl) return orgDirectoryUrl;
+
+  if (workspaceManifestDispatchState(workspace.appsJson) === "no-dispatch") {
+    return null;
   }
 
   const gatewayUrl = workspace.gatewayUrl?.trim();
-  if (!gatewayUrl || isSelfFallback(gatewayUrl)) return null;
+  if (!gatewayUrl) return null;
 
   try {
     const url = new URL(gatewayUrl);

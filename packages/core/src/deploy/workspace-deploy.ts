@@ -152,6 +152,14 @@ interface WorkspaceAppManifestEntry {
   protectedPaths: string[];
 }
 
+function workspaceDirectoryEnvSnippet(
+  workspaceApps: WorkspaceAppManifestEntry[],
+): string {
+  return workspaceApps.some((app) => app.isDispatch)
+    ? WORKSPACE_DIRECTORY_ENV_SNIPPET
+    : "";
+}
+
 interface WorkspaceAppManifestOverride {
   id: string;
   url?: string;
@@ -325,6 +333,11 @@ function buildOneApp(
   );
   const workspaceGatewayUrl =
     process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl();
+  const orgDirectoryUrl =
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL?.trim() ||
+    (workspaceApps.some((entry) => entry.isDispatch)
+      ? workspaceGatewayUrl
+      : null);
   const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -361,11 +374,8 @@ function buildOneApp(
       workspaceAppRouteAccess.protectedPaths,
     ),
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: JSON.stringify(workspaceApps),
-    ...(workspaceGatewayUrl
-      ? {
-          AGENT_NATIVE_ORG_DIRECTORY_URL:
-            process.env.AGENT_NATIVE_ORG_DIRECTORY_URL || workspaceGatewayUrl,
-        }
+    ...(orgDirectoryUrl
+      ? { AGENT_NATIVE_ORG_DIRECTORY_URL: orgDirectoryUrl }
       : {}),
     ...(workspaceGatewayUrl
       ? {
@@ -1046,7 +1056,7 @@ function processorPathFromBody(body) {
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
-${WORKSPACE_DIRECTORY_ENV_SNIPPET}
+${workspaceDirectoryEnvSnippet(workspaceApps)}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1159,7 +1169,7 @@ globalThis.${INTEGRATION_RECOVERY_RUNTIME_MARKER} = true;
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
-${WORKSPACE_DIRECTORY_ENV_SNIPPET}
+${workspaceDirectoryEnvSnippet(workspaceApps)}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1311,7 +1321,7 @@ function normalizeBasePathArgs(args) {
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
-${WORKSPACE_DIRECTORY_ENV_SNIPPET}
+${workspaceDirectoryEnvSnippet(workspaceApps)}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1388,7 +1398,7 @@ function patchVercelFunctionEntry(
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
-${WORKSPACE_DIRECTORY_ENV_SNIPPET}
+${workspaceDirectoryEnvSnippet(workspaceApps)}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
