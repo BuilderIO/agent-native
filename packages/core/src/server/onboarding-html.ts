@@ -184,6 +184,7 @@ const EN_AUTH_COPY = {
   localDevSigningIn: "Signing in locally…",
   localDevFailed: "Local development sign-in is unavailable.",
   localDevFullOptions: "Show full sign in options",
+  localDevHideFullOptions: "Hide full sign in options",
   continueWithAgentNative: "Continue with Agent-Native",
   identitySsoHint:
     "Use the same verified email you use in your other Agent-Native apps.",
@@ -272,6 +273,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "正在本地登录…",
     localDevFailed: "本地开发登录不可用。",
     localDevFullOptions: "显示完整登录选项",
+    localDevHideFullOptions: "隐藏完整登录选项",
     continueWithAgentNative: "使用 Agent-Native 继续",
     identitySsoHint: "使用你在其他 Agent-Native 应用中验证过的相同邮箱。",
     openSource: "100% 免费且开源",
@@ -347,6 +349,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "正在本機登入…",
     localDevFailed: "本機開發登入無法使用。",
     localDevFullOptions: "顯示完整登入選項",
+    localDevHideFullOptions: "隱藏完整登入選項",
     continueWithAgentNative: "使用 Agent-Native 繼續",
     identitySsoHint: "請使用你在其他 Agent-Native 應用中驗證過的相同電子郵件。",
     openSource: "100% 免費且開源",
@@ -425,6 +428,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed:
       "El inicio de sesión de desarrollo local no está disponible.",
     localDevFullOptions: "Mostrar todas las opciones de inicio de sesión",
+    localDevHideFullOptions: "Ocultar todas las opciones de inicio de sesión",
     continueWithAgentNative: "Continuar con Agent-Native",
     identitySsoHint:
       "Usa el mismo correo verificado que en tus otras apps de Agent-Native.",
@@ -510,6 +514,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Connexion locale…",
     localDevFailed: "La connexion de développement local est indisponible.",
     localDevFullOptions: "Afficher toutes les options de connexion",
+    localDevHideFullOptions: "Masquer toutes les options de connexion",
     continueWithAgentNative: "Continuer avec Agent-Native",
     identitySsoHint:
       "Utilisez la même adresse e-mail vérifiée que dans vos autres applications Agent-Native.",
@@ -596,6 +601,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Lokale Anmeldung…",
     localDevFailed: "Die lokale Entwicklungsanmeldung ist nicht verfügbar.",
     localDevFullOptions: "Alle Anmeldeoptionen anzeigen",
+    localDevHideFullOptions: "Alle Anmeldeoptionen ausblenden",
     continueWithAgentNative: "Mit Agent-Native fortfahren",
     identitySsoHint:
       "Verwende dieselbe bestätigte E-Mail-Adresse wie in deinen anderen Agent-Native-Apps.",
@@ -681,6 +687,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "ローカルでサインイン中…",
     localDevFailed: "ローカル開発のサインインは利用できません。",
     localDevFullOptions: "完全なサインイン オプションを表示",
+    localDevHideFullOptions: "サインイン オプションを非表示",
     continueWithAgentNative: "Agent-Native で続行",
     identitySsoHint:
       "他の Agent-Native アプリで確認済みの同じメールアドレスを使用してください。",
@@ -765,6 +772,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "로컬로 로그인하는 중…",
     localDevFailed: "로컬 개발 로그인을 사용할 수 없습니다.",
     localDevFullOptions: "전체 로그인 옵션 보기",
+    localDevHideFullOptions: "전체 로그인 옵션 숨기기",
     continueWithAgentNative: "Agent-Native로 계속",
     identitySsoHint:
       "다른 Agent-Native 앱에서 인증한 것과 같은 이메일 주소를 사용하세요.",
@@ -846,6 +854,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Entrando localmente…",
     localDevFailed: "O login de desenvolvimento local não está disponível.",
     localDevFullOptions: "Mostrar todas as opções de login",
+    localDevHideFullOptions: "Ocultar todas as opções de login",
     continueWithAgentNative: "Continuar com Agent-Native",
     identitySsoHint:
       "Use o mesmo email verificado nos outros apps Agent-Native.",
@@ -929,6 +938,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "स्थानीय रूप से साइन इन हो रहा है…",
     localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
     localDevFullOptions: "साइन-इन के सभी विकल्प दिखाएं",
+    localDevHideFullOptions: "साइन-इन के सभी विकल्प छिपाएं",
     continueWithAgentNative: "Agent-Native के साथ जारी रखें",
     identitySsoHint:
       "दूसरे Agent-Native ऐप्स में सत्यापित किया गया वही ईमेल इस्तेमाल करें।",
@@ -1009,6 +1019,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "جارٍ تسجيل الدخول محليًا…",
     localDevFailed: "تسجيل دخول التطوير المحلي غير متاح.",
     localDevFullOptions: "عرض خيارات تسجيل الدخول الكاملة",
+    localDevHideFullOptions: "إخفاء خيارات تسجيل الدخول الكاملة",
     continueWithAgentNative: "المتابعة باستخدام Agent-Native",
     identitySsoHint:
       "استخدم عنوان البريد الإلكتروني نفسه الذي تم التحقق منه في تطبيقات Agent-Native الأخرى.",
@@ -1517,6 +1528,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.25rem; color: #fff; }
   .subtitle { font-size: 0.8125rem; color: #888; margin-bottom: 1.5rem; }
+  .local-dev-available .subtitle { margin-bottom: 0.75rem; }
   .tabs {
     display: inline-flex;
     width: 100%;
@@ -1594,11 +1606,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .btn-secondary:hover { color: #bbb; border-color: rgba(255,255,255,0.2); }
   .local-dev-signin {
-    margin: 1.25rem 0 0.25rem;
-    padding-top: 1rem;
+    margin: 0.75rem 0 0.25rem;
   }
   .btn-local-dev {
-    margin-top: 0.25rem;
+    margin-top: 0;
   }
   .btn-local-dev:disabled { opacity: 0.5; cursor: wait; }
   .local-dev-description {
