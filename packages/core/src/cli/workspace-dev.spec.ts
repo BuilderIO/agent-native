@@ -20,6 +20,7 @@ vi.mock("node:child_process", async (importOriginal) => ({
 }));
 
 import {
+  DEFAULT_PROXY_READY_TIMEOUT_MS,
   initialWorkspaceAppIds,
   isWorkspaceWatcherLimitError,
   runWorkspaceDev,
@@ -938,6 +939,10 @@ describe("workspace dev startup", () => {
 });
 
 describe("workspace dev helpers", () => {
+  it("uses a 60-second default app readiness timeout", () => {
+    expect(DEFAULT_PROXY_READY_TIMEOUT_MS).toBe(60_000);
+  });
+
   it("parses eager mode from args or env", () => {
     expect(shouldEagerStartWorkspaceApps(["--eager"], {})).toBe(true);
     expect(shouldEagerStartWorkspaceApps([], { WORKSPACE_EAGER: "1" })).toBe(

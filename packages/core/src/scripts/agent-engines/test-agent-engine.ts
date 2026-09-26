@@ -157,11 +157,7 @@ async function createEngineConfig(
           key,
         );
       }
-      if (
-        endpoint.owner.scope !== "deployment" &&
-        endpoint.owner.scope !== "org" &&
-        endpoint.owner.scope !== "workspace"
-      ) {
+      if (endpoint.owner.scope !== "deployment") {
         config.allowEnvFallback = false;
       }
       config.baseUrl = endpoint.baseUrl;

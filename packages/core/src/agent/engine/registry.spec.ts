@@ -3160,6 +3160,48 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(openAiEngine);
     });
 
+    it.each([
+      { scope: "org" as const, scopeId: "org-1" },
+      { scope: "workspace" as const, scopeId: "org-1" },
+    ])(
+      "disables deployment API-key fallback for a $scope-owned endpoint",
+      async ({ scope, scopeId }) => {
+        process.env.OPENAI_API_KEY = "sk-deployment-test"; // guard:allow-env-credential — verifies shared endpoints do not use deployment credentials
+        mockOpenAiEndpointCredentials({
+          endpointSource: scope,
+          endpointScopeId: scopeId,
+          apiKeySource: "env",
+          apiKeyValue: null,
+          allowDeployFallback: true,
+        });
+        const { registerAgentEngine, resolveEngine } =
+          await import("./registry.js");
+        const engine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+        const create = vi.fn().mockReturnValue(engine);
+        registerAgentEngine({
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          description: "",
+          capabilities: {} as any,
+          defaultModel: "gpt-5.4",
+          supportedModels: [],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+          create,
+        });
+
+        await expect(
+          resolveEngine({ engineOption: "ai-sdk:openai" }),
+        ).resolves.toBe(engine);
+        expect(create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            apiKey: undefined,
+            allowEnvFallback: false,
+            baseUrl: "https://member-openai.example.test/v1",
+          }),
+        );
+      },
+    );
+
     it("rejects an org-scoped OpenAI key for a member-owned endpoint before engine creation", async () => {
       mockOpenAiEndpointCredentials({
         endpointSource: "user",

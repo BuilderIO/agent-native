@@ -4041,57 +4041,45 @@ async function resolveAuth(
     };
   }
 
-  const bearer = await resolveCredentialValue({
+  const bearer = await resolveCredentialResult({
     config,
     runtime,
     ctx,
     key: "PROMETHEUS_BEARER_TOKEN",
     args,
   });
-  if (bearer) {
+  if (bearer?.value) {
     return {
-      headers: { Authorization: `Bearer ${bearer}` },
-      credentialSources: [
-        {
-          key: "PROMETHEUS_BEARER_TOKEN",
-          provider: config.id,
-          source: runtime.localCredentialSource ?? "app_local",
-        },
-      ],
-      secretValues: [bearer],
+      headers: { Authorization: `Bearer ${bearer.value}` },
+      credentialSources: [omitCredentialValue(bearer)],
+      secretValues: [bearer.value],
     };
   }
-  const username = await resolveCredentialValue({
+  const username = await resolveCredentialResult({
     config,
     runtime,
     ctx,
     key: "PROMETHEUS_USERNAME",
     args,
   });
-  const password = await resolveCredentialValue({
+  const password = await resolveCredentialResult({
     config,
     runtime,
     ctx,
     key: "PROMETHEUS_PASSWORD",
     args,
   });
-  if (username && password) {
-    const encoded = Buffer.from(`${username}:${password}`).toString("base64");
+  if (username?.value && password?.value) {
+    const encoded = Buffer.from(`${username.value}:${password.value}`).toString(
+      "base64",
+    );
     return {
       headers: { Authorization: `Basic ${encoded}` },
       credentialSources: [
-        {
-          key: "PROMETHEUS_USERNAME",
-          provider: config.id,
-          source: runtime.localCredentialSource ?? "app_local",
-        },
-        {
-          key: "PROMETHEUS_PASSWORD",
-          provider: config.id,
-          source: runtime.localCredentialSource ?? "app_local",
-        },
+        omitCredentialValue(username),
+        omitCredentialValue(password),
       ],
-      secretValues: [username, password, encoded],
+      secretValues: [username.value, password.value, encoded],
     };
   }
   return emptyAuth();

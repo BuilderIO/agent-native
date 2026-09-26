@@ -117,6 +117,35 @@ describe("test-agent-engine", () => {
     expect(result.ok).toBe(true);
   });
 
+  it.each([
+    { scope: "org", scopeId: "org-1" },
+    { scope: "workspace", scopeId: "workspace-1" },
+  ])(
+    "disables deployment API-key fallback for a $scope-owned endpoint",
+    async ({ scope, scopeId }) => {
+      resolveSecretDetailed.mockImplementation(async (key: string) => ({
+        value:
+          key === "OPENAI_API_KEY"
+            ? "shared-openai-key"
+            : "https://shared-gateway.example/v1",
+        lookupFailed: false,
+        source: scope,
+        scopeId,
+      }));
+
+      const { run } = await import("./test-agent-engine.js");
+      const result = JSON.parse(await run({ engine: "ai-sdk:openai" }));
+
+      expect(result.ok).toBe(true);
+      expect(createEngine).toHaveBeenCalledWith({
+        apiKey: "shared-openai-key",
+        allowEnvFallback: false,
+        baseUrl: "https://shared-gateway.example/v1",
+        requestFetch: expect.any(Function),
+      });
+    },
+  );
+
   it("rejects a shared key for a member-supplied endpoint before engine creation", async () => {
     resolveSecretDetailed.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY"

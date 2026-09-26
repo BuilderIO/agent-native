@@ -1199,11 +1199,7 @@ async function engineCreateConfigForEntry(
         (await isBlockedExtensionUrlWithDns(validatedBaseUrl))
           ? new URL(validatedBaseUrl).origin
           : undefined);
-      if (
-        endpointOwner.scope !== "deployment" &&
-        endpointOwner.scope !== "org" &&
-        endpointOwner.scope !== "workspace"
-      ) {
+      if (endpointOwner.scope !== "deployment") {
         safeExtra.allowEnvFallback = false;
       }
       if (matchingApiKey !== undefined || matchingApiKeyProvenance) {

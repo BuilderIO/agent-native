@@ -267,6 +267,84 @@ describe("provider API runtime", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      auth: "bearer",
+      credentials: { PROMETHEUS_BEARER_TOKEN: "member-prometheus-token" },
+      authorization: "Bearer member-prometheus-token",
+    },
+    {
+      auth: "basic",
+      credentials: {
+        PROMETHEUS_USERNAME: "member-user",
+        PROMETHEUS_PASSWORD: "member-password",
+      },
+      authorization: `Basic ${Buffer.from("member-user:member-password").toString("base64")}`,
+    },
+  ])(
+    "preserves user credential provenance for Prometheus $auth auth",
+    async ({ credentials, authorization }) => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["prometheus"],
+        getCredentialContext: () => credentialContext,
+        resolveCredential: async ({ key }) => {
+          if (key === "PROMETHEUS_URL") {
+            return {
+              key,
+              value: "https://member-prometheus.example.test",
+              source: "app_local",
+              provider: "prometheus",
+              scope: "user",
+              scopeId: "ada@example.com",
+            };
+          }
+          const value = credentials[key as keyof typeof credentials];
+          return value
+            ? {
+                key,
+                value,
+                source: "app_local",
+                provider: "prometheus",
+                scope: "user",
+                scopeId: "ada@example.com",
+              }
+            : null;
+        },
+      });
+
+      await runtime.executeRequest({
+        provider: "prometheus",
+        path: "/api/v1/query",
+      });
+
+      expect(assertCredentialCanReachEndpoint).toHaveBeenCalledTimes(
+        Object.keys(credentials).length,
+      );
+      for (const key of Object.keys(credentials)) {
+        expect(assertCredentialCanReachEndpoint).toHaveBeenCalledWith(
+          expect.objectContaining({
+            scope: "user",
+            scopeId: "ada@example.com",
+          }),
+          expect.objectContaining({
+            key,
+            scope: "user",
+            scopeId: "ada@example.com",
+          }),
+          key,
+        );
+      }
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://member-prometheus.example.test/api/v1/query",
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: authorization }),
+        }),
+      );
+    },
+  );
+
   it.each(["CUSTOM_USERNAME", "CUSTOM_PASSWORD"])(
     "rejects an org-scoped %s before sending it to a member-owned custom endpoint",
     async (sharedKey) => {

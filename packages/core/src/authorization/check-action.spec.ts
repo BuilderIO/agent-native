@@ -1,9 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineAction } from "../action.js";
+
+const mocks = vi.hoisted(() => ({
+  isWorkspaceAppAccessAllowed: vi.fn(),
+}));
+
+vi.mock("../org/workspace-app-access.js", () => ({
+  isWorkspaceAppAccessAllowed: mocks.isWorkspaceAppAccessAllowed,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+    "Workspace app access is temporarily unavailable.",
+}));
+
 import { checkAction, type ActionAccessConfig } from "./check-action.js";
 
 describe("checkAction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("allows an action with no access contract", async () => {
     await expect(
       checkAction(undefined, {}, { caller: "frontend" }),
@@ -53,5 +69,24 @@ describe("checkAction", () => {
     await expect(action.run({}, { caller: "frontend" })).rejects.toThrow(
       "resolved application identity",
     );
+  });
+
+  it("preserves workspace access outages as retryable 503 errors", async () => {
+    mocks.isWorkspaceAppAccessAllowed.mockResolvedValue("unavailable");
+
+    await expect(
+      checkAction(
+        { scope: "app" },
+        {},
+        {
+          caller: "http",
+          appId: "calendar",
+          userEmail: "member@example.com",
+        },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      message: "Workspace app access is temporarily unavailable.",
+    });
   });
 });

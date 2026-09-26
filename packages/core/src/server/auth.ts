@@ -15,7 +15,11 @@ import type { H3Event } from "h3";
 
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
-import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
+import {
+  isWorkspaceAppAccessAllowed,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
+} from "../org/workspace-app-access.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -4243,14 +4247,23 @@ function createAuthGuardFn(
       if (
         workspaceAppId &&
         !sharedWorkspaceAccessPath &&
-        (p.startsWith("/api/") || p.startsWith("/_agent-native/")) &&
-        !(await isWorkspaceAppAccessAllowed(workspaceAppId, {
-          email: session.email,
-          orgId: session.orgId,
-        }))
+        (p.startsWith("/api/") || p.startsWith("/_agent-native/"))
       ) {
-        setResponseStatus(event, 403);
-        return { error: "You do not have access to this workspace app." };
+        const workspaceAppAccess = await isWorkspaceAppAccessAllowed(
+          workspaceAppId,
+          {
+            email: session.email,
+            orgId: session.orgId,
+          },
+        );
+        if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+          setResponseStatus(event, 503);
+          return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
+        }
+        if (!workspaceAppAccess) {
+          setResponseStatus(event, 403);
+          return { error: "You do not have access to this workspace app." };
+        }
       }
       return;
     }

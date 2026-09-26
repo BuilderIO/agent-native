@@ -93,6 +93,7 @@ describe("server/auth", () => {
     vi.doUnmock("../db/client.js");
     vi.doUnmock("../org/context.js");
     vi.doUnmock("../org/auth-policy.js");
+    vi.doUnmock("../org/workspace-app-access.js");
     vi.doUnmock("./embed-session.js");
     vi.doUnmock("./email.js");
     vi.doUnmock("./sentry.js");
@@ -2754,6 +2755,33 @@ describe("server/auth", () => {
         createMockEvent({ path: "/portal/_agent-native/actions/list" }),
       );
       expect(actionResult).toEqual({ error: "Unauthorized" });
+    });
+
+    it("returns 503 when workspace app access cannot be checked", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+      vi.doMock("../org/workspace-app-access.js", () => ({
+        isWorkspaceAppAccessAllowed: vi.fn(async () => "unavailable"),
+        WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+        WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+          "Workspace app access is temporarily unavailable.",
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => ({ email: "member@example.com" }),
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const event = createMockEvent({ path: "/api/private" });
+
+      await expect(guard(event)).resolves.toEqual({
+        error: "Workspace app access is temporarily unavailable.",
+      });
+      expect(event.res.status).toBe(503);
     });
 
     it("allows standalone Dispatch APIs for organization members", async () => {
