@@ -40,9 +40,11 @@ import {
   BURN_IN_PROGRESS_KEY,
   burnInProgressUrls,
 } from "../server/lib/pending-redactions.js";
+import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
+  isClaimedForDelete,
   isReadableEditsJson,
   UNRECLAIMED_URLS_KEY,
   unreclaimedUrls,
@@ -279,6 +281,11 @@ export default defineAction({
     }
     if (!isImageRecording(existing)) {
       throw new Error("Only screenshots can be edited this way.");
+    }
+    if (isClaimedForDelete(existing.editsJson)) {
+      throw new Error(
+        "This screenshot is being permanently deleted. Nothing was saved.",
+      );
     }
     // The editor was handed no marks for edits it could not read, and a save
     // replaces the mark list wholesale, so going on would erase them.
@@ -549,7 +556,12 @@ export default defineAction({
     // the burn and permanent delete all retry them.
     return {
       id: args.recordingId,
-      imageUrl: uploaded.url,
+      // The gated route, never the storage URL (see create-screenshot).
+      imageUrl: resolvePlayerThumbnailUrl({
+        id: args.recordingId,
+        thumbnailUrl: uploaded.url,
+        mediaUpdatedAt: now,
+      }),
       redactions: args.redactions.length,
       staleFileLeft: !originalDeleted,
     };

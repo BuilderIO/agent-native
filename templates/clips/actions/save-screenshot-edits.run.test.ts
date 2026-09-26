@@ -387,4 +387,22 @@ describe("save-screenshot-edits", () => {
       JSON.parse(String(mocks.existing!.editsJson)).burnInProgress,
     ).toBeUndefined();
   });
+
+  it("refuses to save a screenshot that is being permanently deleted", async () => {
+    // The delete has claimed the row so that no save lands between its file
+    // deletes and the row's removal.
+    mocks.existing!.editsJson = JSON.stringify({
+      permanentDeleteClaim: { at: "now" },
+    });
+    await expect(run({ annotations: [] })).rejects.toThrow(
+      /being permanently deleted/,
+    );
+    expect(mocks.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("returns the gated route for the new picture, not its storage URL", async () => {
+    const result = await run({ annotations: [] });
+    expect(result.imageUrl).toMatch(/^\/api\/thumbnail\/shot-1\?/);
+    expect(JSON.stringify(result)).not.toContain("store.example");
+  });
 });

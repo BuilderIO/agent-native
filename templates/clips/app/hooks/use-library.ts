@@ -170,7 +170,7 @@ export function useCreateSpace() {
 
 export function useCreateScreenshot() {
   return useActionMutation<
-    { id: string; kind: "image"; imageUrl: string },
+    { id: string; kind: "image"; imageUrl: string | null },
     {
       dataUrl: string;
       width: number;

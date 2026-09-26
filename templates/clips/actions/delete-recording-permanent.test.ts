@@ -39,7 +39,27 @@ const mockDeleteWhere = vi.hoisted(() => vi.fn(async () => undefined));
 const mockDbDelete = vi.hoisted(() =>
   vi.fn(() => ({ where: mockDeleteWhere })),
 );
+const mockUpdates = vi.hoisted(() => [] as Record<string, unknown>[]);
+const mockClaimMatches = vi.hoisted(() => ({ value: true }));
+const mockDbUpdate = vi.hoisted(() =>
+  vi.fn(() => ({
+    set: (values: Record<string, unknown>) => ({
+      where: () => {
+        const write = async () => {
+          mockUpdates.push(values);
+          return mockClaimMatches.value ? [{ id: "rec_1" }] : [];
+        };
+        return {
+          returning: write,
+          then: (resolve: (rows: unknown) => void, reject: () => void) =>
+            write().then(resolve, reject),
+        };
+      },
+    }),
+  })),
+);
 const mockDb = vi.hoisted(() => ({
+  update: mockDbUpdate,
   select: vi.fn(() => ({
     from: vi.fn(() => ({
       where: mockSelectWhere,
@@ -212,14 +232,19 @@ describe("delete-recording-permanent", () => {
       }),
     };
 
+    /** The transaction's re-read: the row as the claim left it. */
+    const claimedRow = async () => [{ editsJson: mockUpdates[0]?.editsJson }];
+
     beforeEach(async () => {
+      mockUpdates.length = 0;
+      mockClaimMatches.value = true;
       mockSelectWhere.mockReset();
       // The row, the references to its media, then the re-read in the
       // transaction.
       mockSelectWhere
         .mockResolvedValueOnce([shot])
         .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([shot]);
+        .mockImplementationOnce(claimedRow);
       // What the real list adds for a screenshot: its leftovers, and a
       // refusal when the edits cannot be read.
       const { screenshotLeftoverUrls } =
@@ -246,6 +271,22 @@ describe("delete-recording-permanent", () => {
       expect(mockDeleteStoredMediaUrl.mock.invocationCallOrder[0]).toBeLessThan(
         mockDbDelete.mock.invocationCallOrder[0],
       );
+      // Claimed first, so no save can land between the deletes and the row.
+      expect(mockDbUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+        mockDeleteStoredMediaUrl.mock.invocationCallOrder[0],
+      );
+      expect(
+        JSON.parse(String(mockUpdates[0].editsJson)).permanentDeleteClaim,
+      ).toBeTruthy();
+    });
+
+    it("deletes nothing when a save changed the row before the claim", async () => {
+      mockClaimMatches.value = false;
+      await expect(
+        deleteRecordingPermanent.run({ id: "rec_1" }),
+      ).rejects.toThrow(/Nothing was deleted/);
+      expect(mockDeleteStoredMediaUrl).not.toHaveBeenCalled();
+      expect(mockDb.transaction).not.toHaveBeenCalled();
     });
 
     it("treats the base as unredacted while boxes are pending", async () => {
@@ -279,14 +320,14 @@ describe("delete-recording-permanent", () => {
       expect(mockDb.transaction).not.toHaveBeenCalled();
     });
 
-    it("keeps the row when it changed while its files were deleted", async () => {
-      // A save in another tab may have listed new leftovers; deleting the
-      // row now would lose the only record of them.
+    it("keeps the row when something past the claim changed it", async () => {
+      // A writer that does not honour the claim may have listed new
+      // leftovers; deleting the row now would lose the only record of them.
       mockSelectWhere.mockReset();
       mockSelectWhere
         .mockResolvedValueOnce([shot])
         .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ ...shot, editsJson: "{}" }]);
+        .mockResolvedValueOnce([{ editsJson: "{}" }]);
       await expect(
         deleteRecordingPermanent.run({ id: "rec_1" }),
       ).rejects.toThrow(/changed while it was being deleted/);
@@ -303,6 +344,8 @@ describe("delete-recording-permanent", () => {
         /unredacted copy of this screenshot could not be deleted/,
       );
       expect(mockDb.transaction).not.toHaveBeenCalled();
+      // And gives the row back, unclaimed, for an edit or a retry.
+      expect(mockUpdates.at(-1)).toEqual({ editsJson: shot.editsJson });
     });
 
     it("keeps the row when its edits cannot be read", async () => {

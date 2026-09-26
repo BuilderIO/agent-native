@@ -18,6 +18,27 @@ import {
 
 export const UNRECLAIMED_URLS_KEY = "unreclaimedUrls";
 
+/**
+ * Set by permanent delete before it removes any file, so no save can land in
+ * between and leave the row pointing at a file that is gone, or list a new
+ * leftover the delete will never see.
+ */
+export const DELETE_CLAIM_KEY = "permanentDeleteClaim";
+
+export function isClaimedForDelete(editsJson: string | null | undefined) {
+  return Boolean(readEditsRecord(editsJson)?.[DELETE_CLAIM_KEY]);
+}
+
+/** The edits with the delete claim on; `null` when they cannot be read. */
+export function withDeleteClaim(
+  editsJson: string | null | undefined,
+  at: string,
+): string | null {
+  const edits = readEditsRecord(editsJson);
+  if (!edits) return null;
+  return JSON.stringify({ ...edits, [DELETE_CLAIM_KEY]: { at } });
+}
+
 export function isReadableEditsJson(
   editsJson: string | null | undefined,
 ): boolean {
@@ -71,6 +92,7 @@ export function editorScreenshotEditsJson(
       : { ...edits };
   delete effective[BURN_IN_PROGRESS_KEY];
   delete effective[UNRECLAIMED_URLS_KEY];
+  delete effective[DELETE_CLAIM_KEY];
   return JSON.stringify(effective);
 }
 

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   editorScreenshotEditsJson,
+  isClaimedForDelete,
   screenshotLeftoverUrls,
   viewerScreenshotEditsJson,
+  withDeleteClaim,
 } from "./screenshot-edits";
 
 const midBurn = JSON.stringify({
@@ -49,6 +51,13 @@ describe("screenshot-edits", () => {
     ]);
     // Unknown is not the same as none: a caller must not delete the row.
     expect(screenshotLeftoverUrls("{not json")).toBeNull();
+  });
+
+  it("keeps the delete claim server-side", () => {
+    const claimed = withDeleteClaim("{}", "2026-09-26T00:00:00Z")!;
+    expect(isClaimedForDelete(claimed)).toBe(true);
+    expect(editorScreenshotEditsJson(claimed)).toBe("{}");
+    expect(withDeleteClaim("{not json", "x")).toBeNull();
   });
 
   it("gives a viewer nothing from edits it cannot read", () => {

@@ -12,7 +12,7 @@ import {
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
 import { isImageRecording } from "@shared/recording-kind";
-import { and, eq, inArray, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -26,7 +26,10 @@ import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
-import { screenshotLeftoverUrls } from "../server/lib/screenshot-edits.js";
+import {
+  screenshotLeftoverUrls,
+  withDeleteClaim,
+} from "../server/lib/screenshot-edits.js";
 
 export default defineAction({
   description:
@@ -85,8 +88,44 @@ export default defineAction({
     // so they go first, and the row stays — with its hold and a way to retry
     // — if any is still in storage. Everything else is already redacted and
     // is cleaned up best-effort, as for a video.
+    //
+    // Before any of that, the row is claimed: a save compares against the
+    // row it read, so changing it here makes every save in flight fail
+    // rather than land between these deletes and the row's removal.
     const alreadyDeleted = new Set<string>();
+    let claimedEditsJson: string | null = null;
     if (isImageRecording(existing)) {
+      claimedEditsJson = withDeleteClaim(
+        existing.editsJson,
+        new Date().toISOString(),
+      );
+      if (!claimedEditsJson) {
+        throw new Error(
+          "This screenshot's saved edits could not be read, so the files it replaced cannot be found to delete. Nothing was deleted.",
+        );
+      }
+      const claimed = await db
+        .update(schema.recordings)
+        .set({
+          editsJson: claimedEditsJson,
+          mediaUpdatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.recordings.id, args.id),
+            existing.editsJson == null
+              ? isNull(schema.recordings.editsJson)
+              : eq(schema.recordings.editsJson, existing.editsJson),
+            eq(schema.recordings.mediaUpdatedAt, existing.mediaUpdatedAt),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      if (!claimed.length) {
+        throw new Error(
+          "This screenshot changed while it was being deleted. Nothing was deleted — try again.",
+        );
+      }
+
       const unredacted = [
         ...(screenshotLeftoverUrls(existing.editsJson) ?? []),
         ...(existing.baseImageUrl && countPendingRedactions(existing.editsJson)
@@ -105,6 +144,18 @@ export default defineAction({
           );
         }
         if (!gone) {
+          // Give the row back so it can be edited or deleted again. What is
+          // already gone was a leftover nothing points at, or the base of
+          // boxes the next delete will retry.
+          await db
+            .update(schema.recordings)
+            .set({ editsJson: existing.editsJson })
+            .where(
+              and(
+                eq(schema.recordings.id, args.id),
+                eq(schema.recordings.editsJson, claimedEditsJson),
+              ),
+            );
           throw new Error(
             "An unredacted copy of this screenshot could not be deleted from storage, so the screenshot was kept. Try again later.",
           );
@@ -114,23 +165,14 @@ export default defineAction({
     }
 
     await db.transaction(async (tx) => {
-      // The unredacted-file list above was read before its deletes ran. A
-      // save in another tab since then may have listed new leftovers, and
-      // they would go with the row unrecorded, so a screenshot that changed
-      // is left for the next try. Checked first, so nothing else is removed.
-      if (isImageRecording(existing)) {
+      // The claim is what keeps saves out; a row without it was changed by
+      // something that does not honour it, and is left for the next try.
+      if (claimedEditsJson) {
         const [current] = await tx
-          .select({
-            editsJson: schema.recordings.editsJson,
-            mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
-          })
+          .select({ editsJson: schema.recordings.editsJson })
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.id));
-        if (
-          !current ||
-          current.editsJson !== existing.editsJson ||
-          current.mediaUpdatedAt !== existing.mediaUpdatedAt
-        ) {
+        if (!current || current.editsJson !== claimedEditsJson) {
           throw new Error(
             "This screenshot changed while it was being deleted. Nothing more was deleted — try again.",
           );

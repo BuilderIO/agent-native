@@ -24,6 +24,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { IMAGE_EXTENSION_BY_MIME } from "../server/lib/image-signature.js";
+import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -191,7 +192,14 @@ export default defineAction({
       id,
       organizationId,
       kind: "image" as const,
-      imageUrl,
+      // The gated route, never the storage URL: a caller that kept the raw
+      // link would have the picture outside the password, expiry and
+      // redaction checks for good.
+      imageUrl: resolvePlayerThumbnailUrl({
+        id,
+        thumbnailUrl: imageUrl,
+        mediaUpdatedAt: now,
+      }),
       status: "ready" as const,
     };
   },

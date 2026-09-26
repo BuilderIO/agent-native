@@ -132,6 +132,10 @@ export function useScreenshotCapture({
         } catch (err) {
           toast.dismiss(pendingToastId);
           toast.error(errorMessage(err) || t("screenshot.failed"));
+          // The capture exists nowhere else; a failed upload must not cost
+          // the user a screen they may not be able to get back. The crop
+          // step reopens on it, to save again or cancel.
+          setPending((current) => current ?? capture);
         }
       })();
     },
