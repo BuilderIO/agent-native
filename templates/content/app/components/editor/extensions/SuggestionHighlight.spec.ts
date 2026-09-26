@@ -141,8 +141,8 @@ describe("SuggestionHighlight", () => {
     const spec: SuggestionHighlightSpec = {
       suggestionId: "tail-insert",
       kind: "insert",
-      from: 5,
-      to: 5,
+      from: 7,
+      to: 7,
       insertedText: "X",
       settling: true,
       settlingBeforePresentation: {
@@ -166,6 +166,47 @@ describe("SuggestionHighlight", () => {
         .getState(setSpecs(state("Before"), [spec]))!
         .decorations.find().length,
     ).toBeGreaterThan(0);
+  });
+
+  it("keeps the preview when accepted text only exists at another location", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "other-location",
+      kind: "insert",
+      from: 7,
+      to: 7,
+      insertedText: "X",
+      settling: true,
+      settlingBeforePresentation: {
+        source: "Alpha tail",
+        from: 6,
+        to: 6,
+      },
+      insertedPresentation: {
+        source: "Alpha Xtail",
+        from: 6,
+        to: 7,
+      },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Alpha tail and Alpha Xtail"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Alpha Xtail and peer"), [spec]))!
+        .decorations.find(),
+    ).toHaveLength(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("AlphA tail and Alpha Xtail"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("AlphA Xtail"), [spec]))!
+        .decorations.find(),
+    ).toHaveLength(0);
   });
 
   it("keeps deletions quiet at rest and readable on hover, focus, or selection", () => {

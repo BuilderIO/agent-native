@@ -9,6 +9,11 @@ import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import DiffMatchPatch, {
+  DIFF_DELETE,
+  DIFF_EQUAL,
+  DIFF_INSERT,
+} from "diff-match-patch";
 
 /**
  * A pure, in-place presentation of a persisted suggestion. This never creates
@@ -185,6 +190,72 @@ function deletionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   };
 }
 
+function operationRangeUnchanged(
+  presentation: SuggestionPresentationContext,
+  content: string,
+) {
+  const diffs = new DiffMatchPatch().diff_main(
+    presentation.source,
+    content,
+    true,
+  );
+  let sourceOffset = 0;
+  let contentOffset = 0;
+  for (const [kind, text] of diffs) {
+    if (kind === DIFF_EQUAL) {
+      const sourceEnd = sourceOffset + text.length;
+      const contentEnd = contentOffset + text.length;
+      if (presentation.from < presentation.to) {
+        if (presentation.from >= sourceOffset && presentation.to <= sourceEnd)
+          return true;
+      } else if (
+        (presentation.from > sourceOffset && presentation.from < sourceEnd) ||
+        (presentation.from === 0 &&
+          sourceOffset === 0 &&
+          contentOffset === 0) ||
+        (presentation.from === presentation.source.length &&
+          sourceEnd === presentation.source.length &&
+          contentEnd === content.length)
+      ) {
+        return true;
+      }
+      sourceOffset = sourceEnd;
+      contentOffset = contentEnd;
+    } else if (kind === DIFF_DELETE) {
+      sourceOffset += text.length;
+    } else if (kind === DIFF_INSERT) {
+      contentOffset += text.length;
+    }
+  }
+  return false;
+}
+
+function insertionAtOperationAnchor(
+  presentation: SuggestionPresentationContext,
+  content: string,
+  inserted: string | undefined,
+) {
+  if (!inserted) return false;
+  const right = presentation.source.slice(
+    presentation.from,
+    presentation.from + 32,
+  );
+  if (right) {
+    const at = content.indexOf(right);
+    return (
+      at >= inserted.length &&
+      content.slice(at - inserted.length, at) === inserted
+    );
+  }
+  const left = presentation.source.slice(
+    Math.max(0, presentation.from - 32),
+    presentation.from,
+  );
+  if (!left) return content.startsWith(inserted);
+  const at = content.indexOf(left);
+  return at !== -1 && content.slice(at + left.length).startsWith(inserted);
+}
+
 function settledAtOperation(
   content: string,
   spec: SuggestionHighlightSpec,
@@ -212,8 +283,10 @@ function settledAtOperation(
   const needle = left + localResult + right;
   if (!needle) return false;
   const first = content.indexOf(needle);
-  if (first === -1 || content.indexOf(needle, first + 1) !== -1) return false;
-  if (from === 0 && first !== 0) return false;
+  if (first !== -1 && content.indexOf(needle, first + 1) !== -1) return false;
+  const exactAtOperation = first !== -1 && (from !== 0 || first === 0);
+  if (!exactAtOperation && !operationRangeUnchanged(presentation, content))
+    return false;
 
   const originalLeft = before.source.slice(
     Math.max(0, before.from - 32),
@@ -225,10 +298,22 @@ function settledAtOperation(
   );
   const original =
     originalLeft + before.source.slice(before.from, before.to) + originalRight;
-  return (
-    original !== needle &&
-    (original.length < needle.length || !content.startsWith(original, first))
-  );
+  if (original === needle) return false;
+  if (original) {
+    let oldAt = content.indexOf(original);
+    while (oldAt !== -1) {
+      const oldIsAcceptedPrefix = content.startsWith(needle, oldAt);
+      const oldIsAcceptedSuffix =
+        spec.kind === "insert" &&
+        left.length === 0 &&
+        first !== -1 &&
+        oldAt === first + localResult.length;
+      if (!oldIsAcceptedPrefix && !oldIsAcceptedSuffix) return false;
+      oldAt = content.indexOf(original, oldAt + 1);
+    }
+  }
+  if (operationRangeUnchanged(before, content)) return false;
+  return true;
 }
 
 function buildDecorations(
@@ -246,7 +331,14 @@ function buildDecorations(
     if (
       spec.settling &&
       settledContent !== null &&
-      (settledAtOperation(settledContent, spec) ||
+      ((settledAtOperation(settledContent, spec) &&
+        (spec.kind !== "insert" ||
+          (spec.settlingBeforePresentation !== undefined &&
+            insertionAtOperationAnchor(
+              spec.settlingBeforePresentation,
+              settledContent,
+              spec.insertedText,
+            )))) ||
         (spec.settlingReadbackContent !== null &&
           spec.settlingReadbackContent !== undefined &&
           canonicalizeNfm(settledContent) ===
