@@ -1341,28 +1341,36 @@ export function useBuilderConnectFlow(
         connectAttemptIdRef.current ?? undefined,
       );
       if (!mountedRef.current) return;
-      if (s) setStatusResolved(true);
-      if (s && hasBuilderOAuthCredential(s)) {
-        setConfigured(true);
+      const orgName = s?.orgName ?? null;
+      if (s) {
+        if (statusUnavailableRef.current) {
+          statusUnavailableRef.current = false;
+          setError(null);
+        }
+        setHasFetchedStatus(true);
+        setStatusResolved(true);
+        setConfigured(!!s.configured);
         setCodeChangeConfigured(isCodeChangeConfigured(s));
         setEnvManaged(!!s.envManaged);
         setCredentialSource(s.credentialSource ?? null);
         setCanDisconnect(!!s.canDisconnect);
         setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
         setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
-        setAccountExists(false);
+        setAccountExists(s.connectError?.code === "account_exists");
         setBuilderEnabled(!!s.builderEnabled);
         const nextConnectUrl = s.connectUrl ?? null;
         setStatusConnectUrl(nextConnectUrl);
         statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
-        const org = s.orgName ?? null;
-        setOrgName(org);
+        setOrgName(orgName);
+      }
+      if (s && hasBuilderOAuthCredential(s)) {
+        setAccountExists(false);
         setConnecting(false);
         connectStartedAtRef.current = null;
         notifiedConnectedRef.current = true;
         notifyAgentEngineConfiguredChanged("builder-connect");
         try {
-          await onConnectedRef.current?.({ orgName: org });
+          await onConnectedRef.current?.({ orgName });
         } catch {
           // coercion-ok: the connection itself succeeded and the UI state is
           // already flipped; re-arming the flow on a consumer callback failure

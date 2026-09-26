@@ -947,6 +947,53 @@ describe("useBuilderConnectFlow", () => {
     expect(onConnected).toHaveBeenCalledOnce();
   });
 
+  it("syncs deployment-managed status from connect polling after an initial status failure", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const deploymentManagedStatus = {
+      ...connectedBuilderStatus,
+      envManaged: true,
+      credentialSource: "env",
+    };
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new Error("initial status unavailable"))
+      .mockRejectedValueOnce(new Error("click status unavailable"))
+      .mockResolvedValue(jsonResponse(deploymentManagedStatus));
+    const onConnected = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <BuilderConnectProbe
+          popupUrl={signedConnectUrl}
+          onConnected={onConnected}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(container.textContent).toContain("not-configured idle unresolved");
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(container.textContent).toContain("configured connecting resolved");
+    expect(onConnected).not.toHaveBeenCalled();
+  });
+
   it("does not probe Builder status when disabled", async () => {
     await act(async () => {
       root.render(<BuilderConnectProbe enabled={false} />);
