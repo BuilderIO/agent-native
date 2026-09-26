@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import type { MouseEvent } from "react";
+import { useRef, type MouseEvent } from "react";
 
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
@@ -125,7 +125,8 @@ const HERO_WRAPPER_CLASS =
 
 export default function MailTemplate() {
   const t = useT();
-  const prefersReducedMotion = usePrefersReducedMotion();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const prefersReducedMotion = usePrefersReducedMotion(videoRef);
   const shouldAutoplay = prefersReducedMotion === false;
 
   return (
@@ -170,13 +171,14 @@ export default function MailTemplate() {
             <div className="mx-6 sm:mx-10">
               <div className="aspect-video overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-black">
                 <video
+                  ref={videoRef}
                   src="/videos/mail-jev-story.mp4"
                   poster="/videos/mail-jev-story-poster.jpg"
                   aria-label={t("templateLanding.mail.heroDescription")}
                   autoPlay={shouldAutoplay}
                   muted={shouldAutoplay}
                   loop
-                  playsInline={shouldAutoplay}
+                  playsInline
                   controls
                   preload="metadata"
                   className="block h-full w-full object-cover"
