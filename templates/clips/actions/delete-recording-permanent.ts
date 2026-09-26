@@ -114,6 +114,28 @@ export default defineAction({
     }
 
     await db.transaction(async (tx) => {
+      // The unredacted-file list above was read before its deletes ran. A
+      // save in another tab since then may have listed new leftovers, and
+      // they would go with the row unrecorded, so a screenshot that changed
+      // is left for the next try. Checked first, so nothing else is removed.
+      if (isImageRecording(existing)) {
+        const [current] = await tx
+          .select({
+            editsJson: schema.recordings.editsJson,
+            mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+          })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.id));
+        if (
+          !current ||
+          current.editsJson !== existing.editsJson ||
+          current.mediaUpdatedAt !== existing.mediaUpdatedAt
+        ) {
+          throw new Error(
+            "This screenshot changed while it was being deleted. Nothing more was deleted — try again.",
+          );
+        }
+      }
       // Cascade delete every related row before deleting remote objects. If any
       // DB delete fails, the transaction rolls back and provider media stays put.
       await tx

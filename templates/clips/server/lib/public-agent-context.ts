@@ -266,6 +266,15 @@ async function writeResponseBodyToFileWithLimit(
   }
 }
 
+function screenshotMimeTypeFromUrl(url: string | null | undefined): string {
+  const path = (url ?? "").split(/[?#]/, 1)[0].toLowerCase();
+  if (path.endsWith(".png")) return "image/png";
+  if (path.endsWith(".webp")) return "image/webp";
+  if (path.endsWith(".gif")) return "image/gif";
+  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+  return "image/*";
+}
+
 export async function loadPublicAgentAccess(
   event: H3Event,
   recordingId: string,
@@ -697,6 +706,11 @@ export function buildPublicAgentContext({
       : isLoomEmbedBacked
         ? "loom"
         : "video";
+  // Stored names carry the extension of their type (see create-screenshot).
+  const frameResponseType =
+    frameMode === "still"
+      ? screenshotMimeTypeFromUrl(recording.imageUrl ?? recording.thumbnailUrl)
+      : "image/jpeg";
   const suggestedFrames =
     frameMode === "still"
       ? [
@@ -741,7 +755,7 @@ export function buildPublicAgentContext({
     ...(frameMode === "still"
       ? [
           "This clip is a screenshot: one still image, with no audio, transcript or timeline.",
-          "To SEE it, GET apis.frame.urlTemplate with atMs=0 (returns the picture as PNG, JPEG, WebP or GIF — use the response's Content-Type). Any atMs returns the same image.",
+          "To SEE it, GET apis.frame.urlTemplate with atMs=0 (returns the picture as apis.frame.responseType). Any atMs returns the same image.",
         ]
       : frameMode === "loom"
         ? [
@@ -766,6 +780,7 @@ export function buildPublicAgentContext({
         transcriptUrl: api.transcriptUrl,
         frameUrlTemplate: api.frameUrlTemplate,
         frameAvailable: frameMode === "still" || frameMode === "video",
+        frameResponseType,
       }),
     },
     instructions,
@@ -806,10 +821,11 @@ export function buildPublicAgentContext({
             frame: {
               method: "GET",
               urlTemplate: api.frameUrlTemplate,
+              responseType: frameResponseType,
               query: {
                 atMs:
                   frameMode === "still"
-                    ? "Ignored for a screenshot. The endpoint returns the picture in its stored format; read the Content-Type."
+                    ? `Ignored for a screenshot. The endpoint returns the picture as ${frameResponseType}.`
                     : "Video timestamp in milliseconds. The endpoint returns image/jpeg.",
               },
             },

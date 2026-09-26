@@ -253,7 +253,11 @@ export default defineEventHandler(async (event: H3Event) => {
       // missing object is not the same failure to retry as a bad gateway.
       setResponseStatus(
         event,
-        err instanceof RecordingMediaFetchError ? err.statusCode : 502,
+        err instanceof RecordingMediaFetchError
+          ? err.statusCode
+          : err instanceof Error && /too large/i.test(err.message)
+            ? 413
+            : 502,
       );
       setResponseHeader(
         event,

@@ -5,6 +5,8 @@ import {
 } from "@agent-native/core/server";
 import type { ShareEmailExtras } from "@agent-native/core/sharing";
 
+import { isImageRecording } from "../../shared/recording-kind.js";
+
 /**
  * Origin plus the configured mount path. Deployments served under
  * APP_BASE_PATH (e.g. `/clips`) would otherwise link email assets at the
@@ -85,6 +87,7 @@ export function recordingShareEmailExtras(ctx: {
 export type ShareHeroRecording = {
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  kind?: string | null;
 };
 
 /**
@@ -97,6 +100,11 @@ export function recordingShareHeroHtml(
   recording: ShareHeroRecording,
   ctx: { href: string; alt?: string },
 ): string | undefined {
+  // A screenshot's thumbnail is the whole picture, stored behind the route
+  // that checks password, expiry and the redaction hold — none of which an
+  // email can pass. No preview, rather than the storage URL under a play
+  // button.
+  if (isImageRecording(recording)) return undefined;
   // GIF-only recordings leave `thumbnailUrl` empty, so fall back to the
   // animated thumbnail rather than dropping the preview entirely.
   const thumb = absoluteUrl(

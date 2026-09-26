@@ -309,6 +309,8 @@ export function ScreenshotEditor({
    */
   const [layoutTick, setLayoutTick] = useState(0);
   const [burnOpen, setBurnOpen] = useState(false);
+  /** Saving replaces the shared picture, so it is confirmed first. */
+  const [saveOpen, setSaveOpen] = useState(false);
   const [crop, setCrop] = useState<CropRect | null>(null);
   /** The crop being drawn with the crop tool, before it is applied. */
   const [cropDraft, setCropDraft] = useState<CropRect | null>(null);
@@ -1175,7 +1177,6 @@ export function ScreenshotEditor({
     const canvas = canvasRef.current;
     const image = imageRef.current;
     if (!canvas || !image || saving) return;
-    if (!burn && !window.confirm(t("screenshot.editConfirm"))) return;
 
     setSaving(true);
     const savingToastId = toast.loading(
@@ -1440,7 +1441,7 @@ export function ScreenshotEditor({
             size="sm"
             variant={pendingRedactionCount > 0 ? "outline" : "default"}
             disabled={saving}
-            onClick={() => void save()}
+            onClick={() => setSaveOpen(true)}
           >
             {t("screenshot.editSave")}
           </Button>
@@ -1464,6 +1465,28 @@ export function ScreenshotEditor({
           {t("screenshot.notYetBurned", { count: pendingRedactionCount })}
         </p>
       ) : null}
+
+      <AlertDialog open={saveOpen} onOpenChange={setSaveOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("screenshot.editSave")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("screenshot.editConfirm")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setSaveOpen(false);
+                void save();
+              }}
+            >
+              {t("screenshot.editSave")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={burnOpen} onOpenChange={setBurnOpen}>
         <AlertDialogContent>

@@ -214,7 +214,12 @@ describe("delete-recording-permanent", () => {
 
     beforeEach(async () => {
       mockSelectWhere.mockReset();
-      mockSelectWhere.mockResolvedValueOnce([shot]).mockResolvedValueOnce([]);
+      // The row, the references to its media, then the re-read in the
+      // transaction.
+      mockSelectWhere
+        .mockResolvedValueOnce([shot])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([shot]);
       // What the real list adds for a screenshot: its leftovers, and a
       // refusal when the edits cannot be read.
       const { screenshotLeftoverUrls } =
@@ -272,6 +277,20 @@ describe("delete-recording-permanent", () => {
         "https://cdn.example.com/media/clips/base.png",
       );
       expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+
+    it("keeps the row when it changed while its files were deleted", async () => {
+      // A save in another tab may have listed new leftovers; deleting the
+      // row now would lose the only record of them.
+      mockSelectWhere.mockReset();
+      mockSelectWhere
+        .mockResolvedValueOnce([shot])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ ...shot, editsJson: "{}" }]);
+      await expect(
+        deleteRecordingPermanent.run({ id: "rec_1" }),
+      ).rejects.toThrow(/changed while it was being deleted/);
+      expect(mockDbDelete).not.toHaveBeenCalled();
     });
 
     it("keeps the row when one is still in storage", async () => {
