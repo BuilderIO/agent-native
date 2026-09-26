@@ -155,8 +155,14 @@ describe("useContentRecent context recovery", () => {
     hookMocks.org.refetch
       .mockReset()
       .mockResolvedValueOnce({ isError: true })
-      .mockResolvedValueOnce({ isError: false })
-      .mockResolvedValueOnce({ isError: false });
+      .mockResolvedValueOnce({
+        isError: false,
+        data: { email: "user@example.test", orgId: "org-1" },
+      })
+      .mockResolvedValueOnce({
+        isError: false,
+        data: { email: "user@example.test", orgId: "org-1" },
+      });
     hookMocks.org.data = {
       email: "user@example.test",
       orgId: "org-1",
@@ -241,8 +247,14 @@ describe("useContentRecent context recovery", () => {
   });
 
   it("keeps an in-flight recovery guard when another scope has an ordinary error", async () => {
-    let finishRefresh!: (result: { isError: boolean }) => void;
-    const pendingRefresh = new Promise<{ isError: boolean }>((resolve) => {
+    let finishRefresh!: (result: {
+      isError: boolean;
+      data?: { email: string; orgId: string | null };
+    }) => void;
+    const pendingRefresh = new Promise<{
+      isError: boolean;
+      data?: { email: string; orgId: string | null };
+    }>((resolve) => {
       finishRefresh = resolve;
     });
     hookMocks.org.refetch.mockReset().mockImplementation(() => pendingRefresh);
@@ -277,15 +289,18 @@ describe("useContentRecent context recovery", () => {
   });
 
   it("invalidates each space's own Recent query when both scopes recover", async () => {
-    hookMocks.org.refetch.mockReset().mockResolvedValue({ isError: false });
+    hookMocks.org.refetch.mockReset().mockResolvedValue({
+      isError: false,
+      data: { email: "user@example.test", orgId: "org-2" },
+    });
     const firstScopeKey = JSON.stringify([
       "user@example.test",
-      "org-1",
+      "org-2",
       "space-1",
     ]);
     const secondScopeKey = JSON.stringify([
       "user@example.test",
-      "org-1",
+      "org-2",
       "space-2",
     ]);
     hookMocks.queries = {
@@ -339,8 +354,14 @@ describe("useContentRecent context recovery", () => {
   });
 
   it("keeps same-query consumers loading through shared org refresh", async () => {
-    let finishRefresh!: (result: { isError: boolean }) => void;
-    const pendingRefresh = new Promise<{ isError: boolean }>((resolve) => {
+    let finishRefresh!: (result: {
+      isError: boolean;
+      data?: { email: string; orgId: string | null };
+    }) => void;
+    const pendingRefresh = new Promise<{
+      isError: boolean;
+      data?: { email: string; orgId: string | null };
+    }>((resolve) => {
       finishRefresh = resolve;
     });
     hookMocks.org.refetch.mockReset().mockImplementation(() => pendingRefresh);
@@ -362,7 +383,10 @@ describe("useContentRecent context recovery", () => {
     ).toEqual(["loading", "loading"]);
 
     await act(async () => {
-      finishRefresh({ isError: false });
+      finishRefresh({
+        isError: false,
+        data: { email: "user@example.test", orgId: "org-1" },
+      });
       await flush();
     });
 

@@ -44,6 +44,18 @@ function recoverContentRecentScope(
   return nextRecovery;
 }
 
+function contentRecentScopeKey(
+  org: ReturnType<typeof useOrg>["data"],
+  spaceId?: string,
+) {
+  if (!org) return undefined;
+  return JSON.stringify([
+    org.email.trim().toLowerCase(),
+    org.orgId ?? null,
+    spaceId ?? null,
+  ]);
+}
+
 export function contentRecentQueryArgs(
   scopeKey: string | undefined,
   spaceId?: string,
@@ -63,13 +75,7 @@ export function isContentRecentContextChanged(error: unknown): boolean {
 export function useContentRecent(spaceId?: string) {
   const org = useOrg();
   const queryClient = useQueryClient();
-  const scopeKey = org.data
-    ? JSON.stringify([
-        org.data.email.trim().toLowerCase(),
-        org.data.orgId ?? null,
-        spaceId ?? null,
-      ])
-    : undefined;
+  const scopeKey = contentRecentScopeKey(org.data, spaceId);
   const args = useMemo(
     () => contentRecentQueryArgs(scopeKey, spaceId),
     [scopeKey, spaceId],
@@ -101,9 +107,14 @@ export function useContentRecent(spaceId?: string) {
       try {
         const refreshedOrg = await org.refetch({ cancelRefetch: false });
         if (refreshedOrg.isError) return;
+        const refreshedArgs = contentRecentQueryArgs(
+          contentRecentScopeKey(refreshedOrg.data, spaceId),
+          spaceId,
+        );
+        if (!refreshedArgs) return;
         await queryClient.invalidateQueries(
           {
-            queryKey: ["action", "get-content-recent", args],
+            queryKey: ["action", "get-content-recent", refreshedArgs],
             exact: true,
           },
           { cancelRefetch: false },
@@ -123,13 +134,13 @@ export function useContentRecent(spaceId?: string) {
       });
     });
   }, [
-    args,
     contextChanged,
     org.refetch,
     query.error,
     query.isError,
     queryClient,
     scopeKey,
+    spaceId,
   ]);
 
   const refetch = useCallback(
