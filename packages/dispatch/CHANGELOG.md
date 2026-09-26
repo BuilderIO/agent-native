@@ -1,5 +1,40 @@
 # @agent-native/dispatch
 
+## 0.38.12
+
+### Patch Changes
+
+- 7eb9cbb: Scope provider credentials to their endpoints, coalesce workspace app access checks, and support desktop authenticator sign-in.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [dbb10d5]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+  - @agent-native/toolkit@0.22.0
+
+## 0.38.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [6ff4d47]
+  - @agent-native/toolkit@0.21.3
+
+## 0.38.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [2ba6541]
+  - @agent-native/toolkit@0.21.2
+
 ## 0.38.9
 
 ### Patch Changes
@@ -993,28 +1028,5 @@
 - 62a17be: Add the authenticated, nonce-only completion route used by packaged Desktop clients during cross-app identity federation.
 
   Let Dispatch register rollout-gated identity routes on its primary auth guard so security checks remain unconditional while the capability is default-off.
-
-## 0.23.4
-
-### Patch Changes
-
-- 7c5888c: Render integrations and scheduled work as first-class, chrome-less Electron control-plane pages.
-- 7c5888c: Hide the generic Chat starter from Dispatch's default app launchers.
-- 7c5888c: Open new workspace app requests in a fresh coding chat and guide missing AI setup through Builder or custom keys.
-- Updated dependencies [7c5888c]
-  - @agent-native/toolkit@0.13.10
-
-## 0.23.3
-
-### Patch Changes
-
-- a426c4f: Make Chat-first New chat, Integrations, and Scheduled navigation behave as selected tabs across Dispatch and Desktop, with Integrations promoted out of Settings into a full-page surface.
-- a426c4f: Fix Dispatch app navigation, sidebar selection state, embed-session refreshes, and app-list spacing.
-
-## 0.23.2
-
-### Patch Changes
-
-- 44ac2c4: Require explicit Slack mentions before dispatching channel turns.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

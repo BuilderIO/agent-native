@@ -9,6 +9,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 import {
   DESIGN_SYSTEM_TEMPLATE_IDS,
   getProductionDesignSystemTemplate,
@@ -86,6 +87,7 @@ export default defineAction({
     { templateId, title, description, data, assets, customInstructions },
     ctx,
   ) => {
+    await assertDesignSystemWorkflowsEnabled();
     const template = templateId
       ? getProductionDesignSystemTemplate(templateId)
       : undefined;

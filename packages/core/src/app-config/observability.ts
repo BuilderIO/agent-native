@@ -23,6 +23,16 @@ export const observabilityConfig = z.object({
       env: ["AGENT_NATIVE_OBSERVABILITY"],
       doc: "Capture agent run, model call, and tool call traces.",
     }),
+  superOrgId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_OBSERVABILITY_SUPER_ORG_ID"],
+      doc: "The single organization whose verified admins may review observability data across organizations. Unset disables cross-organization review.",
+    }),
   // Message bodies are user data, and a trace store is not a place to put them
   // without a decision. Each of these three defaults to off for that reason.
   capturePrompts: z

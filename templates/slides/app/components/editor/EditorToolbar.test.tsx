@@ -1,14 +1,16 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
   createEvent,
   fireEvent,
-  render,
+  render as renderWithoutQueryClient,
   screen,
   waitFor,
+  type RenderOptions,
 } from "@testing-library/react";
-import { createRef, type AnchorHTMLAttributes } from "react";
+import { createRef, type AnchorHTMLAttributes, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -85,8 +87,20 @@ vi.mock("react-router", () => ({
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { type Deck } from "@/context/DeckContext";
+import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
 
 import EditorToolbar from "./EditorToolbar";
+
+function render(ui: ReactNode, options?: RenderOptions) {
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, { configured: true });
+  return renderWithoutQueryClient(ui, {
+    ...options,
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  });
+}
 
 type ShareButtonProps = {
   resourceType?: string;

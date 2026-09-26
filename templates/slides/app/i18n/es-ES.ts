@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "Acciones de la plantilla {{title}}",
+    previewAction: "Vista previa",
+    title: "Plantillas",
+    browseAll: "Ver todas",
+    searchPlaceholder: "Buscar plantillas…",
+    loading: "Cargando plantillas",
+    empty: "Ninguna plantilla coincide con tu búsqueda.",
+    loadFailed: "No se pudieron cargar las plantillas.",
+    preview: "Vista previa de la plantilla",
+    useTemplate: "Usar plantilla",
+    opening: "Abriendo plantilla…",
+    createFailed: "No se pudo crear una presentación con esta plantilla.",
+    previous: "Anterior",
+    next: "Siguiente",
+    slidePosition: "Diapositiva {{current}} de {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["es-ES"],
   root: {
     commandPresentations: "Presentaciones",
@@ -110,7 +127,7 @@ const messages = {
       "Google Picker necesita GOOGLE_PICKER_API_KEY y GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Error al subir la imagen",
     imageUploadNeedsBuilder:
-      "Conecta Builder.io desde el menú de modelos del compositor del agente para subir imágenes a las diapositivas. Soltar una imagen en el lienzo vacío aún puede enviarla al agente sin proveedor.",
+      "Conecta un almacenamiento de objetos para subir imágenes: conecta Builder.io (gratis) o añade tus propias claves de almacenamiento compatibles con S3 en Configuración → Cargas de archivos.",
     sentToAgent: "Enviado al agente",
     imageUploadGenericError: "Algo salió mal al subir esta imagen.",
     uploading: "Subiendo…",
@@ -648,6 +665,12 @@ const messages = {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
+    generationStalled: "La generación se pausó tras 5 minutos sin avances",
+    generationStalledDescription:
+      "Tus diapositivas guardadas siguen aquí. Continúa desde este deck en el chat.",
+    continueInChat: "Continuar en el chat",
+    continueGenerationPrompt:
+      "Continúa generando las diapositivas de este deck. Primero revisa sus diapositivas actuales y el contexto de generación guardado. Conserva las diapositivas completadas y añade solo las que faltan.",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
     joinTeamDescription:
@@ -698,7 +721,7 @@ const messages = {
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
-      "Conecta Builder.io desde el menú de modelos del compositor del agente para subir imágenes a las diapositivas. Soltar una imagen en el lienzo vacío aún puede enviarla al agente sin proveedor.",
+      "Conecta un almacenamiento de objetos para subir imágenes: conecta Builder.io (gratis) o añade tus propias claves de almacenamiento compatibles con S3 en Configuración → Cargas de archivos.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
@@ -813,12 +836,120 @@ const messages = {
     chooseAnotherFile: "Elegir otro archivo",
   },
   home: {
+    suggestedPrompts: "Indicaciones sugeridas",
+    importMenu: {
+      import: "Importar",
+      options: "Opciones de importación",
+      invalidPdf: "Elige un archivo PDF.",
+      invalidPptx: "Elige un archivo PPTX.",
+      invalidFile: "Elige un archivo PDF o PPTX.",
+      notStarted:
+        "Completa el inicio de sesión requerido y vuelve a intentar la importación.",
+    },
+    importDeck: "Importar presentación",
+    context: {
+      websiteReference: "Adjuntar sitio web",
+      websiteUrlLabel: "URL del sitio web",
+      websiteUrl: "Pega la URL de un sitio web",
+      figmaUrlLabel: "Enlace de Figma",
+      invalidFigmaUrl:
+        "Introduce una URL válida de un marco o archivo de figma.com.",
+      createSystem: "Crear un sistema de diseño",
+      noSystems:
+        "Aún no tienes un sistema de diseño. Crea uno a partir de un sitio web, archivos o Figma.",
+      searchSystems: "Buscar sistemas de diseño…",
+      searchFrames: "Buscar marcos de Figma…",
+      searchDesigns: "Buscar diseños…",
+      searchPresentations: "Buscar presentaciones…",
+      menu: {
+        system: "Usar un sistema de diseño",
+        figma: "Adjuntar Figma",
+        design: "Usar un diseño como referencia",
+        deck: "Usar una presentación como referencia",
+        searchDesign: "Buscar en diseño…",
+      },
+      loadFailed: "No se pudo cargar la referencia. Inténtalo de nuevo.",
+      saveFailed: "No se pudo guardar la selección de contexto.",
+      system: "Sistemas de diseño",
+      figmaUrl: "Pega un enlace de Figma",
+      browse: "Explorar marcos",
+      empty: "No se encontraron referencias.",
+      previous: "Anterior",
+      next: "Siguiente",
+      title: "Contexto",
+      remove: "Quitar referencia",
+      deck: "Presentaciones",
+      design: "Referencias de diseño",
+      figma: "Marcos de Figma",
+      notReady:
+        "El contexto sigue cargando o no está disponible. Reintenta o elimínalo antes de enviar.",
+      emptySource: "La fuente no devolvió contexto utilizable.",
+      tooMany: "Elige hasta 20 referencias.",
+      search: "Buscar referencias",
+      designCategory: "Diseño",
+    },
+    quickStart: {
+      invalidUrl: "Introduce una URL HTTP o HTTPS válida.",
+      starting: "Iniciando…",
+      generate: "Generar",
+      connectionRequired:
+        "Conecta un proveedor de IA encima del cuadro de inicio o añade tu propia clave de IA y vuelve a intentarlo.",
+      invalidPdf: "Elige un archivo PDF.",
+      notReady:
+        "Revisa el contexto pendiente o fallido y la conexión antes de reintentar.",
+      tooLong: "Limita el texto fuente a menos de 20.000 caracteres.",
+      trends: {
+        label: "Crear una presentación sobre las últimas tendencias del sector",
+        field: "Sector o tema",
+        prompt:
+          "Investiga las últimas tendencias del tema indicado y crea una presentación con fuentes actuales. Verifica la información antes de generar.",
+      },
+      notes: {
+        label: "Convertir notas de reunión en una presentación",
+        field: "Notas de reunión",
+        prompt:
+          "Convierte las notas de reunión proporcionadas en una presentación con puntos clave, decisiones y próximos pasos. Usa las notas como fuente.",
+      },
+      pdf: {
+        label: "Resumir las ideas clave de un PDF",
+        field: "Archivo PDF",
+        prompt:
+          "Lee el PDF adjunto y crea una presentación que resuma sus ideas clave. Indica el contenido ilegible en lugar de adivinar.",
+      },
+      website: {
+        label: "Generar una presentación desde la web de mi empresa",
+        field: "URL de la web de la empresa",
+        prompt:
+          "Lee la web de la empresa indicada y crea una presentación sobre ella. Informa de errores de acceso en lugar de inventar datos.",
+      },
+    },
+    connectBuilderIo: "Conectar Builder.io",
+    connectingBuilder: "Conectando Builder.io…",
+    recent: "Recientes",
+    starters: {
+      pitch: {
+        label: "Presentación de proyecto",
+        prompt: "Crea una presentación de proyecto sobre ",
+      },
+      update: {
+        label: "Avance del proyecto",
+        prompt:
+          "Crea una presentación con los avances, resultados y próximos pasos de ",
+      },
+      lesson: {
+        label: "Explicar un tema",
+        prompt: "Crea una presentación que explique ",
+      },
+    },
     loadFailed: "No se pudo cargar el contenido",
     loadFailedDescription:
       "El contenido guardado sigue disponible. Comprueba la conexión e inténtalo de nuevo.",
     retry: "Reintentar",
+    fileStorageStatusUnavailable:
+      "No se pudo comprobar el almacenamiento de objetos. Vuelve a intentarlo antes de subir archivos.",
+    fileStorageSetupRequired:
+      "No hay almacenamiento de objetos conectado. Conecta Builder.io gratis o añade tus propias claves de almacenamiento compatibles con S3 en Ajustes → Carga de archivos.",
     decksTitle: "Decks",
-    newDeck: "Nuevo deck",
     deckLengthQuestion: "¿Qué longitud debe tener este deck?",
     deckLengthHeader: "Longitud del deck",
     deckLengthShort: "Corto (3–5 diapositivas)",
@@ -843,11 +974,13 @@ const messages = {
     newDeckPromptTitle: "Nueva presentación",
     newDeckPlaceholder: "Describe la presentación que quieres generar...",
     skipPrompt: "Omitir prompt",
-    firstDeckPromptTitle: "¿Qué tipo de presentación quieres que generemos?",
+    firstDeckPromptTitle: "Creemos tu primera presentación",
     firstDeckSkip: "Omitir",
     chooseReferences: "Elegir referencias",
     addDesignSystem: "+ Sistema de diseño",
     importFrom: "Importar desde",
+    referenceFileStorageUnavailable:
+      "El almacenamiento de archivos no está configurado. Conecta Builder.io u otro proveedor de archivos para importar referencias.",
     attachedFiles: "Adjuntos",
     imported: "Importado",
     importedReferenceDeck: "Deck de referencia importado",

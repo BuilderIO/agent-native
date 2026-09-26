@@ -887,6 +887,7 @@ describe("createAgentChatAdapter", () => {
         abortSignal: new AbortController().signal,
         runConfig: {
           custom: {
+            turnId: "turn-qa",
             references: [
               {
                 type: "file",
@@ -962,13 +963,13 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: true, tabId: "chat-qa" },
+        detail: { isRunning: true, tabId: "chat-qa", turnId: "turn-qa" },
       }),
     );
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-qa" },
+        detail: { isRunning: false, tabId: "chat-qa", turnId: "turn-qa" },
       }),
     );
   });
@@ -1054,7 +1055,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-terminal-stop" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-terminal-stop",
+          turnId: expect.any(String),
+        },
       }),
     );
   });
@@ -2154,7 +2159,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-invalid-token" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-invalid-token",
+          turnId: expect.any(String),
+        },
       }),
     );
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -2226,7 +2235,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-auth-retry" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-auth-retry",
+          turnId: expect.any(String),
+        },
       }),
     );
   });
@@ -7762,7 +7775,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
   });
@@ -7817,7 +7834,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     expect(getActiveRun()).toMatchObject({
@@ -7896,7 +7917,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     expect(getActiveRun()).toMatchObject({
@@ -7976,7 +8001,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     clearPendingTurnIfMatches("successor-thread", "successor-turn");
@@ -8052,7 +8081,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     expect(getActiveRun()).toMatchObject({
@@ -8133,7 +8166,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     const nextReader = createRunStreamToken("next-reader");
@@ -8212,7 +8249,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     clearPendingTurnIfMatches("current-thread", "legacy-successor-turn");
@@ -8288,7 +8329,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     expect(getActiveRun()).toMatchObject({

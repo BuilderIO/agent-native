@@ -41,14 +41,14 @@ const messages = {
       aiSetupTitle: "Configure sua caixa de entrada com IA",
       aiSetupTagLabel: "Criar uma etiqueta de IA",
       aiSetupImportanceLabel: "Emails importantes",
-      aiSetupSpamLabel: "Spam e emails indesejados",
-      aiSetupArchiveLabel: "Arquivar automaticamente",
+      aiSetupSpamLabel: "Spam",
+      aiSetupArchiveLabel: "Pular caixa de entrada",
       aiSetupSave: "Salvar configuração",
       aiSetupSkip: "Pular por enquanto",
       aiSetupImportantHeadline: "O que é importante",
       aiSetupSkipInboxHeadline: "O que pode pular sua caixa de entrada",
       aiSetupTagsHeadline: "Escolha suas abas",
-      aiSetupArchiveSpamHeadline: "Arquivamento automático e spam",
+      aiSetupArchiveSpamHeadline: "Pular caixa de entrada e spam",
       aiSetupTagReceipts: "Recibos",
       aiSetupTagUpdates: "Atualizações de produto",
       aiSetupTagGitHub: "Pessoas no GitHub",
@@ -557,6 +557,8 @@ const messages = {
       actionFailed: "Não foi possível atualizar o filtro de IA.",
       settingsFailed:
         "Não foi possível salvar as configurações do filtro de IA.",
+      automationRulesLoadFailed:
+        "Não foi possível carregar as regras de triagem.",
       instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
       skipInboxMode: "Pular caixa de entrada",
       spamMode: "Spam",
@@ -604,6 +606,14 @@ const messages = {
       tagTabsHelp: "Cada tag se torna uma aba da caixa de entrada",
       addTag: "Adicionar tag",
       triageTitle: "Triagem",
+      connectJev: "Conectar Jev",
+      connectJevToRunTriage: "Conecte o Jev para executar a triagem",
+      freeBuilderOrApiKey:
+        "Grátis com Builder.io ou adicione uma chave de API.",
+      jevAvailabilityFailed:
+        "Não foi possível verificar se o Jev está disponível.",
+      connectBuilder: "Conectar Builder.io",
+      addJevApiKey: "Adicionar chave de API",
     },
     draftQueue: {
       title: "Cola de borradores",

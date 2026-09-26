@@ -97,7 +97,6 @@ export default function CreateAppPromptPopover({
             draftScope="desktop:chat-first:create-app"
             preserveDraftOnSubmit
             showModelSelector={false}
-            modelStatusChecksEnabled={false}
             attachmentsEnabled={false}
             plusMenuMode="hidden"
             voiceEnabled={false}

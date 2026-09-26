@@ -525,8 +525,18 @@ export default {
     confirmation: "confirmação",
     confirmationSent:
       "Tudo certo! Uma confirmação foi enviada para o seu e-mail.",
+    meetingDetailsPending:
+      "Seu horário está reservado. O anfitrião enviará os detalhes da reunião.",
     confirmed: "Confirmada",
     confirmedCount: "Confirmadas ({{count}})",
+    zoomNeedsReview: "Verifique o Zoom antes de tentar novamente",
+    zoomCancellationNeedsReview: "Verifique o Zoom antes de cancelar",
+    zoomCancellationRequiresHostReview:
+      "Quem organiza precisa revisar a reunião do Zoom antes de cancelar esta reserva.",
+    zoomCancelTitle: "Verifique o Zoom antes de cancelar",
+    zoomCancelDescription:
+      "O Zoom pode ter criado uma reunião para esta reserva. Verifique sua conta do Zoom e cancele a reunião por lá, se ela existir. Continue somente depois que ela for cancelada ou você confirmar que não existe.",
+    zoomCancelConfirm: "Verifiquei o Zoom",
     confirming: "Confirmando",
     conferencing: "Conferência",
     connectZoom: "Conecte Zoom",

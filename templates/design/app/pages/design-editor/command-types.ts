@@ -125,6 +125,7 @@ export interface RetryablePrompt {
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
+  contextItems?: PromptComposerSubmitOptions["contextItems"];
   designSystemId?: string | null;
   attempt?: number;
   source?: string;

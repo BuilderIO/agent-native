@@ -535,8 +535,18 @@ export default {
     confirmation: "confirmation",
     confirmationSent:
       "Tout est prêt ! Une confirmation a été envoyée à votre adresse e-mail.",
+    meetingDetailsPending:
+      "Votre créneau est réservé. L’hôte vous communiquera les détails de la réunion.",
     confirmed: "Confirmée",
     confirmedCount: "Confirmées ({{count}})",
+    zoomNeedsReview: "Vérifiez Zoom avant de réessayer",
+    zoomCancellationNeedsReview: "Vérifiez Zoom avant d’annuler",
+    zoomCancellationRequiresHostReview:
+      "L’organisateur doit vérifier la réunion Zoom avant de pouvoir annuler cette réservation.",
+    zoomCancelTitle: "Vérifiez Zoom avant d’annuler",
+    zoomCancelDescription:
+      "Zoom a peut-être créé une réunion pour cette réservation. Vérifiez votre compte Zoom et annulez-y la réunion si elle existe. Continuez uniquement après son annulation ou après avoir confirmé qu’elle n’existe pas.",
+    zoomCancelConfirm: "J’ai vérifié Zoom",
     confirming: "Confirmation",
     conferencing: "Conférence",
     connectZoom: "Connectez Zoom",

@@ -1,6 +1,25 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl": "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
+  "composer.contextAttach": "첨부",
+  "composer.menu.search": "검색…",
+  "composer.contextPrevious": "이전",
+  "composer.contextNext": "다음",
+  "composer.contextLoadFailed": "컨텍스트를 불러올 수 없습니다.",
+  "composer.contextLinkRequired": "링크를 입력하세요.",
+  "composer.submitFailed": "제출하지 못했습니다. 다시 시도하세요.",
+  "composer.addContext": "컨텍스트 추가",
+  "composer.contextActionFailed": "컨텍스트를 추가하지 못했습니다.",
+  "composer.contextBack": "뒤로",
+  "composer.searchContext": "컨텍스트 검색…",
+  "composer.noContextResults": "일치하는 컨텍스트가 없습니다.",
+  "composer.contextPending": "컨텍스트 대기 중",
+  "composer.contextError": "컨텍스트 실패",
+  "composer.retryContext": "{{name}} 컨텍스트 다시 시도",
+  "composer.contextLimitExceeded":
+    "컨텍스트가 너무 큽니다. 항목을 제거하거나 더 작은 선택 항목을 첨부하세요.",
   "activity.reasoning": "추론",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
@@ -89,10 +108,11 @@ const messages: AgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "Background Agent 설정 열기",
   "onboarding.capability.llm.keySummary": "자체 AI 모델 연결",
   "onboarding.capability.fileStorage.keySummary": "파일 업로드 및 저장소",
-  "onboarding.fileStorage.title": "파일 저장소 선택",
+  "onboarding.fileStorage.title": "파일 업로드를 위해 저장소 연결",
   "onboarding.fileStorage.description":
-    "관리형 Builder 스토리지 또는 자체 S3 호환 버킷용 사용자 지정 스토리지 키를 선택하세요.",
-  "onboarding.fileStorage.custom": "사용자 지정 스토리지 키 사용",
+    "Builder.io(무료)를 연결하거나 자체 S3 호환 객체 스토리지를 구성하세요.",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io 다시 연결",
+  "onboarding.fileStorage.custom": "자체 객체 스토리지 키 추가",
   "onboarding.fileStorage.customDescription":
     "안정적인 공개 URL을 사용하는 S3 호환 버킷을 구성하세요.",
   "onboarding.capability.voiceInput.label": "음성 입력",
@@ -640,7 +660,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
   "recovery.credentialRejected":
-    "현재 Builder.io 또는 모델 제공업체 자격 증명이 거부되었습니다. Builder.io에 다시 연결한 후 이 메시지를 다시 시도하세요.",
+    "모델 제공업체가 저장된 자격 증명을 거부했습니다. Builder.io 연결 또는 제공업체 키를 업데이트한 후 이 메시지를 다시 시도하세요.",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents가 연결되지 않았습니다. 이 호스팅 코드 변경 작업을 실행하려면 설정에서 Builder.io를 연결하세요. 모델 제공업체 키는 채팅과 기타 AI 기능에서 계속 사용할 수 있지만 Builder Cloud Agent를 인증하지는 않습니다.",
   "recovery.diagnoseRetry": "진단 후 다시 시도",
   "recovery.forkDescription": "이 대화를 별도의 채팅 스레드로 분기합니다.",
   "recovery.forkFailed":
@@ -698,6 +720,10 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "AI를 연결하여 채팅 시작...",
   "setup.connectToChat": "AI를 연결하여 채팅",
   "setup.connectToStart": "AI를 연결하여 채팅 시작",
+  "setup.checkingProvider": "AI 연결을 확인하는 중…",
+  "setup.providerStatusUnavailable": "AI 연결을 확인할 수 없습니다.",
+  "agentNativeClips.meetingAsk.placeholder": "무엇이든 물어보세요",
+  "agentNativeClips.meetingAsk.ariaLabel": "이 회의에 대해 무엇이든 물어보세요",
   "setup.connected": "연결됨",
   "setup.connectedOrganization": "연결됨 — {{organization}}",
   "setup.connectedTo": "{{organization}}에 연결됨",
@@ -828,6 +854,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "새 이메일",
   "settings.emailNewPlaceholder": "새 이메일 입력",
   "usage.builderCredits": "Builder 크레딧",
+  "usage.inviteFriends": "친구 초대",
+  "usage.inviteCredits":
+    "친구가 구독하면 Builder 크레딧 {{amount}}개를 받을 수 있습니다.",
+  "usage.copyInviteLink": "초대 링크 복사",
+  "usage.inviteLinkCopied": "초대 링크를 복사했습니다",
   "usage.creditBalance": "워크스페이스 잔액",
   "usage.monthlyPlan": "월간 플랜",
   "usage.dailyFreeLimit": "무료 일일 한도",

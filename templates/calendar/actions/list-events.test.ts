@@ -52,6 +52,7 @@ const schemaMock = vi.hoisted(() => ({
     slug: "bookingLinks.slug",
     title: "bookingLinks.title",
     color: "bookingLinks.color",
+    conferencing: "bookingLinks.conferencing",
   },
   bookingLinkShares: {},
   bookings: {
@@ -64,7 +65,11 @@ const schemaMock = vi.hoisted(() => ({
     eventTitle: "bookings.eventTitle",
     notes: "bookings.notes",
     meetingLink: "bookings.meetingLink",
+    meetingLinkPending: "bookings.meetingLinkPending",
     googleEventId: "bookings.googleEventId",
+    zoomNeedsReview: "bookings.zoomNeedsReview",
+    zoomMeetingId: "bookings.zoomMeetingId",
+    zoomAccountId: "bookings.zoomAccountId",
     status: "bookings.status",
     createdAt: "bookings.createdAt",
   },
@@ -87,11 +92,17 @@ function createDbMock({
       slug: "intro",
       title: "Intro call",
       color: "#5B9BD5",
+      conferencing: null,
     },
   ],
   bookings = [],
 }: {
-  links?: Array<{ slug: string; title: string; color?: string }>;
+  links?: Array<{
+    slug: string;
+    title: string;
+    color?: string;
+    conferencing?: string | null;
+  }>;
   bookings?: Array<Record<string, unknown>>;
 } = {}) {
   return {
@@ -116,7 +127,11 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
     eventTitle: "Steve + Nikoline",
     notes: null,
     meetingLink: "https://example.com/meet",
+    meetingLinkPending: false,
     googleEventId: "google-event-1",
+    zoomNeedsReview: false,
+    zoomMeetingId: null,
+    zoomAccountId: null,
     status: "confirmed",
     createdAt: "2026-06-12T10:13:39.746Z",
     ...overrides,
@@ -177,6 +192,71 @@ describe("listCalendarEvents booking merge", () => {
     ]);
   });
 
+  it("hides an ambiguous Zoom booking from the calendar while review is needed", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow({ googleEventId: null, zoomNeedsReview: true })],
+      }),
+    );
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toEqual([]);
+  });
+
+  it("hides legacy Zoom bookings whose review flag predates the migration", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        links: [
+          {
+            slug: "intro",
+            title: "Intro call",
+            color: "#5B9BD5",
+            conferencing: JSON.stringify({ type: "zoom" }),
+          },
+        ],
+        bookings: [bookingRow({ googleEventId: null })],
+      }),
+    );
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toEqual([]);
+  });
+
+  it("exposes a persisted pending meeting link on the host calendar event", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [
+          bookingRow({
+            googleEventId: null,
+            meetingLink: null,
+            meetingLinkPending: true,
+          }),
+        ],
+      }),
+    );
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toMatchObject([
+      {
+        id: "booking:booking-1",
+        meetingLink: undefined,
+        meetingLinkPending: true,
+      },
+    ]);
+  });
+
   it("keeps a linked local booking as fallback when Google returned an error", async () => {
     getDbMock.mockReturnValue(createDbMock({ bookings: [bookingRow()] }));
     listGoogleEventsMock.mockResolvedValue({
@@ -233,6 +313,45 @@ describe("listCalendarEvents booking merge", () => {
       id: "google-google-event-1",
       source: "google",
       googleEventId: "google-event-1",
+    });
+  });
+
+  it("preserves pending meeting state on the authoritative Google event", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow({ meetingLink: null, meetingLinkPending: true })],
+      }),
+    );
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-google-event-1",
+          title: "Steve + Nikoline",
+          description: "",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          location: "",
+          allDay: false,
+          source: "google",
+          googleEventId: "google-event-1",
+          calendarPrimary: true,
+          createdAt: "2026-06-12T10:13:39.746Z",
+          updatedAt: "2026-06-12T10:13:39.746Z",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      id: "google-google-event-1",
+      source: "google",
+      meetingLinkPending: true,
     });
   });
 });

@@ -509,8 +509,18 @@ export default {
     confirmation: "confirmation",
     confirmationSent:
       "You're all set! A confirmation has been sent to your email.",
+    meetingDetailsPending:
+      "Your time is reserved. The host will follow up with meeting details.",
     confirmed: "Confirmed",
     confirmedCount: "Confirmed ({{count}})",
+    zoomNeedsReview: "Check Zoom before retrying",
+    zoomCancellationNeedsReview: "Check Zoom before canceling",
+    zoomCancellationRequiresHostReview:
+      "The organizer must review the Zoom meeting before this booking can be canceled.",
+    zoomCancelTitle: "Check Zoom before canceling",
+    zoomCancelDescription:
+      "Zoom may have created a meeting for this booking. Check your Zoom account and cancel the meeting there if it exists. Continue only after the meeting is canceled or you confirm no meeting exists.",
+    zoomCancelConfirm: "I've checked Zoom",
     confirming: "Confirming",
     conferencing: "Conferencing",
     connectZoom: "Connect Zoom",

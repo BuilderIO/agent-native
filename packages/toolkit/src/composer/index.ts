@@ -1,4 +1,30 @@
 export { FileReference } from "./extensions/FileReference.js";
+export {
+  ComposerContextMenu,
+  ComposerContextSearchInput,
+  type ComposerContextSearchInputProps,
+  type ComposerContextPageControls,
+  getComposerContextMenuEntries,
+  type ComposerContextMenuProps,
+  type ComposerContextMenuItem,
+  type ComposerContextMenuAction,
+  type ComposerContextMenuCategory,
+  type ComposerContextPickerConfig,
+  type ComposerContextPickerItem,
+  type ComposerContextPickerRequest,
+  type ComposerContextPickerResult,
+  type ComposerContextPickerSelection,
+  type ComposerContextPickerFooterAction,
+} from "./ComposerContextMenu.js";
+export {
+  areComposerContextItemsReady,
+  snapshotComposerContextItems,
+  ComposerContextError,
+  COMPOSER_CONTEXT_MAX_ITEMS,
+  COMPOSER_CONTEXT_MAX_BYTES,
+  type ComposerContextSnapshot,
+} from "./context-items.js";
+export type { AgentChatContextItem } from "./runtime-adapters.js";
 export { SkillReference } from "./extensions/SkillReference.js";
 export { MentionReference } from "./extensions/MentionReference.js";
 export {
@@ -19,6 +45,8 @@ export {
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
   handleComposerFileDrop,
+  isLocalRuntimeEngine,
+  getOversizedDocumentAttachmentError,
   insertComposerHardBreakAndScrollIntoView,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,

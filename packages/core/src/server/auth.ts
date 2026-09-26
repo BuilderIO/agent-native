@@ -15,7 +15,11 @@ import type { H3Event } from "h3";
 
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
-import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
+import {
+  isWorkspaceAppAccessAllowed,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
+} from "../org/workspace-app-access.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -426,22 +430,13 @@ export interface AuthOptions {
    * ```
    */
   googleScopes?: string[];
-  /**
-   * Product marketing content shown alongside the sign-in form.
-   * When provided, the page uses a split layout: marketing on the left,
-   * sign-in form on the right.
-   */
+  /** Product metadata used for the auth document title and social preview. */
   marketing?: {
     appName: string;
     tagline: string;
     description?: string;
     features?: string[];
-    screenshotPath?: string;
-    screenshotWidth?: number;
-    screenshotHeight?: number;
     learnMoreUrl?: string;
-    /** @deprecated Local execution is no longer offered from auth pages. */
-    runLocalCommand?: string;
   };
   /**
    * Optional email signup legal copy for the built-in login page.
@@ -565,6 +560,22 @@ function getCookieValues(event: H3Event, name: string): string[] {
 
 export function getFrameworkSessionCookieValues(event: H3Event): string[] {
   return getFrameworkSessionCookieEntries(event).map((entry) => entry.value);
+}
+
+function betterAuthSessionCookieNames(): string[] {
+  return ["session_token", "session_data", "dont_remember"].flatMap(
+    (suffix) => {
+      const name = `${BETTER_AUTH_COOKIE_PREFIX}.${suffix}`;
+      return [name, `__Secure-${name}`];
+    },
+  );
+}
+
+function getBetterAuthSessionTokenValues(event: H3Event): string[] {
+  const cookie = `${BETTER_AUTH_COOKIE_PREFIX}.session_token`;
+  return [cookie, `__Secure-${cookie}`].flatMap((name) =>
+    getCookieValues(event, name),
+  );
 }
 
 function getFrameworkSessionCookieEntries(
@@ -696,6 +707,13 @@ export function clearFrameworkSessionCookies(event: H3Event): void {
   clearFrameworkSessionHintCookies(event);
   for (const name of frameworkSessionCookieNamesToClear()) {
     deleteCookieFromEveryScope(event, name);
+  }
+}
+
+function clearBetterAuthSessionCookies(event: H3Event): void {
+  for (const name of betterAuthSessionCookieNames()) {
+    const attributes = name.startsWith("__Secure-") ? { secure: true } : {};
+    deleteCookieFromEveryScope(event, name, attributes);
   }
 }
 
@@ -1077,18 +1095,30 @@ function forwardBetterAuthSetCookies(
   const headers = (result as { headers?: Headers }).headers;
   if (!headers || typeof headers.get !== "function") return;
   for (const cookie of getSetCookieHeaders(headers)) {
-    if (
-      options.excludeSessionCookies &&
-      /(?:^|;\s*)(?:__Secure-)?[^=;\s]+(?:[.-])(?:session_token|session_data)=/i.test(
-        cookie,
-      )
-    ) {
+    if (options.excludeSessionCookies && isBetterAuthSessionCookie(cookie)) {
       continue;
     }
     for (const upgraded of upgradeBetterAuthCookieForRequest(event, cookie)) {
       event.res?.headers?.append("set-cookie", upgraded);
     }
   }
+}
+
+function isBetterAuthSessionCookie(cookie: string): boolean {
+  return /(?:^|;\s*)(?:__Secure-)?[^=;\s]+(?:[.-])(?:session_token|session_data)=/i.test(
+    cookie,
+  );
+}
+
+function betterAuthChallengeCookieHeader(result: unknown): string {
+  if (!result || typeof result !== "object") return "";
+  const headers = (result as { headers?: Headers }).headers;
+  if (!headers || typeof headers.get !== "function") return "";
+  return getSetCookieHeaders(headers)
+    .filter((cookie) => !isBetterAuthSessionCookie(cookie))
+    .map((cookie) => cookie.split(";", 1)[0]?.trim() ?? "")
+    .filter((cookie) => cookie.includes("="))
+    .join("; ");
 }
 
 async function rotateTwoFactorSession(
@@ -1276,6 +1306,13 @@ function shouldExposeSessionTokenInBody(event: H3Event): boolean {
   const requestSource = getHeader(event, "x-request-source");
   return (
     !origin && (requestSource === "clips-desktop" || requestSource === "mobile")
+  );
+}
+
+function isClipsDesktopAuthRequest(event: H3Event): boolean {
+  return (
+    getHeader(event, "x-request-source") === "clips-desktop" &&
+    shouldExposeSessionTokenInBody(event)
   );
 }
 
@@ -1964,37 +2001,34 @@ export async function removeSession(token: string): Promise<void> {
  *
  * Login mints a session by mirroring one token into the framework's
  * `an_session` cookie, the legacy `sessions` table (`addSession`), AND
- * Better Auth's own `"session"` table — but never gives the browser Better
- * Auth's own session cookie. `auth.api.signOut()` identifies what to revoke
- * from THAT cookie, which was never issued, so it silently finds nothing and
- * Better Auth's `"session"` row survives sign-out. `getSession`'s legacy-
- * cookie fallback then falls through to a direct Better-Auth-table lookup by
- * token (kept for magic-link resilience — see `getLegacyCookieSession`) and
- * resurrects the "logged out" user. Deleting the `"session"` row directly by
- * the same token candidates closes that gap regardless of whether
- * `auth.api.signOut()` finds anything.
+ * Better Auth's own `"session"` table. The framework sign-in path does not
+ * issue Better Auth's session cookie, so `auth.api.signOut()` may not find the
+ * token. Deleting the `"session"` row directly by tokens from either cookie
+ * family closes that gap. Better Auth's own cookies are also cleared across
+ * host/domain and partition scopes because its signOut only clears the current
+ * scope. Failed revocation preserves session cookies so the same token can be
+ * retried instead of making the browser appear signed out while it stays live.
  */
 async function performLogout(
   event: H3Event,
   getAuth: () => Promise<BetterAuthInstance | null> | BetterAuthInstance | null,
-): Promise<void> {
+): Promise<{ ok: true } | { error: string }> {
   const bearerToken = getBearerSessionToken(event);
+  const betterAuthTokens = getBetterAuthSessionTokenValues(event);
   const rawTokens = [
     ...getFrameworkSessionCookieValues(event),
+    ...betterAuthTokens,
     ...(bearerToken ? [bearerToken] : []),
   ];
   const candidates = rawTokens.flatMap(sessionTokenLookupCandidates);
+  let revocationFailed = false;
 
   let auth: BetterAuthInstance | null = null;
   try {
     auth = await getAuth();
   } catch (error) {
-    // The fallback route's `getAuth` retries resolving Better Auth here and
-    // may still find it unavailable — expected on that route, not tracked.
-    console.warn(
-      "[auth] could not resolve Better Auth instance during logout:",
-      error,
-    );
+    revocationFailed = true;
+    captureAuthError(error, { route: "logout" });
   }
 
   for (const token of candidates) {
@@ -2014,33 +2048,44 @@ async function performLogout(
       // have survived logout — not routine noise. `route: "logout"` is
       // captured at `warning` level (see `captureAuthError`), so a spike is
       // visible without paging anyone on a one-off.
+      revocationFailed = true;
       captureAuthError(error, { route: "logout" });
     }
   }
   invalidateSessionEmailCache();
 
-  clearFrameworkSessionCookies(event);
-  clearIdentityGoogleAuthCookie(event);
-  clearFirstRunOnboardingCookie(event);
-  optOutOfAuthDisabledSession(event);
+  if (!revocationFailed) {
+    clearFrameworkSessionCookies(event);
+    clearIdentityGoogleAuthCookie(event);
+    clearFirstRunOnboardingCookie(event);
+    optOutOfAuthDisabledSession(event);
 
-  if (auth) {
-    try {
-      const result = await auth.api.signOut({
-        headers: event.headers,
-        returnHeaders: true,
-      });
-      forwardBetterAuthSetCookies(event, result);
-    } catch (error) {
-      // Better Auth's own signOut looks for its own session cookie, which
-      // this framework never issues to the browser (see the doc comment
-      // above) — expected to fail on essentially every call today, so this
-      // is logged for local debugging rather than tracked as an anomaly.
-      console.warn("[auth] Better Auth signOut failed during logout:", error);
+    if (auth) {
+      try {
+        const result = await auth.api.signOut({
+          headers: event.headers,
+          returnHeaders: true,
+        });
+        forwardBetterAuthSetCookies(event, result);
+      } catch (error) {
+        // Better Auth's own signOut looks for its own session cookie, which
+        // this framework never issues to the browser (see the doc comment
+        // above) — expected to fail on essentially every call today, so this
+        // is logged for local debugging rather than tracked as an anomaly.
+        console.warn("[auth] Better Auth signOut failed during logout:", error);
+      }
     }
+
+    clearBetterAuthSessionCookies(event);
+
+    if (isElectronRequest(event)) await clearDesktopSso();
   }
 
-  if (isElectronRequest(event)) await clearDesktopSso();
+  if (revocationFailed) {
+    setResponseStatus(event, 503);
+    return { error: "Unable to revoke session" };
+  }
+  return { ok: true };
 }
 
 /**
@@ -4224,14 +4269,23 @@ function createAuthGuardFn(
       if (
         workspaceAppId &&
         !sharedWorkspaceAccessPath &&
-        (p.startsWith("/api/") || p.startsWith("/_agent-native/")) &&
-        !(await isWorkspaceAppAccessAllowed(workspaceAppId, {
-          email: session.email,
-          orgId: session.orgId,
-        }))
+        (p.startsWith("/api/") || p.startsWith("/_agent-native/"))
       ) {
-        setResponseStatus(event, 403);
-        return { error: "You do not have access to this workspace app." };
+        const workspaceAppAccess = await isWorkspaceAppAccessAllowed(
+          workspaceAppId,
+          {
+            email: session.email,
+            orgId: session.orgId,
+          },
+        );
+        if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+          setResponseStatus(event, 503);
+          return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
+        }
+        if (!workspaceAppAccess) {
+          setResponseStatus(event, 403);
+          return { error: "You do not have access to this workspace app." };
+        }
       }
       return;
     }
@@ -6079,14 +6133,83 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: "Enter the six-digit code from your authenticator." };
       }
-      const existingSession = await getSession(event);
+      const desktopChallengeRequest =
+        isClipsDesktopAuthRequest(event) &&
+        !!body &&
+        ("email" in body || "password" in body);
+      const existingSession = desktopChallengeRequest
+        ? null
+        : await getSession(event);
       try {
+        let verifyHeaders: Headers | undefined;
+        let challengeEmail: string | undefined;
+        if (desktopChallengeRequest) {
+          const rawEmail = typeof body.email === "string" ? body.email : "";
+          const email = normalizeAuthEmail(rawEmail);
+          const password =
+            typeof body.password === "string" ? body.password : "";
+          if (!rawEmail.trim() || !password) {
+            setResponseStatus(event, 400);
+            return { error: AUTH_CREDENTIALS_REQUIRED_MESSAGE };
+          }
+          if (!email) {
+            setResponseStatus(event, 400);
+            return { error: VALID_AUTH_EMAIL_MESSAGE };
+          }
+
+          const requiredProvider = await requiredAuthProviderForEmail(email);
+          if (requiredProvider) {
+            setResponseStatus(event, 403);
+            return { error: authProviderRequiredMessage(requiredProvider) };
+          }
+
+          const signInResult = await auth.api.signInEmail({
+            body: { email, password },
+            headers: new Headers(),
+            returnHeaders: true,
+          });
+          const signInBody = betterAuthApiBody(signInResult);
+          if (signInBody.twoFactorRedirect !== true) {
+            const token =
+              typeof signInBody.token === "string" ? signInBody.token : "";
+            if (!token) {
+              setResponseStatus(event, 403);
+              return { error: AUTH_EMAIL_NOT_VERIFIED_MESSAGE };
+            }
+            setFrameworkSessionCookie(event, token);
+            clearIdentityGoogleAuthCookie(event);
+            setFirstRunOnboardingCookie(event);
+            await addSession(token, email);
+            if (isElectronRequest(event)) {
+              await writeDesktopSso({
+                email,
+                token,
+                expiresAt: Date.now() + sessionMaxAge * 1000,
+              });
+            }
+            return authLoginResponse(event, token, email);
+          }
+
+          const challengeCookies =
+            betterAuthChallengeCookieHeader(signInResult);
+          if (!challengeCookies) {
+            setResponseStatus(event, 500);
+            return {
+              error: "Couldn't create a two-factor sign-in challenge.",
+            };
+          }
+          verifyHeaders = new Headers({ cookie: challengeCookies });
+          challengeEmail = email;
+        }
+
         const result = await auth.api.verifyTOTP({
           body: {
             code,
             ...(body?.trustDevice === true ? { trustDevice: true } : {}),
           },
-          headers: betterAuthHeadersForSession(event, existingSession?.token),
+          headers:
+            verifyHeaders ??
+            betterAuthHeadersForSession(event, existingSession?.token),
           returnHeaders: true,
         });
         const responseBody = betterAuthApiBody(result);
@@ -6095,7 +6218,7 @@ async function mountBetterAuthRoutes(
         const email =
           typeof responseBody.user?.email === "string"
             ? responseBody.user.email
-            : existingSession?.email;
+            : (existingSession?.email ?? challengeEmail);
         if (!existingSession) {
           if (!token || !email) {
             setResponseStatus(event, 500);
@@ -6888,8 +7011,7 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/logout",
     defineEventHandler(async (event) => {
-      await performLogout(event, () => auth);
-      return { ok: true };
+      return performLogout(event, () => auth);
     }),
   );
 
@@ -7175,8 +7297,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
   app.use(
     "/_agent-native/auth/logout",
     defineEventHandler(async (event) => {
-      await performLogout(event, () => getBetterAuth());
-      return { ok: true };
+      return performLogout(event, () => getBetterAuth());
     }),
   );
 
@@ -7354,8 +7475,7 @@ export async function autoMountAuth(
     app.use(
       "/_agent-native/auth/logout",
       defineEventHandler(async (event) => {
-        await performLogout(event, () => null);
-        return { ok: true };
+        return performLogout(event, () => null);
       }),
     );
 

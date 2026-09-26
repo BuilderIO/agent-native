@@ -15,6 +15,7 @@ import * as schema from "../schema/index.js";
 import { setSchedulingContext } from "../server/context.js";
 import addBookingAttendee from "./add-booking-attendee.js";
 import addBookingNote from "./add-booking-note.js";
+import cancelBooking from "./cancel-booking.js";
 import confirmBooking from "./confirm-booking.js";
 import markNoShow from "./mark-no-show.js";
 import removeBookingAttendee from "./remove-booking-attendee.js";
@@ -182,6 +183,33 @@ async function noteCount(): Promise<number> {
   const { rows } = await execute("SELECT * FROM booking_notes");
   return rows.length;
 }
+
+async function setZoomLocation(): Promise<void> {
+  await execute({
+    sql: "UPDATE bookings SET location = ? WHERE uid = ?",
+    args: [JSON.stringify({ kind: "zoom" }), BOOKING_UID],
+  });
+}
+
+describe("cancel-booking Zoom review authorization", () => {
+  it("does not let a public cancellation token assert that Zoom was resolved", async () => {
+    currentUserEmail = undefined;
+    await setZoomLocation();
+
+    await expect(
+      cancelBooking.run({
+        uid: BOOKING_UID,
+        token: "cancel-token-1",
+        zoomMeetingResolved: true,
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/Zoom meeting needs host review/i),
+      statusCode: 409,
+      errorCode: "zoom_meeting_review_required",
+    });
+    expect(await bookingStatus()).toBe("pending");
+  });
+});
 
 describe("confirm-booking authorization", () => {
   it("rejects a non-host caller and leaves the booking unchanged", async () => {

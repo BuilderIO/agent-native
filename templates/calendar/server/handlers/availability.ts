@@ -8,12 +8,14 @@ import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getQuery,
+  createError,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
 import type { AvailabilityConfig } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
+import { getBookingUsernameOwner } from "./booking-usernames.js";
 
 function createDefaultAvailability(timezone: string): AvailabilityConfig {
   return {
@@ -66,32 +68,64 @@ export const getPublicAvailability = defineEventHandler(
   async (event: H3Event) => {
     const query = getQuery(event);
     const slug = typeof query.slug === "string" ? query.slug : "";
+    const username = typeof query.username === "string" ? query.username : "";
     if (slug) {
       const link = await getDb()
         .select({ ownerEmail: schema.bookingLinks.ownerEmail })
         .from(schema.bookingLinks)
         .where(eq(schema.bookingLinks.slug, slug))
         .then((rows) => rows[0]);
-      if (link?.ownerEmail) {
+      const usernameOwnerEmail = username
+        ? await getBookingUsernameOwner(username)
+        : null;
+      if (
+        username &&
+        (!usernameOwnerEmail ||
+          (link && link.ownerEmail !== usernameOwnerEmail))
+      ) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: "Booking page not found",
+        });
+      }
+
+      const ownerEmail = link?.ownerEmail || usernameOwnerEmail;
+      if (ownerEmail) {
         const ownerConfig = (await getUserSetting(
-          link.ownerEmail,
+          ownerEmail,
           "calendar-availability",
         )) as unknown as AvailabilityConfig | null;
-        if (ownerConfig) return ownerConfig;
-        const ownerSettings = (await getUserSetting(
-          link.ownerEmail,
-          "calendar-settings",
-        )) as { timezone?: string } | null;
-        return createDefaultAvailability(
-          ownerSettings?.timezone || "America/New_York",
-        );
+        if (
+          ownerConfig &&
+          (link?.ownerEmail ||
+            !username ||
+            ownerConfig.bookingPageSlug === slug)
+        ) {
+          return ownerConfig;
+        }
+        if (
+          !ownerConfig &&
+          (link?.ownerEmail || !username || slug === "book")
+        ) {
+          const ownerSettings = (await getUserSetting(
+            ownerEmail,
+            "calendar-settings",
+          )) as { timezone?: string } | null;
+          return createDefaultAvailability(
+            ownerSettings?.timezone || "America/New_York",
+          );
+        }
+        if (username) {
+          throw createError({
+            statusCode: 404,
+            statusMessage: "Booking page not found",
+          });
+        }
       }
     }
 
-    // Fall back to defaults — never read the unscoped `calendar-availability`
-    // setting. That key was historically dual-written by every user's update
-    // (see the matching fix in updateAvailability), which meant a brand-new
-    // user's public booking link advertised whoever last saved their hours.
+    // Username-scoped pages fail closed above; legacy links without a username
+    // still use defaults and never read the unscoped availability setting.
     return createDefaultAvailability("America/New_York");
   },
 );

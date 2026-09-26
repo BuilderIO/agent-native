@@ -32,7 +32,12 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "@playwright/test";
 import { build } from "esbuild";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+import { handleDesignHotkey } from "@/hooks/useDesignHotkeys";
+import { runRecordPendingLiveStructureEdit } from "@/pages/design-editor/commands/record-pending-live-structure-edit";
+import { runUndo } from "@/pages/design-editor/commands/undo";
+import { shouldAcceptEditorDragStateEvent } from "@/pages/design-editor/editor-drag-state";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../../.generated/bridge/embedded-wheel.generated";
@@ -10086,6 +10091,217 @@ it(
 );
 
 it(
+  "editor chrome bridge uses the exited frame for empty-area drops and preserves explicit sibling slots",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      const sourceBuild = await build({
+        entryPoints: [join(bridgeDir, "editor-chrome.bridge.ts")],
+        bundle: true,
+        format: "iife",
+        platform: "browser",
+        target: "es2020",
+        write: false,
+        external: [],
+      });
+      const sourceScript = sourceBuild.outputFiles[0]?.text;
+      if (!sourceScript) throw new Error("Bridge source compilation failed");
+      const fixtureHtml = `<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #outer { position: absolute; left: 100px; top: 100px; width: 600px; height: 500px; background: #eee; }
+      #nested { position: absolute; left: 220px; top: 200px; width: 200px; height: 120px; display: flex; background: #ccc; }
+      #dragme { width: 80px; height: 60px; background: #6366f1; }
+      #candidate { position: absolute; left: 20px; top: 350px; width: 100px; height: 60px; background: #9ca3af; }
+      #overlap { position: absolute; left: 0; top: 0; width: 160px; height: 120px; background: #ef4444; }
+    </style>
+  </head>
+  <body>
+    <main id="outer" data-agent-native-node-id="outer">
+      <section id="nested" data-an-primitive="frame" data-agent-native-node-id="nested">
+        <div id="dragme" data-agent-native-node-id="dragme">Drag me</div>
+      </section>
+      <div id="candidate" data-agent-native-node-id="candidate">Drop area</div>
+      <div id="overlap" data-agent-native-node-id="overlap">Later layer</div>
+    </main>
+  </body>
+</html>`;
+      const dropResults: Array<{
+        crossesExitedFrame: boolean;
+        dropArea: "empty" | "sibling";
+        parentId: string | undefined;
+        childOrder: string[];
+        structureChange: Record<string, unknown> | undefined;
+      }> = [];
+
+      for (const testCase of [
+        { crossesExitedFrame: false, dropArea: "empty" },
+        { crossesExitedFrame: true, dropArea: "empty" },
+        { crossesExitedFrame: false, dropArea: "sibling" },
+      ] as const) {
+        await page.setContent(`<!doctype html><html><body style="margin:0">
+<iframe id="design" style="display:block;width:900px;height:700px;border:0"></iframe>
+<script>
+  window.__bridgeMessages = [];
+  window.addEventListener("message", event => {
+    const message = event.data;
+    if (!message || typeof message.type !== "string") return;
+    window.__bridgeMessages.push(message);
+    if (message.type === "visual-structure-change") {
+      event.source.postMessage({
+        type: "visual-structure-ack",
+        requestId: message.requestId,
+        applied: true,
+      }, "*");
+    }
+  });
+</script>
+</body></html>`);
+        await page.locator("#design").evaluate((iframe, html) => {
+          (iframe as HTMLIFrameElement).srcdoc = html as string;
+        }, fixtureHtml);
+        const iframe = await page.locator("#design").elementHandle();
+        const frame = await iframe?.contentFrame();
+        if (!frame) throw new Error("Design fixture iframe failed to load");
+        await frame.waitForSelector("#dragme");
+        await frame.evaluate(() => {
+          (window as any).__receivedStructureAcks = [];
+          window.addEventListener("message", (event) => {
+            if (event.data?.type === "visual-structure-ack") {
+              (window as any).__receivedStructureAcks.push(event.data);
+            }
+          });
+        });
+        await frame.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(
+            false,
+            "g4",
+            true,
+            sourceScript,
+          ),
+        });
+        await frame.waitForSelector(
+          '[data-agent-native-edit-overlay="shield"]',
+        );
+        await page.evaluate(() => {
+          document
+            .querySelector<HTMLIFrameElement>("#design")!
+            .contentWindow!.postMessage(
+              { type: "select-element", selector: "#dragme" },
+              "*",
+            );
+        });
+        await frame.waitForFunction(() => {
+          const overlay = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          );
+          const target = document.querySelector<HTMLElement>("#dragme");
+          if (!overlay || !target) return false;
+          const overlayRect = overlay.getBoundingClientRect();
+          const targetRect = target.getBoundingClientRect();
+          return (
+            window.getComputedStyle(overlay).display === "block" &&
+            Math.abs(overlayRect.width - targetRect.width) < 2 &&
+            Math.abs(overlayRect.height - targetRect.height) < 2
+          );
+        });
+
+        const dragmeBox = await frame.locator("#dragme").boundingBox();
+        if (!dragmeBox) throw new Error("Dragged layer has no rendered box");
+        const startX = dragmeBox.x + dragmeBox.width / 2;
+        const startY = dragmeBox.y + dragmeBox.height / 2;
+        await page.mouse.move(startX, startY);
+        await page.mouse.down();
+        if (testCase.crossesExitedFrame) {
+          await page.mouse.move(570, 350, { steps: 4 });
+          await page.mouse.move(startX, startY, { steps: 4 });
+        }
+        await page.mouse.move(
+          testCase.dropArea === "empty" ? 650 : 130,
+          testCase.dropArea === "empty" ? 550 : 460,
+          { steps: 12 },
+        );
+        await page.mouse.up();
+
+        const messages = await readBridgeMessages(page);
+        const structureMessage = messages.find(
+          (message) => message.type === "visual-structure-change",
+        );
+        if (!structureMessage) {
+          throw new Error("The host did not receive the structure change");
+        }
+        await frame.waitForFunction((requestId) => {
+          const acknowledgements = (window as any)
+            .__receivedStructureAcks as Array<Record<string, unknown>>;
+          return acknowledgements.some(
+            (acknowledgement) =>
+              acknowledgement.requestId === requestId &&
+              acknowledgement.applied === true,
+          );
+        }, structureMessage.requestId);
+        const structureChange = structureMessage
+          ? {
+              anchorSourceId: structureMessage.anchorSourceId,
+              persistenceAnchorSourceId:
+                structureMessage.persistenceAnchorSourceId,
+              placement: structureMessage.placement,
+              persistencePlacement: structureMessage.persistencePlacement,
+            }
+          : undefined;
+        const result = await frame.evaluate(() => {
+          const outer = document.querySelector<HTMLElement>("#outer")!;
+          const child = document.querySelector<HTMLElement>("#dragme")!;
+          return {
+            parentId: child.parentElement?.id,
+            childOrder: Array.from(outer.children).map((element) => element.id),
+          };
+        });
+
+        dropResults.push({ ...testCase, ...result, structureChange });
+      }
+
+      for (const dropResult of dropResults) {
+        const label = `${dropResult.crossesExitedFrame ? "nested-frame crossing" : "direct exit"} ${dropResult.dropArea} drop`;
+        const observed = JSON.stringify(dropResults);
+        expect(dropResult.parentId, `${label}: ${observed}`).toBe("outer");
+        expect(dropResult.childOrder, `${label}: ${observed}`).toEqual([
+          "nested",
+          "dragme",
+          "candidate",
+          "overlap",
+        ]);
+        if (dropResult.dropArea === "empty") {
+          expect(dropResult.structureChange).toMatchObject({
+            anchorSourceId: "nested",
+            persistenceAnchorSourceId: "nested",
+            placement: "after",
+            persistencePlacement: "after",
+          });
+        } else {
+          expect(dropResult.structureChange).toMatchObject({
+            anchorSourceId: "candidate",
+            persistenceAnchorSourceId: "candidate",
+            placement: "before",
+            persistencePlacement: "before",
+          });
+        }
+      }
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge does not nest a dragged element onto a leaf-content flex button (drop-on-leaf), and still nests onto a real flex container",
   { timeout: 30_000 },
   async () => {
@@ -12447,6 +12663,72 @@ it(
   },
 );
 
+it(
+  "keeps a live drag source visible until the host acknowledges the destination insert",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #target { position: absolute; left: 100px; top: 100px; width: 120px; height: 80px; background: #6366f1; opacity: .6; }
+    </style>
+  </head>
+  <body>
+    <div id="target" data-agent-native-node-id="target"></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.mouse.click(120, 120);
+      await page.mouse.move(120, 120);
+      await page.mouse.down();
+      await page.mouse.move(150, 150, { steps: 3 });
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "agent-native:cross-screen-claim", claimed: true },
+          "*",
+        );
+      });
+      await page.waitForTimeout(0);
+      await page.mouse.up();
+
+      const source = await page.locator("#target").evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          parent: element.parentElement?.tagName,
+          left: rect.left,
+          top: rect.top,
+          opacity: getComputedStyle(element).opacity,
+          pointerEvents: getComputedStyle(element).pointerEvents,
+          pendingDelete: element.hasAttribute(
+            "data-agent-native-pending-delete-style",
+          ),
+        };
+      });
+      expect(source).toEqual({
+        parent: "BODY",
+        left: 100,
+        top: 100,
+        opacity: "0.6",
+        pointerEvents: "auto",
+        pendingDelete: false,
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── Selection overlay tracks CSS transitions/animations ─────────────────────
 //
 // ResizeObserver (the existing overlay-sync mechanism) only fires on
@@ -12722,6 +13004,418 @@ it(
 
       expect(failures).toEqual([]);
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge forwards undo to the host immediately after a live iframe drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 700 },
+    });
+    try {
+      await page.setContent(
+        '<body style="margin:0"><iframe id="preview" tabindex="0" style="display:block;width:900px;height:700px;border:0"></iframe></body>',
+      );
+      const frame = page
+        .frames()
+        .find((candidate) => candidate !== page.mainFrame());
+      if (!frame) throw new Error("preview iframe did not load");
+      await page.locator("#preview").focus();
+      await frame.setContent(`<!doctype html>
+        <html><head><style>
+          html, body { margin: 0; width: 100%; height: 100%; }
+          #row { display: flex; gap: 12px; padding: 20px; }
+          #row > div { width: 100px; height: 60px; color: white; }
+        </style></head><body>
+          <div id="row" data-agent-native-node-id="row">
+            <div id="a" data-agent-native-node-id="a" style="background:#ef4444">A</div>
+            <div id="b" data-agent-native-node-id="b" style="background:#22c55e">B</div>
+            <div id="c" data-agent-native-node-id="c" style="background:#3b82f6">C</div>
+          </div>
+        </body></html>`);
+      await frame.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithLiveReflow("drag-undo"),
+      });
+      await frame.waitForSelector('[data-agent-native-edit-overlay="shield"]', {
+        timeout: 2_000,
+      });
+      await page.evaluate(() => {
+        document
+          .querySelector("iframe")
+          ?.contentWindow?.postMessage(
+            { type: "select-element", selector: "#a" },
+            "*",
+          );
+      });
+      await frame.waitForFunction(
+        () => {
+          const overlay = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          );
+          return (
+            overlay && window.getComputedStyle(overlay).display === "block"
+          );
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (
+            event.source === document.querySelector("iframe")?.contentWindow
+          ) {
+            (window as any).__bridgeMessages.push(event.data);
+          }
+        });
+      });
+
+      await page.mouse.move(70, 50);
+      await page.mouse.down();
+      await page.mouse.move(330, 50, { steps: 10 });
+      await page.mouse.up();
+
+      // Keep this adjacent to pointerup: the bug only shows up when the user
+      // requests undo before the iframe's next render/host round trip.
+      const primary = process.platform === "darwin" ? "Meta" : "Control";
+      await page.keyboard.press(`${primary}+z`);
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: { type?: string; key?: string }) =>
+            message.type === "design-hotkey" &&
+            message.key?.toLowerCase() === "z",
+        ),
+      );
+      expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
+        "IFRAME",
+      );
+      expect(
+        await frame.evaluate(() =>
+          Array.from(document.querySelectorAll<HTMLElement>("#row > div")).map(
+            (element) => element.id,
+          ),
+        ),
+      ).toEqual(["b", "c", "a"]);
+      expect(
+        await page.evaluate(() => (window as any).__bridgeMessages),
+      ).toContainEqual(
+        expect.objectContaining({
+          type: "design-hotkey",
+          key: "z",
+          ...(process.platform === "darwin"
+            ? { metaKey: true }
+            : { ctrlKey: true }),
+        }),
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "host undo reverts a live iframe reorder while focus remains in the cross-origin frame",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 700 },
+    });
+    const activeEditorDragRef = { current: false };
+    const pendingLiveNonStyleEditsRef = { current: [] as any[] };
+    const pendingLiveNonStyleUndoStackRef = { current: [] as any[] };
+    const pendingLiveNonStyleRedoStackRef = { current: [] as any[] };
+    const historyOrderRef = { current: [] as string[] };
+    const redoOrderRef = { current: [] as string[] };
+    const requestedReverts: any[][] = [];
+    const setPendingLiveNonStyleEdits = vi.fn();
+    const requestPendingLiveNonStyleRevert = vi.fn((edits: any[]) => {
+      requestedReverts.push([...edits]);
+    });
+    const undoArgs = {
+      activeEditorDragRef,
+      activeFile: { id: "preview", filename: "preview.html" },
+      allowPendingLiveEdits: true,
+      canEditDesign: false,
+      fileHistoryMutationPendingRef: { current: false },
+      historyOrderRef,
+      redoOrderRef,
+      pendingLiveNonStyleEditsRef,
+      pendingLiveNonStyleUndoStackRef,
+      pendingLiveNonStyleRedoStackRef,
+      pendingVisualStyleEditsRef: { current: [] },
+      pendingVisualStyleUndoStackRef: { current: [] },
+      pendingVisualStyleRedoStackRef: { current: [] },
+      requestPendingLiveNonStyleRevert,
+      resetGeometryCommitCoalescing: vi.fn(),
+      setPendingLiveNonStyleEdits,
+      setSelectedElement: vi.fn(),
+      syncUndoRedoState: vi.fn(),
+    } as unknown as Parameters<typeof runUndo>[0];
+    const recordArgs = {
+      canEditDesign: false,
+      canEditLiveScreens: new Set(["preview"]),
+      cancelPendingStructureVerification: vi.fn(),
+      files: [{ id: "preview", filename: "preview.html" }],
+      localhostConnectionRootPathByIdRef: { current: new Map() },
+      overviewScreens: [
+        { id: "preview", filename: "preview.html", sourceType: "localhost" },
+      ],
+      pendingLiveNonStyleEditsRef,
+      pendingLiveNonStyleRedoStackRef,
+      pendingLiveNonStyleUndoStackRef,
+      pendingStructureRedoReplayRef: { current: undefined },
+      pendingStructureRedoReplayTimerRef: { current: undefined },
+      pendingVisualStyleRedoStackRef: { current: [] },
+      recordPendingHistoryEntry: (kind: string) =>
+        historyOrderRef.current.push(kind),
+      runtimeLayerSnapshotsById: {},
+      setPendingLiveNonStyleEdits,
+    } as unknown as Parameters<typeof runRecordPendingLiveStructureEdit>[0];
+    const bridgeMessages: Array<Record<string, any>> = [];
+    let activeAtUndo: boolean | undefined;
+    let historyAtUndo: string[] = [];
+    let activeDragId: string | null = null;
+    let latestDragEventAt: number | undefined;
+    const acceptedDragStates: boolean[] = [];
+    let stage = "start";
+
+    try {
+      stage = "register local test documents";
+      await page.route("http://localhost:4173/host", (route) =>
+        route.fulfill({
+          contentType: "text/html",
+          body: `<!doctype html><html><body style="margin:0"><iframe id="preview" tabindex="0" src="http://127.0.0.1:4173/app" style="display:block;width:900px;height:700px;border:0"></iframe></body></html>`,
+        }),
+      );
+      await page.route("http://127.0.0.1:4173/app", (route) =>
+        route.fulfill({
+          contentType: "text/html",
+          body: `<!doctype html><html><head><style>
+            html, body { margin: 0; width: 100%; height: 100%; }
+            #row { display: flex; gap: 12px; padding: 20px; }
+            #row > div { width: 100px; height: 60px; color: white; }
+          </style></head><body>
+            <div id="row" data-agent-native-node-id="row">
+              <div id="a" data-agent-native-node-id="a" style="background:#ef4444">A</div>
+              <div id="b" data-agent-native-node-id="b" style="background:#22c55e">B</div>
+              <div id="c" data-agent-native-node-id="c" style="background:#3b82f6">C</div>
+            </div>
+          </body></html>`,
+        }),
+      );
+      await page.exposeFunction("__hostUndoBridgeMessage", (raw: unknown) => {
+        if (!raw || typeof raw !== "object") return;
+        const message = raw as Record<string, any>;
+        bridgeMessages.push(message);
+        if (message.type === "agent-native:editor-drag-state") {
+          const state = {
+            active: message.active === true,
+            dragId:
+              typeof message.dragId === "string" ? message.dragId : undefined,
+            screenId:
+              typeof message.screenId === "string"
+                ? message.screenId
+                : undefined,
+            eventAt:
+              typeof message.eventAt === "number" ? message.eventAt : undefined,
+          };
+          if (
+            !shouldAcceptEditorDragStateEvent(state, {
+              dragId: activeDragId,
+              retiredDragIds: new Set(),
+              retiredScreenIds: new Set(),
+              latestEventAt:
+                state.dragId === activeDragId ? latestDragEventAt : undefined,
+            })
+          ) {
+            return;
+          }
+          if (state.dragId && typeof state.eventAt === "number") {
+            latestDragEventAt = state.eventAt;
+          }
+          if (state.active && state.dragId) activeDragId = state.dragId;
+          if (!state.active) activeDragId = null;
+          activeEditorDragRef.current = state.active;
+          acceptedDragStates.push(state.active);
+          return;
+        }
+        if (message.type === "visual-structure-change") {
+          runRecordPendingLiveStructureEdit(
+            recordArgs,
+            "preview",
+            String(message.selector ?? ""),
+            String(
+              message.persistenceAnchorSelector ?? message.anchorSelector ?? "",
+            ),
+            message.persistencePlacement ?? message.placement,
+            message.payload,
+            {
+              sourceId: message.sourceId,
+              anchorSourceId:
+                message.persistenceAnchorSourceId ?? message.anchorSourceId,
+              anchorElementInfo: message.anchorPayload,
+              requestId: message.requestId,
+              transactionId: message.transactionId,
+              dropMode: message.dropMode,
+            },
+          );
+          return;
+        }
+        if (
+          message.type === "design-hotkey" &&
+          message.key?.toLowerCase() === "z"
+        ) {
+          activeAtUndo = activeEditorDragRef.current;
+          historyAtUndo = [...historyOrderRef.current];
+          const event = {
+            key: message.key,
+            code: message.code,
+            metaKey: message.metaKey,
+            ctrlKey: message.ctrlKey,
+            shiftKey: message.shiftKey,
+            altKey: message.altKey,
+            repeat: message.repeat,
+            preventDefault: vi.fn(),
+          } as unknown as KeyboardEvent;
+          handleDesignHotkey(event, {
+            canClaimBoundChords: true,
+            onUndo: () => runUndo(undoArgs),
+          });
+        }
+      });
+      await page.goto("http://localhost:4173/host");
+      stage = "install host message handler";
+      await page.evaluate(() => {
+        const host = window as unknown as Window & {
+          __hostUndoBridgeMessage: (message: unknown) => Promise<void>;
+          __hostUndoBridgeMessages: Array<Record<string, unknown>>;
+          __hostUndoProcessed: Array<string>;
+          __hostUndoQueue: Promise<void>;
+        };
+        const iframe = document.querySelector<HTMLIFrameElement>("#preview");
+        host.__hostUndoBridgeMessages = [];
+        host.__hostUndoProcessed = [];
+        host.__hostUndoQueue = Promise.resolve();
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.source !== iframe?.contentWindow) return;
+          host.__hostUndoBridgeMessages.push(event.data);
+          const messageType = String(event.data?.type ?? "");
+          host.__hostUndoQueue = host.__hostUndoQueue.then(() =>
+            host.__hostUndoBridgeMessage(event.data).then(() => {
+              host.__hostUndoProcessed.push(messageType);
+            }),
+          );
+        });
+      });
+      const frame = page
+        .frames()
+        .find((candidate) => candidate !== page.mainFrame());
+      if (!frame) throw new Error("preview iframe did not load");
+      stage = "install bridge";
+      await frame.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithLiveReflow("preview"),
+      });
+      await frame.waitForSelector('[data-agent-native-edit-overlay="shield"]', {
+        timeout: 2_000,
+      });
+      await page.locator("#preview").focus();
+      await page.evaluate(() => {
+        document
+          .querySelector<HTMLIFrameElement>("#preview")
+          ?.contentWindow?.postMessage(
+            { type: "select-element", selector: "#a" },
+            "*",
+          );
+      });
+
+      stage = "drag element";
+      await page.mouse.move(70, 50);
+      await page.mouse.down();
+      await page.mouse.move(330, 50, { steps: 10 });
+      await page.mouse.up();
+      const primary = process.platform === "darwin" ? "Meta" : "Control";
+      stage = "forward host undo";
+      await page.keyboard.press(`${primary}+z`);
+      await page.waitForFunction(
+        () => {
+          const host = window as unknown as Window & {
+            __hostUndoProcessed?: string[];
+          };
+          return (
+            host.__hostUndoProcessed?.includes("visual-structure-change") &&
+            host.__hostUndoProcessed?.includes("design-hotkey")
+          );
+        },
+        undefined,
+        { timeout: 3_000 },
+      );
+      expect(
+        bridgeMessages
+          .filter(
+            (message) =>
+              message.type === "visual-structure-change" ||
+              message.type === "design-hotkey",
+          )
+          .map((message) => message.type),
+      ).toEqual(["visual-structure-change", "design-hotkey"]);
+      expect(acceptedDragStates[0]).toBe(true);
+      expect(acceptedDragStates[acceptedDragStates.length - 1]).toBe(false);
+      expect(historyAtUndo).toEqual(["pending-live"]);
+      expect(historyOrderRef.current).toEqual([]);
+      expect(redoOrderRef.current).toEqual(["pending-live"]);
+      expect(pendingLiveNonStyleUndoStackRef.current).toHaveLength(0);
+      expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
+        "IFRAME",
+      );
+      expect(activeAtUndo).toBe(false);
+      expect(requestPendingLiveNonStyleRevert).toHaveBeenCalledTimes(1);
+      expect(requestedReverts[0]).toEqual([
+        expect.objectContaining({
+          kind: "structure",
+          requestId: expect.any(String),
+        }),
+      ]);
+      expect(
+        await frame.evaluate(() =>
+          Array.from(document.querySelectorAll<HTMLElement>("#row > div")).map(
+            (element) => element.id,
+          ),
+        ),
+      ).toEqual(["b", "c", "a"]);
+
+      const [revert] = requestedReverts[0]!;
+      const structureChange = bridgeMessages.find(
+        (message) => message.type === "visual-structure-change",
+      );
+      expect(revert?.requestId).toBe(structureChange?.requestId);
+      stage = "acknowledge iframe undo";
+      await page.evaluate((requestId) => {
+        document
+          .querySelector<HTMLIFrameElement>("#preview")
+          ?.contentWindow?.postMessage(
+            { type: "visual-structure-ack", requestId, applied: false },
+            "*",
+          );
+      }, revert.requestId);
+      await expect
+        .poll(async () =>
+          frame.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>("#row > div"),
+            ).map((element) => element.id),
+          ),
+        )
+        .toEqual(["a", "b", "c"]);
+      expect(pendingLiveNonStyleRedoStackRef.current).toHaveLength(1);
+    } catch (error) {
+      throw new Error(`${stage}: ${String(error)}`);
     } finally {
       await browser.close();
     }

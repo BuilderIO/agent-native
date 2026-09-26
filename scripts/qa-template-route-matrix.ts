@@ -67,7 +67,7 @@ function assertPublicPaths(pluginRel: string, expected: string[]) {
   }
 }
 
-const publicMarketingTemplates = [
+const signInLandingTemplates = [
   "analytics",
   "assets",
   "brain",
@@ -86,12 +86,12 @@ const publicMarketingTemplates = [
   "tasks",
 ];
 
-for (const template of publicMarketingTemplates) {
+for (const template of signInLandingTemplates) {
   const rootRoute = `templates/${template}/app/routes/_index.tsx`;
   assertContains(
     rootRoute,
-    "MarketingHome",
-    `${template} / must use the shared SSR marketing home`,
+    "signInLandingLoader as loader",
+    `${template} / must document-redirect to the shared sign-in page`,
   );
   assert.ok(
     exists(`templates/${template}/app/routes/home.tsx`) ||
@@ -158,8 +158,8 @@ assertFilesExist("design", [
 
 assertMatches(
   "templates/clips/app/routes/_index.tsx",
-  /MarketingHome/,
-  "clips / must render the shared SSR marketing home",
+  /signInLandingLoader as loader/,
+  "clips / must document-redirect to sign-in",
 );
 assertMatches(
   "templates/clips/app/routes/_app.home.tsx",

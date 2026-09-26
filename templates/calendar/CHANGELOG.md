@@ -3,11 +3,35 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-26
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
 ## 2026-09-25
 
 ### Added
 
 - Add Jev invitation rules for auto-accept, auto-decline, and auto-hide with automation status.
+
+### Improved
+
+- If Zoom cannot confirm a meeting, Calendar keeps the booking and follows up with meeting details
+- Public booking links show their title, description, and duration in previews.
+
+### Fixed
+
+- Calendar rule Undo stays consistent during RSVP updates, and one failed event no longer blocks later activity.
+- Gong requests keep legacy credentials paired with their saved API endpoint
+- Reserved bookings reach Google Calendar when Zoom fails, and guests can retry when meeting creation never started.
+- Invitation rules continue scanning after a single RSVP lookup fails
+- Booking links without a meeting type now show a not-found page.
+- Personal booking pages use the host's saved timezone for availability.
+- Booking link previews now show their image in browser-based link preview tools
+- Calendar feeds with the same URL keep their own names and colors.
+- Calendar invitation rules surface expired connections and undo safely without duplicate RSVP updates
+- Restore locally hidden events from activity after disconnecting an account
 
 ## 2026-09-24
 

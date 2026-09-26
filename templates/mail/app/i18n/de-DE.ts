@@ -41,14 +41,14 @@ const messages = {
       aiSetupTitle: "KI-Posteingang einrichten",
       aiSetupTagLabel: "KI-Tag erstellen",
       aiSetupImportanceLabel: "Wichtige E-Mails",
-      aiSetupSpamLabel: "Spam und unerwünschte E-Mails",
-      aiSetupArchiveLabel: "Automatisch archivieren",
+      aiSetupSpamLabel: "Unerwünscht",
+      aiSetupArchiveLabel: "Posteingang überspringen",
       aiSetupSave: "Einrichtung speichern",
       aiSetupSkip: "Vorerst überspringen",
       aiSetupImportantHeadline: "Was ist wichtig?",
       aiSetupSkipInboxHeadline: "Was kann den Posteingang überspringen?",
       aiSetupTagsHeadline: "Tabs auswählen",
-      aiSetupArchiveSpamHeadline: "Automatisch archivieren und Spam",
+      aiSetupArchiveSpamHeadline: "Posteingang überspringen und Spam",
       aiSetupTagReceipts: "Belege",
       aiSetupTagUpdates: "Produktupdates",
       aiSetupTagGitHub: "Menschen auf GitHub",
@@ -562,6 +562,7 @@ const messages = {
       actionFailed: "Der KI-Filter konnte nicht aktualisiert werden.",
       settingsFailed:
         "Die Einstellungen des KI-Filters konnten nicht gespeichert werden.",
+      automationRulesLoadFailed: "Triage-Regeln konnten nicht geladen werden.",
       instructionFailed:
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
       skipInboxMode: "Posteingang überspringen",
@@ -611,6 +612,14 @@ const messages = {
       tagTabsHelp: "Jedes Tag wird zu einem Tab im Posteingang",
       addTag: "Tag hinzufügen",
       triageTitle: "Triage",
+      connectJev: "Jev verbinden",
+      connectJevToRunTriage: "Verbinde Jev, um die Triage auszuführen",
+      freeBuilderOrApiKey:
+        "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
+      jevAvailabilityFailed:
+        "Die Verfügbarkeit von Jev konnte nicht geprüft werden.",
+      connectBuilder: "Builder.io verbinden",
+      addJevApiKey: "API-Schlüssel hinzufügen",
     },
     draftQueue: {
       title: "Cola de borradores",

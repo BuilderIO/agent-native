@@ -1,3 +1,6 @@
+export * from "./PromptHome.js";
+export * from "./TemplateLibraryGrid.js";
+export * from "./TemplatePreviewDialog.js";
 export * from "./header-actions.js";
 export * from "./sidebar-footer-actions.js";
 export * from "./sidebar.js";

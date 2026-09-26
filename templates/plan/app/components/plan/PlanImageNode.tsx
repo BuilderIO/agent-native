@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { uploadEditorImage } from "@agent-native/core/client/uploads";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { SharedImage } from "@agent-native/toolkit/editor";
 import {
   NodeViewWrapper,
@@ -29,6 +30,10 @@ function PlanImageNodeView({
   selected,
 }: NodeViewProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const canUploadImages =
+    import.meta.env.DEV ||
+    (fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const src = (node.attrs.src as string) || "";
   const alt = (node.attrs.alt as string) || "";
@@ -38,7 +43,7 @@ function PlanImageNodeView({
   async function handleReplaceFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file) return;
+    if (!file || !canUploadImages) return;
 
     const toastId = toast.loading(t("raw.document.replacingImage"));
     try {
@@ -58,6 +63,7 @@ function PlanImageNodeView({
         type="file"
         accept="image/*"
         className="hidden"
+        disabled={!canUploadImages}
         tabIndex={-1}
         aria-hidden="true"
         onChange={handleReplaceFile}
@@ -68,7 +74,11 @@ function PlanImageNodeView({
         uploading={uploading}
         showControls={selected}
         imgClassName="an-rich-md-image"
-        onReplace={isEditable ? () => fileInputRef.current?.click() : undefined}
+        onReplace={
+          isEditable && canUploadImages
+            ? () => fileInputRef.current?.click()
+            : undefined
+        }
       />
     </NodeViewWrapper>
   );

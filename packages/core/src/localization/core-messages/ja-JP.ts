@@ -1,6 +1,26 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl":
+    "有効な HTTP または HTTPS の URL を入力してください。",
+  "composer.contextAttach": "添付",
+  "composer.menu.search": "検索…",
+  "composer.contextPrevious": "前へ",
+  "composer.contextNext": "次へ",
+  "composer.contextLoadFailed": "コンテキストを読み込めませんでした。",
+  "composer.contextLinkRequired": "リンクを入力してください。",
+  "composer.submitFailed": "送信できませんでした。もう一度お試しください。",
+  "composer.addContext": "コンテキストを追加",
+  "composer.contextActionFailed": "コンテキストを追加できませんでした。",
+  "composer.contextBack": "戻る",
+  "composer.searchContext": "コンテキストを検索…",
+  "composer.noContextResults": "一致するコンテキストがありません。",
+  "composer.contextPending": "コンテキストを読み込み中",
+  "composer.contextError": "コンテキストの読み込みに失敗",
+  "composer.retryContext": "{{name}} のコンテキストを再試行",
+  "composer.contextLimitExceeded":
+    "コンテキストが大きすぎます。項目を削除するか、より小さな選択範囲を添付してください。",
   "activity.reasoning": "推論",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
@@ -94,10 +114,11 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "独自のAIモデルを接続",
   "onboarding.capability.fileStorage.keySummary":
     "ファイルのアップロードと保存",
-  "onboarding.fileStorage.title": "ファイルストレージを選択",
+  "onboarding.fileStorage.title": "ファイルをアップロードするストレージを接続",
   "onboarding.fileStorage.description":
-    "Builderの管理ストレージ、または独自のS3互換バケット用のカスタムストレージキーを選択します。",
-  "onboarding.fileStorage.custom": "カスタムストレージキーを使用",
+    "Builder.io（無料）を接続するか、独自のS3互換オブジェクトストレージを設定してください。",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.ioを再接続",
+  "onboarding.fileStorage.custom": "独自のオブジェクトストレージキーを追加",
   "onboarding.fileStorage.customDescription":
     "安定した公開URLを持つS3互換バケットを設定します。",
   "onboarding.capability.voiceInput.label": "音声入力",
@@ -654,7 +675,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",
   "recovery.credentialRejected":
-    "現在の Builder.io またはモデルプロバイダーの認証情報が拒否されました。Builder.io に再接続してから、このメッセージを再試行してください。",
+    "モデルプロバイダーが保存済みの認証情報を拒否しました。Builder.io への接続またはプロバイダーキーを更新してから、このメッセージを再試行してください。",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents に接続されていません。このホスト型コード変更を実行するには、設定で Builder.io に接続してください。モデルプロバイダーキーはチャットやその他の AI 機能で引き続き使えますが、Builder Cloud Agent の認証には使えません。",
   "recovery.diagnoseRetry": "診断して再試行",
   "recovery.forkDescription": "この会話を別のチャットスレッドに分岐します。",
   "recovery.forkFailed":
@@ -711,6 +734,10 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "AI に接続してチャットを開始...",
   "setup.connectToChat": "AI に接続してチャット",
   "setup.connectToStart": "AI に接続してチャットを開始",
+  "setup.checkingProvider": "AI 接続を確認しています…",
+  "setup.providerStatusUnavailable": "AI 接続を確認できませんでした。",
+  "agentNativeClips.meetingAsk.placeholder": "何でも聞いてください",
+  "agentNativeClips.meetingAsk.ariaLabel": "この会議について質問する",
   "setup.connected": "接続済み",
   "setup.connectedOrganization": "接続済み — {{organization}}",
   "setup.connectedTo": "{{organization}} に接続済み",
@@ -842,6 +869,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
   "usage.builderCredits": "Builder クレジット",
+  "usage.inviteFriends": "友だちを招待",
+  "usage.inviteCredits":
+    "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",
+  "usage.copyInviteLink": "招待リンクをコピー",
+  "usage.inviteLinkCopied": "招待リンクをコピーしました",
   "usage.creditBalance": "ワークスペース残高",
   "usage.monthlyPlan": "月間プラン",
   "usage.dailyFreeLimit": "無料の日次上限",

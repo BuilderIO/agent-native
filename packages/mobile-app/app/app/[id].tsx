@@ -9,6 +9,7 @@ import { useLayoutEffect, useRef } from "react";
 import { ActivityIndicator, View, Text, TouchableOpacity } from "react-native";
 
 import AppWebView, { type AppWebViewHandle } from "@/components/AppWebView";
+import { getMobileAppUrl } from "@/lib/mobile-app-navigation";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
 import { useMobileNavigation, type RootStackParamList } from "@/lib/navigation";
 import { SESSION_TOKEN_KEY } from "@/lib/session-token-store";
@@ -16,7 +17,7 @@ import { useApps } from "@/lib/use-apps";
 import { useWorkspaceApps } from "@/lib/workspace-apps";
 
 export default function AppScreen() {
-  const { id } = useRoute<RouteProp<RootStackParamList, "App">>().params;
+  const { id, path } = useRoute<RouteProp<RootStackParamList, "App">>().params;
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList, "App">>();
   const mobileNavigation = useMobileNavigation();
@@ -133,7 +134,7 @@ export default function AppScreen() {
   return (
     <AppWebView
       ref={webviewRef}
-      url={app.url}
+      url={getMobileAppUrl(app.url, path)}
       appName={app.name}
       captureSessionToken
       parentSessionTokenKey={SESSION_TOKEN_KEY}

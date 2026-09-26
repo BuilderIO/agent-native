@@ -1,6 +1,25 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "Endereço URL",
+  "composer.contextInvalidUrl": "Insira uma URL HTTP ou HTTPS válida.",
+  "composer.contextAttach": "Anexar",
+  "composer.menu.search": "Pesquisar…",
+  "composer.contextPrevious": "Anterior",
+  "composer.contextNext": "Próximo",
+  "composer.contextLoadFailed": "Não foi possível carregar o contexto.",
+  "composer.contextLinkRequired": "Insira um link.",
+  "composer.submitFailed": "Não foi possível enviar. Tente novamente.",
+  "composer.addContext": "Adicionar contexto",
+  "composer.contextActionFailed": "Não foi possível adicionar o contexto.",
+  "composer.contextBack": "Voltar",
+  "composer.searchContext": "Buscar contexto…",
+  "composer.noContextResults": "Nenhum contexto correspondente.",
+  "composer.contextPending": "Contexto pendente",
+  "composer.contextError": "Falha no contexto",
+  "composer.retryContext": "Tentar novamente o contexto {{name}}",
+  "composer.contextLimitExceeded":
+    "O contexto é grande demais. Remova um item ou anexe uma seleção menor.",
   "activity.reasoning": "Raciocínio",
   "approval.alwaysAllow": "Sempre permitir",
   "approval.alwaysAllowHint": "Aprovar e sempre permitir este comando exato",
@@ -93,11 +112,13 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "Conecte seu próprio modelo de IA",
   "onboarding.capability.fileStorage.keySummary":
     "Upload e armazenamento de arquivos",
-  "onboarding.fileStorage.title": "Escolha o armazenamento de arquivos",
+  "onboarding.fileStorage.title":
+    "Conecte o armazenamento para enviar arquivos",
   "onboarding.fileStorage.description":
-    "Escolha o armazenamento gerenciado do Builder ou suas próprias chaves para um bucket compatível com S3.",
+    "Conecte o Builder.io (gratuito) ou configure seu próprio armazenamento de objetos compatível com S3.",
+  "onboarding.fileStorage.reconnectBuilder": "Reconectar Builder.io",
   "onboarding.fileStorage.custom":
-    "Usar chaves de armazenamento personalizadas",
+    "Adicionar suas próprias chaves de armazenamento",
   "onboarding.fileStorage.customDescription":
     "Configure um bucket compatível com S3 com uma URL pública estável.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
@@ -335,7 +356,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",
   "recovery.credentialRejected":
-    "A credencial atual do Builder.io ou do provedor de modelos foi rejeitada. Reconecte o Builder.io e tente enviar esta mensagem novamente.",
+    "O provedor do modelo rejeitou as credenciais salvas. Atualize sua conexão com o Builder.io ou a chave do provedor e tente enviar esta mensagem novamente.",
+  "codeRequired.builderAgentNotConnected":
+    "Os Builder Cloud Agents não estão conectados. Conecte o Builder.io nas configurações para executar esta operação hospedada de alteração de código. As chaves de provedores de modelos continuam funcionando no chat e em outros recursos de IA, mas não autorizam o Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnosticar e tentar novamente",
   "recovery.forkDescription":
     "Bifurque esta conversa em uma linha de chat separada.",
@@ -391,6 +414,12 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "Conecte a IA para começar a conversar...",
   "setup.connectToChat": "Conectar a IA ao chat",
   "setup.connectToStart": "Conecte a IA para começar a conversar",
+  "setup.checkingProvider": "Verificando a conexão com a IA…",
+  "setup.providerStatusUnavailable":
+    "Não foi possível verificar a conexão com a IA.",
+  "agentNativeClips.meetingAsk.placeholder": "Pergunte o que quiser",
+  "agentNativeClips.meetingAsk.ariaLabel":
+    "Pergunte o que quiser sobre esta reunião",
   "setup.connected": "Conectado",
   "setup.connectedOrganization": "Conectado — {{organization}}",
   "setup.connectedTo": "Conectado a {{organization}}",
@@ -873,6 +902,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Novo e-mail",
   "settings.emailNewPlaceholder": "Digite o novo e-mail",
   "usage.builderCredits": "Créditos do Builder",
+  "usage.inviteFriends": "Convide amigos",
+  "usage.inviteCredits":
+    "Ganhe {{amount}} créditos do Builder quando um amigo assinar.",
+  "usage.copyInviteLink": "Copiar link de convite",
+  "usage.inviteLinkCopied": "Link de convite copiado",
   "usage.creditBalance": "Saldo do workspace",
   "usage.monthlyPlan": "Plano mensal",
   "usage.dailyFreeLimit": "Limite diário gratuito",

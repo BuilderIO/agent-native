@@ -3,14 +3,55 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-26
+
+### Fixed
+
+- Reference file imports now check storage availability before opening the file picker.
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
 ## 2026-09-25
 
 ### Added
 
+- Open an editable presentation from a template in one click, or inspect every slide in a large modal preview without AI generation.
+- Slides home quick actions now adapt to your onboarding role and appear only when an AI provider is ready.
+- Org admins can review agent runs from Settings
 - Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
+### Improved
+
+- Attach Figma frames and websites from focused dialogs while keeping prompt drafts and uploaded design.md files intact.
+- Recent decks now use the same consistent library card layout as templates.
+- Import PDF and PowerPoint files directly from the toolbar, paste Google Slides links in a compact popover, and find design and presentation references together under Design.
+- Start presentations from a prompt or guided source, attach existing Design, Slides, and Figma references, and import decks independently from the home toolbar.
+- Browse design systems and references from the shared context menu and open design-system setup without losing your presentation draft.
+- Shared presentation links show the deck title and slide text in previews
+- Use templates directly from full preview
+- Use text-first menus for import and template actions
+- Keep empty deck lists clear of search and filter controls
+- Selected design-system source forms open directly beneath their row and Figma indexing shows upload and decode progress.
+- Improve Slides design system setup feedback
 
 ### Fixed
 
+- Human Review previews show same-organization slides for organization admins without changing deck data.
+- Searching presentations keeps the results panel visible even when your workspace has no owned decks.
+- Shared-only presentations now open in Recent by default, copied templates wait for deck hydration, and retries remain idempotent.
+- Successful template copies now open even when deck-list refresh is temporarily unavailable.
+- Template copies no longer report success as a failure when deck-list hydration is superseded.
+- The agent recognizes blank slides and its slide prompts avoid duplicate wording.
+- Compact deck reads handle imported slides with invalid selectors.
+- Empty decks show a structured slide preview, and choices before generation are easier to read.
+- Google Slides reference imports explain missing connections clearly, website URLs are validated, DOCX files load reliably, and PDF imports keep readable titles when text extraction is corrupted.
+- Slides stay centered on screen during presentations.
+- Selected presentation options keep their highlight during setup
+- Empty decks keep their retry option when a retry cannot be sent.
+- Prevent setup generation while Figma indexing is in progress
+- Text on a slide is now edited in place: clicking into it changes nothing on the slide, Enter adds the new line immediately, and what you see while typing is what gets saved. The slash menu is no longer available inside slide text.
 - Word document imports now complete successfully.
 
 ## 2026-09-24

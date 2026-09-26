@@ -5,12 +5,15 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createRule: vi.fn(),
+  manageRuleUndo: vi.fn(),
   consolidateRule: vi.fn(),
   deleteRule: vi.fn(),
   updateRule: vi.fn(),
@@ -18,10 +21,31 @@ const mocks = vi.hoisted(() => ({
   includeTagRule: false,
   includeDisabledImportant: false,
   includeExtraDuplicate: false,
+  jevAvailabilityError: false,
+  jevConfigured: true,
+  automationsError: false,
+  automationsHasData: true,
+  triageEnabled: true,
+  updateAiFilterSettings: vi.fn(),
+  refetchJevAvailability: vi.fn(),
+  refetchAutomations: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  actionErrorMessage: (error: unknown) => String(error),
+  useActionQuery: () => ({
+    data: mocks.jevAvailabilityError
+      ? undefined
+      : { configured: mocks.jevConfigured },
+    isLoading: false,
+    isError: mocks.jevAvailabilityError,
+    isFetching: false,
+    refetch: mocks.refetchJevAvailability,
+  }),
 }));
 
 vi.mock("@/components/onboarding/AiInboxSetup", () => ({
@@ -48,8 +72,11 @@ vi.mock("@/components/ui/tooltip", () => ({
 }));
 
 vi.mock("@/hooks/use-ai-filter", () => ({
-  useAiFilter: () => ({ data: { enabled: true }, isLoading: false }),
-  useManageAiFilter: () => ({ mutate: vi.fn() }),
+  useAiFilter: () => ({
+    data: { enabled: mocks.triageEnabled },
+    isLoading: false,
+  }),
+  useManageAiFilter: () => ({ mutate: mocks.updateAiFilterSettings }),
 }));
 
 vi.mock("@/hooks/use-automations", () => ({
@@ -113,17 +140,24 @@ vi.mock("@/hooks/use-automations", () => ({
     const dataWithExtraDuplicate = [...data, extraDuplicate];
     const dataWithTag = [...data, tagRule];
     return () => ({
-      data: mocks.includeExtraDuplicate
-        ? dataWithExtraDuplicate
-        : mocks.includeDisabledImportant
-          ? dataWithDisabledImportant
-          : mocks.includeTagRule
-            ? dataWithTag
-            : data,
+      data: !mocks.automationsHasData
+        ? undefined
+        : mocks.includeExtraDuplicate
+          ? dataWithExtraDuplicate
+          : mocks.includeDisabledImportant
+            ? dataWithDisabledImportant
+            : mocks.includeTagRule
+              ? dataWithTag
+              : data,
       isLoading: false,
+      isError: mocks.automationsError,
+      isFetching: false,
+      refetch: mocks.refetchAutomations,
     });
   })(),
   useCreateAutomation: () => ({ mutateAsync: mocks.createRule }),
+  useClearAiFilterRules: () => ({ mutateAsync: mocks.manageRuleUndo }),
+  useRestoreAiFilterRules: () => ({ mutateAsync: mocks.manageRuleUndo }),
   useConsolidateAiFilterRules: () => ({
     mutateAsync: mocks.consolidateRule,
   }),
@@ -144,16 +178,40 @@ vi.mock("@/hooks/use-google-auth", () => ({
 import { AiFilterSection } from "./AiFilterSection";
 
 describe("AiFilterSection prompt blur saves", () => {
+  it("allows turning triage off when Jev is unavailable", () => {
+    mocks.jevConfigured = false;
+    mocks.triageEnabled = true;
+    render(<AiFilterSection />, { wrapper: MemoryRouter });
+
+    const toggle = screen.getByRole("switch", {
+      name: "mail.aiFilter.toggle",
+    });
+    expect((toggle as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(toggle);
+    expect(mocks.updateAiFilterSettings).toHaveBeenCalledWith(
+      { mode: "settings", settings: { enabled: false } },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
+  });
+
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
     mocks.includeTagRule = false;
     mocks.includeDisabledImportant = false;
     mocks.includeExtraDuplicate = false;
+    mocks.jevAvailabilityError = false;
+    mocks.jevConfigured = true;
+    mocks.automationsError = false;
+    mocks.automationsHasData = true;
+    mocks.triageEnabled = true;
     mocks.createRule.mockReset();
+    mocks.manageRuleUndo.mockReset();
     mocks.consolidateRule.mockReset();
     mocks.deleteRule.mockReset();
     mocks.updateRule.mockReset();
+    mocks.updateAiFilterSettings.mockReset();
+    mocks.refetchAutomations.mockReset();
   });
 
   it("does not mutate existing rules when a prompt blurs unchanged", async () => {
@@ -178,6 +236,122 @@ describe("AiFilterSection prompt blur saves", () => {
     expect(
       screen.queryByRole("button", { name: "mail.sort.aiSetupRunAgain" }),
     ).toBeNull();
+  });
+
+  it("shows a retry state when rules fail to load without cached data", () => {
+    mocks.automationsError = true;
+    mocks.automationsHasData = false;
+    render(<AiFilterSection />);
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "mail.aiFilter.automationRulesLoadFailed",
+    );
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.aiSetupRunAgain" }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+    expect(mocks.refetchAutomations).toHaveBeenCalledOnce();
+  });
+
+  it("keeps cached rules visible after a failed background refresh", async () => {
+    mocks.automationsError = true;
+    render(<AiFilterSection />);
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    await waitFor(() => {
+      expect(
+        (
+          screen.getByRole("textbox", {
+            name: "mail.aiFilter.importantMode",
+          }) as HTMLTextAreaElement
+        ).value,
+      ).toContain("Human comments on GitHub matter");
+    });
+  });
+
+  it("offers retry instead of Jev connection options when availability lookup fails", () => {
+    mocks.jevAvailabilityError = true;
+    render(<AiFilterSection />);
+
+    expect(
+      screen.getByText("mail.aiFilter.jevAvailabilityFailed"),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "mail.aiFilter.connectBuilder",
+      }),
+    ).toBeNull();
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "mail.aiFilter.importantMode",
+        }) as HTMLTextAreaElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      screen.queryByRole("button", {
+        name: "mail.aiFilter.deleteInstruction",
+      }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+    expect(mocks.refetchJevAvailability).toHaveBeenCalledOnce();
+  });
+
+  it("offers a clear action for existing prompt rules when Jev is unavailable", async () => {
+    mocks.jevConfigured = false;
+    mocks.manageRuleUndo.mockResolvedValue({ undoId: "undo-token" });
+    render(<AiFilterSection />, { wrapper: MemoryRouter });
+
+    const prompt = screen.getByRole("textbox", {
+      name: "mail.aiFilter.importantMode",
+    });
+    expect((prompt as HTMLTextAreaElement).disabled).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "mail.aiFilter.deleteInstruction",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.manageRuleUndo).toHaveBeenCalledWith([
+        "important-rule",
+        "important-rule-duplicate",
+      ]);
+    });
+    expect(mocks.deleteRule).not.toHaveBeenCalled();
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.consolidateRule).not.toHaveBeenCalled();
+  });
+
+  it("allows deleting existing AI tags when Jev is unavailable", async () => {
+    mocks.includeTagRule = true;
+    mocks.jevConfigured = false;
+    render(<AiFilterSection />, { wrapper: MemoryRouter });
+
+    const tagRow = screen
+      .getByRole("button", { name: /Existing tag/ })
+      .closest<HTMLElement>(".group");
+    expect(tagRow).not.toBeNull();
+    const deleteButton = within(tagRow!).getByRole("button", {
+      name: "mail.aiFilter.deleteInstruction",
+    });
+    expect((deleteButton as HTMLButtonElement).disabled).toBe(false);
+    expect(deleteButton.className).toContain("size-7");
+    expect(deleteButton.className).toContain("text-muted-foreground");
+    expect(deleteButton.className).not.toContain("opacity-0");
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => {
+      expect(mocks.deleteRule).toHaveBeenCalledWith("tag-rule");
+    });
   });
 
   it("keeps disabled instructions out of prompt edits", async () => {

@@ -65,10 +65,8 @@ more, but both must agree on the key ones and name only real actions. See
 
 ## Public and private routes
 
-`app/routes/_index.tsx` is the public SSR marketing page: no sessions, cookies,
-or private data. Use Toolkit `MarketingHome` with value props, backgrounds,
-action slots, or `children` for a custom hero. Keep the browser-gated app
-under `/home`; never server-redirect `/` based on auth.
+`app/routes/_index.tsx` document-redirects to the shared `/sign-in` page. Keep
+authenticated app UI and data loads under `/home` or another private route.
 
 ## Lightweight defaults
 

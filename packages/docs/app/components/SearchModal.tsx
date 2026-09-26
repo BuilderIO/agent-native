@@ -1,4 +1,11 @@
-import { focusAgentChat } from "@agent-native/core/client/agent-chat";
+import {
+  BuilderSetupCard,
+  chatModelSelectionStorageKey,
+  focusAgentChat,
+  useAgentEngineConfigured,
+  useChatModels,
+} from "@agent-native/core/client/agent-chat";
+import { isLocalRuntimeEngine } from "@agent-native/core/client/composer";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { submitToAgent } from "@agent-native/core/client/navigation";
 import {
@@ -123,6 +130,20 @@ export function SearchModal({
   const navigate = useNavigate();
   const { locale } = useLocale();
   const t = useT();
+  const models = useChatModels({
+    enabled: false,
+    storageKey: chatModelSelectionStorageKey("docs"),
+  });
+  const shouldCheckProviderStatus = !isLocalRuntimeEngine(
+    models.selectedEngine,
+  );
+  const providerStatusCheck = useAgentEngineConfigured(
+    shouldCheckProviderStatus,
+  );
+  const providerStatus = shouldCheckProviderStatus
+    ? providerStatusCheck.state
+    : "configured";
+  const chatReady = providerStatus === "configured";
   const { theme, toggleTheme } = useDocsTheme();
   const results = search(query, index);
   const themeSearchTerms = [
@@ -163,6 +184,7 @@ export function SearchModal({
   }, []);
 
   const submitAskAi = useCallback(() => {
+    if (!chatReady) return;
     onClose();
     const message = query.trim();
     if (!message) {
@@ -170,7 +192,11 @@ export function SearchModal({
       return;
     }
     submitToAgent(message);
-  }, [onClose, query]);
+  }, [chatReady, onClose, query]);
+
+  const retryProviderStatus = useCallback(() => {
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -514,12 +540,37 @@ export function SearchModal({
         </div>
 
         <div className="border-t border-[var(--docs-border)] py-2">
+          {providerStatus === "missing" ? (
+            <BuilderSetupCard attached fullWidth layout="sidebar" />
+          ) : providerStatus === "unknown" ||
+            providerStatus === "unavailable" ? (
+            <div
+              className="mx-3 mb-1 flex items-center justify-between gap-3 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--fg-secondary)]"
+              role="status"
+            >
+              <span>
+                {providerStatus === "unknown"
+                  ? t("agentChat.setup.checkingProvider")
+                  : t("agentChat.setup.providerStatusUnavailable")}
+              </span>
+              {providerStatus === "unavailable" ? (
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-[var(--fg)] underline-offset-4 hover:underline"
+                  onClick={retryProviderStatus}
+                >
+                  {t("agentChat.common.retry")}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <button
             ref={activeIdx === askAiIndex ? activeItemRef : undefined}
             type="button"
             onClick={submitAskAi}
             onMouseEnter={() => setActiveIdx(askAiIndex)}
-            className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition ${
+            disabled={!chatReady}
+            className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
               activeIdx === askAiIndex
                 ? "bg-[var(--docs-accent)]/10"
                 : "hover:bg-[var(--bg-secondary)]"

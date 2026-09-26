@@ -680,6 +680,8 @@ const messages = {
       createAccount: "criar uma conta",
       signIn: "Conecte-se",
       haveAccount: "Eu já tenho uma conta",
+      storageStatusUnavailable:
+        "Não foi possível verificar o armazenamento de arquivos.",
       retry: "Tente novamente",
       sendFeedback: "Enviar feedback",
       feedbackPlaceholder:

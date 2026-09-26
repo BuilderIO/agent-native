@@ -40,6 +40,8 @@ import {
 export interface InPlaceTextSessionOptions {
   /** Viewport point of the click that started editing; the caret lands there. */
   caretPoint?: { x: number; y: number } | null;
+  /** Select the word at `caretPoint`, as a native double-click would. */
+  selectWord?: boolean;
   /** Called after every change to the edited content. */
   onInput?: () => void;
 }
@@ -266,6 +268,9 @@ function textNodesIn(root: Node): Text[] {
 }
 
 function laysOutOwnLines(element: Element) {
+  // A flex or grid child's computed display is blockified, a <br>'s too, yet
+  // Chrome lays a <br> out as a break in the anonymous item around the text.
+  if (element.tagName === "BR") return false;
   const display = window.getComputedStyle(element).display;
   // A DOM without layout (happy-dom) leaves inline defaults unresolved.
   if (!display) return BLOCK_TAGS.has(element.tagName);
@@ -314,13 +319,6 @@ function hasRenderedContent(node: Node): boolean {
     (node instanceof Element || node instanceof DocumentFragment) &&
     node.querySelector(RENDERED_ELEMENTS) !== null
   );
-}
-
-function renderedAfter(node: Node, block: HTMLElement) {
-  const range = document.createRange();
-  range.setStartAfter(node);
-  range.setEnd(block, block.childNodes.length);
-  return hasRenderedContent(range.cloneContents());
 }
 
 /** What follows `node` on its own line: up to the next box that starts a line. */
@@ -688,6 +686,8 @@ export function startInPlaceTextSession(
   let edited = false;
   /** A drag-move's deletion, which its drop joins into one undo step. */
   let dragDeleted = false;
+  /** The text a drag-move deleted from, reshaped once the drop has landed. */
+  let dragSource: Node | null = null;
   // Script can still scroll an overflow:hidden ancestor, and Chrome does, to
   // reveal a caret in text the slide clips; that slides the whole slide
   // under the edit. Their offsets stay pinned for the session.
@@ -757,6 +757,37 @@ export function startInPlaceTextSession(
     return data.replaceAll(ZERO_WIDTH_SPACE, (char) =>
       flags[index++] ? char : "",
     );
+  }
+
+  /**
+   * Chrome reshapes only the edited span of a text node, so typing and
+   * deleting next to a joined Arabic letter leaves it drawn unjoined until
+   * the node is recreated.
+   */
+  function reshape(text: Node | null | undefined) {
+    // Latin text has no joining to redo; leave its node, and whatever the
+    // browser tracks on it, alone.
+    if (
+      !(text instanceof Text) ||
+      !text.isConnected ||
+      !/[^\t\n\r\u0020-\u024f\u2000-\u206f]/.test(text.data)
+    ) {
+      return;
+    }
+    const range = selectionRange();
+    // Read before replaceWith: the selection's live range moves with it.
+    const caret =
+      range?.collapsed && range.startContainer === text
+        ? range.startOffset
+        : null;
+    const copy = text.cloneNode() as Text;
+    text.replaceWith(copy);
+    if (caret !== null) placeCaret(copy, caret);
+  }
+
+  function reshapeAtCaret() {
+    const range = selectionRange();
+    if (range?.collapsed) reshape(range.startContainer);
   }
 
   const notify = () => {
@@ -887,6 +918,7 @@ export function startInPlaceTextSession(
   function edit(kind: EditKind, mutate: () => void) {
     checkpoint(kind);
     mutate();
+    reshapeAtCaret();
     notify();
   }
 
@@ -1204,7 +1236,7 @@ export function startInPlaceTextSession(
     if (!caret) return;
     const br = document.createElement("br");
     caret.insertNode(br);
-    if (renderedAfter(br, nearestLineBox(br, el))) {
+    if (hasRenderedContent(lineRest(br, nearestLineBox(br, el)))) {
       const next = br.nextSibling;
       if (next instanceof Text) placeCaret(next, 0);
       else
@@ -1655,6 +1687,7 @@ export function startInPlaceTextSession(
     const range = selectionRange();
     const dropJoins = dragDeleted && type === "insertFromDrop";
     dragDeleted = false;
+    if (!dropJoins) dragSource = null;
     if (type === "deleteByDrag") {
       // Chrome deletes a moved selection first and then drops it: both
       // halves are one step. Inside one text node Chrome's delete also
@@ -1667,7 +1700,11 @@ export function startInPlaceTextSession(
       }
       event.preventDefault();
       if (!dragged) return;
-      edit("command", () => deleteRange(dragged));
+      // Not edit(): its reshape would move Chrome's live drop point.
+      checkpoint("command");
+      deleteRange(dragged);
+      dragSource = selectionRange()?.startContainer ?? null;
+      notify();
       dragDeleted = true;
       return;
     }
@@ -1710,7 +1747,11 @@ export function startInPlaceTextSession(
       const at =
         (type === "insertFromDrop" ? targetRange(event) : null) ?? range;
       if (dropJoins) {
-        if (insertClipboard(data, at)) notify();
+        if (insertClipboard(data, at)) {
+          reshapeAtCaret();
+          reshape(dragSource);
+          notify();
+        }
       } else {
         command(() => insertClipboard(data, at));
       }
@@ -1734,6 +1775,13 @@ export function startInPlaceTextSession(
     const input = event as InputEvent;
     if (input.inputType === "insertText" && input.data === " ") {
       applyMarkdownShortcut();
+    }
+    // Replacing the node would cancel an IME composition, or move the live
+    // Range Chrome drops a dragged selection at.
+    if (input.inputType === "deleteByDrag") {
+      dragSource = selectionRange()?.startContainer ?? null;
+    } else if (!input.isComposing) {
+      reshapeAtCaret();
     }
     notify();
   }
@@ -2011,9 +2059,8 @@ export function startInPlaceTextSession(
       }
     }
     if (edited) {
-      // Chrome reshapes only the edited span of a text node, so typing and
-      // deleting next to a joined Arabic letter leaves it drawn unjoined
-      // until the node is recreated. The markup stays identical.
+      // A join or split away from the caret needs the same reshape (see
+      // reshapeAtCaret); the markup stays identical.
       el.normalize();
       for (const text of textNodesIn(el)) text.replaceWith(text.cloneNode());
     }
@@ -2040,6 +2087,11 @@ export function startInPlaceTextSession(
   const point = options.caretPoint ? caretFromPoint(options.caretPoint) : null;
   if (point && el.contains(point[0])) {
     placeCaret(...point);
+    if (options.selectWord) {
+      const selection = window.getSelection();
+      selection?.modify("move", "backward", "word");
+      selection?.modify("extend", "forward", "word");
+    }
   } else if (
     selection &&
     initialRange &&

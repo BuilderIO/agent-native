@@ -18,6 +18,7 @@ export interface CreatePrimitiveSpec {
   fromClick: boolean;
   /** Commit an in-progress pen path without overriding a newly chosen tool. */
   preserveActiveTool?: boolean;
+  nextTool?: "move" | "pen";
 }
 
 /**

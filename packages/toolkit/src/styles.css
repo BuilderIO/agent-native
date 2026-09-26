@@ -19,6 +19,7 @@
  *     compiled `.js` next to it for consumers that only install `dist/`.
  */
 @import "./theme/resource-icons.css";
+@import "./app-shell/prompt-home.css";
 
 @source "./**/*.{js,ts,tsx}";
 

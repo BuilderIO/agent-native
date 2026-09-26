@@ -782,6 +782,7 @@ interface DesignCanvasProps {
     transactionId?: string;
     routePath?: string;
     reason: string;
+    sourcePresent?: boolean;
   }) => void;
   onRuntimeStructureRollbackResult?: (details: {
     requestId: string;
@@ -1128,8 +1129,8 @@ interface DesignCanvasProps {
    * screen. When set to a non-null tool, DesignCanvas mounts a transparent
    * capture overlay above the iframe so pointer gestures draw a new
    * primitive instead of reaching the iframe's own content/editor-chrome
-   * bridge. `null`/`undefined` fully restores prior (pre-creation-tool)
-   * behavior — the overlay never mounts.
+   * bridge. `null`/`undefined` disables pointer capture while keeping a
+   * rejected Pen draft mounted for retry.
    */
   activeCreationTool?: CreationTool | null;
   selectedPenPathNodeId?: string | null;
@@ -1142,8 +1143,12 @@ interface DesignCanvasProps {
    * persisted primitive (see `appendCanvasPrimitiveToHtml` /
    * `draftPrimitiveToInsert` on the overview side).
    */
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
-  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | false | void;
+  onUpdatePenPath?: (
+    nodeId: string,
+    path: PenPath,
+    nextTool?: "move",
+  ) => boolean;
   /**
    * OS file drag-and-drop (Figma parity): fired when the user drops native
    * OS files (e.g. images dragged from Finder/Explorer) onto this single-
@@ -1918,9 +1923,10 @@ export function DesignCanvas({
     awaitingTransaction: boolean;
   } | null>(null);
   const lastRuntimeStructureDeleteRequestIdRef = useRef<string | null>(null);
-  const lastRuntimeStructureDeleteCancelRequestIdRef = useRef<string | null>(
-    null,
-  );
+  const lastRuntimeStructureDeleteCancelRequestRef = useRef<{
+    requestId: string;
+    retryCount: number;
+  } | null>(null);
   const lastRuntimeStructureTargetReloadTransactionIdRef = useRef<
     string | null
   >(null);
@@ -4848,6 +4854,25 @@ export function DesignCanvas({
         });
         return;
       }
+      if (e.data.type === "runtime-structure-delete-cancelled") {
+        const requestId = String(e.data.requestId || "");
+        if (!requestId) return;
+        onRuntimeStructureDeleteRejected?.({
+          screenId,
+          requestId,
+          transactionId:
+            typeof e.data.transactionId === "string"
+              ? e.data.transactionId
+              : undefined,
+          routePath:
+            typeof e.data.routePath === "string"
+              ? e.data.routePath
+              : (liveRoutePathRef.current ?? undefined),
+          reason: "cancelled",
+          sourcePresent: e.data.sourcePresent === true,
+        });
+        return;
+      }
       if (e.data.type === "runtime-structure-rollback-result") {
         const requestId = String(e.data.requestId || "");
         if (!requestId) return;
@@ -6872,7 +6897,9 @@ export function DesignCanvas({
       currentPreview.transactionId = request?.transactionId;
       currentPreview.awaitingTransaction = false;
     }
-    if (!request?.waitForInsertTransaction) return;
+    // Keep the source visible until the destination has acknowledged its
+    // insert. A refused or disconnected target must leave the move untouched.
+    if (!request || request.waitForInsertTransaction) return;
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
       if (currentPreview?.requestId === request.requestId) {
         currentPreview.documentIdentity = null;
@@ -6911,19 +6938,26 @@ export function DesignCanvas({
   useEffect(() => {
     const request = runtimeStructureDeleteRequest;
     if (!request?.cancelRequested) {
-      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      lastRuntimeStructureDeleteCancelRequestRef.current = null;
       return;
     }
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
-      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      lastRuntimeStructureDeleteCancelRequestRef.current = null;
       return;
     }
+    const retryCount = request.cancellationRetryCount ?? 0;
     if (
-      lastRuntimeStructureDeleteCancelRequestIdRef.current === request.requestId
+      lastRuntimeStructureDeleteCancelRequestRef.current?.requestId ===
+        request.requestId &&
+      lastRuntimeStructureDeleteCancelRequestRef.current.retryCount ===
+        retryCount
     ) {
       return;
     }
-    lastRuntimeStructureDeleteCancelRequestIdRef.current = request.requestId;
+    lastRuntimeStructureDeleteCancelRequestRef.current = {
+      requestId: request.requestId,
+      retryCount,
+    };
     postOneShotBridgeMessage({
       type: "cancel-pending-delete-element",
       selector: request.selector,
@@ -6935,12 +6969,11 @@ export function DesignCanvas({
       type: "visual-structure-ack",
       requestId: request.requestId,
       applied: false,
-    });
-    onRuntimeStructureDeleteRejected?.({
-      screenId,
-      requestId: request.requestId,
-      transactionId: request.transactionId,
-      reason: "cancelled",
+      cancelRuntimeStructureDelete: {
+        transactionId: request.transactionId,
+        selector: request.selector,
+        selectorCandidates: request.selectorCandidates ?? [],
+      },
     });
   }, [
     iframeDocumentIdentity,
@@ -7659,38 +7692,67 @@ export function DesignCanvas({
       : deviceFrame === "none"
         ? "100%"
         : (iframeHeight ?? undefined);
-  const focusScrollSurface = useCallback(() => {
-    const surface = scrollContainerRef.current;
-    if (!surface || document.activeElement === surface) return;
-    // A picker drag ending over the canvas must not take focus from the open
-    // picker: losing it ends the inspector gesture and drops a styled text range.
-    if (
-      textEditingStateRef.current.active ||
-      document.activeElement?.closest("[data-radix-popper-content-wrapper]")
-    ) {
-      return;
-    }
-    const focusedElement = document.activeElement;
-    if (focusedElement instanceof HTMLIFrameElement) {
-      try {
-        const frameDocument = focusedElement.contentDocument;
-        if (
-          !frameDocument ||
-          frameDocument.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)
-        ) {
-          return;
-        }
-      } catch {
-        // Keep focus inside a frame we cannot inspect; it may own an editor.
+  const focusScrollSurface = useCallback(
+    (fromIframeLoad = false) => {
+      const surface = scrollContainerRef.current;
+      if (
+        !surface ||
+        document.activeElement === surface ||
+        !editMode ||
+        interactMode
+      )
+        return;
+      // A picker drag ending over the canvas must not take focus from the open
+      // picker: losing it ends the inspector gesture and drops a styled text range.
+      if (
+        textEditingStateRef.current.active ||
+        document.activeElement?.closest("[data-radix-popper-content-wrapper]")
+      ) {
         return;
       }
-    }
-    // Taking focus for keyboard panning must never outrank a field the user
-    // was just handed: a composer that opens under the cursor would otherwise
-    // be focused on mount and silently unfocused by the same pointer motion.
-    if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
-    surface.focus({ preventScroll: true });
-  }, []);
+      const focusedElement = document.activeElement;
+      if (
+        fromIframeLoad &&
+        focusedElement !== document.body &&
+        focusedElement !== iframeRef.current
+      ) {
+        return;
+      }
+      if (focusedElement instanceof HTMLIFrameElement) {
+        try {
+          const frameDocument = focusedElement.contentDocument;
+          if (!frameDocument) {
+            if (!fromIframeLoad) return;
+          } else if (
+            frameDocument.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)
+          ) {
+            return;
+          }
+        } catch (error) {
+          if (
+            !(error instanceof DOMException) ||
+            error.name !== "SecurityError"
+          ) {
+            throw error;
+          }
+          // A cross-origin frame may have an app-owned focused input; preserve
+          // its focus when the parent cannot inspect it.
+          return;
+        }
+      }
+      // Taking focus for keyboard panning must never outrank a field the user
+      // was just handed: a composer that opens under the cursor would otherwise
+      // be focused on mount and silently unfocused by the same pointer motion.
+      if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
+      surface.focus({ preventScroll: true });
+    },
+    [editMode, interactMode],
+  );
+  const handleCanvasPointerEnter = useCallback(
+    () => focusScrollSurface(),
+    [focusScrollSurface],
+  );
+  useLayoutEffect(() => focusScrollSurface(), [focusScrollSurface]);
 
   // Single-screen pan (Figma parity §3): middle-mouse-button drag always
   // pans (mirrors MultiScreenCanvas's unconditional `e.button === 1` branch
@@ -7959,6 +8021,7 @@ export function DesignCanvas({
           onLoad={(event) => {
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
+            focusScrollSurface(true);
             event.currentTarget.contentWindow?.postMessage(
               { type: "agent-native:editor-chrome-ready-probe" },
               "*",
@@ -8057,23 +8120,19 @@ export function DesignCanvas({
           title=""
         />
       ) : null}
-      {/* Single-screen click-to-place creation overlay — sits over the
-          iframe, NOT inside it, mirroring the SharedDrawOverlay pattern
-          below. Only mounts while a creation tool is active so it never
-          changes existing behavior otherwise (T14: single-screen mode
-          previously had no creation capability at all). */}
-      {activeCreationTool && !interactMode ? (
-        <SingleScreenCreationOverlay
-          tool={activeCreationTool}
-          iframeRef={iframeRef}
-          selectedPenPathNodeId={selectedPenPathNodeId}
-          onCreatePrimitive={onCreatePrimitive}
-          onUpdatePenPath={onUpdatePenPath}
-        />
-      ) : null}
+      {/* Keep the overlay mounted while Move is active so a rejected Pen
+          commit remains available to retry; without a creation tool it is
+          transparent to pointer events. */}
+      <SingleScreenCreationOverlay
+        key={screenId}
+        tool={interactMode ? null : (activeCreationTool ?? null)}
+        iframeRef={iframeRef}
+        selectedPenPathNodeId={selectedPenPathNodeId}
+        onCreatePrimitive={onCreatePrimitive}
+        onUpdatePenPath={onUpdatePenPath}
+      />
       {/* OS file drag-over capture overlay — sits over the iframe, NOT
-          inside it, mirroring the SingleScreenCreationOverlay mount pattern
-          just above. Only mounts while a native OS file drag is actually in
+          inside it. Only mounts while a native OS file drag is actually in
           progress over this wrapper (see handleWrapperDragEnter/Leave), so it
           never changes existing pointer/click behavior otherwise. Skipped
           while a creation tool is active — the two capture surfaces would
@@ -8410,8 +8469,8 @@ export function DesignCanvas({
         <div
           ref={scrollContainerRef}
           tabIndex={-1}
-          onPointerEnter={focusScrollSurface}
-          onMouseEnter={focusScrollSurface}
+          onPointerEnter={handleCanvasPointerEnter}
+          onMouseEnter={handleCanvasPointerEnter}
           className="relative h-full w-full overflow-clip"
         >
           {iframeElement}
@@ -8428,8 +8487,8 @@ export function DesignCanvas({
       <div
         ref={scrollContainerRef}
         tabIndex={-1}
-        onPointerEnter={focusScrollSurface}
-        onMouseEnter={focusScrollSurface}
+        onPointerEnter={handleCanvasPointerEnter}
+        onMouseEnter={handleCanvasPointerEnter}
         className="relative h-full w-full overflow-clip"
         style={{
           width: embeddedFrame.displayWidth,
@@ -8462,8 +8521,8 @@ export function DesignCanvas({
     <div
       ref={scrollContainerRef}
       tabIndex={-1}
-      onPointerEnter={focusScrollSurface}
-      onMouseEnter={focusScrollSurface}
+      onPointerEnter={handleCanvasPointerEnter}
+      onMouseEnter={handleCanvasPointerEnter}
       onMouseDown={handleScrollSurfaceMouseDown}
       onClick={handleScrollSurfaceBackgroundClick}
       className="relative flex-1 h-full overflow-auto"
@@ -8629,11 +8688,15 @@ interface SingleScreenPenGestureState {
 const SINGLE_SCREEN_PEN_HIT_RADIUS_PX = 10;
 
 interface SingleScreenCreationOverlayProps {
-  tool: CreationTool;
+  tool: CreationTool | null;
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   selectedPenPathNodeId?: string | null;
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
-  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | false | void;
+  onUpdatePenPath?: (
+    nodeId: string,
+    path: PenPath,
+    nextTool?: "move",
+  ) => boolean;
 }
 
 /**
@@ -8710,6 +8773,7 @@ function SingleScreenCreationOverlay({
     null,
   );
   const penGestureRef = useRef<SingleScreenPenGestureState | null>(null);
+  const penOverlayRef = useRef<HTMLDivElement>(null);
   const [penPointer, setPenPointer] = useState<PenPoint | null>(null);
   const [penCloseHover, setPenCloseHover] = useState(false);
 
@@ -8755,8 +8819,15 @@ function SingleScreenCreationOverlay({
   }, []);
 
   const clearPenPath = useCallback(() => {
-    updatePenPath(null);
+    const gesture = penGestureRef.current;
     penGestureRef.current = null;
+    if (
+      gesture &&
+      penOverlayRef.current?.hasPointerCapture(gesture.pointerId)
+    ) {
+      penOverlayRef.current.releasePointerCapture(gesture.pointerId);
+    }
+    updatePenPath(null);
     setPenGesturePreview(null);
     setPenPointer(null);
     setPenCloseHover(false);
@@ -8768,6 +8839,7 @@ function SingleScreenCreationOverlay({
       options?: {
         preserveActiveTool?: boolean;
         continueAfterCommit?: boolean;
+        nextTool?: "move" | "pen";
       },
     ) => {
       const committed = path ? clonePenPath(path) : null;
@@ -8778,9 +8850,12 @@ function SingleScreenCreationOverlay({
 
       const continuation = continuationPenPathRef.current;
       if (continuation) {
-        const updated = onUpdatePenPath?.(continuation.nodeId, committed);
+        const updated = onUpdatePenPath?.(
+          continuation.nodeId,
+          committed,
+          options?.preserveActiveTool === false ? "move" : undefined,
+        );
         if (!updated) {
-          continuationPenPathRef.current = null;
           updatePenPath(committed);
           setPenGesturePreview(null);
           return;
@@ -8795,13 +8870,30 @@ function SingleScreenCreationOverlay({
           return;
         }
         clearPenPath();
-        const nodeId = onCreatePrimitive({
-          tool: "pen",
-          points: committed.nodes.map((node) => node.point),
-          penPath: committed,
-          fromClick: false,
-          preserveActiveTool: options?.preserveActiveTool,
-        });
+        const restoreDraft = () => {
+          updatePenPath(committed);
+          setPenGesturePreview(null);
+          setPenPointer(null);
+          setPenCloseHover(false);
+        };
+        let nodeId: string | false | void;
+        try {
+          nodeId = onCreatePrimitive({
+            tool: "pen",
+            points: committed.nodes.map((node) => node.point),
+            penPath: committed,
+            fromClick: false,
+            preserveActiveTool: options?.preserveActiveTool,
+            nextTool: options?.nextTool,
+          });
+        } catch (error) {
+          restoreDraft();
+          throw error;
+        }
+        if (nodeId === false) {
+          restoreDraft();
+          return;
+        }
         continuationPenPathRef.current =
           typeof nodeId === "string" &&
           !committed.closed &&
@@ -8854,6 +8946,12 @@ function SingleScreenCreationOverlay({
     if (previousTool === "pen" && tool !== "pen") {
       finishPenPath(penPathRef.current, { preserveActiveTool: true });
       if (!penPathRef.current) continuationPenPathRef.current = null;
+    }
+    if (!tool) {
+      dragRef.current = null;
+      setDrag(null);
+      setPenPointer(null);
+      setPenCloseHover(false);
     }
   }, [finishPenPath, tool]);
 
@@ -8916,14 +9014,13 @@ function SingleScreenCreationOverlay({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || !tool) return;
       if (tool === "pen") {
         e.preventDefault();
         e.stopPropagation();
         seedSelectedPenContinuation();
-        const currentPath = penPathRef.current?.closed
-          ? null
-          : penPathRef.current;
+        const currentPath = penPathRef.current;
+        if (currentPath?.closed) return;
         const pathBefore = currentPath ? clonePenPath(currentPath) : null;
         const rawPoint = toContentPoint(e.clientX, e.clientY);
         if (!pathBefore && continuationPenPathRef.current) {
@@ -9165,9 +9262,23 @@ function SingleScreenCreationOverlay({
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
+      if (event.key === "Escape" && penGestureRef.current) {
+        const pathBefore = penGestureRef.current.pathBefore;
+        clearPenPath();
+        updatePenPath(pathBefore);
+        return;
+      }
+      const continuesExistingPath =
+        event.key === "Enter" && continuationPenPathRef.current !== null;
       finishPenPath(path, {
-        preserveActiveTool: true,
-        continueAfterCommit: event.key === "Enter",
+        preserveActiveTool: event.key === "Escape" || continuesExistingPath,
+        continueAfterCommit: continuesExistingPath,
+        nextTool:
+          event.key === "Enter"
+            ? continuesExistingPath
+              ? "pen"
+              : "move"
+            : undefined,
       });
     };
 
@@ -9175,7 +9286,13 @@ function SingleScreenCreationOverlay({
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [clearPenPath, finishPenPath, tool, updatePenPath]);
 
-  const cursorClass = tool === "text" ? "cursor-text" : "cursor-crosshair";
+  const cursorClass =
+    tool === null
+      ? "pointer-events-none"
+      : cn(
+          "pointer-events-auto",
+          tool === "text" ? "cursor-text" : "cursor-crosshair",
+        );
   const isLineTool = tool === "line" || tool === "arrow";
   const displayedPenPath =
     penGesturePreview ??
@@ -9204,7 +9321,7 @@ function SingleScreenCreationOverlay({
     y: point.y - previewScrollOffset.top,
   });
   const previewRect =
-    drag && drag.moved && !isLineTool && tool !== "pen"
+    tool && drag && drag.moved && !isLineTool && tool !== "pen"
       ? getDraftGeometryFromPoints(
           toOverlayLocal(drag.startContent),
           toOverlayLocal(drag.currentContent),
@@ -9235,9 +9352,10 @@ function SingleScreenCreationOverlay({
 
   return (
     <div
+      ref={penOverlayRef}
       data-design-canvas-creation-overlay
       data-creation-tool={tool}
-      className={cn("absolute inset-0 z-20 pointer-events-auto", cursorClass)}
+      className={cn("absolute inset-0 z-20", cursorClass)}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -9255,7 +9373,7 @@ function SingleScreenCreationOverlay({
         }
       }}
     >
-      {tool === "pen" && displayedPenPathOverlay ? (
+      {displayedPenPathOverlay ? (
         <SingleScreenPenPathOverlay
           path={displayedPenPathOverlay}
           closeHover={penCloseHover}

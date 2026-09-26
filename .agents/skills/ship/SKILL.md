@@ -34,16 +34,20 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   foreground through post-merge disposition. Carry the immutable value through
   verification; never replace it with a live PR head read after merge, because
   the source branch may advance or be deleted.
-- `/ship` uses the current branch when attached. In a dedicated task-owned
-  worktree, create or switch to an available task branch when needed without
-  asking; base new branches on fresh `origin/main` as described below. A name
-  already used by another task belongs to that task, so choose another. Never
-  move or rewrite a branch used by another worktree or a platform-assigned
-  branch. After `origin/main` ancestry is verified, rotate to a fresh task
-  branch in the task-owned worktree without asking when `/ship` safety checks
-  pass. If unpublished commits or dirty publishable paths remain, retain the
-  source branch and report them. In a shared checkout, ask before changing
-  branches unless the user gave the exact operation.
+- `/ship` uses the current suitable branch when attached. In a dedicated
+  task-owned worktree, creating or switching to a needed task branch is already
+  authorized; Steve's explicit request to ship or open a PR from a detached
+  worktree is standing authorization, so do not ask again. Before branch
+  movement, classify all staged, unstaged, and untracked paths; a switch carries
+  the whole index and worktree, so proceed only when every dirty path belongs to
+  this task. Otherwise preserve the checkout and report exact paths without
+  asking again. Base new branches on fresh `origin/main`. Never move or rewrite
+  a branch used by another worktree or a platform-assigned branch. After
+  `origin/main` ancestry is verified, rotate to a fresh task branch in the
+  task-owned worktree without asking when `/ship` safety checks pass. If
+  unpublished commits or dirty publishable paths remain, retain the source
+  branch and report them. In a shared checkout, ask before changing branches
+  unless the user gave the exact operation.
 - In Codex, inspect the task goal with `get_goal` at the start. If none exists,
   create one with `create_goal` whose objective, under normal `/ship`
   authorization, says to continue until the PR is merged, `origin/main` ancestry
@@ -180,14 +184,20 @@ else
 fi
 ```
 
-The behind count is information, not a reason to merge or rebase. Check
-GitHub's live mergeability before updating from origin/main.
+The behind count is information, not a reason to update the branch. Merge
+freshly fetched `origin/main` only when GitHub reports the PR `CONFLICTING`.
+Pending checks, a behind count, or a timer never justify a main update.
 
 If `git branch --show-current` is empty, inspect `git worktree list
 --porcelain` and existing `changes-*` refs. In a dedicated task-owned worktree,
 do not ask permission to create a shipping branch: fetch `origin/main`, save
 `detached_head=$(git rev-parse HEAD)`, and choose an unused name using
-`/new-branch`'s naming rules. If `origin/main` is an ancestor of
+`/new-branch`'s naming rules. Before any branch creation or switch, record
+`git status --short --untracked-files=all` and classify every staged, unstaged,
+and untracked path. A switch carries the whole index and worktree, so proceed
+only when every dirty path belongs to this task. If any path is unrelated or
+incomplete, preserve the detached checkout and report the exact paths without
+asking again. If `origin/main` is an ancestor of
 `detached_head`, create the branch at that saved commit so no detached commits
 are lost. If `detached_head` is an ancestor of `origin/main`, create from the
 fresh `origin/main` and carry or reapply the task's dirty changes; never stash,
@@ -206,21 +216,26 @@ commit.
 ## 2. Validate and publish
 
 Run the smallest relevant formatter, tests, typecheck, and guards for the
-changed area. Push the first coherent snapshot before a long prep or broad
-validation so CI can work in parallel. A slow or contaminated local check is
-not permission to stall the handoff; record the exact result and let the PR
-checks carry the gate.
+changed area. Finish the current implementation and batch all currently known
+CI and review fixes into one coherent snapshot before publishing. Do not
+publish per file, delegated task, feedback item, checkpoint, timer, or queued
+check: every new head restarts affected CI and the merge soak. Only the
+foreground ship owner publishes; delegates return their changes to that owner.
+A slow or contaminated local check is not permission to publish an incomplete
+snapshot; record the exact result and let the current PR checks finish.
 
 After the ownership check, run:
 
 ```bash
-corepack pnpm ship:push
+corepack pnpm ship:push -m "fix: deduplicate chat start checkpoints"
 ```
 
-Confirm the push landed on the current branch and read the remote head back.
-Run ship:push again only for an actionable CI fix, review fix, conflict
-resolution, or explicit user request. A clean tree, a behind count, queued
-checks, or a babysit timer never creates a publish commit.
+Replace the example with a subject naming the actual behavior changed. The
+helper refuses an omitted or generic subject. Confirm the push landed on the
+current branch and read the remote head back. Publish again only after a new
+actionable CI/review fix or conflict has been resolved and all currently known
+fixes are batched. A clean tree, a behind count, queued checks, or a babysit
+timer never creates a publish commit.
 
 ## 3. Open or update the PR
 
@@ -265,9 +280,9 @@ If a live PR is CONFLICTING, let babysit-pr recover it only after:
 - the local HEAD exactly matches the live PR headRefOid;
 - origin/main was freshly fetched.
 
-Merge origin/main once with a normal merge, resolve and test it, push, and
-restart the soak. Never merge main merely because the PR is behind, checks are
-pending, or mergeability is UNKNOWN.
+Merge freshly fetched `origin/main` only to resolve the confirmed conflict.
+Resolve and test it, push, and restart the soak. Never update from main merely
+because the PR is behind, checks are pending, or mergeability is UNKNOWN.
 
 ### Feedback handoff
 

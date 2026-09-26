@@ -17531,6 +17531,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         };
       }
     }
+    if (
+      pointerOutsideCurrentParent &&
+      (!pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement) &&
+      dropContainerForTarget(target) === currentParent
+    ) {
+      target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
+    }
     var container = dropContainerForTarget(target);
 
     // Figma Ignore auto layout: Control-drag into an auto-layout frame keeps
@@ -17541,7 +17550,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       container !== document.body &&
       isAutoLayoutElement(container)
     ) {
-      return {
+      target = {
         anchor: container,
         placement: "inside",
         axis: parentFlowAxis(container),
@@ -17558,11 +17567,47 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container === document.documentElement ||
         target?.anchor === document.body)
     ) {
-      return {
+      target = {
         anchor: currentParent,
         placement: "after",
         axis: "y",
         dropMode: "absolute-container",
+      };
+    }
+
+    // Leaving a frame for its parent's empty area stacks the layer immediately
+    // above the frame being exited. A hit on a sibling is an explicit slot
+    // and keeps that sibling as its insertion anchor.
+    var exitedContainer = el.parentElement;
+    var receivingContainer = exitedContainer && exitedContainer.parentElement;
+    var targetContainer = dropContainerForTarget(target);
+    if (
+      !ignoreTargetAutoLayout &&
+      target &&
+      exitedContainer &&
+      receivingContainer &&
+      isContainerDropTarget(exitedContainer) &&
+      targetContainer === receivingContainer &&
+      (pointHit === receivingContainer ||
+        !pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement)
+    ) {
+      target = {
+        ...target,
+        anchor: exitedContainer,
+        placement: "after",
+        axis: parentFlowAxis(receivingContainer),
+        persistenceAnchor: exitedContainer,
+        persistencePlacement: "after",
+        gridCell: undefined,
+        gridPlacement: undefined,
+        gridDisplacement: undefined,
+        gridDisplacementPlacements: undefined,
+        gridDisplacementPrevStyles: undefined,
+        guideRect: undefined,
+        guideMode: undefined,
+        guidePlacement: undefined,
       };
     }
 
@@ -22651,7 +22696,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           crossScreenClaimedByHost
         : false;
       if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
-        var sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
         postCrossScreenDrag("end", dragEl, ev, {
           duplicate: duplicatedForDrag,
           modifiers: {
@@ -22673,21 +22717,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           postElementSelect(selectedEl);
         } else {
           restoreSourceDragPosition();
-          if (crossScreenClaimedByHost && sourceDeleteRequestId) {
-            var selector = getSelector(dragEl);
-            var sourceId = getSourceId(dragEl);
-            var selectorCandidates = [selector];
-            if (sourceId) {
-              selectorCandidates.push(
-                '[data-agent-native-node-id="' + CSS.escape(sourceId) + '"]',
-              );
-            }
-            concealPendingRuntimeDelete(
-              selector,
-              selectorCandidates,
-              sourceDeleteRequestId,
-            );
-          }
+          // The host hides/deletes the source only after the destination
+          // acknowledges its insert; failed or unavailable targets leave this
+          // node visible at its restored source position.
         }
         return;
       }
@@ -27825,8 +27857,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         requestId: e.data.requestId,
         applied: Boolean(e.data.applied),
       });
+      var cancelRuntimeStructureDelete = e.data.cancelRuntimeStructureDelete;
+      var postRuntimeStructureDeleteCancellationResult = function (
+        sourcePresentOverride?: boolean,
+      ) {
+        if (
+          !cancelRuntimeStructureDelete ||
+          typeof cancelRuntimeStructureDelete.transactionId !== "string"
+        ) {
+          return;
+        }
+        var restoredSource = findRuntimeTarget(
+          String(cancelRuntimeStructureDelete.selector || ""),
+          Array.isArray(cancelRuntimeStructureDelete.selectorCandidates)
+            ? cancelRuntimeStructureDelete.selectorCandidates
+            : [],
+        );
+        (window.parent as Window).postMessage(
+          {
+            type: "runtime-structure-delete-cancelled",
+            requestId: String(e.data.requestId || ""),
+            transactionId: cancelRuntimeStructureDelete.transactionId,
+            routePath: window.location.pathname + window.location.search,
+            sourcePresent:
+              typeof sourcePresentOverride === "boolean"
+                ? sourcePresentOverride
+                : Boolean(restoredSource),
+          },
+          "*",
+        );
+      };
       var move = pendingStructureMoves[e.data.requestId];
-      if (!move) return;
+      if (!move) {
+        postRuntimeStructureDeleteCancellationResult();
+        return;
+      }
       delete pendingStructureMoves[e.data.requestId];
       var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
       var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
@@ -27854,6 +27919,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
         }
         refreshOverlays();
+        postRuntimeStructureDeleteCancellationResult();
         return;
       }
       if (moveWasRemoval) {
@@ -27881,6 +27947,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
         }
         refreshOverlays();
+        postRuntimeStructureDeleteCancellationResult(
+          Boolean(move.el && move.el.isConnected),
+        );
         return;
       }
       if (e.data.applied) {
@@ -27925,6 +27994,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
           if (hoveredEl === move.el) hoveredEl = null;
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult();
           return;
         }
         if (
@@ -27956,6 +28026,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           postElementSelect(selectedEl);
         }
       }
+      postRuntimeStructureDeleteCancellationResult();
       return;
     }
     if (e.data.type === "replace-document-content") {

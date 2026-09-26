@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 연결을 확인하는 중…",
+      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+    },
+    common: { retry: "다시 시도" },
+  },
   timelineTrack: {
     helpOtherSide:
       "먼저 그 구간을 클릭한 다음 빨간 선을 오른쪽으로 드래그하세요.",
@@ -423,11 +430,9 @@ const messages = {
     agentEmptyTitle: "대화에 참여하세요",
     agentEmptyDescription:
       "무료 Clips 계정을 만들어 이 클립에 댓글을 달고, 반응하고, 질문해 보세요.",
-    commentSignupTitle: "AI 에이전트에 전체 맥락을 전달하세요",
-    commentSignupContext:
-      "전사본과 타임스탬프가 표시된 프레임을 하나의 링크로 공유하세요",
-    commentSignupFeedback: "녹화된 피드백을 명확한 다음 단계로 바꿔 보세요",
-    commentSignupDebug: "콘솔 오류와 실패한 요청을 캡처하세요",
+    commentSignupTitle: "AI 에이전트가 보고 들을 수 있는 화면 녹화",
+    commentSignupDescription:
+      "Clips는 AI 에이전트와 버그, 피드백, 단계별 안내를 공유할 수 있는 무료 오픈 소스 화면 녹화 도구입니다.",
     agentEmptySignInPrompt: "이미 계정이 있나요?",
     signUp: "가입",
     ownerInsights: "소유자 인사이트",
@@ -820,6 +825,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "활성 워크스페이스를 업데이트할 수 없음",
     whatsNew: "새 소식",
     changelogEmpty: "아직 업데이트가 없습니다.",
+    changelogCommentSignup:
+      "댓글이 없을 때 사이드바에서 Clips를 사용해 볼 이유를 간단히 설명하고 쉽게 가입할 수 있도록 안내합니다.",
+    changelogCommentsEmptyState:
+      "댓글이 없을 때 화면 녹화가 AI 에이전트에 어떻게 도움이 되는지 설명합니다.",
+    changelogShareLink:
+      "로그인한 사용자가 사용할 수 없거나 만료되었거나 비공개인 공유 링크에서 '홈으로 이동'을 선택하면 공개 마케팅 페이지 대신 라이브러리로 이동합니다.",
     viewAllUpdates: "모든 업데이트 보기",
     expand: "펼치기",
     collapse: "접기",
@@ -1414,11 +1425,22 @@ const messages = {
     disconnected: "마이크 연결이 끊어졌습니다.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Builder.io를 열 수 없습니다. 이 앱이 채팅에 삽입되어 있다면 브라우저 탭에서 여세요. 그렇지 않다면 이 사이트의 팝업을 허용한 후 다시 시도하세요.",
+    builderConnectError:
+      "Builder.io에 연결하지 못했습니다. 다시 시도하거나 지원팀에 문의해 주세요.",
+    checkingBuilderConnection: "Builder 연결을 확인하는 중…",
     builderTimeout:
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
     connectBuilder: "Builder.io 사용",
+    createBuilderAccount: "Builder.io 계정 만들기",
+    signInWithBuilderAccount: "Builder.io 계정으로 로그인",
+    builderConsentPrefix: "Builder.io 계정을 만들면 당사의",
+    builderTerms: "서비스 약관",
+    builderConsentAnd: "및",
+    builderPrivacy: "개인정보 처리방침",
     free: "무료",
     configureS3: "S3 호환 스토리지 구성",
     whyPrompt: "왜 이 화면이 보이나요?",

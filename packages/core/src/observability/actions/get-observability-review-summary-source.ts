@@ -3,8 +3,10 @@ import { z } from "zod";
 import { fail, defineAction } from "../../action.js";
 import { getOutputReviewSummarySource } from "../reviews.js";
 import {
-  requireObservabilityOrgAdmin,
+  authorizeObservabilityOrgAdmin,
+  getObservabilityOrgAdminAccess,
   requireObservabilityReviewRunScope,
+  resolveObservabilityReviewOrg,
 } from "./authorization.js";
 
 export default defineAction({
@@ -17,13 +19,16 @@ export default defineAction({
       .min(1)
       .max(200)
       .describe("The target observability run ID."),
+    orgId: z.string().trim().min(1).max(200).optional(),
   }),
   agentTool: true,
   readOnly: true,
   parallelSafe: true,
+  authorize: authorizeObservabilityOrgAdmin,
   run: async (args, ctx) => {
-    const { orgId } = await requireObservabilityOrgAdmin(ctx);
+    const access = getObservabilityOrgAdminAccess(ctx);
     requireObservabilityReviewRunScope(args.runId);
+    const orgId = resolveObservabilityReviewOrg(access.reviewScope, args.orgId);
     const result = await getOutputReviewSummarySource({
       runId: args.runId,
       orgId,

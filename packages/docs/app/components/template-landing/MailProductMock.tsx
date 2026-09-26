@@ -1,5 +1,4 @@
 // i18n-raw-literal-disable-file -- static Mail artwork; names and messages are fabricated.
-import { AgentNativeIcon } from "@agent-native/core/client/agent-native-icon";
 import {
   IconArchive,
   IconArrowUp,
@@ -8,9 +7,6 @@ import {
   IconChevronDown,
   IconClock,
   IconDots,
-  IconFileText,
-  IconInbox,
-  IconMailForward,
   IconMailOpened,
   IconMessageCircle,
   IconMenu2,
@@ -18,6 +14,7 @@ import {
   IconPlus,
   IconRefresh,
   IconSearch,
+  IconSparkles,
   IconSettings,
   IconStar,
   IconTrash,
@@ -26,7 +23,13 @@ import {
 
 import "./MailProductMock.css";
 
-type MailVariant = "empty" | "priorities" | "labels" | "automations" | "agent";
+type MailVariant =
+  | "empty"
+  | "priorities"
+  | "labels"
+  | "automations"
+  | "agent"
+  | "jev";
 
 type MailProductMockProps = {
   label: string;
@@ -157,6 +160,105 @@ const THREADS = [
   },
 ];
 
+const JEV_THREADS = [
+  {
+    sender: "Maya Chen",
+    subject: "Re: Northstar launch review",
+    snippet: "Thursday at 2:30 works. I added my final notes.",
+    time: "9:42 AM",
+    label: "Important",
+    unread: true,
+  },
+  {
+    sender: "Mika Tanaka",
+    subject: "Re: #284 Keep the inbox quick",
+    snippet: "The retry branch needs the same label check.",
+    time: "9:31 AM",
+    label: "Product",
+    unread: true,
+  },
+  {
+    sender: "Alex Morgan",
+    subject: "PR #291 · AI label rules",
+    snippet: "I left one suggestion on the filtering change.",
+    time: "9:14 AM",
+    label: "Product",
+    unread: false,
+  },
+  {
+    sender: "Devon Lee",
+    subject: "Q3 invoice approval",
+    snippet: "Updated terms are attached for a quick review.",
+    time: "9:05 AM",
+    label: "Finance",
+    unread: true,
+  },
+  {
+    sender: "Nora Patel",
+    subject: "Customer interview notes",
+    snippet: "A few patterns surfaced across the last six calls.",
+    time: "8:31 AM",
+    label: "Research",
+    unread: false,
+  },
+  {
+    sender: "Luca Rivera",
+    subject: "Re: Pricing page review",
+    snippet: "I left two notes on the new comparison table.",
+    time: "8:10 AM",
+    label: "Product",
+    unread: true,
+  },
+  {
+    sender: "Priya Shah",
+    subject: "Launch checklist: final owners",
+    snippet: "The remaining approvals are ready to review.",
+    time: "7:58 AM",
+    label: "Important",
+    unread: false,
+  },
+  {
+    sender: "Studio Weekly",
+    subject: "The week in product design",
+    snippet: "Five stories selected for your Friday read.",
+    time: "Yesterday",
+    label: "Newsletter",
+    unread: false,
+  },
+  {
+    sender: "Becca Park",
+    subject: "Updated onboarding copy",
+    snippet: "Here is the shorter version for the welcome flow.",
+    time: "7:25 AM",
+    label: "Product",
+    unread: true,
+  },
+  {
+    sender: "Evan Brooks",
+    subject: "Design partner feedback",
+    snippet: "Three teams asked for the same export option.",
+    time: "7:12 AM",
+    label: "Client",
+    unread: false,
+  },
+  {
+    sender: "Ada Li",
+    subject: "Analytics naming cleanup",
+    snippet: "The dashboard events now use the shared names.",
+    time: "6:54 AM",
+    label: "Product",
+    unread: false,
+  },
+  {
+    sender: "Nova Labs",
+    subject: "Workshop notes and next steps",
+    snippet: "Thanks for the walkthrough; our action items are below.",
+    time: "Yesterday",
+    label: "Client",
+    unread: false,
+  },
+] satisfies (typeof THREADS)[number][];
+
 const AGENT_STATES = {
   empty: {
     prompt: "",
@@ -198,6 +300,19 @@ const AGENT_STATES = {
     ],
     footer: "Last run today · 4 messages handled",
   },
+  jev: {
+    prompt:
+      "Archive GitHub bots, keep human PR comments in Product, and prioritize my manager's mail.",
+    answer:
+      "Jev made those rules: 12 bot updates were archived, human reviews stay in Product, and your manager's mail ranks higher.",
+    title: "Jev inbox rules",
+    rows: [
+      ["GitHub bots", "Archive automated notifications", "Archived"],
+      ["Human PR comments", "Keep them in your Product label", "Product"],
+      ["Your manager", "Move their mail to Important", "Important"],
+    ],
+    footer: "Runs in background · edit with a prompt",
+  },
   agent: {
     prompt: "Reply to Maya and confirm Thursday at 2:30.",
     answer:
@@ -217,6 +332,7 @@ export function MailProductMock({
   className = "",
 }: MailProductMockProps) {
   const agent = AGENT_STATES[variant];
+  const visibleThreads = variant === "jev" ? JEV_THREADS : THREADS;
 
   return (
     <div
@@ -246,8 +362,14 @@ export function MailProductMock({
               <IconSettings size={15} />
             </button>
             <div className="mm-sort-control">
-              {variant === "priorities" ? <IconBolt size={13} /> : null}
-              <span>{variant === "priorities" ? "Priority" : "Newest"}</span>
+              {variant === "priorities" || variant === "jev" ? (
+                <IconBolt size={13} />
+              ) : null}
+              <span>
+                {variant === "priorities" || variant === "jev"
+                  ? "Priority"
+                  : "Newest"}
+              </span>
               <IconChevronDown size={13} />
             </div>
             <div className="mm-topbar-spacer" />
@@ -278,70 +400,41 @@ export function MailProductMock({
           </header>
 
           <div className="mm-body">
-            <nav className="mm-nav-rail" aria-label="Mail navigation">
-              <div className="mm-rail-brand">
-                <AgentNativeIcon aria-hidden="true" />
-              </div>
-              <span className="mm-rail-item is-active" aria-label="Inbox">
-                <IconInbox size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Unread">
-                <IconMailForward size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Starred">
-                <IconStar size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Snoozed">
-                <IconClock size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Sent">
-                <IconMailForward size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Drafts">
-                <IconFileText size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Archive">
-                <IconArchive size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Trash">
-                <IconTrash size={17} />
-              </span>
-              <span className="mm-rail-spacer" />
-              <span className="mm-rail-item" aria-label="Settings">
-                <IconSettings size={17} />
-              </span>
-            </nav>
-
             <main className="mm-inbox">
-              {variant === "automations" ? (
-                <div className="mm-thread-list">
+              <div className="mm-thread-list">
+                {variant === "automations" ? (
                   <div className="mm-automation-notice">
                     <IconCheck size={15} />
                     <span>Newsletter rule handled 4 messages today</span>
                     <time>9:18 AM</time>
                   </div>
-                  {THREADS.map((thread, index) => (
-                    <MailThreadRow
-                      key={thread.sender}
-                      thread={thread}
-                      focused={index === 4}
-                      hovered={index === 1}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="mm-thread-list">
-                  {THREADS.map((thread, index) => (
-                    <MailThreadRow
-                      key={thread.sender}
-                      thread={thread}
-                      focused={variant !== "empty" && index === 0}
-                      hovered={index === 1}
-                      priority={variant === "priorities" && index < 2}
-                    />
-                  ))}
-                </div>
-              )}
+                ) : null}
+                {variant === "jev" ? (
+                  <div className="mm-jev-notice">
+                    <IconSparkles size={14} />
+                    <span>
+                      <strong>Jev</strong> archived 12 GitHub bot updates
+                    </span>
+                    <time>just now</time>
+                  </div>
+                ) : null}
+                {visibleThreads.map((thread, index) => (
+                  <MailThreadRow
+                    key={thread.sender}
+                    thread={thread}
+                    focused={
+                      variant === "automations"
+                        ? index === 4
+                        : variant !== "empty" && index === 0
+                    }
+                    hovered={index === 1}
+                    priority={
+                      (variant === "priorities" && index < 2) ||
+                      (variant === "jev" && index === 0)
+                    }
+                  />
+                ))}
+              </div>
             </main>
           </div>
         </div>
@@ -400,7 +493,8 @@ export function MailProductMock({
                     <div className="mm-agent-result-heading">
                       <strong>{agent.title}</strong>
                       <span>
-                        <IconCheck size={13} /> Updated
+                        <IconCheck size={13} />
+                        {variant === "jev" ? "Active" : "Updated"}
                       </span>
                     </div>
                     {agent.rows.map(([title, detail, status]) => (

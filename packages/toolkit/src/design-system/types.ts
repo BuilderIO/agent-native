@@ -255,9 +255,11 @@ export interface DialogProps extends DesignSystemOverlayProps {
   children: ReactNode;
   description?: ReactNode;
   footer?: ReactNode;
+  headerAction?: ReactNode;
   trigger?: ReactElement;
-  size?: "small" | "medium" | "large" | "fullscreen";
+  size?: "small" | "medium" | "large" | "viewport" | "fullscreen";
   dismissible?: boolean;
+  hideClose?: boolean;
   closeLabel?: string;
   initialFocusRef?: RefObject<HTMLElement | null>;
   restoreFocusRef?: RefObject<HTMLElement | null>;
@@ -334,6 +336,7 @@ export interface TabsProps<Value extends DesignSystemKey = string>
   onChange: (value: Value) => void;
   orientation?: "horizontal" | "vertical";
   activationMode?: "automatic" | "manual";
+  headerActions?: ReactNode;
 }
 
 export interface PickerComponent {

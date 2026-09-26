@@ -61,10 +61,11 @@ const messages = {
       "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
     openBackgroundAgentSettings: "Open Background Agent settings",
     fileStorage: {
-      title: "Choose file storage",
+      title: "Connect storage to upload files",
       description:
-        "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
-      custom: "Use custom storage keys",
+        "Connect Builder.io (free) or configure your own S3-compatible object storage.",
+      reconnectBuilder: "Reconnect Builder.io",
+      custom: "Add your own object storage keys",
       customDescription:
         "Configure an S3-compatible bucket with a stable public URL.",
     },
@@ -1836,6 +1837,15 @@ const messages = {
     draftSaved: "Draft saved",
     noReviews: "No agent outputs to review yet",
     summarizeWithAgent: "Summarize with agent",
+    regenerateSummary: "Regenerate summary",
+    searchReviews: "Search prompts, outcomes, people, or artifacts",
+    allArtifactTypes: "All types",
+    summarySending: "Sending summary request…",
+    summarySent: "Summary request sent to agent",
+    summaryFailed: "Could not send the summary request",
+    readOnlyTenant: "Cross-organization review is read-only.",
+    showReviewDetails: "Show review details",
+    hideReviewDetails: "Hide review details",
   },
   error: {
     genericTitle: "Something went wrong",

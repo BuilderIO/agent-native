@@ -123,6 +123,7 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
+const WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH = "/_agent-native/google/callback";
 const VERCEL_OUTPUT_DIR = ".vercel/output";
 
 const WORKSPACE_DIRECTORY_ENV_SNIPPET = `
@@ -274,10 +275,15 @@ export async function runWorkspaceDeploy(
   }
 
   if (preset === "netlify") {
-    writeNetlifyRedirects(distDir, apps, workspaceRootPage);
+    writeNetlifyRedirects(distDir, apps, workspaceApps, workspaceRootPage);
     writeNetlifyHeaders(distDir, apps);
   } else {
-    writeVercelBuildConfig(vercelOutputDir, apps, workspaceRootPage);
+    writeVercelBuildConfig(
+      vercelOutputDir,
+      apps,
+      workspaceApps,
+      workspaceRootPage,
+    );
   }
 
   if (buildOnly) {
@@ -516,9 +522,18 @@ function workspaceOAuthDiscoveryRoutes(
   ];
 }
 
+function workspaceOAuthCallbackApp(
+  workspaceApps: WorkspaceAppManifestEntry[],
+): string | undefined {
+  return (
+    workspaceApps.find((entry) => entry.isDispatch)?.id ?? workspaceApps[0]?.id
+  );
+}
+
 function writeNetlifyRedirects(
   distDir: string,
   apps: string[],
+  workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
 ): void {
   const lines: string[] = [
@@ -559,8 +574,16 @@ function writeNetlifyRedirects(
       lines.push(`/${from} /dispatch/${to} 302`);
     }
     lines.push("/apps/* /dispatch/apps/:splat 302");
-  } else if (rootPage !== "directory") {
-    lines.push(`/ /${apps[0]}/ 302`);
+  } else {
+    const callbackApp = workspaceOAuthCallbackApp(workspaceApps);
+    if (callbackApp) {
+      lines.push(
+        `${WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH} /.netlify/functions/${callbackApp}-server 200`,
+      );
+    }
+    if (rootPage !== "directory") {
+      lines.push(`/ /${apps[0]}/ 302`);
+    }
   }
 
   fs.writeFileSync(path.join(distDir, "_redirects"), lines.join("\n") + "\n");
@@ -591,6 +614,7 @@ function netlifyHeaderBlock(pathname: string): string {
 function writeVercelBuildConfig(
   outputDir: string,
   apps: string[],
+  workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
 ): void {
   const routes: Array<Record<string, any>> = [
@@ -638,8 +662,17 @@ function writeVercelBuildConfig(
       routes.push(vercelRedirect(`/${from}`, `/dispatch/${to}`));
     }
     routes.push(vercelRedirect("/apps/(.*)", "/dispatch/apps/$1"));
-  } else if (rootPage !== "directory") {
-    routes.push(vercelRedirect("/", `/${apps[0]}/`));
+  } else {
+    const callbackApp = workspaceOAuthCallbackApp(workspaceApps);
+    if (callbackApp) {
+      routes.push({
+        src: vercelRouteSrc(WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH),
+        dest: `/${callbackApp}-server`,
+      });
+    }
+    if (rootPage !== "directory") {
+      routes.push(vercelRedirect("/", `/${apps[0]}/`));
+    }
   }
 
   for (const app of apps) {
@@ -1226,6 +1259,11 @@ function patchNetlifyFunctionEntry(
     workspaceApps,
     app,
   );
+  const callbackApp = workspaceOAuthCallbackApp(workspaceApps);
+  const rootGoogleCallbackPath =
+    app === callbackApp && app !== "dispatch"
+      ? [WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH]
+      : [];
   const pathConfig =
     app === "dispatch"
       ? [
@@ -1243,6 +1281,7 @@ function patchNetlifyFunctionEntry(
               ...(descendants ? [`${path}/*`] : []),
             ],
           ),
+          ...rootGoogleCallbackPath,
         ];
   const normalizeBasePathHelper =
     app === "dispatch"

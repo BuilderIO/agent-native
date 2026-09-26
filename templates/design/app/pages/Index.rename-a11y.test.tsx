@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+vi.mock("@/hooks/use-design-system-workflows", () => ({
+  useDesignSystemWorkflows: () => true,
+}));
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -32,6 +35,19 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
 }));
 
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  useAgentEngineConfigured: () => ({ state: "configured", missing: false }),
+}));
+
+vi.mock("@agent-native/core/client/settings", () => ({
+  useBuilderConnectFlow: () => ({ connecting: false, start: vi.fn() }),
+  BuilderConnectPopover: () => null,
+}));
+
+vi.mock("@/components/templates/TemplatePreview", () => ({
+  TemplatePreview: () => null,
+}));
+
 vi.mock("@agent-native/core/client/collab", () => ({
   emailToColor: () => "#000000",
   emailToName: (email: string) => email,
@@ -47,6 +63,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       return {
         data: {
           count: 1,
+          totalCount: 1,
           designs: [
             {
               id: "design-1",
@@ -57,6 +74,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           ],
         },
         isLoading: false,
+        isSuccess: true,
       };
     }
     return { data: undefined, isLoading: false };
@@ -88,7 +106,8 @@ vi.mock("@agent-native/creative-context/client", () => ({
   useCreativeContextState: mocks.creativeContextState,
 }));
 
-vi.mock("@agent-native/toolkit/app-shell", () => ({
+vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
   // The real hook portals its argument into app-shell chrome outside this
   // tree; capture it so the search input (also passed here) can be rendered
   // and inspected directly.
@@ -153,6 +172,12 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenuContent: ({ children }: { children?: React.ReactNode }) => (
     <>{children}</>
   ),
+  DropdownMenuRadioGroup: ({ children }: { children?: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  DropdownMenuRadioItem: ({ children }: { children?: React.ReactNode }) => (
+    <>{children}</>
+  ),
   DropdownMenuItem: ({
     children,
     onClick,
@@ -194,6 +219,14 @@ beforeEach(async () => {
   root = createRoot(container);
   await act(async () => {
     root.render(<Index />);
+  });
+  const recentTab = Array.from(
+    container.querySelectorAll<HTMLElement>('[role="tab"]'),
+  ).find((tab) => tab.textContent === "home.recent");
+  await act(async () => {
+    recentTab?.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+    );
   });
 });
 

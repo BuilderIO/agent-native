@@ -1,6 +1,11 @@
 export {
+  readComposerWebsiteSource,
+  type ComposerWebsiteExtraction,
+} from "./composer-website-source.js";
+export {
   defineAppConfig,
   getAppConfig,
+  resolveAppHomePath,
   resetAppConfigForTests,
   appConfigSchema,
   type AppConfig,
@@ -632,8 +637,10 @@ export {
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
+  resolveSecretDetailed,
   BuilderCredentialLookupError,
   type BuilderCredentialsDetailed,
+  type ResolvedSecretDetail,
 } from "./credential-provider.js";
 export {
   BUILDER_PUBLISH_MCP_RESOURCE,
@@ -696,6 +703,7 @@ export {
   type BuilderDesignSystemSourceKind,
 } from "./builder-design-systems.js";
 export {
+  cdnSafeOriginStatus,
   createBuilderProject,
   ensureBuilderProject,
   findBuilderProjectForRepo,

@@ -241,6 +241,7 @@ function FormsCommandMenu({
       onOpenChange={onOpenChange}
       changelog={changelog}
       changelogKey="forms"
+      chatStorageKey="forms"
     >
       <CommandMenu.Group heading={t("root.commandForms")}>
         {formId && !isResponsesRoute ? (
@@ -297,14 +298,12 @@ export default function Root() {
   const location = useLocation();
   const isPublicPath =
     location.pathname === "/f" || location.pathname.startsWith("/f/");
-  const isMarketingHome = location.pathname === "/";
-
-  if (isPublicPath || isMarketingHome) {
+  if (isPublicPath) {
     return (
       <AppToolkitProvider>
         <AppProviders
           queryClient={queryClient}
-          isPublicPath={isPublicPath || isMarketingHome}
+          isPublicPath={isPublicPath}
           i18n={{ catalog: i18nCatalog }}
         >
           <Outlet />
