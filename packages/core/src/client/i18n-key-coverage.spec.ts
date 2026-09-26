@@ -67,6 +67,11 @@ function hasCatalogKey(key: string) {
 
 describe("core i18n key coverage", () => {
   it("keeps the observability expand label in the Agent Chat catalog", () => {
+    const source = fs.readFileSync(
+      path.join(clientDir, "observability/ObservabilityDashboard.tsx"),
+      "utf8",
+    );
+    expect(source).toContain('t("agentChat.common.expand")');
     expect(hasCatalogKey("agentChat.common.expand")).toBe(true);
   });
 
