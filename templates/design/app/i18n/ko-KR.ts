@@ -577,6 +577,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "실시간 협업",
+      description:
+        "소유자의 localhost에 접근할 수 없는 사람도 이 디자인의 실시간 사본을 보고 편집할 수 있습니다.",
+      enabled: "켜짐",
+      disabled: "꺼짐",
+      saving: "저장 중…",
+      enableError: "실시간 협업을 업데이트하지 못했습니다.",
+    },
     vectorEndpoints: {
       startPoint: "시작점",
       endPoint: "끝점",

@@ -391,6 +391,13 @@ const messages = {
       shareAria: "{{noun}}をシェアする",
       share: "{{noun}}をシェアする",
       shareThis: "この {{noun}} を共有する",
+      teammateSuggestion: {
+        message: "チームを Plan に招待しましょう。",
+        invite: "チームを招待",
+        enableDomain: "@{{domain}} の全員に参加を許可",
+        enableFailed:
+          "ドメイン参加を有効にできませんでした。もう一度お試しください。",
+      },
       hostedCopy:
         "このローカル {{noun}} には、共有用にホストされたコピーがあります。ホストされた {{noun}} を開いてアクセスを管理します。",
       publishDescription:

@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/tooltip";
 import { shortcutLabel } from "@/lib/utils";
 
-import type { SlideRichTextEditorHandle } from "./SlideRichTextEditor";
+import type { InPlaceTextSession } from "./in-place-text-session";
 
 interface BlockBubbleMenuProps {
   /** The element currently in contentEditable mode. Menu only shows while selection is inside it. */
@@ -49,8 +49,8 @@ interface BlockBubbleMenuProps {
     range: Range,
     editingEl: HTMLElement,
   ) => void;
-  /** Shared Content editor mounted inside the selected slide text block. */
-  richTextEditor?: SlideRichTextEditorHandle | null;
+  /** The in-place session editing `editingEl`; every format goes through it. */
+  textSession?: InPlaceTextSession | null;
 }
 
 interface Position {
@@ -123,9 +123,9 @@ export function buildReviseSelectionContext({
 /**
  * Floating formatting toolbar for contentEditable text blocks. Shows on
  * non-empty selection inside the editing element and applies inline
- * formatting (bold, italic, underline, strike, link, color) directly to
- * the DOM. Designed to work with the in-place per-block editing in
- * SlideEditor — it never mutates anything outside the editing element.
+ * formatting (bold, italic, underline, strike, link, color) through the
+ * element's in-place text session, so each change is one undo step and never
+ * touches anything outside the editing element.
  *
  * The "Revise with AI" action is the exception: it does not touch the DOM.
  * It hands the selected text plus the user's instruction to the agent, which
@@ -138,7 +138,7 @@ export function BlockBubbleMenu({
   slideContentHash,
   onCommitInlineEdit,
   onComment,
-  richTextEditor = null,
+  textSession = null,
 }: BlockBubbleMenuProps) {
   const t = useT();
   const [pos, setPos] = useState<Position | null>(null);
@@ -215,56 +215,24 @@ export function BlockBubbleMenu({
   const restoreSelection = () => {
     const range = savedRangeRef.current;
     if (!range) return false;
-    if (richTextEditor) return richTextEditor.setSelectionFromRange(range);
     const sel = window.getSelection();
     if (!sel) return false;
+    editingEl.focus({ preventScroll: true });
     sel.removeAllRanges();
     sel.addRange(range);
-    editingEl.focus();
     return true;
   };
 
-  const runCommand = (cmd: string, value?: string) => {
-    if (!restoreSelection()) return;
-    const richEditor = richTextEditor;
-    const editor = richEditor?.getEditor();
-    if (richEditor && editor && !editor.isDestroyed) {
-      if (cmd === "bold") editor.chain().focus().toggleBold().run();
-      else if (cmd === "italic") editor.chain().focus().toggleItalic().run();
-      else if (cmd === "underline") {
-        const current = document.createElement("span");
-        const style = editor.getAttributes("textStyle").style as
-          | string
-          | undefined;
-        if (style) current.setAttribute("style", style);
-        const isUnderlined =
-          current.style.textDecoration.includes("underline") ||
-          current.style.textDecorationLine.includes("underline");
-        richEditor.applyTextStyle(
-          { textDecoration: isUnderlined ? "none" : "underline" },
-          savedRangeRef.current,
-        );
-      } else if (cmd === "strikeThrough") {
-        editor.chain().focus().toggleStrike().run();
-      } else if (cmd === "foreColor" && value) {
-        richEditor.applyTextStyle({ color: value }, savedRangeRef.current);
-      } else if (cmd === "createLink" && value) {
-        editor.chain().focus().setLink({ href: value }).run();
-      } else if (cmd === "unlink") {
-        editor.chain().focus().unsetLink().run();
-      }
-      return;
-    }
-    // Force <span style="..."> output so colors survive sanitizeSlideHtml,
-    // which strips <font> tags and would silently lose foreColor on save.
-    document.execCommand("styleWithCSS", false, "true");
-    // No state sync per-command — would re-run dangerouslySetInnerHTML and
-    // wipe contentEditable. Final DOM is captured by exitInlineEdit.
-    document.execCommand(cmd, false, value);
+  /** Runs one session command on the saved selection (buttons steal focus). */
+  const runCommand = (
+    command: (commands: InPlaceTextSession["commands"]) => boolean,
+  ) => {
+    if (!textSession?.isActive || !restoreSelection()) return;
+    command(textSession.commands);
   };
 
   const applyColor = (color: string) => {
-    runCommand("foreColor", color);
+    runCommand((commands) => commands.color(color));
     setShowColors(false);
   };
 
@@ -273,13 +241,13 @@ export function BlockBubbleMenu({
     const href = linkValue.startsWith("http")
       ? linkValue
       : `https://${linkValue}`;
-    runCommand("createLink", href);
+    runCommand((commands) => commands.link(href));
     setShowLinkInput(false);
     setLinkValue("");
   };
 
   const removeLink = () => {
-    runCommand("unlink");
+    runCommand((commands) => commands.link(null));
     setShowLinkInput(false);
     setLinkValue("");
   };
@@ -376,22 +344,22 @@ export function BlockBubbleMenu({
       <ToolbarButton
         icon={IconBold}
         tooltip={`Bold (${shortcutLabel("cmd+b")})`}
-        onClick={() => runCommand("bold")}
+        onClick={() => runCommand((commands) => commands.bold())}
       />
       <ToolbarButton
         icon={IconItalic}
         tooltip={`Italic (${shortcutLabel("cmd+i")})`}
-        onClick={() => runCommand("italic")}
+        onClick={() => runCommand((commands) => commands.italic())}
       />
       <ToolbarButton
         icon={IconUnderline}
         tooltip={`Underline (${shortcutLabel("cmd+u")})`}
-        onClick={() => runCommand("underline")}
+        onClick={() => runCommand((commands) => commands.underline())}
       />
       <ToolbarButton
         icon={IconStrikethrough}
         tooltip="Strikethrough"
-        onClick={() => runCommand("strikeThrough")}
+        onClick={() => runCommand((commands) => commands.strike())}
       />
       <div className="w-px h-4 bg-border mx-0.5" />
       <div className="relative">

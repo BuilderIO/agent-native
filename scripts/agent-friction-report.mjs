@@ -74,6 +74,90 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const WORKTREE_PERMISSION_CORRECTION_RE =
+  /\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:permission|approval)s?\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\s+before\b[^.!?\n]{0,120}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:whether|if)\b[^.!?\n]{0,40}\b(?:you|i|we)\s+(?:can|could|may)\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:only|just)\s+ask\b[^.!?\n]{0,80}\b(?:permission|approval)s?\b[^.!?\n]{0,80}\b(?:outside|not in)\s+(?:a\s+)?worktrees?\b|\bno\s+(?:permissions?|approval)\s+(?:(?:are|is)\s+)?needed\b/i;
+const WORKTREE_BRANCH_CONTEXT_RE =
+  /\b(?:(?:creat(?:e|ing)|mak(?:e|ing)|switch(?:ing)?|mov(?:e|ing)|rotat(?:e|ing)|chang(?:e|ing))\s+(?:a\s+)?(?:new\s+)?branch(?:es)?|branch(?:es)?\s+(?:creation|changes?|movement|rotation|switch(?:es)?)|new\s+branches?|switch(?:ing)?\s+to\s+(?:a\s+)?task\s+branch(?:es)?)\b/i;
+const WORKTREE_BRANCH_PERMISSION_RE = {
+  test(text) {
+    // Keep unrelated branch mentions in neighboring sentences out of this metric.
+    return text
+      .split(/[.!?;\n]/)
+      .some(
+        (sentence) =>
+          !/\bshared\s+checkout\b/i.test(sentence) &&
+          /\bworktrees?\b/i.test(sentence) &&
+          WORKTREE_PERMISSION_CORRECTION_RE.test(sentence) &&
+          WORKTREE_BRANCH_CONTEXT_RE.test(sentence),
+      );
+  },
+};
+const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
+  [true, "Stop asking for permissions to create branches in worktrees."],
+  [
+    true,
+    "Stop asking for permission for new branches in task-owned worktrees.",
+  ],
+  [true, "In a worktree, no permission is needed to switch to a task branch."],
+  [
+    true,
+    "No permission is needed to create a branch in a task-owned worktree.",
+  ],
+  [true, "Stop asking before creating a branch in a task-owned worktree."],
+  [true, "Stop asking permission to create a new branch in a task worktree."],
+  [true, "Stop asking whether you can create a branch in a worktree."],
+  [true, "Don't ask if I can make a new branch inside the worktree."],
+  [true, "Don't ask for approval to make a new branch inside a worktree."],
+  [
+    true,
+    "We should only ask permission for branch changes when not in a worktree.",
+  ],
+  [
+    true,
+    "No permissions are needed for changing branches in task-owned worktrees.",
+  ],
+  [true, "Only ask permission to create a new branch outside a worktree."],
+  [
+    false,
+    "Do not ask permission to access production data from this worktree.",
+  ],
+  [false, "No approvals are needed for reading customer data in worktrees."],
+  [
+    false,
+    "No permission is needed to open a production dashboard in this worktree.",
+  ],
+  [
+    false,
+    "Do not ask permission to access production in this worktree; the feature branch was created yesterday.",
+  ],
+  [
+    false,
+    "Stop asking whether you can access production data in this worktree. The feature branch was created yesterday.",
+  ],
+  [
+    false,
+    "Stop asking for permissions in worktrees. This is only to prevent shared branch issues.",
+  ],
+  [false, "Ask before changing branches in the shared checkout."],
+  [
+    false,
+    "No permission is needed to create a new branch in a shared checkout.",
+  ],
+  [
+    false,
+    "No permission is needed to create a branch in a shared checkout worktree.",
+  ],
+  [false, "The worktree has a branch checked out."],
+];
+// ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.
+const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
+  [
+    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)[^.!?\n]{0,80}?\b(?:codex|agents?|sessions?|threads?|i|we|this\s+task|the\s+task)\b[^.!?\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,50}\bleases?\b[^.!?\n]{0,40}\b(?:so|then|and then|therefore)\b\s+(?:would\s+)?(?:just\s+)?(?:(?:it|they|i|we|the\s+(?:session|task|thread|agent)|(?:session|task|thread|agent|codex))\s+)?stop\w*(?:\s+working)?\b(?=\s*(?:[.!?]|$))`,
+    String.raw`\bi\s+(?:(?:had|have) to\s+)?(?:tell|told|asked|reminded)\s+(?:at\s+)?(?:the\s+)?(?:threads?|sessions?|agents?)\s+(?:to\s+)?finish(?:ing)?\s+shipping\s+and\s+(?:to\s+)?(?:ignore|bypass)\s+(?:the\s+)?leases?(?:\s+stuff)?\b`,
+  ].join("|"),
+  "i",
+);
+
 const STALE_PR_WATCHER_RE = new RegExp(
   [
     String.raw`\b(?:stop|remove|delete|pause|cancel|disable|turn off)\b[^.!?\n]{0,100}\b(?:ship[- ]watchdog|PR|pull request)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat)\b`,
@@ -598,6 +682,51 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [true, "Do not push commits routinely."],
 ];
 
+const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
+  [true, "Codex couldn't renew the PR lease and then stopped working."],
+  [true, "Codex couldn't renew the PR lease, so it stopped."],
+  [true, "I couldn't renew the PR lease, so I stopped working."],
+  [true, "This task couldn't renew the PR lease, so it stopped."],
+  [true, "I told the threads to finish shipping and ignore the lease stuff."],
+  [
+    true,
+    "I had to tell at the threads to finish shipping and ignore the lease stuff.",
+  ],
+  [
+    false,
+    "I did not ask the threads to finish shipping and ignore lease stuff.",
+  ],
+  [false, "Don't ask the threads to finish shipping and ignore lease stuff."],
+  [
+    true,
+    "Codex sessions couldn't get leases or lease renewal so would just stop.",
+  ],
+  [false, "The PR lease coordinates durable watchers."],
+  [false, "The lease failed, but this task continued in the foreground."],
+  [false, "A file lock prevented the build from running."],
+  [false, "Codex could not renew the lease, so it did not stop."],
+  [
+    false,
+    "Codex couldn't renew the lease, so it stopped because GitHub was down.",
+  ],
+  [false, "Codex couldn't renew the lease; it stopped because CI failed."],
+  [false, "If Codex could not renew the lease, then stop working."],
+  [false, "Work stopped because GitHub was down after the lease expired."],
+  [false, "The lease failed, so work stopped because GitHub was down."],
+  [
+    false,
+    "The lease expired then the task stopped because CI was unavailable.",
+  ],
+  [
+    false,
+    "Work stopped because the lease expired, but GitHub was the actual cause.",
+  ],
+  [false, "The lease blocked no work."],
+  [false, "No active lease prevented the task from continuing."],
+  [false, "Work stopped, not because of the lease."],
+  [false, "Work was not stopped because the lease expired."],
+];
+
 const STALE_PR_WATCHER_REGEX_CASES = [
   [true, "PR #6329 is merged; please stop this scheduled task."],
   [
@@ -881,6 +1010,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.filter(
+      ([expected, message]) =>
+        BABYSIT_LEASE_BLOCKS_WORK_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...STALE_PR_WATCHER_REGEX_CASES.filter(
       ([expected, message]) => STALE_PR_WATCHER_RE.test(message) !== expected,
     ),
@@ -913,12 +1048,18 @@ if (process.argv.includes("--self-test")) {
       ([expected, message]) => PR_REVIEW_HANDOFF_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...WORKTREE_BRANCH_PERMISSION_REGEX_CASES.filter(
+      ([expected, message]) =>
+        WORKTREE_BRANCH_PERMISSION_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -944,6 +1085,12 @@ const PATTERNS = [
     re: SHIPPING_CHURN_RE,
   },
   {
+    key: "babysit-lease-blocks-work",
+    label: "Had to ask for requested work to continue after a lease failure",
+    fixedBy: ".agents/skills/babysit-pr foreground fallback (2026-09-25)",
+    re: BABYSIT_LEASE_BLOCKS_WORK_RE,
+  },
+  {
     key: "stale-pr-watchers",
     label: "Had to stop a monitor after its PR was complete",
     fixedBy:
@@ -955,6 +1102,16 @@ const PATTERNS = [
     label: "Unrequested branch creation / movement",
     fixedBy: ".agents/skills/new-branch (activation guard, 2026-07-28)",
     re: /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i,
+  },
+  {
+    // Added 2026-09-25 because `branch-moves` measures unwanted branch moves,
+    // while asking permission to create a safe branch inside a task-owned
+    // worktree is a separate, repeated error.
+    key: "worktree-branch-permission",
+    label: "Had to correct permission asks for task-owned worktree branches",
+    fixedBy:
+      ".agents/skills/new-branch + ship + concurrent-agents (worktree ownership, 2026-09-25)",
+    re: WORKTREE_BRANCH_PERMISSION_RE,
   },
   {
     // Added 2026-09-11 after a user correction made clear the feedback scope

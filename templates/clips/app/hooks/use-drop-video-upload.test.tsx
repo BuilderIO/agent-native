@@ -24,7 +24,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
-vi.mock("@shared/recording-core", () => ({
+vi.mock("@shared/recording-core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@shared/recording-core")>()),
   chunkUploadParallelism: () => 1,
   chunkUploadUrl: (base: string) => base,
   UPLOAD_SLICE_BYTES: 1024,
@@ -37,7 +38,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
 }));
 vi.mock("sonner", () => ({ toast: mocks.toast }));
-vi.mock("@/lib/compress", () => ({ MAX_UPLOAD_BYTES: 1024 }));
+vi.mock("@/lib/compress", () => ({ MAX_UPLOAD_BYTES: 4096 }));
 vi.mock("@/lib/recording-title", () => ({
   defaultRecordingTitle: () => "Untitled",
 }));
@@ -73,6 +74,7 @@ function Probe({
 afterEach(() => {
   act(() => root?.unmount());
   container?.remove();
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
@@ -129,6 +131,93 @@ describe("useDropVideoUpload", () => {
     );
     expect(mocks.callAction).toHaveBeenCalledTimes(2);
   });
+
+  it("classifies library drops from mobile browsers as mobile recordings", async () => {
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+      userAgentData: { mobile: true },
+    });
+    mocks.callAction.mockResolvedValue({
+      id: "recording-mobile",
+      uploadChunkUrl: "/api/uploads/recording-mobile/chunk",
+    });
+    mocks.probeVideoMetadata.mockResolvedValue({
+      durationMs: 1000,
+      width: 640,
+      height: 480,
+    });
+    mocks.resolveVideoMimeType.mockReturnValue("video/mp4");
+    mocks.uploadVideoBlobThumbnail.mockResolvedValue(undefined);
+    mocks.invalidateQueries.mockResolvedValue(undefined);
+    mocks.uploadChunkRequest.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+
+    container = document.createElement("div");
+    root = createRoot(container);
+    act(() => root.render(<Probe />));
+    act(() => uploadFiles([new File(["video"], "video.mp4")]));
+
+    await vi.waitFor(() => expect(mocks.toast.success).toHaveBeenCalledOnce());
+    expect(mocks.callAction.mock.calls[0]?.[1]).toMatchObject({
+      recordingPlatform: "mobile",
+    });
+  });
+
+  it.each([
+    { name: "ordinary", fileSize: 1200 },
+    { name: "final", fileSize: 300 },
+  ])(
+    "classifies and sanitizes HTML $name chunk failures",
+    async ({ fileSize }) => {
+      const abortRequest = vi.fn().mockResolvedValue(new Response(null));
+      vi.stubGlobal("fetch", abortRequest);
+      mocks.callAction.mockResolvedValue({
+        id: `recording-html-${fileSize}`,
+        uploadChunkUrl: `/api/uploads/recording-html-${fileSize}/chunk`,
+      });
+      mocks.probeVideoMetadata.mockResolvedValue({
+        durationMs: 1000,
+        width: 640,
+        height: 480,
+      });
+      mocks.resolveVideoMimeType.mockReturnValue("video/mp4");
+      mocks.uploadVideoBlobThumbnail.mockResolvedValue(undefined);
+      mocks.invalidateQueries.mockResolvedValue(undefined);
+      mocks.waitForAcceptedRecordingAfterFinalizeError.mockResolvedValue(null);
+      mocks.uploadChunkRequest.mockResolvedValueOnce(
+        new Response("<html>private upstream response</html>", {
+          status: 502,
+          headers: { "content-type": "text/html" },
+        }),
+      );
+
+      container = document.createElement("div");
+      root = createRoot(container);
+      act(() => root.render(<Probe />));
+      act(() =>
+        uploadFiles([
+          new File([new Uint8Array(fileSize)], "video.mp4", {
+            type: "video/mp4",
+          }),
+        ]),
+      );
+
+      await vi.waitFor(() => expect(abortRequest).toHaveBeenCalledOnce());
+      const request = abortRequest.mock.calls[0]?.[1] as RequestInit;
+      const abortBody = JSON.parse(String(request.body)) as Record<
+        string,
+        unknown
+      >;
+      expect(abortBody).toMatchObject({
+        failureCode: "chunk_html_error",
+        failureStage: "chunk_upload",
+        httpStatus: 502,
+      });
+      expect(abortBody.reason).toContain("HTML error response (502)");
+      expect(abortBody.reason).not.toContain("private upstream response");
+    },
+  );
 
   it("keeps the drop scope when navigation happens during metadata probing", async () => {
     let finishMetadata!: (metadata: {

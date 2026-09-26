@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   applyOptimisticImagePreview,
+  captureSlideImageUploadProvenance,
   captureOptimisticImagePreview,
   createPlaceholderImageTarget,
+  discardSlideImageUploadProvenance,
   hasOptimisticImagePreview,
   imageFileLooksSupported,
   imageOccurrenceInRenderedSlide,
@@ -15,9 +17,13 @@ import {
   swapImageSourcesInPlace,
   replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
+  registerSlideImageUploadProvenance,
   stripOptimisticImagePreviews,
+  takeSlideImageUploadProvenance,
   updateImageFitInSlideHtml,
+  updateLiveImagesUnderEdit,
 } from "./slide-image-replacement";
+import { stampSlideSource } from "./slide-source-map";
 
 function firstImage(html: string): HTMLImageElement | null {
   return new DOMParser()
@@ -665,5 +671,167 @@ describe("slide image replacement", () => {
     expect(updated).toContain("Body copy");
     expect(updated).toContain('src="/uploads/drop.png"');
     expect(updated).toContain("position: absolute");
+  });
+});
+
+describe("updateLiveImagesUnderEdit", () => {
+  const url = "https://cdn.test/uploaded.png";
+
+  /** DeckEditor's upload: the edit's latest draft, previews stripped, this one applied and swapped. */
+  function uploadOnDraft(
+    committed: string,
+    preview: Parameters<typeof applyOptimisticImagePreview>[1],
+  ) {
+    const rendered = applyOptimisticImagePreview(committed, preview);
+    const capturedSnapshot = rendered.replace("Caption", "Caption ty");
+    const latest = stripOptimisticImagePreviews(capturedSnapshot, [preview]);
+    const next = replaceOptimisticImagePreview(
+      applyOptimisticImagePreview(
+        stripOptimisticImagePreviews(latest, [preview]),
+        preview,
+      ),
+      preview.previewSrc,
+      url,
+    );
+    const stampedRendered = stampSlideSource(rendered, "slide-test").html;
+    const stampedSnapshot = stampSlideSource(
+      capturedSnapshot,
+      "slide-test",
+    ).html;
+    const stampedNext = stampSlideSource(next, "slide-test").html;
+    const root = document.createElement("div");
+    root.innerHTML = stampedRendered;
+    const edited = root.querySelector<HTMLElement>("p")!;
+    edited.setAttribute("contenteditable", "true");
+    edited.textContent = "Caption ty";
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      stampedSnapshot,
+    )!;
+    edited.textContent = "Caption typed";
+    return { rendered: stampedRendered, next: stampedNext, provenance, root };
+  }
+
+  it.each([
+    [
+      "a dropped image",
+      '<div class="fmd-slide"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: null, position: { x: 10, y: 20 } },
+    ],
+    [
+      "a filled placeholder",
+      '<div class="fmd-slide"><div class="fmd-img-placeholder" style="width:200px">Hero</div><p>Caption</p></div>',
+      {
+        previewSrc: "blob:p1",
+        replaceSrc: createPlaceholderImageTarget(0, "Hero"),
+      },
+    ],
+    [
+      "a replaced image",
+      '<div class="fmd-slide"><img src="https://cdn.test/old.png" style="width:200px"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: "https://cdn.test/old.png" },
+    ],
+  ])(
+    "patches %s when the incoming edited node matches its upload snapshot",
+    (_label, committed, preview) => {
+      const { rendered, next, provenance, root } = uploadOnDraft(
+        committed,
+        preview,
+      );
+      expect(updateLiveImagesUnderEdit(root, rendered, next, provenance)).toBe(
+        true,
+      );
+      expect(root.querySelector("img")!.getAttribute("src")).toBe(url);
+      expect(root.querySelector("p")!.textContent).toBe("Caption typed");
+    },
+  );
+
+  it("refuses an image change that also changed the edited text elsewhere", () => {
+    const { rendered, next, provenance, root } = uploadOnDraft(
+      '<div class="fmd-slide"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: null },
+    );
+    const remote = next.replace("Caption ty", "Agent caption");
+    expect(updateLiveImagesUnderEdit(root, rendered, remote, provenance)).toBe(
+      false,
+    );
+    expect(root.querySelector("img")!.getAttribute("src")).toBe("blob:p1");
+  });
+
+  it("fails closed when overlapping uploads register different snapshots for the same result", () => {
+    const { next, provenance } = uploadOnDraft(
+      '<div class="fmd-slide"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: null },
+    );
+    const conflictingProvenance = {
+      ...provenance,
+      editedNodeMarkup: provenance.editedNodeMarkup.replace(
+        "Caption ty",
+        "Other caption",
+      ),
+    };
+
+    registerSlideImageUploadProvenance("slide-overlap", next, provenance);
+    registerSlideImageUploadProvenance(
+      "slide-overlap",
+      next,
+      conflictingProvenance,
+    );
+
+    expect(takeSlideImageUploadProvenance("slide-overlap", next)).toBeNull();
+  });
+});
+
+describe("upload provenance registry", () => {
+  const provenance = (stamp: string) => ({
+    editedSourceStamp: stamp,
+    editedNodeMarkup: `<p data-src-i="${stamp}">Caption</p>`,
+  });
+
+  it("drops a failed or cancelled upload's snapshot", () => {
+    registerSlideImageUploadProvenance(
+      "slide-failed",
+      "<p>a</p>",
+      provenance("1"),
+    );
+    discardSlideImageUploadProvenance("slide-failed", "<p>a</p>");
+    expect(
+      takeSlideImageUploadProvenance("slide-failed", "<p>a</p>"),
+    ).toBeNull();
+  });
+
+  it("keeps only the latest snapshots", () => {
+    for (let index = 0; index < 40; index += 1) {
+      registerSlideImageUploadProvenance(
+        `slide-many-${index % 2}`,
+        `<p>${index}</p>`,
+        provenance(String(index)),
+      );
+    }
+    expect(
+      takeSlideImageUploadProvenance("slide-many-0", "<p>0</p>"),
+    ).toBeNull();
+    expect(takeSlideImageUploadProvenance("slide-many-1", "<p>39</p>")).toEqual(
+      provenance("39"),
+    );
+  });
+
+  it("frees a discarded snapshot's place for later uploads", () => {
+    const contents = Array.from(
+      { length: 16 },
+      (_, index) => `<p>${index}</p>`,
+    );
+    for (const content of contents) {
+      registerSlideImageUploadProvenance("slide-a", content, provenance("a"));
+    }
+    for (const content of contents) {
+      discardSlideImageUploadProvenance("slide-a", content);
+    }
+    for (const content of contents) {
+      registerSlideImageUploadProvenance("slide-b", content, provenance("b"));
+    }
+    expect(takeSlideImageUploadProvenance("slide-b", "<p>0</p>")).toEqual(
+      provenance("b"),
+    );
   });
 });

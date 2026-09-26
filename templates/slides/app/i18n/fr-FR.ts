@@ -43,6 +43,7 @@ const messages = {
     team: "Équipe",
   },
   settings: {
+    agentObservability: "Observabilité de l’agent",
     title: "Paramètres",
     description: "Préférences de langue et d’espace de travail pour cette app.",
     labs: "Labs",
@@ -714,14 +715,14 @@ const messages = {
     accessApprovalSignIn: "Se connecter",
     accessApprovalLoading: "Accès en cours...",
     backToDecks: "Retour aux decks",
-    tryAgain: "Intentar de nuevo",
+    tryAgain: "Réessayer",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
       "Connectez Builder.io depuis le menu de modèle du composeur d’agent pour téléverser des images sur les diapositives. Déposer une image sur le canevas vide peut toujours l’envoyer à l’agent sans fournisseur.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
-    deckHasNoSlides: "El deck no tiene diapositivas.",
+    deckHasNoSlides: "Cette présentation ne contient aucune diapositive.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
     layoutOverflowWarning: "La mise en page déborde",
@@ -739,6 +740,8 @@ const messages = {
     leaveWithoutSaving: "Quitter sans enregistrer",
     editorMarkupNotSaved:
       "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
+    textEditConflictNotSaved:
+      "Votre modification du texte n'a pas été enregistrée, car le même texte a été modifié ailleurs au même moment.",
   },
   designSystemSetup: {
     importedBrand: "Marque importée",

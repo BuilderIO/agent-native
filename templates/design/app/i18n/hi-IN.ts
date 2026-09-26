@@ -578,6 +578,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "लाइव सहयोग",
+      description:
+        "मालिक के localhost तक पहुँच न रखने वाले लोगों को इस डिज़ाइन की लाइव कॉपी देखने और संपादित करने दें।",
+      enabled: "चालू",
+      disabled: "बंद",
+      saving: "सहेजा जा रहा है…",
+      enableError: "लाइव सहयोग अपडेट नहीं हो सका।",
+    },
     vectorEndpoints: {
       startPoint: "प्रारंभ बिंदु",
       endPoint: "अंतिम बिंदु",

@@ -44,6 +44,7 @@ const messages = {
     team: "Team",
   },
   settings: {
+    agentObservability: "Agentenbeobachtbarkeit",
     title: "Einstellungen",
     description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
     labs: "Labs",
@@ -709,14 +710,14 @@ const messages = {
     accessApprovalSignIn: "Anmelden",
     accessApprovalLoading: "Zugriff wird gewährt...",
     backToDecks: "Zurück zu den Decks",
-    tryAgain: "Intentar de nuevo",
+    tryAgain: "Erneut versuchen",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
       "Verbinde Builder.io im Modellmenü des Agent-Composers, um Bilder auf Folien hochzuladen. Wenn du ein Bild auf die leere Arbeitsfläche ziehst, kann es auch ohne Anbieter an den Agenten gesendet werden.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
-    deckHasNoSlides: "El deck no tiene diapositivas.",
+    deckHasNoSlides: "Dieses Deck enthält keine Folien.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
     layoutOverflowWarning: "Layout läuft über",
@@ -733,6 +734,8 @@ const messages = {
     leaveWithoutSaving: "Ohne Speichern beenden",
     editorMarkupNotSaved:
       "Diese Änderung wurde nicht gespeichert, weil sie der Folie Editor-Markup hinzugefügt hätte.",
+    textEditConflictNotSaved:
+      "Deine Textänderung wurde nicht gespeichert, weil derselbe Text gleichzeitig an anderer Stelle geändert wurde.",
   },
   designSystemSetup: {
     importedBrand: "Importierte Marke",

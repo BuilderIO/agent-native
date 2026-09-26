@@ -1355,226 +1355,19 @@ button[title="Open agent sidebar"] {
   color: hsl(var(--popover-foreground));
 }
 
-/* ─── Inline Slide Editor (TipTap) ─── */
-
-.slide-tiptap-editor {
-  font-family: "Poppins", sans-serif;
-  color: rgba(255, 255, 255, 0.9);
-  caret-color: #609ff8;
+/* A slide element is edited in place. Chrome's UA rules for an editing host
+   change its wrapping (`overflow-wrap: break-word`, `line-break:
+   after-white-space`) and draw a focus ring; `:where` keeps every author
+   rule ahead of these, so entering edit changes nothing on the slide. */
+:where(.slide-content [contenteditable="true"]) {
   outline: none;
-  cursor: text;
-}
-
-.slide-tiptap-editor .tiptap {
-  outline: none;
-  min-height: 100%;
-  height: 100%;
-}
-
-/* Placeholder */
-.slide-tiptap-editor .tiptap p.is-editor-empty:first-child::before {
-  content: attr(data-placeholder);
-  color: rgba(255, 255, 255, 0.2);
-  pointer-events: none;
-  float: left;
-  height: 0;
-}
-
-/* Headings */
-.slide-tiptap-editor .tiptap h1 {
-  font-size: 54px;
-  font-weight: 900;
-  color: #ffffff;
-  line-height: 1.1;
-  letter-spacing: -1px;
-  margin-bottom: 32px;
-}
-
-.slide-tiptap-editor .tiptap h2 {
-  font-size: 40px;
-  font-weight: 900;
-  color: #ffffff;
-  line-height: 1.15;
-  letter-spacing: -0.5px;
-  margin-bottom: 24px;
-}
-
-.slide-tiptap-editor .tiptap h3 {
-  font-size: 28px;
-  font-weight: 700;
-  color: #ffffff;
-  line-height: 1.2;
-  margin-bottom: 16px;
-}
-
-/* Paragraph */
-.slide-tiptap-editor .tiptap p {
-  font-size: 22px;
-  color: rgba(255, 255, 255, 0.85);
-  line-height: 1.5;
-  margin-bottom: 16px;
-}
-
-/* Lists */
-.slide-tiptap-editor .tiptap ul {
-  padding-left: 0;
-  margin-bottom: 16px;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.slide-tiptap-editor .tiptap ul li {
-  display: flex;
-  align-items: baseline;
-  gap: 18px;
-  font-size: 22px;
-  color: rgba(255, 255, 255, 0.85);
-  line-height: 1.4;
-}
-
-.slide-tiptap-editor .tiptap ul li::before {
-  content: "●";
-  color: #ffffff;
-  font-size: 8px;
-  position: relative;
-  top: -4px;
-  flex-shrink: 0;
-}
-
-/* TipTap wraps li content in <p> — remove its margin */
-.slide-tiptap-editor .tiptap ul li p {
-  margin: 0;
-  font-size: inherit;
-  color: inherit;
-}
-
-.slide-tiptap-editor .tiptap ol {
-  padding-left: 28px;
-  margin-bottom: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.slide-tiptap-editor .tiptap ol li {
-  font-size: 22px;
-  color: rgba(255, 255, 255, 0.85);
-  line-height: 1.4;
-  list-style-type: decimal;
-}
-
-.slide-tiptap-editor .tiptap ol li p {
-  margin: 0;
-  font-size: inherit;
-  color: inherit;
-}
-
-/* Blockquote */
-.slide-tiptap-editor .tiptap blockquote {
-  border-left: 4px solid #00e5ff;
-  padding-left: 24px;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 24px;
-  font-style: italic;
-  margin-bottom: 16px;
-}
-
-/* Inline formatting */
-.slide-tiptap-editor .tiptap strong {
-  color: #ffffff;
-  font-weight: 700;
-}
-
-.slide-tiptap-editor .tiptap em {
-  color: rgba(255, 255, 255, 0.9);
-  font-style: italic;
-}
-
-.slide-tiptap-editor .tiptap s {
-  opacity: 0.6;
-}
-
-.slide-tiptap-editor .tiptap code {
-  background: rgba(255, 255, 255, 0.1);
-  padding: 2px 8px;
-  border-radius: 4px;
-  color: #00e5ff;
-  font-family: monospace;
-  font-size: 0.85em;
-}
-
-.slide-tiptap-editor .tiptap a {
-  color: #00e5ff;
-  text-decoration: underline;
-}
-
-/* Selection highlight */
-.slide-tiptap-editor .tiptap ::selection {
-  background: rgba(96, 159, 248, 0.35);
-}
-
-/* The shared editor supplies the Content editing behavior and renders
-   unstyled, so the slide element's own layout and inherited text styles are
-   the only ones that apply while editing. Nothing in edit mode may restyle
-   text; the element must look identical selected and unselected. */
-.slide-content .slide-rich-editor-host {
-  display: contents;
-}
-
-/* The body-mounted editing context needs a real box for its fixed host. */
-.slide-content.slide-rich-editor-context .slide-rich-editor-host {
-  display: block;
-}
-
-/* TipTap's relative editor root must not become the containing block for
-   persisted absolute slide objects when a text layer receives focus. */
-.slide-content .slide-shared-rich-editor .ProseMirror {
-  position: static;
+  overflow-wrap: inherit;
+  line-break: inherit;
 }
 
 /* An empty paragraph is an intentional line break, not editor-only chrome. */
 .slide-content .fmd-slide p:empty {
   min-height: 1em;
-}
-
-/* Editing one list item renders it inside its own list, so hide the outer
-   marker and let the inner one take its place. */
-.slide-content .fmd-slide li[data-editing-block="true"] {
-  list-style: none;
-}
-
-.slide-content
-  .fmd-slide
-  li[data-editing-block="true"]
-  .an-rich-md-unstyled
-  > :is(ul, ol) {
-  padding-left: 0;
-  padding-inline-start: 0;
-}
-
-/* Older decks style bullets as flex rows with a marker span; they are edited
-   as a semantic list that draws the same marker. */
-.slide-content .slide-shared-rich-editor ul[style*="--slide-legacy-list"] {
-  padding-left: 0;
-  list-style: none;
-}
-
-.slide-content .slide-shared-rich-editor ul[style*="--slide-legacy-list"] > li {
-  list-style: none;
-}
-
-.slide-content
-  .slide-shared-rich-editor
-  ul[style*="--slide-legacy-list"]
-  > li::before {
-  content: var(--slide-legacy-marker-content, "•");
-  color: var(--slide-legacy-marker-color, currentColor);
-  font-size: var(--slide-legacy-marker-size, 0.5em);
-  position: relative;
-  top: var(--slide-legacy-marker-top, -0.25em);
-  flex-shrink: 0;
 }
 
 .slide-content .fmd-slide h1 {
@@ -1599,11 +1392,6 @@ button[title="Open agent sidebar"] {
   font-size: 1em;
   font-weight: 500;
   line-height: 1.5;
-}
-
-/* Slides has its own toolbar; the shared bubble toolbar stays hidden. */
-.slide-content .slide-shared-rich-editor .an-rich-md-bubble-toolbar {
-  display: none;
 }
 
 /* Google Slides-style object selection chrome. The edge hit targets are wider

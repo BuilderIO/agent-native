@@ -332,11 +332,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "Régénérer la réponse",
   "message.restoreFailed": "Échec de la restauration ({{status}}).",
   "message.restoreQuestion": "Restaurer jusqu’ici ?",
+  "message.revertQuestion":
+    "Revenir à ce point ? Les modifications ultérieures seront perdues.",
   "message.restoreRequestFailed": "Échec de la demande de restauration.",
   "message.threadNotFound":
     "Ce fil de discussion n’est plus disponible. Démarrez une nouvelle discussion ou réessayez si cela est inattendu.",
   "message.restoring": "Restauration...",
   "message.revertHere": "Revenir jusqu’ici",
+  "message.revertToBeginning": "Revenir au début",
   "message.sentAt": "Envoyé à {{time}}",
   "plan.act": "Agir",
   "plan.implement": "Implémenter",

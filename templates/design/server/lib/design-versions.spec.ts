@@ -29,6 +29,7 @@ const captureMocks = vi.hoisted(() => ({
     resolvedCssVars: {},
   },
   forceInsertConflict: false,
+  persistConcurrentInsertOnConflict: false,
   assertAccess: vi.fn(),
   buildDesignSnapshot: vi.fn(),
   nanoid: vi.fn(),
@@ -121,10 +122,11 @@ vi.mock("../db/index.js", () => {
           query.conflicted = captureMocks.forceInsertConflict;
           if (
             table === schema.designVersions &&
-            (captureMocks.forceInsertConflict ||
-              !captureMocks.revisions.some(
-                (revision) => revision.id === query.value.id,
-              ))
+            (!captureMocks.forceInsertConflict ||
+              captureMocks.persistConcurrentInsertOnConflict) &&
+            !captureMocks.revisions.some(
+              (revision) => revision.id === query.value.id,
+            )
           ) {
             captureMocks.revisions.push(query.value);
           }
@@ -143,6 +145,7 @@ vi.mock("../db/index.js", () => {
 
 import {
   __clearEditorCheckpointSkipsForTests,
+  createDesignChatBeginningSnapshot,
   createDesignVersionSnapshot,
   listDesignVersions,
   parseDesignVersionSnapshot,
@@ -156,6 +159,7 @@ beforeEach(() => {
   __clearEditorCheckpointSkipsForTests();
   captureMocks.revisions = [];
   captureMocks.forceInsertConflict = false;
+  captureMocks.persistConcurrentInsertOnConflict = false;
   captureMocks.assertAccess.mockReset();
   captureMocks.assertAccess.mockImplementation(async () => ({
     resource: { ...captureMocks.design },
@@ -337,6 +341,65 @@ describe("createDesignVersionSnapshot", () => {
 
     expect(changed.id).not.toBe(first.id);
     expect(captureMocks.revisions).toHaveLength(2);
+  });
+
+  it("captures the start of a chat once per thread", async () => {
+    const run = { threadId: 'thread "%_\\path', runId: "run-1" };
+
+    const first = await createDesignChatBeginningSnapshot("design-1", run);
+    const retry = await createDesignChatBeginningSnapshot("design-1", run);
+
+    expect(first).not.toBeNull();
+    expect(retry).toBeNull();
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.chatContext as string),
+    ).toMatchObject({ ...run, phase: "start" });
+
+    await expect(
+      listDesignVersions("design-1", 10, run.threadId),
+    ).resolves.toMatchObject({
+      versions: [
+        expect.objectContaining({
+          id: expect.any(String),
+          chatContext: { ...run, phase: "start" },
+        }),
+      ],
+    });
+
+    captureMocks.revisions[0]!.chatContext = `{"threadId":${JSON.stringify(run.threadId)},"phase":"start",broken}`;
+    await expect(
+      listDesignVersions("design-1", 10, run.threadId),
+    ).resolves.toMatchObject({
+      versions: [],
+      invalidCount: 1,
+    });
+  });
+
+  it("uses the database primary key to deduplicate concurrent thread baselines", async () => {
+    captureMocks.forceInsertConflict = true;
+    captureMocks.persistConcurrentInsertOnConflict = true;
+
+    const result = await createDesignChatBeginningSnapshot("design-1", {
+      threadId: "thread-race",
+      runId: "run-race",
+    });
+    const retry = await createDesignChatBeginningSnapshot("design-1", {
+      threadId: "thread-race",
+      runId: "different-run",
+    });
+
+    expect(result).not.toBeNull();
+    expect(retry).toBeNull();
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(captureMocks.revisions[0]).toMatchObject({
+      id: expect.stringMatching(/^design-version-/),
+      chatContext: JSON.stringify({
+        threadId: "thread-race",
+        runId: "run-race",
+        phase: "start",
+      }),
+    });
   });
 
   it("records a tweak-only edit as a new checkpoint", async () => {

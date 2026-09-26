@@ -263,6 +263,35 @@ export default {
     weekStartLabel: "La semaine commence le",
     weekStartSunday: "Dimanche - samedi",
     weekStartMonday: "Lundi - dimanche",
+    eventRules: "Règles d’invitation",
+    eventRuleAccept: "Accepter automatiquement",
+    eventRuleDecline: "Refuser automatiquement",
+    eventRuleHide: "Masquer automatiquement",
+    eventRulePlaceholderAccept:
+      "Exemple : accepter les échanges individuels avec mon équipe",
+    eventRulePlaceholderDecline:
+      "Exemple : refuser les démonstrations commerciales et les événements après le travail",
+    eventRulePlaceholderHide:
+      "Exemple : masquer les plages de concentration et les rappels",
+    eventRulesSave: "Enregistrer les règles",
+    eventRulesRecentActivity: "Activité récente",
+    eventRulesNoActivity: "Aucune activité pour le moment",
+    eventRuleActivityAccepted: "Accepté",
+    eventRuleActivityDeclined: "Refusé",
+    eventRuleActivityHidden: "Masqué",
+    eventRuleUndoDone: "Action annulée",
+    eventRuleUndoFailed: "Impossible d’annuler cette action",
+    eventRulesActive:
+      "Les règles s’exécutent toutes les 5 minutes sur les calendriers principaux des comptes connectés.",
+    eventRulesDisabled:
+      "Activez RUN_BACKGROUND_JOBS=1 sur un processus Calendar persistant.",
+    eventRulesDeploymentDisabled:
+      "L’automatisation planifiée est désactivée pour ce déploiement.",
+    eventRulesChecking: "Vérification de l’état de l’automatisation…",
+    eventRulesConflict:
+      "Une invitation a été ignorée car les règles d’acceptation et de refus correspondaient.",
+    eventRulesUnregistered:
+      "L’automatisation Calendar n’est pas enregistrée sur ce serveur.",
   },
   eventDialog: {
     eventUpdated: "Événement mis à jour",

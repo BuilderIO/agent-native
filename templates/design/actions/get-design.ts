@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -39,15 +39,20 @@ function shouldTrackDesignView(
 
 export default defineAction({
   description:
-    "Get a design project by ID. Returns the full design data including all associated files and linked `designSystem.agentContext` when readable. Treat that context as authoritative before authoring or restyling.",
+    "Get a design project by ID. Returns the full design data and linked `designSystem.agentContext` when readable. By default, returns all associated files; pass `includeFileContent=false` for file metadata only, then pass a `fileId` to read just one file. Treat design-system context as authoritative before authoring or restyling.",
   schema: z.object({
     id: z.string().describe("Design ID"),
+    fileId: z.string().min(1).optional().describe("Read one design file by ID"),
+    includeFileContent: z
+      .boolean()
+      .optional()
+      .describe("Set false to return file metadata without HTML contents"),
   }),
   readOnly: true,
   requiresAuth: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   http: { method: "GET" },
-  run: async ({ id }, ctx) => {
+  run: async ({ id, fileId, includeFileContent }, ctx) => {
     const access = await resolveAccess("design", id);
     if (!access) {
       const error = new Error("Design not found") as Error & {
@@ -68,11 +73,35 @@ export default defineAction({
     // batch share a `createdAt` to the millisecond and fall back to the id
     // tiebreak. Nothing may depend on the index matching the order a generator
     // wrote in — see the order-independence case in variant-lineup.test.ts.
-    const files = await db
-      .select()
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, id))
-      .orderBy(asc(schema.designFiles.createdAt), asc(schema.designFiles.id));
+    const baseFileFields = {
+      id: schema.designFiles.id,
+      filename: schema.designFiles.filename,
+      fileType: schema.designFiles.fileType,
+      createdAt: schema.designFiles.createdAt,
+      updatedAt: schema.designFiles.updatedAt,
+    };
+    const fileFilter = fileId
+      ? and(
+          eq(schema.designFiles.designId, id),
+          eq(schema.designFiles.id, fileId),
+        )
+      : eq(schema.designFiles.designId, id);
+    const fileOrder = [
+      asc(schema.designFiles.createdAt),
+      asc(schema.designFiles.id),
+    ] as const;
+    const files =
+      includeFileContent === false
+        ? await db
+            .select(baseFileFields)
+            .from(schema.designFiles)
+            .where(fileFilter)
+            .orderBy(...fileOrder)
+        : await db
+            .select({ ...baseFileFields, content: schema.designFiles.content })
+            .from(schema.designFiles)
+            .where(fileFilter)
+            .orderBy(...fileOrder);
     const designSystem = await loadAgentDesignSystemContext(
       typeof row.designSystemId === "string" ? row.designSystemId : null,
       getDesignSystem,
@@ -98,6 +127,7 @@ export default defineAction({
       description: row.description,
       projectType: row.projectType,
       designSystemId: row.designSystemId,
+      liveCollaborationEnabled: row.liveCollaborationEnabled === true,
       designSystem,
       data: designDataForAccessRole(row.data ?? null, access.role),
       visibility: row.visibility,
@@ -108,7 +138,9 @@ export default defineAction({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
-        content: f.content,
+        ...(includeFileContent === false || !("content" in f)
+          ? {}
+          : { content: f.content }),
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       })),

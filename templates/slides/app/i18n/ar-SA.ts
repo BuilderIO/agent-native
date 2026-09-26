@@ -43,6 +43,7 @@ const messages = {
     team: "الفريق",
   },
   settings: {
+    agentObservability: "مراقبة الوكيل",
     title: "الإعدادات",
     description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
     labs: "المختبرات",
@@ -708,14 +709,14 @@ const messages = {
     accessApprovalSignIn: "تسجيل الدخول",
     accessApprovalLoading: "جارٍ منح الوصول...",
     backToDecks: "العودة إلى العروض",
-    tryAgain: "Intentar de nuevo",
+    tryAgain: "إعادة المحاولة",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
       "وصّل Builder.io من قائمة النموذج في مؤلف الوكيل لتحميل الصور إلى الشرائح. لا يزال بإمكانك إفلات صورة على اللوحة الفارغة لإرسالها إلى الوكيل بدون مزود.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
-    deckHasNoSlides: "El deck no tiene diapositivas.",
+    deckHasNoSlides: "لا توجد شرائح في هذا العرض التقديمي.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
     layoutOverflowWarning: "يتجاوز التخطيط المساحة",
@@ -736,6 +737,8 @@ const messages = {
     leaveWithoutSaving: "الخروج دون حفظ",
     editorMarkupNotSaved:
       "لم يتم حفظ هذا التعديل لأنه كان سيضيف ترميز المحرر إلى الشريحة.",
+    textEditConflictNotSaved:
+      "لم يتم حفظ تعديل النص لأن النص نفسه تم تغييره في مكان آخر في الوقت نفسه.",
   },
   designSystemSetup: {
     importedBrand: "علامة تجارية مستوردة",

@@ -43,6 +43,7 @@ const messages = {
     team: "Equipo",
   },
   settings: {
+    agentObservability: "Observabilidad del agente",
     title: "Ajustes",
     description: "Preferencias de idioma y espacio de trabajo para esta app.",
     labs: "Labs",
@@ -736,6 +737,8 @@ const messages = {
     leaveWithoutSaving: "Salir sin guardar",
     editorMarkupNotSaved:
       "Esta edición no se guardó porque habría añadido marcado del editor a la diapositiva.",
+    textEditConflictNotSaved:
+      "Tu edición de texto no se guardó porque el mismo texto se cambió en otro lugar al mismo tiempo.",
   },
   designSystemSetup: {
     importedBrand: "Marca importada",

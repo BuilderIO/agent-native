@@ -1812,6 +1812,7 @@ const messages = {
     reviewFeedback: "Feedback",
     reviewOutput: "Review output",
     reviewPreview: "Preview output",
+    reviewPreviewUnavailable: "Preview unavailable",
     closePreview: "Hide preview",
     addFeedback: "Add feedback",
     draftInstruction: "Draft instruction",

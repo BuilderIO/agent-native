@@ -569,11 +569,13 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "जवाब फिर से बनाएँ",
   "message.restoreFailed": "पुनर्स्थापना विफल रही ({{status}})।",
   "message.restoreQuestion": "यहाँ तक पुनर्स्थापित करें?",
+  "message.revertQuestion": "इस बिंदु पर वापस जाएँ? इसके बाद किए गए बदलाव खो जाएँगे।",
   "message.restoreRequestFailed": "पुनर्स्थापना अनुरोध विफल रहा।",
   "message.threadNotFound":
     "यह चैट थ्रेड अब उपलब्ध नहीं है। नई चैट शुरू करें या यदि यह अप्रत्याशित है तो फिर कोशिश करें।",
   "message.restoring": "पुनर्स्थापित किया जा रहा है...",
   "message.revertHere": "यहाँ तक वापस जाएँ",
+  "message.revertToBeginning": "शुरुआत पर वापस जाएँ",
   "message.sentAt": "{{time}} पर भेजा गया",
   "contextMeter.ariaLabel":
     "संदर्भ {{percent}}%, {{totalTokens}}{{breakdown}}। संदर्भ विश्लेषण खोलें।",
