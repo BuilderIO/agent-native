@@ -95,6 +95,7 @@ interface SecretStatus {
 }
 
 const ENDPOINT = agentNativePath("/_agent-native/secrets");
+const SECRETS_REQUEST_TIMEOUT_MS = 15_000;
 
 function notifySecretsChanged() {
   if (typeof window === "undefined") return;
@@ -111,6 +112,7 @@ export interface SecretsSectionProps {
 }
 
 export function SecretsSection({ focusKey }: SecretsSectionProps) {
+  const t = useT();
   const [secrets, setSecrets] = useState<SecretStatus[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -126,25 +128,50 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(ENDPOINT)
-      .then(async (r) => {
-        if (!r.ok) {
-          throw new Error(`Failed to load secrets (${r.status})`);
-        }
-        return (await r.json()) as SecretStatus[];
-      })
+    const controller =
+      typeof AbortController === "undefined" ? null : new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const request = (async () => {
+      const r = await fetch(ENDPOINT, {
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+      if (!r.ok) {
+        throw new Error(`Failed to load secrets (${r.status})`);
+      }
+      return (await r.json()) as SecretStatus[];
+    })();
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        controller?.abort();
+        reject(new Error("Secrets request timed out after 15 seconds"));
+      }, SECRETS_REQUEST_TIMEOUT_MS);
+    });
+    void Promise.race([request, timeout])
       .then((data) => {
         if (!cancelled) setSecrets(data);
       })
       .catch((err) => {
-        if (!cancelled) setError(err?.message ?? "Failed to load");
+        if (!cancelled) {
+          console.error("Failed to load registered secrets", err);
+          setError(err?.message ?? "Failed to load");
+        }
+      })
+      .finally(() => {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        controller?.abort();
       });
     return () => {
       cancelled = true;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      controller?.abort();
     };
   }, [reloadToken]);
 
-  const reload = useCallback(() => setReloadToken((t) => t + 1), []);
+  const reload = useCallback(() => {
+    setError(null);
+    setSecrets(null);
+    setReloadToken((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     if (focusKey) {
@@ -155,9 +182,15 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 
   if (error) {
     return (
-      <p className="text-[10px] text-red-500">
-        Failed to load secrets: {error}
-      </p>
+      <div
+        className="flex items-center gap-2 text-xs text-destructive"
+        role="alert"
+      >
+        <span>{t("agentChat.common.chunkLoadFailed")}</span>
+        <Button type="button" onClick={reload}>
+          {t("agentChat.common.retry")}
+        </Button>
+      </div>
     );
   }
   if (secrets === null) {

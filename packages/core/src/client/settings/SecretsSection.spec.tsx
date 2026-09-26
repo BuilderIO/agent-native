@@ -149,7 +149,55 @@ describe("SecretsSection", () => {
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
+    vi.restoreAllMocks();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("fails a stalled secrets response and retries it", async () => {
+    vi.useFakeTimers();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    let requestSignal: AbortSignal | null | undefined;
+    let secretRequests = 0;
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      if (String(input).endsWith("/secrets/adhoc")) {
+        return Promise.resolve(Response.json([]));
+      }
+      secretRequests += 1;
+      if (secretRequests === 1) {
+        requestSignal = init?.signal;
+        return Promise.resolve({
+          ok: true,
+          json: () => new Promise<never>(() => {}),
+        } as Response);
+      }
+      return Promise.resolve(Response.json(registeredSecrets));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Please try again",
+    );
+    expect(consoleError).toHaveBeenCalledOnce();
+
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry",
+    );
+    await click(retryButton);
+
+    expect(secretRequests).toBe(2);
+    expect(container.textContent).toContain("OpenAI API key");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it("shows configured keys while keeping unset providers behind New", async () => {
