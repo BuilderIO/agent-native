@@ -76,6 +76,7 @@ export default defineAction({
       .string()
       .describe("Design project ID to migrate board objects for."),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async ({ designId }, context) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);

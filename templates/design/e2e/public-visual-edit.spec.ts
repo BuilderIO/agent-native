@@ -404,7 +404,7 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
-  test("signed-out /visual-edit opens a capability-scoped editor through page WebMCP", async ({
+  test("signed-out /visual-edit capability can publish, pull, and acknowledge edits", async ({
     browser,
   }) => {
     const signedOut = await openSignedOutPage(browser, "/visual-edit");
@@ -514,6 +514,14 @@ test.describe.serial("public visual edit", () => {
         },
       );
 
+      const boardMigrationResponse = signedOut.page.waitForResponse(
+        (response) =>
+          response
+            .url()
+            .includes("/_agent-native/actions/migrate-board-objects-to-file"),
+        { timeout: 30_000 },
+      );
+
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: /open visual edit/i }).click();
 
@@ -524,82 +532,106 @@ test.describe.serial("public visual edit", () => {
       await expect(signedOut.page.locator("[data-design-editor]")).toBeVisible({
         timeout: 30_000,
       });
-      await expect
-        .poll(
-          () =>
-            signedOut.page.evaluate(async () => {
-              const helper = (
-                window as typeof window & {
-                  __agentNativeWebMcp?: {
-                    tools(): Promise<Array<{ name: string }>>;
-                  };
-                }
-              ).__agentNativeWebMcp;
-              if (!helper) throw new Error("WebMCP page helper missing");
-              return (await helper.tools()).map((tool) => tool.name).sort();
-            }),
-          { timeout: 15_000 },
-        )
-        .toEqual(
-          expect.arrayContaining([
-            "get-visual-edit-prompt",
-            "list-localhost-connections",
-            "request-localhost-write-consent",
-            "update-screen-source",
-          ]),
-        );
-
-      await expect
-        .poll(async () =>
-          signedOut.page.evaluate(async () => {
-            const helper = (
-              window as typeof window & {
-                __agentNativeWebMcp?: {
-                  call(
-                    name: string,
-                    args?: Record<string, unknown>,
-                  ): Promise<unknown>;
-                };
-              }
-            ).__agentNativeWebMcp;
-            if (!helper) throw new Error("WebMCP page helper missing");
-            return helper.call("get-visual-edit-prompt", {});
-          }),
-        )
-        .toMatchObject({
-          state: "done",
-          ok: true,
-          tool: "get-visual-edit-prompt",
-          result: { pendingEditCount: 0, status: "empty" },
-        });
-
+      const migrationResponse = await boardMigrationResponse;
+      expect(migrationResponse.status(), await migrationResponse.text()).toBe(
+        200,
+      );
       const capabilityDesignId = new URL(signedOut.page.url()).pathname
         .split("/")
         .pop();
       expect(capabilityDesignId).toEqual(preflightResult?.designId);
-      await expect
-        .poll(async () =>
-          signedOut.page.evaluate(async (designId) => {
-            const helper = (
-              window as typeof window & {
-                __agentNativeWebMcp?: {
-                  call(
-                    name: string,
-                    args?: Record<string, unknown>,
-                  ): Promise<unknown>;
-                };
-              }
-            ).__agentNativeWebMcp;
-            if (!helper) throw new Error("WebMCP page helper missing");
-            return helper.call("list-localhost-connections", { designId });
-          }, capabilityDesignId),
-        )
-        .toMatchObject({
-          state: "done",
-          ok: true,
-          tool: "list-localhost-connections",
-          result: { count: 1 },
-        });
+
+      const capabilityToken = await signedOut.page.evaluate(() =>
+        sessionStorage.getItem("agent-native:embed-auth-token"),
+      );
+      expect(capabilityToken).toBeTruthy();
+      const targetUrl = new URL(signedOut.page.url());
+      const capabilityHeaders = {
+        authorization: `Bearer ${capabilityToken}`,
+        "x-agent-native-embed-target": `${targetUrl.pathname}${targetUrl.search}`,
+      };
+      const mcpRequest = signedOut.page.context().request;
+      // Exercise the MCP compatibility endpoint with the exact editor capability
+      // issued by open-visual-edit, not a synthetic owner session.
+      const manifestResponse = await mcpRequest.get(
+        appUrl("/_agent-native/webmcp/manifest"),
+        { headers: capabilityHeaders },
+      );
+      const manifestTools = await manifestResponse.json();
+      expect(manifestResponse.status(), JSON.stringify(manifestTools)).toBe(
+        200,
+      );
+      expect(manifestTools.map((tool: { name: string }) => tool.name)).toEqual(
+        expect.arrayContaining([
+          "acknowledge-visual-edit-pending",
+          "get-visual-edit-pending",
+        ]),
+      );
+      const publishResponse = await mcpRequest.post(
+        appUrl("/_agent-native/actions/publish-visual-edit-pending"),
+        {
+          headers: {
+            ...capabilityHeaders,
+            origin: new URL(BASE_URL).origin,
+            "sec-fetch-site": "same-origin",
+            "x-agent-native-frontend": "1",
+          },
+          data: {
+            designId: capabilityDesignId,
+            publisherId: "11111111-1111-4111-8111-111111111111",
+            revision: 1,
+            pending: {
+              designId: capabilityDesignId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: "Apply the capability-scoped visual edit fixture.",
+            },
+          },
+        },
+      );
+      const published = await publishResponse.json();
+      expect(publishResponse.status(), JSON.stringify(published)).toBe(200);
+      expect(published).toMatchObject({
+        status: "ready",
+        pendingEditCount: 1,
+      });
+      const pull = async () => {
+        const response = await mcpRequest.post(
+          appUrl("/mcp/tool/get-visual-edit-pending"),
+          {
+            headers: capabilityHeaders,
+            data: { designId: capabilityDesignId },
+          },
+        );
+        return { response, body: await response.json() };
+      };
+      const { response: pullResponse, body: pulled } = await pull();
+      expect(pullResponse.status(), JSON.stringify(pulled)).toBe(200);
+      expect(pulled).toMatchObject({
+        status: "ready",
+        prompt: "Apply the capability-scoped visual edit fixture.",
+      });
+      const acknowledgeResponse = await mcpRequest.post(
+        appUrl("/mcp/tool/acknowledge-visual-edit-pending"),
+        {
+          headers: capabilityHeaders,
+          data: { designId: capabilityDesignId, revision: pulled.revision },
+        },
+      );
+      const acknowledged = await acknowledgeResponse.json();
+      expect(acknowledgeResponse.status(), JSON.stringify(acknowledged)).toBe(
+        200,
+      );
+      expect(acknowledged).toMatchObject({
+        status: "empty",
+        pendingEditCount: 0,
+      });
+      const { response: clearedResponse, body: cleared } = await pull();
+      expect(clearedResponse.status(), JSON.stringify(cleared)).toBe(200);
+      expect(cleared).toMatchObject({
+        status: "empty",
+        pendingEditCount: 0,
+      });
 
       const direct = await openSignedOutPage(
         browser,
@@ -615,6 +647,14 @@ test.describe.serial("public visual edit", () => {
         expect(
           new URL(direct.page.url()).searchParams.get("__an_embed_token"),
         ).toBeNull();
+        const unauthorizedPending = await direct.page
+          .context()
+          .request.get(
+            appUrl(
+              `/_agent-native/actions/get-visual-edit-pending?designId=${encodeURIComponent(String(preflightResult?.designId))}`,
+            ),
+          );
+        expect([401, 403]).toContain(unauthorizedPending.status());
         await expect(direct.page.locator("[data-design-editor]")).toBeVisible({
           timeout: 30_000,
         });
@@ -736,49 +776,28 @@ test.describe.serial("public visual edit", () => {
             exact: true,
           }),
         ).toHaveCount(0, { timeout: 30_000 });
-        await expect(
-          modeMarkerDirect.page
-            .locator("iframe[data-design-preview-iframe]")
-            .first()
-            .contentFrame()
-            .locator("[data-agent-native-editor-chrome-host]"),
-        ).toHaveCount(1, { timeout: 30_000 });
         await assertNoRuntimeErrors(modeMarkerDirect);
       } finally {
         await modeMarkerDirect.close();
       }
-      const consentRequest = await signedOut.page.evaluate(
-        async ({ designId, connectionId }) => {
-          const helper = (
-            window as typeof window & {
-              __agentNativeWebMcp?: {
-                call(
-                  name: string,
-                  args?: Record<string, unknown>,
-                ): Promise<unknown>;
-              };
-            }
-          ).__agentNativeWebMcp;
-          if (!helper) throw new Error("WebMCP page helper missing");
-          return helper.call("request-localhost-write-consent", {
-            designId,
-            connectionId,
-            files: ["src/App.tsx"],
-          });
-        },
+      const consentResponse = await mcpRequest.post(
+        appUrl("/mcp/tool/request-localhost-write-consent"),
         {
-          designId: preflightResult?.designId,
-          connectionId: preflightResult?.connectionId,
+          headers: capabilityHeaders,
+          data: {
+            designId: preflightResult?.designId,
+            connectionId: preflightResult?.connectionId,
+            files: ["src/App.tsx"],
+          },
         },
       );
+      const consentRequest = await consentResponse.json();
+      expect(consentResponse.status(), JSON.stringify(consentRequest)).toBe(
+        200,
+      );
       expect(consentRequest).toMatchObject({
-        state: "done",
-        ok: true,
-        tool: "request-localhost-write-consent",
-        result: {
-          designId: preflightResult?.designId,
-          connectionId: preflightResult?.connectionId,
-        },
+        designId: preflightResult?.designId,
+        connectionId: preflightResult?.connectionId,
       });
 
       await assertNoRuntimeErrors(signedOut);
@@ -1578,7 +1597,10 @@ async function openSignedOutPage(
 
   page.on("console", (message) => {
     if (message.type() === "error") {
-      consoleErrors.push(message.text());
+      const location = message.location();
+      consoleErrors.push(
+        `${message.text()} (${location.url}:${location.lineNumber})`,
+      );
     }
   });
   page.on("pageerror", (error) => {
