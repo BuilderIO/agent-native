@@ -1904,6 +1904,7 @@ describe("server/auth", () => {
 
       const operations: string[] = [];
       let failRevocation = false;
+      let failUserTableLookup = false;
       let failDatabaseDeleteAt: number | null = null;
       let databaseDeleteCount = 0;
       const deletedLegacyEmails = new Set<string>();
@@ -1926,6 +1927,14 @@ describe("server/auth", () => {
       const mockExecute = vi.fn(async (query: any) => {
         const sql = typeof query === "string" ? query : query.sql;
         const args = typeof query === "string" ? [] : query.args;
+        if (
+          failUserTableLookup &&
+          sql === 'SELECT id FROM "user" WHERE email = ?'
+        ) {
+          throw Object.assign(new Error('relation "user" does not exist'), {
+            code: "42P01",
+          });
+        }
         if (typeof sql === "string" && sql.startsWith("DELETE")) {
           operations.push(sql);
           databaseDeleteCount++;
@@ -2104,6 +2113,25 @@ describe("server/auth", () => {
         operations.some((operation) => operation.startsWith("DELETE")),
       ).toBe(false);
       expect(failedEvent.res.headers.get("set-cookie") ?? "").toBe("");
+
+      operations.length = 0;
+      failRevocation = false;
+      failUserTableLookup = true;
+      const tokenOnlyEvent = createJsonPostEvent(
+        "/_agent-native/auth/logout-all",
+        {},
+        {
+          cookie: `${EMBED_SESSION_COOKIE}=${embedTokens[0]}`,
+          host: "localhost",
+        },
+      );
+      await expect(logoutAllHandler(tokenOnlyEvent)).resolves.toEqual({
+        ok: true,
+      });
+      expect(operations).toContain("DELETE FROM sessions WHERE email = ?");
+      expect(tokenOnlyEvent.res.headers.get("set-cookie") ?? "").toContain(
+        `${EMBED_SESSION_COOKIE}=; Max-Age=0`,
+      );
     }, 30_000);
 
     it("revokes the Better Auth session row directly so logout can't be resurrected by the legacy-cookie fallback", async () => {

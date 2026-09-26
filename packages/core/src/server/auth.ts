@@ -1448,6 +1448,15 @@ async function emailFromBetterAuthSessionToken(
   return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
 }
 
+function isMissingBetterAuthUserTable(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "42P01" &&
+    describeDbError(error).includes('relation "user" does not exist')
+  );
+}
+
 function getPresentedSessionTokenCandidates(event: H3Event): string[] {
   const bearerToken = getBearerSessionToken(event);
   return [
@@ -7137,11 +7146,16 @@ async function mountBetterAuthRoutes(
           for (const email of identities) {
             // 1. Resolve user_id from email so we can wipe Better Auth sessions
             // by their FK column.
-            const { rows } = await db.execute({
-              sql: 'SELECT id FROM "user" WHERE email = ?',
-              args: [email],
-            });
-            const userId = (rows[0]?.id ?? rows[0]?.[0]) as string | undefined;
+            let userId: string | undefined;
+            try {
+              const { rows } = await db.execute({
+                sql: 'SELECT id FROM "user" WHERE email = ?',
+                args: [email],
+              });
+              userId = (rows[0]?.id ?? rows[0]?.[0]) as string | undefined;
+            } catch (error) {
+              if (!isMissingBetterAuthUserTable(error)) throw error;
+            }
             if (userId) {
               await db.execute({
                 sql: 'DELETE FROM "session" WHERE user_id = ?',
