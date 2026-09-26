@@ -414,11 +414,10 @@ const messages = {
     agentEmptyTitle: "انضم إلى المحادثة",
     agentEmptyDescription:
       "أنشئ حساب Clips مجانيًا للتعليق والتفاعل وطرح الأسئلة حول هذا المقطع.",
-    commentSignupTitle: "امنح وكيل الذكاء الاصطناعي الصورة كاملة",
-    commentSignupContext:
-      "شارك النص المكتوب والإطارات ذات الطوابع الزمنية في رابط واحد",
-    commentSignupFeedback: "حوّل الملاحظات المسجّلة إلى خطوات واضحة",
-    commentSignupDebug: "التقط أخطاء وحدة التحكم والطلبات الفاشلة",
+    commentSignupTitle:
+      "تسجيلات شاشة يستطيع وكيل الذكاء الاصطناعي رؤيتها وسماعها",
+    commentSignupDescription:
+      "Clips مسجل شاشة مجاني ومفتوح المصدر لمشاركة الأخطاء والملاحظات والشروحات خطوة بخطوة مع وكلاء الذكاء الاصطناعي.",
     agentEmptySignInPrompt: "لديك حساب بالفعل؟",
     signUp: "التسجيل",
     ownerInsights: "رؤى المالك",
@@ -818,6 +817,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "تعذر تحديث مساحة العمل النشطة",
     whatsNew: "ما الجديد",
     changelogEmpty: "لا توجد تحديثات بعد.",
+    changelogCommentSignup:
+      "توضح لوحة التعليقات الفارغة بإيجاز سبب تجربة Clips وتوفر مسارًا واضحًا للتسجيل.",
+    changelogCommentsEmptyState:
+      "توضح الحالة الفارغة للتعليقات الآن كيف تساعد تسجيلات الشاشة وكلاء الذكاء الاصطناعي.",
+    changelogShareLink:
+      "يصل المستخدمون المسجّلون الذين يفتحون رابط مشاركة غير متاح أو منتهي الصلاحية أو خاص إلى مكتبتهم عند اختيار «العودة إلى الصفحة الرئيسية» بدلًا من صفحة التسويق العامة.",
     viewAllUpdates: "عرض كل التحديثات",
     expand: "توسيع",
     collapse: "طي",
@@ -1460,11 +1465,22 @@ const messages = {
     disconnected: "تم فصل الميكروفون.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "تعذّر فتح Builder.io. إذا كان التطبيق مضمّنًا في محادثة، فافتحه في علامة تبويب بالمتصفح؛ وإلا فاسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مجددًا.",
+    builderConnectError:
+      "تعذّر الاتصال بـ Builder.io. حاول مرة أخرى أو تواصل مع الدعم.",
+    checkingBuilderConnection: "جارٍ التحقق من اتصال Builder…",
     builderTimeout:
       "لم يصل رد من Builder خلال 5 دقائق. تحقق من النافذة المنبثقة وحاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
     connectBuilder: "استخدام Builder.io",
+    createBuilderAccount: "إنشاء حساب Builder.io",
+    signInWithBuilderAccount: "تسجيل الدخول بحساب Builder.io",
+    builderConsentPrefix: "بإنشاء حساب Builder.io، فإنك توافق على",
+    builderTerms: "شروط الخدمة",
+    builderConsentAnd: "و",
+    builderPrivacy: "سياسة الخصوصية",
     free: "مجاني",
     configureS3: "تكوين تخزين متوافق مع S3",
     whyPrompt: "لماذا أرى هذا؟",

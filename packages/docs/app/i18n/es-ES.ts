@@ -752,43 +752,44 @@ const esES = {
       },
       // Copy V3 de la landing page (2026-09-14) — del hero al CTA final más abajo.
       heroEyebrow: "Analytics",
-      heroTitle: "Analiza tus datos con tu agente de IA",
+      heroTitle:
+        "Haz una pregunta. Obtenga el gráfico, la consulta y el contexto.",
       heroDescription:
-        "Analytics es una herramienta de analítica con IA gratuita y de código abierto para consultar tus datos conectados, crear paneles e investigar sesiones de usuario.",
+        "Reúna datos de almacén, productos e ingresos. El agente verifica sus definiciones de métricas, escribe el SQL y convierte la respuesta en un panel reutilizable.",
       heroCta: "Explora tus datos",
-      useCasesHeading: "¿Qué puedes hacer con Analytics?",
+      useCasesHeading: "Siga la señal desde la métrica hasta la sesión",
       useCasesBody:
-        "Haz seguimiento del crecimiento del producto, informa sobre el rendimiento del negocio o investiga un problema que alguien haya encontrado en tu app.",
-      useCase1Title: "Seguir el crecimiento del producto",
+        "Mantenga el razonamiento al lado de cada resultado, luego lleve un gráfico a un tablero o a una investigación de sesión.",
+      useCase1Title: "Explicar un cambio en la activación.",
       useCase1Body:
-        "Pregunta cómo han cambiado los registros, los usuarios activos o las conversiones. Compara periodos y desglosa los resultados por canal, plan o segmento de cliente.",
-      useCase2Title: "Informar sobre el rendimiento del negocio",
+        "Compare cohortes y canales en una conversación. El agente utiliza sus definiciones de métricas documentadas, escribe la consulta y muestra la evidencia detrás del cambio.",
+      useCase2Title: "Cree una revisión de ingresos en vida",
       useCase2Body:
-        "Lleva las métricas de ingresos, pipeline o uso a un panel para tu equipo. Configura filtros de fecha y vuelve a consultarlo antes de tu próxima revisión.",
-      useCase3Title: "Investigar problemas de usuarios",
+        "Pídale al agente que combine métricas de facturación, CRM o almacén en un panel. Los filtros y paneles persisten para su próxima revisión.",
+      useCase3Title: "Traza una métrica hasta una sesión real",
       useCase3Body:
-        "Encuentra una sesión grabada y reproduce lo que ocurrió. Inspecciona errores de consola y solicitudes de red, y comparte después el diagnóstico con tu agente de IA.",
+        "Pasar de un pico o error a la sesión detrás de él. Inspeccione la actividad de la consola y la red y luego comparta el contexto de diagnóstico temporal con el agente.",
       keyFeaturesEyebrow: "Funciones clave",
       keyFeaturesHeading:
         "Todo lo que necesitas para consultar, visualizar y explorar",
-      feature1Title: "Consultas en lenguaje natural",
+      feature1Title: "Preguntar a través de datos conectados",
       feature1Body:
-        "Hazle a tu agente de IA una pregunta sobre tus datos. Obtén un gráfico, una tabla o una métrica, y continúa con un desglose distinto.",
-      feature2Title: "Paneles reutilizables",
+        "Haga una pregunta sobre el almacén, el producto y las fuentes de ingresos. El agente convierte la respuesta en un gráfico y admite desgloses de seguimiento.",
+      feature2Title: "Paneles que el agente puede editar",
       feature2Body:
-        "Crea paneles con tu agente de IA o edítalos tú mismo. Organiza paneles, añade filtros, guarda vistas y comparte el acceso con tu equipo.",
-      feature3Title: "Explorador de consultas SQL",
+        "Haga que el agente agregue o remodele paneles, filtros y averías. Los cambios permanecen en un panel reutilizable que su equipo puede compartir.",
+      feature3Title: "SQL visible y contexto métrico",
       feature3Body:
-        "Ejecuta consultas de BigQuery y revisa sus resultados e historial. Inspecciona el SQL detrás de los paneles del dashboard para comprobar los cálculos y los filtros.",
-      feature4Title: "Conexiones a fuentes de datos",
+        "Inspeccione la consulta detrás de un resultado y la definición de métrica utilizada para escribirlo. Refine el SQL cuando necesite más control.",
+      feature4Title: "Un espacio de trabajo para fuentes de datos",
       feature4Body:
-        "Conecta fuentes como BigQuery, GA4, HubSpot y Stripe. Consulta datos del warehouse, eventos de producto, registros de clientes e ingresos desde la misma app.",
-      feature5Title: "Diccionario de datos",
+        "Conecte BigQuery, GA4, análisis de productos, HubSpot y Stripe, luego explore sus datos permitidos desde la misma aplicación.",
+      feature5Title: "Definiciones que sigue el agente",
       feature5Body:
-        "Documenta definiciones de métricas, tablas y ejemplos de consulta. Tu agente de IA usa este contexto al escribir consultas y trabajar con tus datos.",
-      feature6Title: "Repetición de sesiones",
+        "Documente reglas métricas, uniones, ejemplos y errores conocidos. Analytics brinda ese contexto al agente cuando escribe consultas.",
+      feature6Title: "Repetición de sesión con diagnóstico",
       feature6Body:
-        "Reproduce sesiones grabadas junto con la actividad de consola y red. Ve directo a los errores y copia un enlace de diagnóstico temporal para tu agente de IA.",
+        "Salte de un error a una grabación con eventos de red y de consola a la vista. Comparta un enlace de diagnóstico temporal para una investigación asistida por un agente.",
       finalCtaHeading: "Empieza con una pregunta sobre tus datos",
       finalCtaBody:
         "Conecta una fuente y pídele a tu agente de IA el primer gráfico.",
@@ -882,43 +883,45 @@ const esES = {
       s001: "Calendar captura de pantalla de la plantilla",
       // Copia V3 de la página de destino (2026-09-10) — del hero al CTA final.
       heroEyebrow: "Calendar",
-      heroTitle: "Gestiona tu agenda con tu agente de IA",
+      heroTitle:
+        "Encuentre tiempo, reserve reuniones y adapte su día con un agente",
       heroDescription:
-        "Calendar es un asistente de programación con IA gratuito y de código abierto para gestionar eventos de Google Calendar, encontrar horarios y dejar que otros reserven contigo.",
+        "Calendar reúne sus calendarios de Google y las reglas de disponibilidad para que el agente pueda encontrar vacantes compartidas, preparar reservas y ayudar a actualizar eventos.",
       heroCta: "Empieza a programar",
-      useCasesHeading: "¿Qué puedes hacer con Calendar?",
+      useCasesHeading:
+        "Deje que el agente se encargue de los detalles de la programación",
       useCasesBody:
-        "Reserva una llamada con un cliente, reúne a tu equipo o ajusta tu día cuando cambien los planes.",
-      useCase1Title: "Reserva llamadas y demos con clientes",
+        "Verifique la disponibilidad real en todos los calendarios y luego revise una propuesta clara antes de crear o mover una reunión.",
+      useCase1Title: "Convierta un enlace de reserva en una reunión preparada",
       useCase1Body:
-        "Dale a tus clientes potenciales y actuales un enlace de reserva para que elijan un horario. Recopila la información que necesitas antes de la llamada.",
-      useCase2Title: "Encuentra un horario para reuniones de equipo",
+        "Ofrezca únicamente horarios que respeten el horario laboral, los avisos y las zonas de amortiguamiento. Recopile los detalles que necesita y luego agregue el enlace del video cuando el huésped reserve.",
+      useCase2Title: "Encuentra un espacio que todos puedan hacer",
       useCase2Body:
-        "Pide a tu agente de IA un horario en el que tus compañeros estén disponibles. Elige un horario sugerido para reservar la reunión.",
-      useCase3Title: "Ajusta tu día cuando cambien los planes",
+        "Pídale al agente que compare el tiempo de disponibilidad y ocupación de los asistentes y las superposiciones del calendario. Devuelve la apertura compartida y los calendarios que revisó.",
+      useCase3Title: "Reprogramar sin perder el hilo",
       useCase3Body:
-        "Pide a tu agente de IA que mueva una reunión o encuentre otro horario, con tus eventos y horario laboral existentes a la vista.",
+        "Solicite una hora más tarde y permita que el agente revise a los invitados, conserve los detalles de la reunión y prepare la invitación actualizada para su revisión.",
       keyFeaturesEyebrow: "Funciones clave",
       keyFeaturesHeading:
         "Todo lo que necesitas para programar, reservar y reprogramar",
-      feature1Title: "Programación con IA",
+      feature1Title: "Programación en lenguaje natural",
       feature1Body:
-        "Pide a tu agente de IA que consulte tu agenda, encuentre horarios disponibles y cree o reprograme eventos en tu Google Calendar conectado.",
-      feature2Title: "Varias cuentas de calendario",
+        "Pídale al agente que verifique la disponibilidad, proponga un horario y cree o mueva un evento con sus invitados y detalles de la reunión.",
+      feature2Title: "Disponibilidad entre cuentas",
       feature2Body:
-        "Consulta tus cuentas de Google de trabajo y personales juntas en vista de día, semana o mes. Añade feeds de calendario de solo lectura junto a tus eventos.",
-      feature3Title: "Enlaces de reserva personalizables",
+        "Vea calendarios de Google conectados juntos e incluya feeds de solo lectura como contexto de programación.",
+      feature3Title: "Páginas de reserva con admisión",
       feature3Body:
-        "Crea páginas de reserva para distintos tipos de reunión. Define la duración y añade preguntas para que la gente responda al reservar.",
-      feature4Title: "Controles de disponibilidad",
+        "Cree enlaces para diferentes tipos de reuniones, establezca la duración y las preguntas de reserva, y permita que los invitados elijan un espacio disponible.",
+      feature4Title: "Reglas que dan forma a cada tragamonedas",
       feature4Body:
-        "Define tu horario laboral, zona horaria y márgenes entre reuniones. Elige cuánto aviso necesitas y con cuánta antelación pueden reservar.",
-      feature5Title: "Programación con coanfitriones",
+        "Establezca horarios de trabajo, zonas de influencia, avisos, zonas horarias y horizontes de reserva para que los horarios públicos y sugeridos se ajusten a su agenda.",
+      feature5Title: "Comprobaciones reales de múltiples hosts",
       feature5Body:
-        "Añade coanfitriones obligatorios a un enlace de reserva. Ofrece horarios en los que todos estén libres y avísales cuando alguien reserve.",
-      feature6Title: "Enlaces de videollamada",
+        "Agregue los coanfitriones necesarios y verifique su disponibilidad de disponibilidad antes de ofrecer una hora. Calendar también respeta las superposiciones de horas de trabajo compartidas cuando se configura.",
+      feature6Title: "Seguimiento de reuniones gestionadas por agentes",
       feature6Body:
-        "Añade Google Meet, conecta Zoom o usa un enlace de reunión personalizado para que los invitados sepan dónde unirse al reservar.",
+        "Mantenga adjuntos los detalles de Google Meet o Zoom mientras el agente prepara los cambios del evento y las invitaciones actualizadas.",
       finalCtaHeading: "Añade tu próxima reunión al calendario",
       finalCtaBody:
         "Encuentra un horario con tu agente de IA o envía un enlace de reserva.",
@@ -1002,11 +1005,12 @@ const esES = {
           "Sí. Define un logotipo canónico en tu kit de marca y activa la composición del logotipo para la generación. Assets coloca el logotipo original sobre la imagen después de generarla, de modo que el modelo de imagen no lo vuelve a dibujar. Revisa su colocación y la imagen circundante antes de usarla.",
       },
       s001: "Assets captura de pantalla de la plantilla",
+      imageCredits: "Créditos de imágenes",
       // V3 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Assets",
-      heroTitle: "Crea y gestiona recursos de marca con tu agente de IA",
+      heroTitle: "Genera imágenes de marca en una conversación",
       heroDescription:
-        "Assets es una biblioteca de activos de marca gratuita y de código abierto para organizar tus imágenes, vídeos y referencias de marca, con un agente de IA que genera y edita contenido multimedia usando tu kit de marca.",
+        "Describe lo que necesitas, dale a tu agente un kit de marca o una referencia y compara las variaciones generadas junto con la conversación.",
       heroCta: "Genera una imagen",
       useCasesHeading: "¿Qué puedes hacer con Assets?",
       useCasesBody:
@@ -1069,41 +1073,41 @@ const esES = {
       heroEyebrow: "Chat",
       heroTitle: "Crea tu propia app de chat con IA",
       heroDescription:
-        "Chat es una app de chat con IA gratuita y de código abierto, con conversaciones guardadas, autenticación y un agente que puedes ampliar con tus propias acciones, datos y pantallas.",
+        "Un iniciador de chat gratuito y de código abierto con hilos duraderos, autenticación, acciones compartidas y un agente que puede ampliar con sus propias herramientas y pantallas.",
       heroCta: "Crea tu chat",
       heroSecondaryCta: "Abrir Chat",
-      useCasesHeading: "¿Qué puedes construir con Chat?",
+      useCasesHeading: "Convierta las conversaciones en asistentes de trabajo",
       useCasesBody:
-        "Empieza con la app de chat y añade después los datos y las acciones para tu caso de uso. Estos flujos de trabajo son tuyos, para construir sobre esta base.",
-      useCase1Title: "Crea un asistente interno",
+        "Agregue las acciones, datos y pantallas que le permitan a su agente responder preguntas y hacer avanzar el trabajo.",
+      useCase1Title: "Responda preguntas con el contexto de su equipo",
       useCase1Body:
-        "Añade acciones que busquen información o gestionen solicitudes de tu equipo. Usa el inicio de sesión y el historial de conversaciones incluidos como punto de partida.",
-      useCase2Title: "Prototipa un flujo de trabajo de agente",
+        "Conecte las fuentes que su aplicación necesita a través de acciones y luego permita que el agente reúna notas, archivos y detalles del proyecto en una sola respuesta.",
+      useCase2Title: "Dale a tu agente herramientas para actuar",
       useCase2Body:
-        "Implementa una acción útil y pruébala a través del chat. Perfecciona las instrucciones y el comportamiento del agente antes de añadir más herramientas o pantallas.",
-      useCase3Title: "Añade una interfaz para el trabajo del agente",
+        "Cree un prototipo de un flujo de trabajo en el chat, llame a las acciones que defina y refine cómo el agente maneja cada paso.",
+      useCase3Title: "Hacer que los resultados sean utilizables",
       useCase3Body:
-        "Crea una cola, una lista o un editor cuando los usuarios necesiten revisar el trabajo visualmente. Conéctalo a las mismas acciones y datos que usa tu agente.",
+        "El agente abierto trabaja en una cola, tabla o editor para que las personas puedan inspeccionar y continuar a partir de los mismos datos compartidos.",
       keyFeaturesEyebrow: "Funciones clave",
       keyFeaturesHeading: "Un punto de partida para tu agente y su interfaz",
-      feature1Title: "Conversaciones guardadas",
+      feature1Title: "Conversaciones duraderas",
       feature1Body:
-        "Ofrece a los usuarios hilos a los que puedan volver. Crea, reabre, renombra, fija y archiva conversaciones desde la barra lateral incluida.",
-      feature2Title: "Chat con agente integrado",
+        "Cree, vuelva a abrir, cambie el nombre, fije y archive hilos desde la barra lateral del historial incluida.",
+      feature2Title: "Chat de agente de página completa",
       feature2Body:
-        "Empieza con una conversación a pantalla completa y el runtime de agente del framework. Añade instrucciones y herramientas para las tareas que tu aplicación necesite gestionar.",
-      feature3Title: "Autenticación y sesiones",
+        "Comience con la superficie del chat y el tiempo de ejecución, listos para sus propias instrucciones, herramientas y flujos de trabajo.",
+      feature3Title: "Conecta tus propios servicios",
       feature3Body:
-        "Empieza con el inicio de sesión, el registro, las sesiones y el soporte de organizaciones ya integrados. Añade las reglas de acceso que requieran los datos y flujos de trabajo de tu aplicación.",
+        "Agregue acciones de proveedores y flujos de conexión para herramientas como Granola, Linear, Drive o Notion; el iniciador deja esas integraciones a su aplicación.",
       feature4Title: "Acciones compartidas",
       feature4Body:
-        "Define una operación una sola vez para que la use tanto tu agente como tu interfaz. Sigue el ejemplo de acción incluido al añadir tus propias capacidades.",
-      feature5Title: "Sincronización de datos en vivo",
+        "Mantenga las herramientas del agente y las operaciones de la interfaz en la misma superficie de acción.",
+      feature5Title: "Estado del espacio de trabajo en vivo",
       feature5Body:
-        "Mantén tu interfaz actualizada cuando el agente cambie los datos de la aplicación. Construye pantallas en torno al estado compartido y la sincronización de base de datos del framework.",
-      feature6Title: "Inspección de base de datos y ejecuciones",
+        "Mantenga la navegación actual y el trabajo seleccionado sincronizados para el usuario y el agente.",
+      feature6Title: "Pantallas personalizadas",
       feature6Body:
-        "Usa las pantallas de administración de base de datos y observabilidad incluidas para inspeccionar los datos almacenados y las ejecuciones del agente mientras construyes y depuras tu aplicación.",
+        "Agregue vistas enfocadas cuando una conversación necesite una cola, un editor u otra interfaz de dominio.",
       finalCtaHeading: "Construye tu primer flujo de trabajo de agente",
       finalCtaBody:
         "Crea tu copia y añade la primera acción que necesiten tus usuarios.",
@@ -1768,43 +1772,43 @@ const esES = {
       s001: "Mail captura de pantalla de la plantilla",
       // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "Gestiona tu bandeja de entrada con tu agente de IA",
+      heroTitle: "Toma el control de tu bandeja de entrada con Jev",
       heroDescription:
-        "Mail es un cliente de correo electrónico gratuito y de código abierto para Gmail, con un agente de IA que encuentra mensajes, resume conversaciones, redacta respuestas y organiza tu bandeja de entrada.",
+        "Dile a Jev en lenguaje natural qué te importa. Mantendrá visibles los comentarios humanos de GitHub, destacará los mensajes de tu responsable y apartará las notificaciones de bots; después aprenderá de tus correcciones.",
       heroCta: "Gestiona tu bandeja de entrada",
-      useCasesHeading: "¿Qué puedes hacer con Mail?",
+      useCasesHeading: "Una bandeja más inteligente, impulsada por Jev",
       useCasesBody:
-        "Ponte al día con conversaciones, responde a clientes y compañeros, o resuelve una acumulación de correo.",
-      useCase1Title: "Ponte al día con conversaciones",
+        "Crea una regla en lenguaje natural. Jev da prioridad a las personas y conversaciones importantes, aplica las etiquetas adecuadas y archiva el correo repetitivo cuando llega.",
+      useCase1Title: "Conserva a las personas. Archiva los bots.",
       useCase1Body:
-        "Pregúntale a tu agente de IA qué pasó en un hilo largo, qué se acordó y qué preguntas siguen sin respuesta.",
-      useCase2Title: "Responde a clientes y compañeros",
+        "Dile a Jev qué importa: mantén visibles en Product los comentarios de personas en pull requests de GitHub, archiva las notificaciones de bots y mueve los correos de tu responsable a Important. Ajusta cada regla con un prompt y mejora el filtro de spam con tus comentarios.",
+      useCase2Title: "Cada correo, con su etiqueta",
       useCase2Body:
-        "Dale a tu agente de IA los puntos que quieres tratar. Revisa y edita su respuesta en el panel de redacción antes de enviarla.",
-      useCase3Title: "Organiza tu bandeja de entrada",
+        "Jev etiqueta las conversaciones por su significado, no solo por palabras clave, para que las notas de clientes, los recibos y la investigación lleguen al lugar adecuado.",
+      useCase3Title: "Automatiza el trabajo rutinario",
       useCase3Body:
-        "Pídele a tu agente de IA que etiquete facturas, archive boletines o destaque con estrella los mensajes de un cliente. Aplica reglas para gestionar correos similares a medida que llegan.",
+        "Establezca reglas para etiquetar o archivar correo nuevo en segundo plano y luego revise el historial de ejecución cuando lo desee.",
       keyFeaturesEyebrow: "Funciones clave",
       keyFeaturesHeading:
         "Todo lo que necesitas para leer, escribir y organizar el correo",
-      feature1Title: "Resúmenes de hilos con IA",
+      feature1Title: "clasificación por prioridad",
       feature1Body:
-        "Pregunta sobre la conversación que tienes abierta. Tu agente de IA lee el hilo para resumir la discusión e identificar las preguntas pendientes.",
-      feature2Title: "Redacción de correos con IA",
+        "Clasifique los hilos entrantes por urgencia y contexto, de modo que los plazos y las personas que esperan una respuesta lleguen a la cima.",
+      feature2Title: "Etiquetas contextuales de IA",
       feature2Body:
-        "Redacta una respuesta o revisa el texto seleccionado con tu agente de IA. Define tus preferencias de escritura, añade tu firma y edita los borradores tú mismo.",
-      feature3Title: "Búsqueda multicuenta",
+        "Clasifique los mensajes según el tema de la conversación y luego mantenga agrupados los correos similares a medida que llegan.",
+      feature3Title: "Bandeja de entrada controlada por agentes",
       feature3Body:
-        "Conecta tus cuentas de Gmail personales y de trabajo. Busca en todas ellas desde una sola bandeja de entrada, con la barra de búsqueda o preguntando a tu agente de IA.",
-      feature4Title: "Automatizaciones de la bandeja de entrada",
+        "Pídale al agente que busque, resuma, etiquete, archive, destaque o prepare una respuesta desde la bandeja de entrada que está viendo.",
+      feature4Title: "Automatizaciones en segundo plano",
       feature4Body:
-        "Describe reglas para etiquetar, archivar, destacar con estrella o marcar como leídos los mensajes entrantes. Usa reglas de IA o configura filtros nativos de Gmail.",
-      feature5Title: "Atajos de teclado",
+        "Aplique reglas en lenguaje sencillo a los mensajes entrantes e inspeccione las acciones que ha tomado Mail.",
+      feature5Title: "Revisar antes de enviar",
       feature5Body:
-        "Navega entre mensajes, redacta respuestas, archiva conversaciones y busca en tu bandeja de entrada desde el teclado. Abre la paleta de comandos para encontrar más acciones.",
-      feature6Title: "Envíos programados y posponer mensajes",
+        "Haga que el agente redacte o revise una respuesta, luego revísela y edítela antes de que salga de su bandeja de entrada.",
+      feature6Title: "Un filtro de spam que aprende",
       feature6Body:
-        "Elige cuándo enviar un correo o cuándo quieres que un mensaje vuelva a llamar tu atención. Revisa los elementos programados y cancélalos si cambian los planes.",
+        "Marca como deseado un mensaje filtrado o señala el correo no deseado. Jev aprende de cada corrección y la aplica a mensajes similares.",
       finalCtaHeading: "Empieza con tu próximo correo",
       finalCtaBody:
         "Abre una conversación y pídele a tu agente de IA un resumen o un borrador de respuesta.",

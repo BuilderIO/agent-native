@@ -771,42 +771,42 @@ const messages = {
       s064: "檢視所有範本",
       // V3 到達頁文案（2026-09-14）—— 以下為 hero 到最終 CTA。
       heroEyebrow: "Analytics",
-      heroTitle: "用你的 AI 代理分析資料",
+      heroTitle: "問一個問題。取得圖表、查詢和上下文。",
       heroDescription:
-        "Analytics 是一款免費開源的 AI 分析工具，可用來查詢你連線的資料、建立儀表板，並調查使用者工作階段。",
+        "將倉庫、產品和收入資料整合在一起。代理程式檢查您的指標定義，編寫 SQL，並將答案轉換為可重複使用的儀表板。",
       heroCta: "探索你的資料",
-      useCasesHeading: "用 Analytics 能做什麼？",
+      useCasesHeading: "追蹤從指標到會話的訊號",
       useCasesBody:
-        "追蹤產品成長、回報業務表現，或調查有人在你的應用程式中遇到的問題。",
-      useCase1Title: "追蹤產品成長",
+        "將推理放在每個結果旁邊，然後將圖表放入儀表板或會話調查中。",
+      useCase1Title: "解釋活化的變化",
       useCase1Body:
-        "詢問註冊數、活躍使用者或轉換率有何變化。比較不同期間，並依管道、方案或客戶區隔拆解結果。",
-      useCase2Title: "回報業務表現",
+        "比較對話中的群組和頻道。代理程式使用您記錄的指標定義、編寫查詢並顯示更改背後的證據。",
+      useCase2Title: "建立生活收入審查",
       useCase2Body:
-        "把營收、業務管道或使用量指標整理進一個儀表板，供你的團隊使用。設定日期篩選器，並在下次檢視前再次查看。",
-      useCase3Title: "調查使用者問題",
+        "要求代理商將計費、CRM 或倉庫指標合併到儀表板中。過濾器和麵板將保留供您下次查看。",
+      useCase3Title: "追蹤真實會話的指標",
       useCase3Body:
-        "找到一段錄製的工作階段，重播發生的事。檢查主控台錯誤和網路請求，然後把診斷資訊分享給你的 AI 代理。",
+        "從峰值或錯誤轉移到背後的會話。檢查控制台和網路活動，然後與代理程式共用臨時診斷上下文。",
       keyFeaturesEyebrow: "核心功能",
       keyFeaturesHeading: "查詢、視覺化與探索所需的一切",
-      feature1Title: "自然語言查詢",
+      feature1Title: "跨連接數據詢問",
       feature1Body:
-        "向你的 AI 代理提出關於資料的問題。取得圖表、表格或指標，再以不同的拆解方式繼續追問。",
-      feature2Title: "可重複使用的儀表板",
+        "詢問倉庫、產品和收入來源的問題。代理人將答案轉化為圖表並支持後續細分。",
+      feature2Title: "客服人員可以編輯的儀表板",
       feature2Body:
-        "與你的 AI 代理一起建立儀表板，或自行編輯。排列面板、新增篩選器、儲存檢視畫面，並與團隊共用存取權限。",
-      feature3Title: "SQL 查詢瀏覽器",
+        "讓代理程式添加或重塑面板、過濾器和故障。變更保留在您的團隊可以共用的可重複使用的儀表板中。",
+      feature3Title: "可見的 SQL 和指標上下文",
       feature3Body:
-        "執行 BigQuery 查詢並檢視其結果與歷史紀錄。檢查儀表板面板背後的 SQL，核對計算方式與篩選條件。",
-      feature4Title: "資料來源連線",
+        "檢查結果背後的查詢以及用於寫入結果的指標定義。當您需要更多控制時優化 SQL。",
+      feature4Title: "資料來源的一個工作區",
       feature4Body:
-        "連線 BigQuery、GA4、HubSpot 和 Stripe 等來源。在同一個應用程式中查詢倉儲資料、產品事件、客戶紀錄和營收。",
-      feature5Title: "資料字典",
+        "連接 BigQuery、GA4、產品分析、HubSpot 和 Stripe，然後從同一應用程式探索其允許的數據。",
+      feature5Title: "代理遵循的定義",
       feature5Body:
-        "記錄指標定義、資料表和查詢範例。你的 AI 代理在撰寫查詢和處理資料時會運用這些內容。",
-      feature6Title: "工作階段重播",
+        "記錄度量規則、聯接、範例和已知問題。分析在編寫查詢時向代理提供該上下文。",
+      feature6Title: "帶有診斷功能的會話重播",
       feature6Body:
-        "重播錄製的工作階段，同時檢視主控台與網路活動。直接跳到錯誤發生處，並複製一個臨時診斷連結給你的 AI 代理。",
+        "從錯誤跳到記錄，並查看控制台和網路事件。共享臨時診斷連結以進行代理協助調查。",
       finalCtaHeading: "從一個關於資料的問題開始",
       finalCtaBody: "連線一個資料來源，請你的 AI 代理產生第一張圖表。",
       finalCtaButton: "探索你的資料",
@@ -832,41 +832,42 @@ const messages = {
       s001: "Calendar 範本螢幕截圖",
       // V3 到達頁文案(2026年9月10日)—— 從 hero 到最終 CTA。
       heroEyebrow: "Calendar",
-      heroTitle: "用你的 AI 代理管理行程",
+      heroTitle: "找到時間、預訂會議並與代理商一起調整您的一天",
       heroDescription:
-        "Calendar 是一款免費開放原始碼的 AI 排程助理，用於管理 Google Calendar 活動、尋找會議時間，並讓其他人可以與你預約。",
+        "日曆將您的 Google 日曆和空閒規則結合在一起，以便客服人員可以找到共享空缺職位、準備預訂並協助更新活動。",
       heroCta: "開始安排行程",
-      useCasesHeading: "用 Calendar 能做什麼？",
-      useCasesBody: "預約客戶通話、召集你的團隊，或在計畫變動時調整你的一天。",
-      useCase1Title: "預約客戶通話與展示",
+      useCasesHeading: "讓代理處理調度細節",
+      useCasesBody:
+        "檢查跨日曆的實際可用性，然後在建立或移動會議之前查看明確的提案。",
+      useCase1Title: "將預訂連結變成準備好的會議",
       useCase1Body:
-        "給潛在客戶與現有客戶一個預約連結，讓他們自行選擇時間。在通話前收集你需要的資訊。",
-      useCase2Title: "為團隊會議找到合適時間",
+        "僅提供尊重工作時間、通知和緩衝的時間。收集您需要的詳細信息，然後在訪客預訂時添加視頻鏈接。",
+      useCase2Title: "找到一個人人都可以製作的老虎機",
       useCase2Body:
-        "請你的 AI 代理找出團隊成員都有空的時間。選擇一個建議的時段來預約會議。",
-      useCase3Title: "計畫變動時調整你的一天",
+        "請客服人員比較與會者的空閒/忙碌時間和日曆疊加。它會傳回共享的空缺及其檢查的日曆。",
+      useCase3Title: "重新安排而不丟失線程",
       useCase3Body:
-        "請你的 AI 代理搬移會議或另找時間，同時會參考你現有的活動與工作時間。",
+        "要求稍後安排時間，讓客服人員檢查來賓、保留會議詳細資訊並準備更新的邀請供您審核。",
       keyFeaturesEyebrow: "核心功能",
       keyFeaturesHeading: "排程、預約與改期所需的一切",
-      feature1Title: "AI 排程",
+      feature1Title: "自然語言調度",
       feature1Body:
-        "請你的 AI 代理查看你的行程、尋找可用時間，並在已連線的 Google Calendar 上建立或改期活動。",
-      feature2Title: "多個行事曆帳戶",
+        "要求代理檢查可用性、提議時間並創建或移動活動及其嘉賓和會議詳細資訊。",
+      feature2Title: "跨帳戶的可用性",
       feature2Body:
-        "在日、週或月檢視中同時查看工作與個人 Google 帳戶。還可在你的活動旁加入唯讀行事曆訂閱。",
-      feature3Title: "可自訂的預約連結",
+        "一起查看連接的 Google 日曆，並將唯讀來源作為日程上下文包含在內。",
+      feature3Title: "預訂頁麵包含攝取量",
       feature3Body:
-        "為不同類型的會議建立預約頁面。設定時長，並加入問題讓對方在預約時回答。",
-      feature4Title: "可用性控制",
+        "為不同會議類型建立鏈接，設定持續時間和預訂問題，並讓客人選擇可用時段。",
+      feature4Title: "塑造每個老虎機的規則",
       feature4Body:
-        "設定你的工作時間、時區以及會議之間的緩衝時間。選擇你需要多少提前通知，以及他人可以提前多久預約。",
-      feature5Title: "共同主持人排程",
+        "設定工作時間、緩衝時間、通知、時區和預訂範圍，以便建議時間和公共時間適合您的日程安排。",
+      feature5Title: "真正的多主機檢查",
       feature5Body:
-        "在預約連結中加入必要的共同主持人。提供所有人都有空的時間，一旦有人預約就邀請他們。",
-      feature6Title: "視訊會議連結",
+        "添加所需的共同主持人並在提供時間之前檢查他們的空閒/忙碌狀態。配置後，日曆也會考慮共用工作時間疊加。",
+      feature6Title: "座席管理的會議跟進",
       feature6Body:
-        "加入 Google Meet、連線 Zoom，或使用自訂會議連結，讓參與者在預約時就知道從哪裡加入。",
+        "當代理商準備活動變更和更新邀請時，請附上 Google Meet 或 Zoom 詳細資訊。",
       finalCtaHeading: "把你的下一場會議加入行事曆",
       finalCtaBody: "用你的 AI 代理找到時間，或傳送一個預約連結。",
       finalCtaButton: "開始安排行程",
@@ -965,10 +966,11 @@ const messages = {
           "可以。在品牌套件中設定一個標準標誌，並在生成時啟用標誌合成。Assets 會在生成完成後把原始標誌置入圖片，因此影像模型不會重新繪製它。使用前請檢查標誌的位置以及周圍圖像的效果。",
       },
       s001: "Assets 應用程式截圖",
+      imageCredits: "圖片署名",
       heroEyebrow: "Assets",
-      heroTitle: "用你的 AI 代理建立與管理品牌素材",
+      heroTitle: "在對話中生成品牌形象",
       heroDescription:
-        "Assets 是一款免費開源的品牌素材庫，用於整理你的圖片、影片和品牌參考資料，並配有 AI 代理，能運用你的品牌套件生成與編輯媒體。",
+        "描述您的需求，為您的代理商提供品牌套件或參考，並在對話過程中比較產生的變化。",
       heroCta: "產生一張圖片",
       useCasesHeading: "用 Assets 能做什麼？",
       useCasesBody:
@@ -1648,41 +1650,41 @@ const messages = {
       s001: "Mail 範本螢幕截圖",
       // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "用你的 AI 代理管理收件匣",
+      heroTitle: "用 Jev 掌控你的收件匣",
       heroDescription:
-        "Mail 是一款針對 Gmail 的免費開放原始碼郵件用戶端，AI 代理能查找郵件、彙整對話、草擬回覆，並整理你的收件匣。",
+        "用日常語言告訴 Jev 哪些郵件重要。它會保留真人撰寫的 GitHub 留言，將主管的郵件排在前面，清除機器人通知，並根據你的修正持續學習。",
       heroCta: "管理你的收件匣",
-      useCasesHeading: "用 Mail 能做什麼？",
-      useCasesBody: "跟上對話進度、回覆客戶和同事，或整理積壓的郵件。",
-      useCase1Title: "跟上對話進度",
+      useCasesHeading: "由 Jev 驅動的智慧收件匣",
+      useCasesBody:
+        "用日常語言設定規則。Jev 會優先處理重要聯絡人與對話、套用合適標籤，並在重複郵件送達時自動封存。",
+      useCase1Title: "保留真人回覆，封存機器人通知",
       useCase1Body:
-        "讓你的 AI 代理告訴你一段長對話裡發生了什麼、達成了什麼共識，以及哪些問題仍需要回答。",
-      useCase2Title: "回覆客戶和同事",
+        "告訴 Jev 什麼最重要：將 GitHub 人工 PR 留言保留在 Product，封存機器人通知，並將主管的郵件移到 Important。用提示調整規則，也能透過回饋改善垃圾郵件篩選。",
+      useCase2Title: "為每封郵件自動加上合適標籤",
       useCase2Body:
-        "把你想表達的重點告訴你的 AI 代理。寄送前，在撰寫面板中檢視並編輯它的回覆。",
-      useCase3Title: "整理你的收件匣",
+        "Jev 根據對話含義而不只是關鍵字分類，讓客戶備註、收據和研究郵件都能放在正確的位置。",
+      useCase3Title: "自動化日常工作",
       useCase3Body:
-        "請你的 AI 代理為發票加上標籤、封存電子報，或為某位客戶的郵件加上星號。套用規則，讓抵達的類似郵件自動處理。",
+        "設定規則以在背景標記或存檔新郵件，然後隨時查看運行歷史記錄。",
       keyFeaturesEyebrow: "主要功能",
       keyFeaturesHeading: "閱讀、撰寫與整理郵件所需的一切",
-      feature1Title: "AI 對話摘要",
+      feature1Title: "優先排序",
       feature1Body:
-        "針對你開啟的對話提問。你的 AI 代理會讀取整個對話串，彙整討論內容並找出尚未解決的問題。",
-      feature2Title: "AI 郵件撰寫",
+        "依緊急程度和上下文對傳入線程進行排名，以便截止日期和等待回應的人員排在首位。",
+      feature2Title: "上下文 AI 標籤",
       feature2Body:
-        "與你的 AI 代理一起草擬回覆，或修改選取的文字。設定寫作偏好、加入簽名檔，草稿也能自行編輯。",
-      feature3Title: "多帳號搜尋",
+        "根據對話內容對郵件進行分類，然後在收到類似郵件時進行分組。",
+      feature3Title: "代理驅動的收件匣",
       feature3Body:
-        "連接你的工作與個人 Gmail 帳號，透過搜尋欄或直接詢問你的 AI 代理，在同一個收件匣中搜尋所有帳號。",
-      feature4Title: "收件匣自動化",
-      feature4Body:
-        "描述規則，為收到的郵件加上標籤、封存、加星號或標示為已讀。可以使用 AI 規則，也可以設定原生 Gmail 篩選器。",
-      feature5Title: "鍵盤快速鍵",
+        "請客服人員從您正在查看的收件匣中搜尋、總結、標記、存檔、加註星標或準備回覆。",
+      feature4Title: "後台自動化",
+      feature4Body: "對傳入郵件套用簡單語言規則並檢查郵件已採取的動作。",
+      feature5Title: "發送前檢查",
       feature5Body:
-        "用鍵盤瀏覽郵件、撰寫回覆、封存對話、搜尋收件匣。開啟指令選單可以找到更多動作。",
-      feature6Title: "排程寄送與稍後提醒",
+        "讓客服人員起草或修改回复，然後在回复離開您的收件匣之前對其進行審核和編輯。",
+      feature6Title: "越用越聰明的垃圾郵件篩選",
       feature6Body:
-        "選擇郵件的寄送時間，或讓某則訊息稍後再提醒你。檢視已排程的項目，計畫變動時可以取消。",
+        "將誤判的郵件標記為需要，或回報不想要的郵件。Jev 會從每次修正中學習，並將規則套用到類似郵件。",
       finalCtaHeading: "從下一封郵件開始",
       finalCtaBody: "開啟一段對話，讓你的 AI 代理給你一份摘要或回覆草稿。",
       finalCtaButton: "管理你的收件匣",
@@ -2026,41 +2028,37 @@ const messages = {
       heroEyebrow: "Chat",
       heroTitle: "打造屬於你自己的 AI 聊天應用",
       heroDescription:
-        "Chat 是一款免費開源的 AI 聊天應用鷹架，提供已儲存的對話、驗證，以及一個可用你自己的 actions、資料和畫面來擴充的 agent。",
+        "一個免費的開源聊天啟動器，具有持久的線程、身份驗證、共享操作以及可以使用自己的工具和螢幕擴展的代理。",
       heroCta: "打造你的聊天應用",
       heroSecondaryCta: "開啟 Chat",
-      useCasesHeading: "用 Chat 能建構什麼？",
-      useCasesBody:
-        "先從這個聊天應用開始，再為你的使用情境新增資料和 actions。這些工作流程都屬於你，可以在這個鷹架之上自由建構。",
-      useCase1Title: "建構內部助理",
+      useCasesHeading: "將對話變成工作助手",
+      useCasesBody: "新增操作、數據和螢幕，讓您的代理商回答問題並推進工作。",
+      useCase1Title: "根據您團隊的背景回答問題",
       useCase1Body:
-        "新增能查詢資訊或處理團隊請求的 actions。使用內建的登入和對話紀錄作為起點。",
-      useCase2Title: "為 agent 工作流程製作原型",
+        "透過操作連接您的應用程式所需的來源，然後讓代理商將註釋、文件和項目詳細資訊放入一份回覆中。",
+      useCase2Title: "為您的代理人提供行動工具",
       useCase2Body:
-        "實作一個有用的 action，透過聊天試用它。在新增更多工具或畫面之前，先打磨 agent 的指示和行為。",
-      useCase3Title: "為 agent 的工作新增介面",
+        "在聊天中建立工作流程原型，呼叫您定義的操作，並優化代理處理每個步驟的方式。",
+      useCase3Title: "使結果可用",
       useCase3Body:
-        "當使用者需要以視覺化方式審查工作時，建構一個佇列、清單或編輯器，並將其連接到與你的 agent 相同的 actions 和資料上。",
+        "在佇列、表格或編輯器中開放代理程式工作，以便人們可以檢查並繼續使用相同的共享資料。",
       keyFeaturesEyebrow: "核心功能",
       keyFeaturesHeading: "為你的 agent 及其介面提供的起點",
-      feature1Title: "已儲存的對話",
+      feature1Title: "持久的對話",
       feature1Body:
-        "讓使用者擁有可以隨時返回的對話串。透過內建的側邊欄建立、重新開啟、重新命名、釘選和封存對話。",
-      feature2Title: "內建的 agent 聊天",
+        "從包含的歷史記錄側邊欄建立、重新開啟、重新命名、固定和存檔執行緒。",
+      feature2Title: "全頁代理聊天",
       feature2Body:
-        "從一個全頁對話和框架自帶的 agent 執行環境開始。為你的應用需要處理的任務新增指示和工具。",
-      feature3Title: "驗證與工作階段",
+        "從聊天介面和運行時開始，為您自己的指令、工具和工作流程做好準備。",
+      feature3Title: "連結您自己的服務",
       feature3Body:
-        "登入、註冊、工作階段和組織支援均已內建。為你應用的資料和工作流程新增所需的存取規則。",
-      feature4Title: "共用 actions",
-      feature4Body:
-        "定義一次操作，即可同時供 agent 和介面使用。在新增自己的能力時，可參考內建的範例 action。",
-      feature5Title: "即時資料同步",
-      feature5Body:
-        "當 agent 修改應用資料時，讓你的介面保持最新。圍繞共用狀態和框架自帶的資料庫同步來建構畫面。",
-      feature6Title: "資料庫與執行檢查",
-      feature6Body:
-        "在建構和除錯應用時，使用內建的資料庫管理和可觀測性畫面來檢查已儲存的資料和 agent 的執行紀錄。",
+        "為 Granola、Linear、Drive 或 Notion 等工具添加提供程式操作和連接流程；初學者將這些整合留給您的應用程式。",
+      feature4Title: "共同行動",
+      feature4Body: "將代理工具和介面操作保持在同一操作介面上。",
+      feature5Title: "即時工作區狀態",
+      feature5Body: "使用戶和客服人員的當前導航和所選工作保持同步。",
+      feature6Title: "客製化螢幕",
+      feature6Body: "當對話需要佇列、編輯器或其他網域介面時新增焦點視圖。",
       finalCtaHeading: "建構你的第一個 agent 工作流程",
       finalCtaBody: "建立你的副本，並新增使用者需要的第一個 action。",
       finalCtaButton: "打造你的聊天應用",

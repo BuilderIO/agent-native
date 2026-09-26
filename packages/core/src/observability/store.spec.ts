@@ -53,7 +53,9 @@ const {
   getOrgScopedThreadData,
   getOrgScopedThreadTitles,
   getOrgScopedReviewThreads,
+  getRecentReviewRunsForThreads,
   getHumanReviewSummaries,
+  getHumanReviewSummariesForThreads,
   getFeedback,
   getInstructionUpdates,
   getFeedbackStats,
@@ -206,50 +208,113 @@ describe("observability store: per-user isolation", () => {
       selectedRows = [
         {
           id: "thread-a",
+          owner_email: "alice@example.com",
+          org_id: "org-a",
           thread_data: '{"messages":[]}',
           title: "Alice's thread",
+          scope_type: "design",
+          scope_id: "design-a",
+          scope_label: "Design A",
         },
       ];
-      const threads = await getOrgScopedReviewThreads("org-a", [
-        { ownerEmail: "alice@example.com", threadId: "thread-a" },
-        { ownerEmail: "bob@example.com", threadId: "thread-b" },
+      const threads = await getOrgScopedReviewThreads([
+        {
+          orgId: "org-a",
+          ownerEmail: "alice@example.com",
+          threadId: "thread-a",
+        },
+        { orgId: "org-b", ownerEmail: "bob@example.com", threadId: "thread-b" },
       ]);
       const queryCalls = execCalls.filter((call) =>
         /FROM chat_threads/.test(call.sql),
       );
       expect(queryCalls).toHaveLength(1);
       expect(queryCalls[0]!.sql).toMatch(
-        /SELECT id,\s+CASE WHEN OCTET_LENGTH\(thread_data\) <= \? THEN thread_data ELSE NULL END AS thread_data,\s+title FROM chat_threads\s+WHERE org_id = \? AND \(\(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\) OR \(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\)\)/,
+        /SELECT id, owner_email, org_id,\s+CASE WHEN OCTET_LENGTH\(thread_data\) <= \? THEN thread_data ELSE NULL END AS thread_data,\s+title, scope_type, scope_id, scope_label FROM chat_threads\s+WHERE \(\(org_id = \? AND LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\) OR \(org_id = \? AND LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\)\)/,
       );
       expect(queryCalls[0]!.args).toEqual([
         1_000_000,
         "org-a",
         "alice@example.com",
         "thread-a",
+        "org-b",
         "bob@example.com",
         "thread-b",
       ]);
-      expect(threads.get("thread-a")).toEqual({
+      expect(threads.get(JSON.stringify(["org-a", "thread-a"]))).toEqual({
+        ownerEmail: "alice@example.com",
         threadData: '{"messages":[]}',
         title: "Alice's thread",
+        scopeType: "design",
+        scopeId: "design-a",
+        scopeLabel: "Design A",
       });
     });
 
     it("omits an oversized review thread while preserving its title", async () => {
       selectedRows = [
-        { id: "thread-a", thread_data: null, title: "Alice's thread" },
+        {
+          id: "thread-a",
+          owner_email: "alice@example.com",
+          org_id: "org-a",
+          thread_data: null,
+          title: "Alice's thread",
+          scope_type: null,
+          scope_id: null,
+          scope_label: null,
+        },
       ];
-      const threads = await getOrgScopedReviewThreads("org-a", [
-        { ownerEmail: "alice@example.com", threadId: "thread-a" },
+      const threads = await getOrgScopedReviewThreads([
+        {
+          orgId: "org-a",
+          ownerEmail: "alice@example.com",
+          threadId: "thread-a",
+        },
       ]);
 
       expect(lastSelect().sql).toContain(
         "CASE WHEN OCTET_LENGTH(thread_data) <= ? THEN thread_data ELSE NULL END",
       );
-      expect(threads.get("thread-a")).toEqual({
+      expect(threads.get(JSON.stringify(["org-a", "thread-a"]))).toEqual({
+        ownerEmail: "alice@example.com",
         threadData: null,
         title: "Alice's thread",
+        scopeType: null,
+        scopeId: null,
+        scopeLabel: null,
       });
+    });
+
+    it("loads recent review runs only through org-owned thread rows", async () => {
+      await getRecentReviewRunsForThreads({
+        threadScopes: [
+          { orgId: "org-a", threadId: "thread-a" },
+          { orgId: "org-b", threadId: "thread-a" },
+        ],
+        sinceMs: 100,
+        perThreadLimit: 6,
+      });
+      const call = lastSelect();
+      expect(call.sql).toMatch(
+        /INNER JOIN chat_threads thread\s+ON thread\.id = summary\.thread_id AND thread\.org_id = summary\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(summary\.user_id\)/,
+      );
+      expect(call.sql).toContain(
+        "(summary.org_id = ? AND summary.thread_id = ?)",
+      );
+      expect(call.sql).toContain(
+        "name = 'agent_run:observability:human-review-summary'",
+      );
+      expect(call.sql).toContain(
+        "PARTITION BY summary.org_id, summary.thread_id",
+      );
+      expect(call.args).toEqual([
+        100,
+        "org-a",
+        "thread-a",
+        "org-b",
+        "thread-a",
+        6,
+      ]);
     });
 
     it("bounds successful tool span and metadata reads in SQL", async () => {
@@ -289,6 +354,83 @@ describe("observability store: per-user isolation", () => {
         /FROM agent_human_review_summaries WHERE org_id = \? AND run_id IN \(\?, \?\)/,
       );
       expect(call.args).toEqual(["org-a", "run-a", "run-b"]);
+    });
+
+    it("loads the latest persisted summary through org-owned threads", async () => {
+      selectedRows = [
+        {
+          run_id: "run-newest",
+          org_id: "org-a",
+          ask: "Current ask",
+          outcome: "Current outcome",
+          artifacts: "[]",
+          created_by: "admin@example.com",
+          created_at: 1,
+          updated_at: 3,
+          review_thread_id: "thread-a",
+        },
+        {
+          run_id: "run-old",
+          org_id: "org-a",
+          ask: "Old ask",
+          outcome: "Old outcome",
+          artifacts: "[]",
+          created_by: "admin@example.com",
+          created_at: 1,
+          updated_at: 2,
+          review_thread_id: "thread-a",
+        },
+        {
+          run_id: "run-other-org",
+          org_id: "org-b",
+          ask: "Other org ask",
+          outcome: "Other org outcome",
+          artifacts: "[]",
+          created_by: "other-admin@example.com",
+          created_at: 1,
+          updated_at: 4,
+          review_thread_id: "thread-a",
+        },
+      ];
+      await expect(
+        getHumanReviewSummariesForThreads([
+          { orgId: "org-a", threadId: "thread-a" },
+          { orgId: "org-b", threadId: "thread-a" },
+        ]),
+      ).resolves.toMatchObject(
+        new Map([
+          [
+            JSON.stringify(["org-a", "thread-a"]),
+            {
+              runId: "run-newest",
+              ask: "Current ask",
+              outcome: "Current outcome",
+            },
+          ],
+          [
+            JSON.stringify(["org-b", "thread-a"]),
+            {
+              runId: "run-other-org",
+              ask: "Other org ask",
+              outcome: "Other org outcome",
+            },
+          ],
+        ]),
+      );
+      const call = lastSelect();
+      expect(call.sql).toMatch(
+        /INNER JOIN agent_trace_summaries trace\s+ON trace\.run_id = review\.run_id AND trace\.org_id = review\.org_id/,
+      );
+      expect(call.sql).toMatch(
+        /INNER JOIN chat_threads thread\s+ON thread\.id = trace\.thread_id AND thread\.org_id = trace\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(trace\.user_id\)/,
+      );
+      expect(call.sql).toMatch(
+        /WHERE \(\(review\.org_id = \? AND trace\.thread_id = \?\) OR \(review\.org_id = \? AND trace\.thread_id = \?\)\)/,
+      );
+      expect(call.sql).toMatch(
+        /ORDER BY review\.updated_at DESC, review\.run_id DESC/,
+      );
+      expect(call.args).toEqual(["org-a", "thread-a", "org-b", "thread-a"]);
     });
 
     it("parses valid persisted summary artifacts", async () => {
@@ -396,6 +538,22 @@ describe("observability store: per-user isolation", () => {
         /WHERE run_id IN \(\?, \?\) AND org_id = \?/,
       );
       expect(lastSelect().args).toEqual(["run-a", "run-b", "org-a", 500]);
+    });
+
+    it("bounds instruction drafts independently for each selected thread", async () => {
+      await getInstructionUpdates({
+        threadIds: ["thread-a", "thread-b"],
+        sinceMs: 500,
+        orgId: "org-a",
+        perThreadLimit: 1,
+      });
+      const call = lastSelect();
+      expect(call.sql).toMatch(
+        /PARTITION BY thread_id ORDER BY updated_at DESC, id DESC/,
+      );
+      expect(call.sql).toMatch(/WHERE update_row_number <= \?/);
+      expect(call.sql).not.toContain("LIMIT ?");
+      expect(call.args).toEqual(["thread-a", "thread-b", 500, "org-a", 1]);
     });
 
     it("returns no rows without querying when an explicit run list is empty", async () => {
@@ -506,7 +664,61 @@ describe("observability store: per-user isolation", () => {
       await getFeedback({ sinceMs: 500, limit: 20, userId: "bob" });
       const call = lastSelect();
       expect(call.sql).toMatch(/user_id = \?/);
+      expect(call.sql).not.toContain("ROW_NUMBER()");
+      expect(call.sql).toMatch(/ORDER BY created_at DESC LIMIT \?$/);
       expect(call.args).toEqual([500, "bob", 20]);
+    });
+
+    it("bounds feedback independently for each selected thread", async () => {
+      await getFeedback({
+        runIds: ["run-a", "run-b"],
+        threadIds: ["thread-a", "thread-b"],
+        sinceMs: 500,
+        feedbackType: "thumbs_down",
+        userId: "alice",
+        orgId: "org-a",
+        source: "human_review",
+        limit: 1,
+        perThreadLimit: 3,
+      });
+      const call = lastSelect();
+      expect(call.sql).toMatch(
+        /PARTITION BY thread_id ORDER BY created_at DESC, id DESC/,
+      );
+      expect(call.sql).toMatch(/WHERE feedback_row_number <= \?/);
+      expect(call.sql).toMatch(
+        /FROM agent_feedback WHERE run_id IN \(\?, \?\) AND thread_id IN \(\?, \?\) AND created_at >= \? AND feedback_type = \? AND user_id = \? AND org_id = \? AND source = \?/,
+      );
+      expect(call.sql).not.toContain("LIMIT ?");
+      expect(call.args).toEqual([
+        "run-a",
+        "run-b",
+        "thread-a",
+        "thread-b",
+        500,
+        "thumbs_down",
+        "alice",
+        "org-a",
+        "human_review",
+        3,
+      ]);
+    });
+
+    it("defaults review rollups to six feedback rows per thread and caps overrides", async () => {
+      await getFeedback({
+        threadIds: ["thread-a", "thread-b"],
+        limit: 1,
+      });
+      const call = lastSelect();
+      expect(call.sql).toContain("PARTITION BY thread_id");
+      expect(call.sql).toContain("WHERE feedback_row_number <= ?");
+      expect(call.args).toEqual(["thread-a", "thread-b", 6]);
+
+      await getFeedback({
+        threadIds: ["thread-a", "thread-b"],
+        perThreadLimit: 99,
+      });
+      expect(lastSelect().args).toEqual(["thread-a", "thread-b", 12]);
     });
 
     it("getFeedbackStats scopes aggregations to userId", async () => {

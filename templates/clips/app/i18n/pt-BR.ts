@@ -428,12 +428,10 @@ const messages = {
     agentEmptyTitle: "Participe da conversa",
     agentEmptyDescription:
       "Crie uma conta Clips grátis para comentar, reagir e fazer perguntas sobre este clipe.",
-    commentSignupTitle: "Dê ao seu agente de IA o contexto completo",
-    commentSignupContext:
-      "Compartilhe a transcrição e quadros com marcação de tempo em um só link",
-    commentSignupFeedback:
-      "Transforme feedback gravado em próximos passos claros",
-    commentSignupDebug: "Capture erros do console e solicitações com falha",
+    commentSignupTitle:
+      "Gravações de tela que seu agente de IA pode ver e ouvir",
+    commentSignupDescription:
+      "Clips é um gravador de tela gratuito e de código aberto para compartilhar bugs, feedback e tutoriais passo a passo com agentes de IA.",
     agentEmptySignInPrompt: "Já tem uma conta?",
     signUp: "Cadastre-se",
     ownerInsights: "Insights do proprietário",
@@ -835,6 +833,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "Não foi possível atualizar o espaço ativo",
     whatsNew: "Novidades",
     changelogEmpty: "Ainda não há atualizações.",
+    changelogCommentSignup:
+      "A barra lateral de comentários vazia explica rapidamente por que experimentar o Clips e oferece um caminho claro para se cadastrar.",
+    changelogCommentsEmptyState:
+      "O estado vazio de comentários agora explica como as gravações de tela ajudam os agentes de IA.",
+    changelogShareLink:
+      "Agora, ao escolher “Ir para o início” em um link compartilhado indisponível, expirado ou privado, quem estiver conectado será levado à biblioteca em vez da página pública de marketing.",
     viewAllUpdates: "Ver todas as atualizações",
     expand: "Expandir",
     collapse: "Recolher",
@@ -1487,11 +1491,23 @@ const messages = {
     disconnected: "Microfone desconectado.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Não foi possível abrir o Builder.io. Se este app estiver incorporado em um chat, abra-o em uma aba do navegador; caso contrário, permita pop-ups para este site e tente novamente.",
+    builderConnectError:
+      "Não foi possível conectar ao Builder.io. Tente novamente ou entre em contato com o suporte.",
+    checkingBuilderConnection: "Verificando a conexão com o Builder…",
     builderTimeout:
       "Não houve resposta do Builder em 5 minutos. Verifique o pop-up e tente novamente.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Aguardando Builder...",
     connectBuilder: "Usar Builder.io",
+    createBuilderAccount: "Criar conta do Builder.io",
+    signInWithBuilderAccount: "Entrar com uma conta do Builder.io",
+    builderConsentPrefix:
+      "Ao criar uma conta Builder.io, você concorda com nossos",
+    builderTerms: "Termos de Serviço",
+    builderConsentAnd: "e",
+    builderPrivacy: "Política de Privacidade",
     free: "Grátis",
     configureS3: "configurar armazenamento compatível com S3",
     whyPrompt: "Por que estou vendo isso?",

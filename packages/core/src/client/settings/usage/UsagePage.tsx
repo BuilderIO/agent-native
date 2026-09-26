@@ -24,6 +24,7 @@ import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useFormatters, useT } from "../../i18n.js";
 import { useActionQuery } from "../../use-action.js";
 import { cn } from "../../utils.js";
+import { groupRecentPrompts } from "../recent-prompt-groups.js";
 import { SettingsRow } from "../SettingsRow.js";
 import type { SettingsPageContext } from "../shell/registry.js";
 import {
@@ -677,9 +678,10 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
       </div>
     );
   } else {
+    const promptGroups = groupRecentPrompts(data.recent);
     const prompts = showAllPrompts
-      ? data.recent
-      : data.recent.slice(0, LIST_PREVIEW);
+      ? promptGroups
+      : promptGroups.slice(0, LIST_PREVIEW);
     body = (
       <div className="space-y-10">
         <UsageGroup
@@ -778,7 +780,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
             id="usage-recent-prompts"
             title={t("agentChat.settings.usage.recentPrompts")}
           >
-            {prompts.map((entry) => (
+            {prompts.map(({ entry, count }) => (
               <SettingsRow
                 key={entry.id}
                 label={
@@ -800,10 +802,13 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
                   organizationView && person(entry.ownerEmail),
                   entry.model,
                 ])}
+                status={
+                  count > 1 ? <Badge variant="secondary">×{count}</Badge> : null
+                }
                 control={<ValueText>{amountText(entry)}</ValueText>}
               />
             ))}
-            {data.recent.length > LIST_PREVIEW ? (
+            {promptGroups.length > LIST_PREVIEW ? (
               <ShowAllRow
                 expanded={showAllPrompts}
                 onToggle={() => setShowAllPrompts((value) => !value)}

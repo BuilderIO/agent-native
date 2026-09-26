@@ -782,6 +782,7 @@ interface DesignCanvasProps {
     transactionId?: string;
     routePath?: string;
     reason: string;
+    sourcePresent?: boolean;
   }) => void;
   onRuntimeStructureRollbackResult?: (details: {
     requestId: string;
@@ -1128,8 +1129,8 @@ interface DesignCanvasProps {
    * screen. When set to a non-null tool, DesignCanvas mounts a transparent
    * capture overlay above the iframe so pointer gestures draw a new
    * primitive instead of reaching the iframe's own content/editor-chrome
-   * bridge. `null`/`undefined` fully restores prior (pre-creation-tool)
-   * behavior — the overlay never mounts.
+   * bridge. `null`/`undefined` disables pointer capture while keeping a
+   * rejected Pen draft mounted for retry.
    */
   activeCreationTool?: CreationTool | null;
   selectedPenPathNodeId?: string | null;
@@ -1142,8 +1143,12 @@ interface DesignCanvasProps {
    * persisted primitive (see `appendCanvasPrimitiveToHtml` /
    * `draftPrimitiveToInsert` on the overview side).
    */
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
-  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | false | void;
+  onUpdatePenPath?: (
+    nodeId: string,
+    path: PenPath,
+    nextTool?: "move",
+  ) => boolean;
   /**
    * OS file drag-and-drop (Figma parity): fired when the user drops native
    * OS files (e.g. images dragged from Finder/Explorer) onto this single-
@@ -1541,6 +1546,7 @@ type VisualEditSharedSnapshot = {
   fileId: string;
   html: string | null;
   updatedAt: string | null;
+  captureRevision: string;
   publishedRevision: string;
 };
 
@@ -1555,13 +1561,14 @@ function SharedSnapshotPoller({
   fileId: string;
   knownPublishedRevision: string | null;
   active: boolean;
-  onSnapshot: (snapshot: VisualEditSharedSnapshot) => void;
+  onSnapshot: (snapshot: VisualEditSharedSnapshot | null) => void;
 }) {
   const { data, refetch } = useActionQuery<{
     designId: string;
     fileId: string;
     html: string | null;
     updatedAt: string | null;
+    captureRevision: string | null;
     publishedRevision: string | null;
     unchanged: boolean;
   }>(
@@ -1573,6 +1580,7 @@ function SharedSnapshotPoller({
     },
   );
   const wasActiveRef = useRef(active);
+  const latestCaptureRevisionRef = useRef({ designId, fileId, revision: 0n });
 
   useEffect(() => {
     if (active && !wasActiveRef.current) void refetch();
@@ -1580,20 +1588,31 @@ function SharedSnapshotPoller({
   }, [active, refetch]);
 
   useEffect(() => {
-    if (
-      data?.publishedRevision &&
-      !data.unchanged &&
-      data.designId === designId &&
-      data.fileId === fileId
-    ) {
-      onSnapshot({
-        designId,
-        fileId,
-        html: data.html,
-        updatedAt: data.updatedAt,
-        publishedRevision: data.publishedRevision,
-      });
+    if (!data || data.designId !== designId || data.fileId !== fileId) {
+      return;
     }
+    if (
+      latestCaptureRevisionRef.current.designId !== designId ||
+      latestCaptureRevisionRef.current.fileId !== fileId
+    ) {
+      latestCaptureRevisionRef.current = { designId, fileId, revision: 0n };
+    }
+    const captureRevision = BigInt(data.captureRevision ?? "0");
+    if (captureRevision < latestCaptureRevisionRef.current.revision) return;
+    latestCaptureRevisionRef.current.revision = captureRevision;
+    if (!data.publishedRevision) {
+      onSnapshot(null);
+      return;
+    }
+    if (data.unchanged) return;
+    onSnapshot({
+      designId,
+      fileId,
+      html: data.html,
+      updatedAt: data.updatedAt,
+      captureRevision: data.captureRevision ?? "0",
+      publishedRevision: data.publishedRevision,
+    });
   }, [data, designId, fileId, onSnapshot]);
 
   return null;
@@ -1871,13 +1890,12 @@ export function DesignCanvas({
   const lastRuntimeReplacementContentRef = useRef(runtimeReplacementContent);
   // Bridge-ready handshake (see EDITOR_CHROME_BRIDGE_SCRIPT's
   // agent-native:editor-chrome-ready post on install). One-shot commands —
-  // begin-text-edit, set-editor-chrome-scale, style-change, delete-element,
+  // begin-text-edit, style-change, delete-element,
   // replace-document-content — are fire-and-forget postMessages with no retry:
   // if the iframe document is still loading (fresh srcdoc, screen switch, or a
   // mid-flight reload) the bridge script hasn't attached its message listener
-  // yet and the command is silently dropped. replayIframeEditorState only
-  // re-sends steady-state selection/hover/tweak/motion values, never these
-  // one-shot commands, so a dropped one-shot never recovers on its own.
+  // yet and the command is silently dropped. Persistent editor state, including
+  // chrome scale, is replayed on every ready handshake.
   // Queue them here until ready fires (or the iframe finishes loading, as a
   // fallback for older/interact-mode documents that never inject the chrome
   // bridge and thus never post ready) and flush in order.
@@ -1905,9 +1923,10 @@ export function DesignCanvas({
     awaitingTransaction: boolean;
   } | null>(null);
   const lastRuntimeStructureDeleteRequestIdRef = useRef<string | null>(null);
-  const lastRuntimeStructureDeleteCancelRequestIdRef = useRef<string | null>(
-    null,
-  );
+  const lastRuntimeStructureDeleteCancelRequestRef = useRef<{
+    requestId: string;
+    retryCount: number;
+  } | null>(null);
   const lastRuntimeStructureTargetReloadTransactionIdRef = useRef<
     string | null
   >(null);
@@ -2280,6 +2299,24 @@ export function DesignCanvas({
   // it. The load handler below needs this to skip redundant pushes.
   const renderedContentRef = useRef(renderedContent);
   renderedContentRef.current = renderedContent;
+  const pendingRuntimeLayerSnapshotReservationsRef = useRef(
+    new Map<
+      string,
+      {
+        promise: Promise<{ reservationToken: string } | { error: unknown }>;
+        timeout: number;
+      }
+    >(),
+  );
+  useEffect(
+    () => () => {
+      for (const reservation of pendingRuntimeLayerSnapshotReservationsRef.current.values()) {
+        window.clearTimeout(reservation.timeout);
+      }
+      pendingRuntimeLayerSnapshotReservationsRef.current.clear();
+    },
+    [],
+  );
   // True while a drawing send is capturing/compositing/uploading the
   // annotated screenshot (see design-canvas/annotation-snapshot.ts). Drives
   // SharedDrawOverlay's busy Send state so a slow capture can't be triggered
@@ -2438,6 +2475,7 @@ export function DesignCanvas({
     fileId: string;
     html: string | null;
     updatedAt: string | null;
+    captureRevision: string;
     publishedRevision: string;
   } | null>(null);
   const matchingSharedSnapshot =
@@ -2446,7 +2484,8 @@ export function DesignCanvas({
       ? cachedSharedSnapshot
       : null;
   const handleSharedSnapshot = useCallback(
-    (snapshot: VisualEditSharedSnapshot) => setCachedSharedSnapshot(snapshot),
+    (snapshot: VisualEditSharedSnapshot | null) =>
+      setCachedSharedSnapshot(snapshot),
     [],
   );
   // The screen's own URL wins: it carries the route path and may address the
@@ -4244,23 +4283,105 @@ export function DesignCanvas({
       }
       if (!e.data || !e.data.type) return;
       if (
+        e.data.type === "agent-native:runtime-layer-snapshot-error" ||
+        e.data.type === "agent-native:runtime-layer-snapshot-unchanged"
+      ) {
+        const requestId = e.data.payload?.requestId;
+        const documentId = e.data.payload?.documentId;
+        if (
+          Number.isSafeInteger(requestId) &&
+          typeof documentId === "string" &&
+          typeof e.data.payload?.reservationToken === "string"
+        ) {
+          const reservationKey = `${documentId}:${requestId as number}`;
+          const pending =
+            pendingRuntimeLayerSnapshotReservationsRef.current.get(
+              reservationKey,
+            );
+          if (pending) {
+            window.clearTimeout(pending.timeout);
+            pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+              reservationKey,
+            );
+          }
+        }
+        return;
+      }
+      if (
         e.data.type ===
         "agent-native:runtime-layer-snapshot-reservation-request"
       ) {
         if (!Number.isSafeInteger(e.data.requestId)) return;
+        const requestId = e.data.requestId as number;
+        const documentId =
+          typeof e.data.documentId === "string" ? e.data.documentId : "";
+        if (!documentId) {
+          postOneShotBridgeMessage({
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId,
+          });
+          return;
+        }
+        const reservationKey = `${documentId}:${requestId}`;
         const grantSnapshot = (reservationToken?: string) =>
           postOneShotBridgeMessage({
             type: "grant-runtime-layer-snapshot-reservation",
-            requestId: e.data.requestId,
+            requestId,
+            documentId,
             ...(reservationToken ? { reservationToken } : {}),
           });
-        if (!onReserveVisualEditSnapshot || sourceType !== "localhost") {
-          grantSnapshot();
-        } else {
-          void onReserveVisualEditSnapshot(screenId)
-            .then(({ reservationToken }) => grantSnapshot(reservationToken))
-            .catch(() => grantSnapshot());
+        if (
+          sourceType === "localhost" &&
+          !snapshotOnly &&
+          onReserveVisualEditSnapshot &&
+          !pendingRuntimeLayerSnapshotReservationsRef.current.has(
+            reservationKey,
+          )
+        ) {
+          const promise = Promise.resolve()
+            .then(() => onReserveVisualEditSnapshot(screenId))
+            .then(
+              ({ reservationToken }) => ({ reservationToken }),
+              (error: unknown) => ({ error }),
+            );
+          const timeout = window.setTimeout(() => {
+            const current =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
+            if (current?.promise === promise) {
+              pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+                reservationKey,
+              );
+            }
+          }, 15_000);
+          pendingRuntimeLayerSnapshotReservationsRef.current.set(
+            reservationKey,
+            { promise, timeout },
+          );
+          void promise.then((result) => {
+            const pending =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
+            if (pending?.promise !== promise) return;
+            window.clearTimeout(pending.timeout);
+            pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+              reservationKey,
+            );
+            if (!("reservationToken" in result)) {
+              console.warn(
+                "[design:visual-edit] shared snapshot reservation failed",
+                { screenId, error: result.error },
+              );
+              return;
+            }
+            grantSnapshot(result.reservationToken);
+          });
         }
+        // Local Layers must not wait for the owner-only shared snapshot reservation.
+        // The iframe captures again with its reservation token before publishing.
+        grantSnapshot();
         return;
       }
       if (e.data.type === "agent-native:live-route-path") {
@@ -4317,10 +4438,21 @@ export function DesignCanvas({
             const queueOnce = (message: Record<string, unknown>) => {
               const alreadyQueued = pendingOneShotMessagesRef.current.some(
                 (queued) =>
-                  (queued as { type?: unknown; requestId?: unknown } | null)
-                    ?.type === message.type &&
-                  (queued as { requestId?: unknown } | null)?.requestId ===
-                    message.requestId,
+                  (
+                    queued as {
+                      type?: unknown;
+                      requestId?: unknown;
+                      documentId?: unknown;
+                    } | null
+                  )?.type === message.type &&
+                  (
+                    queued as {
+                      requestId?: unknown;
+                      documentId?: unknown;
+                    } | null
+                  )?.requestId === message.requestId &&
+                  (queued as { documentId?: unknown } | null)?.documentId ===
+                    message.documentId,
               );
               if (!alreadyQueued) {
                 pendingOneShotMessagesRef.current.push(message);
@@ -4391,18 +4523,39 @@ export function DesignCanvas({
           payload.html.length <= 2_000_000 &&
           Number.isFinite(payload.nodeCount)
         ) {
-          onRuntimeLayerSnapshot?.({
+          const snapshot = {
             html: payload.html,
             nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
             documentId:
               typeof payload.documentId === "string"
                 ? payload.documentId
                 : undefined,
-            reservationToken:
-              typeof payload.reservationToken === "string"
-                ? payload.reservationToken
-                : undefined,
-          });
+          };
+          const reservationToken =
+            typeof payload.reservationToken === "string"
+              ? payload.reservationToken
+              : undefined;
+          const requestId = Number.isSafeInteger(payload.requestId)
+            ? (payload.requestId as number)
+            : undefined;
+          onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
+          if (
+            reservationToken &&
+            requestId !== undefined &&
+            snapshot.documentId
+          ) {
+            const reservationKey = `${snapshot.documentId}:${requestId}`;
+            const pending =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
+            if (pending) {
+              window.clearTimeout(pending.timeout);
+              pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+                reservationKey,
+              );
+            }
+          }
         }
         return;
       }
@@ -4698,6 +4851,25 @@ export function DesignCanvas({
               ? e.data.routePath
               : (liveRoutePathRef.current ?? undefined),
           reason: String(e.data.reason || "unknown"),
+        });
+        return;
+      }
+      if (e.data.type === "runtime-structure-delete-cancelled") {
+        const requestId = String(e.data.requestId || "");
+        if (!requestId) return;
+        onRuntimeStructureDeleteRejected?.({
+          screenId,
+          requestId,
+          transactionId:
+            typeof e.data.transactionId === "string"
+              ? e.data.transactionId
+              : undefined,
+          routePath:
+            typeof e.data.routePath === "string"
+              ? e.data.routePath
+              : (liveRoutePathRef.current ?? undefined),
+          reason: "cancelled",
+          sourcePresent: e.data.sourcePresent === true,
         });
         return;
       }
@@ -5583,6 +5755,14 @@ export function DesignCanvas({
     const iframe = iframeRef.current;
     if (!iframe) return;
     iframe.contentWindow?.postMessage(
+      {
+        type: "set-editor-chrome-scale",
+        scaleX: effectiveEditorChromeScaleX,
+        scaleY: effectiveEditorChromeScaleY,
+      },
+      "*",
+    );
+    iframe.contentWindow?.postMessage(
       { type: "set-interaction-mode", interact: interactModeRef.current },
       "*",
     );
@@ -5730,6 +5910,8 @@ export function DesignCanvas({
     );
   }, [
     handToolActive,
+    effectiveEditorChromeScaleX,
+    effectiveEditorChromeScaleY,
     hoveredSelector,
     hoveredSelectorCandidates,
     hiddenSelectors,
@@ -5923,33 +6105,6 @@ export function DesignCanvas({
       previewStyles: statePreviewTarget?.previewStyles ?? null,
     });
   }, [postOneShotBridgeMessage, statePreviewTarget]);
-
-  // Push the constant-size chrome scale into the iframe LIVE (CSS vars only) when
-  // overview zoom settles. This is intentionally separate from the srcdoc build so
-  // a scale change never rebuilds srcdoc / reloads the iframe (which flashes the
-  // content white). The baked __EDITOR_CHROME_SCALE__ values cover first paint.
-  // Routed through the one-shot queue too: a zoom settle that lands while the
-  // iframe is mid-reload would otherwise be silently dropped, leaving the
-  // chrome at a stale scale until the next zoom change.
-  //
-  // readyIframeDocumentIdentity is a dep for the same reason it's one on the
-  // embedded-canvas-gesture-mode effect below: a document swap resets
-  // bridgeReadyRef and wipes pendingOneShotMessagesRef, silently dropping this
-  // message if it queued before the swap. Without this dep, a URL-backed frame
-  // that loads at a non-1 overview scale never gets a live scale push after the
-  // swap (only the baked-at-1 script value applies) until the next zoom change.
-  useEffect(() => {
-    postOneShotBridgeMessage({
-      type: "set-editor-chrome-scale",
-      scaleX: effectiveEditorChromeScaleX,
-      scaleY: effectiveEditorChromeScaleY,
-    });
-  }, [
-    effectiveEditorChromeScaleX,
-    effectiveEditorChromeScaleY,
-    postOneShotBridgeMessage,
-    readyIframeDocumentIdentity,
-  ]);
 
   // Overview/focused placement is presentation state, not document identity.
   // Update gesture routing in place when entering responsive Interact.
@@ -6742,7 +6897,9 @@ export function DesignCanvas({
       currentPreview.transactionId = request?.transactionId;
       currentPreview.awaitingTransaction = false;
     }
-    if (!request?.waitForInsertTransaction) return;
+    // Keep the source visible until the destination has acknowledged its
+    // insert. A refused or disconnected target must leave the move untouched.
+    if (!request || request.waitForInsertTransaction) return;
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
       if (currentPreview?.requestId === request.requestId) {
         currentPreview.documentIdentity = null;
@@ -6781,19 +6938,26 @@ export function DesignCanvas({
   useEffect(() => {
     const request = runtimeStructureDeleteRequest;
     if (!request?.cancelRequested) {
-      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      lastRuntimeStructureDeleteCancelRequestRef.current = null;
       return;
     }
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
-      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      lastRuntimeStructureDeleteCancelRequestRef.current = null;
       return;
     }
+    const retryCount = request.cancellationRetryCount ?? 0;
     if (
-      lastRuntimeStructureDeleteCancelRequestIdRef.current === request.requestId
+      lastRuntimeStructureDeleteCancelRequestRef.current?.requestId ===
+        request.requestId &&
+      lastRuntimeStructureDeleteCancelRequestRef.current.retryCount ===
+        retryCount
     ) {
       return;
     }
-    lastRuntimeStructureDeleteCancelRequestIdRef.current = request.requestId;
+    lastRuntimeStructureDeleteCancelRequestRef.current = {
+      requestId: request.requestId,
+      retryCount,
+    };
     postOneShotBridgeMessage({
       type: "cancel-pending-delete-element",
       selector: request.selector,
@@ -6805,12 +6969,11 @@ export function DesignCanvas({
       type: "visual-structure-ack",
       requestId: request.requestId,
       applied: false,
-    });
-    onRuntimeStructureDeleteRejected?.({
-      screenId,
-      requestId: request.requestId,
-      transactionId: request.transactionId,
-      reason: "cancelled",
+      cancelRuntimeStructureDelete: {
+        transactionId: request.transactionId,
+        selector: request.selector,
+        selectorCandidates: request.selectorCandidates ?? [],
+      },
     });
   }, [
     iframeDocumentIdentity,
@@ -7529,38 +7692,67 @@ export function DesignCanvas({
       : deviceFrame === "none"
         ? "100%"
         : (iframeHeight ?? undefined);
-  const focusScrollSurface = useCallback(() => {
-    const surface = scrollContainerRef.current;
-    if (!surface || document.activeElement === surface) return;
-    // A picker drag ending over the canvas must not take focus from the open
-    // picker: losing it ends the inspector gesture and drops a styled text range.
-    if (
-      textEditingStateRef.current.active ||
-      document.activeElement?.closest("[data-radix-popper-content-wrapper]")
-    ) {
-      return;
-    }
-    const focusedElement = document.activeElement;
-    if (focusedElement instanceof HTMLIFrameElement) {
-      try {
-        const frameDocument = focusedElement.contentDocument;
-        if (
-          !frameDocument ||
-          frameDocument.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)
-        ) {
-          return;
-        }
-      } catch {
-        // Keep focus inside a frame we cannot inspect; it may own an editor.
+  const focusScrollSurface = useCallback(
+    (fromIframeLoad = false) => {
+      const surface = scrollContainerRef.current;
+      if (
+        !surface ||
+        document.activeElement === surface ||
+        !editMode ||
+        interactMode
+      )
+        return;
+      // A picker drag ending over the canvas must not take focus from the open
+      // picker: losing it ends the inspector gesture and drops a styled text range.
+      if (
+        textEditingStateRef.current.active ||
+        document.activeElement?.closest("[data-radix-popper-content-wrapper]")
+      ) {
         return;
       }
-    }
-    // Taking focus for keyboard panning must never outrank a field the user
-    // was just handed: a composer that opens under the cursor would otherwise
-    // be focused on mount and silently unfocused by the same pointer motion.
-    if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
-    surface.focus({ preventScroll: true });
-  }, []);
+      const focusedElement = document.activeElement;
+      if (
+        fromIframeLoad &&
+        focusedElement !== document.body &&
+        focusedElement !== iframeRef.current
+      ) {
+        return;
+      }
+      if (focusedElement instanceof HTMLIFrameElement) {
+        try {
+          const frameDocument = focusedElement.contentDocument;
+          if (!frameDocument) {
+            if (!fromIframeLoad) return;
+          } else if (
+            frameDocument.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)
+          ) {
+            return;
+          }
+        } catch (error) {
+          if (
+            !(error instanceof DOMException) ||
+            error.name !== "SecurityError"
+          ) {
+            throw error;
+          }
+          // A cross-origin frame may have an app-owned focused input; preserve
+          // its focus when the parent cannot inspect it.
+          return;
+        }
+      }
+      // Taking focus for keyboard panning must never outrank a field the user
+      // was just handed: a composer that opens under the cursor would otherwise
+      // be focused on mount and silently unfocused by the same pointer motion.
+      if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
+      surface.focus({ preventScroll: true });
+    },
+    [editMode, interactMode],
+  );
+  const handleCanvasPointerEnter = useCallback(
+    () => focusScrollSurface(),
+    [focusScrollSurface],
+  );
+  useLayoutEffect(() => focusScrollSurface(), [focusScrollSurface]);
 
   // Single-screen pan (Figma parity §3): middle-mouse-button drag always
   // pans (mirrors MultiScreenCanvas's unconditional `e.button === 1` branch
@@ -7827,8 +8019,9 @@ export function DesignCanvas({
           allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
           data-design-preview-iframe
           onLoad={(event) => {
-            markPreviewFrameReady();
+            if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
+            focusScrollSurface(true);
             event.currentTarget.contentWindow?.postMessage(
               { type: "agent-native:editor-chrome-ready-probe" },
               "*",
@@ -7927,23 +8120,19 @@ export function DesignCanvas({
           title=""
         />
       ) : null}
-      {/* Single-screen click-to-place creation overlay — sits over the
-          iframe, NOT inside it, mirroring the SharedDrawOverlay pattern
-          below. Only mounts while a creation tool is active so it never
-          changes existing behavior otherwise (T14: single-screen mode
-          previously had no creation capability at all). */}
-      {activeCreationTool && !interactMode ? (
-        <SingleScreenCreationOverlay
-          tool={activeCreationTool}
-          iframeRef={iframeRef}
-          selectedPenPathNodeId={selectedPenPathNodeId}
-          onCreatePrimitive={onCreatePrimitive}
-          onUpdatePenPath={onUpdatePenPath}
-        />
-      ) : null}
+      {/* Keep the overlay mounted while Move is active so a rejected Pen
+          commit remains available to retry; without a creation tool it is
+          transparent to pointer events. */}
+      <SingleScreenCreationOverlay
+        key={screenId}
+        tool={interactMode ? null : (activeCreationTool ?? null)}
+        iframeRef={iframeRef}
+        selectedPenPathNodeId={selectedPenPathNodeId}
+        onCreatePrimitive={onCreatePrimitive}
+        onUpdatePenPath={onUpdatePenPath}
+      />
       {/* OS file drag-over capture overlay — sits over the iframe, NOT
-          inside it, mirroring the SingleScreenCreationOverlay mount pattern
-          just above. Only mounts while a native OS file drag is actually in
+          inside it. Only mounts while a native OS file drag is actually in
           progress over this wrapper (see handleWrapperDragEnter/Leave), so it
           never changes existing pointer/click behavior otherwise. Skipped
           while a creation tool is active — the two capture surfaces would
@@ -8280,8 +8469,8 @@ export function DesignCanvas({
         <div
           ref={scrollContainerRef}
           tabIndex={-1}
-          onPointerEnter={focusScrollSurface}
-          onMouseEnter={focusScrollSurface}
+          onPointerEnter={handleCanvasPointerEnter}
+          onMouseEnter={handleCanvasPointerEnter}
           className="relative h-full w-full overflow-clip"
         >
           {iframeElement}
@@ -8298,8 +8487,8 @@ export function DesignCanvas({
       <div
         ref={scrollContainerRef}
         tabIndex={-1}
-        onPointerEnter={focusScrollSurface}
-        onMouseEnter={focusScrollSurface}
+        onPointerEnter={handleCanvasPointerEnter}
+        onMouseEnter={handleCanvasPointerEnter}
         className="relative h-full w-full overflow-clip"
         style={{
           width: embeddedFrame.displayWidth,
@@ -8332,8 +8521,8 @@ export function DesignCanvas({
     <div
       ref={scrollContainerRef}
       tabIndex={-1}
-      onPointerEnter={focusScrollSurface}
-      onMouseEnter={focusScrollSurface}
+      onPointerEnter={handleCanvasPointerEnter}
+      onMouseEnter={handleCanvasPointerEnter}
       onMouseDown={handleScrollSurfaceMouseDown}
       onClick={handleScrollSurfaceBackgroundClick}
       className="relative flex-1 h-full overflow-auto"
@@ -8499,11 +8688,15 @@ interface SingleScreenPenGestureState {
 const SINGLE_SCREEN_PEN_HIT_RADIUS_PX = 10;
 
 interface SingleScreenCreationOverlayProps {
-  tool: CreationTool;
+  tool: CreationTool | null;
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   selectedPenPathNodeId?: string | null;
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
-  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | false | void;
+  onUpdatePenPath?: (
+    nodeId: string,
+    path: PenPath,
+    nextTool?: "move",
+  ) => boolean;
 }
 
 /**
@@ -8580,6 +8773,7 @@ function SingleScreenCreationOverlay({
     null,
   );
   const penGestureRef = useRef<SingleScreenPenGestureState | null>(null);
+  const penOverlayRef = useRef<HTMLDivElement>(null);
   const [penPointer, setPenPointer] = useState<PenPoint | null>(null);
   const [penCloseHover, setPenCloseHover] = useState(false);
 
@@ -8625,8 +8819,15 @@ function SingleScreenCreationOverlay({
   }, []);
 
   const clearPenPath = useCallback(() => {
-    updatePenPath(null);
+    const gesture = penGestureRef.current;
     penGestureRef.current = null;
+    if (
+      gesture &&
+      penOverlayRef.current?.hasPointerCapture(gesture.pointerId)
+    ) {
+      penOverlayRef.current.releasePointerCapture(gesture.pointerId);
+    }
+    updatePenPath(null);
     setPenGesturePreview(null);
     setPenPointer(null);
     setPenCloseHover(false);
@@ -8638,6 +8839,7 @@ function SingleScreenCreationOverlay({
       options?: {
         preserveActiveTool?: boolean;
         continueAfterCommit?: boolean;
+        nextTool?: "move" | "pen";
       },
     ) => {
       const committed = path ? clonePenPath(path) : null;
@@ -8648,9 +8850,12 @@ function SingleScreenCreationOverlay({
 
       const continuation = continuationPenPathRef.current;
       if (continuation) {
-        const updated = onUpdatePenPath?.(continuation.nodeId, committed);
+        const updated = onUpdatePenPath?.(
+          continuation.nodeId,
+          committed,
+          options?.preserveActiveTool === false ? "move" : undefined,
+        );
         if (!updated) {
-          continuationPenPathRef.current = null;
           updatePenPath(committed);
           setPenGesturePreview(null);
           return;
@@ -8665,13 +8870,30 @@ function SingleScreenCreationOverlay({
           return;
         }
         clearPenPath();
-        const nodeId = onCreatePrimitive({
-          tool: "pen",
-          points: committed.nodes.map((node) => node.point),
-          penPath: committed,
-          fromClick: false,
-          preserveActiveTool: options?.preserveActiveTool,
-        });
+        const restoreDraft = () => {
+          updatePenPath(committed);
+          setPenGesturePreview(null);
+          setPenPointer(null);
+          setPenCloseHover(false);
+        };
+        let nodeId: string | false | void;
+        try {
+          nodeId = onCreatePrimitive({
+            tool: "pen",
+            points: committed.nodes.map((node) => node.point),
+            penPath: committed,
+            fromClick: false,
+            preserveActiveTool: options?.preserveActiveTool,
+            nextTool: options?.nextTool,
+          });
+        } catch (error) {
+          restoreDraft();
+          throw error;
+        }
+        if (nodeId === false) {
+          restoreDraft();
+          return;
+        }
         continuationPenPathRef.current =
           typeof nodeId === "string" &&
           !committed.closed &&
@@ -8724,6 +8946,12 @@ function SingleScreenCreationOverlay({
     if (previousTool === "pen" && tool !== "pen") {
       finishPenPath(penPathRef.current, { preserveActiveTool: true });
       if (!penPathRef.current) continuationPenPathRef.current = null;
+    }
+    if (!tool) {
+      dragRef.current = null;
+      setDrag(null);
+      setPenPointer(null);
+      setPenCloseHover(false);
     }
   }, [finishPenPath, tool]);
 
@@ -8786,14 +9014,13 @@ function SingleScreenCreationOverlay({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || !tool) return;
       if (tool === "pen") {
         e.preventDefault();
         e.stopPropagation();
         seedSelectedPenContinuation();
-        const currentPath = penPathRef.current?.closed
-          ? null
-          : penPathRef.current;
+        const currentPath = penPathRef.current;
+        if (currentPath?.closed) return;
         const pathBefore = currentPath ? clonePenPath(currentPath) : null;
         const rawPoint = toContentPoint(e.clientX, e.clientY);
         if (!pathBefore && continuationPenPathRef.current) {
@@ -9035,9 +9262,23 @@ function SingleScreenCreationOverlay({
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
+      if (event.key === "Escape" && penGestureRef.current) {
+        const pathBefore = penGestureRef.current.pathBefore;
+        clearPenPath();
+        updatePenPath(pathBefore);
+        return;
+      }
+      const continuesExistingPath =
+        event.key === "Enter" && continuationPenPathRef.current !== null;
       finishPenPath(path, {
-        preserveActiveTool: true,
-        continueAfterCommit: event.key === "Enter",
+        preserveActiveTool: event.key === "Escape" || continuesExistingPath,
+        continueAfterCommit: continuesExistingPath,
+        nextTool:
+          event.key === "Enter"
+            ? continuesExistingPath
+              ? "pen"
+              : "move"
+            : undefined,
       });
     };
 
@@ -9045,7 +9286,13 @@ function SingleScreenCreationOverlay({
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [clearPenPath, finishPenPath, tool, updatePenPath]);
 
-  const cursorClass = tool === "text" ? "cursor-text" : "cursor-crosshair";
+  const cursorClass =
+    tool === null
+      ? "pointer-events-none"
+      : cn(
+          "pointer-events-auto",
+          tool === "text" ? "cursor-text" : "cursor-crosshair",
+        );
   const isLineTool = tool === "line" || tool === "arrow";
   const displayedPenPath =
     penGesturePreview ??
@@ -9074,7 +9321,7 @@ function SingleScreenCreationOverlay({
     y: point.y - previewScrollOffset.top,
   });
   const previewRect =
-    drag && drag.moved && !isLineTool && tool !== "pen"
+    tool && drag && drag.moved && !isLineTool && tool !== "pen"
       ? getDraftGeometryFromPoints(
           toOverlayLocal(drag.startContent),
           toOverlayLocal(drag.currentContent),
@@ -9105,9 +9352,10 @@ function SingleScreenCreationOverlay({
 
   return (
     <div
+      ref={penOverlayRef}
       data-design-canvas-creation-overlay
       data-creation-tool={tool}
-      className={cn("absolute inset-0 z-20 pointer-events-auto", cursorClass)}
+      className={cn("absolute inset-0 z-20", cursorClass)}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -9125,7 +9373,7 @@ function SingleScreenCreationOverlay({
         }
       }}
     >
-      {tool === "pen" && displayedPenPathOverlay ? (
+      {displayedPenPathOverlay ? (
         <SingleScreenPenPathOverlay
           path={displayedPenPathOverlay}
           closeHover={penCloseHover}

@@ -183,12 +183,6 @@ function ThemeToggleItem() {
   );
 }
 
-function AppContent() {
-  const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
-  return <PrivateAppContent />;
-}
-
 function PrivateAppContent() {
   return (
     <RequireDispatchAccess>
@@ -269,13 +263,10 @@ function PrivateAppShell() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingHome = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isMarketingHome}
         toaster={
           <Toaster
             richColors
@@ -285,9 +276,9 @@ export default function Root() {
             mobileOffset={{ bottom: 44, left: 16 }}
           />
         }
-        i18n={{ catalog: i18nCatalog, persistPreference: !isMarketingHome }}
+        i18n={{ catalog: i18nCatalog }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

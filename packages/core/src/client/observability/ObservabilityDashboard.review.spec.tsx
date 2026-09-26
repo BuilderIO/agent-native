@@ -15,6 +15,8 @@ const {
   mockTraces,
   mockTraceDetail,
   mockOpenThread,
+  mockUseActionQuery,
+  mockConfirmAgentChat,
 } = vi.hoisted(() => ({
   mockOutputReviews: vi.fn(),
   mockOutputReviewDetail: vi.fn(),
@@ -24,11 +26,14 @@ const {
   mockTraces: vi.fn(),
   mockTraceDetail: vi.fn(),
   mockOpenThread: vi.fn(),
+  mockUseActionQuery: vi.fn(),
+  mockConfirmAgentChat: vi.fn(),
 }));
 
 vi.mock("../agent-chat.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../agent-chat.js")>()),
   sendToAgentChat: mockSendToAgentChat,
+  sendToAgentChatAndConfirm: mockConfirmAgentChat,
   requestAgentChatThreadOpen: mockOpenThread,
 }));
 
@@ -38,6 +43,11 @@ vi.mock("../org/hooks.js", () => ({
     isLoading: false,
     isError: false,
   }),
+}));
+
+vi.mock("../use-action.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../use-action.js")>()),
+  useActionQuery: mockUseActionQuery,
 }));
 
 vi.mock("./useObservability.js", () => ({
@@ -97,7 +107,7 @@ describe("human review artifact links", () => {
         "/deck/deck-1/present",
         "localhost",
       ),
-    ).toBe("http://localhost:8086/deck/deck-1/present");
+    ).toBe("http://localhost:8086/deck/deck-1/present?reviewEmbed=1");
     expect(
       resolveReviewArtifactHref(
         "design",
@@ -105,7 +115,7 @@ describe("human review artifact links", () => {
         "/present/design-1",
         "127.0.0.1",
       ),
-    ).toBe("http://127.0.0.1:8099/present/design-1");
+    ).toBe("http://127.0.0.1:8099/present/design-1?reviewEmbed=1");
   });
 
   it("rejects invalid artifact paths and unknown app origins", () => {
@@ -161,15 +171,68 @@ function popoverButton(input: HTMLTextAreaElement, text: string) {
   ).find((button) => button.textContent?.includes(text));
 }
 
+async function openInstructionDraft(detail: HTMLElement) {
+  await act(async () => {
+    const trigger = detail.querySelector<HTMLButtonElement>(
+      '[aria-label="Draft instruction"]',
+    );
+    trigger?.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+    );
+  });
+  const menuItem = await vi.waitFor(() => {
+    const item = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((candidate) => candidate.textContent?.includes("Draft instruction"));
+    expect(item).toBeTruthy();
+    return item!;
+  });
+  await act(async () => menuItem.click());
+  await act(
+    async () => new Promise((resolve) => window.setTimeout(resolve, 0)),
+  );
+  return vi.waitFor(() => {
+    const input = popoverTextarea(
+      "Write the instruction change for a human to review.",
+    );
+    expect(input).toBeTruthy();
+    return input!;
+  });
+}
+
 describe("ObservabilityDashboard human review", () => {
   let container: HTMLDivElement;
   let root: Root;
   let queryClient: QueryClient;
+  let originalLocation: Location;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("IntersectionObserver", undefined);
+    originalLocation = window.location;
+    mockUseActionQuery.mockImplementation((actionName, params) =>
+      actionName === "get-design" && params.id === "design-2"
+        ? {
+            data: {
+              files: [
+                {
+                  filename: "index.html",
+                  fileType: "text/html",
+                  content: "<main>Actual campaign design</main>",
+                },
+              ],
+            },
+            isError: false,
+            isSuccess: true,
+          }
+        : { data: undefined, isError: false, isSuccess: false },
+    );
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
+    });
+    mockConfirmAgentChat.mockImplementation(async (request) => {
+      mockSendToAgentChat(request);
+      return { tabId: "review-test", delivered: true };
     });
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -179,6 +242,8 @@ describe("ObservabilityDashboard human review", () => {
       data: [
         {
           runId: "run-1",
+          orgId: "org-a",
+          readOnly: false,
           threadId: "thread-1",
           ask: "Design a compact analytics view",
           answer: "Sessions grew 18% this week.",
@@ -188,6 +253,7 @@ describe("ObservabilityDashboard human review", () => {
           inlineAppTitle: "Analytics preview",
           model: "test-model",
           createdAt: Date.now(),
+          runCount: 1,
           feedback: [
             {
               id: "vote-1",
@@ -202,10 +268,13 @@ describe("ObservabilityDashboard human review", () => {
               createdAt: 1,
             },
           ],
+          artifacts: [],
           instructionUpdate: null,
         },
         {
           runId: "run-2",
+          orgId: "org-a",
+          readOnly: false,
           threadId: "thread-2",
           ask: "Make a slide from the campaign results",
           answer: "Campaign response increased 24%.",
@@ -213,13 +282,17 @@ describe("ObservabilityDashboard human review", () => {
           summary: null,
           model: "test-model",
           createdAt: Date.now() - 1,
+          runCount: 1,
           feedback: [],
+          artifacts: [],
           instructionUpdate: null,
           hasInlineApp: true,
           inlineAppTitle: "render",
         },
         {
           runId: "run-no-preview",
+          orgId: "org-a",
+          readOnly: false,
           threadId: "thread-no-preview",
           ask: "",
           answer: "-",
@@ -228,11 +301,15 @@ describe("ObservabilityDashboard human review", () => {
           hasInlineApp: true,
           model: "test-model",
           createdAt: Date.now() - 2,
+          runCount: 1,
           feedback: [],
+          artifacts: [],
           instructionUpdate: null,
         },
         {
           runId: "run-no-thread",
+          orgId: "org-a",
+          readOnly: false,
           threadId: null,
           ask: "Background task output",
           answer: "No reviewable conversation.",
@@ -241,7 +318,9 @@ describe("ObservabilityDashboard human review", () => {
           hasInlineApp: false,
           model: "test-model",
           createdAt: Date.now() - 2,
+          runCount: 1,
           feedback: [],
+          artifacts: [],
           instructionUpdate: null,
         },
       ],
@@ -252,6 +331,7 @@ describe("ObservabilityDashboard human review", () => {
       data:
         runId === "run-1"
           ? {
+              runId: "run-1",
               app: {
                 serverId: "analytics",
                 toolName: "render",
@@ -270,6 +350,10 @@ describe("ObservabilityDashboard human review", () => {
                 { role: "assistant", text: "Sessions grew 18% this week." },
                 { role: "user", text: "Keep the chart inline." },
               ],
+              artifacts: [],
+              summary: null,
+              ask: "Design a compact analytics view",
+              answer: "Sessions grew 18% this week.",
             }
           : { app: null, messages: [] },
     }));
@@ -285,6 +369,10 @@ describe("ObservabilityDashboard human review", () => {
     act(() => root.unmount());
     queryClient.clear();
     container.remove();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
     vi.clearAllMocks();
     vi.unstubAllGlobals();
   });
@@ -332,6 +420,7 @@ describe("ObservabilityDashboard human review", () => {
           {
             id: "span-success",
             runId: "run-1",
+            orgId: "org-a",
             threadId: "thread-1",
             parentSpanId: null,
             spanType: "tool_call",
@@ -490,6 +579,196 @@ describe("ObservabilityDashboard human review", () => {
     ]);
   });
 
+  it("scopes the bulk summary request to visible review runs", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-review-bulk-summary]")
+        ?.click(),
+    );
+    expect(mockSendToAgentChat).toHaveBeenCalledTimes(1);
+    expect(mockSendToAgentChat.mock.calls[0]?.[0].actionScope).toEqual({
+      kind: "observability-review-summary-batch",
+      runIds: ["run-1", "run-2", "run-no-preview"],
+    });
+    expect(mockSendToAgentChat.mock.calls[0]?.[0].message).toContain(
+      'runId="run-1" orgId="org-a"',
+    );
+  });
+
+  it("updates votes optimistically, expands from the chevron, and filters rows", async () => {
+    const current = mockOutputReviews().data;
+    mockOutputReviews.mockReturnValue({
+      isLoading: false,
+      data: current.map((review) =>
+        review.runId === "run-2"
+          ? {
+              ...review,
+              artifacts: [
+                {
+                  appId: "design",
+                  artifactId: "design-2",
+                  title: "Campaign design",
+                  path: "/present/design-2",
+                },
+              ],
+            }
+          : review,
+      ),
+    });
+    mockSubmitFeedback.mockImplementation(() => {});
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    expect(
+      [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          "[data-review-list] button",
+        ),
+      ].every((button) => button.title.trim().length > 0),
+    ).toBe(true);
+
+    const search = container.querySelector<HTMLInputElement>(
+      "[data-review-search]",
+    )!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "campaign");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(1);
+    expect(
+      container.querySelector('[data-review-run-id="run-2"]'),
+    ).toBeTruthy();
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const typeFilter = container.querySelector<HTMLSelectElement>(
+      "[data-review-type-filter]",
+    )!;
+    await act(async () => {
+      typeFilter.value = "design";
+      typeFilter.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(1);
+    expect(
+      container.querySelector('[data-review-run-id="run-2"]'),
+    ).toBeTruthy();
+
+    await act(async () => {
+      typeFilter.value = "all";
+      typeFilter.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const firstRow = container.querySelector<HTMLElement>(
+      '[data-review-row="run-1"]',
+    )!;
+    await act(async () =>
+      firstRow
+        .querySelector<HTMLButtonElement>('[data-review-vote="up"]')
+        ?.click(),
+    );
+    expect(
+      firstRow
+        .querySelector('[data-review-vote="up"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      firstRow
+        .querySelector('[data-review-vote="down"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("false");
+
+    const secondRow = container.querySelector<HTMLElement>(
+      '[data-review-row="run-no-preview"]',
+    )!;
+    const chevron = secondRow.querySelector<HTMLButtonElement>(
+      "[data-review-chevron]",
+    )!;
+    await act(async () => chevron.click());
+    expect(reviewDetail("run-no-preview")).not.toBeNull();
+    await act(async () =>
+      secondRow
+        .querySelector<HTMLButtonElement>("[data-review-chevron]")
+        ?.click(),
+    );
+    expect(reviewDetail("run-no-preview")).toBeNull();
+  });
+
+  it("keeps cross-organization review rows read-only", async () => {
+    const current = mockOutputReviews().data;
+    mockOutputReviews.mockReturnValue({
+      isLoading: false,
+      data: current.map((review) =>
+        review.runId === "run-2"
+          ? { ...review, orgId: "org-b", readOnly: true }
+          : review,
+      ),
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    const row = container.querySelector<HTMLElement>(
+      '[data-review-row="run-2"]',
+    )!;
+    expect(row.querySelectorAll("[data-review-vote]")).toHaveLength(0);
+    expect(row.querySelector('[aria-label="Summarize with agent"]')).toBeNull();
+    await act(async () =>
+      row.querySelector<HTMLButtonElement>("[data-review-chevron]")?.click(),
+    );
+    expect(reviewDetail("run-2")?.textContent).toContain(
+      "Cross-organization review is read-only.",
+    );
+    expect(
+      reviewDetail("run-2")?.querySelector('[aria-label="Thumbs up"]'),
+    ).toBeNull();
+    expect(
+      reviewDetail("run-2")?.querySelector('a[href*="thread=thread-2"]'),
+    ).toBeNull();
+  });
+
   it("expands one inline row with its preview, transcript, thread link, and actions", async () => {
     await act(async () => {
       root.render(
@@ -520,7 +799,7 @@ describe("ObservabilityDashboard human review", () => {
     expect(noPreviewRow?.querySelector("[data-preview-kind]")).toBeNull();
     expect(
       container.querySelector('[data-preview-kind="app-thumbnail"]'),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(
       container.querySelector("[data-review-detail-for]:not([hidden])"),
     ).toBeNull();
@@ -554,13 +833,13 @@ describe("ObservabilityDashboard human review", () => {
       detail.querySelector("[data-review-transcript]")?.textContent,
     ).toContain("Keep the chart inline.");
     const threadLink = detail.querySelector<HTMLAnchorElement>("a[href]");
-    expect(threadLink?.textContent).toContain("Open task thread");
+    expect(threadLink?.getAttribute("aria-label")).toBeTruthy();
     const threadUrl = new URL(threadLink!.href);
     expect(threadUrl.searchParams.get("thread")).toBe("thread-1");
     expect(threadUrl.searchParams.get("agentSidebar")).toBe("open");
-    const summarizeButton = Array.from(
-      detail.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.includes("Summarize with agent"));
+    const summarizeButton = detail.querySelector<HTMLButtonElement>(
+      '[aria-label="Summarize with agent"]',
+    );
     expect(summarizeButton).toBeTruthy();
     await act(async () => summarizeButton?.click());
     expect(mockSendToAgentChat).toHaveBeenCalledWith(
@@ -568,7 +847,7 @@ describe("ObservabilityDashboard human review", () => {
         submit: true,
         openSidebar: true,
         usageLabel: "observability:human-review-summary",
-        message: expect.stringContaining('"run-1"'),
+        message: expect.stringContaining('runId "run-1" and orgId "org-a"'),
       }),
     );
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
@@ -619,12 +898,20 @@ describe("ObservabilityDashboard human review", () => {
     ).toBe("true");
   });
 
-  it("shows a saved summary and links only its local artifact path", async () => {
+  it("shows a saved summary and previews the latest real artifact only", async () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: new URL(
+        "https://beta.design.agent-native.com/settings/observability/human-review",
+      ),
+    });
     mockOutputReviews.mockReturnValue({
       isLoading: false,
       data: [
         {
           runId: "run-summary",
+          orgId: "org-a",
+          readOnly: false,
           threadId: "thread-summary",
           ask: "Legacy raw ask",
           answer: "Legacy raw outcome",
@@ -653,9 +940,30 @@ describe("ObservabilityDashboard human review", () => {
               },
             ],
           },
+          artifacts: [
+            {
+              appId: "analytics",
+              artifactId: "dashboard-1",
+              title: "Campaign dashboard",
+              path: "/dashboards/dashboard-1",
+            },
+            {
+              appId: "design",
+              artifactId: "design-2",
+              title: "Campaign design",
+              path: "/present/design-2",
+            },
+            {
+              appId: "design",
+              artifactId: "design-evil",
+              title: "Untrusted external path",
+              path: "https://example.com/design-evil",
+            },
+          ],
           hasInlineApp: false,
           model: "test-model",
           createdAt: Date.now(),
+          runCount: 1,
           feedback: [],
           instructionUpdate: null,
         },
@@ -682,11 +990,13 @@ describe("ObservabilityDashboard human review", () => {
     );
     expect(row?.textContent).toContain("Compare the campaign charts");
     expect(row?.textContent).not.toContain("Thread title before summary");
-    expect(
-      container.querySelector(
-        `[data-preview-kind="design-iframe-thumbnail"] iframe[src="${window.location.origin}/present/design-2?reviewEmbed=1"]`,
-      ),
-    ).not.toBeNull();
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector(
+          '[data-preview-kind="design-iframe-thumbnail"] iframe[srcdoc]',
+        ),
+      ).not.toBeNull(),
+    );
     await act(async () => row?.click());
 
     const detail = await vi.waitFor(() => {
@@ -697,13 +1007,11 @@ describe("ObservabilityDashboard human review", () => {
     expect(
       detail.querySelector("[data-review-summary]")?.textContent,
     ).toContain("The updated analytics dashboard shows a clear lift.");
-    const artifactLink = detail.querySelector<HTMLAnchorElement>(
-      'a[href="http://localhost:8088/dashboards/dashboard-1"]',
-    );
-    expect(artifactLink?.textContent).toContain("Campaign dashboard");
+    expect(detail.querySelector("iframe[srcdoc]")).not.toBeNull();
     expect(
-      detail.querySelector('a[href="https://example.com/design-evil"]'),
-    ).toBeNull();
+      detail.querySelector("iframe[srcdoc]")?.getAttribute("srcdoc"),
+    ).toContain("Actual campaign design");
+    expect(detail.querySelector('iframe[src*="example.com"]')).toBeNull();
     expect(
       Array.from(detail.querySelectorAll("button")).some((button) =>
         button.textContent?.includes("Summarize with agent"),
@@ -797,18 +1105,7 @@ describe("ObservabilityDashboard human review", () => {
       return current!;
     });
 
-    const draftButton = detail.querySelector<HTMLButtonElement>(
-      '[aria-label="Draft instruction"]',
-    );
-    expect(draftButton).toBeTruthy();
-    await act(async () => draftButton?.click());
-    const instructionInput = await vi.waitFor(() => {
-      const input = popoverTextarea(
-        "Write the instruction change for a human to review.",
-      );
-      expect(input).toBeTruthy();
-      return input!;
-    });
+    const instructionInput = await openInstructionDraft(detail);
     expect(instructionInput).toBeTruthy();
     await act(async () => {
       if (!instructionInput) return;
@@ -904,29 +1201,13 @@ describe("ObservabilityDashboard human review", () => {
     expect(input?.value).toBe("Feedback for B");
 
     await openRun("run-1");
-    await act(async () =>
-      reviewDetail("run-1")
-        ?.querySelector<HTMLButtonElement>('[aria-label="Draft instruction"]')
-        ?.click(),
-    );
-    input = popoverTextarea(
-      "Write the instruction change for a human to review.",
-    );
-    expect(input).toBeTruthy();
-    await setText(input!, "Instruction for A");
-    await act(async () => popoverButton(input!, "Save draft update")?.click());
+    input = await openInstructionDraft(reviewDetail("run-1")!);
+    await setText(input, "Instruction for A");
+    await act(async () => popoverButton(input, "Save draft update")?.click());
 
     await openRun("run-2");
-    await act(async () =>
-      reviewDetail("run-2")
-        ?.querySelector<HTMLButtonElement>('[aria-label="Draft instruction"]')
-        ?.click(),
-    );
-    input = popoverTextarea(
-      "Write the instruction change for a human to review.",
-    );
-    expect(input).toBeTruthy();
-    await setText(input!, "Instruction for B");
+    input = await openInstructionDraft(reviewDetail("run-2")!);
+    await setText(input, "Instruction for B");
     await act(async () => finishInstructionA?.());
     expect(input?.value).toBe("Instruction for B");
   });

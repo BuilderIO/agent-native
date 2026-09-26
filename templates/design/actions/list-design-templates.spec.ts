@@ -144,4 +144,16 @@ describe("list-design-templates", () => {
       designSystemId: null,
     });
   });
+
+  it("can include built-in previews without loading saved-template HTML", async () => {
+    const result = await action.run({
+      includePreview: "true",
+      includeSavedPreview: "false",
+    });
+
+    expect(result.templates[0]).not.toHaveProperty("previewHtml");
+    expect(result.templates[1]?.previewHtml).toContain(
+      "data-agent-native-locked",
+    );
+  });
 });

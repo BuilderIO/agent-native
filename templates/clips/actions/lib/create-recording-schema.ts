@@ -25,6 +25,13 @@ export const createRecordingSchema = z.object({
     .max(200)
     .nullish()
     .describe("Captured application name, when known"),
+  recordingPlatform: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.enum(["web", "desktop", "extension", "mobile"]))
+    .optional()
+    .describe("Recorder platform"),
   sourceWindowTitle: z
     .string()
     .trim()

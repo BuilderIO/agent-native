@@ -844,6 +844,29 @@ describe("callActionWithRetry", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves Retry-After milliseconds and the action error code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            error: "Gmail is temporarily limiting requests.",
+            errorCode: "gmail_quota_cooldown",
+          },
+          { status: 429, headers: { "Retry-After": "45" } },
+        ),
+      ),
+    );
+
+    await expect(
+      callAction("mark-thread-read", { threadId: "thread-1" }),
+    ).rejects.toMatchObject({
+      status: 429,
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 45_000,
+    });
+  });
+
   it("refuses a write method instead of risking a duplicated mutation", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

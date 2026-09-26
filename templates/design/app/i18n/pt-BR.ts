@@ -583,6 +583,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Colaboração ao vivo",
+      description:
+        "Permita que pessoas sem acesso ao localhost do proprietário vejam e editem uma cópia ao vivo deste design.",
+      enabled: "Ativada",
+      disabled: "Desativada",
+      saving: "Salvando…",
+      enableError: "Não foi possível atualizar a colaboração ao vivo.",
+    },
     vectorEndpoints: {
       startPoint: "Ponto inicial",
       endPoint: "Ponto final",
@@ -1652,7 +1661,65 @@ export default {
     staleAnchorDetail:
       "O elemento original não foi mais encontrado na tela de design.",
   },
+  homeContext: {
+    websiteReference: "Anexar site",
+    websiteUrlLabel: "URL do site",
+    websiteUrl: "Cole a URL de um site",
+    figmaUrlLabel: "Link do Figma",
+    invalidFigmaUrl: "Insira uma URL válida de quadro ou arquivo do figma.com.",
+    tooMany: "Escolha até 20 referências.",
+    invalidWebsiteUrl: "Insira uma URL HTTP ou HTTPS válida.",
+    createSystem: "Criar um sistema de design",
+    noSystems:
+      "Você ainda não tem um sistema de design. Crie um a partir de um site, arquivos ou Figma.",
+    searchSystems: "Buscar sistemas de design…",
+    searchFrames: "Buscar quadros do Figma…",
+    searchDesigns: "Buscar designs…",
+    searchPresentations: "Buscar apresentações…",
+    searchDesign: "Buscar design…",
+    useDesignSystem: "Usar um sistema de design",
+    notReady:
+      "A solicitação ainda não está pronta. Confira o contexto selecionado e a conexão e tente novamente.",
+    search: "Buscar contexto…",
+    figmaUrl: "Cole um link do Figma",
+    browse: "Explorar quadros",
+    loadFailed: "Não foi possível carregar esta referência.",
+    retry: "Tentar novamente",
+    empty: "Nenhuma referência correspondente.",
+    none: "Nenhum",
+    design: "Design",
+    slides: "Slides",
+    referenceDesign: "Usar um design como referência",
+    figmaReference: "Anexar Figma",
+    referenceDeck: "Usar uma apresentação como referência",
+    quickSaas: "Criar uma página de SaaS",
+    quickDashboard: "Criar um painel",
+    quickDeck: "Criar uma apresentação",
+    deckPrompt:
+      "Crie uma apresentação refinada com slide de título, narrativa clara, dados visuais e um slide final conciso.",
+  },
   home: {
+    suggestedPrompts: "Prompts sugeridos",
+    import: "Importar",
+    importOptions: "Opções de importação",
+    figmaLink: "Link do Figma",
+    importFromFigma: "Importar do Figma",
+    figmaFile: "Arquivo do Figma (.fig)",
+    openImport: "Abrir importação",
+    importSelectedFile: "Importar arquivo selecionado",
+    starterSaasPrompt:
+      "Uma página inicial moderna de SaaS com tema escuro, seção de destaque, três cartões de funcionalidades e uma chamada para ação final.",
+    starterDashboardPrompt:
+      "Um painel de análise simples com navegação lateral, quatro cartões de indicadores, um gráfico e uma tabela de atividades recentes.",
+    starterMobilePrompt:
+      "Um protótipo de aplicativo móvel em uma moldura de celular, com uma barra de abas na parte inferior e três cartões de lista na tela inicial.",
+    starterPricingPrompt:
+      "Uma página de preços com três planos, alternância mensal/anual, listas de funcionalidades e o plano recomendado em destaque.",
+    designPromptTitle: "Vamos criar seu primeiro design",
+    recent: "Recentes",
+    browseAllTemplates: "Ver todos",
+    connectBuilderIo: "Conectar o Builder.io",
+    connectingBuilder: "Conectando ao Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "Pesquisar desenhos...",
     newDesign: "Novo Design",
@@ -1719,6 +1786,8 @@ export default {
     layoutLabel: "Layout de tela pronto para salvar",
   },
   templatesPage: {
+    previewEmpty: "Este modelo não contém telas para visualizar.",
+    loading: "Carregando modelos",
     title: "Modelos",
     description:
       "Comece com as dimensões e padrões certos e ajuste o conteúdo desbloqueado por prompt.",
@@ -1747,7 +1816,7 @@ export default {
     deleteTitle: "Excluir modelo?",
     deleteDescription:
       "Isso exclui {{title}} permanentemente. Designs já criados não serão afetados.",
-    templateActions: "Ações do modelo",
+    templateActions: "Ações de {{title}}",
     lockedCount: "{{count}} bloqueadas",
     categories: {
       ad: "Anúncio",

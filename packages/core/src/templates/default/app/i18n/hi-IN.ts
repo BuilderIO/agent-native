@@ -676,6 +676,7 @@ const messages = {
     reviewFeedback: "फ़ीडबैक",
     reviewOutput: "उत्तर की समीक्षा",
     reviewPreview: "उत्तर का पूर्वावलोकन",
+    reviewPreviewUnavailable: "पूर्वावलोकन उपलब्ध नहीं है",
     closePreview: "पूर्वावलोकन छिपाएँ",
     addFeedback: "फ़ीडबैक जोड़ें",
     draftInstruction: "निर्देश का मसौदा",

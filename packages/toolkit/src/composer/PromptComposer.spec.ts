@@ -2,7 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildPromptComposerSubmission,
@@ -60,6 +60,29 @@ describe("shouldGateComposerForMissingEngine", () => {
 });
 
 describe("buildPromptComposerSubmission", () => {
+  it("lets hosts extract uploaded text without reading or duplicating it in the prompt", async () => {
+    const file = new File(["source"], "component.tsx", { type: "text/plain" });
+    const read = vi.spyOn(file, "text");
+    const result = await buildPromptComposerSubmission({
+      text: "Review",
+      inlineTextAttachments: false,
+      attachments: [{ file, name: file.name, id: "source", type: "document" }],
+    });
+    expect(result).toEqual({ text: "Review", files: [file] });
+    expect(result.files[0]).toBe(file);
+    expect(read).not.toHaveBeenCalled();
+  });
+  it("still inlines synthetic pasted text when ordinary upload inlining is disabled", async () => {
+    const file = new File(["Pasted notes"], "pasted-text-example.txt", {
+      type: "text/plain",
+    });
+    const result = await buildPromptComposerSubmission({
+      text: "Review",
+      inlineTextAttachments: false,
+      attachments: [{ file, name: file.name, id: "paste", type: "document" }],
+    });
+    expect(result).toEqual({ text: "Review\n\nPasted notes", files: [] });
+  });
   it("passes images through files only — never inlines base64 into prompt text", async () => {
     // Images are passed to `files` for the host to process through the
     // attachment pipeline. They must NOT be inlined as base64 in `text`

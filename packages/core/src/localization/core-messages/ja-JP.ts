@@ -1,6 +1,26 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl":
+    "有効な HTTP または HTTPS の URL を入力してください。",
+  "composer.contextAttach": "添付",
+  "composer.menu.search": "検索…",
+  "composer.contextPrevious": "前へ",
+  "composer.contextNext": "次へ",
+  "composer.contextLoadFailed": "コンテキストを読み込めませんでした。",
+  "composer.contextLinkRequired": "リンクを入力してください。",
+  "composer.submitFailed": "送信できませんでした。もう一度お試しください。",
+  "composer.addContext": "コンテキストを追加",
+  "composer.contextActionFailed": "コンテキストを追加できませんでした。",
+  "composer.contextBack": "戻る",
+  "composer.searchContext": "コンテキストを検索…",
+  "composer.noContextResults": "一致するコンテキストがありません。",
+  "composer.contextPending": "コンテキストを読み込み中",
+  "composer.contextError": "コンテキストの読み込みに失敗",
+  "composer.retryContext": "{{name}} のコンテキストを再試行",
+  "composer.contextLimitExceeded":
+    "コンテキストが大きすぎます。項目を削除するか、より小さな選択範囲を添付してください。",
   "activity.reasoning": "推論",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
@@ -604,11 +624,13 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "応答を再生成",
   "message.restoreFailed": "復元に失敗しました（{{status}}）。",
   "message.restoreQuestion": "ここまで復元しますか？",
+  "message.revertQuestion": "この時点に戻しますか？この後の変更は失われます。",
   "message.restoreRequestFailed": "復元リクエストに失敗しました。",
   "message.threadNotFound":
     "このチャットスレッドは利用できなくなりました。新しいチャットを開始するか、想定外の場合は再試行してください。",
   "message.restoring": "復元中...",
   "message.revertHere": "ここまで戻す",
+  "message.revertToBeginning": "最初に戻す",
   "message.sentAt": "{{time}} に送信",
   "contextMeter.ariaLabel":
     "コンテキスト {{percent}}%、合計 {{totalTokens}}{{breakdown}}。コンテキスト X-Ray を開きます。",
@@ -881,6 +903,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
   "usage.builderCredits": "Builder クレジット",
+  "usage.inviteFriends": "友だちを招待",
+  "usage.inviteCredits":
+    "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",
+  "usage.copyInviteLink": "招待リンクをコピー",
+  "usage.inviteLinkCopied": "招待リンクをコピーしました",
   "usage.creditBalance": "ワークスペース残高",
   "usage.monthlyPlan": "月間プラン",
   "usage.dailyFreeLimit": "無料の日次上限",

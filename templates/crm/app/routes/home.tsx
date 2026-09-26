@@ -8,7 +8,7 @@ export function meta() {
   return [{ title: "My work · CRM" }];
 }
 
-// Private app entry retained at /home; / serves the public marketing page.
+// Private app entry retained at /home; / redirects to shared sign-in/signup.
 export default function WorkRoute() {
   const overview = useActionQuery<CrmOverview>(
     "get-crm-overview" as never,

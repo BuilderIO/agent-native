@@ -15,16 +15,20 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useLocation } from "react-router";
 
 import { SETTINGS_REDESIGN_FLAG } from "../../feature-flags/registry.js";
-import { buildSettingsRoute } from "../../navigation/index.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
 import type {
   OnboardingAppProfile,
   OnboardingCapability,
 } from "../../onboarding/types.js";
 import { canManageOrg } from "../../org/permissions.js";
 import type { OrgInfo } from "../../org/types.js";
-import { appPath } from "../api-path.js";
+import { appMountedPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
@@ -46,6 +50,38 @@ import {
 } from "./use-preview-mode.js";
 
 type FirstRunScreen = "choice" | "role" | "connecting" | "extension";
+type FirstRunSetupMethodId =
+  | "builder_create_account"
+  | "builder_sign_in"
+  | "custom_keys";
+
+interface FirstRunSetupAttempt {
+  id: string;
+  methodId: FirstRunSetupMethodId;
+  outcomeTracked: boolean;
+}
+
+function trackFirstRunSetupOutcome(
+  attempt: FirstRunSetupAttempt | null,
+  outcome:
+    | "connected"
+    | "already_connected"
+    | "failed"
+    | "settings_opened"
+    | "handoff_failed",
+  errorType?: string,
+) {
+  if (!attempt || attempt.outcomeTracked) return;
+  attempt.outcomeTracked = true;
+  trackOnboardingEvent("onboarding_method_outcome", {
+    flow: "first_run",
+    step_id: "choice",
+    method_id: attempt.methodId,
+    onboarding_attempt_id: attempt.id,
+    outcome,
+    ...(errorType ? { error_type: errorType } : {}),
+  });
+}
 
 const FIRST_RUN_SCREEN_ORDER: readonly Exclude<FirstRunScreen, "extension">[] =
   ["role", "choice", "connecting"];
@@ -89,7 +125,8 @@ const FIRST_RUN_ROLE_OPTIONS = [
 /**
  * Where "Skip and configure manually" lands: Organization › Infrastructure,
  * the Settings side of this screen, for the people who can open it once the
- * redesign is on; otherwise the AI model settings as before.
+ * redesign is on; otherwise the AI model settings, or API keys with the
+ * redesign off.
  */
 export function manualSetupSettingsRoute({
   redesign,
@@ -101,7 +138,7 @@ export function manualSetupSettingsRoute({
   if (redesign && org && (!org.orgId || canManageOrg(org.role))) {
     return buildSettingsRoute("infra");
   }
-  return buildSettingsRoute("agent:llm");
+  return buildSettingsRoute(redesign ? "agent:llm" : "keys");
 }
 
 export interface FirstRunOnboardingProps {
@@ -113,6 +150,7 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
+  const { pathname } = useLocation();
   const previewMode = useOnboardingPreviewMode();
   const previewStep = useOnboardingPreviewStep();
   const {
@@ -176,6 +214,30 @@ export function FirstRunOnboarding({
   const completionInFlightRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
+  const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
+  const builderSetupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
+  const startSetupMethod = useCallback(
+    (methodId: FirstRunSetupMethodId, methodKind: "builder" | "manual") => {
+      if (previewMode || typeof window === "undefined") return null;
+      const attempt = {
+        id: window.crypto.randomUUID(),
+        methodId,
+        outcomeTracked: false,
+      };
+      setupAttemptRef.current = attempt;
+      const properties = {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: methodId,
+        method_kind: methodKind,
+        onboarding_attempt_id: attempt.id,
+      };
+      trackOnboardingEvent("onboarding_method_clicked", properties);
+      trackOnboardingEvent("onboarding_method_started", properties);
+      return attempt;
+    },
+    [previewMode],
+  );
   const finishOnboarding = useCallback(
     async (
       completedScreen: FirstRunScreen | null,
@@ -260,6 +322,9 @@ export function FirstRunOnboarding({
     [extensions, finishOnboarding, trackFirstRunStepCompleted],
   );
   const handleBuilderConnected = useCallback(() => {
+    trackFirstRunSetupOutcome(builderSetupAttemptRef.current, "connected");
+    builderSetupAttemptRef.current = null;
+    setupAttemptRef.current = null;
     trackFirstRunStepCompleted("choice");
     trackFirstRunStepCompleted("connecting");
     handleFinish(null);
@@ -271,6 +336,17 @@ export function FirstRunOnboarding({
     trackingFlow: "connect_llm",
     onConnected: handleBuilderConnected,
   });
+  useEffect(() => {
+    const attempt = builderSetupAttemptRef.current;
+    if (!attempt || connectFlow.connecting) return;
+    if (connectFlow.accountExists) {
+      trackFirstRunSetupOutcome(attempt, "failed", "account_exists");
+      return;
+    }
+    if (connectFlow.error) {
+      trackFirstRunSetupOutcome(attempt, "failed", "connection_error");
+    }
+  }, [connectFlow.accountExists, connectFlow.connecting, connectFlow.error]);
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
   const retryOnboardingCompletion = useCallback(() => {
@@ -330,7 +406,15 @@ export function FirstRunOnboarding({
       handleFinish(null);
       return;
     }
+    const attempt = startSetupMethod(
+      provisionAccount ? "builder_create_account" : "builder_sign_in",
+      "builder",
+    );
+    builderSetupAttemptRef.current = attempt;
     if (connectFlow.hasFetchedStatus && connectFlow.configured) {
+      trackFirstRunSetupOutcome(attempt, "already_connected");
+      builderSetupAttemptRef.current = null;
+      setupAttemptRef.current = null;
       trackFirstRunStepCompleted("choice");
       handleFinish(null);
       return;
@@ -349,8 +433,18 @@ export function FirstRunOnboarding({
   };
 
   const handleOpenSettings = async () => {
+    if (completionInFlightRef.current) return;
+    const attempt = startSetupMethod("custom_keys", "manual");
     const completed = await finishOnboarding("choice");
-    if (!completed) return;
+    if (!completed) {
+      trackFirstRunSetupOutcome(
+        attempt,
+        "handoff_failed",
+        "onboarding_completion_error",
+      );
+      return;
+    }
+    trackFirstRunSetupOutcome(attempt, "settings_opened");
     if (typeof window === "undefined") return;
     // Drop the onboarding preview params — useOnboardingPreviewMode() reads
     // them live from the URL, so carrying them over would re-trigger the
@@ -362,7 +456,10 @@ export function FirstRunOnboarding({
     window.history.pushState(
       null,
       "",
-      `${appPath(manualSetupSettingsRoute({ redesign: redesign.enabled, org }))}${query ? `?${query}` : ""}`,
+      `${appMountedPath(
+        manualSetupSettingsRoute({ redesign: redesign.enabled, org }),
+        pathname || STANDARD_APP_ROUTES.home,
+      )}${query ? `?${query}` : ""}`,
     );
     window.dispatchEvent(new Event("popstate"));
   };

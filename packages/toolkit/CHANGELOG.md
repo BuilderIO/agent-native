@@ -1,5 +1,59 @@
 # @agent-native/toolkit
 
+## 0.22.0
+
+### Minor Changes
+
+- dbb10d5: Remove the split auth marketing UI and route app entry pages through the shared sign-in flow.
+- 39a89d0: Allow localized search placeholders for composer context categories and reuse the standard upload label for the first context-menu action.
+- 39a89d0: Add connected cascading composer context menus with declarative search, list, link, loading, error, retry, and pagination behavior, plus persistent footer actions for existing links or modal workflows. Apps register authorized data loaders or local choices instead of rebuilding picker views. Allow host file-staging adapters through PromptComposer and AgentKitComposer while preserving shared upload controls and attachment chips, with an opt-out from ordinary text-file inlining when the host already extracts those files. Document scope resets and source-version refreshes, with localized defaults in every supported locale.
+- 39a89d0: Add opt-in hierarchical composer context menus, attachment status and recovery controls, bounded immutable context snapshots, and a shared quick-start submission handle. AgentKit awaits a beforeSend hook and carries the same context metadata through immediate and queued submissions. Composer drafts, files, and context can be staged before provider setup while submission remains gated; hosts can use `submissionDisabled` without disabling staging.
+- 39a89d0: Add declarative context dialogs for URL attachment and paginated multi-selection, with validation, cancellation, batch callbacks, and localized shared controls. Expose the additive picker configuration through AgentKit while preserving existing submenu pickers.
+
+  Add read-only website composer source requests and the server-side readComposerWebsiteSource helper. Website references retain bounded extraction status, warnings, rendering provenance, and explicit truncation, while failed extraction remains an error.
+
+- 39a89d0: Add shared prompt-home layout, controlled template/recent library tabs, and template cards with semantic design-system controls, native link slots, and explicit loading, empty, and error states. Include home geometry in Toolkit styles and the app-shell ejection unit, with localized component documentation.
+- 39a89d0: Add a shared semantic template preview dialog with an inset viewport size, responsive thumbnail rail, keyboard selection, explicit loading/error/empty states, and app-owned rendered content. Align template menus beside captions, reveal them on hover or keyboard focus while keeping them visible on touch devices, and preserve direct primary activation and consistent card dimensions.
+
+### Patch Changes
+
+- 39a89d0: Preserve staged composer context when submitting through composer modes.
+- Release all public npm packages with a patch version bump.
+
+## 0.21.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 6ff4d47: Keep the shared agent chat composer visible above mobile keyboards.
+
+## 0.21.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 2ba6541: Link Custom keys to API settings and keep the composer surface opaque.
+
+## 0.21.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.21.0
+
+### Minor Changes
+
+- 21fdd86: Add the shared serializable icon contract and reusable resource icon picker.
+
+### Patch Changes
+
+- 21fdd86: Allow the resource icon picker to open from a persistent anchor outside a closing menu.
+- 4917d34: Refresh the Builder model catalog and display current versions in the chat picker.
+- Release all public npm packages with a patch version bump.
+- ac01083: Align PDF attachment limits with their serialized message budget.
+- 185e25d: Move the auth page Learn more link beside the marketing copy and show a GitHub icon on the open-source project link.
+
 ## 0.20.9
 
 ### Patch Changes
@@ -850,47 +904,5 @@
 ### Patch Changes
 
 - a91535c: Keep alert dialogs centered above full-app overlays.
-
-## 0.4.4
-
-### Patch Changes
-
-- 680b1eb: Scan TypeScript sources from `@agent-native/toolkit/styles.css` so dropdown and popover `z-[250]` utilities are generated in monorepo apps where `dist/` is gitignored.
-
-## 0.4.3
-
-### Patch Changes
-
-- 823d635: Add explicit `browser` and `development` export conditions so Vite 8 / Rolldown can resolve toolkit subpaths (including `./collab-ui`) in Fusion agent-native starter projects.
-- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
-
-## 0.4.2
-
-### Patch Changes
-
-- ec523c4: Show the current sharing visibility icon directly in shared ShareButton triggers and use the users-group glyph for organization visibility.
-
-## 0.4.1
-
-### Patch Changes
-
-- e1ad535: Portal dropdown submenu content so nested menus are not clipped by parent menu overflow.
-
-## 0.4.0
-
-### Minor Changes
-
-- 9d8c83c: Ship a `@agent-native/toolkit/styles.css` entrypoint that registers the package's
-  compiled components with Tailwind via a self-relative `@source` directive. Apps
-  that render toolkit UI should `@import "@agent-native/toolkit/styles.css";` in
-  their `app/global.css` (after the core stylesheet).
-
-  Without it, Tailwind never generated classes that appear only inside toolkit
-  components -- e.g. the dropdown/popover content's `z-[250]` and enter/exit
-  animations -- so those components rendered with no `z-index` (drawing behind app
-  panels) and looked broken/invisible even though they were mounted. This mirrors
-  how `@agent-native/core` self-registers its client styles.
-
-- 9d8c83c: Add Toolkit provider overrides, collaboration UI, and sharing UI entrypoints while preserving core client compatibility re-exports. The core re-exports are temporary migration shims; the long-term dependency direction is Toolkit composing core runtime APIs, not core permanently owning reusable app-building UI. Future behaviorful kits should be extracted one at a time, with Sharing as the first candidate to validate access checks, action-backed data, and share-link UI together.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

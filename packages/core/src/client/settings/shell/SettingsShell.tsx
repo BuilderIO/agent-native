@@ -2,7 +2,6 @@ import { Input } from "@agent-native/toolkit/ui/input";
 import { Kbd } from "@agent-native/toolkit/ui/kbd";
 import {
   IconArrowLeft,
-  IconArrowUpRight,
   IconChevronRight,
   IconMenu2,
   IconSearch,
@@ -950,12 +949,6 @@ function SettingsNav({
           )}
         />
         <span className="truncate">{pageLabel(page)}</span>
-        {page.href ? (
-          <IconArrowUpRight
-            aria-hidden="true"
-            className="size-3.5 shrink-0 text-muted-foreground"
-          />
-        ) : null}
         {unreadPageIds.includes(page.id) ? (
           <span
             role="img"

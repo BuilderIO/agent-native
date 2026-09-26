@@ -9,7 +9,31 @@ const mockGetOrgScopedThreadData = vi.hoisted(() => vi.fn());
 const mockGetOrgScopedThreadTitles = vi.hoisted(() => vi.fn());
 const mockGetOrgScopedReviewThreads = vi.hoisted(() => vi.fn());
 const mockGetHumanReviewSummaries = vi.hoisted(() => vi.fn());
+const mockGetHumanReviewSummariesForThreads = vi.hoisted(() => vi.fn());
 const mockGetSuccessfulToolSpansForReview = vi.hoisted(() => vi.fn());
+const mockGetRecentReviewRunsForThreads = vi.hoisted(() => vi.fn());
+
+const reviewThreadKey = (orgId: string, threadId: string) =>
+  JSON.stringify([orgId, threadId]);
+
+function normalizeReviewMap(
+  value: Map<string, unknown>,
+  scopes: Array<{ orgId: string; threadId: string }>,
+) {
+  return new Map(
+    [...value].map(([key, entry]) => {
+      if (key.startsWith("[")) return [key, entry];
+      const scope = scopes.find((candidate) => candidate.threadId === key);
+      return [reviewThreadKey(scope?.orgId ?? "org-a", key), entry];
+    }),
+  );
+}
+
+function normalizeReviewRows<
+  T extends { orgId?: string; threadId?: string | null },
+>(rows: T[]) {
+  return rows.map((row) => ({ ...row, orgId: row.orgId ?? "org-a" }));
+}
 
 vi.mock("./store.js", () => ({
   MAX_REVIEW_TOOL_SPANS: 20,
@@ -18,16 +42,46 @@ vi.mock("./store.js", () => ({
   getOrgScopedThreadTitles: (...args: unknown[]) =>
     mockGetOrgScopedThreadTitles(...args),
   getOrgScopedReviewThreads: (...args: unknown[]) =>
-    mockGetOrgScopedReviewThreads(...args),
+    Promise.resolve(mockGetOrgScopedReviewThreads(...args)).then((value) =>
+      normalizeReviewMap(
+        value,
+        (args[0] as Array<{ orgId: string; threadId: string }>) ?? [],
+      ),
+    ),
   getHumanReviewSummaries: (...args: unknown[]) =>
     mockGetHumanReviewSummaries(...args),
+  getHumanReviewSummariesForThreads: (...args: unknown[]) =>
+    Promise.resolve(mockGetHumanReviewSummariesForThreads(...args)).then(
+      (value) =>
+        normalizeReviewMap(
+          value,
+          (args[0] as Array<{ orgId: string; threadId: string }>) ?? [],
+        ),
+    ),
   getSuccessfulToolSpansForReview: (...args: unknown[]) =>
     mockGetSuccessfulToolSpansForReview(...args),
-  getTraceSummaries: (...args: unknown[]) => mockGetTraceSummaries(...args),
-  getTraceSummary: (...args: unknown[]) => mockGetTraceSummary(...args),
-  getFeedback: (...args: unknown[]) => mockGetFeedback(...args),
+  getRecentReviewRunsForThreads: (...args: unknown[]) =>
+    Promise.resolve(mockGetRecentReviewRunsForThreads(...args)).then(
+      normalizeReviewRows,
+    ),
+  getTraceSummaries: (...args: unknown[]) =>
+    Promise.resolve(mockGetTraceSummaries(...args)).then(normalizeReviewRows),
+  getTraceSummary: (...args: unknown[]) =>
+    Promise.resolve(mockGetTraceSummary(...args)).then((row) =>
+      row ? { ...row, orgId: row.orgId ?? "org-a" } : row,
+    ),
+  getFeedback: (...args: unknown[]) =>
+    Promise.resolve(mockGetFeedback(...args)).then((rows) =>
+      normalizeReviewRows(rows),
+    ),
   getInstructionUpdates: (...args: unknown[]) =>
-    mockGetInstructionUpdates(...args),
+    Promise.resolve(mockGetInstructionUpdates(...args)).then(
+      normalizeReviewRows,
+    ),
+}));
+
+vi.mock("../user-profile/store.js", () => ({
+  getUserProfiles: vi.fn().mockResolvedValue(new Map()),
 }));
 
 vi.mock("../server/org-admin.js", () => ({
@@ -41,6 +95,18 @@ import {
   getOutputReviewSummarySource,
   listOutputReviews,
 } from "./reviews.js";
+
+const scopedThread = (
+  threadData: string,
+  title: string | null = "A real thread",
+) => ({
+  ownerEmail: "alice@example.com",
+  threadData,
+  title,
+  scopeType: null,
+  scopeId: null,
+  scopeLabel: null,
+});
 
 describe("listOutputReviews", () => {
   beforeEach(() => {
@@ -68,7 +134,7 @@ describe("listOutputReviews", () => {
       new Map([["thread-1", threadData]]),
     );
     mockGetOrgScopedReviewThreads.mockResolvedValue(
-      new Map([["thread-1", { threadData, title: "A real thread" }]]),
+      new Map([["thread-1", scopedThread(threadData)]]),
     );
     mockGetTraceSummaries.mockResolvedValue([
       {
@@ -83,7 +149,8 @@ describe("listOutputReviews", () => {
     mockGetOrgScopedThreadTitles.mockResolvedValue(
       new Map([["thread-1", "A real thread"]]),
     );
-    mockGetHumanReviewSummaries.mockResolvedValue(new Map());
+    mockGetHumanReviewSummariesForThreads.mockResolvedValue(new Map());
+    mockGetRecentReviewRunsForThreads.mockResolvedValue([]);
     mockGetSuccessfulToolSpansForReview.mockResolvedValue([]);
     mockGetFeedback.mockResolvedValue([
       {
@@ -120,23 +187,23 @@ describe("listOutputReviews", () => {
       sinceMs: 0,
       limit: 40,
       orgId: "org-a",
-      runIds: ["run-1"],
+      threadScopes: [{ orgId: "org-a", threadId: "thread-1" }],
     });
     expect(mockGetInstructionUpdates).toHaveBeenCalledWith({
       sinceMs: 0,
-      limit: 20,
+      perThreadLimit: 1,
       orgId: "org-a",
-      runIds: ["run-1"],
+      threadScopes: [{ orgId: "org-a", threadId: "thread-1" }],
     });
   });
 
-  it("uses persisted summary data and excludes its own runs before list pagination", async () => {
-    mockGetHumanReviewSummaries.mockResolvedValueOnce(
+  it("keeps a prior run's summary on the current thread rollup", async () => {
+    mockGetHumanReviewSummariesForThreads.mockResolvedValueOnce(
       new Map([
         [
-          "run-1",
+          "thread-1",
           {
-            runId: "run-1",
+            runId: "run-old",
             orgId: "org-a",
             ask: "Build a report",
             outcome: "Created the weekly dashboard",
@@ -169,7 +236,11 @@ describe("listOutputReviews", () => {
       },
       ask: "Build a report",
       answer: "Created the weekly dashboard",
+      runId: "run-1",
     });
+    expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith([
+      { orgId: "org-a", threadId: "thread-1" },
+    ]);
     expect(mockGetTraceSummaries).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org-a",
@@ -177,6 +248,97 @@ describe("listOutputReviews", () => {
         requireReviewContext: true,
       }),
     );
+  });
+
+  it("keeps same-named thread IDs isolated in the super-org rollup", async () => {
+    mockGetTraceSummaries.mockResolvedValueOnce([
+      {
+        runId: "run-a",
+        orgId: "org-a",
+        threadId: "shared-thread-id",
+        userId: "alice@example.com",
+        model: "model-a",
+        createdAt: 200,
+      },
+      {
+        runId: "run-b",
+        orgId: "org-b",
+        threadId: "shared-thread-id",
+        userId: "bob@example.com",
+        model: "model-b",
+        createdAt: 100,
+      },
+    ]);
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          reviewThreadKey("org-a", "shared-thread-id"),
+          {
+            ...scopedThread("{}"),
+            ownerEmail: "alice@example.com",
+            title: "Org A title",
+          },
+        ],
+        [
+          reviewThreadKey("org-b", "shared-thread-id"),
+          {
+            ...scopedThread("{}"),
+            ownerEmail: "bob@example.com",
+            title: "Org B title",
+          },
+        ],
+      ]),
+    );
+
+    const rows = await listOutputReviews({
+      sinceMs: 0,
+      limit: 10,
+      scope: { kind: "all", activeOrgId: "org-a" },
+    });
+
+    expect(rows).toMatchObject([
+      {
+        runId: "run-a",
+        orgId: "org-a",
+        readOnly: false,
+        threadTitle: "Org A title",
+      },
+      {
+        runId: "run-b",
+        orgId: "org-b",
+        readOnly: true,
+        threadTitle: "Org B title",
+      },
+    ]);
+  });
+
+  it("links Analytics analysis-scoped threads to their saved analysis", async () => {
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          {
+            ...scopedThread(JSON.stringify({ messages: [] })),
+            scopeType: "analysis",
+            scopeId: "analysis-1",
+            scopeLabel: "Quarterly analysis",
+          },
+        ],
+      ]),
+    );
+
+    const [row] = await listOutputReviews({
+      sinceMs: 0,
+      limit: 10,
+      orgId: "org-a",
+    });
+
+    expect(row.artifacts).toContainEqual({
+      appId: "analytics",
+      artifactId: "analysis-1",
+      title: "Quarterly analysis",
+      path: "/analyses/analysis-1",
+    });
   });
 
   it("loads thread content and titles for multiple owners in one batch", async () => {
@@ -194,6 +356,7 @@ describe("listOutputReviews", () => {
         ["alice", "bob", "carol"].map((owner, index) => [
           `thread-${index + 1}`,
           {
+            ownerEmail: `${owner}@example.com`,
             threadData: JSON.stringify({ messages: [] }),
             title: `${owner}'s thread`,
           },
@@ -209,10 +372,10 @@ describe("listOutputReviews", () => {
 
     expect(rows).toHaveLength(3);
     expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledTimes(1);
-    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith("org-a", [
-      { ownerEmail: "alice@example.com", threadId: "thread-1" },
-      { ownerEmail: "bob@example.com", threadId: "thread-2" },
-      { ownerEmail: "carol@example.com", threadId: "thread-3" },
+    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith([
+      { orgId: "org-a", ownerEmail: "alice@example.com", threadId: "thread-1" },
+      { orgId: "org-a", ownerEmail: "bob@example.com", threadId: "thread-2" },
+      { orgId: "org-a", ownerEmail: "carol@example.com", threadId: "thread-3" },
     ]);
   });
 
@@ -234,19 +397,19 @@ describe("listOutputReviews", () => {
       },
     ]);
     mockGetOrgScopedReviewThreads.mockResolvedValueOnce(new Map());
-    mockGetHumanReviewSummaries.mockResolvedValueOnce(new Map());
+    mockGetHumanReviewSummariesForThreads.mockResolvedValueOnce(new Map());
 
     await expect(
       listOutputReviews({ sinceMs: 0, limit: 10, orgId: "org-a" }),
     ).resolves.toEqual([]);
   });
 
-  it("keeps an org-scoped saved summary when its thread row is unavailable", async () => {
+  it("does not expose a saved summary when its owning thread is unavailable", async () => {
     mockGetOrgScopedReviewThreads.mockResolvedValueOnce(new Map());
-    mockGetHumanReviewSummaries.mockResolvedValueOnce(
+    mockGetHumanReviewSummariesForThreads.mockResolvedValueOnce(
       new Map([
         [
-          "run-1",
+          "thread-1",
           {
             runId: "run-1",
             orgId: "org-a",
@@ -263,9 +426,7 @@ describe("listOutputReviews", () => {
 
     await expect(
       listOutputReviews({ sinceMs: 0, limit: 10, orgId: "org-a" }),
-    ).resolves.toMatchObject([
-      { ask: "Saved ask", answer: "Saved outcome", threadTitle: "" },
-    ]);
+    ).resolves.toEqual([]);
   });
 
   it("returns bounded, org-scoped thread and redacted tool evidence for summary generation", async () => {
@@ -343,53 +504,177 @@ describe("listOutputReviews", () => {
       "org-a",
       20,
     );
-    expect(mockGetOrgScopedThreadData).toHaveBeenCalledWith(
-      "org-a",
-      "alice@example.com",
-      ["thread-1"],
-    );
+    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith([
+      { orgId: "org-a", ownerEmail: "alice@example.com", threadId: "thread-1" },
+    ]);
   });
 
-  it("redacts prefixed secrets and sends only messages from the selected run", async () => {
+  it("keeps summary artifacts scoped to the selected run and redacts scope labels", async () => {
+    mockGetTraceSummary.mockResolvedValueOnce({
+      runId: "run-1",
+      threadId: "thread-1",
+      userId: "alice@example.com",
+    });
+    const threadData = JSON.stringify({
+      messages: [
+        {
+          message: {
+            role: "user",
+            content: "Create a design",
+            metadata: { runId: "run-1" },
+          },
+        },
+        {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                name: "create_design",
+                result: { designId: "design-run-1", title: "Run one" },
+              },
+            ],
+            metadata: { runId: "run-1" },
+          },
+        },
+        {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                name: "create_design",
+                result: { designId: "design-run-2", title: "Run two" },
+              },
+            ],
+            metadata: { runId: "run-2" },
+          },
+        },
+      ],
+    });
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          {
+            ...scopedThread(threadData),
+            scopeType: "design",
+            scopeId: "design-scope",
+            scopeLabel: "AWS_SECRET_ACCESS_KEY=fake-scope-secret",
+          },
+        ],
+      ]),
+    );
+
+    const source = await getOutputReviewSummarySource({
+      runId: "run-1",
+      orgId: "org-a",
+    });
+
+    expect(source).toMatchObject({
+      found: true,
+      attachedArtifacts: [
+        {
+          artifactId: "design-scope",
+          title: "AWS_SECRET_ACCESS_KEY=[REDACTED]",
+        },
+      ],
+      toolEvidence: [
+        {
+          name: "create_design",
+          output: { designId: "design-run-1", title: "Run one" },
+        },
+      ],
+    });
+    expect(JSON.stringify(source)).not.toContain("design-run-2");
+    expect(JSON.stringify(source)).not.toContain("fake-scope-secret");
+    expect(mockGetSuccessfulToolSpansForReview).not.toHaveBeenCalled();
+  });
+
+  it("keeps malformed tool output from failing the rest of the thread review", async () => {
+    mockGetTraceSummary.mockResolvedValueOnce({
+      runId: "run-1",
+      threadId: "thread-1",
+      userId: "alice@example.com",
+    });
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          scopedThread(
+            JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    role: "assistant",
+                    content: [
+                      {
+                        type: "tool-call",
+                        name: "create_design",
+                        result: '{"designId":"design-1"',
+                      },
+                    ],
+                    metadata: { runId: "run-1" },
+                  },
+                },
+              ],
+            }),
+          ),
+        ],
+      ]),
+    );
+
+    await expect(
+      getOutputReviewSummarySource({ runId: "run-1", orgId: "org-a" }),
+    ).resolves.toMatchObject({
+      found: true,
+      threadEvidenceAvailable: true,
+      toolEvidenceAvailable: false,
+      malformedThreadToolOutput: true,
+      toolEvidence: [],
+    });
+  });
+
+  it("redacts prefixed secrets across the bounded thread history", async () => {
     const standaloneJwt = ["eyJx", "e30", "signature"].join(".");
     mockGetTraceSummary.mockResolvedValueOnce({
       runId: "run-1",
       threadId: "thread-1",
       userId: "alice@example.com",
     });
-    mockGetOrgScopedThreadTitles.mockResolvedValueOnce(
-      new Map([["thread-1", '{"AWS_SECRET_ACCESS_KEY":"title-secret"}']]),
-    );
-    mockGetOrgScopedThreadData.mockResolvedValueOnce(
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
       new Map([
         [
           "thread-1",
-          JSON.stringify({
-            messages: [
-              {
-                message: {
-                  role: "user",
-                  content: `AWS_SECRET_ACCESS_KEY=target-secret\nAuthorization: Basic fake-encoded-credential\naccessToken=fake-access-token\nclientSecret=fake-client-secret\nCookie: session=fake-cookie; refresh=fake-refresh\nSet-Cookie: session=fake-set-cookie; refresh=fake-set-cookie-two; Path=/\nAIzaEXAMPLE_NOT_A_REAL_KEY SG.EXAMPLE_ONLY.NOT_A_REAL_TOKEN xoxb-example-not-a-real-token AKIAEXAMPLE sk-proj-example sk-ant-example ${standaloneJwt} https://viewer:fake-url-password@example.test/review#access_token=fake-url-fragment`,
-                  metadata: { runId: "run-1" },
+          scopedThread(
+            JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    role: "user",
+                    content: `AWS_SECRET_ACCESS_KEY=target-secret\nAuthorization: Basic fake-encoded-credential\naccessToken=fake-access-token\nclientSecret=fake-client-secret\nCookie: session=fake-cookie; refresh=fake-refresh\nSet-Cookie: session=fake-set-cookie; refresh=fake-set-cookie-two; Path=/\nAIzaEXAMPLE_NOT_A_REAL_KEY SG.EXAMPLE_ONLY.NOT_A_REAL_TOKEN xoxb-example-not-a-real-token AKIAEXAMPLE sk-proj-example sk-ant-example ${standaloneJwt} https://viewer:fake-url-password@example.test/review#access_token=fake-url-fragment`,
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "assistant",
-                  content:
-                    '{"AWS_SECRET_ACCESS_KEY":"json-secret","Authorization":"Basic fake-json-credential","accessToken":"fake-json-access-token","clientSecret":"fake-json-client-secret","Cookie":"fake-json-cookie","Set-Cookie":"fake-json-set-cookie"}',
-                  metadata: { runId: "run-1" },
+                {
+                  message: {
+                    role: "assistant",
+                    content:
+                      '{"AWS_SECRET_ACCESS_KEY":"json-secret","Authorization":"Basic fake-json-credential","accessToken":"fake-json-access-token","clientSecret":"fake-json-client-secret","Cookie":"fake-json-cookie","Set-Cookie":"fake-json-set-cookie"}',
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              ...Array.from({ length: 45 }, (_, index) => ({
-                message: {
-                  role: "user",
-                  content: `neighbor-${index} AWS_SECRET_ACCESS_KEY=neighbor-secret`,
-                  metadata: { runId: "run-2" },
-                },
-              })),
-            ],
-          }),
+                ...Array.from({ length: 45 }, (_, index) => ({
+                  message: {
+                    role: "user",
+                    content: `neighbor-${index} AWS_SECRET_ACCESS_KEY=neighbor-secret`,
+                    metadata: { runId: "run-2" },
+                  },
+                })),
+              ],
+            }),
+            '{"AWS_SECRET_ACCESS_KEY":"title-secret"}',
+          ),
         ],
       ]),
     );
@@ -402,17 +687,15 @@ describe("listOutputReviews", () => {
     expect(source).toMatchObject({
       found: true,
       threadTitle: '{"AWS_SECRET_ACCESS_KEY":"[REDACTED]"}',
-      messages: [
-        {
-          role: "user",
-          text: "AWS_SECRET_ACCESS_KEY=[REDACTED]\nAuthorization: [REDACTED]\naccessToken=[REDACTED]\nclientSecret=[REDACTED]\nCookie: [REDACTED]\nSet-Cookie: [REDACTED]\n[REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] https://[REDACTED]@example.test/review#[REDACTED]",
-        },
-        {
-          role: "assistant",
-          text: '{"AWS_SECRET_ACCESS_KEY":"[REDACTED]","Authorization":"[REDACTED]","accessToken":"[REDACTED]","clientSecret":"[REDACTED]","Cookie":"[REDACTED]","Set-Cookie":"[REDACTED]"}',
-        },
-      ],
     });
+    expect(source.messages[0]).toEqual({
+      role: "user",
+      text: "AWS_SECRET_ACCESS_KEY=[REDACTED]\nAuthorization: [REDACTED]\naccessToken=[REDACTED]\nclientSecret=[REDACTED]\nCookie: [REDACTED]\nSet-Cookie: [REDACTED]\n[REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] https://[REDACTED]@example.test/review#[REDACTED]",
+    });
+    expect(source.messages).toHaveLength(40);
+    expect(
+      source.messages.some((message) => message.text.startsWith("neighbor-")),
+    ).toBe(true);
     expect(JSON.stringify(source)).not.toContain("neighbor-secret");
     expect(JSON.stringify(source)).not.toContain("target-secret");
     expect(JSON.stringify(source)).not.toContain("json-secret");
@@ -450,8 +733,8 @@ describe("listOutputReviews", () => {
       threadId: "thread-1",
       userId: "alice@example.com",
     });
-    mockGetOrgScopedThreadData.mockResolvedValueOnce(
-      new Map([["thread-1", "x".repeat(1_000_001)]]),
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([["thread-1", scopedThread("x".repeat(1_000_001))]]),
     );
 
     await expect(
@@ -491,6 +774,7 @@ describe("listOutputReviews", () => {
         [
           "thread-1",
           {
+            ownerEmail: "alice@example.com",
             threadData: JSON.stringify({
               messages: [
                 {
@@ -590,6 +874,10 @@ describe("listOutputReviews", () => {
                   role: "assistant",
                   content: [
                     {
+                      type: "text",
+                      text: "The chart is ready.",
+                    },
+                    {
                       type: "tool-call",
                       mcpApp: app,
                     },
@@ -679,6 +967,7 @@ describe("listOutputReviews", () => {
         [
           "thread-1",
           {
+            ownerEmail: "alice@example.com",
             threadData: JSON.stringify({
               messages: [
                 {
@@ -732,56 +1021,58 @@ describe("listOutputReviews", () => {
       threadId: "thread-1",
       userId: "alice@example.com",
     });
-    mockGetOrgScopedThreadData.mockResolvedValueOnce(
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
       new Map([
         [
           "thread-1",
-          JSON.stringify({
-            messages: [
-              {
-                message: {
-                  role: "user",
-                  content: "Neighbor question",
-                  metadata: { runId: "run-2" },
+          scopedThread(
+            JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    role: "user",
+                    content: "Neighbor question",
+                    metadata: { runId: "run-2" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "assistant",
-                  content: "Neighbor answer",
-                  metadata: { runId: "run-2" },
+                {
+                  message: {
+                    role: "assistant",
+                    content: "Neighbor answer",
+                    metadata: { runId: "run-2" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "user",
-                  content: "First question",
-                  metadata: { runId: "run-1" },
+                {
+                  message: {
+                    role: "user",
+                    content: "First question",
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "assistant",
-                  content: "First answer",
-                  metadata: { runId: "run-1" },
+                {
+                  message: {
+                    role: "assistant",
+                    content: "First answer",
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "user",
-                  content: "Follow-up",
-                  metadata: { runId: "run-1" },
+                {
+                  message: {
+                    role: "user",
+                    content: "Follow-up",
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "assistant",
-                  content: "Final answer",
-                  metadata: { runId: "run-1" },
+                {
+                  message: {
+                    role: "assistant",
+                    content: "Final answer",
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-            ],
-          }),
+              ],
+            }),
+          ),
         ],
       ]),
     );
@@ -791,7 +1082,7 @@ describe("listOutputReviews", () => {
         userEmail: "alice@example.com",
         orgId: "org-a",
       } as any),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       app: null,
       messages: [
         { role: "user", text: "First question" },
@@ -803,11 +1094,60 @@ describe("listOutputReviews", () => {
     expect(mockGetTraceSummary).toHaveBeenCalledWith("run-1", {
       orgId: "org-a",
     });
-    expect(mockGetOrgScopedThreadData).toHaveBeenCalledWith(
-      "org-a",
-      "alice@example.com",
-      ["thread-1"],
+    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith([
+      { orgId: "org-a", ownerEmail: "alice@example.com", threadId: "thread-1" },
+    ]);
+  });
+
+  it("uses the latest saved thread summary when opening a newer run", async () => {
+    mockGetTraceSummary.mockResolvedValueOnce({
+      runId: "run-new",
+      threadId: "thread-1",
+      userId: "alice@example.com",
+    });
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([["thread-1", scopedThread(JSON.stringify({ messages: [] }))]]),
     );
+    mockGetHumanReviewSummariesForThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          {
+            runId: "run-old",
+            orgId: "org-a",
+            ask: "Create an onboarding flow",
+            outcome: "Built a complete onboarding design",
+            artifacts: [
+              {
+                appId: "design",
+                artifactId: "design-1",
+                title: "Onboarding",
+                path: "/design/design-1",
+              },
+            ],
+            createdBy: "admin@example.com",
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ],
+      ]),
+    );
+
+    await expect(
+      getOutputReviewDetailForRun({ runId: "run-new", orgId: "org-a" }),
+    ).resolves.toMatchObject({
+      found: true,
+      runId: "run-new",
+      summary: {
+        ask: "Create an onboarding flow",
+        outcome: "Built a complete onboarding design",
+        artifacts: [{ artifactId: "design-1" }],
+      },
+      artifacts: [{ artifactId: "design-1" }],
+    });
+    expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith([
+      { orgId: "org-a", threadId: "thread-1" },
+    ]);
   });
 
   it("returns an empty detail for a run without a thread and hides inaccessible runs", async () => {
@@ -820,7 +1160,7 @@ describe("listOutputReviews", () => {
         runId: "run-1",
         orgId: "org-a",
       }),
-    ).resolves.toEqual({ found: true, app: null, messages: [] });
+    ).resolves.toMatchObject({ found: true, app: null, messages: [] });
     expect(mockGetOrgScopedThreadData).not.toHaveBeenCalled();
 
     mockGetTraceSummary.mockResolvedValueOnce({
@@ -828,7 +1168,7 @@ describe("listOutputReviews", () => {
       threadId: "private-thread",
       userId: "alice@example.com",
     });
-    mockGetOrgScopedThreadData.mockResolvedValueOnce(new Map());
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(new Map());
     await expect(
       getObservabilityReviewDetail.run({ runId: "run-2" }, {
         userEmail: "alice@example.com",

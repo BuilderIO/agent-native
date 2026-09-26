@@ -1,5 +1,8 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { useOrg } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -17,6 +20,7 @@ import {
 } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { SLIDES_LABS } from "@shared/labs";
+import { IconActivity } from "@tabler/icons-react";
 import { useMemo } from "react";
 
 import {
@@ -42,6 +46,11 @@ export default function SettingsRoute() {
   const t = useT();
   const redesign = useSettingsRedesign().enabled;
   const creativeContextEnabled = useCreativeContextLab();
+  const {
+    data: activeOrg,
+    isLoading: orgLoading,
+    isError: orgError,
+  } = useOrg();
   const agentSettingsTabs = useAgentSettingsTabs({
     agentAdditionalTabFactories: creativeContextEnabled
       ? [
@@ -51,6 +60,29 @@ export default function SettingsRoute() {
         ]
       : [],
   });
+  const observabilityBasePath = buildSettingsRoute("observability");
+  const observabilityTabs =
+    !orgLoading &&
+    !orgError &&
+    activeOrg?.orgId &&
+    (activeOrg.role === "owner" || activeOrg.role === "admin")
+      ? [
+          {
+            id: "observability",
+            label: t("settings.agentObservability"),
+            icon: IconActivity,
+            group: "agent",
+            href: `${observabilityBasePath}/overview`,
+            content: (
+              <ObservabilityDashboard
+                routeBasePath={observabilityBasePath}
+                showHumanReview
+              />
+            ),
+          },
+        ]
+      : [];
+  const settingsTabs = [...agentSettingsTabs, ...observabilityTabs];
   useSetPageTitle(t("settings.title"));
   const labs = useMemo(
     () => [
@@ -138,7 +170,7 @@ export default function SettingsRoute() {
     <SettingsTabsPage
       {...appSettings}
       account={<AccountSettingsCard />}
-      extraTabs={agentSettingsTabs}
+      extraTabs={settingsTabs}
       labs={labs}
       labsIntro={t("settings.labsIntro")}
       labsLabel={t("settings.labs")}

@@ -22,7 +22,10 @@ vi.mock("./federation.js", () => ({
     mocks.validateFederatedOrganizationMembershipForCurrentRequest,
 }));
 
-import { isWorkspaceAppAccessAllowed } from "./workspace-app-access.js";
+import {
+  isWorkspaceAppAccessAllowed,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE,
+} from "./workspace-app-access.js";
 
 describe("isWorkspaceAppAccessAllowed", () => {
   afterEach(() => {
@@ -378,11 +381,22 @@ describe("isWorkspaceAppAccessAllowed", () => {
     );
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(
+      .mockResolvedValueOnce(
         new Response(
           JSON.stringify([{ id: "allowed-app" }, { id: "another-app" }]),
           { headers: { "content-type": "application/json" } },
         ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([{ id: "allowed-app" }, { id: "another-app" }]),
+          { headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ allowed: false }), {
+          headers: { "content-type": "application/json" },
+        }),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -422,6 +436,167 @@ describe("isWorkspaceAppAccessAllowed", () => {
       }),
     );
     expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("uses Dispatch's mount path for a local gateway fallback", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("AGENT_NATIVE_ORG_DIRECTORY_URL", "");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "analytics" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "http://127.0.0.1:8080/dispatch/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+  });
+
+  it("shares pending registry lists across apps and rechecks settled access", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    const pendingResponses: Array<(response: Response) => void> = [];
+    const responseFor = (apps: Array<{ id: string; orgEnabled?: boolean }>) =>
+      new Response(JSON.stringify(apps), {
+        headers: { "content-type": "application/json" },
+      });
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          pendingResponses.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const concurrent = Array.from({ length: 20 }, () =>
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    );
+    const otherApp = isWorkspaceAppAccessAllowed("content", {
+      email: "member@example.com",
+      orgId: null,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const otherUser = isWorkspaceAppAccessAllowed("analytics", {
+      email: "another@example.com",
+      orgId: null,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    pendingResponses[0]?.(
+      responseFor([{ id: "analytics" }, { id: "content", orgEnabled: false }]),
+    );
+    pendingResponses[1]?.(responseFor([{ id: "analytics" }]));
+
+    await expect(
+      Promise.all([...concurrent, otherApp, otherUser]),
+    ).resolves.toEqual([...Array(20).fill(true), false, true]);
+
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(responseFor([{ id: "analytics", orgEnabled: false }])),
+    );
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("isolates pending registry lists by user, org, and signing credential", async () => {
+    vi.stubEnv("A2A_SECRET", "first-test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    const pendingResponses: Array<(response: Response) => void> = [];
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          pendingResponses.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const call = (email: string, orgId: string | null) =>
+      isWorkspaceAppAccessAllowed("analytics", { email, orgId });
+
+    const primary = call("member@example.com", null);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const otherUser = call("another@example.com", null);
+    const otherOrg = call("member@example.com", "org-1");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3), {
+      timeout: 5_000,
+    });
+
+    vi.stubEnv("A2A_SECRET", "second-test-a2a-secret");
+    const otherCredential = call("member@example.com", null);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4), {
+      timeout: 5_000,
+    });
+
+    pendingResponses.forEach((resolve) =>
+      resolve(
+        new Response(JSON.stringify([{ id: "analytics" }]), {
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    await expect(
+      Promise.all([primary, otherUser, otherOrg, otherCredential]),
+    ).resolves.toEqual([true, true, true, true]);
+  });
+
+  it("returns unavailable when the hosted registry list times out", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    let resolveFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      resolveFetchStarted = resolve;
+    });
+    const fetchMock = vi.fn(
+      (_url: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+          resolveFetchStarted();
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+
+    try {
+      const access = isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: null,
+      });
+      await fetchStarted;
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(access).resolves.toBe(WORKSPACE_APP_ACCESS_UNAVAILABLE);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("asks Dispatch to claim a fresh hosted app", async () => {

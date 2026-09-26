@@ -1,11 +1,17 @@
 export {
+  readComposerWebsiteSource,
+  type ComposerWebsiteExtraction,
+} from "./composer-website-source.js";
+export {
   defineAppConfig,
   getAppConfig,
+  resolveAppHomePath,
   resetAppConfigForTests,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
 } from "../app-config/index.js";
+export { resolveDeployEnvironment } from "./deploy-environment.js";
 export {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
@@ -343,7 +349,9 @@ export {
   createAgentNativeOgImageHandler,
   renderAgentNativeOgImagePng,
   renderAgentNativeOgImageSvg,
+  stageOgImageResponseHeaders,
   type AgentNativeOgImageInput,
+  type AgentNativeOgImagePresentation,
 } from "./social-og-image.js";
 export { AGENT_NATIVE_OG_BACKGROUND_DATA_URL } from "./og-background-data.js";
 export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
@@ -629,8 +637,10 @@ export {
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
+  resolveSecretDetailed,
   BuilderCredentialLookupError,
   type BuilderCredentialsDetailed,
+  type ResolvedSecretDetail,
 } from "./credential-provider.js";
 export {
   GEMINI_API_KEY,
@@ -736,6 +746,7 @@ export {
   type BuilderDesignSystemSourceKind,
 } from "./builder-design-systems.js";
 export {
+  cdnSafeOriginStatus,
   createBuilderProject,
   ensureBuilderProject,
   findBuilderProjectForRepo,
@@ -803,6 +814,16 @@ export {
   type RenderedEmail,
   type EmailCta,
 } from "./email-template.js";
+export {
+  hasRecurringSweepHandler,
+  registerRecurringSweepHandler,
+  runRecurringSweepHandlers,
+  type RecurringSweepHandler,
+} from "../jobs/sweep-hooks.js";
+export {
+  scheduledTriggerAvailability,
+  type ScheduledTriggerAvailability,
+} from "./agent-chat/recurring-jobs-runtime.js";
 export {
   getAppProductionUrl,
   getFirstPartyProdUrl,

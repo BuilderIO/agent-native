@@ -138,6 +138,10 @@ import {
   isLoomRecordingSource,
 } from "../../shared/loom";
 import {
+  organizationLogoRoutePath,
+  usesOrganizationLogoRoute,
+} from "../../shared/organization-logo.js";
+import {
   CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
   CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
 } from "../../shared/recording-link";
@@ -162,6 +166,7 @@ type SharePageMetaRecording = {
   brandLogoUrl: string | null;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
+  updatedAt: string;
   visibility: "private" | "org" | "public";
   status: "uploading" | "processing" | "ready" | "failed";
   hasPassword: boolean;
@@ -201,9 +206,10 @@ function emptyLoaderData(
 function shareLoaderData(
   payload: SharePageLoaderData,
   privateAgentAccess = false,
+  varyByQuery = false,
 ) {
   if (!privateAgentAccess) return payload;
-  return privateShareLoaderData(payload);
+  return privateShareLoaderData(payload, 200, varyByQuery);
 }
 
 export function headers({ loaderHeaders }: HeadersArgs) {
@@ -258,6 +264,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       description: schema.recordings.description,
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      updatedAt: schema.recordings.updatedAt,
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
       ownerEmail: schema.recordings.ownerEmail,
@@ -313,17 +320,23 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         )
         .limit(1)
     : [];
+  const storedBrandLogoUrl = organizationSettings?.brandLogoUrl?.trim();
 
   const recording: SharePageMetaRecording = {
     id: rec.id,
     title: rec.title,
     description: rec.description,
     ownerInitial: rec.ownerEmail.trim().charAt(0).toUpperCase() || "C",
-    brandLogoUrl: organizationSettings?.brandLogoUrl?.trim() || null,
+    brandLogoUrl: storedBrandLogoUrl
+      ? usesOrganizationLogoRoute(storedBrandLogoUrl) && rec.organizationId
+        ? `${appBasePath()}${organizationLogoRoutePath(rec.organizationId)}`
+        : storedBrandLogoUrl
+      : null,
     thumbnailUrl: rec.password
       ? null
       : resolvePlayerThumbnailUrl(rec, { appPath }),
     animatedThumbnailUrl: null,
+    updatedAt: rec.updatedAt,
     visibility: rec.visibility,
     status: rec.status,
     hasPassword: Boolean(rec.password),
@@ -350,6 +363,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         : null,
     },
     hasAgentAccessToken,
+    tokenGrantsAgentAccess,
   );
 }
 
@@ -519,6 +533,9 @@ export default function ShareRoute() {
     status: sessionStatus,
     retry: retrySession,
   } = useSession();
+  // The root entry is public, even for signed-in viewers; keep private
+  // destinations on the app's home route.
+  const homeHref = session ? appPath("/home") : appPath("/");
   const retriedUnavailableSessionRef = useRef(false);
   const requestAccess = useActionMutation<
     {
@@ -1174,6 +1191,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.somethingWentWrong")}
           message={t("sharePage.pleaseTryAgain")}
+          homeHref={homeHref}
           action={
             <Button
               size="sm"
@@ -1215,6 +1233,7 @@ export default function ShareRoute() {
           icon={<IconLock className="h-5 w-5" aria-hidden="true" />}
           title={t("sharePage.beingEdited")}
           message={t("sharePage.beingEditedMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1227,6 +1246,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.linkExpired")}
           message={t("sharePage.linkExpiredMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1248,6 +1268,7 @@ export default function ShareRoute() {
               ? "sharePage.privateClipMessage"
               : "sharePage.privateClipSignedOutMessage",
           )}
+          homeHref={homeHref}
           error={canRequestAccess ? accessRequestError : null}
           action={
             canRequestAccess ? (
@@ -1302,6 +1323,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.clipUnavailable")}
           message={t("sharePage.clipUnavailableMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1314,6 +1336,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.somethingWentWrong")}
           message={dataQ.data?.data?.error ?? t("sharePage.pleaseTryAgain")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1846,12 +1869,10 @@ export default function ShareRoute() {
                   sessionStatus !== "signing-out" &&
                   comments.length === 0 ? (
                     <PublicCommentsEmptyState
-                      signInHref={signInHref}
                       onSignUp={() => {
                         fireShareCtaClick("signup");
                         openCreateAccount("comment");
                       }}
-                      onSignIn={() => fireShareCtaClick("signin")}
                     />
                   ) : (
                     <CommentsPanel
@@ -2031,63 +2052,21 @@ function formatRecordedOn(
   }).format(date);
 }
 
-function PublicCommentsEmptyState({
-  signInHref,
-  onSignUp,
-  onSignIn,
-}: {
-  signInHref: string;
-  onSignUp: () => void;
-  onSignIn: () => void;
-}) {
+function PublicCommentsEmptyState({ onSignUp }: { onSignUp: () => void }) {
   const t = useT();
 
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col justify-center gap-5 overflow-y-auto px-5 py-6">
-      <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <IconDeviceDesktop aria-hidden="true" className="size-5" />
-      </div>
-      <h2 className="text-base font-semibold tracking-tight">
+    <div className="mx-auto flex min-h-0 w-full max-w-sm flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-5 py-5 text-center">
+      <AgentNativeIcon aria-hidden="true" className="h-5 w-8 text-primary" />
+      <h2 className="max-w-64 text-xl leading-6 font-semibold tracking-tight">
         {t("sharePage.commentSignupTitle")}
       </h2>
-      <ul className="space-y-3 text-sm leading-5 text-muted-foreground">
-        <li className="flex items-start gap-3">
-          <span
-            aria-hidden="true"
-            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
-          />
-          <span>{t("sharePage.commentSignupContext")}</span>
-        </li>
-        <li className="flex items-start gap-3">
-          <span
-            aria-hidden="true"
-            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
-          />
-          <span>{t("sharePage.commentSignupFeedback")}</span>
-        </li>
-        <li className="flex items-start gap-3">
-          <span
-            aria-hidden="true"
-            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
-          />
-          <span>{t("sharePage.commentSignupDebug")}</span>
-        </li>
-      </ul>
-      <div className="space-y-3">
-        <Button type="button" className="w-full" onClick={onSignUp}>
-          {t("signInPrompt.createAccount")}
-        </Button>
-        <p className="text-center text-xs text-muted-foreground">
-          {t("sharePage.agentEmptySignInPrompt")}{" "}
-          <a
-            href={signInHref}
-            onClick={onSignIn}
-            className="font-medium text-foreground underline underline-offset-4 hover:no-underline"
-          >
-            {t("signInPrompt.signIn")}
-          </a>
-        </p>
-      </div>
+      <p className="max-w-xs text-sm leading-5 text-muted-foreground">
+        {t("sharePage.commentSignupDescription")}
+      </p>
+      <Button type="button" onClick={onSignUp}>
+        {t("signInPrompt.createAccount")}
+      </Button>
     </div>
   );
 }
@@ -2170,12 +2149,14 @@ function EndState({
   message,
   error,
   action,
+  homeHref,
 }: {
   icon?: ReactNode;
   title: string;
   message: string;
   error?: string | null;
   action?: ReactNode;
+  homeHref: string;
 }) {
   const t = useT();
 
@@ -2201,7 +2182,7 @@ function EndState({
       <div className="flex flex-wrap items-center justify-center gap-2">
         {action}
         <Button asChild variant="ghost" size="sm">
-          <a href={appPath("/")}>{t("clipsFinalRaw.goHome")}</a>
+          <a href={homeHref}>{t("clipsFinalRaw.goHome")}</a>
         </Button>
       </div>
     </div>

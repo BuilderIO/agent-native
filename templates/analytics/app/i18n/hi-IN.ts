@@ -147,6 +147,8 @@ export default {
     untitledAnalysis: "शीर्षकहीन विश्लेषण",
   },
   settings: {
+    agentObservability: "एजेंट अवलोकन",
+    reviewPreviewUnavailable: "पूर्वावलोकन उपलब्ध नहीं है",
     agentTitle: "एजेंट प्रबंधित करें",
     agentDescription:
       "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",

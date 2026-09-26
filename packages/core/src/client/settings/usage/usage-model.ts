@@ -70,6 +70,7 @@ export interface UsageRecentMetric extends UsageAmounts {
   createdAt: number;
   ownerEmail: string;
   app: string;
+  label: string;
   model: string;
   prompt: string | null;
   promptSource: UsageTextSource;

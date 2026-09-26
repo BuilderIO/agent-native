@@ -36,6 +36,7 @@ export interface EmbeddingFamily {
   embed(
     inputs: readonly MultimodalEmbeddingInput[],
     purpose: EmbeddingInputPurpose,
+    options?: { signal?: AbortSignal },
   ): Promise<number[][]>;
 }
 
@@ -121,15 +122,20 @@ async function postJson(
   headers: Record<string, string>,
   body: unknown,
   providerModel: string,
+  options?: { signal?: AbortSignal },
 ): Promise<Record<string, unknown>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
+  const signal = options?.signal
+    ? AbortSignal.any([options.signal, controller.signal])
+    : controller.signal;
   try {
+    signal.throwIfAborted();
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal,
     });
     if (!response.ok)
       throw new Error(
@@ -141,6 +147,7 @@ async function postJson(
       unknown
     >;
   } catch (error) {
+    if (options?.signal?.aborted) throw options.signal.reason ?? error;
     if (controller.signal.aborted)
       throw new Error(`Embedding provider ${providerModel} timed out.`);
     throw error;
@@ -173,9 +180,10 @@ export function createGeminiEmbeddingFamily(
     version: "stable-2026-04",
     dimensions,
     supportedImageMimeTypes: ["image/png", "image/jpeg"],
-    async embed(inputs, purpose) {
+    async embed(inputs, purpose, options) {
       const vectors: number[][] = [];
       for (const raw of inputs) {
+        options?.signal?.throwIfAborted();
         const input = normalizedInput(raw);
         const instruction =
           purpose === "query"
@@ -196,6 +204,7 @@ export function createGeminiEmbeddingFamily(
             output_dimensionality: dimensions,
           },
           `gemini/${model}`,
+          options,
         );
         vectors.push(
           ...numberVectors([
@@ -224,7 +233,8 @@ export function createCohereEmbeddingFamily(
       "image/webp",
       "image/gif",
     ],
-    async embed(inputs, purpose) {
+    async embed(inputs, purpose, options) {
+      options?.signal?.throwIfAborted();
       const result = await postJson(
         "https://api.cohere.com/v2/embed",
         { Authorization: `Bearer ${apiKey}` },
@@ -247,6 +257,7 @@ export function createCohereEmbeddingFamily(
           output_dimension: dimensions,
         },
         `cohere/${model}`,
+        options,
       );
       const embeddings = result.embeddings as
         | { float?: unknown; float_?: unknown }
@@ -269,7 +280,8 @@ export function createVoyageEmbeddingFamily(apiKey: string): EmbeddingFamily {
       "image/webp",
       "image/gif",
     ],
-    async embed(inputs, purpose) {
+    async embed(inputs, purpose, options) {
+      options?.signal?.throwIfAborted();
       const result = await postJson(
         "https://api.voyageai.com/v1/multimodalembeddings",
         { Authorization: `Bearer ${apiKey}` },
@@ -291,6 +303,7 @@ export function createVoyageEmbeddingFamily(apiKey: string): EmbeddingFamily {
           truncation: true,
         },
         `voyage/${model}`,
+        options,
       );
       return numberVectors(result.embeddings);
     },
@@ -347,10 +360,11 @@ export function createBuilderEmbeddingFamily(
       "image/webp",
       "image/gif",
     ],
-    async embed(inputs, purpose) {
+    async embed(inputs, purpose, options) {
       const vectors: number[][] = [];
       const baseUrl = getBuilderEmbeddingsBaseUrl().replace(/\/$/, "");
       for (const batch of builderEmbeddingBatches(inputs)) {
+        options?.signal?.throwIfAborted();
         const result = await postJson(
           `${baseUrl}/embeddings`,
           {
@@ -372,6 +386,7 @@ export function createBuilderEmbeddingFamily(
             }),
           },
           `builder/${BUILDER_EMBEDDING_MODEL}`,
+          options,
         );
         vectors.push(...builderEmbeddingVectors(result.data, batch.length));
       }

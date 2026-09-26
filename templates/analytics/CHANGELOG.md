@@ -3,14 +3,51 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-26
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+## 2026-09-25
+
+### Added
+
+- Analytics learns confirmed metric definitions and query corrections from completed chats.
+- Org admins can review agent runs from Settings
+
+### Improved
+
+- Analytics captures confirmed query guidance for future conversations
+- Public status pages, dashboards, and analyses show resource details in link previews
+- The chat composer keeps a consistent background while AI setup is open.
+- First-run onboarding records setup choices and Builder connection outcomes
+- Human review previews Analytics dashboards as real charts
+- Relevant metric definitions and saved dashboard examples are available with the first response so Analytics queries can reuse proven definitions and query shapes.
+
+### Fixed
+
+- Archived dashboards no longer appear in public link previews
+- Human Review previews show same-organization dashboard charts for organization admins.
+- Show one recent prompt per chat turn.
+- Opening Settings no longer opens the chat sidebar.
+
+### Security
+
+- Analytics provider credentials stay scoped to their configured endpoints
+- Human Review previews do not run saved dashboard queries
+
 ## 2026-09-24
 
 ### Improved
 
+- Analytics sidebar navigation and footer controls align consistently, with full-width dividers.
 - The Sessions list hides 0m recordings by default, with a filter to include them.
 
 ### Fixed
 
+- Dashboard emails now match the live dashboard's stacked area chart totals.
+- Editing a dashboard panel no longer brings back a panel you just deleted, and conflicting saves now show a clear error instead of a server error
 - Session recordings no longer cut off partway through when the daily recording budget runs low; new recordings wait for room instead.
 
 ## 2026-09-23

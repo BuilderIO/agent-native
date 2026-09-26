@@ -1,6 +1,24 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "Vorlagenaktionen für {{title}}",
+    previewAction: "Vorschau",
+    title: "Vorlagen",
+    browseAll: "Alle durchsuchen",
+    searchPlaceholder: "Vorlagen suchen…",
+    loading: "Vorlagen werden geladen",
+    empty: "Keine Vorlagen entsprechen deiner Suche.",
+    loadFailed: "Vorlagen konnten nicht geladen werden.",
+    preview: "Vorlagenvorschau",
+    useTemplate: "Vorlage verwenden",
+    opening: "Vorlage wird geöffnet…",
+    createFailed:
+      "Aus dieser Vorlage konnte keine Präsentation erstellt werden.",
+    previous: "Zurück",
+    next: "Weiter",
+    slidePosition: "Folie {{current}} von {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["de-DE"],
   root: {
     commandPresentations: "Präsentationen",
@@ -25,6 +43,7 @@ const messages = {
     designSystems: "Designsysteme",
   },
   settings: {
+    agentObservability: "Agentenbeobachtbarkeit",
     title: "Einstellungen",
     description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
     labs: "Labs",
@@ -695,14 +714,14 @@ const messages = {
     accessApprovalSignIn: "Anmelden",
     accessApprovalLoading: "Zugriff wird gewährt...",
     backToDecks: "Zurück zu den Decks",
-    tryAgain: "Intentar de nuevo",
+    tryAgain: "Erneut versuchen",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
       "Verbinde Builder.io im Modellmenü des Agent-Composers, um Bilder auf Folien hochzuladen. Wenn du ein Bild auf die leere Arbeitsfläche ziehst, kann es auch ohne Anbieter an den Agenten gesendet werden.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
-    deckHasNoSlides: "El deck no tiene diapositivas.",
+    deckHasNoSlides: "Dieses Deck enthält keine Folien.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
     layoutOverflowWarning: "Layout läuft über",
@@ -719,6 +738,8 @@ const messages = {
     leaveWithoutSaving: "Ohne Speichern beenden",
     editorMarkupNotSaved:
       "Diese Änderung wurde nicht gespeichert, weil sie der Folie Editor-Markup hinzugefügt hätte.",
+    textEditConflictNotSaved:
+      "Deine Textänderung wurde nicht gespeichert, weil derselbe Text gleichzeitig an anderer Stelle geändert wurde.",
   },
   designSystemSetup: {
     importedBrand: "Importierte Marke",
@@ -809,12 +830,115 @@ const messages = {
     chooseAnotherFile: "Andere Datei wählen",
   },
   home: {
+    suggestedPrompts: "Vorgeschlagene Prompts",
+    importMenu: {
+      import: "Importieren",
+      options: "Importoptionen",
+      invalidPdf: "Wähle eine PDF-Datei.",
+      invalidPptx: "Wähle eine PPTX-Datei.",
+      invalidFile: "Wähle eine PDF- oder PPTX-Datei.",
+      notStarted: "Melde dich bei Bedarf an und versuche den Import erneut.",
+    },
+    importDeck: "Präsentation importieren",
+    context: {
+      websiteReference: "Website anhängen",
+      websiteUrlLabel: "Website-URL",
+      websiteUrl: "Website-URL einfügen",
+      figmaUrlLabel: "Figma-Link",
+      invalidFigmaUrl:
+        "Gib eine gültige Frame- oder Datei-URL von figma.com ein.",
+      createSystem: "Designsystem erstellen",
+      noSystems:
+        "Du hast noch kein Designsystem. Erstelle eines aus einer Website, Dateien oder Figma.",
+      searchSystems: "Designsysteme suchen…",
+      searchFrames: "Figma-Frames suchen…",
+      searchDesigns: "Designs suchen…",
+      searchPresentations: "Präsentationen suchen…",
+      menu: {
+        system: "Ein Designsystem verwenden",
+        figma: "Figma anhängen",
+        design: "Ein Design als Referenz verwenden",
+        deck: "Eine Präsentation als Referenz verwenden",
+        searchDesign: "Design durchsuchen…",
+      },
+      loadFailed: "Referenz konnte nicht geladen werden. Versuche es erneut.",
+      saveFailed: "Kontextauswahl konnte nicht gespeichert werden.",
+      system: "Designsysteme",
+      figmaUrl: "Figma-Link einfügen",
+      browse: "Frames durchsuchen",
+      empty: "Keine Referenzen gefunden.",
+      previous: "Zurück",
+      next: "Weiter",
+      title: "Kontext",
+      remove: "Referenz entfernen",
+      deck: "Präsentationen",
+      design: "Designreferenzen",
+      figma: "Figma-Frames",
+      notReady:
+        "Kontext wird geladen oder ist nicht verfügbar. Erneut versuchen oder vor dem Senden entfernen.",
+      emptySource: "Diese Quelle lieferte keinen nutzbaren Kontext.",
+      tooMany: "Wähle bis zu 20 Referenzen.",
+      search: "Referenzen suchen",
+      designCategory: "Gestaltung",
+    },
+    quickStart: {
+      invalidUrl: "Gib eine gültige HTTP- oder HTTPS-URL ein.",
+      starting: "Wird gestartet…",
+      generate: "Generieren",
+      connectionRequired:
+        "Verbinde Builder.io über dem Startseiten-Prompt und versuche es erneut.",
+      invalidPdf: "Wähle eine PDF-Datei.",
+      notReady:
+        "Prüfe ausstehenden oder fehlerhaften Kontext und die Verbindung und versuche es erneut.",
+      tooLong: "Der Quelltext muss unter 20.000 Zeichen bleiben.",
+      trends: {
+        label: "Präsentation zu aktuellen Branchentrends erstellen",
+        field: "Branche oder Thema",
+        prompt:
+          "Recherchiere aktuelle Trends zum angegebenen Thema und erstelle eine Präsentation mit aktuellen Quellen. Prüfe die Informationen vor dem Generieren.",
+      },
+      notes: {
+        label: "Besprechungsnotizen in eine Präsentation umwandeln",
+        field: "Besprechungsnotizen",
+        prompt:
+          "Erstelle aus den bereitgestellten Besprechungsnotizen eine Präsentation zu Kernaussagen, Entscheidungen und nächsten Schritten. Verwende die Notizen als Quelle.",
+      },
+      pdf: {
+        label: "Kernaussagen einer PDF zusammenfassen",
+        field: "PDF-Datei",
+        prompt:
+          "Lies die angehängte PDF und fasse ihre Kernaussagen in einer Präsentation zusammen. Melde unlesbare Inhalte, statt zu raten.",
+      },
+      website: {
+        label: "Präsentation aus meiner Unternehmenswebsite erstellen",
+        field: "URL der Unternehmenswebsite",
+        prompt:
+          "Lies die angegebene Unternehmenswebsite und erstelle eine Präsentation über das Unternehmen. Melde Zugriffsfehler, statt Fakten zu erfinden.",
+      },
+    },
+    connectBuilderIo: "Builder.io verbinden",
+    connectingBuilder: "Builder.io wird verbunden…",
+    recent: "Zuletzt verwendet",
+    starters: {
+      pitch: {
+        label: "Pitch-Präsentation",
+        prompt: "Erstelle eine Pitch-Präsentation über ",
+      },
+      update: {
+        label: "Projektupdate",
+        prompt:
+          "Erstelle ein Projektupdate mit Fortschritten, Ergebnissen und nächsten Schritten für ",
+      },
+      lesson: {
+        label: "Ein Thema erklären",
+        prompt: "Erstelle eine Präsentation, die Folgendes erklärt: ",
+      },
+    },
     loadFailed: "Inhalte konnten nicht geladen werden",
     loadFailedDescription:
       "Ihre gespeicherten Inhalte sind weiterhin verfügbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
     retry: "Erneut versuchen",
     decksTitle: "Decks",
-    newDeck: "Neues Deck",
     deckLengthQuestion: "Wie lang soll dieses Deck sein?",
     deckLengthHeader: "Decklänge",
     deckLengthShort: "Kurz (3–5 Folien)",
@@ -840,11 +964,13 @@ const messages = {
     newDeckPlaceholder:
       "Beschreibe die Präsentation, die du erstellen möchtest...",
     skipPrompt: "Prompt überspringen",
-    firstDeckPromptTitle: "Welche Art von Präsentation sollen wir erstellen?",
+    firstDeckPromptTitle: "Erstellen wir deine erste Präsentation",
     firstDeckSkip: "Überspringen",
     chooseReferences: "Referenzen auswählen",
     addDesignSystem: "+ Designsystem",
     importFrom: "Importieren von",
+    referenceFileStorageUnavailable:
+      "Der Dateispeicher ist nicht eingerichtet. Verbinde Builder.io oder einen anderen Dateianbieter, um Referenzdateien zu importieren.",
     attachedFiles: "Angehängt",
     imported: "Importiert",
     importedReferenceDeck: "Importiertes Referenz-Deck",

@@ -32,6 +32,9 @@ vi.mock("@agent-native/core/client/changelog", () => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: vi.fn(async () => undefined),
+  useActionMutation: () => ({ isPending: false, mutate: vi.fn() }),
+  useActionQuery: () => ({ data: undefined, isError: false, isLoading: false }),
+  actionErrorMessage: () => null,
 }));
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
@@ -373,14 +376,14 @@ describe("Calendar Settings", () => {
     expect(container.querySelector("#zoom")).not.toBeNull();
   });
 
-  it("splits Settings into General, Calendars, Booking, and Notifications with the flag on", async () => {
+  it("splits Settings into General, Calendars, Booking, Rules, and Notifications with the flag on", async () => {
     flagState.enabled = true;
     await renderSettings();
 
     const props = settingsTabsPageProps.current;
     expect(
       (props?.appAreas as Array<{ id: string }>).map((area) => area.id),
-    ).toEqual(["calendars", "booking"]);
+    ).toEqual(["calendars", "booking", "rules"]);
 
     const general = container.querySelector('[data-page="app"]');
     // Calendar's own zone must not read as the account-wide Preferences one.
@@ -405,6 +408,8 @@ describe("Calendar Settings", () => {
       booking?.querySelector('a[href="/booking-links?tab=availability"]'),
     ).not.toBeNull();
     expect(booking?.querySelector("#booking-page")).not.toBeNull();
+    const rules = container.querySelector('[data-area="rules"]');
+    expect(rules?.querySelector("#event-rule-accept")).not.toBeNull();
 
     const notifications = container.querySelector(
       '[data-page="notifications"]',

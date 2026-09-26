@@ -30,7 +30,12 @@ Detailed event, availability, booking, storage, and UI rules live in
   account timezone), `weekStart` (`sunday` or
   `monday`), `defaultEventDuration`, and the fallback booking page copy. The
   redesigned Settings shows them on page `app`, with tabs `calendars` (Google
-  Calendar, Zoom) and `booking`.
+  Calendar, Zoom), `booking`, and `rules` (invitation rules).
+- `update-settings` also saves owner-private Jev invitation prompts in
+  `eventRules.accept`, `eventRules.decline`, and `eventRules.hide`. Automatic
+  evaluation runs for invitations in each connected account's primary Google
+  calendar through the registered recurring sweep handler; `get-event-rules-status`
+  reports whether this deployment has a durable sweep driver.
 - Use `connect-google-calendar` when the user asks to connect or reconnect
   Google Calendar. Return its link to the user; do not `fetch`
   `/_agent-native/google/auth-url` from the agent backend because that route

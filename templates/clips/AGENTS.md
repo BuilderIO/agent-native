@@ -76,19 +76,20 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 | --- | --- |
 | `view-screen`, `navigate` | Read context; open a surface |
 | `list-recordings`, `search-recordings` | Library, trash, `--view=shared` |
-| `get-recording-player-data` | Full transcript, chapters, diagnostics |
+| `get-recording-player-data` | Transcript, chapters, diagnostics |
 | `create-recording`, `finalize-recording` | Create row; finish upload |
-| `import-loom-recording` | Import Loom or direct MP4/WebM URL |
+| `import-loom-recording` | Import Loom or video URLs |
 | `update-recording` | Title, password, expiry, visibility |
-| `move-recording` | Move `id` or `ids` to a folder or root |
+| `move-recording` | Move recordings to folder/root |
 | `archive-`, `trash-`, `restore-recording` | Lifecycle |
 | `reprocess-recording` | Repair unseekable/frozen media |
-| `generate-filmstrip` | Editor timeline frame sprite; `all` backfills |
+| `generate-filmstrip` | Timeline frames |
 | `request-transcript`, `cleanup-transcript` | Transcribe; `force`/`regenerate` |
 | `regenerate-title`, `-summary`, `-chapters` | AI metadata |
+| `generate-workflow`, `complete-workflow` | Generate and save workflow |
 | `trim-`, `split-recording`, `remove-silences`, `remove-filler-words` | Edits |
 | `list-meetings`, `get-`, `update-`, `finalize-meeting` | Meetings |
-| `search-meetings` | Find a meeting by title, summary, notes, attendee, or transcript |
+| `search-meetings` | Search meetings |
 | `list-dictations`, `cleanup-dictation` | Dictation history |
 | `add-comment`, `update-comment`, `create-folder`, `create-space` | Comments, folders |
 | `get-`, `update-clips-notification-prefs`, `-recording-defaults` | Email alerts; default speed, visibility |

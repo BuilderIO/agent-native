@@ -1556,12 +1556,11 @@ async function filterWorkspaceAppsByAccess(
       continue;
     }
     if (app.isDispatch) {
-      if (
-        await isWorkspaceAppAccessAllowed("dispatch", {
-          email: userEmail,
-          orgId,
-        })
-      ) {
+      const dispatchAccess = await isWorkspaceAppAccessAllowed("dispatch", {
+        email: userEmail,
+        orgId,
+      });
+      if (dispatchAccess === true) {
         visibleIds.add(app.id);
       }
       continue;

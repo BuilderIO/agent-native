@@ -112,6 +112,18 @@ export interface BuilderStatus {
   authError?: { message: string; at: number };
 }
 
+export function hasBuilderOAuthCredential(
+  status: Pick<BuilderStatus, "configured" | "envManaged"> & {
+    credentialSource?: BuilderStatus["credentialSource"] | null;
+  },
+): boolean {
+  return (
+    status.configured &&
+    status.credentialSource !== "env" &&
+    (!status.envManaged || status.credentialSource != null)
+  );
+}
+
 /**
  * Fetches Builder connection status from the neutral connection-status route.
  * The legacy /_agent-native/builder/status route remains available for older
@@ -244,7 +256,7 @@ export interface BuilderConnectFlowOptions {
   trackingSource?: string;
   /** Product flow that needed Builder connect, e.g. connect_llm. */
   trackingFlow?: string;
-  /** Invoked after the status poll first sees `configured: true`. */
+  /** Invoked when the current user/org/workspace Builder credential is ready. */
   onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
 }
 
@@ -793,15 +805,17 @@ export interface BuilderConnectTarget {
 
 /**
  * Whether a status read finishes the running connect attempt. An unscoped
- * attempt finishes once anything is configured. A scoped one waits for its own
- * grant to be newly saved: a member already riding the org grant is
- * "configured" before their personal connect has even begun.
+ * attempt finishes once an OAuth credential is configured. A scoped one waits
+ * for its own grant to be newly saved: a member already riding the org grant
+ * is "configured" before their personal connect has even begun.
  */
 export function isBuilderConnectComplete(
-  s: Pick<BuilderStatus, "configured" | "grants">,
+  s: Pick<BuilderStatus, "configured" | "envManaged" | "grants"> & {
+    credentialSource?: BuilderStatus["credentialSource"] | null;
+  },
   target: BuilderConnectTarget | null,
 ): boolean {
-  if (!target) return !!s.configured;
+  if (!target) return hasBuilderOAuthCredential(s);
   const grant = s.grants?.[target.scope];
   if (!grant || grant.needsReconnect) return false;
   return !target.hadGrant || grant.connectedAt !== target.connectedAtAtStart;
@@ -1073,10 +1087,15 @@ export function useBuilderConnectFlow(
       statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
       const org = s.orgName ?? null;
       setOrgName(org);
-      if (isBuilderConnectComplete(s, connectTargetRef.current)) {
+      const connectComplete = isBuilderConnectComplete(
+        s,
+        connectTargetRef.current,
+      );
+      if (connectComplete) {
         connectStartedAtRef.current = null;
+        setConnecting(false);
       }
-      if (s.configured && !notifiedConnectedRef.current) {
+      if (connectComplete && !notifiedConnectedRef.current) {
         notifiedConnectedRef.current = true;
         notifyAgentEngineConfiguredChanged("builder-status");
         try {
@@ -1084,7 +1103,7 @@ export function useBuilderConnectFlow(
         } catch {
           // The caller's callback is a UI convenience; status is already set.
         }
-      } else if (!s.configured) {
+      } else if (!connectComplete) {
         notifiedConnectedRef.current = false;
       }
       // Surface persisted auth-failure messages on idle refreshes, but don't
@@ -1212,7 +1231,7 @@ export function useBuilderConnectFlow(
       };
       setConnecting(true);
       setError(null);
-      setAccountExists(false);
+      if (provisionAccountForStart) setAccountExists(false);
 
       // Open SYNCHRONOUSLY inside the caller's click handler — any await
       // before window.open lets the user-gesture token expire, which causes
@@ -1486,10 +1505,18 @@ export function useBuilderConnectFlow(
         signal,
         connectAttemptIdRef.current ?? undefined,
       );
-      if (!mountedRef.current) return;
-      if (s) setStatusResolved(true);
-      if (s && isBuilderConnectComplete(s, connectTargetRef.current)) {
-        setConfigured(true);
+      if (!mountedRef.current || connectStartedAtRef.current !== started) {
+        return;
+      }
+      const orgName = s?.orgName ?? null;
+      if (s) {
+        if (statusUnavailableRef.current) {
+          statusUnavailableRef.current = false;
+          setError(null);
+        }
+        setHasFetchedStatus(true);
+        setStatusResolved(true);
+        setConfigured(!!s.configured);
         setCodeChangeConfigured(isCodeChangeConfigured(s));
         setEnvManaged(!!s.envManaged);
         setCredentialSource(s.credentialSource ?? null);
@@ -1497,19 +1524,21 @@ export function useBuilderConnectFlow(
         setCanDisconnect(!!s.canDisconnect);
         setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
         setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
-        setAccountExists(false);
+        setAccountExists(s.connectError?.code === "account_exists");
         setBuilderEnabled(!!s.builderEnabled);
         const nextConnectUrl = s.connectUrl ?? null;
         setStatusConnectUrl(nextConnectUrl);
         statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
-        const org = s.orgName ?? null;
-        setOrgName(org);
+        setOrgName(orgName);
+      }
+      if (s && isBuilderConnectComplete(s, connectTargetRef.current)) {
+        setAccountExists(false);
         setConnecting(false);
         connectStartedAtRef.current = null;
         notifiedConnectedRef.current = true;
         notifyAgentEngineConfiguredChanged("builder-connect");
         try {
-          await onConnectedRef.current?.({ orgName: org });
+          await onConnectedRef.current?.({ orgName });
         } catch {
           // coercion-ok: the connection itself succeeded and the UI state is
           // already flipped; re-arming the flow on a consumer callback failure

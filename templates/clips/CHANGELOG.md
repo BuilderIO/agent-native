@@ -3,6 +3,45 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-26
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+## 2026-09-25
+
+### Improved
+
+- Connect Builder storage by creating an account in one click.
+- Public clip embeds and meeting notes show richer link previews.
+- The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.
+- Shared clips remember your sidebar choice and help new viewers understand why to sign up.
+
+### Fixed
+
+- Clips desktop sign-in now accepts authenticator codes when two-step verification is enabled.
+- Keep Builder login state after blocked popups and show feedback while retrying storage connection checks
+- Clips clears a stale recording overlay after an interrupted save
+- Concurrent workflow requests no longer replace an active generation.
+- Generated workflows stay tied to the request that created them.
+- Organization logos can be stored privately and load in settings, shared clips, and email.
+- Private MinIO and S3-compatible endpoints now work with Clips.
+- Workflow drafts are saved before the agent reports them complete
+- Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."
+
+## 2026-09-24
+
+### Improved
+
+- Recording actions are easier to find and align clearly.
+- Share links appear after uploads finish, when clips are ready to view.
+
+### Fixed
+
+- Signed-in viewers see shared recordings in the Clips app shell with library breadcrumbs.
+- The camera bubble stays visible while you reposition it before recording, then the popover resumes its inactive auto-hide after the drag ends.
+
 ## 2026-09-23
 
 ### Improved

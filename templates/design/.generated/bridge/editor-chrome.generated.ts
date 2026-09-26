@@ -2188,7 +2188,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         documentId: runtimeDocumentId
       };
     }
-    function postRuntimeLayerSnapshot(reservationToken) {
+    function postRuntimeLayerSnapshot(reservationToken, requestId) {
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -2202,7 +2202,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "agent-native:runtime-layer-snapshot-error",
-            payload: snapshot
+            payload: {
+              ...snapshot,
+              requestId,
+              documentId: runtimeDocumentId,
+              ...reservationToken ? { reservationToken } : {}
+            }
           },
           "*"
         );
@@ -2210,10 +2215,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var snapshotReservationToken = reservationToken || "";
       if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-unchanged",
+            payload: {
+              requestId,
+              documentId: snapshot.documentId,
+              ...reservationToken ? { reservationToken } : {}
+            }
+          },
+          "*"
+        );
         return;
       }
       lastRuntimeLayerSnapshotHtml = snapshot.html;
       lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+      if (requestId !== void 0) snapshot.requestId = requestId;
       if (reservationToken) snapshot.reservationToken = reservationToken;
       window.parent.postMessage(
         {
@@ -2241,7 +2258,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.parent.postMessage(
         {
           type: "agent-native:runtime-layer-snapshot-reservation-request",
-          requestId: runtimeLayerSnapshotReservationRequestId
+          requestId: runtimeLayerSnapshotReservationRequestId,
+          documentId: runtimeDocumentId
         },
         "*"
       );
@@ -12623,9 +12641,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           };
         }
       }
+      if (pointerOutsideCurrentParent && (!pointHit || pointHit === document.body || pointHit === document.documentElement) && dropContainerForTarget(target) === currentParent) {
+        target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
+      }
       var container = dropContainerForTarget(target);
       if (ignoreTargetAutoLayout && container && container !== document.body && isAutoLayoutElement(container)) {
-        return {
+        target = {
           anchor: container,
           placement: "inside",
           axis: parentFlowAxis(container),
@@ -12633,11 +12654,32 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
       }
       if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body)) {
-        return {
+        target = {
           anchor: currentParent,
           placement: "after",
           axis: "y",
           dropMode: "absolute-container"
+        };
+      }
+      var exitedContainer = el.parentElement;
+      var receivingContainer = exitedContainer && exitedContainer.parentElement;
+      var targetContainer = dropContainerForTarget(target);
+      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && targetContainer === receivingContainer && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
+        target = {
+          ...target,
+          anchor: exitedContainer,
+          placement: "after",
+          axis: parentFlowAxis(receivingContainer),
+          persistenceAnchor: exitedContainer,
+          persistencePlacement: "after",
+          gridCell: void 0,
+          gridPlacement: void 0,
+          gridDisplacement: void 0,
+          gridDisplacementPlacements: void 0,
+          gridDisplacementPrevStyles: void 0,
+          guideRect: void 0,
+          guideMode: void 0,
+          guidePlacement: void 0
         };
       }
       if (target && target.dropMode === "flow-insert" && container && container !== document.body && isContainerDropTarget(container) && !isAutoLayoutElement(container) && isEmptyDropContainer(container, dragged)) {
@@ -15949,7 +15991,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) || crossScreenClaimedByHost : false;
         if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
-          var sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
           postCrossScreenDrag("end", dragEl, ev, {
             duplicate: duplicatedForDrag,
             modifiers: {
@@ -15968,21 +16009,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           } else {
             restoreSourceDragPosition();
-            if (crossScreenClaimedByHost && sourceDeleteRequestId) {
-              var selector = getSelector(dragEl);
-              var sourceId = getSourceId(dragEl);
-              var selectorCandidates = [selector];
-              if (sourceId) {
-                selectorCandidates.push(
-                  '[data-agent-native-node-id="' + CSS.escape(sourceId) + '"]'
-                );
-              }
-              concealPendingRuntimeDelete(
-                selector,
-                selectorCandidates,
-                sourceDeleteRequestId
-              );
-            }
           }
           return;
         }
@@ -19649,8 +19675,31 @@ export const editorChromeBridgeScript: string = `"use strict";
           requestId: e.data.requestId,
           applied: Boolean(e.data.applied)
         });
+        var cancelRuntimeStructureDelete = e.data.cancelRuntimeStructureDelete;
+        var postRuntimeStructureDeleteCancellationResult = function(sourcePresentOverride) {
+          if (!cancelRuntimeStructureDelete || typeof cancelRuntimeStructureDelete.transactionId !== "string") {
+            return;
+          }
+          var restoredSource = findRuntimeTarget(
+            String(cancelRuntimeStructureDelete.selector || ""),
+            Array.isArray(cancelRuntimeStructureDelete.selectorCandidates) ? cancelRuntimeStructureDelete.selectorCandidates : []
+          );
+          window.parent.postMessage(
+            {
+              type: "runtime-structure-delete-cancelled",
+              requestId: String(e.data.requestId || ""),
+              transactionId: cancelRuntimeStructureDelete.transactionId,
+              routePath: window.location.pathname + window.location.search,
+              sourcePresent: typeof sourcePresentOverride === "boolean" ? sourcePresentOverride : Boolean(restoredSource)
+            },
+            "*"
+          );
+        };
         var move = pendingStructureMoves[e.data.requestId];
-        if (!move) return;
+        if (!move) {
+          postRuntimeStructureDeleteCancellationResult();
+          return;
+        }
         delete pendingStructureMoves[e.data.requestId];
         var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
         var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
@@ -19671,6 +19720,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult();
           return;
         }
         if (moveWasRemoval) {
@@ -19688,6 +19738,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult(
+            Boolean(move.el && move.el.isConnected)
+          );
           return;
         }
         if (e.data.applied) {
@@ -19712,6 +19765,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             if (hoveredEl === move.el) hoveredEl = null;
             refreshOverlays();
+            postRuntimeStructureDeleteCancellationResult();
             return;
           }
           if (move.el && move.el.isConnected && move.origin && "prevParent" in move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
@@ -19734,6 +19788,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           }
         }
+        postRuntimeStructureDeleteCancellationResult();
         return;
       }
       if (e.data.type === "replace-document-content") {
@@ -19854,7 +19909,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
-        if (e.data.requestId !== runtimeLayerSnapshotReservationRequestId) return;
+        if (e.data.documentId !== runtimeDocumentId || e.data.requestId !== runtimeLayerSnapshotReservationRequestId) {
+          return;
+        }
         runtimeLayerSnapshotReservationInFlight = false;
         if (runtimeLayerSnapshotReservationDirty) {
           runtimeLayerSnapshotReservationDirty = false;
@@ -19862,7 +19919,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         postRuntimeLayerSnapshot(
-          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0
+          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0,
+          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0
         );
         return;
       }

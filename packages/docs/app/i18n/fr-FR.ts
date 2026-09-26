@@ -752,43 +752,44 @@ const frFR = {
       },
       // Copy V3 de la landing page (2026-09-14) — du hero au CTA final ci-dessous.
       heroEyebrow: "Analytics",
-      heroTitle: "Analysez vos données avec votre agent IA",
+      heroTitle:
+        "Posez une question. Obtenez le graphique, la requête et le contexte.",
       heroDescription:
-        "Analytics est un outil d'analyse IA gratuit et open source pour interroger vos données connectées, créer des tableaux de bord et examiner les sessions utilisateur.",
+        "Rassemblez les données d’entrepôt, de produits et de revenus. L'agent vérifie vos définitions de métriques, écrit le code SQL et transforme la réponse en un tableau de bord réutilisable.",
       heroCta: "Explorez vos données",
-      useCasesHeading: "Que pouvez-vous faire avec Analytics ?",
+      useCasesHeading: "Suivez le signal de la métrique à la session",
       useCasesBody:
-        "Suivez la croissance du produit, faites un rapport sur la performance de l'entreprise, ou examinez un problème rencontré par un utilisateur dans votre app.",
-      useCase1Title: "Suivre la croissance du produit",
+        "Conservez le raisonnement à côté de chaque résultat, puis intégrez un graphique dans un tableau de bord ou une enquête de session.",
+      useCase1Title: "Expliquer un changement d'activation",
       useCase1Body:
-        "Demandez comment les inscriptions, les utilisateurs actifs ou les conversions ont évolué. Comparez des périodes et ventilez les résultats par canal, offre ou segment de clientèle.",
-      useCase2Title: "Faire un rapport sur la performance de l'entreprise",
+        "Comparez les cohortes et les canaux dans une conversation. L'agent utilise vos définitions de métriques documentées, écrit la requête et affiche les preuves derrière le changement.",
+      useCase2Title: "Construire un examen des revenus vitaux",
       useCase2Body:
-        "Rassemblez les indicateurs de revenus, de pipeline ou d'utilisation dans un tableau de bord pour votre équipe. Définissez des filtres de date et revenez-y avant votre prochaine revue.",
-      useCase3Title: "Examiner les problèmes utilisateur",
+        "Demandez à l'agent de combiner les mesures de facturation, de CRM ou d'entrepôt dans un tableau de bord. Les filtres et les panneaux persistent pour votre prochain examen.",
+      useCase3Title: "Tracer une métrique jusqu'à une session réelle",
       useCase3Body:
-        "Trouvez une session enregistrée et rejouez ce qui s'est passé. Examinez les erreurs de console et les requêtes réseau, puis partagez le diagnostic avec votre agent IA.",
+        "Passez d’un pic ou d’une erreur à la session derrière. Inspectez l’activité de la console et du réseau, puis partagez le contexte de diagnostic temporaire avec l’agent.",
       keyFeaturesEyebrow: "Fonctionnalités clés",
       keyFeaturesHeading:
         "Tout ce qu'il faut pour interroger, visualiser et explorer",
-      feature1Title: "Requêtes en langage naturel",
+      feature1Title: "Interrogez sur les données connectées",
       feature1Body:
-        "Posez une question à votre agent IA sur vos données. Obtenez un graphique, un tableau ou une métrique, puis demandez une autre ventilation.",
-      feature2Title: "Tableaux de bord réutilisables",
+        "Posez une question sur les entrepôts, les produits et les sources de revenus. L'agent transforme la réponse en graphique et prend en charge les analyses de suivi.",
+      feature2Title: "Tableaux de bord que l'agent peut modifier",
       feature2Body:
-        "Créez des tableaux de bord avec votre agent IA ou modifiez-les vous-même. Organisez les panneaux, ajoutez des filtres, enregistrez des vues et partagez l'accès avec votre équipe.",
-      feature3Title: "Explorateur de requêtes SQL",
+        "Demandez à l'agent d'ajouter ou de remodeler les panneaux, les filtres et les pannes. Les modifications restent dans un tableau de bord réutilisable que votre équipe peut partager.",
+      feature3Title: "Contexte SQL et métrique visible",
       feature3Body:
-        "Exécutez des requêtes BigQuery et consultez leurs résultats et leur historique. Examinez le SQL derrière les panneaux du tableau de bord pour vérifier les calculs et les filtres.",
-      feature4Title: "Connexions aux sources de données",
+        "Inspectez la requête derrière un résultat et la définition de métrique utilisée pour l'écrire. Affinez le SQL lorsque vous avez besoin de plus de contrôle.",
+      feature4Title: "Un espace de travail pour les sources de données",
       feature4Body:
-        "Connectez des sources telles que BigQuery, GA4, HubSpot et Stripe. Interrogez les données de l'entrepôt, les événements produit, les fiches clients et les revenus depuis la même app.",
-      feature5Title: "Dictionnaire de données",
+        "Connectez BigQuery, GA4, Product Analytics, HubSpot et Stripe, puis explorez leurs données autorisées à partir de la même application.",
+      feature5Title: "Définitions suivies par l'agent",
       feature5Body:
-        "Documentez les définitions de métriques, les tables et des exemples de requêtes. Votre agent IA utilise ce contexte pour écrire des requêtes et travailler avec vos données.",
-      feature6Title: "Relecture de session",
+        "Documentez les règles de métriques, les jointures, les exemples et les pièges connus. Analytics donne ce contexte à l'agent lorsqu'il écrit des requêtes.",
+      feature6Title: "Relecture de session avec diagnostics",
       feature6Body:
-        "Rejouez des sessions enregistrées avec l'activité console et réseau associée. Accédez directement aux erreurs et copiez un lien de diagnostic temporaire pour votre agent IA.",
+        "Passez d'une erreur à un enregistrement en affichant les événements de la console et du réseau. Partagez un lien de diagnostic temporaire pour une enquête assistée par un agent.",
       finalCtaHeading: "Commencez par une question sur vos données",
       finalCtaBody:
         "Connectez une source et demandez à votre agent IA le premier graphique.",
@@ -881,43 +882,45 @@ const frFR = {
       s001: "Capture d'écran du modèle Calendar",
       // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Calendar",
-      heroTitle: "Gérez votre emploi du temps avec votre agent IA",
+      heroTitle:
+        "Trouvez du temps, réservez des rendez-vous et adaptez votre journée avec un agent",
       heroDescription:
-        "Calendar est un assistant de planification IA gratuit et open source pour gérer les événements Google Calendar, trouver des créneaux et permettre aux autres de réserver avec vous.",
+        "Agenda rassemble vos agendas Google et vos règles de disponibilité afin que l'agent puisse rechercher des ouvertures partagées, préparer des réservations et vous aider à mettre à jour les événements.",
       heroCta: "Commencez à planifier",
-      useCasesHeading: "Que pouvez-vous faire avec Calendar ?",
+      useCasesHeading: "Laissez l'agent gérer les détails de la planification",
       useCasesBody:
-        "Réservez un appel client, réunissez votre équipe ou ajustez votre journée quand les plans changent.",
-      useCase1Title: "Réserver des appels et démos clients",
+        "Vérifiez la disponibilité réelle dans les calendriers, puis examinez une proposition claire avant de créer ou de déplacer une réunion.",
+      useCase1Title:
+        "Transformez un lien de réservation en une réunion préparée",
       useCase1Body:
-        "Donnez à vos prospects et clients un lien de réservation pour qu'ils choisissent un créneau. Recueillez les informations dont vous avez besoin avant l'appel.",
-      useCase2Title: "Trouver un créneau pour les réunions d'équipe",
+        "Proposez uniquement des horaires qui respectent les horaires de travail, les préavis et les délais. Collectez les détails dont vous avez besoin, puis ajoutez le lien vidéo lorsque les invités réservent.",
+      useCase2Title: "Trouvez un créneau que tout le monde peut créer",
       useCase2Body:
-        "Demandez à votre agent IA un créneau où vos coéquipiers sont disponibles. Choisissez un créneau suggéré pour réserver la réunion.",
-      useCase3Title: "Ajuster votre journée quand les plans changent",
+        "Demandez à l'agent de comparer les heures de disponibilité et de disponibilité des participants et les superpositions de calendrier. Il renvoie l'ouverture partagée et les calendriers qu'il a vérifiés.",
+      useCase3Title: "Reprogrammer sans perdre le fil",
       useCase3Body:
-        "Demandez à votre agent IA de déplacer une réunion ou de trouver un autre créneau, en tenant compte de vos événements et horaires de travail existants.",
+        "Demandez une heure ultérieure et laissez l'agent vérifier les invités, conserver les détails de la réunion et préparer l'invitation mise à jour pour votre examen.",
       keyFeaturesEyebrow: "Fonctionnalités clés",
       keyFeaturesHeading:
         "Tout ce dont vous avez besoin pour planifier, réserver et reprogrammer",
-      feature1Title: "Planification par IA",
+      feature1Title: "Planification en langage naturel",
       feature1Body:
-        "Demandez à votre agent IA de consulter votre emploi du temps, de trouver des créneaux disponibles et de créer ou reprogrammer des événements sur votre Google Calendar connecté.",
-      feature2Title: "Plusieurs comptes de calendrier",
+        "Demandez à l'agent de vérifier la disponibilité, de proposer une heure et de créer ou déplacer un événement avec ses invités et les détails de la réunion.",
+      feature2Title: "Disponibilité sur tous les comptes",
       feature2Body:
-        "Consultez vos comptes Google professionnels et personnels ensemble en vue jour, semaine ou mois. Ajoutez des flux de calendrier en lecture seule à côté de vos événements.",
-      feature3Title: "Liens de réservation personnalisables",
+        "Affichez ensemble les calendriers Google connectés et incluez des flux en lecture seule comme contexte de planification.",
+      feature3Title: "Pages de réservation avec admission",
       feature3Body:
-        "Créez des pages de réservation pour différents types de réunion. Définissez la durée et ajoutez des questions auxquelles les gens répondent en réservant.",
-      feature4Title: "Contrôles de disponibilité",
+        "Créez des liens pour différents types de réunions, définissez la durée et les questions de réservation, et laissez les invités choisir un créneau disponible.",
+      feature4Title: "Des règles qui façonnent chaque machine à sous",
       feature4Body:
-        "Définissez vos horaires de travail, votre fuseau horaire et des tampons entre les réunions. Choisissez le préavis nécessaire et jusqu'à quand les gens peuvent réserver à l'avance.",
-      feature5Title: "Planification avec co-hôtes",
+        "Définissez les heures de travail, les délais, les préavis, le fuseau horaire et l'horizon de réservation de manière à ce que les heures suggérées et publiques correspondent à votre emploi du temps.",
+      feature5Title: "De véritables contrôles multi-hôtes",
       feature5Body:
-        "Ajoutez des co-hôtes obligatoires à un lien de réservation. Proposez des créneaux où tout le monde est libre, puis invitez-les dès que quelqu'un réserve.",
-      feature6Title: "Liens de réunion vidéo",
+        "Ajoutez les co-hôtes requis et vérifiez leur disponibilité avant de proposer une heure. Le calendrier respecte également les superpositions d’heures de travail partagées lorsqu’il est configuré.",
+      feature6Title: "Suivi des réunions gérées par l'agent",
       feature6Body:
-        "Ajoutez Google Meet, connectez Zoom ou utilisez un lien de réunion personnalisé pour que les invités sachent où se joindre en réservant.",
+        "Conservez les détails de Google Meet ou Zoom en pièce jointe pendant que l'agent prépare les modifications de l'événement et les invitations mises à jour.",
       finalCtaHeading: "Ajoutez votre prochaine réunion au calendrier",
       finalCtaBody:
         "Trouvez un créneau avec votre agent IA, ou envoyez un lien de réservation.",
@@ -1003,10 +1006,11 @@ const frFR = {
           "Oui. Définissez un logo canonique dans votre kit de marque et activez le compositing de logo pour la génération. Assets place le logo original sur l'image après la génération, de sorte que le modèle d'image ne le redessine pas. Vérifiez son emplacement et l'image environnante avant utilisation.",
       },
       s001: "Capture d'écran de l'app Assets",
+      imageCredits: "Crédits des images",
       heroEyebrow: "Assets",
-      heroTitle: "Créez et gérez vos assets de marque avec votre agent IA",
+      heroTitle: "Générez des images de marque dans une conversation",
       heroDescription:
-        "Assets est une bibliothèque d'assets de marque gratuite et open source pour organiser vos images, vidéos et références de marque, avec un agent IA qui génère et modifie des médias à partir de votre kit de marque.",
+        "Décrivez ce dont vous avez besoin, donnez à votre agent un kit ou une référence de marque et comparez les variantes générées tout au long de la conversation.",
       heroCta: "Générez une image",
       useCasesHeading: "Que pouvez-vous faire avec Assets ?",
       useCasesBody:
@@ -1070,41 +1074,41 @@ const frFR = {
       heroEyebrow: "Chat",
       heroTitle: "Créez votre propre app de chat IA",
       heroDescription:
-        "Chat est une app de chat IA gratuite et open source, avec conversations enregistrées, authentification et un agent que vous pouvez enrichir avec vos propres actions, données et écrans.",
+        "Un démarreur de chat gratuit et open source avec des fils de discussion durables, une authentification, des actions partagées et un agent que vous pouvez étendre avec vos propres outils et écrans.",
       heroCta: "Créez votre chat",
       heroSecondaryCta: "Ouvrir Chat",
-      useCasesHeading: "Que pouvez-vous construire avec Chat ?",
+      useCasesHeading: "Transformez les conversations en assistants de travail",
       useCasesBody:
-        "Commencez avec l'app de chat, puis ajoutez les données et actions propres à votre cas d'usage. Ces workflows vous appartiennent : construisez-les à partir de cette base.",
-      useCase1Title: "Créer un assistant interne",
+        "Ajoutez les actions, les données et les écrans qui permettent à votre agent de répondre aux questions et de faire avancer le travail.",
+      useCase1Title: "Répondez aux questions avec le contexte de votre équipe",
       useCase1Body:
-        "Ajoutez des actions qui recherchent des informations ou traitent des demandes pour votre équipe. Utilisez la connexion et l'historique de conversation inclus comme point de départ.",
-      useCase2Title: "Prototyper un workflow d'agent",
+        "Connectez les sources dont votre application a besoin via des actions, puis laissez l'agent rassembler les notes, les fichiers et les détails du projet en une seule réponse.",
+      useCase2Title: "Donnez à votre agent les outils pour agir",
       useCase2Body:
-        "Implémentez une action utile et testez-la via le chat. Affinez les instructions et le comportement de l'agent avant d'ajouter d'autres outils ou écrans.",
-      useCase3Title: "Ajouter une interface pour le travail de l'agent",
+        "Prototypez un workflow dans le chat, appelez les actions que vous définissez et affinez la façon dont l'agent gère chaque étape.",
+      useCase3Title: "Rendre les résultats utilisables",
       useCase3Body:
-        "Créez une file d'attente, une liste ou un éditeur lorsque les utilisateurs doivent revoir le travail visuellement. Connectez-le aux mêmes actions et données que votre agent.",
+        "L'agent ouvert fonctionne dans une file d'attente, une table ou un éditeur afin que les utilisateurs puissent inspecter et continuer à partir des mêmes données partagées.",
       keyFeaturesEyebrow: "Fonctionnalités clés",
       keyFeaturesHeading: "Une base pour votre agent et son interface",
-      feature1Title: "Conversations enregistrées",
+      feature1Title: "Des conversations durables",
       feature1Body:
-        "Offrez aux utilisateurs des fils de discussion auxquels revenir. Créez, rouvrez, renommez, épinglez et archivez des conversations depuis la barre latérale incluse.",
-      feature2Title: "Chat avec agent intégré",
+        "Créez, rouvrez, renommez, épinglez et archivez des fils de discussion à partir de la barre latérale d'historique incluse.",
+      feature2Title: "Chat d'agent pleine page",
       feature2Body:
-        "Démarrez avec une conversation plein écran et le runtime d'agent du framework. Ajoutez des instructions et des outils pour les tâches que votre application doit gérer.",
-      feature3Title: "Authentification et sessions",
+        "Commencez par la surface de discussion et le runtime, prêts à recevoir vos propres instructions, outils et flux de travail.",
+      feature3Title: "Connectez vos propres services",
       feature3Body:
-        "Démarrez avec la connexion, l'inscription, les sessions et la prise en charge des organisations déjà intégrées. Ajoutez les règles d'accès requises par les données et workflows de votre application.",
+        "Ajoutez des actions de fournisseur et des flux de connexion pour des outils tels que Granola, Linear, Drive ou Notion ; le démarreur laisse ces intégrations à votre application.",
       feature4Title: "Actions partagées",
       feature4Body:
-        "Définissez une opération une seule fois pour que votre agent et votre interface l'utilisent. Suivez l'exemple d'action inclus lorsque vous ajoutez vos propres capacités.",
-      feature5Title: "Synchronisation des données en direct",
+        "Conservez les outils d’agent et les opérations d’interface sur la même surface d’action.",
+      feature5Title: "État de l'espace de travail en direct",
       feature5Body:
-        "Gardez votre interface à jour lorsque l'agent modifie les données de l'application. Construisez des écrans autour de l'état partagé et de la synchronisation de base de données du framework.",
-      feature6Title: "Inspection de la base de données et des exécutions",
+        "Gardez la navigation actuelle et le travail sélectionné synchronisés pour l'utilisateur et l'agent.",
+      feature6Title: "Écrans personnalisés",
       feature6Body:
-        "Utilisez les écrans d'administration de base de données et d'observabilité inclus pour inspecter les données stockées et les exécutions de l'agent pendant que vous construisez et déboguez votre application.",
+        "Ajoutez des vues ciblées lorsqu'une conversation nécessite une file d'attente, un éditeur ou une autre interface de domaine.",
       finalCtaHeading: "Construisez votre premier workflow d'agent",
       finalCtaBody:
         "Créez votre copie et ajoutez la première action dont vos utilisateurs ont besoin.",
@@ -1773,43 +1777,44 @@ const frFR = {
       s001: "Capture d'écran du modèle Mail",
       // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "Gérez votre boîte de réception avec votre agent IA",
+      heroTitle: "Reprenez le contrôle de votre boîte de réception avec Jev",
       heroDescription:
-        "Mail est un client de messagerie gratuit et open source pour Gmail, doté d'un agent IA qui retrouve vos messages, résume les conversations, rédige des réponses et organise votre boîte de réception.",
+        "Dites à Jev ce qui compte en langage naturel. Il garde visibles les commentaires GitHub rédigés par des personnes, met en avant les messages de votre responsable et écarte les notifications des bots, puis apprend de vos corrections.",
       heroCta: "Gérez votre boîte de réception",
-      useCasesHeading: "Que pouvez-vous faire avec Mail ?",
+      useCasesHeading:
+        "Une boîte de réception plus intelligente, propulsée par Jev",
       useCasesBody:
-        "Reprenez le fil de vos conversations, répondez à vos clients et collègues, ou faites le tri dans une pile d'e-mails en retard.",
-      useCase1Title: "Reprendre le fil des conversations",
+        "Créez une règle en langage naturel. Jev priorise les personnes et conversations importantes, applique les bons libellés et archive les messages répétitifs dès leur arrivée.",
+      useCase1Title: "Gardez les échanges humains. Archivez les bots.",
       useCase1Body:
-        "Demandez à votre agent IA ce qui s'est passé dans un long fil de discussion, ce qui a été convenu et quelles questions restent sans réponse.",
-      useCase2Title: "Répondre à vos clients et collègues",
+        "Dites à Jev ce qui compte : gardez visibles dans Product les commentaires humains des pull requests GitHub, archivez les notifications de bots et déplacez les e-mails de votre responsable vers Important. Ajustez chaque règle avec un prompt et améliorez le filtre anti-spam au fil de vos retours.",
+      useCase2Title: "Chaque e-mail, avec le bon libellé",
       useCase2Body:
-        "Donnez à votre agent IA les points que vous souhaitez aborder. Relisez et modifiez sa réponse dans le panneau de rédaction avant de l'envoyer.",
-      useCase3Title: "Faire le tri dans votre boîte de réception",
+        "Jev classe les conversations selon leur sens, pas seulement leurs mots-clés, pour que les notes clients, reçus et recherches arrivent au bon endroit.",
+      useCase3Title: "Automatisez le travail de routine",
       useCase3Body:
-        "Demandez à votre agent IA de libeller des factures, d'archiver des newsletters ou de marquer d'une étoile les messages d'un client. Appliquez des règles pour traiter automatiquement les e-mails similaires à leur arrivée.",
+        "Définissez des règles pour étiqueter ou archiver les nouveaux messages en arrière-plan, puis consultez l'historique d'exécution quand vous le souhaitez.",
       keyFeaturesEyebrow: "Fonctionnalités clés",
       keyFeaturesHeading:
         "Tout ce dont vous avez besoin pour lire, écrire et organiser vos e-mails",
-      feature1Title: "Résumés de fils de discussion par IA",
+      feature1Title: "Tri prioritaire",
       feature1Body:
-        "Posez une question sur la conversation que vous avez ouverte. Votre agent IA lit le fil de discussion pour résumer les échanges et identifier les questions en suspens.",
-      feature2Title: "Rédaction d'e-mails par IA",
+        "Classez les fils de discussion entrants par urgence et contexte, afin que les délais et les personnes en attente de réponse arrivent en tête.",
+      feature2Title: "Étiquettes d'IA contextuelles",
       feature2Body:
-        "Rédigez une réponse ou révisez un texte sélectionné avec votre agent IA. Définissez vos préférences de rédaction, ajoutez votre signature et modifiez vous-même les brouillons.",
-      feature3Title: "Recherche multi-comptes",
+        "Classez les messages en fonction du sujet de la conversation, puis regroupez les messages similaires au fur et à mesure de leur arrivée.",
+      feature3Title: "Boîte de réception gérée par les agents",
       feature3Body:
-        "Connectez vos comptes Gmail professionnels et personnels. Effectuez des recherches sur l'ensemble d'entre eux depuis une seule boîte de réception, via la barre de recherche ou en interrogeant votre agent IA.",
-      feature4Title: "Automatisations de la boîte de réception",
+        "Demandez à l'agent de rechercher, résumer, étiqueter, archiver, suivre ou préparer une réponse à partir de la boîte de réception que vous consultez.",
+      feature4Title: "Automatisations en arrière-plan",
       feature4Body:
-        "Décrivez des règles pour libeller, archiver, marquer d'une étoile ou marquer comme lus les messages entrants. Utilisez des règles IA ou configurez des filtres Gmail natifs.",
-      feature5Title: "Raccourcis clavier",
+        "Appliquez des règles en langage clair aux messages entrants et inspectez les actions entreprises par Mail.",
+      feature5Title: "Vérifier avant d'envoyer",
       feature5Body:
-        "Naviguez entre les messages, rédigez des réponses, archivez des conversations et effectuez des recherches dans votre boîte de réception depuis le clavier. Ouvrez la palette de commandes pour trouver d'autres actions.",
-      feature6Title: "Envois programmés et report de messages",
+        "Demandez à l'agent de rédiger ou de réviser une réponse, puis de la réviser et de la modifier avant qu'elle ne quitte votre boîte de réception.",
+      feature6Title: "Un filtre anti-spam qui apprend",
       feature6Body:
-        "Choisissez quand envoyer un e-mail ou quand faire revenir un message à votre attention. Consultez les éléments programmés et annulez-les si vos plans changent.",
+        "Signalez comme légitime un message filtré ou indiquez qu’un e-mail est indésirable. Jev apprend de chaque correction et l’applique aux messages similaires.",
       finalCtaHeading: "Commencez avec votre prochain e-mail",
       finalCtaBody:
         "Ouvrez une conversation et demandez à votre agent IA un résumé ou un brouillon de réponse.",

@@ -5,7 +5,7 @@ description: "使用 Netlify Nitro 預設集將 agent-native 應用程式部署�
 
 # Netlify
 
-Nitro 的 `netlify` 預設集運作良好，而且在實務上，對於會連線外部 Postgres（Neon）的範本來說，它帶來的冷啟動速度比 Cloudflare Pages 快上許多（約 200ms TTFB，相較於約 9 秒）。若要在產生的 scaffold 外使用最精簡設定，請在 `vite.config.ts` 中這樣設定預設集：
+Nitro 的 `netlify` 預設集運作良好，而且在實務上，對於會連線外部 Postgres（Neon）的範本來說，它帶來很快的冷啟動速度（約 200ms TTFB）。若要在產生的 scaffold 外使用最精簡設定，請在 `vite.config.ts` 中這樣設定預設集：
 
 ```ts filename="vite.config.ts"
 export default defineConfig({

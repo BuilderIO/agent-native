@@ -33,6 +33,50 @@ const messages = {
       newest: "Neueste",
       priority: "Priorität",
       priorityFailed: "Der Posteingang konnte nicht sortiert werden.",
+      priorityScoreHelp:
+        "Ein höherer Wert bedeutet, dass Jev die Nachricht für wichtiger hält.",
+      priorityFeedbackSuggestion:
+        "Mach aus diesem Feedback eine Regel für Wichtigkeit oder automatisches Archivieren.",
+      priorityFeedbackAskAgent: "Agent um Regelvorschläge bitten",
+      aiSetupTitle: "KI-Posteingang einrichten",
+      aiSetupTagLabel: "KI-Tag erstellen",
+      aiSetupImportanceLabel: "Wichtige E-Mails",
+      aiSetupSpamLabel: "Unerwünscht",
+      aiSetupArchiveLabel: "Posteingang überspringen",
+      aiSetupSave: "Einrichtung speichern",
+      aiSetupSkip: "Vorerst überspringen",
+      aiSetupImportantHeadline: "Was ist wichtig?",
+      aiSetupSkipInboxHeadline: "Was kann den Posteingang überspringen?",
+      aiSetupTagsHeadline: "Tabs auswählen",
+      aiSetupArchiveSpamHeadline: "Posteingang überspringen und Spam",
+      aiSetupTagReceipts: "Belege",
+      aiSetupTagUpdates: "Produktupdates",
+      aiSetupTagGitHub: "Menschen auf GitHub",
+      aiSetupPromptReceipts: "Belege und Bestellbestätigungen von Onlineshops",
+      aiSetupPromptUpdates: "Produktupdates und Versionshinweise meiner Tools",
+      aiSetupPromptGitHub:
+        "GitHub-Benachrichtigungen mit Kommentaren von Menschen",
+      aiSetupImportantPrompt:
+        "Nachrichten, die eine Antwort brauchen oder eine Frist haben, einschließlich menschlicher Kommentare auf GitHub. Bot-Kommentare überspringen.",
+      aiSetupArchiveSpamPrompt:
+        "Automatisch archivieren: GitHub-Benachrichtigungen mit Bot-Kommentaren oder automatischen Statusmeldungen.\nSpam: Eindeutig werbliche oder unerwünschte Nachrichten, die ich nicht angefordert habe.",
+      aiSetupCustomTag: "Benutzerdefiniert",
+      aiSetupDone: "Fertig",
+      aiSetupRunAgain: "Einrichtung erneut starten",
+      aiSetupTagCalendar: "Kalender",
+      aiSetupPromptCalendar:
+        "Kalendereinladungen und Terminänderungen, die ich brauche",
+      aiSetupTagTravel: "Reisen",
+      aiSetupPromptTravel:
+        "Reisebestätigungen und Reservierungen, die ich brauche",
+      aiSetupTagFinance: "Finanzen",
+      aiSetupPromptFinance: "Rechnungen und Kontoauszüge, die ich brauche",
+      priorityFeedbackLabel: "Feedback zur Wichtigkeit",
+      priorityScoreHigh: "Hohe Wichtigkeit",
+      priorityScoreMedium: "Mittlere Wichtigkeit",
+      priorityScoreLow: "Geringe Wichtigkeit",
+      priorityEditRules: "Wichtigkeitsregeln bearbeiten",
+      aiSetupContinue: "Weiter",
     },
     toolbar: {
       toggleMenu: "Menü umschalten",
@@ -47,7 +91,7 @@ const messages = {
       unpinSidebar: "Seitenleiste lösen",
       closeSidebar: "Seitenleiste schließen",
       settings: "Einstellungen",
-      aiSettings: "KI-Tags & Spam",
+      aiSettings: "Tags und Regeln verwalten",
     },
     search: {
       label: "Suchen",
@@ -63,6 +107,7 @@ const messages = {
       filtersLimitReached: "Du kannst bis zu 20 Filter speichern.",
     },
     tabSettings: {
+      splitInbox: "Geteilter Posteingang",
       views: "Ansichten",
       categories: "Kategorien",
       rename: "Umbenennen",
@@ -70,7 +115,8 @@ const messages = {
       savedFilters: "Gespeicherte Filter",
       combinedInbox: "Kombinierter Posteingang",
       allTab: "Alle-Tab",
-      help: "Alle enthält alle Threads im Posteingang. Markierte Labels teilen den Posteingang auf.",
+      help: "Der kombinierte Posteingang zeigt alle Konten zusammen. Deaktiviere ihn, um E-Mails auf Tabs aufzuteilen.",
+      aiSetup: "KI-Tags und Regeln einrichten",
     },
     accounts: {
       remove: "Entfernen",
@@ -440,6 +486,7 @@ const messages = {
       neverSpam: "Nunca spam",
       neverImportant: "Nunca importante",
       important: "Importante",
+      notImportant: "Nicht wichtig",
       star: "Destacar",
       trash: "Papelera",
       applyLabel: "Aplicar etiqueta",
@@ -515,11 +562,15 @@ const messages = {
       actionFailed: "Der KI-Filter konnte nicht aktualisiert werden.",
       settingsFailed:
         "Die Einstellungen des KI-Filters konnten nicht gespeichert werden.",
+      automationRulesLoadFailed: "Triage-Regeln konnten nicht geladen werden.",
       instructionFailed:
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
+      skipInboxMode: "Posteingang überspringen",
       spamMode: "Unerwünscht",
       tagMode: "Tag",
+      aiTagsTitle: "KI-Tags",
       importantMode: "Wichtig",
+      notImportantMode: "Nicht wichtig",
       importantLabel: "KI-Wichtig",
       reviewImportant: "Wichtige anzeigen",
       importantPlaceholder:
@@ -532,6 +583,8 @@ const messages = {
       spamPlaceholder:
         "z. B. Nachrichten, die eindeutig Werbung oder unerwünscht sind",
       tagPlaceholder: "z. B. Belege und Bestellbestätigungen von Onlineshops",
+      archivePlaceholder:
+        "z. B. GitHub-Bot-Benachrichtigungen, die keine Aufmerksamkeit benötigen",
       addShortcut: "⌘ Enter zum Hinzufügen",
       previewTitle: "Letzte E-Mails prüfen",
       previewDescription:
@@ -555,6 +608,18 @@ const messages = {
       previewEmpty:
         "Starte eine Vorschau, um wahrscheinliche Treffer zu sehen.",
       previewFailed: "Die aktuellen E-Mails konnten nicht geprüft werden.",
+      promptRulesCleared: "Triage-Regeln entfernt.",
+      tagTabsHelp: "Jedes Tag wird zu einem Tab im Posteingang",
+      addTag: "Tag hinzufügen",
+      triageTitle: "Triage",
+      connectJev: "Jev verbinden",
+      connectJevToRunTriage: "Verbinde Jev, um die Triage auszuführen",
+      freeBuilderOrApiKey:
+        "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
+      jevAvailabilityFailed:
+        "Die Verfügbarkeit von Jev konnte nicht geprüft werden.",
+      connectBuilder: "Builder.io verbinden",
+      addJevApiKey: "API-Schlüssel hinzufügen",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -751,7 +816,7 @@ const messages = {
     slackDraftQueueDescription:
       "Teammitglieder erwähnen den Agenten in Slack, um einen E-Mail-Entwurf anzufordern. Entwürfe warten in deiner Entwurfswarteschlange auf Prüfung.",
     openDraftQueue: "Entwurfswarteschlange öffnen",
-    aiFilter: "KI-Filter",
+    aiFilter: "Triage",
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",

@@ -686,6 +686,7 @@ const messages = {
     reviewFeedback: "フィードバック",
     reviewOutput: "回答をレビュー",
     reviewPreview: "回答をプレビュー",
+    reviewPreviewUnavailable: "プレビューを利用できません",
     closePreview: "プレビューを非表示",
     addFeedback: "フィードバックを追加",
     draftInstruction: "指示を下書き",

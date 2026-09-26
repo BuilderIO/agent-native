@@ -45,6 +45,7 @@ export function sameOwnerEmail(
 export async function getEventOwnerContext(event: H3Event): Promise<{
   userEmail: string;
   orgId?: string;
+  authUserId?: string;
 }> {
   const session = await getSession(event);
   if (!session?.email) {
@@ -61,7 +62,11 @@ export async function getEventOwnerContext(event: H3Event): Promise<{
       // Keep the auth context usable even if org resolution is unavailable.
     }
   }
-  return { userEmail: session.email, orgId: orgId ?? undefined };
+  return {
+    userEmail: session.email,
+    orgId: orgId ?? undefined,
+    ...(session.authUserId ? { authUserId: session.authUserId } : {}),
+  };
 }
 
 export async function getEventOwnerEmail(event: H3Event): Promise<string> {

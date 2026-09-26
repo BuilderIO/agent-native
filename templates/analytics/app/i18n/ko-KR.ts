@@ -150,6 +150,8 @@ export default {
     untitledAnalysis: "제목 없는 분석",
   },
   settings: {
+    agentObservability: "에이전트 관찰성",
+    reviewPreviewUnavailable: "미리보기를 사용할 수 없습니다",
     agentTitle: "에이전트 관리",
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",

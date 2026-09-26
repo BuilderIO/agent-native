@@ -5,7 +5,7 @@ import {
   SettingsRow,
 } from "@agent-native/core/client/settings";
 import { IconLoader2, IconPhoto } from "@tabler/icons-react";
-import { useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
   BRAND_COLOR_PRESETS,
   uploadLogo,
 } from "@/components/workspace/branding-editor";
+import { organizationLogoUrl } from "@/lib/organization-logo";
 
 import { LoadFailedRow } from "./load-failed-row";
 import { ReadOnlyValue } from "./read-only-value";
@@ -30,17 +31,9 @@ import {
 
 const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
 
-function LogoMark({
-  organization,
-}: {
-  organization: ClipsOrganizationBranding;
-}) {
-  return organization.brandLogoUrl ? (
-    <img
-      src={organization.brandLogoUrl}
-      alt=""
-      className="size-full rounded-md object-contain"
-    />
+function LogoMark({ src }: { src: string | null }) {
+  return src ? (
+    <img src={src} alt="" className="size-full rounded-md object-contain" />
   ) : (
     <IconPhoto aria-hidden="true" />
   );
@@ -49,9 +42,12 @@ function LogoMark({
 function LogoControl({
   organization,
   onSave,
+  onPreview,
 }: {
   organization: ClipsOrganizationBranding;
   onSave: (brandLogoUrl: string | null) => void;
+  /** A local preview of the file being uploaded; the logo route serves one URL per organization. */
+  onPreview: (previewUrl: string | null) => void;
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -63,9 +59,11 @@ function LogoControl({
       return;
     }
     setUploading(true);
+    onPreview(URL.createObjectURL(file));
     try {
-      onSave(await uploadLogo(file));
+      onSave(await uploadLogo(file, organization.id));
     } catch (err) {
+      onPreview(null);
       toast.error(
         err instanceof Error ? err.message : t("brandingEditor.uploadFailed"),
       );
@@ -82,7 +80,10 @@ function LogoControl({
           variant="ghost"
           size="sm"
           disabled={uploading}
-          onClick={() => onSave(null)}
+          onClick={() => {
+            onPreview(null);
+            onSave(null);
+          }}
         >
           {t("brandingEditor.remove")}
         </Button>
@@ -203,6 +204,14 @@ export function ClipsSharingGroup() {
   const t = useT();
   const state = useClipsOrganization();
   const save = useSaveClipsBranding(state.organization?.id ?? null);
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
+
+  useEffect(
+    () => () => {
+      if (logoPreviewUrl) URL.revokeObjectURL(logoPreviewUrl);
+    },
+    [logoPreviewUrl],
+  );
 
   if (state.hasOrganization === false) return null;
 
@@ -231,7 +240,14 @@ export function ClipsSharingGroup() {
     <SettingsGroup id="sharing" title={title}>
       <SettingsRow
         id="logo"
-        icon={<LogoMark organization={organization} />}
+        icon={
+          <LogoMark
+            src={
+              logoPreviewUrl ??
+              organizationLogoUrl(organization.brandLogoUrl, organization.id)
+            }
+          />
+        }
         label={t("brandingEditor.logo")}
         description={t("clipsSettings.logoDescription")}
         control={
@@ -239,6 +255,7 @@ export function ClipsSharingGroup() {
             <LogoControl
               organization={organization}
               onSave={(brandLogoUrl) => save({ brandLogoUrl })}
+              onPreview={setLogoPreviewUrl}
             />
           ) : (
             <ReadOnlyValue reason={adminsOnly} />

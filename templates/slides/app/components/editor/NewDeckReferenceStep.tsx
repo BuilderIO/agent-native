@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import type { AgentChatContextItem } from "@agent-native/toolkit/composer";
 import {
   IconArrowLeft,
   IconBrandFigma,
@@ -37,12 +38,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Deck } from "@/context/DeckContext";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
+import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
+import { isReferenceStorageReady } from "@/lib/prompt-file-uploads";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface NewDeckReferenceSelection {
+  composerContext?: SlidesComposerContext;
+  contextItems?: readonly AgentChatContextItem[];
   designSystemId?: string | null;
   referenceDeckId?: string | null;
   referenceFilePaths?: string[];
@@ -129,9 +135,11 @@ export function NewDeckReferenceStep({
   promptSummary,
 }: NewDeckReferenceStepProps) {
   const t = useT();
-  const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
+  const systemsEnabled = useDesignSystemWorkflows();
+  const [chosenDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null
   >(resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId));
+  const selectedDesignSystemId = systemsEnabled ? chosenDesignSystemId : null;
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
@@ -146,6 +154,9 @@ export function NewDeckReferenceStep({
   const [continuing, setContinuing] = useState(false);
   const [importingSource, setImportingSource] =
     useState<FileImportSource | null>(null);
+  const [fileStorageStatus, setFileStorageStatus] = useState<
+    "checking" | "available" | "unavailable" | "unknown"
+  >("checking");
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
@@ -178,6 +189,24 @@ export function NewDeckReferenceStep({
     setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setFileStorageStatus("checking");
+    void isReferenceStorageReady()
+      .then((configured) => {
+        if (!cancelled) {
+          setFileStorageStatus(configured ? "available" : "unavailable");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFileStorageStatus("unknown");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -334,45 +363,47 @@ export function NewDeckReferenceStep({
             </p>
           )}
           <div className="mt-10 space-y-6">
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {designSystemLabel}
-                </span>
-                {designSystems.length === 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowDesignSystemSetup(true)}
-                    className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
-                  >
-                    {t("home.addDesignSystem")}
-                  </button>
-                )}
-              </div>
-              <Select
-                value={selectedDesignSystemId ?? "none"}
-                onValueChange={(value) => {
-                  designSystemAutoRef.current = false;
-                  setSelectedDesignSystemId(value === "none" ? null : value);
-                  setSelectedSource(null);
-                }}
-              >
-                <SelectTrigger
-                  className="w-full"
-                  disabled={designSystems.length === 0 || busy}
+            {systemsEnabled && (
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {designSystemLabel}
+                  </span>
+                  {designSystems.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowDesignSystemSetup(true)}
+                      className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
+                    >
+                      {t("home.addDesignSystem")}
+                    </button>
+                  )}
+                </div>
+                <Select
+                  value={selectedDesignSystemId ?? "none"}
+                  onValueChange={(value) => {
+                    designSystemAutoRef.current = false;
+                    setSelectedDesignSystemId(value === "none" ? null : value);
+                    setSelectedSource(null);
+                  }}
                 >
-                  <SelectValue placeholder={designSystemLabel} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t("home.none")}</SelectItem>
-                  {designSystems.map((designSystem) => (
-                    <SelectItem key={designSystem.id} value={designSystem.id}>
-                      {designSystem.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                  <SelectTrigger
+                    className="w-full"
+                    disabled={designSystems.length === 0 || busy}
+                  >
+                    <SelectValue placeholder={designSystemLabel} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">{t("home.none")}</SelectItem>
+                    {designSystems.map((designSystem) => (
+                      <SelectItem key={designSystem.id} value={designSystem.id}>
+                        {designSystem.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="grid gap-2">
               <span className="text-xs font-medium text-muted-foreground">
@@ -487,7 +518,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pptx"}
                   importingLabel={importingLabel}
-                  disabled={busy}
+                  disabled={busy || fileStorageStatus !== "available"}
                   onChange={(event) => void handleImport(event, "pptx")}
                 />
                 <FileImportOption
@@ -498,7 +529,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pdf"}
                   importingLabel={importingLabel}
-                  disabled={busy}
+                  disabled={busy || fileStorageStatus !== "available"}
                   onChange={(event) => void handleImport(event, "pdf")}
                 />
                 <FileImportOption
@@ -509,7 +540,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "docx"}
                   importingLabel={importingLabel}
-                  disabled={busy}
+                  disabled={busy || fileStorageStatus !== "available"}
                   onChange={(event) => void handleImport(event, "docx")}
                 />
                 <ImportOption
@@ -541,6 +572,16 @@ export function NewDeckReferenceStep({
                   onClick={() => chooseSource("figma")}
                 />
               </div>
+              {fileStorageStatus === "unavailable" && (
+                <p className="mt-3 text-sm text-destructive" role="alert">
+                  {t("home.referenceFileStorageUnavailable")}
+                </p>
+              )}
+              {fileStorageStatus === "unknown" && (
+                <p className="mt-3 text-sm text-destructive" role="alert">
+                  {t("editorToolbar.importFailedDescription")}
+                </p>
+              )}
               {selectedSource && (
                 <Input
                   autoFocus

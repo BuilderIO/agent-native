@@ -320,10 +320,16 @@ A worktree-created branch is a normal, valid PR source. Do not ask an agent to
 copy its changes into the shared checkout before reviewing or approving. Read
 the remote PR diff as the source of truth. If this skill needs to update a PR
 from a worktree, keep all GitHub and Git commands in that worktree's cwd and
-current branch, publish the complete nonignored snapshot with
-`corepack pnpm ship:push`, and update the existing PR instead of creating a
-second one. Never reset, rebase, stash, or overwrite local work without
-explicit authorization.
+current branch, batch all currently known actionable fixes into one complete
+snapshot, and publish it with `corepack pnpm ship:push -m` plus a subject
+naming the actual fix (for example, `fix: deduplicate chat start checkpoints`).
+The helper refuses an omitted or generic subject. Update the existing PR
+instead of creating a second one. Never reset, rebase, stash, or overwrite
+local work without explicit authorization.
+
+Rebase or merge `origin/main` only when GitHub reports an actual conflict; for
+a shared branch, prefer a normal merge. Never sync just to clear a behind
+count or restart checks.
 
 ## End-of-run recap
 

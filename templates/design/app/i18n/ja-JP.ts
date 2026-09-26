@@ -585,6 +585,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "ライブコラボレーション",
+      description:
+        "オーナーの localhost にアクセスできない人も、このデザインのライブコピーを表示・編集できるようにします。",
+      enabled: "オン",
+      disabled: "オフ",
+      saving: "保存中…",
+      enableError: "ライブコラボレーションを更新できませんでした。",
+    },
     vectorEndpoints: {
       startPoint: "始点",
       endPoint: "終点",
@@ -1653,7 +1662,66 @@ export default {
       "このビューを離れたため、未送信のコメント下書き {{count}} 件が破棄されました。",
     staleAnchorDetail: "元の要素がキャンバス上に見つかりません。",
   },
+  homeContext: {
+    websiteReference: "ウェブサイトを添付",
+    websiteUrlLabel: "ウェブサイトのURL",
+    websiteUrl: "ウェブサイトのURLを貼り付け",
+    figmaUrlLabel: "Figmaリンク",
+    invalidFigmaUrl:
+      "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
+    tooMany: "参照は20件まで選択できます。",
+    invalidWebsiteUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",
+    createSystem: "デザインシステムを作成",
+    noSystems:
+      "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
+    searchSystems: "デザインシステムを検索…",
+    searchFrames: "Figmaフレームを検索…",
+    searchDesigns: "デザインを検索…",
+    searchPresentations: "プレゼンテーションを検索…",
+    searchDesign: "デザインを検索…",
+    useDesignSystem: "デザインシステムを使用",
+    notReady:
+      "まだ送信できません。選択したコンテキストと接続を確認して、再試行してください。",
+    search: "コンテキストを検索…",
+    figmaUrl: "Figmaリンクを貼り付け",
+    browse: "フレームを参照",
+    loadFailed: "この参照を読み込めませんでした。",
+    retry: "再試行",
+    empty: "一致する参照がありません。",
+    none: "なし",
+    design: "デザイン",
+    slides: "スライド",
+    referenceDesign: "デザインを参照",
+    figmaReference: "Figmaを添付",
+    referenceDeck: "プレゼンテーションを参照",
+    quickSaas: "SaaS ランディングページを作成",
+    quickDashboard: "ダッシュボードを作成",
+    quickDeck: "スライドを作成",
+    deckPrompt:
+      "タイトルスライド、明確なストーリー、視覚化されたデータ、簡潔な締めのスライドを含む洗練されたプレゼンテーションを作成してください。",
+  },
   home: {
+    suggestedPrompts: "おすすめのプロンプト",
+    import: "インポート",
+    importOptions: "インポートオプション",
+    figmaLink: "Figmaリンク",
+    importFromFigma: "Figma からインポート",
+    figmaFile: "Figma ファイル (.fig)",
+    openImport: "インポートを開く",
+    importSelectedFile: "選択したファイルをインポート",
+    starterSaasPrompt:
+      "ダークテーマのモダンなSaaSランディングページ。ヒーローセクション、3枚の機能カード、最後の行動喚起セクションを配置してください。",
+    starterDashboardPrompt:
+      "サイドナビゲーション、4枚の主要指標カード、グラフ、最近のアクティビティの表を備えた、すっきりとした分析ダッシュボード。",
+    starterMobilePrompt:
+      "スマートフォンのフレーム内に表示するモバイルアプリのプロトタイプ。下部にタブバーを配置し、ホーム画面には3枚のリストカードを表示してください。",
+    starterPricingPrompt:
+      "月払い・年払いの切り替え、機能チェックリスト、おすすめプランの強調表示を備えた3段階の料金ページ。",
+    designPromptTitle: "最初のデザインを作りましょう",
+    recent: "最近",
+    browseAllTemplates: "すべて見る",
+    connectBuilderIo: "Builder.io に接続",
+    connectingBuilder: "Builder.io に接続中…",
     pageTitle: "Design",
     searchPlaceholder: "デザインを検索...",
     newDesign: "新しいDesign",
@@ -1719,6 +1787,8 @@ export default {
     layoutLabel: "保存できる画面レイアウト",
   },
   templatesPage: {
+    previewEmpty: "このテンプレートにはプレビューできる画面がありません。",
+    loading: "テンプレートを読み込み中",
     title: "テンプレート",
     description:
       "適切な寸法と既定値から始め、ロックされていない内容をプロンプトで調整します。",
@@ -1747,7 +1817,7 @@ export default {
     deleteTitle: "テンプレートを削除しますか？",
     deleteDescription:
       "{{title}} を完全に削除します。すでに作成済みのデザインには影響しません。",
-    templateActions: "テンプレート操作",
+    templateActions: "{{title}} の操作",
     lockedCount: "{{count}} 個をロック",
     categories: {
       ad: "広告",

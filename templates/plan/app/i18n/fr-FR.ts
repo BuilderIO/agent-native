@@ -735,6 +735,12 @@ const messages = {
       share: "Partager {{noun}}",
       shareAria: "Partager {{noun}}",
       shareThis: "Partager ceci {{noun}}",
+      teammateSuggestion: {
+        message: "Invitez votre équipe dans Plan.",
+        invite: "Inviter l’équipe",
+        enableDomain: "Autoriser toute personne de @{{domain}} à rejoindre",
+        enableFailed: "Impossible d’activer l’accès par domaine. Réessayez.",
+      },
       signedInRetry: "Je suis connecté - réessayez",
       updateLink: "Lien de mise à jour",
       updating: "Mise à jour",

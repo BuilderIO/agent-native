@@ -33,7 +33,7 @@ export default createCoreRoutesPlugin({
 - `database: "off"` または `false`。生のデータベースツールをエージェントのサーフェスから取り除き、アプリのアクションだけがデータアクセス経路になるようにします。
 - `extensions: true`。アプリをフレームワークの拡張機能管理アクションとプロンプトガイダンス（`create-extension`、`update-extension` など）にオプトインさせます。認証済みの REST 作成を許可するには、core-routes プラグインでも `extensionTools: true` を設定してください。拡張機能はデフォルトで無効です。
 
-残りのグループはすべてブール値で、デフォルトではすべて有効です: `sharing`、`review`、`history`、`featureFlags`、`localization`、`audit`、`contextXray`、`userProfile`、`automation`、`docs`、`resources`、`web`、`workspaceApps`、`chat`、`email`。ボイスファーストや単一目的のアプリでは、`frameworkTools: "minimal"` を使ってすべてのグループを一度に無効にするか、`frameworkTools: { preset: "minimal", resources: true }` として 1 つだけ残します。明示的なグループキーは常にプリセットより優先されます。
+残りのグループはすべてブール値で、デフォルトではすべて有効です: `sharing`、`review`、`history`、`featureFlags`、`localization`、`audit`、`contextXray`、`userProfile`、`automation`、`docs`、`resources`、`browserSessions`、`web`、`workspaceApps`、`chat`、`email`。ボイスファーストや単一目的のアプリでは、`frameworkTools: "minimal"` を使ってすべてのグループを一度に無効にするか、`frameworkTools: { preset: "minimal", resources: true }` として 1 つだけ残します。明示的なグループキーは常にプリセットより優先されます。
 
 グループを無効にすると、それが取り除かれるのは**エージェント**のサーフェスからだけです。インタラクティブチャット、MCP、A2A、バックグラウンド実行が対象です。対応する HTTP アクションルートはマウントされたままです。UI はクライアントフックを通じてそれらに到達するためです。`sharing` を無効にしても、画面に表示されたままの共有ダイアログを 404 にしてはいけません。使う前にこのパリティコストを検討してください。フレームワークの契約は、UI にできることはエージェントにもできるというものなので、表示されている共有ボタンの隣で `sharing: false` にするのは意図的な破棄であり、アプリにそもそもそのようなサーフェスが一切ない場合にのみ意味を持ちます。
 

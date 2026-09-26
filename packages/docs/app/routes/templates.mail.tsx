@@ -1,12 +1,13 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import type { MouseEvent } from "react";
+import { useRef, type MouseEvent } from "react";
 
-import { BuilderImage } from "../components/builder-image";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
+import { MailProductMock } from "../components/template-landing/MailProductMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { usePrefersReducedMotion } from "../components/use-prefers-reduced-motion";
 import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
@@ -51,19 +52,25 @@ const template = templates.find((t) => t.slug === "mail")!;
 
 const USE_CASES = [
   {
-    id: "catch-up-on-conversations",
+    id: "priority-sorting",
+    variant: "jev",
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
+    textLeft: true,
   },
   {
-    id: "reply-to-customers-and-colleagues",
+    id: "ai-labeling",
+    variant: "labels",
     titleKey: "useCase2Title",
     bodyKey: "useCase2Body",
+    textLeft: false,
   },
   {
-    id: "sort-through-your-inbox",
+    id: "background-automations",
+    variant: "automations",
     titleKey: "useCase3Title",
     bodyKey: "useCase3Body",
+    textLeft: true,
   },
 ] as const;
 
@@ -94,7 +101,7 @@ const KEY_FEATURES = [
     bodyKey: "feature5Body",
   },
   {
-    id: "scheduled-sends-and-snooze",
+    id: "ai-spam-filter",
     titleKey: "feature6Title",
     bodyKey: "feature6Body",
   },
@@ -118,11 +125,15 @@ const HERO_WRAPPER_CLASS =
 
 export default function MailTemplate() {
   const t = useT();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const { current, initial, autoplayStopped } =
+    usePrefersReducedMotion(videoRef);
+  const shouldAutoplay = current === false && !autoplayStopped;
+  const shouldMute = initial !== true;
 
   return (
     <div className="builder-brand-tokens">
-      {/* Hero — copy and layout updated to match Slides/Clips; existing hero
-          screenshot kept since there's no newer Mail asset yet. */}
+      {/* Lead with Jev's inbox cleanup story, then show the recreated app below. */}
       <div className={HERO_WRAPPER_CLASS}>
         <TemplateHero
           title={t("templateLanding.mail.heroTitle")}
@@ -159,19 +170,28 @@ export default function MailTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <BuilderImage
-              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F22d9ae0ae42849a489bd5a572c79fdb8"
-              crossOrigin="anonymous"
-              alt={t("templateLanding.mail.s001")}
-              loading="lazy"
-              decoding="async"
-              className="h-auto max-h-[536px] w-full object-cover object-top"
-            />
+            <div className="mx-6 sm:mx-10">
+              <div className="aspect-video overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-black">
+                <video
+                  ref={videoRef}
+                  src="/videos/mail-jev-story.mp4"
+                  poster="/videos/mail-jev-story-poster.jpg"
+                  aria-label={t("templateLanding.mail.heroDescription")}
+                  autoPlay={shouldAutoplay}
+                  muted={shouldMute}
+                  loop
+                  playsInline
+                  controls
+                  preload="metadata"
+                  className="block h-full w-full object-cover"
+                />
+              </div>
+            </div>
           }
         />
       </div>
 
-      {/* What can you do with Mail? — three use-case cards */}
+      {/* What can you do with Mail? — inbox, reply, and triage workflows */}
       <PageSection>
         <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
@@ -183,14 +203,58 @@ export default function MailTemplate() {
         </GridInner>
 
         <GridInner>
-          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
-            {USE_CASES.map((useCase) => (
-              <ContentCard
-                key={useCase.id}
-                title={t(`templateLanding.mail.${useCase.titleKey}`)}
-                body={t(`templateLanding.mail.${useCase.bodyKey}`)}
-              />
-            ))}
+          <div className="flex flex-col border-t border-x border-solid border-[var(--b-border-subtle)]">
+            {USE_CASES.map((useCase) => {
+              const textBlock = (
+                <div
+                  key="text"
+                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                    {t(`templateLanding.mail.${useCase.titleKey}`)}
+                  </h3>
+                  <p className="m-0 max-w-[420px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                    {t(`templateLanding.mail.${useCase.bodyKey}`)}
+                  </p>
+                </div>
+              );
+
+              const mediaBlock = (
+                <div
+                  key="media"
+                  className="order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <MailProductMock
+                    variant={useCase.variant}
+                    className={
+                      useCase.variant === "jev"
+                        ? "h-[380px] w-full max-w-[540px] lg:h-[480px] lg:max-w-none mm-jev-art"
+                        : "h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
+                    }
+                    label={t(`templateLanding.mail.${useCase.titleKey}`)}
+                  />
+                </div>
+              );
+
+              return (
+                <div
+                  key={useCase.id}
+                  className="grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 lg:grid-cols-[1fr_1.25fr]"
+                >
+                  {useCase.textLeft ? (
+                    <>
+                      {textBlock}
+                      {mediaBlock}
+                    </>
+                  ) : (
+                    <>
+                      {mediaBlock}
+                      {textBlock}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </GridInner>
       </PageSection>

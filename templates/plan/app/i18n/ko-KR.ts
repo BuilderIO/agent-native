@@ -383,6 +383,12 @@ const messages = {
       shareAria: "{{noun}} 공유",
       share: "{{noun}} 공유",
       shareThis: "{{noun}} 공유",
+      teammateSuggestion: {
+        message: "팀원을 Plan에 초대하세요.",
+        invite: "팀원 초대",
+        enableDomain: "@{{domain}}의 누구나 참여 허용",
+        enableFailed: "도메인 참여를 설정하지 못했습니다. 다시 시도하세요.",
+      },
       hostedCopy:
         "이 로컬 {{noun}}에는 공유를 위한 호스팅된 사본이 있습니다. 액세스를 관리하려면 호스팅된 {{noun}}을 엽니다.",
       publishDescription:

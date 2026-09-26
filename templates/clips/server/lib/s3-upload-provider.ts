@@ -15,8 +15,19 @@
  *   S3_PUBLIC_BASE_URL | R2_PUBLIC_BASE_URL — optional (for public read URLs)
  */
 
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import type { FileUploadProvider } from "@agent-native/core/file-upload";
-import { resolveSecret } from "@agent-native/core/server";
+import {
+  type PrivateBlobHandle,
+  type PrivateBlobProvider,
+} from "@agent-native/core/private-blob";
+import { readAppSecret } from "@agent-native/core/secrets";
+import { getRequestOrgId, resolveSecret } from "@agent-native/core/server";
+
+import {
+  legacyOrganizationLogoObjectKey,
+  ORGANIZATION_LOGO_PURPOSE,
+} from "../../shared/organization-logo.js";
 
 interface S3Config {
   region: string;
@@ -41,6 +52,17 @@ const S3_PUT_TIMEOUT_MS = 120_000;
 const S3_DELETE_TIMEOUT_MS = 30_000;
 const S3_MULTIPART_MIN_PART_BYTES = 5 * 1024 * 1024;
 const S3_MULTIPART_MAX_PARTS = 10_000;
+const S3_ORGANIZATION_LOGO_PROVIDER_ID = "clips-s3-organization-logos";
+
+export class S3StorageError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = "S3StorageError";
+  }
+}
 
 async function fetchWithTimeout(
   url: string,
@@ -48,10 +70,18 @@ async function fetchWithTimeout(
   timeoutMs: number,
 ): Promise<Response> {
   try {
-    return await fetch(url, {
-      ...init,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    return await ssrfSafeFetch(
+      url,
+      {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs),
+      },
+      {
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: [new URL(url).origin],
+      },
+    );
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
       const timeoutError = new Error(
@@ -96,21 +126,30 @@ function buildS3Config(values: {
 }
 
 function readS3EnvConfig(): S3Config | null {
-  const env = process.env;
   return buildS3Config({
-    bucket: env.S3_BUCKET || env.R2_BUCKET,
-    accessKeyId: env.S3_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.S3_SECRET_ACCESS_KEY || env.R2_SECRET_ACCESS_KEY,
-    endpoint: env.S3_ENDPOINT || env.R2_ENDPOINT,
-    region: env.S3_REGION || env.R2_REGION,
-    publicBaseUrl: env.S3_PUBLIC_BASE_URL || env.R2_PUBLIC_BASE_URL,
+    bucket: readS3EnvSecret("S3_BUCKET", "R2_BUCKET"),
+    accessKeyId: readS3EnvSecret("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+    secretAccessKey: readS3EnvSecret(
+      "S3_SECRET_ACCESS_KEY",
+      "R2_SECRET_ACCESS_KEY",
+    ),
+    endpoint: readS3EnvSecret("S3_ENDPOINT", "R2_ENDPOINT"),
+    region: readS3EnvSecret("S3_REGION", "R2_REGION"),
+    publicBaseUrl: readS3EnvSecret("S3_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"),
   });
+}
+
+function readS3EnvSecret(
+  primary: string,
+  fallback: string,
+): string | undefined {
+  return cleanValue(process.env[primary]) ?? cleanValue(process.env[fallback]);
 }
 
 async function resolveS3Secret(primary: string, fallback: string) {
   return (
-    cleanValue(await resolveSecret(primary).catch(() => null)) ??
-    cleanValue(await resolveSecret(fallback).catch(() => null))
+    cleanValue(await resolveSecret(primary)) ??
+    cleanValue(await resolveSecret(fallback))
   );
 }
 
@@ -125,6 +164,71 @@ async function readS3Config(): Promise<S3Config | null> {
     endpoint: await resolveS3Secret("S3_ENDPOINT", "R2_ENDPOINT"),
     region: await resolveS3Secret("S3_REGION", "R2_REGION"),
     publicBaseUrl: await resolveS3Secret(
+      "S3_PUBLIC_BASE_URL",
+      "R2_PUBLIC_BASE_URL",
+    ),
+  });
+}
+
+async function resolveOrganizationLogoS3Secret(
+  organizationId: string,
+  primary: string,
+  fallback: string,
+) {
+  return (
+    cleanValue(
+      (
+        await readAppSecret({
+          key: primary,
+          scope: "workspace",
+          scopeId: organizationId,
+        })
+      )?.value,
+    ) ??
+    cleanValue(
+      (
+        await readAppSecret({
+          key: fallback,
+          scope: "workspace",
+          scopeId: organizationId,
+        })
+      )?.value,
+    ) ??
+    readS3EnvSecret(primary, fallback)
+  );
+}
+
+async function readOrganizationLogoS3Config(
+  organizationId: string,
+): Promise<S3Config | null> {
+  return buildS3Config({
+    bucket: await resolveOrganizationLogoS3Secret(
+      organizationId,
+      "S3_BUCKET",
+      "R2_BUCKET",
+    ),
+    accessKeyId: await resolveOrganizationLogoS3Secret(
+      organizationId,
+      "S3_ACCESS_KEY_ID",
+      "R2_ACCESS_KEY_ID",
+    ),
+    secretAccessKey: await resolveOrganizationLogoS3Secret(
+      organizationId,
+      "S3_SECRET_ACCESS_KEY",
+      "R2_SECRET_ACCESS_KEY",
+    ),
+    endpoint: await resolveOrganizationLogoS3Secret(
+      organizationId,
+      "S3_ENDPOINT",
+      "R2_ENDPOINT",
+    ),
+    region: await resolveOrganizationLogoS3Secret(
+      organizationId,
+      "S3_REGION",
+      "R2_REGION",
+    ),
+    publicBaseUrl: await resolveOrganizationLogoS3Secret(
+      organizationId,
       "S3_PUBLIC_BASE_URL",
       "R2_PUBLIC_BASE_URL",
     ),
@@ -181,6 +285,13 @@ function rfc3986(str: string): string {
 
 function objectUri(cfg: S3Config, key: string): string {
   return `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
+}
+
+export class S3MultipartStartError extends Error {
+  constructor(readonly status: number) {
+    super(`S3 CreateMultipartUpload failed (${status})`);
+    this.name = "S3MultipartStartError";
+  }
 }
 
 function canonicalQueryString(query: Record<string, string>): string {
@@ -406,11 +517,132 @@ async function getObject(cfg: S3Config, key: string): Promise<Uint8Array> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(
+    throw new S3StorageError(
       `S3 GetObject failed (${res.status}): ${text || res.statusText}`,
+      res.status,
     );
   }
   return new Uint8Array(await res.arrayBuffer());
+}
+
+function privateLogoKey(organizationId: string, objectId: string): string {
+  return `clips/organization-branding/${Buffer.from(organizationId).toString("base64url")}/${objectId}`;
+}
+
+function privateLogoHandleKey(handle: PrivateBlobHandle): string | null {
+  const organizationId = handle.metadata?.organizationId;
+  if (
+    typeof organizationId !== "string" ||
+    !organizationId ||
+    handle.metadata?.purpose !== ORGANIZATION_LOGO_PURPOSE ||
+    typeof handle.id !== "string"
+  ) {
+    return null;
+  }
+  const prefix = privateLogoKey(organizationId, "").slice(0, -1);
+  if (!handle.id.startsWith(`${prefix}/`)) return null;
+  const objectId = handle.id.slice(prefix.length + 1);
+  return /^[0-9a-f-]{36}\.(?:png|jpe?g|gif|webp)$/i.test(objectId)
+    ? handle.id
+    : null;
+}
+
+const PRIVATE_LOGO_EXTENSIONS: Record<string, string> = {
+  "image/gif": "gif",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+export const clipsOrganizationLogoPrivateBlobProvider: PrivateBlobProvider = {
+  id: S3_ORGANIZATION_LOGO_PROVIDER_ID,
+  name: "Clips organization logo storage",
+  isConfigured: () => readS3EnvConfig() !== null,
+  isConfiguredForRequest: async () => {
+    const organizationId = getRequestOrgId();
+    return organizationId
+      ? (await readOrganizationLogoS3Config(organizationId)) !== null
+      : false;
+  },
+  async put(input) {
+    const organizationId = input.metadata?.organizationId;
+    const extension = input.mimeType
+      ? PRIVATE_LOGO_EXTENSIONS[input.mimeType]
+      : undefined;
+    if (typeof organizationId !== "string" || !organizationId || !extension) {
+      throw new Error(
+        "Clips logo storage requires an organization and image MIME type",
+      );
+    }
+    const cfg = await readOrganizationLogoS3Config(organizationId);
+    if (!cfg) {
+      throw new S3StorageError("S3 credentials are not configured", 503);
+    }
+    const bytes =
+      input.data instanceof Uint8Array
+        ? input.data
+        : new Uint8Array(input.data);
+    const objectId = `${crypto.randomUUID()}.${extension}`;
+    const id = privateLogoKey(organizationId, objectId);
+    await putObject(cfg, id, bytes, input.mimeType!);
+    return {
+      id,
+      provider: S3_ORGANIZATION_LOGO_PROVIDER_ID,
+      opaque: true,
+      encrypted: false,
+      mimeType: input.mimeType,
+      size: bytes.byteLength,
+      createdAt: new Date().toISOString(),
+      metadata: input.metadata,
+    };
+  },
+  async read(handle) {
+    const organizationId = handle.metadata?.organizationId;
+    const key = privateLogoHandleKey(handle);
+    if (!key || typeof organizationId !== "string") {
+      throw new Error("Clips organization logo handle is invalid");
+    }
+    const cfg = await readOrganizationLogoS3Config(organizationId);
+    if (!cfg) {
+      throw new S3StorageError("S3 credentials are not configured", 503);
+    }
+    return {
+      data: await getObject(cfg, key),
+      mimeType: handle.mimeType,
+      metadata: handle.metadata,
+      handle,
+    };
+  },
+  async delete(handle) {
+    const organizationId = handle.metadata?.organizationId;
+    const key = privateLogoHandleKey(handle);
+    if (!key || typeof organizationId !== "string") {
+      throw new Error("Clips organization logo handle is invalid");
+    }
+    const cfg = await readOrganizationLogoS3Config(organizationId);
+    if (!cfg) {
+      throw new S3StorageError("S3 credentials are not configured", 503);
+    }
+    await deleteObject(cfg, key);
+    return { deleted: true, provider: S3_ORGANIZATION_LOGO_PROVIDER_ID };
+  },
+};
+
+/** Read pre-handle S3 logo URLs from the currently configured bucket. */
+export async function fetchS3OrganizationLogoByLegacyUrl(
+  url: string,
+  organizationId: string,
+): Promise<Response | null> {
+  const key = legacyOrganizationLogoObjectKey(url);
+  if (!key) return null;
+  const cfg = await readOrganizationLogoS3Config(organizationId);
+  if (!cfg) {
+    throw new S3StorageError("S3 credentials are not configured", 503);
+  }
+  return signedS3Request(cfg, key, {
+    method: "GET",
+    timeoutMs: S3_PUT_TIMEOUT_MS,
+  });
 }
 
 function xmlElement(xml: string, name: string): string | null {
@@ -686,9 +918,7 @@ export const s3FileUploadProvider: FileUploadProvider = {
       });
       const body = await res.text().catch(() => "");
       if (!res.ok) {
-        throw new Error(
-          `S3 CreateMultipartUpload failed (${res.status}): ${body || res.statusText}`,
-        );
+        throw new S3MultipartStartError(res.status);
       }
       const uploadId = xmlElement(body, "UploadId");
       if (!uploadId) {

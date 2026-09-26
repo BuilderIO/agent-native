@@ -30,6 +30,18 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   LanguagePicker: () => <div data-testid="language-picker" />,
 }));
 
+vi.mock("@agent-native/core/client/navigation", () => ({
+  buildSettingsRoute: (section: string) => `/settings/${section}`,
+}));
+
+vi.mock("@agent-native/core/client/observability", () => ({
+  ObservabilityDashboard: () => null,
+}));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => ({ data: undefined, isLoading: false, isError: false }),
+}));
+
 vi.mock("@agent-native/core/client/settings", () => ({
   AccountSettingsCard: () => null,
   SettingsGroup: ({ children }: { children: ReactNode }) => (

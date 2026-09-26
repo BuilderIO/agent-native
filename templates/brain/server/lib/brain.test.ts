@@ -649,6 +649,13 @@ vi.mock("h3", () => ({
 
 vi.mock("@agent-native/core/credentials", () => ({
   resolveCredential: vi.fn(async () => "test-token"),
+  resolveCredentialDetailed: vi.fn(
+    async (_key: string, ctx: { userEmail: string }) => ({
+      value: "test-token",
+      scope: "user",
+      scopeId: ctx.userEmail,
+    }),
+  ),
 }));
 
 vi.mock("@agent-native/core/workspace-connections", () => ({

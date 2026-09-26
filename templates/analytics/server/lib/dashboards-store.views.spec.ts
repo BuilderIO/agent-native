@@ -144,7 +144,16 @@ vi.mock("@agent-native/core/sharing", () => ({
     state.accessCalls.push(args);
     return state.accessResult;
   },
-  roleSatisfies: () => true,
+  roleSatisfies: (role: string, minimum: string) => {
+    const ranks: Record<string, number> = {
+      viewer: 1,
+      commenter: 2,
+      editor: 3,
+      admin: 4,
+      owner: 5,
+    };
+    return (ranks[role] ?? -1) >= (ranks[minimum] ?? Infinity);
+  },
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -172,7 +181,11 @@ vi.mock("../db/index.js", () => ({
             );
           }
           if (table === dashboards) {
-            return rowsResult(state.dashboardRow ? [state.dashboardRow] : []);
+            return rowsResult(
+              state.dashboardRow && matches(predicate, state.dashboardRow)
+                ? [state.dashboardRow]
+                : [],
+            );
           }
           return rowsResult([]);
         },
@@ -210,7 +223,7 @@ vi.mock("../db/index.js", () => ({
   }),
 }));
 
-const { deleteDashboardView, saveDashboardView } =
+const { deleteDashboardView, getOrgDashboardForReview, saveDashboardView } =
   await import("./dashboards-store.js");
 
 beforeEach(() => {
@@ -239,6 +252,33 @@ beforeEach(() => {
 });
 
 describe("dashboard views", () => {
+  it("reads review dashboards only from the requested org without migrating legacy rows", async () => {
+    state.dashboardRow = {
+      ...dashboard,
+      orgId: "org-a",
+      visibility: "private",
+      config: JSON.stringify({ name: "Review", panels: [] }),
+    };
+    state.legacyDashboard = { name: "Legacy", panels: [] };
+
+    const result = await getOrgDashboardForReview("dashboard-a", "org-a");
+    const otherOrgResult = await getOrgDashboardForReview(
+      "dashboard-a",
+      "org-b",
+    );
+
+    expect(result).toMatchObject({
+      id: "dashboard-a",
+      orgId: "org-a",
+      role: "viewer",
+      canEdit: false,
+      canManage: false,
+    });
+    expect(otherOrgResult).toBeNull();
+    expect(state.accessCalls).toEqual([]);
+    expect(state.dashboardRow?.orgId).toBe("org-a");
+  });
+
   it("checks parent access without loading the dashboard config", async () => {
     const { listDashboardViews } = await import("./dashboards-store.js");
 

@@ -5,6 +5,9 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { useOrg } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -20,7 +23,7 @@ import {
   createCreativeContextAgentTab,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
-import { IconBell, IconDatabase } from "@tabler/icons-react";
+import { IconActivity, IconBell, IconDatabase } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -33,6 +36,7 @@ import {
   ANALYTICS_USER_PREFS_KEY,
   type AnalyticsUserPrefs,
 } from "../../shared/analytics-user-prefs";
+import { AnalyticsReviewArtifactPreview } from "../components/AnalyticsReviewArtifactPreview";
 import { useReplayStorageStatus } from "../hooks/use-replay-storage-status";
 import { ReplayStorageHint } from "./sessions/SessionsPage";
 import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
@@ -109,6 +113,11 @@ export default function Settings() {
   const creativeContextEnabled = useCreativeContextLab();
   const replayStorageStatus = useReplayStorageStatus();
   const preferences = useNotificationPreferences();
+  const {
+    data: activeOrg,
+    isLoading: orgLoading,
+    isError: orgError,
+  } = useOrg();
 
   const bellSoundRow = (
     <SettingsRow
@@ -154,6 +163,44 @@ export default function Settings() {
     agentAdditionalContent: redesign ? undefined : bellSoundRow,
     agentAdditionalTabFactories,
   });
+  const observabilityBasePath = buildSettingsRoute("observability");
+  const observabilityTabs = useMemo<SettingsTabItem[]>(
+    () =>
+      !orgLoading &&
+      !orgError &&
+      activeOrg?.orgId &&
+      (activeOrg.role === "owner" || activeOrg.role === "admin")
+        ? [
+            {
+              id: "observability",
+              label: t("settings.agentObservability"),
+              icon: IconActivity,
+              group: "agent",
+              href: `${observabilityBasePath}/overview`,
+              content: (
+                <ObservabilityDashboard
+                  routeBasePath={observabilityBasePath}
+                  showHumanReview
+                  renderArtifactPreview={(artifact, compact) => (
+                    <AnalyticsReviewArtifactPreview
+                      artifactId={artifact.artifactId}
+                      compact={compact}
+                    />
+                  )}
+                />
+              ),
+            },
+          ]
+        : [],
+    [
+      activeOrg?.orgId,
+      activeOrg?.role,
+      observabilityBasePath,
+      orgError,
+      orgLoading,
+      t,
+    ],
+  );
   const labs = useMemo(
     () => [
       {
@@ -179,8 +226,14 @@ export default function Settings() {
         ),
       },
       ...agentSettingsTabs,
+      ...observabilityTabs,
     ],
-    [agentSettingsTabs, t],
+    [agentSettingsTabs, observabilityTabs, t],
+  );
+
+  const redesignTabs = useMemo<SettingsTabItem[]>(
+    () => [...agentSettingsTabs, ...observabilityTabs],
+    [agentSettingsTabs, observabilityTabs],
   );
 
   const appAreas = useMemo<SettingsAppArea[]>(
@@ -234,7 +287,7 @@ export default function Settings() {
       <SettingsTabsPage
         account={<AccountSettingsCard />}
         whatsNewLabel={t("root.whatsNew")}
-        extraTabs={agentSettingsTabs}
+        extraTabs={redesignTabs}
         appAreas={appAreas}
         notifications={
           <div className="flex flex-col gap-8">

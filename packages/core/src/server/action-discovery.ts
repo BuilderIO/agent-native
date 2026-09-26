@@ -868,6 +868,10 @@ export async function mergeCoreSharingActions(
       () => import("../usage/actions/get-builder-credit-usage.js"),
     ],
     [
+      "get-builder-referral-info",
+      () => import("../usage/actions/get-builder-referral-info.js"),
+    ],
+    [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
     ],

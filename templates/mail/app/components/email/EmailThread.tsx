@@ -47,6 +47,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { AiFilterDialog } from "@/components/email/AiFilterDialog";
+import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -54,6 +55,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
+import {
+  askAgentToDraftImportanceRules,
+  useAiPriorityFeedback,
+} from "@/hooks/use-ai-priority-feedback";
 import {
   applyDraftSaveResult,
   useComposeState,
@@ -84,6 +89,7 @@ import {
   processHtmlImages,
 } from "@/lib/email-image-policy";
 import { getLabelStyle } from "@/lib/label-colors";
+import { mailLabelDisplayName } from "@/lib/label-display";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   buildForwardDraft,
@@ -147,6 +153,7 @@ function InlineReplyComposerSkeleton() {
 
 export function EmailThread({
   activeThreadId,
+  labelNames,
   onArchived,
   emailIds = [],
   threads = [],
@@ -158,6 +165,7 @@ export function EmailThread({
   onToggleMaximize,
 }: {
   activeThreadId?: string;
+  labelNames?: ReadonlyMap<string, string>;
   onArchived?: (id: string) => void;
   emailIds?: string[];
   /**
@@ -192,6 +200,7 @@ export function EmailThread({
     : "";
   const compose = useComposeState();
   const queryClient = useQueryClient();
+  const priorityFeedback = useAiPriorityFeedback();
 
   useEffect(() => {
     if (!threadId) return;
@@ -295,6 +304,46 @@ export function EmailThread({
 
   // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
+  const submitPriorityFeedback = useCallback(
+    async (decision: "important" | "not-important") => {
+      if (!email) return;
+      try {
+        const { totalVotes, recentVotes } = await priorityFeedback.mutateAsync({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          decision,
+          sender: email.from.name || email.from.email,
+          subject: email.subject,
+        });
+        if (totalVotes % 5 !== 0) return;
+        let showSuggestion = true;
+        try {
+          const key = "mail-priority-feedback-suggestion-count";
+          const shownCount = Number(localStorage.getItem(key) ?? 0);
+          showSuggestion = shownCount < totalVotes;
+          if (showSuggestion) localStorage.setItem(key, String(totalVotes));
+          // coercion-ok: feedback was saved server-side; this only tracks a local reminder.
+        } catch {
+          // Feedback is saved server-side even when browser storage is unavailable.
+        }
+        if (!showSuggestion) return;
+        toast.info(t("mail.sort.priorityFeedbackSuggestion"), {
+          duration: 8_000,
+          action: {
+            label: t("mail.sort.priorityFeedbackAskAgent"),
+            onClick: () =>
+              askAgentToDraftImportanceRules(
+                t("mail.sort.priorityFeedbackSuggestion"),
+                recentVotes,
+              ),
+          },
+        });
+      } catch {
+        toast.error(t("mail.aiFilter.actionFailed"));
+      }
+    },
+    [email, navigate, priorityFeedback, t],
+  );
   const [aiFilterDialog, setAiFilterDialog] = useState<{
     action: "filter" | "keep";
     targets: AiFilterTarget[];
@@ -1359,7 +1408,12 @@ export function EmailThread({
                       style.text,
                     )}
                   >
-                    {labelId}
+                    {mailLabelDisplayName(
+                      labelNames?.get(labelId) ??
+                        labelId
+                          .replace(/^label:/, "")
+                          .replace(/^CATEGORY_/, ""),
+                    )}
                   </span>
                 );
               })}
@@ -1435,7 +1489,15 @@ export function EmailThread({
                     {t("mail.actions.archive")} (E)
                   </TooltipContent>
                 </Tooltip>
-                {view !== "trash" && (
+                {email && view === "inbox" && (
+                  <ImportanceFeedbackMenu
+                    onFeedback={(decision) =>
+                      void submitPriorityFeedback(decision)
+                    }
+                    className="h-7 w-7"
+                  />
+                )}
+                {email && view !== "inbox" && view !== "trash" && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button

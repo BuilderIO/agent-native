@@ -1084,6 +1084,11 @@
 .agent-composer-root {
   container-type: inline-size;
   container-name: agent-composer;
+  background: color-mix(
+    in srgb,
+    var(--agent-kit-subtle-surface) 45%,
+    var(--agent-kit-recessed-surface)
+  );
 }
 @container agent-composer (max-width: 370px) {
   .agent-composer-model-effort {

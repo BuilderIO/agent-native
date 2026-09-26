@@ -584,9 +584,6 @@ describe("workspace deploy", () => {
       "/dispatch/robots.txt /_workspace_static/dispatch/robots.txt 200",
     );
     expect(redirects).toContain(
-      "/dispatch/auth-marketing/dispatch.webp /_workspace_static/dispatch/auth-marketing/dispatch.webp 200",
-    );
-    expect(redirects).toContain(
       "/starter/feed.xml /_workspace_static/starter/feed.xml 200",
     );
     expect(redirects).toContain(
@@ -678,7 +675,7 @@ describe("workspace deploy", () => {
       'export default { deployment: { workspace: { rootPage: "directory" } } };\n',
     );
 
-    for (const preset of ["netlify", "cloudflare_pages", "vercel"] as const) {
+    for (const preset of ["netlify", "vercel"] as const) {
       await runWorkspaceDeploy({
         workspaceRoot: tmpDir,
         preset,
@@ -703,15 +700,6 @@ describe("workspace deploy", () => {
           fs.readFileSync(path.join(tmpDir, "dist", "_redirects"), "utf-8"),
         ).not.toContain("/ /alpha/ 302");
       }
-      if (preset === "cloudflare_pages") {
-        const routes = JSON.parse(
-          fs.readFileSync(path.join(tmpDir, "dist", "_routes.json"), "utf-8"),
-        ) as { include: string[] };
-        expect(routes.include).not.toContain("/");
-        expect(
-          fs.readFileSync(path.join(tmpDir, "dist", "_worker.js"), "utf-8"),
-        ).not.toContain('if (pathname === "/")');
-      }
       if (preset === "vercel") {
         const vercelConfig = JSON.parse(
           fs.readFileSync(
@@ -729,6 +717,66 @@ describe("workspace deploy", () => {
         );
       }
     }
+  });
+
+  it("routes the root Google OAuth callback without a Dispatch app", async () => {
+    makeWorkspaceApp(tmpDir, "alpha", { displayName: "Zulu" });
+    makeWorkspaceApp(tmpDir, "beta", { displayName: "Alpha" });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const redirects = fs.readFileSync(
+      path.join(tmpDir, "dist", "_redirects"),
+      "utf-8",
+    );
+    expect(redirects).toContain(
+      "/_agent-native/google/callback /.netlify/functions/beta-server 200",
+    );
+    const alphaServer = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "alpha-server",
+        "alpha-server.mjs",
+      ),
+      "utf-8",
+    );
+    const betaServer = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "beta-server",
+        "beta-server.mjs",
+      ),
+      "utf-8",
+    );
+    expect(alphaServer).not.toContain('"/_agent-native/google/callback"');
+    expect(betaServer).toContain('"/_agent-native/google/callback"');
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "vercel",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const config = JSON.parse(
+      fs.readFileSync(
+        path.join(tmpDir, ".vercel", "output", "config.json"),
+        "utf-8",
+      ),
+    );
+    expect(config.routes).toContainEqual({
+      src: "/_agent-native/google/callback",
+      dest: "/beta-server",
+    });
   });
 
   it("propagates workspace app route access into manifests and app env", async () => {
@@ -1077,21 +1125,6 @@ describe("workspace deploy", () => {
     expect(execFile).not.toHaveBeenCalled();
   });
 
-  it("requires A2A_SECRET for hosted Cloudflare workspace deploy builds", async () => {
-    process.env.CF_PAGES = "1";
-    makeWorkspaceApp(tmpDir, "dispatch");
-
-    await expect(
-      runWorkspaceDeploy({
-        workspaceRoot: tmpDir,
-        preset: "cloudflare_pages",
-        buildOnly: true,
-        execFile: execFile as typeof execFileSync,
-      }),
-    ).rejects.toThrow(/A2A_SECRET is required/);
-    expect(execFile).not.toHaveBeenCalled();
-  });
-
   it("requires A2A_SECRET for hosted Vercel workspace deploy builds", async () => {
     process.env.VERCEL = "1";
     makeWorkspaceApp(tmpDir, "dispatch");
@@ -1367,129 +1400,38 @@ describe("workspace deploy", () => {
     expect(execFile).not.toHaveBeenCalled();
   });
 
-  it("routes root framework requests to Dispatch for Cloudflare workspaces", async () => {
-    makeWorkspaceApp(tmpDir, "dispatch");
-    makeWorkspaceApp(tmpDir, "starter");
+  it("defaults to Netlify when no preset is provided", async () => {
+    makeWorkspaceApp(tmpDir, "alpha");
+    delete process.env.NITRO_PRESET;
 
     await runWorkspaceDeploy({
       workspaceRoot: tmpDir,
-      preset: "cloudflare_pages",
       buildOnly: true,
       execFile: execFile as typeof execFileSync,
     });
 
-    const routes = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, "dist", "_routes.json"), "utf-8"),
-    ) as { include: string[] };
-    expect(routes.include).toContain("/_agent-native/*");
-    expect(routes.include).toContain("/.well-known/*");
-    expect(routes.include).toContain(
-      "/.well-known/oauth-authorization-server/starter",
+    expect(execFile).toHaveBeenCalledWith(
+      "pnpm",
+      ["--filter", "alpha", "build"],
+      expect.objectContaining({
+        env: expect.objectContaining({ NITRO_PRESET: "netlify" }),
+      }),
     );
-    expect(routes.include).toContain(
-      "/.well-known/oauth-protected-resource/starter/*",
-    );
-    expect(routes.include).toContain("/favicon.ico");
-    expect(routes.include).toContain("/approval");
-    expect(routes.include).toContain("/extensions");
-    expect(routes.include).toContain("/thread-debug");
-    expect(routes.include).toContain("/apps/new-app");
-    expect(routes.include).toContain("/apps/*");
-    expect(routes.include).toContain("/dispatch");
-    expect(routes.include).toContain("/dispatch/*");
-    expect(routes.include).toContain("/starter");
-    expect(routes.include).toContain("/starter/*");
-
-    const worker = fs.readFileSync(
-      path.join(tmpDir, "dist", "_worker.js"),
-      "utf-8",
-    );
-    expect(worker).toContain(
-      'return Response.redirect(new URL("/dispatch/overview", request.url).toString(), 302);',
-    );
-    expect(worker).toContain(
-      'if (pathname === "/.well-known/oauth-authorization-server/starter") return app_starter.fetch(request, env, ctx);',
-    );
-    expect(worker).toContain(
-      'if (pathname === "/.well-known/oauth-protected-resource/starter" || pathname.startsWith("/.well-known/oauth-protected-resource/starter/")) return app_starter.fetch(request, env, ctx);',
-    );
-    expect(
-      worker.indexOf(
-        'pathname === "/.well-known/oauth-authorization-server/starter"',
-      ),
-    ).toBeLessThan(worker.indexOf('pathname === "/_agent-native"'));
-    expect(worker).toContain(
-      'if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/") || pathname === "/.well-known" || pathname.startsWith("/.well-known/")) return app_dispatch.fetch(request, env, ctx);',
-    );
-    expect(worker).toContain(
-      'if (pathname === "/favicon.ico") return Response.redirect(new URL("/dispatch/favicon.ico", request.url).toString(), 302);',
-    );
-    expect(worker).toContain(
-      'if (pathname === "/approval") return Response.redirect(new URL("/dispatch/approval" + search, request.url).toString(), 302);',
-    );
-    expect(worker).toContain(
-      'if (pathname === "/extensions") return Response.redirect(new URL("/dispatch/extensions" + search, request.url).toString(), 302);',
-    );
-    expect(worker).toContain(
-      'if (pathname === "/thread-debug") return Response.redirect(new URL("/dispatch/thread-debug" + search, request.url).toString(), 302);',
-    );
-    expect(worker).toContain(
-      'if (pathname === "/apps/new-app") return Response.redirect(new URL("/dispatch/new-app" + search, request.url).toString(), 302);',
-    );
-    expect(worker).toContain(
-      'if (pathname.startsWith("/apps/")) return Response.redirect(new URL("/dispatch" + pathname + search, request.url).toString(), 302);',
-    );
-    expect(worker).toContain(
-      'if (pathname === "/dispatch" || pathname === "/dispatch/") return Response.redirect(new URL("/dispatch/overview" + search, request.url).toString(), 302);',
-    );
-    expect(worker).toContain(
-      'if (pathname === "/dispatch" || pathname === "/dispatch.data" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(requestForMountedApp(request, "/dispatch"), env, ctx);',
-    );
-    expect(worker).toContain(
-      'if (pathname === "/starter" || pathname === "/starter.data" || pathname.startsWith("/starter/")) return app_starter.fetch(requestForMountedApp(request, "/starter"), env, ctx);',
-    );
-    expect(worker).toContain(
-      "function requestForMountedApp(request, basePath)",
-    );
-    expect(worker).toContain("url.pathname = `${basePath}//`;");
-    expect(worker).not.toContain(
-      'new Request(new URL("/dispatch/_agent-native',
-    );
+    expect(fs.existsSync(path.join(tmpDir, "dist", "_redirects"))).toBe(true);
   });
 
-  it("does not claim root framework requests without Dispatch", async () => {
-    makeWorkspaceApp(tmpDir, "starter");
+  it("rejects the removed Cloudflare Pages workspace preset", async () => {
+    makeWorkspaceApp(tmpDir, "alpha");
 
-    await runWorkspaceDeploy({
-      workspaceRoot: tmpDir,
-      preset: "cloudflare_pages",
-      buildOnly: true,
-      execFile: execFile as typeof execFileSync,
-    });
-
-    const routes = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, "dist", "_routes.json"), "utf-8"),
-    ) as { include: string[] };
-    expect(routes.include).not.toContain("/_agent-native/*");
-    expect(routes.include).not.toContain("/.well-known/*");
-    expect(routes.include).toContain(
-      "/.well-known/oauth-authorization-server/starter",
-    );
-    expect(routes.include).toContain(
-      "/.well-known/oauth-protected-resource/starter/*",
-    );
-    expect(routes.include).not.toContain("/favicon.ico");
-
-    const worker = fs.readFileSync(
-      path.join(tmpDir, "dist", "_worker.js"),
-      "utf-8",
-    );
-    expect(worker).not.toContain('pathname === "/_agent-native"');
-    expect(worker).not.toContain('pathname === "/.well-known"');
-    expect(worker).toContain(
-      'if (pathname === "/.well-known/oauth-authorization-server/starter") return app_starter.fetch(request, env, ctx);',
-    );
-    expect(worker).not.toContain('pathname === "/favicon.ico"');
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset", "cloudflare_pages"],
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow(/Cloudflare Pages was removed/);
+    expect(execFile).not.toHaveBeenCalled();
   });
 });
 
@@ -1785,6 +1727,7 @@ function makeWorkspaceApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    displayName?: string;
     homeRoute?: boolean;
     homePath?: string;
     protectedPaths?: string[];
@@ -1798,6 +1741,7 @@ function makeWorkspaceApp(
   const pkg: Record<string, unknown> = {
     name: app,
     scripts: { build: "agent-native build" },
+    ...(opts.displayName ? { displayName: opts.displayName } : {}),
   };
   if (opts.audience || opts.protectedPaths || opts.publicPaths) {
     pkg["agent-native"] = {
@@ -1885,13 +1829,6 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
   fs.writeFileSync(path.join(appDir, "dist", app, "poster.avif"), "");
   fs.writeFileSync(path.join(appDir, "dist", app, "robots.txt"), "");
   fs.writeFileSync(path.join(appDir, "dist", app, "site.webmanifest"), "{}");
-  fs.mkdirSync(path.join(appDir, "dist", app, "auth-marketing"), {
-    recursive: true,
-  });
-  fs.writeFileSync(
-    path.join(appDir, "dist", app, "auth-marketing", `${app}.webp`),
-    "image",
-  );
   fs.mkdirSync(path.join(appDir, "dist", app, app, "assets"), {
     recursive: true,
   });

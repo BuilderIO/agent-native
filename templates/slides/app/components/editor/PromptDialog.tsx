@@ -1,6 +1,7 @@
 import {
   PromptComposer,
   type PromptComposerSubmitOptions,
+  type TiptapComposerHandle,
   useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
@@ -12,10 +13,17 @@ import {
   IconPresentation,
   IconUpload,
 } from "@tabler/icons-react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useImperativeHandle,
+} from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import type { SlidesPromptSubmitOptions } from "@/lib/composer-context";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   deleteUploadedPromptFile,
@@ -28,6 +36,17 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
+import type { useSlidesComposerContext } from "./SlidesComposerContext";
+import {
+  usePromptImport,
+  type PromptImportSelection,
+  type PromptImportSource,
+} from "./use-prompt-import";
+
+export type {
+  PromptImportSelection,
+  PromptImportSource,
+} from "./use-prompt-import";
 
 export type { UploadedFile } from "@/lib/prompt-file-uploads";
 
@@ -99,12 +118,6 @@ export async function createPromptChatAttachments(
   return result;
 }
 
-export type PromptImportSource = "pdf" | "pptx" | "google-slides";
-
-export type PromptImportSelection =
-  | { kind: "pdf" | "pptx"; files: File[] }
-  | { kind: "google-slides"; url: string };
-
 export interface PromptAttachmentActions {
   commit: () => void;
   discard: () => void;
@@ -119,6 +132,14 @@ type PromptModelSelection = Pick<
   "model" | "engine" | "effort"
 >;
 
+export interface PromptPopoverHandle {
+  submitSource(
+    prompt: string,
+    files: File[],
+    sourceContext?: string,
+  ): Promise<boolean>;
+}
+
 interface PromptPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -130,11 +151,18 @@ interface PromptPopoverProps {
     prompt: string,
     files: UploadedFile[],
     attachments: PromptAttachmentActions,
-    options?: PromptComposerSubmitOptions,
+    options?: SlidesPromptSubmitOptions,
   ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
   loading?: boolean;
+  disabled?: boolean;
+  submissionDisabled?: boolean;
+  showModelSelector?: boolean;
+  modelStatusChecksEnabled?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
+  presentation?: "popover" | "inline";
+  context?: ReturnType<typeof useSlidesComposerContext>;
+  controllerRef?: React.Ref<PromptPopoverHandle>;
   /** Forwarded to PromptComposer/TipTap for draft persistence in localStorage. */
   draftScope?: string;
   initialText?: string;
@@ -162,12 +190,17 @@ export default function PromptPopover({
   onOpenChange,
   title,
   placeholder = "Describe what you want...",
-  onSkip,
-  skipLabel = "Skip prompt",
   onSubmit,
   loading = false,
+  disabled = false,
+  submissionDisabled = false,
+  showModelSelector,
+  modelStatusChecksEnabled,
   anchorRef,
   centered = false,
+  presentation = "popover",
+  context,
+  controllerRef,
   draftScope,
   initialText,
   initialTextKey,
@@ -180,6 +213,7 @@ export default function PromptPopover({
   children,
 }: PromptPopoverProps) {
   const t = useT();
+  const inline = presentation === "inline";
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const [retainingAttachments, setRetainingAttachments] = useState(false);
@@ -191,12 +225,13 @@ export default function PromptPopover({
   const [selectedImportFile, setSelectedImportFile] = useState<File | null>(
     null,
   );
-  const [importingSource, setImportingSource] =
-    useState<PromptImportSource | null>(null);
   const activeAttachmentFilesRef = useRef<File[]>([]);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<TiptapComposerHandle>(null);
+  const sourceFilesRef = useRef<File[]>([]);
+  const sourceContextRef = useRef<string | undefined>(undefined);
   const [modelSelection, setModelSelection] = useState<
     PromptModelSelection | undefined
   >(initialModelSelection);
@@ -204,6 +239,12 @@ export default function PromptPopover({
   useEffect(() => {
     if (initialModelSelection) setModelSelection(initialModelSelection);
   }, [initialModelSelection]);
+
+  useEffect(() => {
+    if (inline && open && initialTextKey !== undefined) {
+      composerRef.current?.focus();
+    }
+  }, [inline, open, initialTextKey]);
 
   const handleModelChange = useCallback((model: string, engine: string) => {
     setModelSelection((current) => ({ ...current, model, engine }));
@@ -218,7 +259,7 @@ export default function PromptPopover({
 
   // Position the popover after render so we can measure its actual size
   useEffect(() => {
-    if (!open || !panelRef.current) return;
+    if (inline || !open || !panelRef.current) return;
     const panel = panelRef.current;
     const MARGIN = 12;
 
@@ -254,7 +295,7 @@ export default function PromptPopover({
 
   // Close on outside click / escape
   useEffect(() => {
-    if (!open) return;
+    if (inline || !open) return;
     const handleClick = (e: MouseEvent) => {
       if (isInsidePortaledLayer(e.target)) return;
       if (
@@ -274,7 +315,7 @@ export default function PromptPopover({
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [open, onOpenChange, anchorRef]);
+  }, [inline, open, onOpenChange, anchorRef]);
 
   const deleteUploadedFile = useCallback(deleteUploadedPromptFile, []);
 
@@ -354,8 +395,26 @@ export default function PromptPopover({
       text: string,
       files: File[],
       _references: unknown[],
-      options?: PromptComposerSubmitOptions,
+      options?: SlidesPromptSubmitOptions,
     ) => {
+      files = [...new Set([...files, ...sourceFilesRef.current])];
+      if (sourceFilesRef.current.length) {
+        options = {
+          ...options,
+          attachments: [
+            ...(options?.attachments ?? []),
+            ...sourceFilesRef.current.map((file) => ({
+              name: file.name,
+              contentType: file.type,
+              file,
+            })),
+          ],
+        };
+      }
+      const submittedContext =
+        [googleDocContext, sourceContextRef.current]
+          .filter(Boolean)
+          .join("\n\n") || undefined;
       const preUploadChatAttachments = options?.attachments?.length
         ? await createPromptChatAttachments(options.attachments, [])
         : [];
@@ -363,13 +422,22 @@ export default function PromptPopover({
         onBeforeUpload?.(
           text,
           files,
-          googleDocContext || undefined,
+          submittedContext,
           preUploadChatAttachments,
           options,
         ) === false
       ) {
         return;
       }
+      const resolved = context
+        ? await context.beforeSend(options?.contextItems)
+        : undefined;
+      if (resolved)
+        options = {
+          ...options,
+          contextItems: resolved.items,
+          slidesContext: resolved.selection,
+        };
       submittingRef.current = true;
       setSubmitting(true);
       try {
@@ -394,7 +462,7 @@ export default function PromptPopover({
               setRetainingAttachments(false);
             },
             attachments: chatAttachments,
-            context: googleDocContext || undefined,
+            context: submittedContext,
           },
           options,
         );
@@ -427,6 +495,7 @@ export default function PromptPopover({
       commitFiles,
       discardFiles,
       googleDocContext,
+      context,
       onBeforeUpload,
       onSubmit,
       retainFiles,
@@ -435,26 +504,41 @@ export default function PromptPopover({
     ],
   );
 
-  const runImport = useCallback(
-    async (selection: PromptImportSelection) => {
-      if (!onImport) return;
-      setImportingSource(selection.kind);
-      try {
-        const shouldClose = await onImport(selection);
-        if (shouldClose !== false) onOpenChange(false);
-      } catch (error) {
-        toast.error(t("raw.uploadFailed"), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
-        });
-      } finally {
-        setImportingSource(null);
-      }
-    },
-    [onImport, onOpenChange, t],
+  useImperativeHandle(
+    controllerRef,
+    () => ({
+      async submitSource(prompt, files, sourceContext) {
+        if (
+          !open ||
+          disabled ||
+          submissionDisabled ||
+          loading ||
+          uploading ||
+          submittingRef.current ||
+          !composerRef.current
+        )
+          return false;
+        sourceFilesRef.current = files;
+        sourceContextRef.current = sourceContext;
+        try {
+          return await composerRef.current.submitWithText(
+            [promptText.trim(), prompt].filter(Boolean).join("\n\n"),
+          );
+        } finally {
+          sourceFilesRef.current = [];
+          sourceContextRef.current = undefined;
+        }
+      },
+    }),
+    [open, disabled, submissionDisabled, loading, uploading, promptText],
   );
+
+  const { importingSource, runImport } = usePromptImport({
+    onImport,
+    onSuccess: () => onOpenChange(false),
+    onError: (description) =>
+      toast.error(t("raw.uploadFailed"), { description }),
+  });
 
   const handleFileImport = useCallback(
     (kind: "pdf" | "pptx", file: File | undefined) => {
@@ -491,7 +575,6 @@ export default function PromptPopover({
       setGoogleSlidesUrl("");
       setImportMode(null);
       setSelectedImportFile(null);
-      setImportingSource(null);
       if (!submitting && !retainingAttachmentsRef.current) {
         activeAttachmentFilesRef.current = [];
         setSubmitting(false);
@@ -520,7 +603,7 @@ export default function PromptPopover({
 
   const popover = (
     <>
-      {centered && (
+      {!inline && centered && (
         <div
           className="fixed inset-0 bg-black/40 z-[199]"
           onClick={() => onOpenChange(false)}
@@ -528,27 +611,21 @@ export default function PromptPopover({
       )}
       <div
         ref={panelRef}
-        className="fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
-        role="dialog"
-        aria-modal="true"
+        className={
+          inline
+            ? "w-full"
+            : "fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
+        }
+        role={inline ? "group" : "dialog"}
+        aria-modal={inline ? undefined : true}
         aria-label={title}
-        style={{ top: 0, left: 0, visibility: "visible" }}
+        style={inline ? undefined : { top: 0, left: 0, visibility: "visible" }}
       >
-        <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
-          <span className="text-sm font-medium text-foreground">{title}</span>
-          {onSkip && !importMode && !submitting && (
-            <button
-              type="button"
-              onClick={() => {
-                onSkip();
-                onOpenChange(false);
-              }}
-              className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {skipLabel}
-            </button>
-          )}
-        </div>
+        {!inline && (
+          <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
+            <span className="text-sm font-medium text-foreground">{title}</span>
+          </div>
+        )}
 
         {importEnabled && (
           <input
@@ -587,14 +664,28 @@ export default function PromptPopover({
               .join(" ")}
             aria-hidden={importMode ? true : undefined}
           >
-            <div className="px-2.5 pb-2.5">
+            <div className={inline ? undefined : "px-2.5 pb-2.5"}>
               <PromptComposer
-                autoFocus
+                {...context?.props}
+                contextMenuItems={context?.props.contextMenuItems ?? []}
+                composerRef={composerRef}
+                autoFocus={!inline}
+                layoutVariant={inline ? "hero" : undefined}
+                className={
+                  inline ? "slides-home-prompt-composer-area" : undefined
+                }
                 attachmentsEnabled
+                showModelSelector={showModelSelector}
+                modelStatusChecksEnabled={modelStatusChecksEnabled}
+                submissionDisabled={submissionDisabled}
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"
                 disabled={
-                  loading || uploading || submitting || Boolean(importMode)
+                  disabled ||
+                  loading ||
+                  uploading ||
+                  submitting ||
+                  Boolean(importMode)
                 }
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
@@ -634,7 +725,13 @@ export default function PromptPopover({
             )}
 
             {importEnabled && (
-              <div className="border-t border-border/60 px-4 pb-3 pt-2.5">
+              <div
+                className={
+                  inline
+                    ? "px-1 pb-1 pt-2"
+                    : "border-t border-border/60 px-4 pb-3 pt-2.5"
+                }
+              >
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="mr-1 text-xs text-muted-foreground">
                     {importFromCopy}
@@ -643,7 +740,11 @@ export default function PromptPopover({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className={
+                      inline
+                        ? undefined
+                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    }
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pdf")}
                   >
@@ -654,7 +755,11 @@ export default function PromptPopover({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className={
+                      inline
+                        ? undefined
+                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    }
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("google-slides")}
                   >
@@ -665,7 +770,11 @@ export default function PromptPopover({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className={
+                      inline
+                        ? undefined
+                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    }
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pptx")}
                   >
@@ -677,6 +786,7 @@ export default function PromptPopover({
             )}
 
             {children}
+            {context?.dialogs}
 
             <GoogleDocImportHint
               promptText={promptText}
@@ -779,5 +889,5 @@ export default function PromptPopover({
     </>
   );
 
-  return createPortal(popover, document.body);
+  return inline ? popover : createPortal(popover, document.body);
 }

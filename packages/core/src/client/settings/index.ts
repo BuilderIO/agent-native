@@ -28,6 +28,7 @@ export {
   type AccountSettingsFormProps,
 } from "./AccountSettingsCard.js";
 export {
+  hasBuilderOAuthCredential,
   openBuilderConnectPopup,
   useBuilderConnectFlow,
   useBuilderStatus,

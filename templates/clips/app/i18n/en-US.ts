@@ -359,10 +359,9 @@ const messages = {
     downloadForWindows: "Download for Windows",
     downloadForLinux: "Download for Linux",
     downloadDesktopApp: "Download desktop app",
-    commentSignupTitle: "Give your AI agent the full picture",
-    commentSignupContext: "Share transcript and timestamped frames in one link",
-    commentSignupFeedback: "Turn recorded feedback into clear next steps",
-    commentSignupDebug: "Capture console errors and failed requests",
+    commentSignupTitle: "Screen recordings your AI agent can see and hear",
+    commentSignupDescription:
+      "Clips is a free and open-source screen recorder for sharing bugs, feedback, and walkthroughs with AI agents.",
     agentEmptyTitle: "Join the conversation",
     agentEmptyDescription:
       "Create a free Clips account to comment, react, and ask about this clip.",
@@ -753,6 +752,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "Could not update active workspace",
     whatsNew: "What's new",
     changelogEmpty: "No updates yet.",
+    changelogCommentSignup:
+      "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
+    changelogCommentsEmptyState:
+      "The empty comments state now explains how screen recordings help AI agents.",
+    changelogShareLink:
+      'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
     viewAllUpdates: "View all updates",
     expand: "Expand",
     collapse: "Collapse",
@@ -1390,11 +1395,22 @@ const messages = {
     disconnected: "Microphone disconnected.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, allow popups for this site and try again.",
+    builderConnectError:
+      "Couldn't connect Builder.io. Try again or contact support.",
+    checkingBuilderConnection: "Checking Builder connection…",
     builderTimeout:
       "Didn't hear back from Builder in 5 minutes. Check the popup and try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
     connectBuilder: "Use Builder.io",
+    createBuilderAccount: "Create Builder.io account",
+    signInWithBuilderAccount: "Sign in with Builder.io account",
+    builderConsentPrefix: "By creating a Builder.io account, you agree to our",
+    builderTerms: "Terms of Service",
+    builderConsentAnd: "and",
+    builderPrivacy: "Privacy Policy",
     free: "Free",
     configureS3: "configure S3-compatible storage",
     whyPrompt: "Why am I seeing this?",

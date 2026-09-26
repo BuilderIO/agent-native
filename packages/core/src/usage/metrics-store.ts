@@ -239,7 +239,6 @@ const NO_APP_FILTER: QueryScope = { where: "", args: [] };
 
 interface ThreadPromptRow {
   id?: unknown;
-  preview?: unknown;
   thread_data?: unknown;
 }
 
@@ -885,43 +884,154 @@ function promptText(value: unknown): string {
     .trim();
 }
 
-function firstUserPrompt(threadData: unknown): string | null {
+function messageRecord(entry: unknown): Record<string, unknown> | null {
+  if (!entry || typeof entry !== "object") return null;
+  const record = entry as Record<string, unknown>;
+  return record.message && typeof record.message === "object"
+    ? (record.message as Record<string, unknown>)
+    : record;
+}
+
+function messageTurnId(message: Record<string, unknown>): string | null {
+  const metadata =
+    message.metadata && typeof message.metadata === "object"
+      ? (message.metadata as Record<string, unknown>)
+      : null;
+  const custom =
+    metadata?.custom && typeof metadata.custom === "object"
+      ? (metadata.custom as Record<string, unknown>)
+      : null;
+  const turnId = custom?.turnId ?? metadata?.turnId;
+  return typeof turnId === "string" && turnId.trim() ? turnId.trim() : null;
+}
+
+function messageTimestamp(message: Record<string, unknown>): number | null {
+  const value = message.createdAt;
+  const timestamp =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Date.parse(value)
+        : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+type ThreadPrompt = { prompt: string; messageId: string | null };
+
+type ThreadPromptIndex = {
+  promptsByTurn: Map<string, ThreadPrompt>;
+  timestampedPrompts: Array<{
+    timestamp: number;
+    index: number;
+    prompt: ThreadPrompt | null;
+  }>;
+  soleUntimestampedPrompt: ThreadPrompt | null;
+};
+
+function indexThreadPrompts(threadData: unknown): ThreadPromptIndex | null {
   const parsed = parseJson(threadData);
   const messages = parsed?.messages;
   if (!Array.isArray(messages)) return null;
-  for (const entry of messages) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as Record<string, unknown>;
-    const message =
-      record.message && typeof record.message === "object"
-        ? (record.message as Record<string, unknown>)
-        : record;
-    const role = typeof message.role === "string" ? message.role : "";
-    if (role !== "user" && role !== "human") continue;
-    const text = promptText(message.content);
-    if (text)
-      return text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text;
+
+  const promptsByTurn = new Map<string, ThreadPrompt>();
+  const timestampedPrompts: ThreadPromptIndex["timestampedPrompts"] = [];
+  let latestUserPrompt: ThreadPrompt | null = null;
+  let userMessageCount = 0;
+  let soleUserTimestamp: number | null = null;
+  let soleUntimestampedPrompt: ThreadPrompt | null = null;
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messageRecord(messages[i]);
+    if (!message) continue;
+    if (message.role === "user" || message.role === "human") {
+      userMessageCount += 1;
+      const text = promptText(message.content);
+      latestUserPrompt = text
+        ? {
+            prompt:
+              text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text,
+            messageId: typeof message.id === "string" ? message.id : null,
+          }
+        : null;
+      const timestamp = messageTimestamp(message);
+      if (timestamp !== null) {
+        timestampedPrompts.push({
+          timestamp,
+          index: i,
+          prompt: latestUserPrompt,
+        });
+      }
+      if (userMessageCount === 1) {
+        soleUserTimestamp = timestamp;
+        soleUntimestampedPrompt = latestUserPrompt;
+      } else {
+        soleUserTimestamp = null;
+        soleUntimestampedPrompt = null;
+      }
+      continue;
+    }
+    if (message.role === "assistant") {
+      const turnId = messageTurnId(message);
+      if (turnId && latestUserPrompt) {
+        promptsByTurn.set(turnId, latestUserPrompt);
+      }
+    }
   }
-  return null;
+  timestampedPrompts.sort(
+    (a, b) => a.timestamp - b.timestamp || a.index - b.index,
+  );
+  return {
+    promptsByTurn,
+    timestampedPrompts,
+    soleUntimestampedPrompt:
+      userMessageCount === 1 && soleUserTimestamp === null
+        ? soleUntimestampedPrompt
+        : null,
+  };
+}
+
+function promptForTurn(
+  index: ThreadPromptIndex,
+  taskId: string | null,
+  usageCreatedAt: number,
+): ThreadPrompt | null {
+  if (taskId) {
+    const prompt = index.promptsByTurn.get(taskId);
+    if (prompt) return prompt;
+  }
+
+  let low = 0;
+  let high = index.timestampedPrompts.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (index.timestampedPrompts[middle]!.timestamp <= usageCreatedAt) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low > 0
+    ? (index.timestampedPrompts[low - 1]?.prompt ?? null)
+    : index.soleUntimestampedPrompt;
 }
 
 async function hydrateRecentPrompts(
   rows: Array<Record<string, unknown>>,
   builderCreditsEnabled: boolean,
 ): Promise<UsageRecentMetric[]> {
+  const recentLimit = 12;
   const threadIds = [
     ...new Set(
       rows
         .map((row) => nullableStringField(row, "thread_id"))
         .filter((value): value is string => Boolean(value)),
     ),
-  ];
+  ].slice(0, recentLimit);
   const threads = new Map<string, ThreadPromptRow>();
   let threadQueryUnavailable = false;
   if (threadIds.length > 0) {
     try {
       const result = await getDbExec().execute({
-        sql: `SELECT id, preview, thread_data FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
+        sql: `SELECT id, thread_data FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
         args: threadIds,
       });
       for (const row of result.rows as ThreadPromptRow[]) {
@@ -933,13 +1043,39 @@ async function hydrateRecentPrompts(
     }
   }
 
-  return rows.map((row) => {
+  const recent: UsageRecentMetric[] = [];
+  const seenTurns = new Set<string>();
+  const promptIndexes = new Map<string, ThreadPromptIndex | null>();
+  for (const row of rows) {
     const threadId = nullableStringField(row, "thread_id");
+    const taskId = nullableStringField(row, "task_id");
+    const taskTurnKey =
+      threadId && taskId ? JSON.stringify([threadId, taskId]) : null;
+    if (taskTurnKey && seenTurns.has(taskTurnKey)) continue;
+
     const thread = threadId ? threads.get(threadId) : undefined;
-    const prompt = thread ? firstUserPrompt(thread.thread_data) : null;
-    const preview =
-      typeof thread?.preview === "string" ? thread.preview.trim() : "";
-    return {
+    let prompt: ThreadPrompt | null = null;
+    if (threadId && thread) {
+      if (!promptIndexes.has(threadId)) {
+        promptIndexes.set(threadId, indexThreadPrompts(thread.thread_data));
+      }
+      const promptIndex = promptIndexes.get(threadId);
+      if (promptIndex) {
+        prompt = promptForTurn(
+          promptIndex,
+          taskId,
+          numberField(row, "created_at"),
+        );
+      }
+    }
+    const turnKey =
+      taskTurnKey ??
+      (threadId && prompt?.messageId
+        ? JSON.stringify([threadId, prompt.messageId])
+        : null);
+    if (turnKey && seenTurns.has(turnKey)) continue;
+    if (turnKey) seenTurns.add(turnKey);
+    recent.push({
       id: numberField(row, "id"),
       createdAt: numberField(row, "created_at"),
       ownerEmail: stringField(row, "owner_email"),
@@ -969,17 +1105,17 @@ async function hydrateRecentPrompts(
             engineName: nullableStringField(row, "engine_name"),
           }
         : {}),
-      prompt: prompt ?? (preview ? preview.slice(0, 359).trimEnd() : null),
+      prompt: prompt?.prompt ?? null,
       promptSource: prompt
         ? "thread"
-        : preview
-          ? "thread-preview"
-          : threadQueryUnavailable && threadId
-            ? "unavailable"
-            : "not-captured",
+        : threadQueryUnavailable && threadId
+          ? "unavailable"
+          : "not-captured",
       threadId,
-    } satisfies UsageRecentMetric;
-  });
+    });
+    if (recent.length === recentLimit) break;
+  }
+  return recent;
 }
 
 async function detectUsageEngineName(): Promise<string | null> {
@@ -1095,14 +1231,16 @@ export async function listAppUsageMetrics(
           ORDER BY created_at ASC`,
       args: baseArgs,
     }),
+    // ponytail: cap legacy prompt hydration at 240 rows; raise only if real
+    // histories routinely crowd distinct prompts out of the 12-turn list.
     getDbExec().execute({
       sql: `SELECT id, created_at, owner_email, app, label, model,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-            cost_cents_x100, builder_credits_used, engine_name, thread_id
+            cost_cents_x100, builder_credits_used, engine_name, thread_id, task_id
           FROM token_usage
           WHERE ${filter.where} AND created_at >= ?
-          ORDER BY created_at DESC
-          LIMIT 12`,
+          ORDER BY created_at DESC, id DESC
+          LIMIT 240`,
       args: baseArgs,
     }),
   ]);

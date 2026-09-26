@@ -99,6 +99,14 @@ export default defineAction({
       .enum(["all", "me"])
       .optional()
       .describe("Set to 'me' to list only decks created by the current user"),
+    search: z
+      .string()
+      .trim()
+      .max(200)
+      .optional()
+      .describe(
+        "Optional case-insensitive substring search against deck titles, before pagination.",
+      ),
     updatedSince: z
       .string()
       .datetime({ offset: true })
@@ -144,13 +152,15 @@ export default defineAction({
     }
 
     const visibleDecks = accessFilter(schema.decks, schema.deckShares);
-    const where =
+    const where = and(
+      visibleDecks,
       args.createdBy === "me" && normalizedOwnerEmail !== null
-        ? and(
-            visibleDecks,
-            sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`,
-          )
-        : visibleDecks;
+        ? sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`
+        : undefined,
+      args.search
+        ? sql`strpos(lower(${schema.decks.title}), ${args.search.toLowerCase()}) > 0`
+        : undefined,
+    );
 
     const paged =
       args.updatedSince !== undefined ||

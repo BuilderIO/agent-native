@@ -2,10 +2,10 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import type { MouseEvent } from "react";
 
-import { BuilderImage } from "../components/builder-image";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
+import { AssetsLandingMock } from "../components/template-landing/AssetsLandingMock";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
@@ -45,22 +45,25 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "assets")!;
 
-// Same no-imagery pattern Slides uses: plain ContentCards, no `image`/
-// `imageLabel`, so the section reads as one system with the key-features
-// grid below it instead of leaving placeholder boxes.
 const USE_CASES = [
   {
     id: "create-campaign-visuals",
+    mode: "campaign",
+    textLeft: true,
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
   },
   {
     id: "adapt-images-for-new-projects",
+    mode: "refine",
+    textLeft: false,
     titleKey: "useCase2Title",
     bodyKey: "useCase2Body",
   },
   {
     id: "share-brand-assets-across-work",
+    mode: "library",
+    textLeft: true,
     titleKey: "useCase3Title",
     bodyKey: "useCase3Body",
   },
@@ -120,9 +123,8 @@ export default function AssetsTemplate() {
 
   return (
     <div className="builder-brand-tokens">
-      {/* Hero — copy and layout match the Slides/Clips pattern; existing
-          generic hero screenshot kept since there's no newer Assets asset
-          yet. */}
+      {/* The hero shows an in-progress generation conversation and its
+          returned image variations. */}
       <div className={HERO_WRAPPER_CLASS}>
         <TemplateHero
           title={t("templateLanding.assets.heroTitle")}
@@ -159,19 +161,17 @@ export default function AssetsTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <BuilderImage
-              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8670a102c1f44808aa158c4a7a66f6e6"
-              crossOrigin="anonymous"
-              alt={t("templateLanding.assets.s001")}
-              loading="lazy"
-              decoding="async"
-              className="h-auto max-h-[640px] w-full object-cover object-top"
+            <AssetsLandingMock
+              mode="generated"
+              label={t("templateLanding.assets.s001")}
+              className="h-[420px] sm:h-[620px] lg:h-[800px]"
             />
           }
         />
       </div>
 
-      {/* What can you do with Assets? — three use-case cards */}
+      {/* Use-case stories pair the existing translated copy with a concrete
+          Assets surface. */}
       <PageSection>
         <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
@@ -183,15 +183,65 @@ export default function AssetsTemplate() {
         </GridInner>
 
         <GridInner>
-          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
-            {USE_CASES.map((useCase) => (
-              <ContentCard
-                key={useCase.id}
-                title={t(`templateLanding.assets.${useCase.titleKey}`)}
-                body={t(`templateLanding.assets.${useCase.bodyKey}`)}
-              />
-            ))}
+          <div className="flex flex-col border-x border-t border-solid border-[var(--b-border-subtle)]">
+            {USE_CASES.map((useCase) => {
+              const textBlock = (
+                <div
+                  key="text"
+                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                    {t(`templateLanding.assets.${useCase.titleKey}`)}
+                  </h3>
+                  <p className="m-0 max-w-[420px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                    {t(`templateLanding.assets.${useCase.bodyKey}`)}
+                  </p>
+                </div>
+              );
+              const mediaBlock = (
+                <div
+                  key="media"
+                  className="order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <AssetsLandingMock
+                    mode={useCase.mode}
+                    label={t(`templateLanding.assets.${useCase.titleKey}`)}
+                    className="h-[290px] min-h-[290px] w-full"
+                  />
+                </div>
+              );
+              return (
+                <div
+                  key={useCase.id}
+                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 ${
+                    useCase.textLeft
+                      ? "lg:grid-cols-[1fr_1.25fr]"
+                      : "lg:grid-cols-[1.25fr_1fr]"
+                  }`}
+                >
+                  {useCase.textLeft ? (
+                    <>
+                      {textBlock}
+                      {mediaBlock}
+                    </>
+                  ) : (
+                    <>
+                      {mediaBlock}
+                      {textBlock}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
+        </GridInner>
+        <GridInner className="flex justify-end border-x border-b border-solid border-[var(--b-border-subtle)] px-[var(--spacing-8)] py-[var(--spacing-3)]">
+          <a
+            href="/template-previews/assets-ATTRIBUTION.md"
+            className="text-[length:var(--b-t-label-1)] text-[var(--b-text-secondary)] underline underline-offset-4"
+          >
+            {t("templateLanding.assets.imageCredits")}
+          </a>
         </GridInner>
       </PageSection>
 

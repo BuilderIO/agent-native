@@ -27,8 +27,13 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { withBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
+import { BuilderReferralInviteRow } from "../BuilderReferralInviteRow.js";
 import { useT } from "../i18n.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
+import {
+  groupRecentPrompts,
+  type RecentPromptEntry,
+} from "./recent-prompt-groups.js";
 
 const builderAddCreditsUrl = withBuilderUtmTrackingParams(
   "https://builder.io/account/subscription?signupSource=agent-native",
@@ -72,16 +77,10 @@ interface UsageDailyMetric {
   otherCalls?: number;
 }
 
-interface UsageRecentMetric {
-  id: number;
+interface UsageRecentMetric extends RecentPromptEntry {
   createdAt: number;
-  ownerEmail: string;
-  app: string;
-  label: string;
-  model: string;
   inputTokens: number;
   outputTokens: number;
-  prompt: string | null;
 }
 
 interface UsageMetricsData {
@@ -304,6 +303,7 @@ function Trend({
   daily: UsageDailyMetric[];
   billing: UsageBilling;
 }) {
+  const t = useT();
   if (daily.length === 0) {
     return (
       <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-border/70 text-sm text-muted-foreground">
@@ -320,47 +320,88 @@ function Trend({
       day.estimatedBuilderCredits,
     ),
   );
-  const max = Math.max(...values, 0.01);
+  const max = Math.max(...values, 0);
+  const scaleMax = max || 1;
   const points = values.map((value, index) => {
     const x = daily.length === 1 ? 50 : (index / (daily.length - 1)) * 100;
-    const y = 88 - (value / max) * 72;
+    const y = 100 - (value / scaleMax) * 100;
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   });
   const line = points
     .map((point, index) => `${index === 0 ? "M" : "L"} ${point}`)
     .join(" ");
-  const area = `${line} L 100,96 L 0,96 Z`;
+  const area = `${line} L 100,100 L 0,100 Z`;
+  const axisLabel =
+    billing.unit === "usd"
+      ? "USD"
+      : t("agentChat.usage.builderCredits", {
+          defaultValue: "Builder credits",
+        });
+  const axisTicks = [max, max / 2, 0];
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/20 px-3 pb-2 pt-3">
-      <svg
-        aria-label="Daily usage trend"
-        className="h-32 w-full text-primary"
-        viewBox="0 0 100 96"
-        preserveAspectRatio="none"
-        role="img"
-      >
-        <path d={area} className="fill-current opacity-10" />
-        <path
-          d={line}
-          className="fill-none stroke-current"
-          strokeWidth="1.5"
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
-      <div className="flex justify-between text-[11px] text-muted-foreground">
-        <span>
-          {new Date(`${daily[0]!.date}T00:00:00`).toLocaleDateString(
-            undefined,
-            { month: "short", day: "numeric" },
-          )}
-        </span>
-        <span>
-          {new Date(`${daily.at(-1)!.date}T00:00:00`).toLocaleDateString(
-            undefined,
-            { month: "short", day: "numeric" },
-          )}
-        </span>
+      <div className="flex gap-2">
+        <div className="flex h-32 w-3 shrink-0 items-center justify-center">
+          <span
+            aria-hidden="true"
+            className="[writing-mode:vertical-rl] rotate-180 whitespace-nowrap text-[10px] text-muted-foreground"
+          >
+            {axisLabel}
+          </span>
+        </div>
+        <div
+          role="group"
+          aria-label={axisLabel}
+          className="flex h-32 w-12 shrink-0 flex-col justify-between text-right text-[10px] tabular-nums text-muted-foreground"
+        >
+          {axisTicks.map((value, index) => (
+            <span key={index}>
+              {billing.unit === "usd"
+                ? formatUsdCost(value)
+                : value.toLocaleString(undefined, {
+                    maximumFractionDigits: 3,
+                  })}
+            </span>
+          ))}
+        </div>
+        <div className="min-w-0 flex-1">
+          <svg
+            aria-label="Daily usage trend"
+            className="h-32 w-full text-primary"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            role="img"
+          >
+            <path
+              d="M 0 0 H 100 M 0 50 H 100 M 0 100 H 100"
+              className="fill-none stroke-border/60"
+              strokeWidth="0.5"
+              vectorEffect="non-scaling-stroke"
+            />
+            <path d={area} className="fill-current opacity-10" />
+            <path
+              d={line}
+              className="fill-none stroke-current"
+              strokeWidth="1.5"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+          <div className="flex justify-between text-[11px] text-muted-foreground">
+            <span>
+              {new Date(`${daily[0]!.date}T00:00:00`).toLocaleDateString(
+                undefined,
+                { month: "short", day: "numeric" },
+              )}
+            </span>
+            <span>
+              {new Date(`${daily.at(-1)!.date}T00:00:00`).toLocaleDateString(
+                undefined,
+                { month: "short", day: "numeric" },
+              )}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -610,6 +651,7 @@ export function BuilderCreditUsagePanel({
             amount: remaining,
           })}
         </div>
+        <BuilderReferralInviteRow className="mt-4 border-t border-border/70 pt-4" />
       </div>
     </section>
   );
@@ -1310,13 +1352,18 @@ export function UsageSection({
                 </p>
               ) : (
                 <div className="divide-y divide-border/60">
-                  {data.recent.map((entry) => (
+                  {groupRecentPrompts(data.recent).map(({ entry, count }) => (
                     <div key={entry.id} className="px-4 py-3">
                       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
                         <span>
                           {entry.label} · {entry.model}
                         </span>
-                        <span>{entry.ownerEmail}</span>
+                        <span className="flex items-center gap-2">
+                          {entry.ownerEmail}
+                          {count > 1 ? (
+                            <Badge variant="secondary">×{count}</Badge>
+                          ) : null}
+                        </span>
                       </div>
                       <p className="mt-1 line-clamp-2 text-sm text-foreground">
                         {entry.prompt ??

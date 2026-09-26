@@ -56,6 +56,8 @@ export interface TraceSummary {
   totalOutputTokens: number;
   model: string;
   createdAt: number;
+  /** Populated by the human-review thread rollup query. */
+  runCount?: number;
 }
 
 // ─── Feedback ────────────���────────────────────────────────────────────
@@ -95,6 +97,8 @@ export interface InstructionUpdate {
 
 export interface OutputReviewListRow {
   runId: string;
+  orgId: string;
+  readOnly: boolean;
   threadId: string | null;
   ask: string;
   answer: string;
@@ -103,10 +107,21 @@ export interface OutputReviewListRow {
   inlineAppTitle?: string;
   threadTitle: string;
   summary: HumanReviewSummaryPayload | null;
+  artifacts: HumanReviewArtifactRef[];
+  runs: OutputReviewRun[];
+  runCount: number;
+  authorName?: string;
+  authorAvatar?: string;
   model: string;
   createdAt: number;
   feedback: FeedbackEntry[];
   instructionUpdate: InstructionUpdate | null;
+}
+
+export interface OutputReviewRun {
+  runId: string;
+  model: string;
+  createdAt: number;
 }
 
 export interface HumanReviewArtifactRef {
@@ -133,11 +148,34 @@ export interface HumanReviewSummary extends HumanReviewSummaryPayload {
 export interface OutputReviewThreadMessage {
   role: "user" | "assistant";
   text: string;
+  toolCalls?: string[];
 }
 
 export interface OutputReviewDetail {
+  runId: string;
+  orgId: string;
   app: AgentMcpAppPayload | null;
   messages: OutputReviewThreadMessage[];
+  artifacts: HumanReviewArtifactRef[];
+  summary: HumanReviewSummaryPayload | null;
+  ask: string;
+  answer: string;
+}
+
+export type ObservabilityReviewScope =
+  | { kind: "organization"; orgId: string }
+  | { kind: "all"; activeOrgId: string };
+
+export interface ObservabilityReviewThreadScope {
+  orgId: string;
+  threadId: string;
+}
+
+export function observabilityReviewThreadKey(
+  orgId: string,
+  threadId: string,
+): string {
+  return JSON.stringify([orgId, threadId]);
 }
 
 /** @deprecated Use OutputReviewListRow for list data. */

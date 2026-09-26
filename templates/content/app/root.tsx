@@ -417,7 +417,6 @@ export default function Root() {
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
   // so crawlers and unauthenticated visitors receive full markup on first visit.
   const isPublicPath = location.pathname.startsWith("/p/");
-  const isMarketingHome = location.pathname === "/";
 
   // Content's 3-way theme cycle (system/light/dark) animates the transition;
   // pass disableThemeTransitions={false} to restore that behaviour.
@@ -426,12 +425,12 @@ export default function Root() {
   // a different toasting system.
   const contentToaster = <Sonner closeButton position="bottom-left" />;
 
-  if (isPublicPath || isMarketingHome) {
+  if (isPublicPath) {
     return (
       <AppToolkitProvider>
         <AppProviders
           queryClient={queryClient}
-          isPublicPath={isPublicPath || isMarketingHome}
+          isPublicPath={isPublicPath}
           disableThemeTransitions={false}
           toaster={contentToaster}
           i18n={{
@@ -516,13 +515,6 @@ function ContentErrorBoundaryBody() {
         >
           Go to page list
         </a>
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
-        >
-          Reload
-        </button>
         <ErrorReportActions
           appName="Content"
           title={title}

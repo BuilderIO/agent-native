@@ -28,15 +28,17 @@ export function useAvailableSlots(
   duration: number,
   slug?: string,
   draft?: BookingAvailabilityPreview,
+  username?: string,
 ) {
   const draftParam = draft ? JSON.stringify(draft) : undefined;
 
   return useQuery<{ start: string; end: string }[]>({
-    queryKey: ["available-slots", date, duration, slug, draftParam],
+    queryKey: ["available-slots", date, duration, slug, draftParam, username],
     queryFn: async () => {
       const params = new URLSearchParams({ date, duration: String(duration) });
       if (slug) params.set("slug", slug);
       if (draftParam) params.set("draft", draftParam);
+      if (username) params.set("username", username);
       const res = await fetch(
         appApiPath(`/api/bookings/available-slots?${params}`),
       );
@@ -55,10 +57,11 @@ export function useAvailableDays(
   to: string,
   duration: number,
   slug?: string,
+  username?: string,
   enabled = true,
 ) {
   return useQuery<string[]>({
-    queryKey: ["available-days", from, to, duration, slug],
+    queryKey: ["available-days", from, to, duration, slug, username],
     queryFn: async () => {
       const params = new URLSearchParams({
         from,
@@ -66,6 +69,7 @@ export function useAvailableDays(
         duration: String(duration),
       });
       if (slug) params.set("slug", slug);
+      if (username) params.set("username", username);
       const res = await fetch(
         appApiPath(`/api/bookings/available-slots?${params}`),
       );
@@ -116,9 +120,16 @@ export function useCreateBooking() {
 export function useDeleteBooking() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(appApiPath(`/api/bookings/${id}`), {
+    mutationFn: async (input: {
+      id: string;
+      zoomMeetingResolved?: boolean;
+    }) => {
+      const res = await fetch(appApiPath(`/api/bookings/${input.id}`), {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(input.zoomMeetingResolved ? { zoomMeetingResolved: true } : {}),
+        }),
       });
       if (!res.ok) throw new Error("Failed to cancel booking");
       return res.json();

@@ -21,6 +21,7 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { useDecks } from "@/context/DeckContext";
 import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
@@ -69,6 +70,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const { flushDeckSave } = useDecks();
   const creativeContextEnabled = useCreativeContextLab();
   const settingsRedesign = useSettingsRedesign();
   const isChatRoute =
@@ -158,9 +160,14 @@ export function Layout({ children }: LayoutProps) {
     if (!deckScope) return undefined;
     const deckId = deckScope.id;
     return {
+      beforeStart: () => flushDeckSave(deckId),
       list: {
         action: "list-deck-versions",
-        args: { deckId, limit: 100 },
+        args: (threadId) => ({
+          deckId,
+          limit: 100,
+          ...(threadId ? { threadId } : {}),
+        }),
         getVersions: (result: unknown) => {
           const versions =
             result && typeof result === "object"
@@ -177,9 +184,10 @@ export function Layout({ children }: LayoutProps) {
           deckId,
           versionId: version.id,
         }),
+        beforeRestore: () => flushDeckSave(deckId),
       },
     };
-  }, [deckScope]);
+  }, [deckScope, flushDeckSave]);
 
   useAgentChatHomeHandoffLinks({
     storageKey: "slides",
@@ -313,6 +321,7 @@ export function Layout({ children }: LayoutProps) {
             t("agent.suggestionBrand"),
             t("agent.suggestionHero"),
           ]}
+          dynamicSuggestions={false}
           scope={deckScope}
           chatHistory={deckChatHistory}
           browserTabId={TAB_ID}

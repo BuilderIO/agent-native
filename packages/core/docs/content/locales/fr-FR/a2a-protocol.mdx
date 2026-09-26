@@ -274,7 +274,7 @@ Lorsque `message/send` est appelé avec `async: true`, le gestionnaire JSON-RPC 
 
 > [!IMPORTANT]
 > **Délai d'expiration du webhook et de la passerelle sans serveur :**
-> Les passerelles d'environnement hébergées (telles que Netlify, Vercel ou Cloudflare Pages) imposent des limites d'exécution strictes (souvent de 10 à 30 secondes) sur les routes HTTP publiques. Étant donné que les boucles d'agent peuvent prendre beaucoup de temps pour exécuter des requêtes, récupérer le contexte et exécuter des outils, vous ** devez utiliser `async: true`** lorsque vous appelez des points de terminaison A2A ou gérez un webhooks externe. Cela renvoie immédiatement un statut `working` à la passerelle API, gardant la connexion ouverte pendant quelques millisecondes seulement, tandis que le `/process-task` POST auto-déclenché exécute la boucle d'agent en arrière-plan. Ne bloquez pas la requête HTTP principale en attendant la fin de la boucle de l'agent.
+> Les passerelles d'environnement hébergées (telles que Netlify, Vercel ou Cloudflare Workers) imposent des limites d'exécution strictes (souvent de 10 à 30 secondes) sur les routes HTTP publiques. Étant donné que les boucles d'agent peuvent prendre beaucoup de temps pour exécuter des requêtes, récupérer le contexte et exécuter des outils, vous ** devez utiliser `async: true`** lorsque vous appelez des points de terminaison A2A ou gérez un webhooks externe. Cela renvoie immédiatement un statut `working` à la passerelle API, gardant la connexion ouverte pendant quelques millisecondes seulement, tandis que le `/process-task` POST auto-déclenché exécute la boucle d'agent en arrière-plan. Ne bloquez pas la requête HTTP principale en attendant la fin de la boucle de l'agent.
 
 Les messages contiennent des parties saisies : le texte, les données structurées et les fichiers peuvent tous voyager dans un seul message :
 
@@ -609,7 +609,7 @@ Le point de terminaison de la carte d'agent est toujours public (pas d'authentif
 
 La validation du support s'exécute à la limite de la requête (dans le gestionnaire JSON-RPC) avant que la boucle d'agent ne voie le message. Les assistants partagés dans `packages/core/src/a2a/auth-policy.ts` décident des besoins du déploiement :
 
-- `isA2AProductionRuntime()` renvoie `true` sur Netlify, AWS Lambda, Cloudflare Pages/Workers, Vercel, Render, Fly et Cloud Run, même lorsque `NODE_ENV` n'est pas `"production"`. Certains fournisseurs sans serveur ne définissent pas `NODE_ENV` de manière cohérente. La stratégie lit donc également les indicateurs spécifiques au fournisseur.
+- `isA2AProductionRuntime()` renvoie `true` sur Netlify, AWS Lambda, Cloudflare Workers, Vercel, Render, Fly et Cloud Run, même lorsque `NODE_ENV` n'est pas `"production"`. Certains fournisseurs sans serveur ne définissent pas `NODE_ENV` de manière cohérente. La stratégie lit donc également les indicateurs spécifiques au fournisseur.
 - `hasConfiguredA2ASecret()` renvoie `true` lorsque `A2A_SECRET` est défini.
 - `shouldAdvertiseJwtA2AAuth()` est ce que la carte d'agent utilise pour décider de publier ou non un schéma de sécurité `jwtBearer`.
 

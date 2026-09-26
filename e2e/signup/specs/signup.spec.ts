@@ -87,18 +87,22 @@ for (const target of targets) {
     page,
   }, testInfo) => {
     test.setTimeout(360_000);
-    const { errors, thirdParty } = collectAppPageErrors(page, target.origin);
     const failedRequests: string[] = [];
-    page.on("requestfailed", (request) => {
-      const failure = request.failure()?.errorText ?? "unknown";
-      if (
-        /aborted/i.test(failure) ||
-        !request.url().startsWith(target.origin)
-      ) {
-        return;
-      }
-      failedRequests.push(`${request.url()} (${failure})`);
-    });
+    const observePage = (observedPage: Page) => {
+      const diagnostics = collectAppPageErrors(observedPage, target.origin);
+      observedPage.on("requestfailed", (request) => {
+        const failure = request.failure()?.errorText ?? "unknown";
+        if (
+          /aborted/i.test(failure) ||
+          !request.url().startsWith(target.origin)
+        ) {
+          return;
+        }
+        failedRequests.push(`${request.url()} (${failure})`);
+      });
+      return diagnostics;
+    };
+    const initialPageDiagnostics = observePage(page);
 
     const email = createQaEmail(target.app, target.environment);
     expect(
@@ -178,9 +182,13 @@ for (const target of targets) {
     });
     if (!message) return;
 
+    // The link-sent page redirects itself when its session poll sees verification.
+    const verificationStartedAt = Date.now();
+    const verificationPage = await page.context().newPage();
+    const verificationPageDiagnostics = observePage(verificationPage);
     await test.step("use the secure same-origin link from the inbox", async () => {
       const verificationLink = verificationLinkFor(message, target.origin);
-      const response = await page.goto(verificationLink, {
+      const response = await verificationPage.goto(verificationLink, {
         waitUntil: "domcontentloaded",
       });
       expect(
@@ -191,40 +199,83 @@ for (const target of targets) {
         response!.status(),
         `${target.app} verification returned an error`,
       ).toBeLessThan(400);
-      expect(new URL(page.url()).origin).toBe(target.origin);
-      expect(new URL(page.url()).pathname).not.toMatch(/sign-in|login/i);
+      expect(new URL(verificationPage.url()).origin).toBe(target.origin);
+      expect(new URL(verificationPage.url()).pathname).not.toMatch(
+        /sign-in|login/i,
+      );
     });
+
+    if (target.app === "design" && target.environment === "beta") {
+      await test.step("capture fresh-user first-run readiness", async () => {
+        await expect(
+          verificationPage.getByTestId("first-run-role"),
+        ).toBeVisible({
+          timeout: 30_000,
+        });
+        const elapsedMs = Date.now() - verificationStartedAt;
+        await verificationPage.screenshot({
+          path: testInfo.outputPath("design-first-run-onboarding.png"),
+          fullPage: true,
+        });
+        writeFileSync(
+          testInfo.outputPath("design-first-run-timing.json"),
+          `${JSON.stringify(
+            {
+              measurement: "verification-link-open-to-first-run-role-visible",
+              elapsedMs,
+              app: target.app,
+              environment: target.environment,
+            },
+            null,
+            2,
+          )}\n`,
+          "utf8",
+        );
+        testInfo.annotations.push({
+          type: "design-first-run-ready-ms",
+          description: String(elapsedMs),
+        });
+      });
+    }
 
     await test.step("prove the session works before any refresh", async () => {
       assertSession(
-        await readSession(page),
+        await readSession(verificationPage),
         email,
         `${target.app} immediate session`,
       );
       assertBetterAuthSession(
-        await readBetterAuthSession(page),
+        await readBetterAuthSession(verificationPage),
         email,
         `${target.app} immediate Better Auth session`,
       );
     });
 
     await test.step("prove the session survives a browser refresh", async () => {
-      await page.reload({ waitUntil: "domcontentloaded" });
+      await verificationPage.reload({ waitUntil: "domcontentloaded" });
       await expect
-        .poll(() => new URL(page.url()).pathname)
+        .poll(() => new URL(verificationPage.url()).pathname)
         .not.toMatch(/sign-in|login/i);
       assertSession(
-        await readSession(page),
+        await readSession(verificationPage),
         email,
         `${target.app} refreshed session`,
       );
       assertBetterAuthSession(
-        await readBetterAuthSession(page),
+        await readBetterAuthSession(verificationPage),
         email,
         `${target.app} refreshed Better Auth session`,
       );
     });
 
+    const errors = [
+      ...initialPageDiagnostics.errors,
+      ...verificationPageDiagnostics.errors,
+    ];
+    const thirdParty = [
+      ...initialPageDiagnostics.thirdParty,
+      ...verificationPageDiagnostics.thirdParty,
+    ];
     if (thirdParty.length > 0) {
       test.info().annotations.push({
         type: "third-party-noise",

@@ -11,6 +11,7 @@ import {
   IconLayoutGrid,
   IconComponents,
   IconSearch,
+  IconTemplate,
 } from "@tabler/icons-react";
 import { useLocation } from "react-router";
 
@@ -41,6 +42,12 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
       label: t("navigation.decks"),
       icon: IconLayoutGrid,
       active: isItemActive("/home"),
+    },
+    {
+      to: "/templates",
+      label: t("templatesPage.title"),
+      icon: IconTemplate,
+      active: isItemActive("/templates"),
     },
     {
       to: "/design-systems",

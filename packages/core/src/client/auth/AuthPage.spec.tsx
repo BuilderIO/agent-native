@@ -202,6 +202,34 @@ describe("AuthPage", () => {
     expect(html).not.toContain("onclick");
   });
 
+  it("offers the existing federation flow when identity SSO is available", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(<AuthPage {...props} identitySsoEnabled />);
+
+    expect(html).toContain('id="identity-sso-btn"');
+    expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
+    expect(html).toContain("Continue with Agent-Native");
+    expect(html).toContain("Use the same verified email");
+  });
+
+  it("keeps the federation CTA off auth pages without an available hub", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled={false} />,
+    );
+
+    expect(html).not.toContain('id="identity-sso-btn"');
+  });
+
+  it("preserves Google-only sign-in policy", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled googleOnly />,
+    );
+
+    expect(html).not.toContain('id="identity-sso-btn"');
+  });
+
   it("renders the organization SSO email entry point when enabled", () => {
     const props = propsFromHtml(getOnboardingHtml());
     const html = renderToString(<AuthPage {...props} organizationSsoEnabled />);
@@ -210,97 +238,23 @@ describe("AuthPage", () => {
     expect(html).toContain('id="organization-sso-submit"');
   });
 
-  it("composes the shared two-panel marketing home for branded auth", () => {
+  it("renders branded auth as a centered form without the legacy marketing panel", () => {
     const onboardingHtml = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
     });
     const props = propsFromHtml(onboardingHtml);
-    const html = renderToString(<AuthPage {...props} />);
+    const html = renderToString(<AuthPage {...props} initialView="login" />);
 
-    expect(html).toContain('data-agent-native-marketing-home="true"');
-    expect(html).toContain('class="auth-marketing-visual"');
-    expect(html).toContain('data-agent-native-starfield="true"');
-    expect(html).not.toContain("New to Slides?");
-    expect(html).toContain("Welcome to Slides");
-    expect(html).toContain('data-i18n="welcomeToApp"');
-    expect(html).toContain("Sign in or create your account");
-    expect(html).toContain("Say it. Show it.");
-    expect(html).toContain('class="app-status-badge">alpha</span>');
-    expect(html).toContain('class="oss-badge"');
-    expect(html).toContain('href="https://agent-native.com/apps/slides"');
-    expect(html).toContain('class="auth-marketing-description-link"');
-    expect(html.indexOf('class="auth-marketing-description"')).toBeLessThan(
-      html.indexOf('class="auth-marketing-description-link"'),
-    );
-    expect(
-      html.indexOf('class="auth-marketing-description-link"'),
-    ).toBeLessThan(html.indexOf('class="oss-badge"'));
-    const githubBadge = html.match(/<a class="oss-badge"[^>]*>/)?.[0];
-    expect(githubBadge).toContain(
-      'href="https://github.com/BuilderIO/agent-native"',
-    );
-    expect(githubBadge).toContain('target="_blank"');
-    const badgeStart = html.indexOf(githubBadge ?? "");
-    const githubIcon = html.indexOf("<svg", badgeStart);
-    const sourceLabel = html.indexOf('data-i18n="openSource"', badgeStart);
-    expect(githubIcon).toBeGreaterThan(badgeStart);
-    expect(html.slice(githubIcon, sourceLabel)).toContain('aria-hidden="true"');
-    expect(onboardingHtml).toContain(
-      "top: max(1rem, env(safe-area-inset-top));\n    inset-inline-end: max(4rem, calc(env(safe-area-inset-right) + 3.5rem));",
-    );
-    expect(html).toContain('class="split');
-    expect(html).toContain('class="marketing-panel"');
-    expect(html).toContain('class="form-panel');
-    expect(html).toContain('id="heading"');
-    expect(html).not.toContain('id="local-note"');
-    expect(onboardingHtml).toContain(
-      ".auth-marketing-home .marketing-panel {\n    order: 1;\n    flex: 1 1 50%;",
-    );
-    expect(onboardingHtml).toContain(
-      ".auth-marketing-home .auth-marketing-screenshot-wrap {\n    position: fixed;\n    inset: 0;",
-    );
-    expect(onboardingHtml).toContain("transform: translateY(-5vh);");
-    expect(onboardingHtml).toContain(
-      "body.has-marketing .locale-picker {\n    top: auto;",
-    );
-    expect(onboardingHtml).toContain("box-shadow: none;");
-    expect(onboardingHtml).toContain(
-      ".auth-marketing-home .form-panel {\n    order: 2;\n    flex: 1 1 50%;",
-    );
-    expect(onboardingHtml).toContain("border-inline-start: 1px solid");
-    expect(onboardingHtml).toContain("@media (prefers-color-scheme: light)");
-    expect(onboardingHtml).toContain("--auth-marketing-right-bg: Canvas;");
-    expect(onboardingHtml).toContain("color-scheme: light;");
-    expect(onboardingHtml).toContain(
-      ".auth-marketing-home .card .verification-copy",
-    );
+    expect(html).toContain('<div class="auth-centered">');
+    expect(html).toContain('id="login-form"');
+    expect(html).toContain('data-i18n="welcomeBackTitle"');
+    expect(html).not.toContain('data-i18n="welcomeToApp"');
+    expect(html).not.toContain("data-agent-native-marketing-home");
+    expect(html).not.toContain("auth-marketing-visual");
+    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).not.toContain('class="oss-badge"');
+    expect(html).not.toContain("Say it. Show it.");
   });
-
-  it("places Learn more after the marketing description for every app", () => {
-    const props = propsFromHtml(
-      getOnboardingHtml({ requestHost: "mail.agent-native.com" }),
-    );
-    const html = renderToString(<AuthPage {...props} />);
-
-    expect(html.indexOf('class="auth-marketing-description"')).toBeLessThan(
-      html.indexOf('class="auth-marketing-description-link"'),
-    );
-    expect(html).not.toContain('class="auth-marketing-top-right"');
-    expect(html).not.toContain("New to Mail?");
-  });
-
-  it.each(["slides.agent-native.com", "analytics.agent-native.com"])(
-    "keeps shared visual markup for %s",
-    (requestHost) => {
-      const props = propsFromHtml(getOnboardingHtml({ requestHost }));
-      const html = renderToString(<AuthPage {...props} />);
-
-      expect(props.marketing?.screenshotWidth).toBeGreaterThan(0);
-      expect(props.marketing?.screenshotHeight).toBeGreaterThan(0);
-      expect(html).toContain('class="auth-marketing-visual"');
-      expect(html).toContain('data-agent-native-starfield="true"');
-    },
-  );
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {
     const props = propsFromHtml(getOnboardingHtml({ authMode: "magic-link" }));

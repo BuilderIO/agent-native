@@ -380,6 +380,12 @@ const messages = {
       shareAria: "साझा करें {{noun}}",
       share: "साझा करें {{noun}}",
       shareThis: "इसे साझा करें {{noun}}",
+      teammateSuggestion: {
+        message: "अपनी टीम को Plan में लाएँ।",
+        invite: "टीम को आमंत्रित करें",
+        enableDomain: "@{{domain}} के किसी भी व्यक्ति को जुड़ने दें",
+        enableFailed: "डोमेन से जुड़ना चालू नहीं हो सका। फिर कोशिश करें।",
+      },
       hostedCopy:
         "इस स्थानीय {{noun}} के पास साझा करने के लिए एक होस्टेड प्रति है। पहुंच प्रबंधित करने के लिए होस्ट किए गए {{noun}} को खोलें।",
       publishDescription:

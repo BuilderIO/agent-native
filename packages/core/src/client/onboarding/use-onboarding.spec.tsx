@@ -188,6 +188,106 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
   });
 });
 
+describe("useOnboarding — summary timeout", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let latest: UseOnboardingResult | null;
+  let summarySignal: AbortSignal | undefined;
+
+  function Harness() {
+    latest = useOnboarding({ initialFirstRun: true });
+    return null;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    latest = null;
+    summarySignal = undefined;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        summarySignal = init?.signal ?? undefined;
+        return {
+          ok: true,
+          status: 200,
+          json: () => new Promise(() => {}),
+        } as Response;
+      }),
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("surfaces a stalled response body instead of leaving first-run loading forever", async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(latest?.loading).toBe(true);
+    expect(latest?.error).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error).toBe("onboarding summary timed out");
+    expect(summarySignal?.aborted).toBe(true);
+  });
+
+  it("ignores an older timeout after a newer refresh succeeds", async () => {
+    let summaryCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        summaryCalls += 1;
+        if (summaryCalls === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: () => new Promise(() => {}),
+          } as Response;
+        }
+        return jsonResponse({
+          steps: [],
+          dismissed: false,
+          profile: { appId: "app", appName: "App", capabilities: [] },
+        });
+      }),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      await latest!.refresh();
+    });
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error).toBeNull();
+  });
+});
+
 describe("trackOnboardingEvent", () => {
   beforeEach(() => trackEventMock.mockReset());
 
@@ -241,6 +341,25 @@ describe("trackOnboardingEvent", () => {
     };
     trackOnboardingEvent("onboarding_role_save_started", properties);
     trackOnboardingEvent("onboarding_role_save_started", properties);
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not deduplicate setup-method outcomes across attempts", () => {
+    const properties = {
+      flow: "first_run",
+      step_id: "choice",
+      method_id: "builder_create_account",
+      outcome: "failed",
+    };
+    trackOnboardingEvent("onboarding_method_outcome", {
+      ...properties,
+      onboarding_attempt_id: "attempt-1",
+    });
+    trackOnboardingEvent("onboarding_method_outcome", {
+      ...properties,
+      onboarding_attempt_id: "attempt-2",
+    });
 
     expect(trackEventMock).toHaveBeenCalledTimes(2);
   });

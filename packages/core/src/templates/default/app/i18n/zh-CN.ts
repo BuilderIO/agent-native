@@ -656,6 +656,7 @@ const messages = {
     reviewFeedback: "反馈",
     reviewOutput: "审核回答",
     reviewPreview: "预览回答",
+    reviewPreviewUnavailable: "无法预览",
     closePreview: "隐藏预览",
     addFeedback: "添加反馈",
     draftInstruction: "起草指令",

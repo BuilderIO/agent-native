@@ -10,10 +10,13 @@ import {
   type MailSortMode,
 } from "@shared/ai-priority";
 import { mailLabelsInclude } from "@shared/gmail-labels";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage, Label } from "@shared/types";
 import {
   IconAlertCircle,
   IconArchive,
+  IconCheck,
+  IconChevronDown,
   IconDots,
   IconFilter,
   IconFolder,
@@ -22,6 +25,7 @@ import {
   IconMailOpened,
   IconTrash,
   IconX,
+  IconSettings,
 } from "@tabler/icons-react";
 import {
   useQueryClient,
@@ -36,6 +40,7 @@ import { toast } from "sonner";
 import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import { JevConnectionPrompt } from "@/components/settings/JevConnectionPrompt";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,13 +52,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
@@ -62,6 +60,10 @@ import {
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAiPriority } from "@/hooks/use-ai-priority";
+import {
+  askAgentToDraftImportanceRules,
+  useAiPriorityFeedback,
+} from "@/hooks/use-ai-priority-feedback";
 import { useAutomations } from "@/hooks/use-automations";
 import {
   useEmails,
@@ -139,7 +141,6 @@ function priorityEmailCacheKey(
     priorityEmail.to,
     priorityEmail.subject,
     priorityEmail.snippet,
-    priorityEmail.labelIds,
   ]);
 }
 
@@ -200,6 +201,11 @@ interface EmailListProps {
   onDraftOpen?: (email: EmailMessage) => void;
   onNavigateThread?: (threadId: string) => void;
   showPrioritySort?: boolean;
+  jevConfigured?: boolean;
+  jevAvailabilityLoading?: boolean;
+  jevAvailabilityError?: boolean;
+  onJevConnected?: () => void;
+  onJevRetry?: () => void;
   sortMode?: MailSortMode;
   onSortModeChange?: (mode: MailSortMode) => void;
 }
@@ -522,12 +528,18 @@ export function EmailList({
   onDraftOpen,
   onNavigateThread,
   showPrioritySort = false,
+  jevConfigured = false,
+  jevAvailabilityLoading = false,
+  jevAvailabilityError = false,
+  onJevConnected,
+  onJevRetry,
   sortMode = "newest",
   onSortModeChange,
 }: EmailListProps) {
   const t = useT();
   const { isPending: isPriorityPending, mutateAsync: requestPriority } =
     useAiPriority();
+  const priorityFeedback = useAiPriorityFeedback();
   const navigate = useNavigate();
   const { view = "inbox", threadId } = useParams<{
     view: string;
@@ -598,6 +610,10 @@ export function EmailList({
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
   const labels = labelsProp ?? labelsData ?? EMPTY_LABELS;
+  const labelNames = useMemo(
+    () => new Map(labels.map((label) => [label.id, label.name])),
+    [labels],
+  );
   const moveEmail = useMoveEmail();
   const cancelScheduledJob = useDeleteScheduledJob();
   const sendScheduledJobNow = useSendScheduledJobNow();
@@ -684,7 +700,7 @@ export function EmailList({
         .concat(
           priorityWindowEmails.map(
             (email) =>
-              `${email.accountEmail}:${email.id}:${email.date}:${email.from.email}:${JSON.stringify(email.to)}:${email.subject}:${email.snippet}:${email.labelIds.join(",")}`,
+              `${email.accountEmail}:${email.id}:${email.date}:${email.from.email}:${JSON.stringify(email.to)}:${email.subject}:${email.snippet}`,
           ),
         )
         .join("\u001f"),
@@ -692,6 +708,79 @@ export function EmailList({
   );
   const [priorityScores, setPriorityScores] = useState(
     () => new Map(priorityScoreCache(queryClient)),
+  );
+  const recordPriorityFeedback = useCallback(
+    (email: EmailMessage, decision: "important" | "not-important") => {
+      const key = aiPriorityEmailKey(email.accountEmail, email.id);
+      const score = decision === "important" ? 1 : 0;
+      const cache = priorityScoreCache(queryClient);
+      const previousScore = cache.get(key) ?? priorityScores.get(key);
+      const optimisticScore = {
+        inputKey: priorityEmailCacheKey(email, priorityRuleRevision),
+        score,
+      };
+      rememberPriorityScore(cache, key, optimisticScore);
+      setPriorityScores((current) => {
+        const next = new Map(current);
+        next.set(key, optimisticScore);
+        return next;
+      });
+      void priorityFeedback
+        .mutateAsync({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          decision,
+          sender: email.from.name || email.from.email,
+          subject: email.subject,
+        })
+        .then(({ totalVotes, recentVotes }) => {
+          if (totalVotes % 5 !== 0) return;
+          let showSuggestion = true;
+          try {
+            const key = "mail-priority-feedback-suggestion-count";
+            const shownCount = Number(localStorage.getItem(key) ?? 0);
+            showSuggestion = shownCount < totalVotes;
+            if (showSuggestion) localStorage.setItem(key, String(totalVotes));
+            // coercion-ok: feedback was saved server-side; this only tracks a local reminder.
+          } catch {
+            // Feedback is saved server-side even when browser storage is unavailable.
+          }
+          if (!showSuggestion) return;
+          toast.info(t("mail.sort.priorityFeedbackSuggestion"), {
+            duration: 8_000,
+            action: {
+              label: t("mail.sort.priorityFeedbackAskAgent"),
+              onClick: () =>
+                askAgentToDraftImportanceRules(
+                  t("mail.sort.priorityFeedbackSuggestion"),
+                  recentVotes,
+                ),
+            },
+          });
+        })
+        .catch(() => {
+          setPriorityScores((current) => {
+            if (current.get(key) !== optimisticScore) return current;
+            const next = new Map(current);
+            if (previousScore) next.set(key, previousScore);
+            else next.delete(key);
+            return next;
+          });
+          if (cache.get(key) === optimisticScore) {
+            if (previousScore) rememberPriorityScore(cache, key, previousScore);
+            else cache.delete(key);
+          }
+          toast.error(t("mail.aiFilter.actionFailed"));
+        });
+    },
+    [
+      navigate,
+      priorityFeedback,
+      priorityRuleRevision,
+      priorityScores,
+      queryClient,
+      t,
+    ],
   );
   const cachedPriorityScores = useMemo(() => {
     const cached = new Map<string, number>();
@@ -757,6 +846,7 @@ export function EmailList({
       if (priorityRequestGenerationRef.current !== requestGeneration) return;
       const cache = priorityScoreCache(queryClient);
       const next = new Map(cache);
+      const scoredKeys = new Set<string>();
       for (const score of result.scores) {
         const email =
           score.accountEmail === undefined
@@ -774,12 +864,16 @@ export function EmailList({
           continue;
         }
         const key = aiPriorityEmailKey(email.accountEmail, email.id);
+        scoredKeys.add(key);
         const inputKey = pendingInputKeys.get(key);
         if (inputKey) {
           const cachedScore = { inputKey, score: score.score };
           rememberPriorityScore(cache, key, cachedScore);
           rememberPriorityScore(next, key, cachedScore);
         }
+      }
+      if (scoredKeys.size !== uncachedPriorityEmails.length) {
+        throw new Error(t("mail.sort.priorityFailed"));
       }
       setPriorityScores(next);
     } catch (error) {
@@ -2057,32 +2151,100 @@ export function EmailList({
   const sortHeaderAction = useMemo(
     () =>
       view === "inbox" && !searchQuery && !labelParam && threads.length > 0 ? (
-        <Select
-          value={currentSortMode}
-          onValueChange={(value) => onSortModeChange?.(value as MailSortMode)}
-        >
-          <SelectTrigger
-            className="h-7 w-[104px] text-[11px]"
-            aria-label={t("mail.sort.label")}
-            aria-busy={isPriorityPending}
-          >
-            <SelectValue />
-            {isPriorityPending && <Spinner className="size-3" />}
-          </SelectTrigger>
-          <SelectContent align="end">
-            <SelectItem value="newest">{t("mail.sort.newest")}</SelectItem>
-            {showPrioritySort && (
-              <SelectItem value="priority">
-                {t("mail.sort.priority")}
-              </SelectItem>
-            )}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-1">
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-7 w-[112px] items-center justify-between rounded-md border border-input bg-transparent px-2.5 text-[11px] text-foreground hover:bg-accent/40"
+                    aria-label={`${t("mail.sort.label")} · ⌘I`}
+                    aria-busy={isPriorityPending}
+                  >
+                    <span>
+                      {currentSortMode === "priority"
+                        ? t("mail.sort.priority")
+                        : t("mail.sort.newest")}
+                    </span>
+                    {isPriorityPending ? (
+                      <Spinner className="size-3" />
+                    ) : (
+                      <IconChevronDown className="size-3.5 text-muted-foreground" />
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{`${t("mail.sort.label")} · ⌘I`}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem
+                onSelect={() => onSortModeChange?.("newest")}
+                className="justify-between"
+              >
+                {t("mail.sort.newest")}
+                {currentSortMode === "newest" && (
+                  <IconCheck className="size-3.5" />
+                )}
+              </DropdownMenuItem>
+              {showPrioritySort && (
+                <div className="flex items-center">
+                  <DropdownMenuItem
+                    onSelect={() => onSortModeChange?.("priority")}
+                    className="flex-1 justify-between"
+                  >
+                    {t("mail.sort.priority")}
+                    {currentSortMode === "priority" && (
+                      <IconCheck className="size-3.5" />
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      navigate(
+                        `${mailSettingsRoute("ai-filter")}#importance-rules`,
+                      )
+                    }
+                    aria-label={t("mail.sort.priorityEditRules")}
+                    title={t("mail.sort.priorityEditRules")}
+                    className="px-2"
+                  >
+                    <IconSettings className="size-3.5" />
+                  </DropdownMenuItem>
+                </div>
+              )}
+              {!showPrioritySort &&
+                (jevAvailabilityError ? (
+                  <DropdownMenuItem
+                    onSelect={onJevRetry}
+                    disabled={jevAvailabilityLoading}
+                    className="justify-between"
+                  >
+                    {t("mail.sort.priority")}
+                    <span className="text-xs text-muted-foreground">
+                      {t("mail.error.tryAgain")}
+                    </span>
+                  </DropdownMenuItem>
+                ) : (
+                  <JevConnectionPrompt
+                    variant="menu-item"
+                    disabled={jevAvailabilityLoading}
+                    onConnected={onJevConnected}
+                  />
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       ) : null,
     [
       isPriorityPending,
       labelParam,
+      navigate,
       showPrioritySort,
+      jevConfigured,
+      jevAvailabilityLoading,
+      jevAvailabilityError,
+      onJevConnected,
+      onJevRetry,
       currentSortMode,
       onSortModeChange,
       searchQuery,
@@ -2301,6 +2463,13 @@ export function EmailList({
     return <MailLoadingState containerRef={containerRef} />;
   }
 
+  if (
+    currentSortMode === "priority" &&
+    priorityWindowEmails.length > cachedPriorityScores.size
+  ) {
+    return <MailLoadingState containerRef={containerRef} />;
+  }
+
   // Client-sliced inbox tabs can have no matches on the first page even when
   // later inbox pages contain matching threads. Keep the sentinel mounted so
   // the infinite query can continue before showing an empty state.
@@ -2413,8 +2582,7 @@ export function EmailList({
     view !== "sent" &&
     view !== "drafts" &&
     view !== "trash";
-  const canTrashInView = view !== "trash";
-
+  const canTrashInView = view !== "inbox" && view !== "trash";
   const virtualItems = rowVirtualizer.getVirtualItems();
 
   return (
@@ -2452,6 +2620,17 @@ export function EmailList({
               >
                 <EmailListItem
                   email={thread.latestMessage}
+                  labelNames={labelNames}
+                  importanceScore={
+                    currentSortMode === "priority"
+                      ? cachedPriorityScores.get(
+                          aiPriorityEmailKey(
+                            thread.latestMessage.accountEmail,
+                            thread.latestMessage.id,
+                          ),
+                        )
+                      : undefined
+                  }
                   thread={thread}
                   isSelected={thread.latestMessage.id === threadId}
                   isFocused={thread.latestMessage.id === focusedId}
@@ -2469,6 +2648,12 @@ export function EmailList({
                   onArchive={handleArchiveThread}
                   onSnooze={handleSnoozeButtonClick}
                   onTrash={handleTrashThread}
+                  onImportanceFeedback={
+                    view === "inbox"
+                      ? (decision) =>
+                          recordPriorityFeedback(thread.latestMessage, decision)
+                      : undefined
+                  }
                   onSendNow={handleSendScheduledNow}
                   onCancelSchedule={handleCancelScheduled}
                   onHover={handleHoverThread}

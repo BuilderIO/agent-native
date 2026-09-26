@@ -8,6 +8,7 @@ import { renderRawSlideHtml } from "@/components/deck/SlideRenderer";
 
 import {
   mergeRenderedEdits,
+  rebaseSlideEdit,
   renderArtifactGrowth,
   SOURCE_STAMP_ATTR,
   stampSlideSource,
@@ -461,5 +462,48 @@ describe("renderArtifactGrowth", () => {
         [],
       );
     }
+  });
+});
+
+describe("rebaseSlideEdit", () => {
+  const stored =
+    '<div class="fmd-slide"><h2>Title</h2><p>Caption</p><p>Footer</p></div>';
+  const { ranges } = stampSlideSource(stored, NONCE);
+  const edited = stored.replace("Caption", "Caption typed");
+
+  it("keeps an edit and a newer change to another element", () => {
+    const next = stored.replace("Title", "Agent title");
+    expect(rebaseSlideEdit(stored, ranges, edited, next)).toBe(
+      next.replace("Caption", "Caption typed"),
+    );
+  });
+
+  it("finds the edited element after the newer version moved it", () => {
+    const next = stored.replace("<h2>Title</h2>", "<h1>Big</h1><h2>Title</h2>");
+    expect(rebaseSlideEdit(stored, ranges, edited, next)).toBe(
+      next.replace("Caption", "Caption typed"),
+    );
+  });
+
+  it("widens to an element the newer version holds only once", () => {
+    const twins =
+      '<div class="fmd-slide"><div><p>Same</p></div><section><p>Same</p></section></div>';
+    const twinRanges = stampSlideSource(twins, NONCE).ranges;
+    const typed = twins.replace("<section><p>Same", "<section><p>Same!");
+    const next = twins.replace("<div><p>", '<div class="a"><p>');
+    expect(rebaseSlideEdit(twins, twinRanges, typed, next)).toBe(
+      next.replace("<section><p>Same", "<section><p>Same!"),
+    );
+  });
+
+  it("refuses when the newer version changed the edited element too", () => {
+    const next = stored.replace("Caption", "Agent caption");
+    expect(rebaseSlideEdit(stored, ranges, edited, next)).toBeNull();
+  });
+
+  it("returns the newer version for no edit, and the edit for no newer change", () => {
+    const next = stored.replace("Title", "Agent title");
+    expect(rebaseSlideEdit(stored, ranges, stored, next)).toBe(next);
+    expect(rebaseSlideEdit(stored, ranges, edited, stored)).toBe(edited);
   });
 });

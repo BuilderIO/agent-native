@@ -260,6 +260,34 @@ export default {
     weekStartLabel: "A semana começa no",
     weekStartSunday: "Domingo - sábado",
     weekStartMonday: "Segunda-feira - domingo",
+    eventRules: "Regras de convite",
+    eventRuleAccept: "Aceitar automaticamente",
+    eventRuleDecline: "Recusar automaticamente",
+    eventRuleHide: "Ocultar automaticamente",
+    eventRulePlaceholderAccept:
+      "Exemplo: aceitar conversas individuais com minha equipe",
+    eventRulePlaceholderDecline:
+      "Exemplo: recusar demonstrações de fornecedores e eventos após o expediente",
+    eventRulePlaceholderHide: "Exemplo: ocultar blocos de foco e lembretes",
+    eventRulesSave: "Salvar regras",
+    eventRulesRecentActivity: "Atividade recente",
+    eventRulesNoActivity: "Nenhuma atividade ainda",
+    eventRuleActivityAccepted: "Aceito",
+    eventRuleActivityDeclined: "Recusado",
+    eventRuleActivityHidden: "Oculto",
+    eventRuleUndoDone: "Ação desfeita",
+    eventRuleUndoFailed: "Não foi possível desfazer esta ação",
+    eventRulesActive:
+      "As regras são executadas a cada 5 minutos nas agendas principais das contas conectadas.",
+    eventRulesDisabled:
+      "Ative RUN_BACKGROUND_JOBS=1 em um processo Calendar persistente.",
+    eventRulesDeploymentDisabled:
+      "A automação agendada está desativada nesta implantação.",
+    eventRulesChecking: "Verificando o status da automação…",
+    eventRulesConflict:
+      "Um convite foi ignorado porque as regras de aceitar e recusar coincidiram.",
+    eventRulesUnregistered:
+      "A automação do Calendar não está registrada neste servidor.",
   },
   calendarSettings: {
     calendarsTab: "Calendários",
@@ -530,8 +558,18 @@ export default {
     confirmation: "confirmação",
     confirmationSent:
       "Tudo certo! Uma confirmação foi enviada para o seu e-mail.",
+    meetingDetailsPending:
+      "Seu horário está reservado. O anfitrião enviará os detalhes da reunião.",
     confirmed: "Confirmada",
     confirmedCount: "Confirmadas ({{count}})",
+    zoomNeedsReview: "Verifique o Zoom antes de tentar novamente",
+    zoomCancellationNeedsReview: "Verifique o Zoom antes de cancelar",
+    zoomCancellationRequiresHostReview:
+      "Quem organiza precisa revisar a reunião do Zoom antes de cancelar esta reserva.",
+    zoomCancelTitle: "Verifique o Zoom antes de cancelar",
+    zoomCancelDescription:
+      "O Zoom pode ter criado uma reunião para esta reserva. Verifique sua conta do Zoom e cancele a reunião por lá, se ela existir. Continue somente depois que ela for cancelada ou você confirmar que não existe.",
+    zoomCancelConfirm: "Verifiquei o Zoom",
     confirming: "Confirmando",
     conferencing: "Conferência",
     connectZoom: "Conecte Zoom",

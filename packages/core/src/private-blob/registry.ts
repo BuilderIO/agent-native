@@ -1,7 +1,11 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 import { getAppConfig } from "../app-config/index.js";
-import { deleteUploadedFile, uploadFile } from "../file-upload/index.js";
+import {
+  deleteUploadedFile,
+  getActiveFileUploadProviderForRequest,
+  uploadFile,
+} from "../file-upload/index.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -298,6 +302,39 @@ export function getActivePrivateBlobProvider(): PrivateBlobProvider | null {
   return null;
 }
 
+export async function getActivePrivateBlobProviderForRequest(): Promise<PrivateBlobProvider | null> {
+  const selectedId = getAppConfig().privateBlob.provider;
+  if (selectedId) {
+    const selected = providers.get(selectedId);
+    if (!selected) {
+      throw new Error(
+        `Private blob config selects '${selectedId}', but no provider with that id is registered`,
+      );
+    }
+    if (
+      !selected.isConfigured() &&
+      !(await selected.isConfiguredForRequest?.())
+    ) {
+      throw new Error(
+        `Private blob provider '${selectedId}' is selected but not configured`,
+      );
+    }
+    return selected;
+  }
+  for (const provider of providers.values()) {
+    if (provider.isConfigured()) return provider;
+    if (await provider.isConfiguredForRequest?.()) return provider;
+  }
+  return null;
+}
+
+export async function isPrivateBlobConfiguredForRequest(): Promise<boolean> {
+  if (await getActivePrivateBlobProviderForRequest()) return true;
+  if (!publicUploadFallbackRef.enabled) return false;
+  if (!getAppConfig().privateBlob.publicUploadFallback) return false;
+  return Boolean(await getActiveFileUploadProviderForRequest());
+}
+
 export function setPrivateBlobPublicUploadFallbackEnabled(
   enabled: boolean,
 ): void {
@@ -307,7 +344,7 @@ export function setPrivateBlobPublicUploadFallbackEnabled(
 export async function putPrivateBlob(
   input: PrivateBlobPutInput,
 ): Promise<PrivateBlobHandle | null> {
-  const provider = getActivePrivateBlobProvider();
+  const provider = await getActivePrivateBlobProviderForRequest();
   if (provider) return provider.put(input);
   if (!publicUploadFallbackRef.enabled) return null;
   if (!getAppConfig().privateBlob.publicUploadFallback) return null;

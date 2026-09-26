@@ -36,6 +36,7 @@ import {
   inboxThreadsHasNextPage,
   mergeInboxThreadPages,
   resolveInboxTabId,
+  useInboxOverview,
   useInboxThreads,
   useInboxThreadsPages,
 } from "@/hooks/use-inbox-threads";
@@ -338,7 +339,15 @@ export function InboxPage() {
   }, [routeThreadId, optimisticThreadId]);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [sortMode, setSortMode] = useState<MailSortMode>("newest");
+  const [sortMode, setSortMode] = useState<MailSortMode>(() => {
+    try {
+      return localStorage.getItem("mail-sort-mode") === "priority"
+        ? "priority"
+        : "newest";
+    } catch {
+      return "newest";
+    }
+  });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const selectedThreadIds = useMemo(
     () => Array.from(selectedIds),
@@ -358,13 +367,31 @@ export function InboxPage() {
     {},
     {
       enabled: view === "inbox" || navState.command.data?.sort === "priority",
-      staleTime: 60_000,
+      staleTime: 0,
+      // request-storm-allow: the shared status query revalidates API-key setup when its settings tab returns.
+      refetchOnWindowFocus: true,
       retry: 2,
     },
   );
-  const jevConfigured = jevAvailability.data?.configured === true;
+  const jevConfigured =
+    !jevAvailability.isError && jevAvailability.data?.configured === true;
   const showPrioritySort =
     jevConfigured || (jevAvailability.isError && sortMode === "priority");
+  const changeSortMode = useCallback((mode: MailSortMode) => {
+    setSortMode(mode);
+    try {
+      localStorage.setItem("mail-sort-mode", mode);
+      // coercion-ok: server preference remains available when browser storage is restricted.
+    } catch {
+      // The server preference remains available when browser storage is restricted.
+    }
+  }, []);
+  const toggleSortMode = useCallback(() => {
+    if (showPrioritySort) {
+      changeSortMode(sortMode === "priority" ? "newest" : "priority");
+    }
+  }, [changeSortMode, showPrioritySort, sortMode]);
+  useKeyboardShortcuts([{ key: "i", meta: true, handler: toggleSortMode }]);
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
@@ -386,6 +413,10 @@ export function InboxPage() {
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
   const labels = labelsData ?? EMPTY_LABELS;
+  const labelNames = useMemo(
+    () => new Map(labels.map((label) => [label.id, label.name])),
+    [labels],
+  );
 
   // Memoize every derived array — the emails memo depends on these, and fresh
   // array refs on every render were cascading into EmailThread as unstable
@@ -451,33 +482,45 @@ export function InboxPage() {
   const searchQuery =
     activeSavedFilter?.query ?? searchParams.get("q") ?? undefined;
 
-  // The inbox view is split server-side (tabs, counts, and the rendered
-  // list all come from one `list-inbox-threads` call keyed by the resolved
-  // tab id) — see shared/inbox-threads.ts. Every other view still fetches
-  // through `useEmails` below, unchanged. A `q` search on /inbox is not a
-  // tab partition the store computes, so it falls through to the same
-  // `useEmails` search path non-inbox views use — the store path is only
-  // for a plain /inbox with no `q`.
+  // Inbox rows are tab-scoped; each response publishes its account-scoped
+  // counts and sync metadata to the shared overview cache. Other views still
+  // fetch through `useEmails` below, unchanged. A `q` search on /inbox is not
+  // a tab partition the store computes, so it uses the same `useEmails`
+  // search path as non-inbox views.
   const isInboxView = view === "inbox" && !searchParams.get("q");
   useEffect(() => {
-    if (!jevAvailability.isSuccess) return;
-    if (!jevConfigured && sortMode === "priority") setSortMode("newest");
-  }, [jevAvailability.isSuccess, jevConfigured, sortMode]);
+    try {
+      if (
+        localStorage.getItem("mail-sort-mode") === null &&
+        settings?.sortMode
+      ) {
+        setSortMode(settings.sortMode);
+      }
+    } catch {
+      if (settings?.sortMode) setSortMode(settings.sortMode);
+    }
+  }, [settings?.sortMode]);
+  useEffect(() => {
+    if (
+      jevAvailability.isSuccess &&
+      !jevConfigured &&
+      sortMode === "priority"
+    ) {
+      changeSortMode("newest");
+    }
+  }, [changeSortMode, jevAvailability.isSuccess, jevConfigured, sortMode]);
   useEffect(() => {
     if (jevAvailability.isError && sortMode === "priority") {
       toast.error(t("mail.sort.priorityFailed"));
     }
   }, [jevAvailability.isError, sortMode, t]);
-  useEffect(() => {
-    if (!isInboxView || activeLabel || searchQuery) setSortMode("newest");
-  }, [activeLabel, isInboxView, searchQuery]);
   const resolvedInboxTab = resolveInboxTabId(searchParams);
   const inboxAccountEmails =
     activeAccounts.size > 0 ? [...activeAccounts] : undefined;
-  // Page 0 drives tabs/counts/syncing/accounts/labels and is the only page
-  // that polls. "Load more" grows `inboxExtraPageCount`, fetching one more
-  // unpolled page per step (see useInboxThreadsPages's doc for why this
-  // isn't one useInfiniteQuery).
+  // Page 0 drives rows and pagination totals and is the only page that polls.
+  // Its account-scoped metadata snapshot is shared across tabs. "Load more"
+  // grows `inboxExtraPageCount`, fetching one unpolled page per step (see
+  // useInboxThreadsPages's doc for why this isn't one useInfiniteQuery).
   const inboxThreads = useInboxThreads(
     {
       tab: resolvedInboxTab,
@@ -489,6 +532,10 @@ export function InboxPage() {
     // it stays keyed on the route alone, not `isInboxView`.
     { enabled: view === "inbox" },
   );
+  const inboxOverview = useInboxOverview(inboxAccountEmails);
+  const inboxMetadata =
+    inboxOverview.data ??
+    (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data);
   const [inboxExtraPageCount, setInboxExtraPageCount] = useState(0);
   useEffect(() => {
     const priorityExtraPages = Math.max(
@@ -560,7 +607,7 @@ export function InboxPage() {
     // coverage the same as a sync error (the reconnect-specific banner in
     // AppLayout is unaffected — this only feeds the generic notice + the
     // Inbox Zero suppression below).
-    const errored = inboxThreads.data?.accounts.filter(
+    const errored = inboxMetadata?.accounts.filter(
       (account) =>
         account.state === "error" || account.state === "needs_reauth",
     );
@@ -580,7 +627,7 @@ export function InboxPage() {
     const combined = [...inboxErrors, ...labelErrors];
     return combined.length ? combined : undefined;
   }, [
-    inboxThreads.data?.accounts,
+    inboxMetadata?.accounts,
     inboxThreads.isPlaceholderData,
     labelAccountErrors,
   ]);
@@ -688,9 +735,7 @@ export function InboxPage() {
   // produced any rows yet, so the list shows skeleton rows (not Inbox Zero)
   // until there is something real to show either way.
   const inboxStillSyncingEmpty =
-    isInboxView &&
-    inboxThreads.data?.syncing === true &&
-    inboxItems.length === 0;
+    isInboxView && inboxMetadata?.syncing === true && inboxItems.length === 0;
   const isLoading = isInboxView
     ? inboxThreads.isLoading ||
       inboxThreads.isPlaceholderData ||
@@ -902,9 +947,9 @@ export function InboxPage() {
     const targetThread = navCommand.threadId;
 
     if (navCommand.sort === "newest") {
-      setSortMode("newest");
+      changeSortMode("newest");
     } else if (navCommand.sort === "priority") {
-      setSortMode(
+      changeSortMode(
         jevAvailability.isError || jevConfigured ? "priority" : "newest",
       );
     }
@@ -1124,6 +1169,7 @@ export function InboxPage() {
         {hasThread ? (
           <EmailThread
             activeThreadId={threadId}
+            labelNames={labelNames}
             onArchived={setLastArchivedId}
             emailIds={threadIds}
             threads={threads}
@@ -1150,9 +1196,7 @@ export function InboxPage() {
             emailsError={emailsError}
             accountErrors={accountErrors}
             labels={
-              isInboxView
-                ? (inboxThreads.data?.labels ?? EMPTY_LABELS)
-                : undefined
+              isInboxView ? (inboxMetadata?.labels ?? EMPTY_LABELS) : undefined
             }
             refetchEmails={refetchEmails}
             hasNextPage={hasNextPage}
@@ -1161,7 +1205,14 @@ export function InboxPage() {
             isFetchNextPageError={isFetchNextPageError}
             sortMode={sortMode}
             showPrioritySort={showPrioritySort}
-            onSortModeChange={setSortMode}
+            jevConfigured={jevConfigured}
+            jevAvailabilityLoading={
+              jevAvailability.isLoading || jevAvailability.isFetching
+            }
+            jevAvailabilityError={jevAvailability.isError}
+            onJevConnected={() => void jevAvailability.refetch()}
+            onJevRetry={() => void jevAvailability.refetch()}
+            onSortModeChange={changeSortMode}
           />
         )}
       </div>

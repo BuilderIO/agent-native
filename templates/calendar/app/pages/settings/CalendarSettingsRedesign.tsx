@@ -55,6 +55,7 @@ import {
 } from "@/hooks/use-meeting-start-notifications";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 
+import { CalendarEventRulesFields } from "./CalendarEventRules";
 import { useCalendarConnections } from "./use-calendar-connections";
 
 export const AVAILABILITY_SETTINGS_PATH = "/booking-links?tab=availability";
@@ -647,6 +648,17 @@ export function CalendarBookingArea() {
   );
 }
 
+/** Rules tab: the Jev invitation rules and their recent activity. */
+export function CalendarEventRulesArea() {
+  return (
+    <SettingsGroup id="event-rules">
+      <div className="space-y-4 px-5 py-4 sm:px-6">
+        <CalendarEventRulesFields />
+      </div>
+    </SettingsGroup>
+  );
+}
+
 /** Notifications page: meeting-start desktop notifications for this browser. */
 export function CalendarNotificationsGroups({
   permission,
@@ -768,6 +780,20 @@ export function useCalendarSettingsRedesign(
             label: t("navigation.bookingLinks"),
             keywords: "booking links public url share",
             hash: "booking-links",
+          },
+        ],
+      },
+      {
+        id: "rules",
+        label: t("settings.eventRules"),
+        keywords: "jev invitation rules accept decline hide",
+        content: <CalendarEventRulesArea />,
+        searchEntries: [
+          {
+            id: "calendar-event-rules",
+            label: t("settings.eventRules"),
+            keywords: "jev invitation rules accept decline hide",
+            hash: "event-rules",
           },
         ],
       },

@@ -49,36 +49,51 @@ Shallow clones and grafted worktrees do not have complete ancestry. Treat
 inconclusive; fetch complete history or verify the date through the remote
 commit or pull-request record before calling a change the first occurrence.
 
-## Never move branches without an explicit instruction
+## Branch operations follow checkout ownership
 
-Don't create, switch, delete, reset, rebase, stash, or worktree-add a branch
-unless the user asked for that exact operation in the current task — it
-strands every other agent on it. This isn't a tool-level block anymore —
-`.agents/skills/new-branch/SKILL.md` carries it now, through an activation
-guard that refuses to fire unless the user explicitly asked for `/new-branch`
-or a fresh branch. That guard is what took unrequested branch creation from a
-recurring complaint to zero; read it before any branch operation instead of
-assuming a prohibition still lives at the tool layer.
+In a dedicated task-owned worktree, create or switch to an available branch
+needed for the task without asking permission. Git worktrees isolate files; the
+Git refs are shared, so never move, rewrite, or delete a branch checked out in
+another worktree. If a branch name is already used, choose another available
+name. Preserve and carry or reapply local changes; do not stash or discard them.
+
+Before creating or switching branches, record `git status --short
+--untracked-files=all` and classify every staged, unstaged, and untracked path.
+A switch carries the whole index and worktree, so proceed only when every dirty
+path belongs to this task. If any path is unrelated or incomplete, keep the
+checkout in place and report the exact paths without asking again.
+
+In a shared checkout, ask before changing branches unless the user gave the
+exact operation. Keep platform-assigned Builder.io and Fusion branches in
+place.
 
 ## Timing the next branch
 
-Before running `/new-branch`, even on an explicit request, confirm that the
-current branch has been fully checkpointed and inspect the active worktrees:
+Before creating a branch, inspect the active worktrees and dirty paths:
 
 ```bash
 git status --short
-ls .claude/worktrees/ 2>/dev/null
+git worktree list --porcelain
 gh pr list --head "$(git branch --show-current)" --state open
 ```
 
-Run `corepack pnpm ship:push` for any nonignored changes before moving to the
-next branch. Do not leave local work behind during branch rotation.
+In a task-owned worktree, do not require a checkpoint or `ship:push` just to
+create a fresh branch; preserve and carry the current task's changes. For
+post-merge rotation, follow `new-branch`'s dedicated safety checks.
+
+For an explicitly authorized branch-wide checkpoint, publish one complete
+snapshot with `corepack pnpm ship:push -m "<specific change>"`. Do not publish
+separate checkpoints for delegates or intermediate edits.
 
 ## Before you ship
 
 Before you commit, push, or merge, check `git log --oneline -5`, `git status`,
 and `gh pr list --head <branch>` for the current PR. If the work you were
 about to do just landed, continue from the latest branch snapshot.
+
+Do not rebase or merge `origin/main` just to clear behind status or restart
+checks. Rebase or merge it only when GitHub reports an actual conflict; for a
+shared branch, prefer a normal merge.
 
 ## Reading a Codex peer's intent
 
@@ -95,6 +110,6 @@ a peer's task without interrupting it or the user.
 
 ## Related
 
-- `new-branch` — the one workflow allowed to move branches, only on explicit
-  `/new-branch` invocation.
+- `new-branch` — safe branch creation in task-owned worktrees and guarded
+  branch changes in shared checkouts.
 - `ship` — the commit/push/PR workflow for the complete branch snapshot.

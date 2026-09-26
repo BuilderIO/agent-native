@@ -3,9 +3,9 @@
 Drives the real Slides editor in Chromium and checks one rule: clicking into
 text, typing, pressing Enter, or just leaving an edit must not change any
 styling or layout on the slide. Unit tests have repeatedly missed breaks on
-this path. The editor mounts outside the slide, the save serializes the
-rendered DOM, and only a real browser rendering real CSS shows what the user
-sees.
+this path. The clicked element becomes the editor in place, the save
+serializes the rendered DOM, and only a real browser rendering real CSS shows
+what the user sees.
 
 ## Run
 
@@ -137,30 +137,55 @@ them per slide. For each target and scenario:
    slide's font is requested. Scenarios never contaminate each other.
 2. **View.** Capture `view.png` and a style snapshot of the slide.
 3. **Enter edit.** Try click, then a second click, then double-click. The
-   gesture that worked is recorded. If none enters edit, the status is
-   `no-edit`; the scenario fails and is never skipped.
+   gesture that worked is recorded. A click must leave a caret within one
+   grapheme of the click point (`caretPositionFromPoint`, compared in
+   rendered characters), and a double-click a selection inside the word
+   under it plus one trailing space; either way it must be in the point's
+   row (nearest block, or the row of a bullet marker, which counts up to the
+   start of the row's text). Anything else is a violation. The double-click
+   selection is then collapsed to a caret before any keys. If none enters
+   edit, the status is `no-edit`; the scenario fails and is never skipped. The clicks must still change nothing: a `no-edit` result also
+   gets a violation for any write, any change to the stored slide (both
+   skipped when opening the slide rewrites it anyway), and a view→after
+   pixel diff above tolerance.
 4. **Editing.** Capture `editing.png` and a snapshot before typing.
 5. **Keys.**
    - `noop`: none.
    - `typedelete`: `x`, then Backspace.
    - `append`: End, then ` ok`.
    - `enter3`: End, then Enter three times, then `new line`. After each Enter
-     it records `enter-N.png`, the editor block count, the editor height, the
-     edited element's height on the slide, and whether the canvas visibly
-     changed.
+     (the first measured from the entry caret, since a caret End left at a
+     soft wrap measures as the next line; from the caret End left only when
+     entry left none) it records `enter-N.png`, the edited element's height,
+     the canvas change, and the caret's line, measured from the top of the
+     element's rendered text so that centred and bottom-anchored text, or a
+     label beside a taller icon, still shows a full line per Enter. The caret must
+     be collapsed inside the edited element and move to another line; a
+     caret that cannot be measured is its own violation.
    - `clickout`: like `typedelete`.
+
+   Once the keys are in, it captures `typed.png`: the slide as the live
+   editor shows it, caret hidden.
+
 6. **Exit.** Escape, except `clickout`, which clicks the empty editor
    background beside the slide. The harness then polls `get-deck` until the
    stored content stops changing, and captures `after.png` and `saved.html`.
-7. **Reload.** Capture `reload.png`.
+   A save still in flight after 75 s errors the scenario.
+7. **Reload.** Capture `reload.png`, then read the stored slide again: a
+   write that lands after the edit settled (a `pagehide` flush, say) is a
+   violation, unless opening the slide rewrites it anyway. Playwright does
+   not report the keepalive writes Slides sends on `pagehide`, so the page
+   counts them in `sessionStorage`. When there was one, the harness waits
+   up to 15 s for it to land, and then, as when a write it does see is still
+   in flight, polls until the stored slide settles before reading.
 8. **Idempotence (`typedelete` only).** A second identical edit must save
    exactly what the first one did.
 
 Each scenario writes this directory:
 
 ```
-<out>/<case>/sNN/tNN-<scenario>/{view,editing,enter-1..3,after,reload}.png
-<out>/<case>/sNN/tNN-<scenario>/diff-{editing,after,reload}.png
+<out>/<case>/sNN/tNN-<scenario>/{view,editing,enter-1..3,typed,after,reload}.png
+<out>/<case>/sNN/tNN-<scenario>/diff-{editing,after,reload,typed}.png
 <out>/<case>/sNN/tNN-<scenario>/{stored,saved,saved2}.html
 <out>/<case>/sNN/tNN-<scenario>/html.diff, html-outside.diff
 <out>/<case>/sNN/tNN-<scenario>/result.json, sheet.png
@@ -175,14 +200,18 @@ deltas for editing/after, the html diff, and the violation count.
 
 - **Noise floor.** Each slide is loaded twice with no edit and the two loads
   are diffed. The tolerance used below is `max(0.02%, 2 × noise)`.
-- **Pixels.** pixelmatch runs at threshold 0.1 on view→editing, view→after
-  and after→reload. Each pair is measured over the whole slide and again
+- **Pixels.** pixelmatch runs at threshold 0.1 on view→editing, view→after,
+  after→reload and typed→after. Each pair is measured over the whole slide and again
   "outside" the edited element: the element's old and new rects, padded 4px,
   are blanked and left out of the denominator. A rect covers the element's
   content as well as its box, because text that overflows a fixed-size box
   (a freeform object, an imported text frame) is still the edited element.
   - Every scenario: view→editing outside must be ~0, and after→reload whole
     must be ~0.
+  - Every scenario that edits: typed→after whole must be exactly 0 px. Both
+    shots come from one page load, so no noise floor applies. Leaving edit
+    mode must not change what the editor showed, so a line the save adds or
+    drops, or a style the live element only had while editing, fails here.
   - `noop` / `typedelete` / `clickout`: view→editing and view→after whole
     must be ~0.
   - `append` / `enter3`: view→after outside must be ~0 while the edited
@@ -214,9 +243,22 @@ deltas for editing/after, the html diff, and the violation count.
   stored string, and `writeStacks` has the client call stack of each.
   `noop` / `typedelete` / `clickout` must send none.
 - **Saved bytes.** For `append` / `enter3`, the edited element is located in
-  the stored source by tag, text and occurrence, and the saved string must
+  the stored source by tag, exact full text and occurrence (the same rule
+  for every lookup), and the saved string must
   start with every stored byte before it and end with every stored byte after
   it. `bytes-outside.txt` shows the first difference.
+- **Saved text.** For `append` / `enter3`, text is read as lines: a `<br>` or
+  a block box breaks a line; zero-width spaces and blank lines are dropped,
+  and `text-transform` is not applied. The saved
+  content must differ from the stored content; the editor's text must be the
+  element's text with the token (` ok` / `new line`) inserted exactly once,
+  with whitespace runs compared as one space, so a lost space fails (beside
+  the token, only marker glyphs such as a cloned `●`); for `enter3`,
+  `new line` must start a line; and the reloaded slide must have an element
+  with exactly those lines, so a dropped line break fails. Typed text that
+  lands in a new text node on the reloaded slide must share its computed
+  text style with some text the element had before the edit. The ratchet
+  only bounds numbers from above, so lost text has to fail here.
 - **Saved HTML.** Both versions are parsed in the page and canonicalized:
   attributes and classes sorted, style declarations parsed by the CSSOM (which
   normalizes colors and units) and sorted, whitespace collapsed.
@@ -224,7 +266,8 @@ deltas for editing/after, the html diff, and the violation count.
     canonical form equals the stored one.
   - `append` / `enter3`: the edited element (plus any list items the edit
     added after it) is replaced by a placeholder on both sides, and the rest
-    must match.
+    must match. When the element cannot be located, only that is reported:
+    the outside checks stay unknown (`null`), never "changed outside".
 - **Hard failures** in the saved HTML, counted against the stored HTML:
   - `data-slide-content-scope`, `visibility:hidden`, `data-editing-block`,
     `contenteditable`, `data-builder-id`, `ProseMirror` or `data-src-i`
@@ -242,7 +285,8 @@ A scenario is `pass` when it has no violations. Otherwise it is `fail`,
 `baseline.json` maps `case/sNN/tNN/scenario` to a status and to ceilings.
 
 - **Pixel ceilings:** `ceilingFor(d) = d + max(0.1, 15% of d)`, the same as the
-  Design harness.
+  Design harness. An entry recorded before a pixel field existed is held
+  to `ceilingFor(0)` for it.
 - **Count ceilings:** style deltas, missing elements, html diff lines, hard
   failures and violations are exact.
 
@@ -251,7 +295,11 @@ A regression is any of:
 - a worse status (`pass < fail < no-edit < error`);
 - a number above its ceiling;
 - a result with no baseline entry;
-- a baselined scenario inside the run's filters and limits that did not run.
+- a baselined scenario inside the run's filters and limits that did not run;
+- in a run over the whole corpus (no case filter, `--slides`, `--targets`,
+  `--max-slides`, scenario subset, or `--max-targets-per-slide` below 4), a
+  baselined case or slide that is no longer in the corpus. `--update` refuses
+  to write until those entries are pruned.
 
 `--update` records only passing results: a ratchet seeded from a failing run
 would accept the failure as its ceiling. Record a known failure deliberately
@@ -269,6 +317,7 @@ baseline file the run cannot gate and exits 2.
 - Text records are keyed by their own text. Duplicate strings on one slide
   pair up in document order.
 - `append` and `enter3` press End, which moves to the end of the visual line.
-  In a wrapped paragraph the text lands mid-block.
+  In a wrapped paragraph the text lands mid-block, so the saved-text check
+  accepts the token at any point.
 - Needs `playwright@1.63.x`, `pixelmatch@7.2.x` and `pngjs@7.x` in the root
   pnpm store. They are resolved by `../export-fidelity/resolve-pkg.ts`.

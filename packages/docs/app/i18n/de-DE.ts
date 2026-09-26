@@ -752,43 +752,44 @@ const deDE = {
       },
       // V3-Landingpage-Texte (2026-09-14) — Hero bis finaler CTA unten.
       heroEyebrow: "Analytics",
-      heroTitle: "Analysiere deine Daten mit deinem KI-Agenten",
+      heroTitle:
+        "Eine Frage stellen. Rufen Sie das Diagramm, die Abfrage und den Kontext ab.",
       heroDescription:
-        "Analytics ist ein kostenloses Open-Source-KI-Analysetool, um deine verbundenen Daten abzufragen, Dashboards zu erstellen und Nutzersitzungen zu untersuchen.",
+        "Führen Sie Lager-, Produkt- und Umsatzdaten zusammen. Der Agent überprüft Ihre Metrikdefinitionen, schreibt die SQL und wandelt die Antwort in ein wiederverwendbares Dashboard um.",
       heroCta: "Erkunde deine Daten",
-      useCasesHeading: "Was kannst du mit Analytics machen?",
+      useCasesHeading: "Folgen Sie dem Signal von der Metrik bis zur Sitzung",
       useCasesBody:
-        "Verfolge das Produktwachstum, berichte über die Geschäftsentwicklung oder untersuche ein Problem, auf das jemand in deiner App gestoßen ist.",
-      useCase1Title: "Produktwachstum verfolgen",
+        "Bewahren Sie die Begründung neben jedem Ergebnis auf und tragen Sie dann ein Diagramm in ein Dashboard oder eine Sitzungsuntersuchung ein.",
+      useCase1Title: "Erklären Sie eine Änderung der Aktivierung",
       useCase1Body:
-        "Frage, wie sich Anmeldungen, aktive Nutzer oder Conversions verändert haben. Vergleiche Zeiträume und schlüssele Ergebnisse nach Kanal, Plan oder Kundensegment auf.",
-      useCase2Title: "Über die Geschäftsentwicklung berichten",
+        "Vergleichen Sie Kohorten und Kanäle in einem Gespräch. Der Agent verwendet Ihre dokumentierten Metrikdefinitionen, schreibt die Abfrage und zeigt die Beweise für die Änderung an.",
+      useCase2Title: "Erstellen Sie eine lebendige Umsatzübersicht",
       useCase2Body:
-        "Bringe Umsatz-, Pipeline- oder Nutzungskennzahlen in ein Dashboard für dein Team. Lege Datumsfilter fest und schau vor deinem nächsten Review wieder vorbei.",
-      useCase3Title: "Nutzerprobleme untersuchen",
+        "Bitten Sie den Agenten, Abrechnungs-, CRM- oder Lagermetriken in einem Dashboard zu kombinieren. Filter und Panels bleiben für Ihre nächste Überprüfung bestehen.",
+      useCase3Title: "Verfolgen Sie eine Metrik auf eine echte Sitzung",
       useCase3Body:
-        "Finde eine aufgezeichnete Sitzung und spiele ab, was passiert ist. Untersuche Konsolenfehler und Netzwerkanfragen und teile die Diagnosedaten dann mit deinem KI-Agenten.",
+        "Gehen Sie von einer Spitze oder einem Fehler zur Sitzung dahinter über. Überprüfen Sie die Konsolen- und Netzwerkaktivität und teilen Sie dann den temporären Diagnosekontext mit dem Agenten.",
       keyFeaturesEyebrow: "Wichtige Funktionen",
       keyFeaturesHeading:
         "Alles, was du zum Abfragen, Visualisieren und Erkunden brauchst",
-      feature1Title: "Abfragen in natürlicher Sprache",
+      feature1Title: "Fragen Sie über vernetzte Daten hinweg",
       feature1Body:
-        "Stelle deinem KI-Agenten eine Frage zu deinen Daten. Erhalte ein Diagramm, eine Tabelle oder eine Kennzahl und frage dann mit einer anderen Aufschlüsselung nach.",
-      feature2Title: "Wiederverwendbare Dashboards",
+        "Stellen Sie eine Frage zu allen Lager-, Produkt- und Einnahmequellen. Der Agent wandelt die Antwort in ein Diagramm um und unterstützt Folgeaufschlüsselungen.",
+      feature2Title: "Dashboards, die der Agent bearbeiten kann",
       feature2Body:
-        "Erstelle Dashboards mit deinem KI-Agenten oder bearbeite sie selbst. Ordne Panels an, füge Filter hinzu, speichere Ansichten und teile den Zugriff mit deinem Team.",
-      feature3Title: "SQL-Abfrage-Explorer",
+        "Lassen Sie den Agenten Panels, Filter und Aufgliederungen hinzufügen oder umgestalten. Änderungen bleiben in einem wiederverwendbaren Dashboard, das Ihr Team teilen kann.",
+      feature3Title: "Sichtbarer SQL- und Metrikkontext",
       feature3Body:
-        "Führe BigQuery-Abfragen aus und sieh dir ihre Ergebnisse und ihren Verlauf an. Untersuche das SQL hinter Dashboard-Panels, um Berechnungen und Filter zu prüfen.",
-      feature4Title: "Datenquellenverbindungen",
+        "Untersuchen Sie die Abfrage hinter einem Ergebnis und die zum Schreiben verwendete Metrikdefinition. Verfeinern Sie die SQL, wenn Sie mehr Kontrolle benötigen.",
+      feature4Title: "Ein Arbeitsbereich für Datenquellen",
       feature4Body:
-        "Verbinde Quellen wie BigQuery, GA4, HubSpot und Stripe. Frage Warehouse-Daten, Produktereignisse, Kundendatensätze und Umsätze aus derselben App ab.",
-      feature5Title: "Datenwörterbuch",
+        "Verbinden Sie BigQuery, GA4, Produktanalysen, HubSpot und Stripe und erkunden Sie dann deren zulässige Daten über dieselbe App.",
+      feature5Title: "Definitionen, denen der Agent folgt",
       feature5Body:
-        "Dokumentiere Kennzahlendefinitionen, Tabellen und Abfragebeispiele. Dein KI-Agent nutzt diesen Kontext beim Schreiben von Abfragen und bei der Arbeit mit deinen Daten.",
-      feature6Title: "Sitzungswiedergabe",
+        "Dokumentieren Sie Metrikregeln, Verknüpfungen, Beispiele und bekannte Fallstricke. Analytics stellt dem Agenten diesen Kontext bereit, wenn er Abfragen schreibt.",
+      feature6Title: "Sitzungswiedergabe mit Diagnose",
       feature6Body:
-        "Spiele aufgezeichnete Sitzungen zusammen mit Konsolen- und Netzwerkaktivität ab. Springe zu Fehlern und kopiere einen temporären Diagnoselink für deinen KI-Agenten.",
+        "Springen Sie von einem Fehler zu einer Aufzeichnung mit Blick auf Konsolen- und Netzwerkereignisse. Teilen Sie einen temporären Diagnoselink für eine von Agenten unterstützte Untersuchung.",
       finalCtaHeading: "Starte mit einer Frage zu deinen Daten",
       finalCtaBody:
         "Verbinde eine Quelle und bitte deinen KI-Agenten um das erste Diagramm.",
@@ -882,43 +883,45 @@ const deDE = {
       s001: "Screenshot der Vorlage Calendar",
       // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Calendar",
-      heroTitle: "Verwalte deinen Kalender mit deinem KI-Agenten",
+      heroTitle:
+        "Finden Sie Zeit, buchen Sie Besprechungen und passen Sie Ihren Tag mit einem Agenten an",
       heroDescription:
-        "Calendar ist ein kostenloser Open-Source-KI-Planungsassistent zum Verwalten von Google Calendar-Terminen und Finden von Besprechungsterminen – und lässt andere Termine bei dir buchen.",
+        "Der Kalender führt Ihre Google-Kalender und Verfügbarkeitsregeln zusammen, sodass der Agent gemeinsame Stellenangebote finden, Buchungen vorbereiten und bei der Aktualisierung von Ereignissen helfen kann.",
       heroCta: "Starte die Planung",
-      useCasesHeading: "Was kannst du mit Calendar machen?",
+      useCasesHeading: "Überlassen Sie die Planungsdetails dem Agenten",
       useCasesBody:
-        "Buche ein Kundengespräch, bring dein Team zusammen oder passe deinen Tag an, wenn sich Pläne ändern.",
-      useCase1Title: "Kundengespräche und Demos buchen",
+        "Überprüfen Sie die tatsächliche Verfügbarkeit in allen Kalendern und überprüfen Sie dann einen klaren Vorschlag, bevor eine Besprechung erstellt oder verschoben wird.",
+      useCase1Title:
+        "Verwandeln Sie einen Buchungslink in ein vorbereitetes Meeting",
       useCase1Body:
-        "Gib Interessenten und Kunden einen Buchungslink, damit sie selbst einen Termin auswählen können. Erfasse die Angaben, die du vor dem Gespräch brauchst.",
-      useCase2Title: "Termine für Team-Meetings finden",
+        "Bieten Sie nur Zeiten an, die Arbeitszeiten, Kündigungsfristen und Puffer respektieren. Sammeln Sie die benötigten Details und fügen Sie dann den Videolink hinzu, wenn der Gast bucht.",
+      useCase2Title: "Finden Sie einen Slot, den jeder machen kann",
       useCase2Body:
-        "Bitte deinen KI-Agenten um einen Termin, an dem deine Teammitglieder verfügbar sind. Wähle einen vorgeschlagenen Slot aus, um das Meeting zu buchen.",
-      useCase3Title: "Deinen Tag anpassen, wenn sich Pläne ändern",
+        "Bitten Sie den Agenten, die Frei-/Gebuchtzeiten der Teilnehmer und die Kalendereinblendungen zu vergleichen. Es gibt die freigegebene Öffnung und die überprüften Kalender zurück.",
+      useCase3Title: "Planen Sie neu, ohne den Thread zu verlieren",
       useCase3Body:
-        "Bitte deinen KI-Agenten, ein Meeting zu verschieben oder einen anderen Termin zu finden – deine bestehenden Termine und Arbeitszeiten hat er dabei im Blick.",
+        "Bitten Sie um einen späteren Zeitpunkt und lassen Sie den Agenten die Gäste überprüfen, die Besprechungsdetails speichern und die aktualisierte Einladung für Ihre Überprüfung vorbereiten.",
       keyFeaturesEyebrow: "Wichtige Funktionen",
       keyFeaturesHeading:
         "Alles, was du zum Planen, Buchen und Umplanen brauchst",
-      feature1Title: "KI-Planung",
+      feature1Title: "Planung in natürlicher Sprache",
       feature1Body:
-        "Bitte deinen KI-Agenten, deinen Kalender zu prüfen, verfügbare Termine zu finden und Termine in deinem verbundenen Google Calendar zu erstellen oder zu verschieben.",
-      feature2Title: "Mehrere Kalenderkonten",
+        "Bitten Sie den Agenten, die Verfügbarkeit zu prüfen, einen Termin vorzuschlagen und eine Veranstaltung mit Gästen und Besprechungsdetails zu erstellen oder zu verschieben.",
+      feature2Title: "Verfügbarkeit über mehrere Konten hinweg",
       feature2Body:
-        "Sieh dir geschäftliche und private Google-Konten gemeinsam in der Tages-, Wochen- oder Monatsansicht an. Füge schreibgeschützte Kalender-Feeds neben deinen Terminen hinzu.",
-      feature3Title: "Anpassbare Buchungslinks",
+        "Zeigen Sie verbundene Google-Kalender gemeinsam an und beziehen Sie schreibgeschützte Feeds als Zeitplankontext ein.",
+      feature3Title: "Buchungsseiten mit Aufnahme",
       feature3Body:
-        "Erstelle Buchungsseiten für unterschiedliche Terminarten. Lege die Dauer fest und füge Fragen hinzu, die andere beim Buchen beantworten.",
-      feature4Title: "Verfügbarkeitseinstellungen",
+        "Erstellen Sie Links für verschiedene Meeting-Typen, legen Sie Dauer und Buchungsfragen fest und lassen Sie Gäste einen verfügbaren Termin auswählen.",
+      feature4Title: "Regeln, die jeden Slot prägen",
       feature4Body:
-        "Lege deine Arbeitszeiten, Zeitzone und Pufferzeiten zwischen Terminen fest. Bestimme, wie viel Vorlauf du brauchst und wie weit im Voraus andere buchen können.",
-      feature5Title: "Planung mit Co-Hosts",
+        "Legen Sie Arbeitszeiten, Puffer, Benachrichtigungen, Zeitzone und Buchungshorizont fest, sodass vorgeschlagene und öffentliche Zeiten zu Ihrem Zeitplan passen.",
+      feature5Title: "Echte Multi-Host-Prüfungen",
       feature5Body:
-        "Füge einem Buchungslink erforderliche Co-Hosts hinzu. Biete Termine an, an denen alle verfügbar sind, und lade sie ein, sobald jemand bucht.",
-      feature6Title: "Video-Meeting-Links",
+        "Fügen Sie die erforderlichen Co-Gastgeber hinzu und überprüfen Sie deren Frei/Gebucht-Verfügbarkeit, bevor Sie einen Termin anbieten. Der Kalender berücksichtigt bei Konfiguration auch gemeinsame Arbeitszeitüberlagerungen.",
+      feature6Title: "Von Agenten verwaltete Besprechungsverfolgung",
       feature6Body:
-        "Füge Google Meet hinzu, verbinde Zoom oder verwende einen eigenen Meeting-Link, damit Gäste wissen, wo sie beitreten, wenn sie buchen.",
+        "Behalten Sie die Google Meet- oder Zoom-Details bei, während der Agent Veranstaltungsänderungen und aktualisierte Einladungen vorbereitet.",
       finalCtaHeading: "Trage dein nächstes Meeting in den Kalender ein",
       finalCtaBody:
         "Finde einen Termin mit deinem KI-Agenten oder verschicke einen Buchungslink.",
@@ -1004,11 +1007,12 @@ const deDE = {
           "Ja. Legen Sie ein kanonisches Logo in Ihrem Markenkit fest und aktivieren Sie das Logo-Compositing für die Generierung. Assets platziert das Originallogo nach der Generierung auf dem Bild, sodass das Bildmodell es nicht neu zeichnet. Überprüfen Sie die Platzierung und das umgebende Bild vor der Verwendung.",
       },
       s001: "Screenshot der Vorlage Assets",
+      imageCredits: "Bildnachweise",
       // V3 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Assets",
-      heroTitle: "Markenmaterial mit Ihrem KI-Agenten erstellen und verwalten",
+      heroTitle: "Generieren Sie in einem Gespräch markengerechte Bilder",
       heroDescription:
-        "Assets ist eine kostenlose Open-Source-Marken-Asset-Bibliothek zum Organisieren Ihrer Bilder, Videos und Markenreferenzen, mit einem KI-Agenten, der Medien anhand Ihres Markenkits generiert und bearbeitet.",
+        "Beschreiben Sie, was Sie benötigen, geben Sie Ihrem Agenten ein Markenpaket oder eine Referenz und vergleichen Sie die generierten Varianten direkt während des Gesprächs.",
       heroCta: "Generiere ein Bild",
       useCasesHeading: "Was können Sie mit Assets tun?",
       useCasesBody:
@@ -1072,42 +1076,42 @@ const deDE = {
       heroEyebrow: "Chat",
       heroTitle: "Bauen Sie Ihre eigene KI-Chat-App",
       heroDescription:
-        "Chat ist eine kostenlose Open-Source-KI-Chat-App-Vorlage mit gespeicherten Unterhaltungen, Authentifizierung und einem Agenten, den Sie mit eigenen Actions, Daten und Screens erweitern können.",
+        "Ein kostenloser Open-Source-Chat-Starter mit dauerhaften Threads, Authentifizierung, gemeinsamen Aktionen und einem Agenten, den Sie mit Ihren eigenen Tools und Bildschirmen erweitern können.",
       heroCta: "Baue deinen Chat",
       heroSecondaryCta: "Chat öffnen",
-      useCasesHeading: "Was können Sie mit Chat bauen?",
+      useCasesHeading: "Verwandeln Sie Gespräche in Arbeitsassistenten",
       useCasesBody:
-        "Starten Sie mit der Chat-App und ergänzen Sie dann die Daten und Actions für Ihren Anwendungsfall. Diese Workflows gehören Ihnen — bauen Sie sie auf dieser Vorlage auf.",
-      useCase1Title: "Einen internen Assistenten bauen",
+        "Fügen Sie die Aktionen, Daten und Bildschirme hinzu, mit denen Ihr Agent Fragen beantworten und die Arbeit vorantreiben kann.",
+      useCase1Title: "Beantworten Sie Fragen im Kontext Ihres Teams",
       useCase1Body:
-        "Fügen Sie Actions hinzu, die Informationen nachschlagen oder Anfragen für Ihr Team bearbeiten. Nutzen Sie die integrierte Anmeldung und den Unterhaltungsverlauf als Ausgangspunkt.",
-      useCase2Title: "Einen Agent-Workflow prototypisieren",
+        "Verbinden Sie die Quellen, die Ihre App benötigt, durch Aktionen und lassen Sie dann den Agenten Notizen, Dateien und Projektdetails in einer Antwort zusammenfassen.",
+      useCase2Title: "Geben Sie Ihrem Agenten Handlungswerkzeuge an die Hand",
       useCase2Body:
-        "Implementieren Sie eine nützliche Action und testen Sie sie über den Chat. Verfeinern Sie die Anweisungen und das Verhalten des Agenten, bevor Sie weitere Tools oder Screens hinzufügen.",
-      useCase3Title: "Eine Oberfläche für Agent-Arbeit hinzufügen",
+        "Erstellen Sie einen Prototyp eines Workflows im Chat, rufen Sie die von Ihnen definierten Aktionen auf und verfeinern Sie, wie der Agent jeden Schritt handhabt.",
+      useCase3Title: "Ergebnisse nutzbar machen",
       useCase3Body:
-        "Bauen Sie eine Warteschlange, Liste oder einen Editor, wenn Nutzer Arbeit visuell prüfen müssen. Verbinden Sie sie mit denselben Actions und Daten wie Ihr Agent.",
+        "Offene Agenten arbeiten in einer Warteschlange, Tabelle oder einem Editor, sodass Benutzer dieselben freigegebenen Daten überprüfen und fortfahren können.",
       keyFeaturesEyebrow: "Kernfunktionen",
       keyFeaturesHeading:
         "Ein Ausgangspunkt für Ihren Agenten und seine Oberfläche",
-      feature1Title: "Gespeicherte Unterhaltungen",
+      feature1Title: "Dauerhafte Gespräche",
       feature1Body:
-        "Geben Sie Nutzern Threads, zu denen sie zurückkehren können. Erstellen, öffnen, benennen, pinnen und archivieren Sie Unterhaltungen über die integrierte Seitenleiste.",
-      feature2Title: "Integrierter Agent-Chat",
+        "Erstellen, erneut öffnen, umbenennen, anpinnen und archivieren Sie Threads über die enthaltene Verlaufsseitenleiste.",
+      feature2Title: "Ganzseitiger Agenten-Chat",
       feature2Body:
-        "Starten Sie mit einer ganzseitigen Unterhaltung und der Agent-Runtime des Frameworks. Fügen Sie Anweisungen und Tools für die Aufgaben hinzu, die Ihre Anwendung bewältigen muss.",
-      feature3Title: "Authentifizierung und Sitzungen",
+        "Beginnen Sie mit der Chat-Oberfläche und der Laufzeit, bereit für Ihre eigenen Anweisungen, Tools und Arbeitsabläufe.",
+      feature3Title: "Verbinden Sie Ihre eigenen Dienste",
       feature3Body:
-        "Starten Sie mit bereits integriertem Login, Signup, Sitzungen und Organisationsunterstützung. Fügen Sie die Zugriffsregeln hinzu, die die Daten und Workflows Ihrer Anwendung erfordern.",
-      feature4Title: "Gemeinsame Actions",
+        "Fügen Sie Anbieteraktionen und Verbindungsflüsse für Tools wie Granola, Linear, Drive oder Notion hinzu; Der Starter überlässt diese Integrationen Ihrer App.",
+      feature4Title: "Geteilte Aktionen",
       feature4Body:
-        "Definieren Sie eine Operation einmal für Ihren Agenten und Ihre Oberfläche. Orientieren Sie sich an der enthaltenen Beispiel-Action, wenn Sie eigene Fähigkeiten hinzufügen.",
-      feature5Title: "Live-Datensynchronisierung",
+        "Halten Sie Agent-Tools und Schnittstellenoperationen auf derselben Aktionsoberfläche.",
+      feature5Title: "Status des Live-Arbeitsbereichs",
       feature5Body:
-        "Halten Sie Ihre Oberfläche aktuell, wenn der Agent Anwendungsdaten ändert. Bauen Sie Screens rund um gemeinsamen Zustand und die Datenbanksynchronisierung des Frameworks.",
-      feature6Title: "Datenbank- und Run-Inspektion",
+        "Halten Sie die aktuelle Navigation und ausgewählte Arbeit für Benutzer und Agent synchronisiert.",
+      feature6Title: "Benutzerdefinierte Bildschirme",
       feature6Body:
-        "Nutzen Sie die integrierten Screens für Datenbankverwaltung und Observability, um gespeicherte Daten und Agent-Runs beim Bauen und Debuggen Ihrer Anwendung zu prüfen.",
+        "Fügen Sie fokussierte Ansichten hinzu, wenn eine Konversation eine Warteschlange, einen Editor oder eine andere Domänenschnittstelle benötigt.",
       finalCtaHeading: "Bauen Sie Ihren ersten Agent-Workflow",
       finalCtaBody:
         "Erstellen Sie Ihre Kopie und fügen Sie die erste Action hinzu, die Ihre Nutzer brauchen.",
@@ -1771,43 +1775,43 @@ const deDE = {
       s001: "Screenshot der Vorlage Mail",
       // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "Verwalte deinen Posteingang mit deinem KI-Agenten",
+      heroTitle: "Übernimm mit Jev die Kontrolle über deinen Posteingang",
       heroDescription:
-        "Mail ist ein kostenloser, quelloffener E-Mail-Client für Gmail mit einem KI-Agenten, der Nachrichten findet, Unterhaltungen zusammenfasst, Antworten entwirft und deinen Posteingang organisiert.",
+        "Sag Jev in einfacher Sprache, was wichtig ist. Es hält menschliche GitHub-Kommentare sichtbar, rückt die Nachrichten deiner Führungskraft nach oben und räumt Bot-Benachrichtigungen weg – und lernt aus deinen Korrekturen.",
       heroCta: "Verwalte deinen Posteingang",
-      useCasesHeading: "Was kannst du mit Mail machen?",
+      useCasesHeading: "Ein intelligenterer Posteingang, unterstützt von Jev",
       useCasesBody:
-        "Hol Unterhaltungen nach, antworte Kunden und Kollegen oder arbeite einen E-Mail-Rückstand auf.",
-      useCase1Title: "Unterhaltungen nachholen",
+        "Lege eine Regel in natürlicher Sprache fest. Jev priorisiert wichtige Personen und Unterhaltungen, vergibt passende Labels und archiviert wiederkehrende Nachrichten automatisch.",
+      useCase1Title: "Menschen im Blick. Bots im Archiv.",
       useCase1Body:
-        "Frag deinen KI-Agenten, was in einem langen Thread passiert ist, was vereinbart wurde und welche Fragen noch offen sind.",
-      useCase2Title: "Kunden und Kollegen antworten",
+        "Sag Jev, was wichtig ist: Behalte menschliche GitHub-Pull-Request-Kommentare in Product, archiviere Bot-Benachrichtigungen und verschiebe die Nachrichten deiner Führungskraft nach Important. Passe jede Regel per Prompt an und verbessere den Spamfilter mit deinem Feedback.",
+      useCase2Title: "Jede E-Mail erhält ihr passendes Label",
       useCase2Body:
-        "Gib deinem KI-Agenten die Punkte, die du ansprechen möchtest. Prüfe und bearbeite die Antwort im Verfassen-Bereich, bevor du sie sendest.",
-      useCase3Title: "Deinen Posteingang sortieren",
+        "Jev ordnet Unterhaltungen nach Bedeutung statt nur nach Stichwörtern ein, damit Kundennotizen, Belege und Recherche am richtigen Ort landen.",
+      useCase3Title: "Automatisieren Sie die Routinearbeit",
       useCase3Body:
-        "Bitte deinen KI-Agenten, Rechnungen zu kennzeichnen, Newsletter zu archivieren oder Nachrichten eines Kunden mit einem Stern zu markieren. Wende Regeln an, um ähnliche E-Mails automatisch zu behandeln, sobald sie eintreffen.",
+        "Legen Sie Regeln fest, um neue E-Mails im Hintergrund zu kennzeichnen oder zu archivieren, und überprüfen Sie dann den Ausführungsverlauf, wann immer Sie möchten.",
       keyFeaturesEyebrow: "Wichtige Funktionen",
       keyFeaturesHeading:
         "Alles, was du zum Lesen, Schreiben und Organisieren von E-Mails brauchst",
-      feature1Title: "KI-Thread-Zusammenfassungen",
+      feature1Title: "Prioritätssortierung",
       feature1Body:
-        "Frag nach der Unterhaltung, die du gerade geöffnet hast. Dein KI-Agent liest den Thread, um die Diskussion zusammenzufassen und offene Fragen zu identifizieren.",
-      feature2Title: "KI-E-Mail-Entwürfe",
+        "Ordnen Sie eingehende Threads nach Dringlichkeit und Kontext, sodass Fristen und Personen, die auf eine Antwort warten, ganz oben stehen.",
+      feature2Title: "Kontextbezogene KI-Beschriftungen",
       feature2Body:
-        "Verfasse eine Antwort oder überarbeite markierten Text mit deinem KI-Agenten. Lege Schreibpräferenzen fest, füge deine Signatur hinzu und bearbeite Entwürfe selbst.",
-      feature3Title: "Kontoübergreifende Suche",
+        "Klassifizieren Sie Nachrichten danach, worum es in der Konversation geht, und gruppieren Sie dann ähnliche E-Mails, wenn sie eintreffen.",
+      feature3Title: "Agentengesteuerter Posteingang",
       feature3Body:
-        "Verbinde geschäftliche und private Gmail-Konten. Durchsuche sie alle von einem Posteingang aus – über die Suchleiste oder deinen KI-Agenten.",
-      feature4Title: "Posteingangs-Automatisierungen",
+        "Bitten Sie den Agenten, den von Ihnen angezeigten Posteingang zu durchsuchen, zusammenzufassen, zu kennzeichnen, zu archivieren, zu markieren oder eine Antwort vorzubereiten.",
+      feature4Title: "Hintergrundautomatisierungen",
       feature4Body:
-        "Beschreibe Regeln zum Kennzeichnen, Archivieren, Markieren mit Stern oder Markieren eingehender Nachrichten als gelesen. Nutze KI-Regeln oder richte native Gmail-Filter ein.",
-      feature5Title: "Tastaturkürzel",
+        "Wenden Sie Klartextregeln auf eingehende Nachrichten an und überprüfen Sie die von Mail durchgeführten Aktionen.",
+      feature5Title: "Überprüfen Sie es vor dem Senden",
       feature5Body:
-        "Navigiere durch Nachrichten, verfasse Antworten, archiviere Unterhaltungen und durchsuche deinen Posteingang über die Tastatur. Öffne die Befehlspalette, um weitere Aktionen zu finden.",
-      feature6Title: "Geplantes Senden und Schlummerfunktion",
+        "Lassen Sie den Agenten eine Antwort entwerfen oder überarbeiten, überprüfen und bearbeiten Sie sie dann, bevor sie Ihren Posteingang verlässt.",
+      feature6Title: "Ein Spamfilter, der dazulernt",
       feature6Body:
-        "Lege fest, wann eine E-Mail gesendet wird, oder hole eine Nachricht später wieder in deinen Fokus. Prüfe geplante Elemente und storniere sie, wenn sich Pläne ändern.",
+        "Markiere eine gefilterte Nachricht als erwünscht oder melde unerwünschte E-Mails. Jev lernt aus jeder Korrektur und wendet sie auf ähnliche Nachrichten an.",
       finalCtaHeading: "Starte mit deiner nächsten E-Mail",
       finalCtaBody:
         "Öffne eine Unterhaltung und bitte deinen KI-Agenten um eine Zusammenfassung oder einen Antwortentwurf.",

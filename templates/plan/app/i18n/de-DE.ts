@@ -395,6 +395,13 @@ const messages = {
       shareAria: "Teilen {{noun}}",
       share: "Teilen {{noun}}",
       shareThis: "Teilen Sie dies {{noun}}",
+      teammateSuggestion: {
+        message: "Holen Sie Ihr Team zu Plan.",
+        invite: "Team einladen",
+        enableDomain: "Allen bei @{{domain}} den Beitritt erlauben",
+        enableFailed:
+          "Domainbeitritt konnte nicht aktiviert werden. Bitte erneut versuchen.",
+      },
       hostedCopy:
         "Dieses lokale {{noun}} verfügt über eine gehostete Kopie zum Teilen. Öffnen Sie das gehostete {{noun}}, um den Zugriff zu verwalten.",
       publishDescription:

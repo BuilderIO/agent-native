@@ -151,6 +151,8 @@ export default {
     untitledAnalysis: "تحليل بلا عنوان",
   },
   settings: {
+    agentObservability: "مراقبة الوكيل",
+    reviewPreviewUnavailable: "المعاينة غير متاحة",
     agentTitle: "إدارة الوكيل",
     agentDescription:
       "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",

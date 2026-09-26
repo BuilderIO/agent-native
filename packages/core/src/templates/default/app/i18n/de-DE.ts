@@ -698,6 +698,7 @@ const messages = {
     reviewFeedback: "Feedback",
     reviewOutput: "Antwort prüfen",
     reviewPreview: "Antwortvorschau",
+    reviewPreviewUnavailable: "Vorschau nicht verfügbar",
     closePreview: "Vorschau ausblenden",
     addFeedback: "Feedback hinzufügen",
     draftInstruction: "Anweisung entwerfen",

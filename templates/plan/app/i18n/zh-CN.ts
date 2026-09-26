@@ -680,6 +680,12 @@ const messages = {
       share: "分享{{noun}}",
       shareAria: "分享{{noun}}",
       shareThis: "分享这个 {{noun}}",
+      teammateSuggestion: {
+        message: "邀请团队成员加入 Plan。",
+        invite: "邀请团队成员",
+        enableDomain: "允许 @{{domain}} 的任何人加入",
+        enableFailed: "无法启用域名加入，请重试。",
+      },
       signedInRetry: "我已登录 - 重试",
       updateLink: "更新链接",
       updating: "更新中",

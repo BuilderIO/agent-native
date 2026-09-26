@@ -1,6 +1,25 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "Adresse URL",
+  "composer.contextInvalidUrl": "Saisissez une URL HTTP ou HTTPS valide.",
+  "composer.contextAttach": "Joindre",
+  "composer.menu.search": "Rechercher…",
+  "composer.contextPrevious": "Précédent",
+  "composer.contextNext": "Suivant",
+  "composer.contextLoadFailed": "Impossible de charger le contexte.",
+  "composer.contextLinkRequired": "Saisissez un lien.",
+  "composer.submitFailed": "Envoi impossible. Réessayez.",
+  "composer.addContext": "Ajouter du contexte",
+  "composer.contextActionFailed": "Impossible d’ajouter le contexte.",
+  "composer.contextBack": "Retour",
+  "composer.searchContext": "Rechercher du contexte…",
+  "composer.noContextResults": "Aucun contexte correspondant.",
+  "composer.contextPending": "Contexte en attente",
+  "composer.contextError": "Échec du contexte",
+  "composer.retryContext": "Réessayer le contexte {{name}}",
+  "composer.contextLimitExceeded":
+    "Le contexte est trop volumineux. Supprimez un élément ou joignez une sélection plus petite.",
   "activity.reasoning": "Raisonnement",
   "approval.alwaysAllow": "Toujours autoriser",
   "approval.alwaysAllowHint":
@@ -350,11 +369,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "Régénérer la réponse",
   "message.restoreFailed": "Échec de la restauration ({{status}}).",
   "message.restoreQuestion": "Restaurer jusqu’ici ?",
+  "message.revertQuestion":
+    "Revenir à ce point ? Les modifications ultérieures seront perdues.",
   "message.restoreRequestFailed": "Échec de la demande de restauration.",
   "message.threadNotFound":
     "Ce fil de discussion n’est plus disponible. Démarrez une nouvelle discussion ou réessayez si cela est inattendu.",
   "message.restoring": "Restauration...",
   "message.revertHere": "Revenir jusqu’ici",
+  "message.revertToBeginning": "Revenir au début",
   "message.sentAt": "Envoyé à {{time}}",
   "plan.act": "Agir",
   "plan.implement": "Implémenter",
@@ -928,6 +950,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Nouvelle adresse e-mail",
   "settings.emailNewPlaceholder": "Saisissez une nouvelle adresse e-mail",
   "usage.builderCredits": "Crédits Builder",
+  "usage.inviteFriends": "Inviter des amis",
+  "usage.inviteCredits":
+    "Gagnez {{amount}} crédits Builder lorsqu’un ami s’abonne.",
+  "usage.copyInviteLink": "Copier le lien d’invitation",
+  "usage.inviteLinkCopied": "Lien d’invitation copié",
   "usage.creditBalance": "Solde de l’espace de travail",
   "usage.monthlyPlan": "Forfait mensuel",
   "usage.dailyFreeLimit": "Limite quotidienne gratuite",
