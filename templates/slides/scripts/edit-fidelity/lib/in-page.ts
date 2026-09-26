@@ -65,7 +65,6 @@ export interface Snapshot {
   inventory: Inventory;
   text: string;
   editedRect: Rect | null;
-  /** Rendered lines of the element the edit is matched to, in full. */
   editedText: string | null;
 }
 
@@ -75,15 +74,12 @@ export interface EditorState {
   blocks: number;
   editorRect: Rect | null;
   sourceRect: Rect | null;
-  /** Top of the edited element's content, which moves with anchored text. */
   contentTop: number | null;
-  /** The caret's box, or null unless the selection is a caret in the edited element. */
   caretRect: Rect | null;
   sourceTag: string | null;
   sourceText: string | null;
   sourceOccurrence: number;
   editorHtml: string;
-  /** The editor's rendered lines, which the element shows once saved. */
   editorText: string;
 }
 
@@ -100,7 +96,6 @@ export interface InPageHelpers {
     edited: { targetIndex?: number; text?: string },
   ): Snapshot;
   editorState(canvasSel: string): EditorState;
-  /** Why the selection entering edit left is not at the gesture's point, or null. */
   entryCaretProblem(
     point: { x: number; y: number },
     gesture: string,
@@ -113,7 +108,6 @@ export interface InPageHelpers {
     target: { tag: string; text: string; occurrence: number },
   ): CanonicalPair;
   takeWriteStacks(): string[];
-  /** Keepalive content writes sent since the last call, in this tab. */
   takeKeepaliveWrites(): number;
 }
 

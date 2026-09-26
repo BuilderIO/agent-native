@@ -205,7 +205,6 @@ describe("in-place text session: entering and ending", () => {
     session = startInPlaceTextSession(el);
     caret(original, 1);
     type(el, "x");
-    // While editing too, or the live text is drawn unlike the saved text.
     const typed = el.firstChild as Text;
     expect(typed).not.toBe(original);
     const range = window.getSelection()!.getRangeAt(0);

@@ -1,7 +1,6 @@
 import { resolvePnpmEntry } from "../../export-fidelity/resolve-pkg.ts";
 import type { Rect, SnapRecord, Snapshot } from "./in-page.ts";
 
-
 let codecs: { pixelmatch: any; PNG: any } | null = null;
 async function loadCodecs() {
   if (!codecs) {
@@ -85,7 +84,6 @@ export function padRect(r: Rect, pad = 4): Rect {
     height: r.height + pad * 2,
   };
 }
-
 
 export interface StyleDelta {
   key: string;
@@ -174,7 +172,6 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
     added: leftB.map((r) => ({ key: r.key, inside: r.inside })),
   };
 }
-
 
 export const HARD_FAIL_PATTERNS: Record<string, RegExp> = {
   "data-slide-content-scope": /data-slide-content-scope/g,
@@ -316,8 +313,6 @@ export function restyledAddedText(a: Snapshot, b: Snapshot): string[] {
     .map((r) => r.key);
 }
 
-// -------------------------------------------------------------- baseline ---
-
 export type Status = "pass" | "fail" | "no-edit" | "error";
 const STATUS_RANK: Record<Status, number> = {
   pass: 0,
@@ -331,7 +326,6 @@ export interface ScenarioMetrics {
   editingPct: number;
   afterPct: number;
   reloadPct: number;
-  /** Typed, still editing -> after exit, whole slide. */
   typedPct: number;
   outsideEditingPct: number;
   outsideAfterPct: number;
@@ -436,7 +430,6 @@ export function findBaselineProblems(
   return problems;
 }
 
-/** Baseline keys whose case, or slide within it, the corpus no longer has. */
 export function orphanedBaselineKeys(
   keys: string[],
   slideCounts: Map<string, number>,

@@ -1,4 +1,3 @@
-
 import {
   convertMarkdownPrefixToBullet,
   extractWithoutCopiedIdentity,
@@ -31,9 +30,7 @@ import {
 
 export interface InPlaceTextSessionOptions {
   caretPoint?: { x: number; y: number } | null;
-  /** Select the word at `caretPoint`, as a native double-click would. */
   selectWord?: boolean;
-  /** Called after every change to the edited content. */
   onInput?: () => void;
 }
 
@@ -281,7 +278,6 @@ function hasRenderedContent(node: Node): boolean {
   );
 }
 
-/** What follows `node` on its own line: up to the next box that starts a line. */
 function lineRest(node: Node, line: HTMLElement): DocumentFragment {
   const rest = document.createRange();
   rest.setStartAfter(node);
@@ -612,7 +608,6 @@ export function startInPlaceTextSession(
   } | null = null;
   let edited = false;
   let dragDeleted = false;
-  /** The text a drag-move deleted from, reshaped once the drop has landed. */
   let dragSource: Node | null = null;
   // Script can still scroll an overflow:hidden ancestor, and Chrome does, to
   // reveal a caret in text the slide clips; that slides the whole slide

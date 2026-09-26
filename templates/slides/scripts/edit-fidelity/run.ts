@@ -58,7 +58,6 @@ const NET_NOOP = new Set<Scenario>(["noop", "typedelete", "clickout"]);
 
 class CouldNotRun extends Error {}
 
-
 const argv = process.argv.slice(2);
 const VALUE_FLAGS = new Set([
   "--corpus",
@@ -128,7 +127,6 @@ function fatal(message: string): never {
   process.exit(2);
 }
 
-
 interface CorpusSlide {
   id?: string;
   content: string;
@@ -186,7 +184,6 @@ function loadCorpus(): CorpusCase[] {
   }
   return cases;
 }
-
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
@@ -281,7 +278,6 @@ async function startServer(): Promise<{
     `dev server did not answer on ${base} within 240s; see ${logPath}`,
   );
 }
-
 
 type Page = any;
 
@@ -704,7 +700,6 @@ async function makeSheet(
   );
 }
 
-
 interface EnterStep {
   key: number;
   sourceHeight: number | null;
@@ -884,7 +879,6 @@ async function runScenario(
       v.push(
         `could not enter edit mode with click, click-click or double-click${current.covered ? " (another element covers the target's click point)" : ""}`,
       );
-      // Without an edit, the clicks themselves must still change nothing.
       const saved = await settleSaved(
         page,
         deckId,
@@ -900,7 +894,6 @@ async function runScenario(
       countingWrites = false;
       result.writes = [...writes];
       result.writeDetails = [...writeDetails];
-      // Opening such a slide rewrites it, which the slide report names once.
       if (saved !== ctx.stored && !ctx.openMutatesContent)
         v.push("clicking changed the stored slide");
       if (writes.length && !ctx.openMutatesContent)
@@ -1357,7 +1350,6 @@ function metricsOf(r: ScenarioResult): ScenarioMetrics {
     violations: r.violations.length,
   };
 }
-
 
 interface SlideReport {
   caseId: string;
