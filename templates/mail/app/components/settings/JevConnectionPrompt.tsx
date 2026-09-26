@@ -80,7 +80,10 @@ export function JevConnectionPrompt({
     return (
       <Dialog open={open} onOpenChange={setOpen}>
         <DropdownMenuItem
-          onSelect={() => setOpen(true)}
+          onSelect={(event) => {
+            event.preventDefault();
+            setOpen(true);
+          }}
           disabled={disabled || flow.connecting}
           className="justify-between"
         >
