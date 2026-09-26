@@ -149,7 +149,7 @@ describe("s3FileUploadProvider", () => {
           mimeType: "application/json",
         }),
       ).rejects.toThrow(
-        new RegExp(`${mismatchedKey}.*user-scoped endpoint`, "i"),
+        new RegExp(`${mismatchedKey}.*user-controlled endpoint`, "i"),
       );
       expect(fetchMock).not.toHaveBeenCalled();
     },

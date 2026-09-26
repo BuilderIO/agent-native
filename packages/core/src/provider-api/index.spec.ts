@@ -28,18 +28,56 @@ const assertCredentialCanReachEndpoint = vi.fn(
     ) {
       return;
     }
-    if (endpoint.scope !== "user" && endpoint.scope !== "unknown") return;
+    const soloWorkspaceEndpoint =
+      endpoint.scope === "workspace" && endpoint.scopeId?.startsWith("solo:");
     if (
-      endpoint.scope === "user" &&
-      credential?.scope === "user" &&
-      endpoint.scopeId &&
-      credential.scopeId === endpoint.scopeId
+      endpoint.source === "workspace_connection" &&
+      credential?.source === "workspace_connection"
     ) {
-      return;
+      if (
+        endpoint.connectionId &&
+        credential.connectionId === endpoint.connectionId
+      ) {
+        return;
+      }
+      throw new Error(
+        `Refusing to send ${key ?? "a credential"} to a different workspace connection than the endpoint.`,
+      );
     }
-    throw new Error(
-      `Refusing to send ${key ?? "a credential"} to a user-scoped endpoint unless it is saved by the same user.`,
-    );
+    if (endpoint.scope === "unknown") {
+      throw new Error(
+        `Refusing to send ${key ?? "a credential"} to an endpoint with unknown ownership.`,
+      );
+    }
+    if (endpoint.scope === "user" || soloWorkspaceEndpoint) {
+      const endpointUser = soloWorkspaceEndpoint
+        ? endpoint.scopeId?.slice("solo:".length)
+        : endpoint.scopeId;
+      if (
+        endpointUser &&
+        ((credential?.scope === "user" &&
+          credential.scopeId === endpointUser) ||
+          (credential?.scope === "workspace" &&
+            credential.scopeId === `solo:${endpointUser}`))
+      ) {
+        return;
+      }
+      throw new Error(
+        `Refusing to send ${key ?? "a credential"} to a user-controlled endpoint unless it is saved by the same user.`,
+      );
+    }
+    if (endpoint.scope === "org" || endpoint.scope === "workspace") {
+      if (
+        endpoint.scopeId &&
+        (credential?.scope === "org" || credential?.scope === "workspace") &&
+        credential.scopeId === endpoint.scopeId
+      ) {
+        return;
+      }
+      throw new Error(
+        `Refusing to send ${key ?? "a credential"} to a shared endpoint unless it is saved by the same organization or workspace.`,
+      );
+    }
   },
 );
 const describeCredentialScopeGap = vi.fn();
@@ -237,7 +275,7 @@ describe("provider API runtime", () => {
 
     await expect(
       runtime.executeRequest({ provider: "grafana", path: "/api/search" }),
-    ).rejects.toThrow(/GRAFANA_API_TOKEN.*user-scoped endpoint/i);
+    ).rejects.toThrow(/GRAFANA_API_TOKEN.*user-controlled endpoint/i);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -281,10 +319,38 @@ describe("provider API runtime", () => {
 
       await expect(
         runtime.executeRequest({ provider: "member-api", path: "/records" }),
-      ).rejects.toThrow(new RegExp(`${sharedKey}.*user-scoped endpoint`, "i"));
+      ).rejects.toThrow(
+        new RegExp(`${sharedKey}.*user-controlled endpoint`, "i"),
+      );
       expect(fetchMock).not.toHaveBeenCalled();
     },
   );
+
+  it("rejects credentials from a different workspace connection before fetch", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "brain",
+      providerIds: ["gong"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ key }) => ({
+        key,
+        value:
+          key === "GONG_API_BASE"
+            ? "https://api.gong.io/v2"
+            : `${key.toLowerCase()}-test-value`,
+        source: "workspace_connection",
+        provider: "gong",
+        scope: "org",
+        scopeId: "org-1",
+        connectionId: key === "GONG_API_BASE" ? "conn-a" : "conn-b",
+      }),
+    });
+
+    await expect(
+      runtime.executeRequest({ provider: "gong", path: "/calls" }),
+    ).rejects.toThrow(/different workspace connection/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it("reports a Slack send as failed when the body says ok:false, even though the HTTP status is 200", async () => {
     // Slack's Web API always answers HTTP 200, success or failure — the real

@@ -3183,7 +3183,7 @@ describe("AgentEngine registry", () => {
 
       await expect(
         resolveEngine({ engineOption: "ai-sdk:openai" }),
-      ).rejects.toThrow(/OPENAI_API_KEY.*user-scoped endpoint/i);
+      ).rejects.toThrow(/OPENAI_API_KEY.*user-controlled endpoint/i);
       expect(create).not.toHaveBeenCalled();
     });
 
@@ -3272,7 +3272,7 @@ describe("AgentEngine registry", () => {
           apiKeyEnvVar: "OPENAI_API_KEY",
           apiKeyProvenance: { scope: "org", scopeId: "org-1" },
         }),
-      ).rejects.toThrow(/OPENAI_API_KEY.*user-scoped endpoint/i);
+      ).rejects.toThrow(/OPENAI_API_KEY.*user-controlled endpoint/i);
       expect(create).not.toHaveBeenCalled();
     });
 

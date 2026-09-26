@@ -138,7 +138,7 @@ describe("test-agent-engine", () => {
     );
 
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/OPENAI_API_KEY.*user-scoped endpoint/i);
+    expect(result.error).toMatch(/OPENAI_API_KEY.*user-controlled endpoint/i);
     expect(createEngine).not.toHaveBeenCalled();
   });
 
@@ -162,7 +162,7 @@ describe("test-agent-engine", () => {
     const result = JSON.parse(await run({ engine: "ai-sdk:openai" }));
 
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/OPENAI_API_KEY.*user-scoped endpoint/i);
+    expect(result.error).toMatch(/OPENAI_API_KEY.*user-controlled endpoint/i);
     expect(createEngine).not.toHaveBeenCalled();
   });
 

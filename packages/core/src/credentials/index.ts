@@ -62,11 +62,17 @@ export function assertCredentialCanReachEndpoint(
 ): void {
   if (
     endpoint.source === "workspace_connection" &&
-    endpoint.connectionId &&
-    credential?.source === "workspace_connection" &&
-    credential.connectionId === endpoint.connectionId
+    credential?.source === "workspace_connection"
   ) {
-    return;
+    if (
+      endpoint.connectionId &&
+      credential.connectionId === endpoint.connectionId
+    ) {
+      return;
+    }
+    throw new CredentialEndpointMismatchError(
+      `Refusing to send ${key ? `\"${key}\"` : "a credential"} to a different workspace connection than the endpoint.`,
+    );
   }
   if (endpoint.scope === "unknown") {
     throw new CredentialEndpointMismatchError(
@@ -89,6 +95,18 @@ export function assertCredentialCanReachEndpoint(
 
     throw new CredentialEndpointMismatchError(
       `Refusing to send ${key ? `\"${key}\"` : "a credential"} to a user-controlled endpoint unless it is saved by the same user.`,
+    );
+  }
+
+  if (endpoint.scope === "org" || endpoint.scope === "workspace") {
+    const credentialBelongsToEndpointWorkspace =
+      Boolean(endpoint.scopeId) &&
+      (credential?.scope === "org" || credential?.scope === "workspace") &&
+      credential.scopeId === endpoint.scopeId;
+    if (credentialBelongsToEndpointWorkspace) return;
+
+    throw new CredentialEndpointMismatchError(
+      `Refusing to send ${key ? `\"${key}\"` : "a credential"} to a shared endpoint unless it is saved by the same organization or workspace.`,
     );
   }
 }

@@ -151,8 +151,11 @@ describe("credentials encryption at rest", () => {
         ? { value: "org-token", last4: "oken", updatedAt: 1 }
         : null,
     );
-    const { assertCredentialCanReachEndpoint, resolveCredentialDetailed } =
-      await import("./index.js");
+    const {
+      assertCredentialCanReachEndpoint,
+      CredentialEndpointMismatchError,
+      resolveCredentialDetailed,
+    } = await import("./index.js");
     const endpoint = {
       scope: "workspace",
       scopeId: "solo:owner@example.test",
@@ -165,7 +168,7 @@ describe("credentials encryption at rest", () => {
     expect(orgCredential).toMatchObject({ scope: "org", scopeId: "org-1" });
     expect(() =>
       assertCredentialCanReachEndpoint(endpoint, orgCredential, "TOKEN"),
-    ).toThrow(/user-controlled endpoint/i);
+    ).toThrow(CredentialEndpointMismatchError);
 
     readAppSecret.mockImplementation(async (ref: any) =>
       ref.scope === "workspace" && ref.scopeId === endpoint.scopeId
@@ -183,6 +186,72 @@ describe("credentials encryption at rest", () => {
     });
     expect(() =>
       assertCredentialCanReachEndpoint(endpoint, soloCredential, "TOKEN"),
+    ).not.toThrow();
+  });
+
+  it("keeps organization-owned endpoints within the matching shared scope", async () => {
+    const {
+      assertCredentialCanReachEndpoint,
+      CredentialEndpointMismatchError,
+    } = await import("./index.js");
+    const endpoint = { scope: "org", scopeId: "org-1" };
+
+    expect(() =>
+      assertCredentialCanReachEndpoint(
+        endpoint,
+        { scope: "user", scopeId: "member@example.test" },
+        "TOKEN",
+      ),
+    ).toThrow(CredentialEndpointMismatchError);
+    expect(() =>
+      assertCredentialCanReachEndpoint(
+        endpoint,
+        { scope: "org", scopeId: "org-2" },
+        "TOKEN",
+      ),
+    ).toThrow(CredentialEndpointMismatchError);
+    expect(() =>
+      assertCredentialCanReachEndpoint(
+        endpoint,
+        { scope: "workspace", scopeId: "org-1" },
+        "TOKEN",
+      ),
+    ).not.toThrow();
+  });
+
+  it("does not combine credentials from different workspace connections", async () => {
+    const {
+      assertCredentialCanReachEndpoint,
+      CredentialEndpointMismatchError,
+    } = await import("./index.js");
+    const endpoint = {
+      scope: "org",
+      scopeId: "org-1",
+      source: "workspace_connection",
+      connectionId: "conn-a",
+    };
+
+    expect(() =>
+      assertCredentialCanReachEndpoint(
+        endpoint,
+        {
+          scope: "org",
+          scopeId: "org-1",
+          source: "workspace_connection",
+          connectionId: "conn-b",
+        },
+        "TOKEN",
+      ),
+    ).toThrow(CredentialEndpointMismatchError);
+    expect(() =>
+      assertCredentialCanReachEndpoint(
+        endpoint,
+        {
+          source: "workspace_connection",
+          connectionId: "conn-a",
+        },
+        "TOKEN",
+      ),
     ).not.toThrow();
   });
 
