@@ -143,6 +143,50 @@ function agentTargets(): SignupTarget[] {
   return [all[dayIndex % all.length]!];
 }
 
+function trackNetwork(page: Page, origin: string) {
+  const networkEvents: string[] = [];
+  const pendingRequests = new Map<string, number>();
+  const isDiagnosticRequest = (url: string): boolean => {
+    try {
+      const parsed = new URL(url);
+      return (
+        parsed.origin === origin &&
+        (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
+          parsed.pathname.startsWith("/_agent-native/actions/") ||
+          parsed.pathname === "/_agent-native/auth/session" ||
+          parsed.pathname === "/_agent-native/org/me" ||
+          parsed.pathname === "/ask" ||
+          parsed.pathname === "/home")
+      );
+    } catch {
+      return false;
+    }
+  };
+  page.on("request", (request) => {
+    if (isDiagnosticRequest(request.url())) {
+      pendingRequests.set(request.url(), Date.now());
+    }
+  });
+  page.on("response", (response) => {
+    if (!isDiagnosticRequest(response.url())) return;
+    const startedAt = pendingRequests.get(response.url());
+    pendingRequests.delete(response.url());
+    const elapsed =
+      startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+    networkEvents.push(
+      `${response.status()} ${new URL(response.url()).pathname} ${elapsed}`,
+    );
+  });
+  page.on("requestfailed", (request) => {
+    if (!isDiagnosticRequest(request.url())) return;
+    pendingRequests.delete(request.url());
+    networkEvents.push(
+      `FAILED ${new URL(request.url()).pathname} ${request.failure()?.errorText ?? "unknown"}`,
+    );
+  });
+  return { networkEvents, pendingRequests };
+}
+
 async function capture(
   page: Page,
   label: string,
@@ -250,46 +294,10 @@ for (const target of targets) {
   }, testInfo) => {
     test.setTimeout(420_000);
     const { errors } = collectAppPageErrors(page, target.origin);
-    const networkEvents: string[] = [];
-    const pendingRequests = new Map<string, number>();
-    const isDiagnosticRequest = (url: string): boolean => {
-      try {
-        const parsed = new URL(url);
-        return (
-          parsed.origin === target.origin &&
-          (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
-            parsed.pathname.startsWith("/_agent-native/actions/") ||
-            parsed.pathname === "/_agent-native/auth/session" ||
-            parsed.pathname === "/_agent-native/org/me" ||
-            parsed.pathname === "/ask" ||
-            parsed.pathname === "/home")
-        );
-      } catch {
-        return false;
-      }
-    };
-    page.on("request", (request) => {
-      if (isDiagnosticRequest(request.url())) {
-        pendingRequests.set(request.url(), Date.now());
-      }
-    });
-    page.on("response", (response) => {
-      if (!isDiagnosticRequest(response.url())) return;
-      const startedAt = pendingRequests.get(response.url());
-      pendingRequests.delete(response.url());
-      const elapsed =
-        startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
-      networkEvents.push(
-        `${response.status()} ${new URL(response.url()).pathname} ${elapsed}`,
-      );
-    });
-    page.on("requestfailed", (request) => {
-      if (!isDiagnosticRequest(request.url())) return;
-      pendingRequests.delete(request.url());
-      networkEvents.push(
-        `FAILED ${new URL(request.url()).pathname} ${request.failure()?.errorText ?? "unknown"}`,
-      );
-    });
+    const initialPageNetwork = trackNetwork(page, target.origin);
+    let postLinkPage: Page = page;
+    let postLinkErrors = errors;
+    let postLinkNetwork = initialPageNetwork;
     const steps: JourneyStep[] = [];
     const email = createQaEmail(target.app, target.environment);
     const emailRequestedAt = Date.now() - 5_000;
@@ -304,8 +312,8 @@ for (const target of targets) {
           page,
           "sign-in page",
           errors,
-          networkEvents,
-          pendingRequests,
+          initialPageNetwork.networkEvents,
+          initialPageNetwork.pendingRequests,
         ),
       );
     });
@@ -329,8 +337,8 @@ for (const target of targets) {
           page,
           "after requesting the link",
           errors,
-          networkEvents,
-          pendingRequests,
+          initialPageNetwork.networkEvents,
+          initialPageNetwork.pendingRequests,
         ),
       );
       const result = await emailResult;
@@ -346,42 +354,61 @@ for (const target of targets) {
       }
       const message = result.message;
       const link = verificationLinkFor(message, target.origin);
-      await page.goto(link, { waitUntil: "domcontentloaded" });
-      const postLinkState = await waitForPostLinkState(page, pendingRequests);
+      // The link-sent page redirects itself when its session poll sees verification.
+      const verificationPage = await page.context().newPage();
+      const { errors: verificationErrors } = collectAppPageErrors(
+        verificationPage,
+        target.origin,
+      );
+      const verificationPageNetwork = trackNetwork(
+        verificationPage,
+        target.origin,
+      );
+      await verificationPage.goto(link, { waitUntil: "domcontentloaded" });
+      const postLinkState = await waitForPostLinkState(
+        verificationPage,
+        verificationPageNetwork.pendingRequests,
+      );
       steps.push(
         await capture(
-          page,
+          verificationPage,
           "after following the emailed link",
-          errors,
-          networkEvents,
-          pendingRequests,
+          [...errors, ...verificationErrors],
+          verificationPageNetwork.networkEvents,
+          verificationPageNetwork.pendingRequests,
         ),
       );
       if (postLinkState === "onboarding") {
-        await completeFirstRunOnboarding(page);
-        await waitForPostLinkState(page, pendingRequests);
+        await completeFirstRunOnboarding(verificationPage);
+        await waitForPostLinkState(
+          verificationPage,
+          verificationPageNetwork.pendingRequests,
+        );
         steps.push(
           await capture(
-            page,
+            verificationPage,
             "after completing first-run onboarding",
-            errors,
-            networkEvents,
-            pendingRequests,
+            [...errors, ...verificationErrors],
+            verificationPageNetwork.networkEvents,
+            verificationPageNetwork.pendingRequests,
           ),
         );
       }
+      postLinkPage = verificationPage;
+      postLinkErrors = [...errors, ...verificationErrors];
+      postLinkNetwork = verificationPageNetwork;
     });
 
     await test.step("reload the way a stuck user would", async () => {
-      await page.reload({ waitUntil: "domcontentloaded" });
-      await waitForPostLinkState(page, pendingRequests);
+      await postLinkPage.reload({ waitUntil: "domcontentloaded" });
+      await waitForPostLinkState(postLinkPage, postLinkNetwork.pendingRequests);
       steps.push(
         await capture(
-          page,
+          postLinkPage,
           "after a browser reload",
-          errors,
-          networkEvents,
-          pendingRequests,
+          postLinkErrors,
+          postLinkNetwork.networkEvents,
+          postLinkNetwork.pendingRequests,
         ),
       );
     });
