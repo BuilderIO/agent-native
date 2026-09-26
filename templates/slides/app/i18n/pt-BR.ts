@@ -942,7 +942,6 @@ const messages = {
     fileStorageSetupRequired:
       "Nenhum armazenamento de objetos está conectado. Conecte o Builder.io gratuitamente ou adicione suas próprias chaves de armazenamento compatíveis com S3 em Configurações → Upload de arquivos.",
     decksTitle: "Decks",
-    newDeck: "Novo deck",
     deckLengthQuestion: "Qual deve ser o tamanho deste deck?",
     deckLengthHeader: "Tamanho do deck",
     deckLengthShort: "Curto (3–5 slides)",
@@ -972,6 +971,8 @@ const messages = {
     chooseReferences: "Escolher referências",
     addDesignSystem: "+ Sistema de design",
     importFrom: "Importar de",
+    referenceFileStorageUnavailable:
+      "O armazenamento de arquivos não está configurado. Conecte o Builder.io ou outro provedor de arquivos para importar referências.",
     attachedFiles: "Anexos",
     imported: "Importado",
     importedReferenceDeck: "Deck de referência importado",

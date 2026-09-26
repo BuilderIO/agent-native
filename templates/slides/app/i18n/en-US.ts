@@ -924,7 +924,6 @@ const messages = {
     fileStorageSetupRequired:
       "No object storage is connected. Connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     decksTitle: "Decks",
-    newDeck: "New Deck",
     deckLengthQuestion: "How long should this deck be?",
     deckLengthHeader: "Deck length",
     deckLengthShort: "Short (3–5 slides)",
@@ -954,6 +953,8 @@ const messages = {
     chooseReferences: "Choose references",
     addDesignSystem: "+ Design system",
     importFrom: "Import from",
+    referenceFileStorageUnavailable:
+      "File storage is not configured. Connect Builder.io or another file provider to import reference files.",
     attachedFiles: "Attached",
     imported: "Imported",
     importedReferenceDeck: "Imported reference deck",

@@ -892,7 +892,6 @@ const messages = {
     fileStorageSetupRequired:
       "尚未連接物件儲存空間。請免費連接 Builder.io，或前往設定 → 檔案上傳新增自己的 S3 相容儲存金鑰。",
     decksTitle: "幻燈片",
-    newDeck: "新建幻燈片",
     deckLengthQuestion: "這份幻燈片需要多長？",
     deckLengthHeader: "幻燈片長度",
     deckLengthShort: "短（3–5 張）",
@@ -921,6 +920,8 @@ const messages = {
     chooseReferences: "選擇參考資料",
     addDesignSystem: "+ 設計系統",
     importFrom: "匯入來源",
+    referenceFileStorageUnavailable:
+      "尚未設定檔案儲存空間。請連結 Builder.io 或其他檔案提供者，以匯入參考檔案。",
     attachedFiles: "已附加檔案",
     imported: "已匯入",
     importedReferenceDeck: "已匯入的參考投影片",

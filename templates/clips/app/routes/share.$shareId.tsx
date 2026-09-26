@@ -2057,16 +2057,14 @@ function PublicCommentsEmptyState({ onSignUp }: { onSignUp: () => void }) {
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-sm flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-5 py-5 text-center">
-      <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <AgentNativeIcon aria-hidden="true" className="h-3.5 w-6" />
-      </div>
-      <h2 className="text-base font-semibold tracking-tight">
+      <AgentNativeIcon aria-hidden="true" className="h-5 w-8 text-primary" />
+      <h2 className="text-xl leading-6 font-semibold tracking-tight">
         {t("sharePage.commentSignupTitle")}
       </h2>
       <p className="max-w-xs text-sm leading-5 text-muted-foreground">
         {t("sharePage.commentSignupDescription")}
       </p>
-      <Button type="button" className="w-full" onClick={onSignUp}>
+      <Button type="button" onClick={onSignUp}>
         {t("signInPrompt.createAccount")}
       </Button>
     </div>

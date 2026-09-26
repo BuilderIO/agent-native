@@ -2,20 +2,20 @@
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => true,
 }));
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+const isReferenceStorageReadyMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/prompt-file-uploads", () => ({
+  isReferenceStorageReady: isReferenceStorageReadyMock,
+}));
 import {
   act,
   cleanup,
   fireEvent,
-  render as renderWithoutQueryClient,
+  render,
   screen,
-  type RenderOptions,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Deck } from "@/context/DeckContext";
-import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { title?: string }) => {
@@ -30,6 +30,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "home.googleSlidesImportLabel": "Slides",
         "home.googleSlidesReferenceTitle": "Google Slides",
         "home.referenceImportSuccess": "Imported successfully",
+        "home.referenceFileStorageUnavailable":
+          "File storage is not configured. Connect Builder.io or another file provider to import reference files.",
         "home.none": "None",
         "home.continue": "Continue",
         "home.continueToGenerate": "Continue to generate",
@@ -69,18 +71,7 @@ import {
   type ImportedReference,
 } from "./NewDeckReferenceStep";
 
-function render(ui: ReactNode, options?: RenderOptions) {
-  const queryClient = new QueryClient();
-  queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, { configured: true });
-  return renderWithoutQueryClient(ui, {
-    ...options,
-    wrapper: ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    ),
-  });
-}
-
-function renderStep(
+async function renderStep(
   overrides: Partial<React.ComponentProps<typeof NewDeckReferenceStep>> = {},
 ) {
   const onSelect = vi.fn();
@@ -118,6 +109,9 @@ function renderStep(
     ...overrides,
   };
   const view = render(<NewDeckReferenceStep {...props} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
 
   return {
     onSelect,
@@ -134,6 +128,10 @@ function renderStep(
 }
 
 describe("<NewDeckReferenceStep>", () => {
+  beforeEach(() => {
+    isReferenceStorageReadyMock.mockResolvedValue(true);
+  });
+
   afterEach(() => cleanup());
 
   it("confirms a PPTX import and keeps it selected until generation continues", async () => {
@@ -143,7 +141,7 @@ describe("<NewDeckReferenceStep>", () => {
       source: "pptx",
       referenceFilePaths: ["/uploads/reference.pptx"],
     };
-    const { onSelect, onImport } = renderStep();
+    const { onSelect, onImport } = await renderStep();
     onImport.mockResolvedValue(imported);
 
     const input = document.querySelector('input[accept=".pptx"]');
@@ -188,7 +186,7 @@ describe("<NewDeckReferenceStep>", () => {
       title: "Reference PDF",
       source: "pdf",
     };
-    const { onImport } = renderStep();
+    const { onImport } = await renderStep();
     onImport.mockResolvedValue(imported);
 
     const input = document.querySelector('input[accept=".pdf"]');
@@ -211,9 +209,34 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Reference PDF");
   });
 
+  it("blocks file imports and explains when private storage is unavailable", async () => {
+    isReferenceStorageReadyMock.mockResolvedValue(false);
+    const { onImport } = await renderStep();
+
+    expect(document.querySelector('input[accept=".pdf"]')).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.getByRole("alert").textContent).toContain(
+      "File storage is not configured",
+    );
+
+    await act(async () => {
+      fireEvent.change(document.querySelector('input[accept=".pdf"]')!, {
+        target: {
+          files: [
+            new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+          ],
+        },
+      });
+    });
+
+    expect(onImport).not.toHaveBeenCalled();
+  });
+
   it("only labels the selected file option while importing", async () => {
     let resolveImport!: (reference: ImportedReference) => void;
-    const { onImport } = renderStep({ importing: true });
+    const { onImport } = await renderStep({ importing: true });
     onImport.mockReturnValue(
       new Promise((resolve) => {
         resolveImport = resolve;
@@ -253,7 +276,7 @@ describe("<NewDeckReferenceStep>", () => {
       title: "Reference DOCX",
       source: "docx",
     };
-    const { onImport } = renderStep();
+    const { onImport } = await renderStep();
     onImport.mockResolvedValue(imported);
 
     const input = document.querySelector('input[accept=".docx"]');
@@ -284,7 +307,7 @@ describe("<NewDeckReferenceStep>", () => {
       title: "Quarterly plan",
       source: "google-slides",
     };
-    const { onSelect, onImportSource } = renderStep();
+    const { onSelect, onImportSource } = await renderStep();
     onImportSource.mockResolvedValue(imported);
 
     fireEvent.click(screen.getByRole("button", { name: "Slides" }));
@@ -316,7 +339,7 @@ describe("<NewDeckReferenceStep>", () => {
       title: "Quarterly plan",
       source: "google-slides",
     };
-    const { onSelect, onImportSource } = renderStep();
+    const { onSelect, onImportSource } = await renderStep();
     onImportSource.mockResolvedValue(imported);
 
     fireEvent.click(screen.getByRole("button", { name: "Slides" }));
@@ -346,8 +369,8 @@ describe("<NewDeckReferenceStep>", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("disables Continue when no reference or design system is selected", () => {
-    renderStep({ designSystems: [], defaultDesignSystemId: null });
+  it("disables Continue when no reference or design system is selected", async () => {
+    await renderStep({ designSystems: [], defaultDesignSystemId: null });
 
     expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
       "disabled",
@@ -359,8 +382,8 @@ describe("<NewDeckReferenceStep>", () => {
     );
   });
 
-  it("only shows Google connection recovery after choosing Slides", () => {
-    renderStep();
+  it("only shows Google connection recovery after choosing Slides", async () => {
+    await renderStep();
 
     expect(screen.queryByTestId("google-drive-connection-cta")).toBeNull();
 
@@ -369,7 +392,7 @@ describe("<NewDeckReferenceStep>", () => {
     expect(screen.getByTestId("google-drive-connection-cta")).toBeTruthy();
   });
 
-  it("hides the recent section and sorts reference decks by recency", () => {
+  it("hides the recent section and sorts reference decks by recency", async () => {
     const deck = (id: string, title: string, updatedAt: string): Deck => ({
       id,
       title,
@@ -378,7 +401,7 @@ describe("<NewDeckReferenceStep>", () => {
       slides: [],
     });
 
-    renderStep({
+    await renderStep({
       decks: [
         deck("older", "Older deck", "2026-08-01T00:00:00.000Z"),
         deck("newer", "Newer deck", "2026-08-10T00:00:00.000Z"),
@@ -396,8 +419,8 @@ describe("<NewDeckReferenceStep>", () => {
     ]);
   });
 
-  it("shows the last selected reference deck when the step opens", () => {
-    renderStep({
+  it("shows the last selected reference deck when the step opens", async () => {
+    await renderStep({
       decks: [
         {
           id: "deck-last-used",
@@ -415,8 +438,8 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Last used deck");
   });
 
-  it("hydrates the default design system when the list resolves after opening", () => {
-    const { rerender } = renderStep({
+  it("hydrates the default design system when the list resolves after opening", async () => {
+    const { rerender } = await renderStep({
       designSystems: [],
       defaultDesignSystemId: "ds-1",
     });
@@ -435,7 +458,7 @@ describe("<NewDeckReferenceStep>", () => {
     const selection = new Promise<void>((resolve) => {
       resolveSelection = resolve;
     });
-    renderStep({ onSelect: () => selection });
+    await renderStep({ onSelect: () => selection });
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -458,14 +481,14 @@ describe("<NewDeckReferenceStep>", () => {
     ).toHaveProperty("disabled", false);
   });
 
-  it("does not render an Attached section on the reference step", () => {
-    renderStep({ promptSummary: "Some prompt" });
+  it("does not render an Attached section on the reference step", async () => {
+    await renderStep({ promptSummary: "Some prompt" });
 
     expect(screen.queryByText("Attached")).toBeNull();
   });
 
-  it("opens design system creation inline instead of navigating away", () => {
-    const { onOpenChange, onDesignSystemsChanged } = renderStep({
+  it("opens design system creation inline instead of navigating away", async () => {
+    const { onOpenChange, onDesignSystemsChanged } = await renderStep({
       designSystems: [],
     });
 
@@ -492,8 +515,8 @@ describe("<NewDeckReferenceStep>", () => {
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 
-  it("shows the placeholder until the reference deck is touched", () => {
-    renderStep({
+  it("shows the placeholder until the reference deck is touched", async () => {
+    await renderStep({
       decks: [
         {
           id: "deck-1",
@@ -510,8 +533,8 @@ describe("<NewDeckReferenceStep>", () => {
     ).toBe("Match the style of an existing deck");
   });
 
-  it("shows None instead of the placeholder after explicitly selecting None", () => {
-    renderStep({
+  it("shows None instead of the placeholder after explicitly selecting None", async () => {
+    await renderStep({
       decks: [
         {
           id: "deck-1",
@@ -533,8 +556,8 @@ describe("<NewDeckReferenceStep>", () => {
     );
   });
 
-  it("shows the deck name in the trigger after selecting a deck", () => {
-    renderStep({
+  it("shows the deck name in the trigger after selecting a deck", async () => {
+    await renderStep({
       decks: [
         {
           id: "deck-1",

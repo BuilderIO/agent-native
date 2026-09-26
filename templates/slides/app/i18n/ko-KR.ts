@@ -918,7 +918,6 @@ const messages = {
     fileStorageSetupRequired:
       "연결된 개체 스토리지가 없습니다. 무료 Builder.io를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
     decksTitle: "덱",
-    newDeck: "새 덱",
     deckLengthQuestion: "이 덱은 얼마나 길어야 하나요?",
     deckLengthHeader: "덱 길이",
     deckLengthShort: "짧게(3–5장)",
@@ -948,6 +947,8 @@ const messages = {
     chooseReferences: "참조 선택",
     addDesignSystem: "+ 디자인 시스템",
     importFrom: "가져오기",
+    referenceFileStorageUnavailable:
+      "파일 저장소가 설정되지 않았습니다. 참조 파일을 가져오려면 Builder.io 또는 다른 파일 제공업체를 연결하세요.",
     attachedFiles: "첨부 파일",
     imported: "가져옴",
     importedReferenceDeck: "가져온 참고 덱",

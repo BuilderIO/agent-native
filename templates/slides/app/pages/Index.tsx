@@ -35,7 +35,6 @@ import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
   IconArrowRight,
-  IconPlus,
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
@@ -681,15 +680,6 @@ export default function Index() {
     },
     [setSearchParams],
   );
-
-  const openNewDeck = useCallback(() => {
-    preloadPromptPopover();
-    designSystemAutoRef.current = true;
-    referenceDeckAutoRef.current = true;
-    setSelectedDesignSystemId(initialDesignSystemId ?? null);
-    setSelectedReferenceDeckId(initialReferenceDeckId ?? null);
-    setShowNewDeckPrompt(true);
-  }, [initialDesignSystemId, initialReferenceDeckId]);
 
   useEffect(() => {
     if (
@@ -2026,28 +2016,10 @@ export default function Index() {
           {viewState !== "empty" ? (
             <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
           ) : null}
-          <Button
-            onClick={openNewDeck}
-            onPointerEnter={preloadPromptPopover}
-            onFocus={preloadPromptPopover}
-            size="sm"
-            className="cursor-pointer"
-          >
-            <IconPlus className="w-3.5 h-3.5" />
-            {t("home.newDeck")}
-          </Button>
           <ImportDeckButton controller={deckImport} />
         </HomeHeaderActions>
       ),
-      [
-        deckFilter,
-        deckImport,
-        deckSearch,
-        openNewDeck,
-        setDeckFilter,
-        t,
-        viewState,
-      ],
+      [deckFilter, deckImport, deckSearch, setDeckFilter, t, viewState],
     ),
   );
   if (isStartingNewDeck) {

@@ -952,7 +952,6 @@ const messages = {
     fileStorageSetupRequired:
       "Aucun stockage d’objets n’est connecté. Connectez Builder.io gratuitement ou ajoutez vos propres clés de stockage compatibles S3 dans Paramètres → Téléversements de fichiers.",
     decksTitle: "Decks",
-    newDeck: "Nouveau deck",
     deckLengthQuestion: "Quelle longueur doit faire ce deck ?",
     deckLengthHeader: "Longueur du deck",
     deckLengthShort: "Court (3–5 diapositives)",
@@ -983,6 +982,8 @@ const messages = {
     chooseReferences: "Choisir des références",
     addDesignSystem: "+ Système de design",
     importFrom: "Importer depuis",
+    referenceFileStorageUnavailable:
+      "Le stockage de fichiers n’est pas configuré. Connectez Builder.io ou un autre fournisseur pour importer des fichiers de référence.",
     attachedFiles: "Pièces jointes",
     imported: "Importé",
     importedReferenceDeck: "Deck de référence importé",

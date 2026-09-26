@@ -27,6 +27,7 @@ export function shortProviderName(label: string): string {
 const PREFIX_LOGO_IDS: Array<[string, string]> = [
   ["OPENAI_", "openai"],
   ["ANTHROPIC_", "anthropic"],
+  ["JEV_", "typesafe"],
   ["OPENROUTER_", "openrouter"],
   ["GOOGLE_GENERATIVE_AI_", "google-gemini"],
   ["GOOGLE_", "google-workspace"],
