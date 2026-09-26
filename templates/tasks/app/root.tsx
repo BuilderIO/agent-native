@@ -153,6 +153,7 @@ function AppContent() {
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="tasks"
+        chatStorageKey="tasks"
       >
         <CommandMenu.Group heading={t("sidebar.navigationTitle")}>
           {location.pathname === "/inbox" ? (

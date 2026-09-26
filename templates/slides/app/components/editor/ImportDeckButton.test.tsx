@@ -18,6 +18,13 @@ const translate = (key: string) =>
       (value, part) => (value as Record<string, unknown>)?.[part],
       en,
     ) as string) || key;
+const storageStatus = vi.hoisted(() => ({
+  configured: true,
+  isSuccess: true,
+  isError: false,
+  isLoading: false,
+  refetch: vi.fn(),
+}));
 vi.mock("@agent-native/core/client/i18n", () => ({ useT: () => translate }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   actionErrorMessage: (error: Error) =>
@@ -26,6 +33,22 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("./GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => (
     <button type="button">Connect Google Drive</button>
+  ),
+}));
+vi.mock("@/hooks/use-slide-file-storage-status", () => ({
+  useSlideFileStorageStatus: () => ({
+    data: { configured: storageStatus.configured },
+    isSuccess: storageStatus.isSuccess,
+    isError: storageStatus.isError,
+    isLoading: storageStatus.isLoading,
+    refetch: storageStatus.refetch,
+  }),
+}));
+vi.mock("@/components/editor/UploadStorageGate", () => ({
+  UploadStorageGate: ({ onRetry }: { onRetry: () => void }) => (
+    <button type="button" onClick={onRetry}>
+      Connect object storage
+    </button>
   ),
 }));
 
@@ -54,6 +77,11 @@ function selectFile(file?: File) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  storageStatus.configured = true;
+  storageStatus.isSuccess = true;
+  storageStatus.isError = false;
+  storageStatus.isLoading = false;
+  storageStatus.refetch.mockClear();
 });
 
 describe("toolbar deck import", () => {
@@ -92,6 +120,35 @@ describe("toolbar deck import", () => {
     selectFile();
     expect(onImport).not.toHaveBeenCalled();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+  it("opens object storage setup instead of the file picker when storage is missing", () => {
+    storageStatus.configured = false;
+    const click = vi
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => {});
+    render(<Harness onImport={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    expect(click).not.toHaveBeenCalled();
+    expect(screen.getByText("Connect object storage")).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Import file") as HTMLInputElement).disabled,
+    ).toBe(true);
+  });
+  it("retries the storage status when it cannot be checked", () => {
+    storageStatus.isError = true;
+    storageStatus.isSuccess = false;
+    render(<Harness onImport={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    fireEvent.click(screen.getByText("Connect object storage"));
+    expect(storageStatus.refetch).toHaveBeenCalledOnce();
+  });
+  it("offers retry instead of setup while status is unresolved", () => {
+    storageStatus.isSuccess = false;
+    storageStatus.isLoading = false;
+    render(<Harness onImport={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    fireEvent.click(screen.getByText("Connect object storage"));
+    expect(storageStatus.refetch).toHaveBeenCalledOnce();
   });
   it.each(["pdf", "pptx"] as const)(
     "dispatches a %s from the main picker without confirmation",

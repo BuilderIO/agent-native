@@ -1,6 +1,14 @@
 import enUS from "./en-US";
 
 const ptBR = {
+  agentChat: {
+    setup: {
+      checkingProvider: "Verificando a conexão com a IA…",
+      providerStatusUnavailable:
+        "Não foi possível verificar a conexão com a IA.",
+    },
+    common: { retry: "Tentar novamente" },
+  },
   language: {
     label: "Idioma",
     system: "Sistema",

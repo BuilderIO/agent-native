@@ -107,10 +107,11 @@ const messages = {
   "onboarding.openBackgroundAgentSettings": "Open Background Agent settings",
   "onboarding.capability.llm.keySummary": "Connect your own AI model",
   "onboarding.capability.fileStorage.keySummary": "File uploads and storage",
-  "onboarding.fileStorage.title": "Choose file storage",
+  "onboarding.fileStorage.title": "Connect storage to upload files",
   "onboarding.fileStorage.description":
-    "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
-  "onboarding.fileStorage.custom": "Use custom storage keys",
+    "Connect Builder.io (free) or configure your own S3-compatible object storage.",
+  "onboarding.fileStorage.reconnectBuilder": "Reconnect Builder.io",
+  "onboarding.fileStorage.custom": "Add your own object storage keys",
   "onboarding.fileStorage.customDescription":
     "Configure an S3-compatible bucket with a stable public URL.",
   "onboarding.capability.voiceInput.label": "Voice input",
@@ -664,7 +665,9 @@ const messages = {
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",
   "recovery.credentialRejected":
-    "The current Builder.io or model-provider credential was rejected. Reconnect Builder.io, then retry this message.",
+    "The model provider rejected the saved credentials. Update your Builder.io connection or provider key, then retry this message.",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents aren't connected. Connect Builder.io in Setup to run this hosted code-change operation. Model-provider keys still work for chat and other AI features, but they don't authorize the Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnose and retry",
   "recovery.forkDescription":
     "Fork this conversation into a separate chat thread.",
@@ -722,6 +725,10 @@ const messages = {
   "setup.connectPlaceholder": "Connect AI to start chatting...",
   "setup.connectToChat": "Connect AI to chat",
   "setup.connectToStart": "Connect AI to start chatting",
+  "setup.checkingProvider": "Checking AI connection…",
+  "setup.providerStatusUnavailable": "Couldn't check AI connection.",
+  "agentNativeClips.meetingAsk.placeholder": "Ask anything",
+  "agentNativeClips.meetingAsk.ariaLabel": "Ask anything about this meeting",
   "setup.connected": "Connected",
   "setup.connectedOrganization": "Connected — {{organization}}",
   "setup.connectedTo": "Connected to {{organization}}",

@@ -188,6 +188,18 @@ export default {
     teamCreateOrgDescription:
       "同僚とデザインを共有するためのチームを設定します。",
   },
+  onboarding: {
+    fileStorage: {
+      title: "ファイルをアップロードするストレージを接続",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 接続を確認しています…",
+      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+    },
+    common: { retry: "再試行" },
+  },
   chat: {
     emptyState: "作成したいデザインを説明してください",
     suggestionLandingPage: "スタートアップ向けのランディングページをデザイン",

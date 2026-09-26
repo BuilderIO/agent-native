@@ -7,10 +7,18 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Popover,
   PopoverContent,
@@ -52,6 +60,7 @@ async function writeAppStateClient(key: string, value: unknown): Promise<void> {
   }
 }
 
+import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { withMediaVersion } from "@/lib/media-url";
 import {
   parsePlaybackSpeed,
@@ -351,6 +360,21 @@ function getWaveformMediaUrl({
 
 export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   const t = useT();
+  const videoStorageStatus = useVideoStorageStatus();
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
+  useEffect(() => {
+    if (
+      storageSetupOpen &&
+      videoStorageStatus.data?.configured &&
+      !videoStorageStatus.isError
+    ) {
+      setStorageSetupOpen(false);
+    }
+  }, [
+    storageSetupOpen,
+    videoStorageStatus.data?.configured,
+    videoStorageStatus.isError,
+  ]);
   // --- server state -------------------------------------------------------
   const playerDataQuery = useActionQuery("get-recording-player-data", {
     recordingId,
@@ -412,6 +436,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
    */
   const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
   const [burning, setBurning] = useState(false);
+  const burnStorageCheckInFlightRef = useRef(false);
   const burnToastRef = useRef<string | number | null>(null);
   /**
    * Undo covers the redaction boxes as well as the cuts. They are two lists in
@@ -1308,6 +1333,23 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   );
 
   const burnIn = useCallback(async () => {
+    if (burning || burnStorageCheckInFlightRef.current) return;
+    burnStorageCheckInFlightRef.current = true;
+    let storageConfigured = false;
+    try {
+      const storageCheck = await videoStorageStatus.refetch();
+      storageConfigured =
+        !storageCheck.isError && storageCheck.data?.configured === true;
+    } catch {
+      setStorageSetupOpen(true);
+      return;
+    } finally {
+      burnStorageCheckInFlightRef.current = false;
+    }
+    if (!storageConfigured) {
+      setStorageSetupOpen(true);
+      return;
+    }
     setBurning(true);
     burnToastRef.current = toast.loading(t("editorLayout.burningRedactions"));
     try {
@@ -1327,7 +1369,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       });
       burnToastRef.current = null;
     }
-  }, [burnRedactions, recordingId, t]);
+  }, [burnRedactions, burning, recordingId, t, videoStorageStatus.refetch]);
 
   // The toast carries the percentage, so it is visible wherever the user is
   // looking rather than only on the toolbar.
@@ -1972,6 +2014,22 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           }}
         />
       ) : null}
+      <Dialog open={storageSetupOpen} onOpenChange={setStorageSetupOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="sr-only">
+              {t("storageSetup.configureS3")}
+            </DialogTitle>
+          </DialogHeader>
+          {videoStorageStatus.isError ? (
+            <StorageStatusRetry
+              onRetry={() => void videoStorageStatus.refetch()}
+            />
+          ) : (
+            <FileStorageSetupCard />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

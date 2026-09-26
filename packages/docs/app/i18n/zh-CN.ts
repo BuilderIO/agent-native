@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const zhCN = {
+  agentChat: {
+    setup: {
+      checkingProvider: "正在检查 AI 连接…",
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
+    common: { retry: "重试" },
+  },
   language: {
     label: "语言",
     system: "系统",
