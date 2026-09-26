@@ -158,7 +158,7 @@ describe("mountActionRoutes", () => {
       _responseHeaders: {
         "cache-control": "no-store",
         "access-control-expose-headers":
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After",
         "x-agent-native-client-mismatch": "1",
       },
     });
@@ -686,6 +686,47 @@ describe("mountActionRoutes", () => {
     expect(result).toEqual({
       error: "No such meeting",
       errorCode: "not_found",
+    });
+  });
+
+  it("forwards a bounded Retry-After for typed quota cooldowns", async () => {
+    const { ActionContractError } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions = {
+      markThreadRead: {
+        run: vi.fn().mockRejectedValue(
+          new ActionContractError("Gmail is temporarily limiting requests.", {
+            errorCode: "gmail_quota_cooldown",
+            details: { retryAfterSeconds: 900 },
+            statusCode: 429,
+          }),
+        ),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0]!.handler(event);
+
+    expect(event).toMatchObject({
+      _status: 429,
+      _responseHeaders: {
+        "retry-after": "300",
+        "access-control-expose-headers": expect.stringContaining("Retry-After"),
+      },
+    });
+    expect(result).toEqual({
+      error: "Gmail is temporarily limiting requests.",
+      errorCode: "gmail_quota_cooldown",
+      details: { retryAfterSeconds: 900 },
     });
   });
 

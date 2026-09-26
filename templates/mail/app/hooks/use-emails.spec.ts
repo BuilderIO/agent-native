@@ -23,6 +23,7 @@ import {
   suppressThread,
   hasFreshOptimisticOverrideEvidence,
   keepLatestEmailPage,
+  markThreadReadRetryAfterMs,
 } from "./use-emails";
 
 function makeEmail(id: string, threadId: string): EmailMessage {
@@ -526,6 +527,43 @@ describe("thread fetch ownership", () => {
 });
 
 describe("useMarkThreadRead", () => {
+  it("waits only for a typed Gmail cooldown and caps its delay", () => {
+    expect(
+      markThreadReadRetryAfterMs(
+        Object.assign(new Error("cooldown"), {
+          status: 429,
+          errorCode: "gmail_quota_cooldown",
+          retryAfterMs: 45_000,
+        }),
+      ),
+    ).toBe(45_000);
+    expect(
+      markThreadReadRetryAfterMs(
+        Object.assign(new Error("other 429"), {
+          status: 429,
+          retryAfterMs: 45_000,
+        }),
+      ),
+    ).toBeUndefined();
+    expect(
+      markThreadReadRetryAfterMs(
+        Object.assign(new Error("invalid delay"), {
+          status: 429,
+          errorCode: "gmail_quota_cooldown",
+          retryAfterMs: 900_000,
+        }),
+      ),
+    ).toBe(300_000);
+
+    const hook = emailsHookSource().slice(
+      emailsHookSource().indexOf("export function useMarkThreadRead()"),
+      emailsHookSource().indexOf("export function useToggleStar()"),
+    );
+    expect(hook).toContain("retry: (failureCount, error) =>");
+    expect(hook).toContain("retryDelay: (_failureCount, error) =>");
+    expect(hook).toContain('t("mail.error.rateLimitDescription")');
+  });
+
   it("supersedes a cold thread fetch before the optimistic update", () => {
     const source = emailsHookSource();
     const hook = source.slice(

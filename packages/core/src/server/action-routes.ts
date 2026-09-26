@@ -564,7 +564,7 @@ function mountActionRoutesInternal(
         setResponseHeader(
           event,
           "Access-Control-Expose-Headers",
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After",
         );
 
         // Browser action calls are RPCs over the framework transport. The
@@ -1054,6 +1054,22 @@ function mountActionRoutesInternal(
               // set, otherwise 500.
               const status = isValidationError ? 400 : (explicitStatus ?? 500);
               setResponseStatus(event, status);
+
+              const retryAfterSeconds = isActionContractError(err)
+                ? err.details?.retryAfterSeconds
+                : undefined;
+              if (
+                status === 429 &&
+                typeof retryAfterSeconds === "number" &&
+                Number.isInteger(retryAfterSeconds) &&
+                retryAfterSeconds > 0
+              ) {
+                setResponseHeader(
+                  event,
+                  "Retry-After",
+                  String(Math.min(retryAfterSeconds, 300)),
+                );
+              }
 
               // Only echo the raw message for known-safe cases:
               //  - validation errors (deterministic, parameter-shape only)

@@ -51,6 +51,7 @@ type RuleMode = "tag" | "important" | "archive" | "spam";
 type PromptMode = Exclude<RuleMode, "tag">;
 
 const PROMPT_MODES: PromptMode[] = ["important", "archive", "spam"];
+const EMPTY_RULES: AutomationRule[] = [];
 
 const labelForRule = (rule: AutomationRule) => {
   const action = rule.actions.find((item) => item.type === "label");
@@ -188,7 +189,8 @@ function AiTagRow({
 export function AiFilterSection() {
   const t = useT();
   const { data: state, isLoading: filterLoading } = useAiFilter();
-  const { data: rules = [], isLoading: rulesLoading } = useAutomations();
+  const automations = useAutomations();
+  const rules = automations.data ?? EMPTY_RULES;
   const { data: settings } = useSettings();
   const { data: labels = [] } = useLabels();
   const googleStatus = useGoogleAuthStatus();
@@ -531,7 +533,28 @@ export function AiFilterSection() {
     }
   };
 
-  if (filterLoading || rulesLoading || !state) {
+  if (automations.isError && automations.data === undefined) {
+    return (
+      <div
+        className="flex max-w-[720px] items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
+        role="alert"
+      >
+        <span className="text-sm text-muted-foreground">
+          {t("mail.aiFilter.automationRulesLoadFailed")}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={automations.isFetching}
+          onClick={() => void automations.refetch()}
+        >
+          {t("mail.error.tryAgain")}
+        </Button>
+      </div>
+    );
+  }
+
+  if (filterLoading || automations.isLoading || !state) {
     return <Skeleton className="h-72 w-full max-w-[720px]" />;
   }
 

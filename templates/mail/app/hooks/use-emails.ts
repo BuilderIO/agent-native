@@ -1633,6 +1633,7 @@ export function useMarkRead() {
 
 export function useMarkThreadRead() {
   const qc = useQueryClient();
+  const t = useT();
   return useMutation({
     mutationFn: ({
       threadId,
@@ -1644,6 +1645,10 @@ export function useMarkThreadRead() {
       callAction("mark-thread-read", { threadId, accountEmail }).then(
         assertActionSuccess,
       ),
+    retry: (failureCount, error) =>
+      failureCount < 1 && markThreadReadRetryAfterMs(error) !== undefined,
+    retryDelay: (_failureCount, error) =>
+      markThreadReadRetryAfterMs(error) ?? 0,
     onMutate: async ({ threadId, accountEmail }) => {
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
@@ -1720,7 +1725,11 @@ export function useMarkThreadRead() {
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
-      toast.error(toError(err).message);
+      toast.error(
+        markThreadReadRetryAfterMs(err) !== undefined
+          ? t("mail.error.rateLimitDescription")
+          : toError(err).message,
+      );
     },
     onSettled: (_data, _error, _variables, context) => {
       if (context?.refreshThread) {
@@ -1734,6 +1743,25 @@ export function useMarkThreadRead() {
       );
     },
   });
+}
+
+export function markThreadReadRetryAfterMs(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const details = error as {
+    status?: unknown;
+    errorCode?: unknown;
+    retryAfterMs?: unknown;
+  };
+  if (
+    details.status !== 429 ||
+    details.errorCode !== "gmail_quota_cooldown" ||
+    typeof details.retryAfterMs !== "number" ||
+    !Number.isInteger(details.retryAfterMs) ||
+    details.retryAfterMs <= 0
+  ) {
+    return undefined;
+  }
+  return Math.min(details.retryAfterMs, 300_000);
 }
 
 export function useToggleStar() {

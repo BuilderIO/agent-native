@@ -412,6 +412,10 @@ export function InboxPage() {
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
   const labels = labelsData ?? EMPTY_LABELS;
+  const labelNames = useMemo(
+    () => new Map(labels.map((label) => [label.id, label.name])),
+    [labels],
+  );
 
   // Memoize every derived array — the emails memo depends on these, and fresh
   // array refs on every render were cascading into EmailThread as unstable
@@ -1167,6 +1171,7 @@ export function InboxPage() {
         {hasThread ? (
           <EmailThread
             activeThreadId={threadId}
+            labelNames={labelNames}
             onArchived={setLastArchivedId}
             emailIds={threadIds}
             threads={threads}
