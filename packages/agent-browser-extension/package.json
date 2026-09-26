@@ -18,7 +18,7 @@
   "devDependencies": {
     "@types/chrome": "0.2.2",
     "happy-dom": "20.11.1",
-    "sharp": "0.35.3",
+    "sharp": "0.35.4",
     "tsx": "4.23.1",
     "typescript-7": "npm:typescript@7.0.2",
     "vite": "8.1.5",

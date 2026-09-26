@@ -697,7 +697,7 @@
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
     "officeparser": "^7.3.0",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "xlsx": "^0.18.5"
   },
   "engines": {
