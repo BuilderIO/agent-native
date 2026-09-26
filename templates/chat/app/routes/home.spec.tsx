@@ -341,14 +341,32 @@ describe("ChatRoute AgentKit surface", () => {
     expect(routeState.sendMessage.mock.calls[0]?.[0]).toEqual({
       threadId: "thread-one",
       text: "chat.retryPreviousRequest",
-      metadata: { custom: { agentNativeRecoveryAction: "retry" } },
+      attachments: [
+        {
+          type: "file",
+          name: "brief.pdf",
+          url: "/uploads/brief.pdf",
+          mediaType: "application/pdf",
+        },
+      ],
+      metadata: {
+        custom: {
+          agentNativeRecoveryAction: "retry",
+          agentNativeRecoveryOfRunId: "run-one",
+        },
+      },
     });
 
     routeState.messages.push({
       id: "recovery-1",
       role: "user",
       parts: [{ type: "text", text: "Retry the previous request." }],
-      metadata: { custom: { agentNativeRecoveryAction: "retry" } },
+      metadata: {
+        custom: {
+          agentNativeRecoveryAction: "retry",
+          agentNativeRecoveryOfRunId: "run-one",
+        },
+      },
     });
     act(() =>
       root.render(
@@ -370,6 +388,27 @@ describe("ChatRoute AgentKit surface", () => {
     expect(
       container.querySelector("[data-testid='generic-run-failure']"),
     ).toBeNull();
+
+    act(() =>
+      root.render(
+        React.createElement(failure, {
+          error: {
+            code: "provider_error",
+            message: "The request could not be processed.",
+            details: "No LLM provider key was found.",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    expect(
+      container.querySelector("[data-testid='chat-builder-setup']"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-testid='generic-run-failure']"),
+    ).not.toBeNull();
   });
 
   it("keeps one owned transport across routed threads", () => {

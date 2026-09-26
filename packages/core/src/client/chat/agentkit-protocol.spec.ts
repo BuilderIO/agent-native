@@ -150,6 +150,65 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(createSession).not.toHaveBeenCalled();
   });
 
+  it("forwards file parts from the latest user message as turn attachments", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    let startedTurn: unknown;
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: "runtime-test",
+      startTurn: async (turn) => {
+        startedTurn = turn;
+        return {
+          id: "turn-1",
+          runId: "core-run-1",
+          sessionId: "thread-1",
+          events: events(),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          id: "original",
+          role: "user",
+          parts: [{ type: "text", text: "Summarize the report" }],
+        },
+        {
+          id: "retry",
+          role: "user",
+          parts: [
+            { type: "text", text: "Retry my previous request." },
+            {
+              type: "file",
+              name: "brief.pdf",
+              mediaType: "application/pdf",
+              url: "/uploads/brief.pdf",
+            },
+          ],
+          metadata: {
+            custom: { agentNativeRecoveryAction: "retry" },
+          },
+        },
+      ],
+    });
+
+    expect(startedTurn).toMatchObject({
+      attachments: [
+        {
+          name: "brief.pdf",
+          mediaType: "application/pdf",
+          url: "/uploads/brief.pdf",
+        },
+      ],
+    });
+  });
+
   it("pauses for a typed connection request and resumes the same run", async () => {
     async function* connectionEvents(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {

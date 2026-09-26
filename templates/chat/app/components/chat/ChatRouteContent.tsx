@@ -168,22 +168,44 @@ function ChatRunFailure({
   const thread = useAgentThread(threadId);
   const { controller } = useAgentKit();
   const t = useT();
+  const recoveryMetadata = (message: (typeof thread.messages)[number]) =>
+    (
+      message.metadata as
+        | {
+            custom?: {
+              agentNativeRecoveryAction?: unknown;
+              agentNativeRecoveryOfRunId?: unknown;
+            };
+          }
+        | undefined
+    )?.custom;
+  const userRequests = thread.messages.filter((message) => {
+    if (message.role !== "user") return false;
+    const action = recoveryMetadata(message)?.agentNativeRecoveryAction;
+    return action !== "continue" && action !== "retry";
+  });
+  const originalRequest = userRequests[0];
+  const hasRetryForThisRun = thread.messages.some(
+    (message) =>
+      recoveryMetadata(message)?.agentNativeRecoveryAction === "retry" &&
+      recoveryMetadata(message)?.agentNativeRecoveryOfRunId === runId,
+  );
   const retryFirstMessage = useCallback(() => {
+    const attachments =
+      originalRequest?.parts.filter((part) => part.type === "file") ?? [];
     void controller.sendMessage({
       threadId,
       text: t("chat.retryPreviousRequest"),
-      metadata: { custom: { agentNativeRecoveryAction: "retry" } },
+      ...(attachments.length ? { attachments } : {}),
+      metadata: {
+        custom: {
+          agentNativeRecoveryAction: "retry",
+          agentNativeRecoveryOfRunId: runId,
+        },
+      },
     });
-  }, [controller, t, threadId]);
-  const isFirstMessage =
-    thread.messages.filter((message) => {
-      if (message.role !== "user") return false;
-      const metadata = message.metadata as
-        | { custom?: { agentNativeRecoveryAction?: unknown } }
-        | undefined;
-      const recoveryAction = metadata?.custom?.agentNativeRecoveryAction;
-      return recoveryAction !== "continue" && recoveryAction !== "retry";
-    }).length === 1;
+  }, [controller, originalRequest, runId, t, threadId]);
+  const isFirstMessage = userRequests.length === 1 && !hasRetryForThisRun;
   if (
     isFirstMessage &&
     isMissingLlmProviderRunError({
