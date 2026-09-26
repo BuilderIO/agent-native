@@ -287,7 +287,7 @@ describe("draft booking availability previews", () => {
     expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 502);
     expect(mocks.insertedBookings).toHaveLength(1);
     expect(mocks.insertedBookings[0]).toEqual(
-      expect.objectContaining({ status: "confirmed" }),
+      expect.objectContaining({ status: "confirmed", zoomNeedsReview: true }),
     );
 
     const retryResponse = await (createBooking as any)({});

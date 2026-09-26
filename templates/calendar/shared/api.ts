@@ -403,6 +403,8 @@ export interface Booking {
   googleEventId?: string;
   /** Token for cancel/reschedule link (only returned to the booker) */
   cancelToken?: string;
+  /** Zoom may have created the meeting even though its booking request failed. */
+  zoomNeedsReview?: boolean;
   status: "confirmed" | "cancelled";
   createdAt: string;
 }

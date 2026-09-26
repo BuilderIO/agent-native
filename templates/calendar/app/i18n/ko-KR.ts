@@ -504,6 +504,7 @@ export default {
     confirmationSent: "완료되었습니다. 확인 이메일을 보냈습니다.",
     confirmed: "확정됨",
     confirmedCount: "확정됨 ({{count}})",
+    zoomNeedsReview: "다시 시도하기 전에 Zoom 확인",
     confirming: "확인 중",
     conferencing: "회의",
     connectZoom: "Zoom 연결",

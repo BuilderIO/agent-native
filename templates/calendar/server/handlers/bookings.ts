@@ -1366,6 +1366,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
 
     // Check for conflicts + insert atomically in a transaction
+    let conferencing: ConferencingConfig | undefined;
+    if (link?.conferencing) {
+      conferencing = JSON.parse(link.conferencing);
+    }
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
       if (viewer) {
@@ -1448,6 +1452,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             ? JSON.stringify(fieldResponses)
             : null,
         cancelToken,
+        zoomNeedsReview: conferencing?.type === "zoom",
         status: "confirmed",
         createdAt: now,
         ownerEmail: hostEmail,
@@ -1465,13 +1470,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { error: "This time slot is no longer available" };
     }
 
-    // Resolve conferencing config
-    let conferencing: ConferencingConfig | undefined;
-    if (link?.conferencing) {
-      try {
-        conferencing = JSON.parse(link.conferencing);
-      } catch {}
-    }
     let meetingLink: string | undefined;
     let googleEventId: string | undefined;
     let calendarAccountId: string | undefined;
@@ -1516,9 +1514,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           `[bookings] Failed to create Zoom meeting for ${hostEmail}:`,
           error,
         );
-        // Zoom may have created the meeting even if its response was lost or
-        // unreadable, so keep the booking to reserve the slot and prevent a
-        // retry from silently creating a duplicate meeting.
+        // The reservation remains conflict-blocking, while its review flag
+        // keeps an ambiguous provider result out of the confirmed calendar.
+        recordBookingsChanged(hostEmail);
         setResponseStatus(event, 502);
         return { error: "Failed to create booking" };
       }
@@ -1608,9 +1606,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         meetingLink?: string;
         googleEventId?: string;
         calendarAccountId?: string;
+        zoomNeedsReview?: boolean;
       } = {};
       if (meetingLink) providerUpdates.meetingLink = meetingLink;
       if (googleEventId) providerUpdates.googleEventId = googleEventId;
+      if (conferencing?.type === "zoom") {
+        providerUpdates.zoomNeedsReview = false;
+      }
       if (googleEventId && calendarAccountId) {
         providerUpdates.calendarAccountId = calendarAccountId;
       }
@@ -1636,6 +1638,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       meetingLink,
       googleEventId,
       cancelToken,
+      zoomNeedsReview: false,
       status: "confirmed",
       createdAt: now,
     };

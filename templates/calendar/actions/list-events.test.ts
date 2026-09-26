@@ -65,6 +65,7 @@ const schemaMock = vi.hoisted(() => ({
     notes: "bookings.notes",
     meetingLink: "bookings.meetingLink",
     googleEventId: "bookings.googleEventId",
+    zoomNeedsReview: "bookings.zoomNeedsReview",
     status: "bookings.status",
     createdAt: "bookings.createdAt",
   },
@@ -117,6 +118,7 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
     notes: null,
     meetingLink: "https://example.com/meet",
     googleEventId: "google-event-1",
+    zoomNeedsReview: false,
     status: "confirmed",
     createdAt: "2026-06-12T10:13:39.746Z",
     ...overrides,
@@ -175,6 +177,21 @@ describe("listCalendarEvents booking merge", () => {
         googleEventId: undefined,
       },
     ]);
+  });
+
+  it("hides an ambiguous Zoom booking from the calendar while review is needed", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow({ googleEventId: null, zoomNeedsReview: true })],
+      }),
+    );
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toEqual([]);
   });
 
   it("keeps a linked local booking as fallback when Google returned an error", async () => {

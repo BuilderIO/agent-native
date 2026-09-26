@@ -537,6 +537,7 @@ export default {
       "Tout est prêt ! Une confirmation a été envoyée à votre adresse e-mail.",
     confirmed: "Confirmée",
     confirmedCount: "Confirmées ({{count}})",
+    zoomNeedsReview: "Vérifiez Zoom avant de réessayer",
     confirming: "Confirmation",
     conferencing: "Conférence",
     connectZoom: "Connectez Zoom",

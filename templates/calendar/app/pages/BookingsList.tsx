@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useBookingLinks } from "@/hooks/use-booking-links";
 import { useBookings, useDeleteBooking } from "@/hooks/use-bookings";
+import { sortBookingsNewestFirst } from "@/lib/booking-sorting";
 
 type FilterStatus = "all" | "confirmed" | "cancelled";
 
@@ -51,10 +52,15 @@ export default function BookingsList() {
     return map;
   }, [bookingLinks]);
 
-  const filtered = bookings.filter((b) => {
-    if (filter === "all") return true;
-    return b.status === filter;
-  });
+  const filtered = sortBookingsNewestFirst(
+    bookings.filter(
+      (b) =>
+        filter === "all" ||
+        (filter === "confirmed"
+          ? b.status === "confirmed" && !b.zoomNeedsReview
+          : b.status === filter),
+    ),
+  );
 
   function handleCancel(booking: Booking) {
     deleteBooking.mutate(booking.id, {
@@ -72,7 +78,9 @@ export default function BookingsList() {
           </TabsTrigger>
           <TabsTrigger value="confirmed">
             {t("bookingLinks.confirmedCount", {
-              count: bookings.filter((b) => b.status === "confirmed").length,
+              count: bookings.filter(
+                (b) => b.status === "confirmed" && !b.zoomNeedsReview,
+              ).length,
             })}
           </TabsTrigger>
           <TabsTrigger value="cancelled">
@@ -112,7 +120,9 @@ export default function BookingsList() {
                 <TableHead>{t("bookingLinks.name")}</TableHead>
                 <TableHead>{t("bookingLinks.email")}</TableHead>
                 <TableHead>{t("eventForm.event")}</TableHead>
-                <TableHead>{t("bookingLinks.dateAndTime")}</TableHead>
+                <TableHead className="min-w-[180px]">
+                  {t("bookingLinks.dateAndTime")}
+                </TableHead>
                 <TableHead>{t("bookingLinks.details")}</TableHead>
                 <TableHead>{t("bookingLinks.status")}</TableHead>
                 <TableHead className="w-[80px]" />
@@ -126,7 +136,7 @@ export default function BookingsList() {
                     {booking.email}
                   </TableCell>
                   <TableCell>{booking.eventTitle}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="min-w-[180px] whitespace-nowrap text-muted-foreground">
                     <div>{format(parseISO(booking.start), "MMM d, yyyy")}</div>
                     <div className="text-xs">
                       {format(parseISO(booking.start), "h:mm a")} -{" "}
@@ -142,12 +152,19 @@ export default function BookingsList() {
                   <TableCell>
                     <Badge
                       variant={
-                        booking.status === "confirmed" ? "default" : "secondary"
+                        booking.zoomNeedsReview &&
+                        booking.status === "confirmed"
+                          ? "destructive"
+                          : booking.status === "confirmed"
+                            ? "default"
+                            : "secondary"
                       }
                     >
-                      {booking.status === "confirmed"
-                        ? t("bookingLinks.confirmed")
-                        : t("bookingLinks.cancelled")}
+                      {booking.zoomNeedsReview && booking.status === "confirmed"
+                        ? t("bookingLinks.zoomNeedsReview")
+                        : booking.status === "confirmed"
+                          ? t("bookingLinks.confirmed")
+                          : t("bookingLinks.cancelled")}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -157,6 +174,7 @@ export default function BookingsList() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            aria-label={t("bookingLinks.cancelBooking")}
                             onClick={() => handleCancel(booking)}
                             disabled={deleteBooking.isPending}
                           >

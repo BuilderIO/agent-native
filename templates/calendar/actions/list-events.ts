@@ -497,6 +497,7 @@ async function listLocalBookingEvents(
       notes: schema.bookings.notes,
       meetingLink: schema.bookings.meetingLink,
       googleEventId: schema.bookings.googleEventId,
+      zoomNeedsReview: schema.bookings.zoomNeedsReview,
       status: schema.bookings.status,
       createdAt: schema.bookings.createdAt,
     })
@@ -510,34 +511,36 @@ async function listLocalBookingEvents(
       ),
     );
 
-  return rows.map((booking) => {
-    const link = linkBySlug.get(booking.slug);
-    const description = [
-      booking.notes,
-      `Booked by ${booking.name} <${booking.email}>`,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+  return rows
+    .filter((booking) => !booking.zoomNeedsReview)
+    .map((booking) => {
+      const link = linkBySlug.get(booking.slug);
+      const description = [
+        booking.notes,
+        `Booked by ${booking.name} <${booking.email}>`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
 
-    return {
-      id: `booking:${booking.id}`,
-      title:
-        booking.eventTitle || link?.title || `Booking with ${booking.name}`,
-      description,
-      start: booking.start,
-      end: booking.end,
-      location: booking.meetingLink ?? "",
-      allDay: false,
-      source: "local",
-      googleEventId: booking.googleEventId ?? undefined,
-      meetingLink: booking.meetingLink ?? undefined,
-      color: link?.color ?? undefined,
-      status: booking.status,
-      attendees: [{ email: booking.email, displayName: booking.name }],
-      createdAt: booking.createdAt,
-      updatedAt: booking.createdAt,
-    };
-  });
+      return {
+        id: `booking:${booking.id}`,
+        title:
+          booking.eventTitle || link?.title || `Booking with ${booking.name}`,
+        description,
+        start: booking.start,
+        end: booking.end,
+        location: booking.meetingLink ?? "",
+        allDay: false,
+        source: "local",
+        googleEventId: booking.googleEventId ?? undefined,
+        meetingLink: booking.meetingLink ?? undefined,
+        color: link?.color ?? undefined,
+        status: booking.status,
+        attendees: [{ email: booking.email, displayName: booking.name }],
+        createdAt: booking.createdAt,
+        updatedAt: booking.createdAt,
+      };
+    });
 }
 
 /**

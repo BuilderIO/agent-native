@@ -502,6 +502,7 @@ export default {
     confirmationSent: "सब तैयार है! पुष्टि आपके ईमेल पर भेज दी गई है।",
     confirmed: "पुष्टि हुई",
     confirmedCount: "पुष्टि हुई ({{count}})",
+    zoomNeedsReview: "फिर से कोशिश करने से पहले Zoom की जाँच करें",
     confirming: "पुष्टि हो रही है",
     conferencing: "कॉन्फ्रेंसिंग",
     connectZoom: "Zoom कनेक्ट करें",

@@ -28,6 +28,8 @@ export const bookings = table("bookings", {
   calendarAccountId: text("calendar_account_id"),
   /** Token for public cancel/reschedule link */
   cancelToken: text("cancel_token"),
+  /** Zoom may have created the meeting before the booking request failed. */
+  zoomNeedsReview: boolean("zoom_needs_review").notNull().default(false),
   status: text("status", { enum: ["confirmed", "cancelled"] })
     .notNull()
     .default("confirmed"),

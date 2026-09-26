@@ -524,6 +524,7 @@ export default {
     confirmationSent: "كل شيء جاهز! تم إرسال تأكيد إلى بريدك الإلكتروني.",
     confirmed: "مؤكد",
     confirmedCount: "مؤكدة ({{count}})",
+    zoomNeedsReview: "تحقق من Zoom قبل إعادة المحاولة",
     confirming: "جارٍ التأكيد",
     conferencing: "عقد المؤتمرات",
     connectZoom: "قم بتوصيل Zoom",

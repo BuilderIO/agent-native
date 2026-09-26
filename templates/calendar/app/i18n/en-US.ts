@@ -511,6 +511,7 @@ export default {
       "You're all set! A confirmation has been sent to your email.",
     confirmed: "Confirmed",
     confirmedCount: "Confirmed ({{count}})",
+    zoomNeedsReview: "Check Zoom before retrying",
     confirming: "Confirming",
     conferencing: "Conferencing",
     connectZoom: "Connect Zoom",

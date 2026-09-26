@@ -484,6 +484,7 @@ export default {
     confirmationSent: "你已完成！確認郵件已傳送到你的信箱。",
     confirmed: "已確認",
     confirmedCount: "已確認（{{count}}）",
+    zoomNeedsReview: "重試前請先檢查 Zoom",
     confirming: "確認中",
     conferencing: "會議",
     connectZoom: "連線Zoom",

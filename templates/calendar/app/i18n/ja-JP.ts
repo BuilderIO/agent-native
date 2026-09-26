@@ -513,6 +513,7 @@ export default {
     confirmationSent: "完了しました。確認メールを送信しました。",
     confirmed: "確定済み",
     confirmedCount: "確定済み（{{count}}）",
+    zoomNeedsReview: "再試行する前にZoomを確認",
     confirming: "確認中",
     conferencing: "会議",
     connectZoom: "Zoomを接続する",

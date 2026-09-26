@@ -529,6 +529,7 @@ export default {
     confirmationSent: "Todo listo. Se ha enviado una confirmación a tu correo.",
     confirmed: "Confirmada",
     confirmedCount: "Confirmadas ({{count}})",
+    zoomNeedsReview: "Verifica Zoom antes de volver a intentarlo",
     confirming: "Confirmando",
     conferencing: "conferencias",
     connectZoom: "Conectar Zoom",
