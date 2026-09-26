@@ -15,6 +15,8 @@ vi.mock("@agent-native/core/server", async () => {
     runWithRequestContext: context.runWithRequestContext,
     getSession: mocks.session,
     getMcpOAuthBearerSession: async () => null,
+    cdnSafeOriginStatus: (status: number) =>
+      status === 502 || status === 504 ? 503 : status,
     startBuilderDesignSystemUpload: mocks.upload,
     indexBuilderDesignSystem: mocks.index,
     FeatureNotConfiguredError: class extends Error {},

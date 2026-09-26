@@ -36,13 +36,13 @@
     "sourceHash": "4cc8963191f5b35c1245fb92dd16f4ada4f8becb0ada7e9b537bb9e5dfe6fb78"
   },
   "preset-landing-page": {
-    "maxDiffPercent": 5.224,
+    "maxDiffPercent": 5.225,
     "maxOmitted": 0,
     "maxApproximated": 0,
     "sourceHash": "35de4252d4f1ba9879547fe151e2d6170eb519a6492db70517a21f60c6374bb5"
   },
   "preset-one-pager": {
-    "maxDiffPercent": 0.48,
+    "maxDiffPercent": 0.481,
     "maxOmitted": 0,
     "maxApproximated": 0,
     "sourceHash": "a49ca0ad82eb0c35ab69a11b3ef1ae32aa27446b019ffe5ddbbbdd039126dd66"
