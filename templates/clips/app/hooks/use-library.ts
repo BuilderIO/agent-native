@@ -178,6 +178,7 @@ export function useCreateScreenshot() {
       title?: string;
       sourceAppName?: string | null;
       sourceWindowTitle?: string | null;
+      requestId?: string;
       folderId?: string | null;
       spaceIds?: string[];
     }

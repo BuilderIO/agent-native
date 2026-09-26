@@ -25,8 +25,32 @@ export const UNRECLAIMED_URLS_KEY = "unreclaimedUrls";
  */
 export const DELETE_CLAIM_KEY = "permanentDeleteClaim";
 
-export function isClaimedForDelete(editsJson: string | null | undefined) {
-  return Boolean(readEditsRecord(editsJson)?.[DELETE_CLAIM_KEY]);
+/**
+ * A delete finishes within one request. A claim older than this belongs to
+ * one that died part-way (a timeout, a crash), and must not leave the
+ * screenshot uneditable for good.
+ */
+const DELETE_CLAIM_TTL_MS = 15 * 60 * 1000;
+
+export function isClaimedForDelete(
+  editsJson: string | null | undefined,
+  nowMs = Date.now(),
+): boolean {
+  const claim = readEditsRecord(editsJson)?.[DELETE_CLAIM_KEY] as
+    | { at?: unknown }
+    | undefined;
+  if (!claim) return false;
+  const at = typeof claim.at === "string" ? Date.parse(claim.at) : NaN;
+  // An unreadable time is treated as live: refusing a save is the safe side.
+  return !Number.isFinite(at) || nowMs - at < DELETE_CLAIM_TTL_MS;
+}
+
+/** The edits with any delete claim taken off; unreadable edits unchanged. */
+export function withoutDeleteClaim(editsJson: string): string {
+  const edits = readEditsRecord(editsJson);
+  if (!edits || !(DELETE_CLAIM_KEY in edits)) return editsJson;
+  const { [DELETE_CLAIM_KEY]: _claim, ...rest } = edits;
+  return JSON.stringify(rest);
 }
 
 /** The edits with the delete claim on; `null` when they cannot be read. */

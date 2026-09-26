@@ -6,6 +6,7 @@ import {
   screenshotLeftoverUrls,
   viewerScreenshotEditsJson,
   withDeleteClaim,
+  withoutDeleteClaim,
 } from "./screenshot-edits";
 
 const midBurn = JSON.stringify({
@@ -54,10 +55,23 @@ describe("screenshot-edits", () => {
   });
 
   it("keeps the delete claim server-side", () => {
-    const claimed = withDeleteClaim("{}", "2026-09-26T00:00:00Z")!;
+    const claimed = withDeleteClaim("{}", new Date().toISOString())!;
     expect(isClaimedForDelete(claimed)).toBe(true);
     expect(editorScreenshotEditsJson(claimed)).toBe("{}");
     expect(withDeleteClaim("{not json", "x")).toBeNull();
+  });
+
+  it("lets a claim left by a delete that died expire", () => {
+    // Otherwise a timeout mid-delete would leave the screenshot refusing
+    // every save for good.
+    const claimed = withDeleteClaim("{}", "2026-09-26T00:00:00Z")!;
+    expect(
+      isClaimedForDelete(claimed, Date.parse("2026-09-26T00:10:00Z")),
+    ).toBe(true);
+    expect(
+      isClaimedForDelete(claimed, Date.parse("2026-09-26T00:20:00Z")),
+    ).toBe(false);
+    expect(withoutDeleteClaim(claimed)).toBe("{}");
   });
 
   it("gives a viewer nothing from edits it cannot read", () => {

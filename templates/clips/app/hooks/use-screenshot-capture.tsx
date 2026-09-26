@@ -26,6 +26,8 @@ export interface ScreenshotCaptureScope {
 
 interface PendingCapture {
   canvas: HTMLCanvasElement;
+  /** One per capture, so saving it again cannot make a second screenshot. */
+  requestId: string;
   title: string;
   sourceAppName: string | null;
   sourceWindowTitle: string | null;
@@ -91,6 +93,7 @@ export function useScreenshotCapture({
 
         setPending({
           canvas: frame.canvas,
+          requestId: crypto.randomUUID(),
           title: captureTitle.title,
           sourceAppName: captureTitle.sourceAppName,
           sourceWindowTitle: captureTitle.sourceWindowTitle,
@@ -125,6 +128,7 @@ export function useScreenshotCapture({
             title: capture.title,
             sourceAppName: capture.sourceAppName,
             sourceWindowTitle: capture.sourceWindowTitle,
+            requestId: capture.requestId,
             folderId: folderId ?? null,
             ...(spaceId ? { spaceIds: [spaceId] } : {}),
           });

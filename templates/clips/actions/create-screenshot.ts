@@ -18,8 +18,12 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -29,6 +33,7 @@ import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
   nanoid,
+  ownerEmailMatches,
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
@@ -90,6 +95,13 @@ export const createScreenshotSchema = z.object({
     .describe(
       "Initial share visibility. When omitted, uses the organization default.",
     ),
+  requestId: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{8,64}$/)
+    .optional()
+    .describe(
+      "Chosen by the client once per capture. A retry with the same id returns the screenshot it already made instead of a second one.",
+    ),
 });
 
 export default defineAction({
@@ -111,7 +123,44 @@ export default defineAction({
 
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
-    const id = nanoid();
+
+    // A save whose response was lost looks like a failure to the client,
+    // which offers the capture again. The request id is reserved before the
+    // upload, so the retry either finds the screenshot it made or makes it
+    // under the same id — never a second one.
+    const requestKey = args.requestId
+      ? `screenshot-request-${args.requestId}`
+      : null;
+    const reserved = requestKey ? await readAppState(requestKey) : null;
+    const reservedId =
+      typeof reserved?.id === "string" && reserved.id ? reserved.id : null;
+    if (reservedId) {
+      const [made] = await db
+        .select({
+          id: schema.recordings.id,
+          organizationId: schema.recordings.organizationId,
+          thumbnailUrl: schema.recordings.thumbnailUrl,
+          mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, reservedId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ),
+        );
+      if (made) {
+        return {
+          id: made.id,
+          organizationId: made.organizationId,
+          kind: "image" as const,
+          imageUrl: resolvePlayerThumbnailUrl(made),
+          status: "ready" as const,
+        };
+      }
+    }
+    const id = reservedId ?? nanoid();
+    if (requestKey && !reservedId) await writeAppState(requestKey, { id });
     const now = new Date().toISOString();
     const title = args.title?.trim() || DEFAULT_SCREENSHOT_TITLE;
 

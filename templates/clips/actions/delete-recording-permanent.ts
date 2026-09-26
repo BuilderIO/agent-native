@@ -12,7 +12,7 @@ import {
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
 import { isImageRecording } from "@shared/recording-kind";
-import { and, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -29,6 +29,7 @@ import {
 import {
   screenshotLeftoverUrls,
   withDeleteClaim,
+  withoutDeleteClaim,
 } from "../server/lib/screenshot-edits.js";
 
 export default defineAction({
@@ -94,11 +95,10 @@ export default defineAction({
     // rather than land between these deletes and the row's removal.
     const alreadyDeleted = new Set<string>();
     let claimedEditsJson: string | null = null;
+    let claimedAt: string | null = null;
     if (isImageRecording(existing)) {
-      claimedEditsJson = withDeleteClaim(
-        existing.editsJson,
-        new Date().toISOString(),
-      );
+      claimedAt = new Date().toISOString();
+      claimedEditsJson = withDeleteClaim(existing.editsJson, claimedAt);
       if (!claimedEditsJson) {
         throw new Error(
           "This screenshot's saved edits could not be read, so the files it replaced cannot be found to delete. Nothing was deleted.",
@@ -106,16 +106,11 @@ export default defineAction({
       }
       const claimed = await db
         .update(schema.recordings)
-        .set({
-          editsJson: claimedEditsJson,
-          mediaUpdatedAt: new Date().toISOString(),
-        })
+        .set({ editsJson: claimedEditsJson, mediaUpdatedAt: claimedAt })
         .where(
           and(
             eq(schema.recordings.id, args.id),
-            existing.editsJson == null
-              ? isNull(schema.recordings.editsJson)
-              : eq(schema.recordings.editsJson, existing.editsJson),
+            eq(schema.recordings.editsJson, existing.editsJson),
             eq(schema.recordings.mediaUpdatedAt, existing.mediaUpdatedAt),
           ),
         )
@@ -127,7 +122,8 @@ export default defineAction({
       }
 
       const unredacted = [
-        ...(screenshotLeftoverUrls(existing.editsJson) ?? []),
+        // Readable: the claim above refused edits that are not.
+        ...screenshotLeftoverUrls(existing.editsJson)!,
         ...(existing.baseImageUrl && countPendingRedactions(existing.editsJson)
           ? [existing.baseImageUrl]
           : []),
@@ -147,15 +143,27 @@ export default defineAction({
           // Give the row back so it can be edited or deleted again. What is
           // already gone was a leftover nothing points at, or the base of
           // boxes the next delete will retry.
-          await db
-            .update(schema.recordings)
-            .set({ editsJson: existing.editsJson })
-            .where(
-              and(
-                eq(schema.recordings.id, args.id),
-                eq(schema.recordings.editsJson, claimedEditsJson),
-              ),
+          // Without its claim even if an earlier, interrupted delete had left
+          // one. The revision stays bumped: an editor opened before this
+          // began must reload, since some leftovers are now gone.
+          try {
+            await db
+              .update(schema.recordings)
+              .set({ editsJson: withoutDeleteClaim(existing.editsJson) })
+              .where(
+                and(
+                  eq(schema.recordings.id, args.id),
+                  eq(schema.recordings.editsJson, claimedEditsJson),
+                ),
+              );
+          } catch (err) {
+            // The claim expires on its own; the storage failure below is the
+            // one the caller needs to see.
+            console.warn(
+              `[delete-recording-permanent] could not release the claim on ${args.id}:`,
+              err instanceof Error ? err.message : String(err),
             );
+          }
           throw new Error(
             "An unredacted copy of this screenshot could not be deleted from storage, so the screenshot was kept. Try again later.",
           );
@@ -169,10 +177,17 @@ export default defineAction({
       // something that does not honour it, and is left for the next try.
       if (claimedEditsJson) {
         const [current] = await tx
-          .select({ editsJson: schema.recordings.editsJson })
+          .select({
+            editsJson: schema.recordings.editsJson,
+            mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+          })
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.id));
-        if (!current || current.editsJson !== claimedEditsJson) {
+        if (
+          !current ||
+          current.editsJson !== claimedEditsJson ||
+          current.mediaUpdatedAt !== claimedAt
+        ) {
           throw new Error(
             "This screenshot changed while it was being deleted. Nothing more was deleted — try again.",
           );

@@ -233,7 +233,12 @@ describe("delete-recording-permanent", () => {
     };
 
     /** The transaction's re-read: the row as the claim left it. */
-    const claimedRow = async () => [{ editsJson: mockUpdates[0]?.editsJson }];
+    const claimedRow = async () => [
+      {
+        editsJson: mockUpdates[0]?.editsJson,
+        mediaUpdatedAt: mockUpdates[0]?.mediaUpdatedAt,
+      },
+    ];
 
     beforeEach(async () => {
       mockUpdates.length = 0;
@@ -345,6 +350,25 @@ describe("delete-recording-permanent", () => {
       );
       expect(mockDb.transaction).not.toHaveBeenCalled();
       // And gives the row back, unclaimed, for an edit or a retry.
+      expect(mockUpdates.at(-1)).toEqual({ editsJson: shot.editsJson });
+    });
+
+    it("gives the row back without a claim an earlier delete left", async () => {
+      const leftClaimed = {
+        ...shot,
+        editsJson: JSON.stringify({
+          ...JSON.parse(shot.editsJson),
+          permanentDeleteClaim: { at: "2026-09-26T00:00:00Z" },
+        }),
+      };
+      mockSelectWhere.mockReset();
+      mockSelectWhere
+        .mockResolvedValueOnce([leftClaimed])
+        .mockResolvedValueOnce([]);
+      mockDeleteStoredMediaUrl.mockResolvedValueOnce(false);
+      await expect(
+        deleteRecordingPermanent.run({ id: "rec_1" }),
+      ).rejects.toThrow(/unredacted copy/);
       expect(mockUpdates.at(-1)).toEqual({ editsJson: shot.editsJson });
     });
 
