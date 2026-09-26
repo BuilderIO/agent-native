@@ -1293,6 +1293,14 @@ export const runContentMigrations = runMigrations(
       name: "content-preview-draft-discarded-generation",
       sql: `ALTER TABLE document_preview_draft_settlements ADD COLUMN IF NOT EXISTS discarded_generation INTEGER`,
     },
+    {
+      version: 109,
+      name: "content-legacy-body-intent-checkpoints-optional",
+      sql: `ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS before_checkpoint_id TEXT;
+        ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS candidate_checkpoint_id TEXT;
+        ALTER TABLE document_body_intents ALTER COLUMN before_checkpoint_id DROP NOT NULL;
+        ALTER TABLE document_body_intents ALTER COLUMN candidate_checkpoint_id DROP NOT NULL`,
+    },
   ],
   { table: "content_migrations" },
 );
