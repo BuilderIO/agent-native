@@ -6385,7 +6385,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           updateNodeId: continuation.nodeId,
         });
         if (!persisted) {
-          continuationPenPathRef.current = null;
           activePenPathRef.current = path;
           setActivePenPath(path);
           return;
