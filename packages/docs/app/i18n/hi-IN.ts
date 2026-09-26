@@ -2573,6 +2573,7 @@ const hiIN = {
     deploymentProduction: "प्रोडक्शन और उन्नत",
     deployAnApp: "ऐप परिनियोजित करें",
     workspaceDeployment: "वर्कस्पेस परिनियोजन",
+    localProviderBuilds: "प्रोवाइडर बिल्ड को स्थानीय रूप से पुनरुत्पन्न करें",
     deploymentNodeDocker: "Node.js",
     deploymentDocker: "Docker",
     deploymentVercel: "Vercel",

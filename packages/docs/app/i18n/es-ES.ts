@@ -2616,6 +2616,7 @@ const esES = {
     deploymentProduction: "Producción y avanzado",
     deployAnApp: "Desplegar una aplicación",
     workspaceDeployment: "Despliegue del Workspace",
+    localProviderBuilds: "Reproducir el build del proveedor en local",
     deploymentNodeDocker: "Node.js",
     deploymentDocker: "Docker",
     deploymentVercel: "Vercel",

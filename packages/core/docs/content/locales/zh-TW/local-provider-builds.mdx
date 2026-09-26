@@ -1,0 +1,200 @@
+---
+title: "在本機重現供應商的建置"
+description: "在你自己的機器上執行與 Vercel 或 Netlify 供應商建置指令完全相同的 Linux 建置，藉此偵錯失敗的部署，或透過供應商的預先建置（prebuilt）流程上傳。"
+---
+
+# 在本機重現供應商的建置
+
+當一個託管部署的建置指令是 `npx @agent-native/core@latest deploy --preset vercel --build-only`（或 `--preset netlify`）時，供應商會在自己的 Linux 建置容器中執行完全相同的這條指令。本頁說明如何在你自己的機器上親自執行同一條指令，以便偵錯失敗的建置、在發布前檢查建置產物，或建置一次後透過供應商的預先建置流程上傳結果——Vercel 對應 `vercel deploy --prebuilt`，Netlify 對應 `netlify deploy --prod --dir=... --functions=...`。
+
+在搭載 Apple 晶片的 Mac 上，這些都不是單純的 `pnpm build` 就能完成的。以下這些落差都是具體的，而非紙上談兵——它們來自在本機實際建置一個包含多個應用程式的真實工作區的經驗。
+
+## 讓執行架構保持一致 {#match-architecture}
+
+Vercel 的 Node.js Functions 是在 `x64` CPU 架構的 Linux 上建置與執行的；[Vercel 自己的文件也提醒](https://vercel.com/docs/build-output-api)：「在本機建置時，你的建置工具會針對你機器的架構編譯原生相依套件。這未必與正式環境中執行的內容一致。」Netlify Functions 同樣以 AWS Lambda 為基礎，執行於 Linux `x64` 之上。兩者都與搭載 Apple 晶片的 Mac 的 `arm64` 不一致。
+
+像 `@resvg/resvg-js`、`sharp`、`ffmpeg-static` 這類套件，會在**安裝時**依作業系統/架構/libc 選擇預先建置好的原生二進位檔——在你的 Mac 上執行 `pnpm install` 解析到的是 `darwin-arm64` 版本，而不是供應商需要的 `linux-x64` 版本。請改為在相符的容器內建置：
+
+```bash
+docker build --platform linux/amd64 -t workspace-build .
+```
+
+使用以 glibc 為基礎的基礎映像檔（`node:24-bookworm`，而非 `-alpine`/musl 映像檔）。Vercel 的建置映像檔與 Netlify 的 Lambda 執行環境都是以 glibc 為基礎，原生模組的安裝程式會分別發布 glibc 版與 musl 版二進位檔——Alpine 建置會解析到錯誤的那一個。同時也要讓 Node.js 主版本與供應商一致；原生附加元件不僅對作業系統與架構敏感，在 Node 主版本之間也存在 ABI 敏感性。
+
+<Callout tone="warning">
+
+絕對不要把你 Mac 上的 `node_modules` 複製進容器。裡面的二進位檔是為 `darwin-arm64` 解析的，在 Linux 上要嘛載入失敗，要嘛悄悄地失效。只把**原始碼**送進容器，並在容器內執行 `pnpm install`，讓安裝時的平台偵測解析出 `linux-x64` 版本。
+
+</Callout>
+
+## Apple 晶片與 Rosetta {#apple-silicon-rosetta}
+
+在 Apple 晶片上，Docker Desktop 透過 Rosetta 2 轉譯來執行 `linux/amd64` 容器。實際上這只是適度的額外成本，並非難以承受——依非正式測量，大約是原生建置 CPU 時間的 1.2 倍。
+
+有一個特定的交互作用值得單獨提出：TypeScript 7 的 `tsc` 是以原生 Go 二進位檔的形式發布的，而 Go 以訊號為基礎的非同步 goroutine 搶佔機制，在 Rosetta 的二進位轉譯下可能出現異常——處理程序會以 100% CPU 無限空轉，而不是正常完成。為避免這種情況，請在建置容器中停用非同步搶佔：
+
+```dockerfile
+ENV GODEBUG=asyncpreemptoff=1
+```
+
+## 從 macOS 到 Linux 的安全封存 {#macos-tar-metadata}
+
+如果你在 macOS 上用 `tar` 封存原始碼以送進容器，請務必謹慎處理。帶有 macOS 擴充屬性的檔案——包括 Dropbox 這類同步工具為它所追蹤中繼資料或來源的檔案所附加的屬性——可能會連同 AppleDouble 的 `._*` 附屬資料一起被封存進去。解壓縮到 Linux 後，像 `._auth.ts` 這樣的附屬檔案會緊貼在真正的 `auth.ts` 旁邊，看起來像是一個原始碼檔案；而對 `server/plugins/*.ts` 做 glob 比對的打包工具也會嘗試載入它，並因類似「stream did not contain valid UTF-8」的錯誤而失敗。
+
+封存時去除 mac 中繼資料與 xattrs，並且只送出一份以 NUL 分隔、僅包含已被追蹤且未被忽略檔案的清單——而不是一次原始的目錄走訪（那樣連建置快取和本機的 `.env` 檔案也會一併送出），也不要用 `$(git ls-files ...)`（在檔案數量多到觸及你 shell 引數長度上限的工作區中會失敗）：
+
+```bash
+git ls-files -z --cached --others --exclude-standard \
+  | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T - -cf - \
+  | docker exec -i workspace-build tar -xf - -C /workspace
+```
+
+<Callout tone="info">
+
+`COPYFILE_DISABLE`（一個環境變數）與 `--no-mac-metadata` 是 macOS `tar`(1)/`bsdtar` 特有的選項，GNU tar 中沒有對應項目。`--no-xattrs` 兩邊都有，但真正把擴充屬性變成讓 Linux 建置絆倒的 AppleDouble 資料的，是 macOS 的 `--mac-metadata` 處理方式——請在建立封存檔的 macOS 端設定這三者，而不是在解壓縮的 Linux 容器端。
+
+</Callout>
+
+## 機密資料與遷移 {#secrets-and-migrations}
+
+`vercel pull` 會把任何標記為 **Sensitive** 的環境變數寫成字面值預留位置字串 `[SENSITIVE]`，而不是它的真實值。建置本身並不需要執行階段的機密資料——真實值會由供應商在請求時注入——因此本機建置出現非致命的「太短」或弱機密資料設定警告是預期之中，並不代表哪裡出了問題。
+
+如果你的供應商建置也會執行遷移步驟——scaffold 會把每個應用程式自己的 `netlify.toml`/`vercel.json` 建置指令接上，在目標環境是正式環境時執行 `pnpm --filter <app> migrate:production`（參見 [Server: Database](/docs/server-database#production)）——那麼這一步需要一個真實、可運作的資料庫連線，而不是被 `vercel pull` 遮蔽過的連線。請從你的資料庫供應商取得真實的連線字串，並以環境變數的形式傳給容器，僅供這一次執行使用。
+
+<Callout tone="risk">
+
+絕對不要把真實的機密資料寫進版本庫、映像檔層或建置紀錄。請以容器環境變數的形式傳入，並且只限定給需要它的那一條指令使用。
+
+</Callout>
+
+## 時間都花到哪去了 {#where-the-time-goes}
+
+目前工作區中的應用程式建置是一次一個依序進行的；大致以每個典型範本應用程式約一分鐘乘上應用程式數量來估算。
+
+<Callout tone="info">
+
+如果你安裝的版本在 `deploy` 上支援 `--concurrency <n|auto>` 旗標——請執行 `npx @agent-native/core@latest --help` 查看目前的旗標清單——應用程式建置就能同時進行，而不是依序進行。
+
+</Callout>
+
+從你自己的機器針對遠端資料庫執行 `migrate:production`，每個應用程式的結構描述檢查都要付出一次網路往返的代價（在一次測量中，沒有待套用的變更時大約每個應用程式 13 秒）——這通常比供應商自己付出的代價更高，因為供應商的建置就在資料庫旁邊執行。相較於在重現建置的筆電上執行遷移，更建議把遷移留在供應商的建置步驟中，或是從一台靠近資料庫的機器上執行。
+
+## 實作範例 {#worked-example}
+
+以下是一個最小化的容器與指令碼，用於在本機建置 Vercel 或 Netlify 的工作區部署並發布結果：
+
+<Steps>
+
+### 撰寫建置容器
+
+```dockerfile filename="Dockerfile"
+FROM node:24-bookworm
+WORKDIR /workspace
+RUN corepack enable && npm install -g vercel
+ENV GODEBUG=asyncpreemptoff=1
+CMD ["sleep", "infinity"]
+```
+
+### 啟動容器並送入原始碼
+
+```bash
+docker build --platform linux/amd64 -t workspace-build .
+docker run -d --rm --platform linux/amd64 --name workspace-build workspace-build
+
+git ls-files -z --cached --others --exclude-standard \
+  | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T - -cf - \
+  | docker exec -i workspace-build tar -xf - -C /workspace
+```
+
+### 安裝相依套件並執行供應商的建置指令
+
+對 Vercel 而言，用 `pull` 取得已連結專案的真實設定，再透過 `vercel build` 執行其設定好的 Build Command——這與 Vercel 自己的遠端建置方式完全相同。請先在你的 shell 中匯出 `VERCEL_TOKEN`、`VERCEL_ORG_ID` 與 `VERCEL_PROJECT_ID`（來自你的 Vercel 帳號與 Project Settings）——這讓 CLI 能在不執行互動式 `vercel link` 的情況下運作，也讓下面單純的 `docker exec -e VAR` 能把每一個都轉送進容器：
+
+<TabsBlock
+  id="doc-block-localbuildtabs1"
+  tabs={[
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-vercel-build",
+          data: {
+            code: 'docker exec -e VERCEL_TOKEN -e VERCEL_ORG_ID -e VERCEL_PROJECT_ID workspace-build sh -c "\n  pnpm install --frozen-lockfile &&\n  vercel pull --yes --environment=preview &&\n  vercel build\n"\nrm -rf .vercel/output\nmkdir -p .vercel\ndocker cp workspace-build:/workspace/.vercel/output .vercel/output\ndocker stop workspace-build',
+            language: "bash",
+          },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-netlify-build",
+          data: {
+            code: 'docker exec workspace-build sh -c "\n  pnpm install --frozen-lockfile &&\n  npx @agent-native/core@latest deploy --preset netlify --build-only\n"\nrm -rf dist .netlify/functions-internal\nmkdir -p .netlify\ndocker cp workspace-build:/workspace/dist dist\ndocker cp workspace-build:/workspace/.netlify/functions-internal .netlify/functions-internal\ndocker stop workspace-build',
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+<Callout tone="info">
+
+`docker cp` 不會自動建立缺少的父目錄，而且當目的目錄已經存在時，它是把內容複製到目的目錄*裡面*，而不是取代它——上面這對 `rm -rf` / `mkdir -p` 指令能避免第二次執行時把結果多巢狀一層。
+
+</Callout>
+
+### 使用供應商的預先建置流程發布
+
+保持與上面建置時相同的環境——preview 建置會以 preview 部署的形式發布，正式環境建置（前一步的每條指令都加上 `--prod`/`--environment=production`）在這裡也要加上 `--prod` 發布：
+
+<TabsBlock
+  id="doc-block-localbuildtabs2"
+  tabs={[
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-vercel-publish",
+          data: { code: "vercel deploy --prebuilt", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-netlify-publish",
+          data: {
+            code: "netlify deploy --dir=dist --functions=.netlify/functions-internal",
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+</Steps>
+
+<Callout tone="info">
+
+不想在容器裡處理 Vercel CLI 驗證？可以跳過 `vercel pull`/`vercel build`，像上面的 Netlify 分頁那樣直接執行 `npx @agent-native/core@latest deploy --preset vercel --build-only`——它不需要已連結的專案，自己就能寫出 `.vercel/output`。你會失去「真實 Project Settings，以 Vercel 取得它們的完全相同方式取得」這份忠實度，而且因為什麼都沒有被取得，上面提到的 `[SENSITIVE]` 預留位置行為也不再適用。
+
+</Callout>
+
+## 接下來呢
+
+- [**Workspace Deployment**](/docs/workspace-deployment) — 本頁在本機重現的 `deploy` 指令
+- [**Vercel**](/docs/vercel) 與 [**Netlify**](/docs/netlify) — 供應商完整的建置指令與發布流程
+- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — 正式環境的機密資料，以及本機建置需要與不需要哪些變數

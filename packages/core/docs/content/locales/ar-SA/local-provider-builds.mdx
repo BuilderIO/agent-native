@@ -1,0 +1,200 @@
+---
+title: "استنساخ بناء المزوّد محليًا"
+description: "شغّل على جهازك نفس بناء Linux الذي ينفّذه أمر بناء المزوّد لديك في Vercel أو Netlify، لتصحيح نشر فاشل أو الرفع عبر مسار المزوّد الجاهز مسبقًا (prebuilt)."
+---
+
+# استنساخ بناء المزوّد محليًا
+
+عندما يكون أمر البناء لنشر مُستضاف هو `npx @agent-native/core@latest deploy --preset vercel --build-only` (أو `--preset netlify`)، ينفّذ المزوّد هذا الأمر بعينه داخل حاوية بناء Linux الخاصة به. تتناول هذه الصفحة كيفية تنفيذ هذا الأمر نفسه بنفسك، على جهازك الخاص، لتصحيح بناء فاشل، أو فحص المخرجات قبل نشرها، أو البناء مرة واحدة ورفع النتيجة عبر مسار المزوّد الجاهز مسبقًا — `vercel deploy --prebuilt` لـ Vercel، و `netlify deploy --prod --dir=... --functions=...` لـ Netlify.
+
+على جهاز Mac بمعالج Apple Silicon، لا شيء من ذلك مجرد `pnpm build` بسيط. الفجوات أدناه محددة وليست نظرية: جاءت من بناء مساحة عمل حقيقية متعددة التطبيقات محليًا.
+
+## طابِق معمارية التشغيل {#match-architecture}
+
+تُبنى وتُشغَّل Functions الخاصة بـ Node.js في Vercel على Linux بمعمارية معالج `x64`؛ [تحذّر وثائق Vercel نفسها](https://vercel.com/docs/build-output-api) من أنه "عند البناء محليًا، ستقوم أدوات البناء لديك بتجميع تبعيات أصلية (native) تستهدف معمارية جهازك. هذا لن يتطابق بالضرورة مع ما يعمل في الإنتاج." كذلك تعتمد Functions الخاصة بـ Netlify على AWS Lambda وتعمل على Linux `x64`. لا يتطابق أيٌّ منهما مع معمارية `arm64` لجهاز Mac بمعالج Apple Silicon.
+
+توزّع حزم مثل `@resvg/resvg-js` و `sharp` و `ffmpeg-static` ملفات ثنائية أصلية مبنية مسبقًا يتم اختيارها حسب نظام التشغيل/المعمارية/مكتبة libc **وقت التثبيت** — يحل `pnpm install` على جهاز Mac الخاص بك نسخة `darwin-arm64`، وليس نسخة `linux-x64` التي يحتاجها المزوّد. ابنِ بدلاً من ذلك داخل حاوية مطابقة:
+
+```bash
+docker build --platform linux/amd64 -t workspace-build .
+```
+
+استخدم صورة أساس مبنية على glibc (`node:24-bookworm`، وليست صورة `-alpine`/musl). تعتمد صورة بناء Vercel وبيئة تشغيل Lambda في Netlify كلاهما على glibc، وتنشر برامج تثبيت الوحدات الأصلية ملفات ثنائية منفصلة لـ glibc و musl — سيحل بناء Alpine النسخة الخاطئة. طابِق أيضًا الإصدار الرئيسي لـ Node.js الخاص بالمزوّد؛ الإضافات الأصلية حساسة لواجهة ABI عبر الإصدارات الرئيسية لـ Node، وليس فقط عبر نظام التشغيل والمعمارية.
+
+<Callout tone="warning">
+
+لا تنسخ أبدًا مجلد `node_modules` من جهاز Mac الخاص بك إلى داخل الحاوية. الملفات الثنائية بداخله تم حلّها من أجل `darwin-arm64`، وستفشل في التحميل على Linux أو تصبح غير فعّالة بصمت. أرسل إلى الحاوية **الشيفرة المصدرية فقط** ونفّذ `pnpm install` بداخلها، بحيث يحل اكتشاف المنصة وقت التثبيت نسخة `linux-x64`.
+
+</Callout>
+
+## Apple Silicon وRosetta {#apple-silicon-rosetta}
+
+يشغّل Docker Desktop على أجهزة Apple Silicon حاويات `linux/amd64` عبر ترجمة Rosetta 2. عمليًا هذه تكلفة معتدلة وليست مانعة — تقريبًا 1.2 ضعف زمن المعالج لبناء أصلي، بحسب قياس غير رسمي.
+
+هناك تفاعل محدد يستحق الإشارة إليه على حدة: يُوزَّع `tsc` الخاص بـ TypeScript 7 كملف Go ثنائي أصلي، وقد يسيء الاستباق غير المتزامن والقائم على الإشارات لِـ goroutines في Go التصرف تحت ترجمة Rosetta الثنائية — إذ تدور العملية عند 100% من المعالج إلى ما لا نهاية بدلاً من أن تكتمل. عطّل الاستباق غير المتزامن في حاوية البناء لتجنّب ذلك:
+
+```dockerfile
+ENV GODEBUG=asyncpreemptoff=1
+```
+
+## أرشفة آمنة من macOS إلى Linux {#macos-tar-metadata}
+
+إذا أرشفت الشيفرة المصدرية على macOS باستخدام `tar` لإرسالها إلى الحاوية، فافعل ذلك بحذر. الملفات التي تحمل سمات (attributes) موسّعة خاصة بـ macOS — بما فيها تلك التي تودعها أدوات المزامنة مثل Dropbox للملفات التي تتتبع بياناتها الوصفية أو مصدرها — قد تنتهي مؤرشفة مع بيانات مرافقة من نوع AppleDouble بامتداد `._*`. عند الاستخراج على Linux، يقع الملف المرافق `._auth.ts` مباشرة بجانب ملف `auth.ts` الحقيقي ويبدو كملف مصدري؛ وستحاول أداة التجميع (bundler) التي تطابق `server/plugins/*.ts` تحميله أيضًا، فتفشل برسالة أشبه بـ "stream did not contain valid UTF-8".
+
+أزل بيانات mac الوصفية وسمات xattrs عند الأرشفة، وأرسل قائمة مفصولة بـ NUL تضم فقط الملفات المتتبَّعة وغير المتجاهَلة — وليس مسحًا خامًا للمجلد، فذلك سيرسل أيضًا ذاكرات تخزين البناء المؤقتة وملفات `.env` المحلية، وليس `$(git ls-files ...)` أيضًا، فهذا يتعطل في مساحة عمل بها ملفات كافية للوصول إلى حد طول وسيطات الصدفة (shell) لديك:
+
+```bash
+git ls-files -z --cached --others --exclude-standard \
+  | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T - -cf - \
+  | docker exec -i workspace-build tar -xf - -C /workspace
+```
+
+<Callout tone="info">
+
+`COPYFILE_DISABLE` (متغيّر بيئة) و `--no-mac-metadata` من خصائص `tar`(1)/`bsdtar` في macOS بلا مكافئ في GNU tar. أما `--no-xattrs` فموجود في كليهما، لكن معالجة `--mac-metadata` في macOS هي التي تحوّل السمات الموسّعة إلى بيانات AppleDouble التي تُعثِر بناء Linux — اضبط الثلاثة جميعًا في جانب macOS الذي ينشئ الأرشيف، وليس داخل حاوية Linux التي تستخرجه.
+
+</Callout>
+
+## الأسرار والترحيلات {#secrets-and-migrations}
+
+يكتب `vercel pull` أي متغيّر بيئة معلَّم كـ **Sensitive** كسلسلة نائبة حرفية `[SENSITIVE]`، وليس قيمته الحقيقية. البناء نفسه لا يحتاج أسرار وقت التشغيل — يحقن المزوّد القيم الحقيقية وقت الطلب — لذا ظهور تحذيرات إعداد غير قاتلة من نوع "قصير جدًا" أو سرّ ضعيف أثناء بناء محلي أمر متوقَّع، وليس علامة على خطأ ما.
+
+إذا كان بناء المزوّد لديك ينفّذ أيضًا خطوة ترحيل — يربط القالب الأولي (scaffold) أمر البناء الخاص بـ `netlify.toml`/`vercel.json` لكل تطبيق بحيث ينفّذ `pnpm --filter <app> migrate:production` (راجع [Server: Database](/docs/server-database#production)) بمجرد أن تكون بيئة الهدف إنتاجية — فتلك الخطوة تحتاج اتصالاً حقيقيًا وفعّالاً بقاعدة البيانات، وليس اتصالًا أُخفي بواسطة `vercel pull`. احصل على سلسلة الاتصال الحقيقية من مزوّد قاعدة البيانات لديك ومرّرها إلى الحاوية كمتغيّر بيئة خاص بذلك التشغيل فقط.
+
+<Callout tone="risk">
+
+لا تكتب أبدًا سرًّا حقيقيًا في المستودع، أو في طبقة صورة، أو في سجل بناء. مرّره كمتغيّر بيئة للحاوية، مقتصرًا على الأمر الوحيد الذي يحتاجه.
+
+</Callout>
+
+## أين يذهب الوقت {#where-the-time-goes}
+
+تُنفَّذ عمليات بناء تطبيقات مساحة العمل اليوم واحدة تلو الأخرى؛ احسب تقريبًا دقيقة واحدة لكل تطبيق قالب نموذجي، مضروبة في عدد التطبيقات.
+
+<Callout tone="info">
+
+إذا كان إصدارك المثبَّت يدعم خيار `--concurrency <n|auto>` على `deploy` — تحقق من قائمة الخيارات الحالية عبر `npx @agent-native/core@latest --help` — يمكن لعمليات بناء التطبيقات أن تعمل بالتوازي بدلاً من التتابع.
+
+</Callout>
+
+تشغيل `migrate:production` من جهازك الخاص مقابل قاعدة بيانات بعيدة يدفع ثمن رحلة شبكة ذهابًا وإيابًا لكل تطبيق من أجل فحص المخطط (نحو 13 ثانية لكل تطبيق دون وجود ما يُطبَّق، في أحد القياسات) — وغالبًا ما يكون ذلك أكثر مما يدفعه المزوّد، لأن بناء المزوّد يعمل مباشرة إلى جانب قاعدة البيانات. فضّل إبقاء الترحيلات ضمن خطوة بناء المزوّد، أو تشغيلها من جهاز قريب من قاعدة البيانات، بدلًا من حاسوب محمول يستنسخ عملية البناء.
+
+## مثال عملي {#worked-example}
+
+حاوية ونص برمجي بسيطان لبناء نشر مساحة عمل على Vercel أو Netlify محليًا ونشر النتيجة:
+
+<Steps>
+
+### اكتب حاوية البناء
+
+```dockerfile filename="Dockerfile"
+FROM node:24-bookworm
+WORKDIR /workspace
+RUN corepack enable && npm install -g vercel
+ENV GODEBUG=asyncpreemptoff=1
+CMD ["sleep", "infinity"]
+```
+
+### ابدأ الحاوية وأرسل الشيفرة المصدرية إليها
+
+```bash
+docker build --platform linux/amd64 -t workspace-build .
+docker run -d --rm --platform linux/amd64 --name workspace-build workspace-build
+
+git ls-files -z --cached --others --exclude-standard \
+  | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T - -cf - \
+  | docker exec -i workspace-build tar -xf - -C /workspace
+```
+
+### ثبّت ونفّذ أمر بناء المزوّد
+
+بالنسبة لـ Vercel، اجلب باستخدام `pull` الإعدادات الحقيقية للمشروع المرتبط، ثم نفّذ Build Command المُعدّ له عبر `vercel build` — بنفس الطريقة التي يعمل بها بناء Vercel البعيد نفسه. صدّر أولاً `VERCEL_TOKEN` و `VERCEL_ORG_ID` و `VERCEL_PROJECT_ID` (من حساب Vercel الخاص بك وإعدادات المشروع) في الصدفة (shell) لديك — يتيح ذلك للواجهة العمل دون `vercel link` تفاعلي، ويتيح لأمر `docker exec -e VAR` المجرد أدناه تمرير كل منها إلى الحاوية:
+
+<TabsBlock
+  id="doc-block-localbuildtabs1"
+  tabs={[
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-vercel-build",
+          data: {
+            code: 'docker exec -e VERCEL_TOKEN -e VERCEL_ORG_ID -e VERCEL_PROJECT_ID workspace-build sh -c "\n  pnpm install --frozen-lockfile &&\n  vercel pull --yes --environment=preview &&\n  vercel build\n"\nrm -rf .vercel/output\nmkdir -p .vercel\ndocker cp workspace-build:/workspace/.vercel/output .vercel/output\ndocker stop workspace-build',
+            language: "bash",
+          },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-netlify-build",
+          data: {
+            code: 'docker exec workspace-build sh -c "\n  pnpm install --frozen-lockfile &&\n  npx @agent-native/core@latest deploy --preset netlify --build-only\n"\nrm -rf dist .netlify/functions-internal\nmkdir -p .netlify\ndocker cp workspace-build:/workspace/dist dist\ndocker cp workspace-build:/workspace/.netlify/functions-internal .netlify/functions-internal\ndocker stop workspace-build',
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+<Callout tone="info">
+
+يرفض `docker cp` إنشاء دليل أب مفقود، وينسخ _داخل_ دليل وجهة موجود بالفعل بدلاً من استبداله — زوج `rm -rf` / `mkdir -p` أعلاه يمنع تشغيلًا ثانيًا من تعشيش النتيجة مستوى أعمق.
+
+</Callout>
+
+### انشر عبر مسار المزوّد الجاهز مسبقًا
+
+ابقَ في نفس بيئة البناء أعلاه — بناء preview يُنشر كنشر preview، وبناء إنتاجي (`--prod`/`--environment=production` في كل أمر من الخطوة السابقة) يُنشر بـ `--prod` هنا أيضًا:
+
+<TabsBlock
+  id="doc-block-localbuildtabs2"
+  tabs={[
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-vercel-publish",
+          data: { code: "vercel deploy --prebuilt", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-netlify-publish",
+          data: {
+            code: "netlify deploy --dir=dist --functions=.netlify/functions-internal",
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+</Steps>
+
+<Callout tone="info">
+
+ألا تريد التعامل مع مصادقة واجهة Vercel داخل الحاوية على الإطلاق؟ تخطَّ `vercel pull`/`vercel build` ونفّذ مباشرة `npx @agent-native/core@latest deploy --preset vercel --build-only`، تمامًا كما في تبويب Netlify أعلاه — فهو يكتب `.vercel/output` بنفسه دون مشروع مرتبط. ستفقد دقة "إعدادات مشروع حقيقية، مُجلَبة تمامًا كما يجلبها Vercel"، ولن ينطبق سلوك عنصر `[SENSITIVE]` النائب أعلاه بعد الآن، لأنه لا شيء يُجلب.
+
+</Callout>
+
+## ما هي الخطوة التالية
+
+- [**نشر مساحة العمل**](/docs/workspace-deployment) — أمر `deploy` الذي تستنسخه هذه الصفحة محليًا
+- [**Vercel**](/docs/vercel) و [**Netlify**](/docs/netlify) — أمر بناء المزوّد ومسار النشر كاملَين
+- [**النشر: متغيرات البيئة**](/docs/deployment-environment-variables) — أسرار الإنتاج، وما يحتاجه البناء المحلي من متغيرات وما لا يحتاجه

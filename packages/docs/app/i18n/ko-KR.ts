@@ -2573,6 +2573,7 @@ const koKR = {
     deploymentProduction: "프로덕션 및 고급",
     deployAnApp: "앱 배포",
     workspaceDeployment: "워크스페이스 배포",
+    localProviderBuilds: "프로바이더 빌드를 로컬에서 재현하기",
     deploymentNodeDocker: "Node.js",
     deploymentDocker: "Docker",
     deploymentVercel: "Vercel",

@@ -2526,6 +2526,7 @@ const zhCN = {
     deploymentProduction: "生产与高级",
     deployAnApp: "部署应用",
     workspaceDeployment: "工作区部署",
+    localProviderBuilds: "在本地复现提供商的构建",
     deploymentNodeDocker: "Node.js",
     deploymentDocker: "Docker",
     deploymentVercel: "Vercel",

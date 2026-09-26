@@ -2625,6 +2625,7 @@ const frFR = {
     deploymentProduction: "Production et avancé",
     deployAnApp: "Déployer une application",
     workspaceDeployment: "Déploiement du Workspace",
+    localProviderBuilds: "Reproduire le build du fournisseur en local",
     deploymentNodeDocker: "Node.js",
     deploymentDocker: "Docker",
     deploymentVercel: "Vercel",

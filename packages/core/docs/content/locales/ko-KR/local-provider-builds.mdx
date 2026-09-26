@@ -1,0 +1,200 @@
+---
+title: "프로바이더 빌드를 로컬에서 재현하기"
+description: "Vercel이나 Netlify 프로바이더 빌드 명령이 실행하는 것과 동일한 Linux 빌드를 내 컴퓨터에서 실행해, 실패한 배포를 디버깅하거나 프로바이더의 prebuilt 플로우로 업로드하세요."
+---
+
+# 프로바이더 빌드를 로컬에서 재현하기
+
+호스팅되는 배포의 빌드 명령이 `npx @agent-native/core@latest deploy --preset vercel --build-only`(또는 `--preset netlify`)라면, 프로바이더는 자체 Linux 빌드 컨테이너 안에서 바로 그 명령을 실행합니다. 이 페이지는 실패하는 빌드를 디버깅하거나, 게시하기 전에 산출물을 확인하거나, 한 번 빌드해 프로바이더의 prebuilt 플로우로 결과를 업로드하기 위해 — Vercel은 `vercel deploy --prebuilt`, Netlify는 `netlify deploy --prod --dir=... --functions=...` — 같은 명령을 내 컴퓨터에서 직접 실행하는 방법을 다룹니다.
+
+Apple Silicon Mac에서는 이 중 어느 것도 단순한 `pnpm build`가 아닙니다. 아래 내용은 이론이 아니라 실제로 여러 앱으로 구성된 워크스페이스를 로컬에서 빌드하며 얻은 구체적인 교훈입니다.
+
+## 실행 아키텍처 맞추기 {#match-architecture}
+
+Vercel의 Node.js Functions는 `x64` CPU 아키텍처의 Linux에서 빌드되고 실행됩니다. [Vercel 자체 문서도 경고하듯이](https://vercel.com/docs/build-output-api) "로컬에서 빌드하면 빌드 도구가 여러분 컴퓨터의 아키텍처를 대상으로 네이티브 의존성을 컴파일합니다. 이는 프로덕션에서 실행되는 것과 반드시 일치하지는 않습니다." Netlify Functions도 AWS Lambda 기반이며 Linux `x64`에서 실행됩니다. 둘 다 Apple Silicon Mac의 `arm64`와 일치하지 않습니다.
+
+`@resvg/resvg-js`, `sharp`, `ffmpeg-static` 같은 패키지는 **설치 시점**에 OS/아키텍처/libc별로 선택되는 사전 빌드된 네이티브 바이너리를 배포합니다 — Mac에서의 `pnpm install`은 프로바이더가 필요로 하는 `linux-x64` 빌드가 아니라 `darwin-arm64` 빌드를 해석합니다. 대신 일치하는 컨테이너 안에서 빌드하세요.
+
+```bash
+docker build --platform linux/amd64 -t workspace-build .
+```
+
+glibc 기반 베이스 이미지(`-alpine`/musl 이미지가 아닌 `node:24-bookworm`)를 사용하세요. Vercel의 빌드 이미지와 Netlify의 Lambda 런타임 모두 glibc 기반이며, 네이티브 모듈 설치 프로그램은 glibc용과 musl용 바이너리를 별도로 배포합니다 — Alpine 빌드는 잘못된 쪽을 해석합니다. 프로바이더의 Node.js 메이저 버전도 맞추세요. 네이티브 애드온은 OS와 아키텍처뿐 아니라 Node 메이저 버전 간에도 ABI에 민감합니다.
+
+<Callout tone="warning">
+
+Mac의 `node_modules`를 컨테이너로 절대 복사하지 마세요. 그 안의 바이너리는 `darwin-arm64`용으로 해석된 것이며, Linux에서는 로드에 실패하거나 조용히 동작하지 않게 됩니다. 컨테이너에는 **소스 코드만** 보내고 그 안에서 `pnpm install`을 실행해, 설치 시점의 플랫폼 감지가 `linux-x64` 빌드를 해석하도록 하세요.
+
+</Callout>
+
+## Apple Silicon과 Rosetta {#apple-silicon-rosetta}
+
+Apple Silicon에서 Docker Desktop은 Rosetta 2 변환을 통해 `linux/amd64` 컨테이너를 실행합니다. 실제로는 이것이 감당 못할 수준이 아니라 적당한 비용입니다 — 비공식 측정으로 네이티브 빌드 CPU 시간의 약 1.2배 정도입니다.
+
+따로 짚어볼 만한 특정 상호작용이 하나 있습니다. TypeScript 7의 `tsc`는 네이티브 Go 바이너리로 배포되는데, Go의 시그널 기반 비동기 고루틴 선점(preemption)은 Rosetta의 바이너리 변환 아래에서 오작동할 수 있습니다 — 프로세스가 완료되지 못하고 CPU 100%로 무한히 도는 것입니다. 이를 피하려면 빌드 컨테이너에서 비동기 선점을 비활성화하세요.
+
+```dockerfile
+ENV GODEBUG=asyncpreemptoff=1
+```
+
+## macOS에서 Linux로의 안전한 아카이브 {#macos-tar-metadata}
+
+컨테이너로 보내기 위해 macOS에서 `tar`로 소스를 아카이빙한다면 방어적으로 하세요. macOS 확장 속성이 있는 파일 — Dropbox 같은 동기화 도구가 메타데이터나 출처를 추적하는 파일에 남기는 것을 포함해서 — 은 AppleDouble `._*` 사이드카 데이터와 함께 아카이빙될 수 있습니다. Linux에서 압축을 풀면 `._auth.ts` 사이드카가 실제 `auth.ts` 바로 옆에 놓이고 소스 파일처럼 보입니다. `server/plugins/*.ts`를 glob하는 번들러는 이것도 로드하려다 "stream did not contain valid UTF-8" 같은 오류로 실패합니다.
+
+아카이빙할 때 mac 메타데이터와 xattrs를 제거하고, 추적되고 있고 무시되지 않는 파일만 NUL로 구분된 목록으로 보내세요 — 빌드 캐시와 로컬 `.env` 파일까지 함께 보내게 될 원시 디렉터리 순회도 아니고, 셸의 인자 길이 제한에 걸릴 만큼 파일이 많은 워크스페이스에서는 깨지는 `$(git ls-files ...)`도 아닙니다:
+
+```bash
+git ls-files -z --cached --others --exclude-standard \
+  | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T - -cf - \
+  | docker exec -i workspace-build tar -xf - -C /workspace
+```
+
+<Callout tone="info">
+
+`COPYFILE_DISABLE`(환경 변수)와 `--no-mac-metadata`는 macOS `tar`(1)/`bsdtar` 고유의 것으로, GNU tar에는 대응하는 것이 없습니다. `--no-xattrs`는 둘 다에 존재하지만, 확장 속성을 Linux 빌드를 걸려 넘어지게 하는 AppleDouble 데이터로 바꾸는 것은 macOS의 `--mac-metadata` 처리 쪽입니다 — 이 세 가지 모두 아카이브를 압축 해제하는 Linux 컨테이너 쪽이 아니라 아카이브를 만드는 macOS 쪽에서 설정하세요.
+
+</Callout>
+
+## 시크릿과 마이그레이션 {#secrets-and-migrations}
+
+`vercel pull`은 **Sensitive**로 표시된 환경 변수를 실제 값이 아니라 리터럴 플레이스홀더 문자열 `[SENSITIVE]`로 기록합니다. 빌드 자체는 런타임 시크릿이 필요 없습니다 — 실제 값은 요청 시점에 프로바이더가 주입합니다 — 그러니 로컬 빌드에서 치명적이지 않은 "too short" 또는 약한 시크릿 관련 설정 경고가 보이는 것은 예상된 일이며 문제의 징후가 아닙니다.
+
+프로바이더 빌드가 마이그레이션 단계도 실행한다면 — 스캐폴드는 대상 환경이 프로덕션이 되는 순간 `pnpm --filter <app> migrate:production`([Server: Database](/docs/server-database#production) 참고)을 실행하도록 각 앱 자체의 `netlify.toml`/`vercel.json` 빌드 명령을 연결해 둡니다 — 그 단계에는 `vercel pull`로 마스킹된 값이 아니라 실제로 동작하는 진짜 데이터베이스 연결이 필요합니다. 실제 연결 문자열은 데이터베이스 프로바이더에서 받아, 그 실행 한 번을 위한 환경 변수로 컨테이너에 전달하세요.
+
+<Callout tone="risk">
+
+실제 시크릿을 저장소, 이미지 레이어, 빌드 로그 어디에도 절대 기록하지 마세요. 그것이 필요한 단 하나의 명령으로 범위를 좁힌 컨테이너 환경 변수로만 전달하세요.
+
+</Callout>
+
+## 시간은 어디로 가는가 {#where-the-time-goes}
+
+현재 워크스페이스 앱 빌드는 한 번에 하나씩 실행됩니다. 일반적인 템플릿 앱당 약 1분을 앱 개수만큼 곱한 시간을 예상하세요.
+
+<Callout tone="info">
+
+설치된 버전이 `deploy`에 `--concurrency <n|auto>` 플래그를 지원한다면 — 현재 플래그 목록은 `npx @agent-native/core@latest --help`로 확인하세요 — 앱 빌드가 순차적이 아니라 동시에 실행될 수 있습니다.
+
+</Callout>
+
+내 컴퓨터에서 원격 데이터베이스에 대해 `migrate:production`을 실행하면 스키마 확인을 위해 앱마다 네트워크 왕복이 발생합니다(적용할 것이 없는 상태에서 한 측정 기준 앱당 약 13초) — 프로바이더의 빌드는 데이터베이스 바로 옆에서 실행되므로, 이는 종종 프로바이더가 지불하는 비용보다 더 큽니다. 빌드를 재현하는 노트북에서 마이그레이션을 실행하기보다는, 프로바이더의 빌드 단계에 마이그레이션을 남겨두거나 데이터베이스에 가까운 머신에서 실행하는 편을 택하세요.
+
+## 실습 예제 {#worked-example}
+
+Vercel 또는 Netlify 워크스페이스 배포를 로컬에서 빌드하고 결과를 게시하는 최소 컨테이너와 스크립트입니다.
+
+<Steps>
+
+### 빌드 컨테이너 작성하기
+
+```dockerfile filename="Dockerfile"
+FROM node:24-bookworm
+WORKDIR /workspace
+RUN corepack enable && npm install -g vercel
+ENV GODEBUG=asyncpreemptoff=1
+CMD ["sleep", "infinity"]
+```
+
+### 컨테이너를 시작하고 소스 코드 보내기
+
+```bash
+docker build --platform linux/amd64 -t workspace-build .
+docker run -d --rm --platform linux/amd64 --name workspace-build workspace-build
+
+git ls-files -z --cached --others --exclude-standard \
+  | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T - -cf - \
+  | docker exec -i workspace-build tar -xf - -C /workspace
+```
+
+### 설치하고 프로바이더의 빌드 명령 실행하기
+
+Vercel의 경우 `pull`로 연결된 프로젝트의 실제 설정을 가져오고, `vercel build`를 통해 그 설정된 Build Command를 실행하세요 — Vercel 자체의 원격 빌드와 동일한 방식입니다. 먼저 셸에서 `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`(Vercel 계정과 Project Settings에서 확인)를 export 해두세요 — 이렇게 하면 대화형 `vercel link` 없이 CLI를 실행할 수 있고, 아래의 순수한 `docker exec -e VAR`가 각각을 컨테이너로 전달할 수 있습니다:
+
+<TabsBlock
+  id="doc-block-localbuildtabs1"
+  tabs={[
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-vercel-build",
+          data: {
+            code: 'docker exec -e VERCEL_TOKEN -e VERCEL_ORG_ID -e VERCEL_PROJECT_ID workspace-build sh -c "\n  pnpm install --frozen-lockfile &&\n  vercel pull --yes --environment=preview &&\n  vercel build\n"\nrm -rf .vercel/output\nmkdir -p .vercel\ndocker cp workspace-build:/workspace/.vercel/output .vercel/output\ndocker stop workspace-build',
+            language: "bash",
+          },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-netlify-build",
+          data: {
+            code: 'docker exec workspace-build sh -c "\n  pnpm install --frozen-lockfile &&\n  npx @agent-native/core@latest deploy --preset netlify --build-only\n"\nrm -rf dist .netlify/functions-internal\nmkdir -p .netlify\ndocker cp workspace-build:/workspace/dist dist\ndocker cp workspace-build:/workspace/.netlify/functions-internal .netlify/functions-internal\ndocker stop workspace-build',
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+<Callout tone="info">
+
+`docker cp`는 없는 부모 디렉터리를 만들어주지 않으며, 이미 존재하는 대상 디렉터리를 대체하는 대신 그 _안으로_ 복사합니다 — 위의 `rm -rf` / `mkdir -p` 쌍은 두 번째 실행에서 결과가 한 단계 더 중첩되는 것을 막아줍니다.
+
+</Callout>
+
+### 프로바이더의 prebuilt 플로우로 게시하기
+
+위 빌드와 같은 환경을 유지하세요 — preview 빌드는 preview 배포로 게시되고, 프로덕션 빌드(이전 단계의 각 명령에 `--prod`/`--environment=production`)는 여기서도 `--prod`로 게시합니다:
+
+<TabsBlock
+  id="doc-block-localbuildtabs2"
+  tabs={[
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-vercel-publish",
+          data: { code: "vercel deploy --prebuilt", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-netlify-publish",
+          data: {
+            code: "netlify deploy --dir=dist --functions=.netlify/functions-internal",
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+</Steps>
+
+<Callout tone="info">
+
+컨테이너 안에서 Vercel CLI 인증을 아예 다루고 싶지 않다면, `vercel pull`/`vercel build`를 건너뛰고 위의 Netlify 탭과 마찬가지로 `npx @agent-native/core@latest deploy --preset vercel --build-only`를 바로 실행하세요 — 연결된 프로젝트 없이도 그 자체로 `.vercel/output`을 씁니다. "Vercel이 가져오는 것과 똑같이 가져온 실제 Project Settings"라는 충실함은 잃게 되고, 아무것도 가져오지 않으므로 위의 `[SENSITIVE]` 플레이스홀더 동작도 더 이상 적용되지 않습니다.
+
+</Callout>
+
+## 다음 단계
+
+- [**Workspace Deployment**](/docs/workspace-deployment) — 이 페이지가 로컬에서 재현하는 `deploy` 명령
+- [**Vercel**](/docs/vercel)과 [**Netlify**](/docs/netlify) — 프로바이더의 빌드 명령과 게시 플로우 전체
+- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — 프로덕션 시크릿과 로컬 빌드에 필요한 변수, 필요하지 않은 변수

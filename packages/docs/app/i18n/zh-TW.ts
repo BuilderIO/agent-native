@@ -2526,6 +2526,7 @@ const messages = {
     deploymentProduction: "正式環境與進階",
     deployAnApp: "部署應用程式",
     workspaceDeployment: "工作區部署",
+    localProviderBuilds: "在本機重現供應商的建置",
     deploymentNodeDocker: "Node.js",
     deploymentDocker: "Docker",
     deploymentVercel: "Vercel",

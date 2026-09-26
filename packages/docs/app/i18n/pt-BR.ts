@@ -2606,6 +2606,7 @@ const ptBR = {
     deploymentProduction: "Produção e avançado",
     deployAnApp: "Fazer deploy de um app",
     workspaceDeployment: "Deploy do Workspace",
+    localProviderBuilds: "Reproduzir o Build do Provedor Localmente",
     deploymentNodeDocker: "Node.js",
     deploymentDocker: "Docker",
     deploymentVercel: "Vercel",
