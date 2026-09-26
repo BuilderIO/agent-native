@@ -1,4 +1,19 @@
 const messages = {
+  agentChat: {
+    auth: {
+      logIn: "Se connecter",
+    },
+    onboarding: {
+      builderAccountExistsDescription: "Connectez-vous pour l’associer.",
+      builderCreateAndActivate: "Créer et activer",
+      builderConsentPrefix: "En créant un compte Builder.io, vous acceptez nos",
+      builderTerms: "Conditions d’utilisation",
+      builderPrivacy: "Politique de confidentialité",
+      builderConsentAnd: "et",
+      builderExistingAccount: "J’ai un compte Builder.io",
+      builderActivating: "Activation des crédits gratuits Builder.io",
+    },
+  },
   timelineTrack: {
     helpOtherSide:
       "Cliquez d'abord sur cette section, puis faites glisser la ligne rouge vers la droite.",

@@ -46,6 +46,8 @@ export interface StorageSetupCardProps {
   connectSource?: string;
   /** Analytics flow for the Builder connect popup. */
   connectFlow?: string;
+  /** Keep account setup choices in the card instead of a popover. */
+  inlineConnect?: boolean;
 }
 
 export function StorageSetupCard({
@@ -56,6 +58,7 @@ export function StorageSetupCard({
   connectedDescription = "You're all set. Starting recorder...",
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",
+  inlineConnect = false,
 }: StorageSetupCardProps) {
   const t = useT();
   const [connecting, setConnecting] = useState(false);
@@ -168,6 +171,91 @@ export function StorageSetupCard({
     },
     [builderConnect.start],
   );
+  const showInlineConnect =
+    inlineConnect &&
+    builderConnect.statusResolved &&
+    builderConnect.agentNativeProvisioningEnabled;
+
+  const connectButton = (
+    <button
+      type="button"
+      onClick={
+        inlineConnect && builderConnect.statusResolved
+          ? () =>
+              handleBuilderConnect(
+                showInlineConnect && !builderConnect.accountExists,
+              )
+          : undefined
+      }
+      aria-busy={
+        inlineConnect &&
+        !builderConnect.statusResolved &&
+        !builderConnect.hasFetchedStatus
+      }
+      disabled={
+        connecting ||
+        connected ||
+        (inlineConnect &&
+          (!builderConnect.statusResolved || builderConnect.connecting))
+      }
+      className={
+        "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start transition-colors " +
+        (connected
+          ? "border-primary/50 bg-primary/5"
+          : "border-primary bg-primary text-primary-foreground hover:bg-primary/90")
+      }
+    >
+      <div
+        className={
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
+          (connected
+            ? "bg-foreground text-background"
+            : "bg-primary-foreground/15 text-primary-foreground")
+        }
+      >
+        {connected ? (
+          <IconCheck className="h-5 w-5" />
+        ) : connecting ||
+          builderConnect.connecting ||
+          (inlineConnect &&
+            !builderConnect.statusResolved &&
+            !builderConnect.hasFetchedStatus) ? (
+          <IconLoader2 className="h-5 w-5 animate-spin" />
+        ) : (
+          <BuilderBMark className="h-5 w-5" />
+        )}
+      </div>
+      <div className="flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">
+            {connected
+              ? t("storageSetup.builderConnected")
+              : connecting
+                ? t("storageSetup.waitingForBuilder")
+                : showInlineConnect
+                  ? builderConnect.accountExists
+                    ? t("agentChat.auth.logIn")
+                    : builderConnect.connecting
+                      ? t("agentChat.onboarding.builderActivating")
+                      : t("agentChat.onboarding.builderCreateAndActivate")
+                  : t("storageSetup.connectBuilder")}
+          </span>
+        </div>
+        <span
+          className={
+            "mt-0.5 block text-xs " +
+            (connected ? "text-muted-foreground" : "text-primary-foreground/80")
+          }
+        >
+          {connected
+            ? connectedDescription
+            : showInlineConnect && builderConnect.accountExists
+              ? t("agentChat.onboarding.builderAccountExistsDescription")
+              : connectDescription}
+        </span>
+      </div>
+    </button>
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -192,59 +280,82 @@ export function StorageSetupCard({
       </div>
 
       {/* Builder.io — primary option, one-click Connect flow. */}
-      <BuilderConnectPopover
-        flow={builderConnect}
-        onConnect={handleBuilderConnect}
-      >
-        <button
-          type="button"
-          disabled={connecting || connected}
-          className={
-            "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start transition-colors " +
-            (connected
-              ? "border-primary/50 bg-primary/5"
-              : "border-primary bg-primary text-primary-foreground hover:bg-primary/90")
-          }
-        >
-          <div
-            className={
-              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
-              (connected
-                ? "bg-foreground text-background"
-                : "bg-primary-foreground/15 text-primary-foreground")
-            }
-          >
-            {connected ? (
-              <IconCheck className="h-5 w-5" />
-            ) : connecting ? (
-              <IconLoader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <BuilderBMark className="h-5 w-5" />
+      {inlineConnect ? (
+        showInlineConnect ? (
+          <div className="space-y-2.5">
+            {connectButton}
+            {!builderConnect.accountExists && (
+              <>
+                <p className="text-[11px] leading-4 text-muted-foreground">
+                  {t("agentChat.onboarding.builderConsentPrefix")}{" "}
+                  <a
+                    href="https://www.builder.io/legal/terms"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {t("agentChat.onboarding.builderTerms")}
+                  </a>{" "}
+                  {t("agentChat.onboarding.builderConsentAnd")}{" "}
+                  <a
+                    href="https://www.builder.io/legal/privacy"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {t("agentChat.onboarding.builderPrivacy")}
+                  </a>
+                  .
+                </p>
+                <button
+                  type="button"
+                  disabled={builderConnect.connecting}
+                  className="inline-flex min-h-9 w-full items-center justify-center rounded-lg px-4 text-xs font-normal text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60"
+                  onClick={() => handleBuilderConnect(false)}
+                >
+                  {t("agentChat.onboarding.builderExistingAccount")}
+                </button>
+              </>
+            )}
+            {builderConnect.connecting && (
+              <button
+                type="button"
+                className="self-start text-xs font-normal text-muted-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={builderConnect.cancel}
+              >
+                {t("common.cancel")}
+              </button>
             )}
           </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">
-                {connected
-                  ? t("storageSetup.builderConnected")
-                  : connecting
-                    ? t("storageSetup.waitingForBuilder")
-                    : t("storageSetup.connectBuilder")}
-              </span>
-            </div>
-            <span
-              className={
-                "mt-0.5 block text-xs " +
-                (connected
-                  ? "text-muted-foreground"
-                  : "text-primary-foreground/80")
-              }
-            >
-              {connected ? connectedDescription : connectDescription}
-            </span>
-          </div>
-        </button>
-      </BuilderConnectPopover>
+        ) : (
+          <>
+            {connectButton}
+            {!builderConnect.statusResolved &&
+              builderConnect.hasFetchedStatus &&
+              builderConnect.error && (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground" role="alert">
+                    {builderConnect.error}
+                  </p>
+                  <button
+                    type="button"
+                    className="text-xs text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => builderConnect.retry()}
+                  >
+                    {t("meetingDetail.retry")}
+                  </button>
+                </div>
+              )}
+          </>
+        )
+      ) : (
+        <BuilderConnectPopover
+          flow={builderConnect}
+          onConnect={handleBuilderConnect}
+        >
+          {connectButton}
+        </BuilderConnectPopover>
+      )}
 
       {err && <p className="text-xs text-muted-foreground">{err}</p>}
 

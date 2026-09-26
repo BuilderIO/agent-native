@@ -7,6 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   useBuilderConnectFlow: vi.fn(),
+  flow: {
+    statusResolved: false,
+    agentNativeProvisioningEnabled: false,
+    accountExists: false,
+    connecting: false,
+    cancel: vi.fn(),
+  },
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -73,6 +80,7 @@ describe("StorageSetupCard", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.start.mockReset();
     mocks.useBuilderConnectFlow.mockReset().mockReturnValue({
+      ...mocks.flow,
       start: mocks.start,
     });
     vi.stubGlobal(
@@ -115,5 +123,50 @@ describe("StorageSetupCard", () => {
 
     expect(container.textContent).toContain("storageSetup.builderTimeout");
     expect(container.querySelector("button[disabled]")).toBeNull();
+  });
+
+  it("starts the selected account path from the inline Record setup", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      ...mocks.flow,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="mock-builder-trigger"]'),
+    ).toBeNull();
+    expect(container.textContent).toContain(
+      "agentChat.onboarding.builderCreateAndActivate",
+    );
+    expect(container.textContent).toContain(
+      "agentChat.onboarding.builderConsentPrefix",
+    );
+
+    const buttons = container.querySelectorAll("button");
+    act(() => buttons[0]?.click());
+    act(() => buttons[1]?.click());
+
+    expect(mocks.start).toHaveBeenNthCalledWith(1, {
+      provisionAccount: true,
+    });
+    expect(mocks.start).toHaveBeenNthCalledWith(2, {
+      provisionAccount: false,
+    });
+  });
+
+  it("keeps the Record CTA in the card while status is loading", () => {
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="mock-builder-trigger"]'),
+    ).toBeNull();
+    expect(container.querySelector("button[disabled]")).not.toBeNull();
   });
 });

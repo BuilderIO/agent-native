@@ -1023,6 +1023,13 @@ const PATTERNS = [
     re: /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i,
   },
   {
+    key: "repeat-branch-authorization",
+    label: "Had to repeat authorization for a task shipping branch",
+    fixedBy:
+      ".agents/skills/ship + new-branch (standing detached-checkout authorization, 2026-09-25)",
+    re: /\b(?:stop asking\b[^.!?\n]{0,100}\b(?:every time|anymore|again|ever)|(?:don't|do not) ask me (?:this|again|every time)|not in any new session)\b/i,
+  },
+  {
     // Added 2026-09-11 after a user correction made clear the feedback scope
     // rule was treating concrete Design/UX feedback as out of scope.
     key: "design-feedback-scope",

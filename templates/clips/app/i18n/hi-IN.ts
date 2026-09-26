@@ -1,4 +1,19 @@
 const messages = {
+  agentChat: {
+    auth: {
+      logIn: "लॉग इन करें",
+    },
+    onboarding: {
+      builderAccountExistsDescription: "इसे कनेक्ट करने के लिए लॉग इन करें।",
+      builderCreateAndActivate: "बनाएँ और सक्रिय करें",
+      builderConsentPrefix: "Builder.io खाता बनाकर, आप हमारी",
+      builderTerms: "सेवा की शर्तों",
+      builderPrivacy: "गोपनीयता नीति",
+      builderConsentAnd: "और",
+      builderExistingAccount: "मेरे पास Builder.io खाता है",
+      builderActivating: "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
+    },
+  },
   timelineTrack: {
     helpOtherSide: "पहले उस हिस्से पर क्लिक करें, फिर लाल रेखा को दाईं ओर खींचें।",
     helpOtherSideTerm: "इसके बजाय दाईं ओर वाले हिस्से से फ़ुटेज हटाएँ",

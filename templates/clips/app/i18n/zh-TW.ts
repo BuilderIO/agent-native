@@ -1,4 +1,19 @@
 const messages = {
+  agentChat: {
+    auth: {
+      logIn: "登入",
+    },
+    onboarding: {
+      builderAccountExistsDescription: "登入以連接該帳戶。",
+      builderCreateAndActivate: "建立並啟用",
+      builderConsentPrefix: "建立 Builder.io 帳戶即表示您同意我們的",
+      builderTerms: "服務條款",
+      builderPrivacy: "隱私權政策",
+      builderConsentAnd: "和",
+      builderExistingAccount: "我有 Builder.io 帳戶",
+      builderActivating: "正在啟用 Builder.io 免費額度",
+    },
+  },
   timelineTrack: {
     helpOtherSide: "先點一下那一段，再把紅線往右拖。",
     helpOtherSideTerm: "改為從右側那一段裁掉素材",

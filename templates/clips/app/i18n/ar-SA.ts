@@ -1,4 +1,19 @@
 const messages = {
+  agentChat: {
+    auth: {
+      logIn: "تسجيل الدخول",
+    },
+    onboarding: {
+      builderAccountExistsDescription: "سجّل الدخول لربطه.",
+      builderCreateAndActivate: "إنشاء وتفعيل",
+      builderConsentPrefix: "بإنشاء حساب Builder.io، فإنك توافق على",
+      builderTerms: "شروط الخدمة",
+      builderPrivacy: "سياسة الخصوصية",
+      builderConsentAnd: "و",
+      builderExistingAccount: "لدي حساب Builder.io",
+      builderActivating: "جارٍ تفعيل أرصدة Builder.io المجانية",
+    },
+  },
   timelineTrack: {
     helpOtherSide: "انقر على ذلك المقطع أولًا، ثم اسحب الخط الأحمر إلى اليمين.",
     helpOtherSideTerm: "اقتطاع اللقطات من المقطع الأيمن بدلًا من ذلك",

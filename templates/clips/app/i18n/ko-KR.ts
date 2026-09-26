@@ -1,4 +1,19 @@
 const messages = {
+  agentChat: {
+    auth: {
+      logIn: "로그인",
+    },
+    onboarding: {
+      builderAccountExistsDescription: "연결하려면 로그인하세요.",
+      builderCreateAndActivate: "생성 및 활성화",
+      builderConsentPrefix: "Builder.io 계정을 만들면 당사의",
+      builderTerms: "서비스 약관",
+      builderPrivacy: "개인정보 처리방침",
+      builderConsentAnd: "및",
+      builderExistingAccount: "Builder.io 계정이 있습니다",
+      builderActivating: "Builder.io 무료 크레딧 활성화 중",
+    },
+  },
   timelineTrack: {
     helpOtherSide:
       "먼저 그 구간을 클릭한 다음 빨간 선을 오른쪽으로 드래그하세요.",

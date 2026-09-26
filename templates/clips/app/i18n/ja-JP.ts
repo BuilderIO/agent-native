@@ -1,4 +1,19 @@
 const messages = {
+  agentChat: {
+    auth: {
+      logIn: "ログイン",
+    },
+    onboarding: {
+      builderAccountExistsDescription: "接続するにはログインしてください。",
+      builderCreateAndActivate: "作成して有効化",
+      builderConsentPrefix: "Builder.io アカウントを作成すると、当社の",
+      builderTerms: "利用規約",
+      builderPrivacy: "プライバシーポリシー",
+      builderConsentAnd: "および",
+      builderExistingAccount: "Builder.io アカウントを持っています",
+      builderActivating: "Builder.io 無料クレジットを有効化しています",
+    },
+  },
   timelineTrack: {
     helpOtherSide:
       "先にそのセクションをクリックしてから、赤い線を右へドラッグします。",

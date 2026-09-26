@@ -2,9 +2,10 @@
 name: ship
 description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
-  babysit it, and merge when clean unless the user asks to leave it open. Keep
-  the current branch unless the user explicitly requests the exact branch
-  operation. Use when the user asks to ship, publish, or hand off local changes.
+  babysit it, and merge when clean unless the user asks to leave it open. Use
+  the current branch by default; Steve has standing authorization for the
+  task-scoped branch needed to ship from a detached task worktree. Use when the
+  user asks to ship, publish, or hand off local changes.
   Matching beta and docs paths publish automatically after merge; other
   production promotion is manual.
 user-invocable: true
@@ -35,14 +36,18 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   foreground through post-merge disposition. Carry the immutable value through
   verification; never replace it with a live PR head read after merge, because
   the source branch may advance or be deleted.
-- `/ship` ships and merges the current branch; the request alone does not
-  authorize creating or switching branches. After `origin/main` ancestry is
-  verified, retain the source branch unless the user explicitly requested that
-  exact branch operation in this task. If they did, use `/new-branch`'s safety
-  checks in the current user-owned checkout. Preserve platform-assigned
-  branches. If unpublished commits remain on any path, retain the source branch
-  and report them; do not strand commits excluded from `ship:push` on the old
-  branch without naming them.
+- `/ship` uses the current branch by default. Steve's explicit request to open a
+  PR or run `/ship` from a detached, task-owned worktree has standing
+  authorization to create and switch to a task-scoped shipping branch from
+  freshly fetched `origin/main`, carrying only this task's changes. Do not ask
+  him again for that prerequisite. This does not authorize post-merge rotation,
+  destructive branch operations, moving another worktree, or writing to
+  another person's PR. After `origin/main` ancestry is verified, retain the
+  source branch unless the user explicitly requested the exact post-merge
+  operation in this task. If they did, use `/new-branch`'s safety checks.
+  Preserve platform-assigned branches. If unpublished commits remain on any
+  path, retain the source branch and report them; do not strand commits
+  excluded from `ship:push` on the old branch without naming them.
 - In Codex, inspect the task goal with `get_goal` at the start. If none exists,
   create one with `create_goal` whose objective, under normal `/ship`
   authorization, says to continue until the PR is merged, `origin/main` ancestry
@@ -181,17 +186,17 @@ GitHub's live mergeability before updating from origin/main.
 
 If `git branch --show-current` is empty, inspect `git worktree list
 --porcelain` and existing `changes-*` refs. Do not create or switch to a
-shipping branch based only on `/ship`; preserve the detached checkout and get
-explicit authorization for that branch operation before publishing. After
-authorization, fetch `origin/main` and save `detached_head=$(git rev-parse
-HEAD)`. If `origin/main` is an ancestor of `detached_head`, create the named
-branch at that exact saved commit so it retains every detached commit and the
-freshly fetched `origin/main` remains its base. If `detached_head` is an
-ancestor of `origin/main`, create from `origin/main` only when the entire
-worktree is clean. If the histories diverge, or a stale detached checkout is
-dirty, leave it unchanged and report the commits and paths; never create from
-`origin/main` in a way that omits detached work. Use `/new-branch`'s naming
-rules, not its generic checkout/stash command or its post-merge rotation path.
+task branch without authorization; for Steve, an explicit request to open a PR
+or run `/ship` from a detached task-owned worktree invokes his standing
+authorization, so do not ask again. Fetch `origin/main` and save
+`detached_head=$(git rev-parse HEAD)`. When `origin/main` is an ancestor of
+`detached_head`, create the task branch at that commit so detached commits are
+retained. When `detached_head` is an ancestor of `origin/main`, create from
+fresh `origin/main` and carry the classified task-only dirty changes onto it.
+If the histories diverge or any dirty path is unrelated or incomplete work,
+preserve the checkout and report the exact conflict without repeating the
+authorization question. Use a unique task-specific name, verify it is unused,
+and never stash or move another worktree.
 
 Before publishing, classify every dirty path and unpushed commit. If any is
 unrelated or incomplete concurrent work, preserve it and stop the publishing

@@ -49,21 +49,23 @@ Shallow clones and grafted worktrees do not have complete ancestry. Treat
 inconclusive; fetch complete history or verify the date through the remote
 commit or pull-request record before calling a change the first occurrence.
 
-## Never move branches without an explicit instruction
+## Branch movement
 
-Don't create, switch, delete, reset, rebase, stash, or worktree-add a branch
-unless the user asked for that exact operation in the current task — it
-strands every other agent on it. This isn't a tool-level block anymore —
-`.agents/skills/new-branch/SKILL.md` carries it now, through an activation
-guard that refuses to fire unless the user explicitly asked for `/new-branch`
-or a fresh branch. That guard is what took unrequested branch creation from a
-recurring complaint to zero; read it before any branch operation instead of
-assuming a prohibition still lives at the tool layer.
+Keep the current branch by default. Steve's explicit request to open a PR or
+run `/ship` from a detached, task-owned worktree has standing authorization to
+create and switch to a unique task-scoped branch from freshly fetched
+`origin/main`, carrying only that task's changes. Do not ask him again for this
+routine setup. This does not authorize destructive branch operations, moving
+another worktree, or writing to another person's PR. Preserve all unrelated
+work; for other branch moves, require the user's explicit request. See `ship`
+and `new-branch` for the detached-worktree checks.
 
 ## Timing the next branch
 
-Before running `/new-branch`, even on an explicit request, confirm that the
-current branch has been fully checkpointed and inspect the active worktrees:
+Before an ordinary `/new-branch`, confirm that the current branch has been
+fully checkpointed and inspect the active worktrees. For Steve's detached
+`/ship` setup, use the dedicated `ship` preflight and carry only task-owned
+changes:
 
 ```bash
 git status --short
@@ -95,6 +97,6 @@ a peer's task without interrupting it or the user.
 
 ## Related
 
-- `new-branch` — the one workflow allowed to move branches, only on explicit
-  `/new-branch` invocation.
+- `new-branch` — explicit fresh branches and the standing detached `/ship`
+  setup; post-merge rotation still needs an exact request.
 - `ship` — the commit/push/PR workflow for the complete branch snapshot.

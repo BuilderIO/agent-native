@@ -1,4 +1,20 @@
 const messages = {
+  agentChat: {
+    auth: {
+      logIn: "Log in",
+    },
+    onboarding: {
+      builderAccountExistsDescription: "Log in to connect it.",
+      builderCreateAndActivate: "Create and activate",
+      builderConsentPrefix:
+        "By creating a Builder.io account, you agree to our",
+      builderTerms: "Terms of Service",
+      builderPrivacy: "Privacy Policy",
+      builderConsentAnd: "and",
+      builderExistingAccount: "I have a Builder.io account",
+      builderActivating: "Activating Builder.io free credits",
+    },
+  },
   common: {
     cancel: "Cancel",
     create: "Create",
