@@ -2584,13 +2584,21 @@ export function AuthPage(props: AuthPageProps) {
           type="button"
           className="local-dev-full-options"
           id="local-dev-full-options"
-          hidden={fullAuthOptionsVisible}
+          hidden={!localDevAvailable}
           aria-controls="full-auth-options"
           aria-expanded={fullAuthOptionsVisible}
-          data-i18n="localDevFullOptions"
-          onClick={() => setFullAuthOptionsVisible(true)}
+          data-i18n={
+            fullAuthOptionsVisible
+              ? "localDevHideFullOptions"
+              : "localDevFullOptions"
+          }
+          onClick={() => setFullAuthOptionsVisible((visible) => !visible)}
         >
-          {t("localDevFullOptions")}
+          {t(
+            fullAuthOptionsVisible
+              ? "localDevHideFullOptions"
+              : "localDevFullOptions",
+          )}
         </button>
         {notice("local-dev")}
       </div>
