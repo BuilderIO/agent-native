@@ -603,6 +603,9 @@ describe("ObservabilityDashboard human review", () => {
       kind: "observability-review-summary-batch",
       runIds: ["run-1", "run-2", "run-no-preview"],
     });
+    expect(mockSendToAgentChat.mock.calls[0]?.[0].message).toContain(
+      'runId="run-1" orgId="org-a"',
+    );
   });
 
   it("updates votes optimistically, expands from the chevron, and filters rows", async () => {
@@ -728,7 +731,9 @@ describe("ObservabilityDashboard human review", () => {
     mockOutputReviews.mockReturnValue({
       isLoading: false,
       data: current.map((review) =>
-        review.runId === "run-2" ? { ...review, readOnly: true } : review,
+        review.runId === "run-2"
+          ? { ...review, orgId: "org-b", readOnly: true }
+          : review,
       ),
     });
 
@@ -758,6 +763,9 @@ describe("ObservabilityDashboard human review", () => {
     );
     expect(
       reviewDetail("run-2")?.querySelector('[aria-label="Thumbs up"]'),
+    ).toBeNull();
+    expect(
+      reviewDetail("run-2")?.querySelector('a[href*="thread=thread-2"]'),
     ).toBeNull();
   });
 
@@ -839,7 +847,7 @@ describe("ObservabilityDashboard human review", () => {
         submit: true,
         openSidebar: true,
         usageLabel: "observability:human-review-summary",
-        message: expect.stringContaining('"run-1"'),
+        message: expect.stringContaining('runId "run-1" and orgId "org-a"'),
       }),
     );
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();

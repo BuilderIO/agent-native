@@ -40,7 +40,9 @@ describe("ObservabilityReviewSummaryButton", () => {
 
   it("submits a visible agent request scoped to the selected run", async () => {
     await act(async () => {
-      root.render(<ObservabilityReviewSummaryButton runId="run-42" />);
+      root.render(
+        <ObservabilityReviewSummaryButton runId="run-42" orgId="org-a" />,
+      );
     });
 
     const button = container.querySelector<HTMLButtonElement>("button");
@@ -51,7 +53,7 @@ describe("ObservabilityReviewSummaryButton", () => {
     expect(sendToAgentChatAndConfirmMock).toHaveBeenCalledTimes(1);
     const request = sendToAgentChatAndConfirmMock.mock.calls[0][0];
     expect(request).toEqual({
-      message: expect.stringContaining('runId "run-42"'),
+      message: expect.stringContaining('runId "run-42" and orgId "org-a"'),
       submit: true,
       actionScope: { kind: "observability-review-summary", runId: "run-42" },
       openSidebar: true,
@@ -82,7 +84,12 @@ describe("ObservabilityReviewSummaryButton", () => {
     });
     await act(async () => {
       root.render(
-        <ObservabilityReviewSummaryButton runId="run-42" refresh compact />,
+        <ObservabilityReviewSummaryButton
+          runId="run-42"
+          orgId="org-a"
+          refresh
+          compact
+        />,
       );
     });
     const button = container.querySelector<HTMLButtonElement>("button");
