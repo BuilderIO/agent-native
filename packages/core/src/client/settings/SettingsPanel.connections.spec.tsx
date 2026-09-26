@@ -345,11 +345,20 @@ describe("ConnectionsSettingsContent", () => {
     });
 
     await vi.waitFor(() => {
-      expect(
-        Array.from(container.querySelectorAll("button")).filter((button) =>
-          button.textContent?.includes("Connect Builder"),
-        ),
-      ).toHaveLength(5);
+      const connectButtons = Array.from(
+        container.querySelectorAll("button"),
+      ).filter((button) => button.textContent?.includes("Connect Builder"));
+      expect(connectButtons).toHaveLength(5);
+
+      const solidPrimaryBtn = connectButtons.find((btn) =>
+        btn.className.includes("bg-primary"),
+      );
+      expect(solidPrimaryBtn).toBeDefined();
+
+      const classes = solidPrimaryBtn!.className.split(/\s+/);
+      expect(classes).toContain("text-primary-foreground");
+      expect(classes).not.toContain("hover:text-inherit");
+      expect(classes).not.toContain("hover:bg-transparent");
     });
 
     act(() => root.unmount());

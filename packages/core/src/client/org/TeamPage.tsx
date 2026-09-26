@@ -64,15 +64,7 @@ import {
   IconExternalLink,
   IconSearch,
 } from "@tabler/icons-react";
-import {
-  forwardRef,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentPropsWithoutRef,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
@@ -107,6 +99,7 @@ import {
   DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
   useShareOrgMemberSearch,
 } from "../sharing/share-controller-helpers.js";
+import { PrimitiveButton as Button } from "../ui/PrimitiveButton.js";
 import { uploadEditorImage } from "../uploads/index.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
@@ -146,24 +139,6 @@ import {
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
-
-const Button = forwardRef<
-  HTMLButtonElement,
-  ComponentPropsWithoutRef<typeof ToolkitButton>
->(({ className, ...props }, ref) => (
-  <ToolkitButton
-    ref={ref}
-    variant="ghost"
-    className={cn(
-      "h-auto p-0 hover:bg-transparent active:scale-100 [&_svg]:!size-auto",
-      props.emphasis === "solid" ? null : "hover:text-inherit",
-      className,
-    )}
-    {...props}
-  />
-));
-Button.displayName = "TeamPrimitiveButton";
-
 export interface TeamPageProps {
   /**
    * Optional wrapper around the page contents. Templates pass their own Layout

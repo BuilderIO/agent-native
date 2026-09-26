@@ -95,3 +95,9 @@ export {
   type AppSidebarItemDefinition,
   type AppSidebarContextValue,
 } from "./AppSidebar.js";
+export {
+  PrimitiveButton,
+  isGhostEmphasis,
+  resolvePrimitiveButtonEmphasis,
+  type PrimitiveButtonProps,
+} from "./PrimitiveButton.js";

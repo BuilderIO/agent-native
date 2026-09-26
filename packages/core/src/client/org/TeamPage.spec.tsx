@@ -396,6 +396,28 @@ describe("MemberRow organization controls", () => {
       document.querySelector("#workspace-delete-group-name-group-1"),
     ).not.toBeNull();
   });
+
+  it("retains text-primary-foreground and excludes hover:text-inherit on solid primary button", async () => {
+    await act(async () => {
+      root.render(
+        <WorkspaceGroupsCard
+          groups={[]}
+          onNewGroup={vi.fn()}
+          onEditGroup={vi.fn()}
+        />,
+      );
+    });
+
+    const newGroupBtn = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((btn) => btn.textContent?.includes("New group"));
+
+    expect(newGroupBtn).toBeDefined();
+
+    const classes = newGroupBtn!.className.split(/\s+/);
+    expect(classes).toContain("text-primary-foreground");
+    expect(classes).not.toContain("hover:text-inherit");
+  });
 });
 
 describe("DomainSettingsSection", () => {

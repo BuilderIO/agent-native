@@ -101,6 +101,7 @@ import { TeamPage } from "../org/TeamPage.js";
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
 import { McpAccessSettings } from "../resources/McpAccessSettings.js";
 import { BuilderConnectionMenu } from "../setup-connections/BuilderConnectCard.js";
+import { PrimitiveButton as Button } from "../ui/PrimitiveButton.js";
 import { callAction } from "../use-action.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { cn } from "../utils.js";
@@ -141,24 +142,6 @@ import {
   useSettingsPanelController,
 } from "./useSettingsPanelController.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
-
-const Button = React.forwardRef<
-  HTMLButtonElement,
-  React.ComponentPropsWithoutRef<typeof ToolkitButton>
->(({ className, ...props }, ref) => (
-  <ToolkitButton
-    ref={ref}
-    variant="ghost"
-    className={cn(
-      "h-auto p-0 hover:bg-transparent active:scale-100 [&_svg]:!size-auto",
-      props.emphasis === "solid" ? null : "hover:text-inherit",
-      className,
-    )}
-    {...props}
-  />
-));
-Button.displayName = "SettingsPrimitiveButton";
-
 const ManageButton = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof ToolkitButton>
