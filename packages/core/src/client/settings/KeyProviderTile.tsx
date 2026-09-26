@@ -81,7 +81,7 @@ export function KeyProviderTile({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col items-center gap-1.5 rounded-md text-[10px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex flex-col items-center gap-1.5 rounded-md bg-muted/40 px-2 py-2.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <McpIntegrationLogo
         name={name}
