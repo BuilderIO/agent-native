@@ -215,12 +215,24 @@ const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(8 * 60);
 const FFMPEG_AUDIO_PROBE_TIMEOUT: Duration = Duration::from_secs(90);
+/// Last-resort lookups for a system ffmpeg, used only when the bundled sidecar
+/// is missing (a dev build run straight from `target/`, say).
+///
+/// These are a fallback, not the plan: the app ships its own ffmpeg. Before it
+/// did, every Mac without Homebrew's ffmpeg — which is every Mac handed a DMG —
+/// silently skipped audio normalization and uploaded raw ScreenCaptureKit mic
+/// audio, which has no automatic gain, so voices landed 20+ dB below where they
+/// should be.
 const FFMPEG_CANDIDATE_PATHS: &[&str] = &[
     "ffmpeg",
     "/opt/homebrew/bin/ffmpeg",
     "/usr/local/bin/ffmpeg",
     "/opt/local/bin/ffmpeg",
 ];
+/// Name of the ffmpeg sidecar declared as `externalBin` in `tauri.conf.json`.
+/// Tauri strips the target triple and installs it beside the main executable,
+/// so it is found relative to `current_exe`, not by an absolute path.
+const FFMPEG_SIDECAR_NAME: &str = "ffmpeg";
 const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
 const CLIP_DRAFTS_DIR: &str = "Drafts";
 const NATIVE_UPLOAD_RESTART_REQUIRED: &str = "native upload requires a one-time restart";
@@ -8960,12 +8972,47 @@ fn max_upload_bytes() -> u64 {
         .unwrap_or(DEFAULT_MAX_UPLOAD_BYTES)
 }
 
+/// Where Tauri put the bundled ffmpeg: beside the running executable, which on
+/// macOS is `Clips.app/Contents/MacOS/ffmpeg`.
+///
+/// Resolved from `current_exe` rather than hardcoded so it also works for the
+/// `.app` in a DMG, a copy the user dragged elsewhere, and `tauri dev`.
+fn bundled_ffmpeg_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    ffmpeg_sidecar_in(exe.parent()?)
+}
+
+/// The sidecar lookup itself, split out from `current_exe` so it is testable.
+/// `is_file`, not `exists`: a directory of that name would pass `exists` and
+/// then fail as a permission error deep in the upload path.
+fn ffmpeg_sidecar_in(dir: &Path) -> Option<PathBuf> {
+    let sidecar = dir.join(FFMPEG_SIDECAR_NAME);
+    sidecar.is_file().then_some(sidecar)
+}
+
+/// Pick the ffmpeg to run, most specific first.
+///
+/// `CLIPS_FFMPEG_PATH` wins so a machine can be pointed at its own build. Then
+/// the bundled sidecar, which is the version shipped and tested against. A
+/// system ffmpeg is only the fallback: relying on it is what made audio
+/// normalization silently optional.
 fn resolve_ffmpeg_path() -> Option<String> {
     if let Ok(path) = std::env::var("CLIPS_FFMPEG_PATH") {
         let trimmed = path.trim();
         if !trimmed.is_empty() && command_available(trimmed) {
             return Some(trimmed.to_string());
         }
+    }
+    if let Some(bundled) = bundled_ffmpeg_path() {
+        let bundled = bundled.to_string_lossy().to_string();
+        if command_available(&bundled) {
+            return Some(bundled);
+        }
+        // Present but not runnable (missing +x, or quarantined/unsigned after a
+        // bad build). Say so: the fallback below can mask it as "no ffmpeg".
+        eprintln!(
+            "[clips-tray] bundled ffmpeg at {bundled} is not executable; falling back to a system ffmpeg"
+        );
     }
     FFMPEG_CANDIDATE_PATHS
         .iter()
