@@ -275,6 +275,21 @@ describe("shouldShowAssistantChatModelSelector", () => {
   });
 });
 
+describe("run error recovery banner", () => {
+  it("lets credit-limit errors reach the shared recovery card", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", "utf8");
+    const start = source.indexOf("const shouldShowRunError =");
+    const end = source.indexOf("const showMissingKeySetup", start);
+    const condition = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(condition).toContain("!!visibleRunError");
+    expect(condition).not.toContain("isCreditsLimitErrorCode");
+    expect(source).toContain("<RunErrorRecoveryCard");
+  });
+});
+
 describe("AssistantChat thread restore and composer recovery", () => {
   it("serializes chat submissions with history restoration", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {

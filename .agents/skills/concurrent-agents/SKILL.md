@@ -49,32 +49,37 @@ Shallow clones and grafted worktrees do not have complete ancestry. Treat
 inconclusive; fetch complete history or verify the date through the remote
 commit or pull-request record before calling a change the first occurrence.
 
-## Branch movement
+## Branch operations follow checkout ownership
 
-Keep the current branch by default. Steve's explicit request to open a PR or
-run `/ship` from a detached, task-owned worktree has standing authorization to
-create and switch to a unique task-scoped branch from freshly fetched
-`origin/main`, carrying only that task's changes. Do not ask him again for this
-routine setup. This does not authorize destructive branch operations, moving
-another worktree, or writing to another person's PR. Preserve all unrelated
-work; for other branch moves, require the user's explicit request. See `ship`
-and `new-branch` for the detached-worktree checks.
+In a dedicated task-owned worktree, create or switch to an available branch
+needed for the task without asking permission. Git worktrees isolate files; the
+Git refs are shared, so never move, rewrite, or delete a branch checked out in
+another worktree. If a branch name is already used, choose another available
+name. Preserve and carry or reapply local changes; do not stash or discard them.
+
+Before creating or switching branches, record `git status --short
+--untracked-files=all` and classify every staged, unstaged, and untracked path.
+A switch carries the whole index and worktree, so proceed only when every dirty
+path belongs to this task. If any path is unrelated or incomplete, keep the
+checkout in place and report the exact paths without asking again.
+
+In a shared checkout, ask before changing branches unless the user gave the
+exact operation. Keep platform-assigned Builder.io and Fusion branches in
+place.
 
 ## Timing the next branch
 
-Before an ordinary `/new-branch`, confirm that the current branch has been
-fully checkpointed and inspect the active worktrees. For Steve's detached
-`/ship` setup, use the dedicated `ship` preflight and carry only task-owned
-changes:
+Before creating a branch, inspect the active worktrees and dirty paths:
 
 ```bash
 git status --short
-ls .claude/worktrees/ 2>/dev/null
+git worktree list --porcelain
 gh pr list --head "$(git branch --show-current)" --state open
 ```
 
-Run `corepack pnpm ship:push` for any nonignored changes before moving to the
-next branch. Do not leave local work behind during branch rotation.
+In a task-owned worktree, do not require a checkpoint or `ship:push` just to
+create a fresh branch; preserve and carry the current task's changes. For
+post-merge rotation, follow `new-branch`'s dedicated safety checks.
 
 ## Before you ship
 
@@ -97,6 +102,6 @@ a peer's task without interrupting it or the user.
 
 ## Related
 
-- `new-branch` — explicit fresh branches and the standing detached `/ship`
-  setup; post-merge rotation still needs an exact request.
+- `new-branch` — safe branch creation in task-owned worktrees and guarded
+  branch changes in shared checkouts.
 - `ship` — the commit/push/PR workflow for the complete branch snapshot.

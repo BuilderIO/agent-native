@@ -158,7 +158,9 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     // Provisioning is a consent decision, so the pending click must surface
     // the choice rather than silently picking one.
     expect(onConnect).not.toHaveBeenCalled();
-    expect(document.querySelector("[data-testid='consent']")).not.toBeNull();
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent).not.toBeNull();
+    expect(consent?.className).toContain("z-[330]");
   });
 
   it("releases the queued click when the read it triggered settles unresolved", () => {

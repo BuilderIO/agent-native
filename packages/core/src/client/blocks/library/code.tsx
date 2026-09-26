@@ -1,4 +1,4 @@
-import { IconCheck, IconCode, IconCopy, IconPencil } from "@tabler/icons-react";
+import { IconCode, IconPencil } from "@tabler/icons-react";
 import {
   useId,
   useEffect,
@@ -18,6 +18,7 @@ import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
+import { CopyButton } from "./code-copy-button.js";
 import { CodeFilenameLabel } from "./code-filename-label.js";
 import {
   highlightCode,
@@ -59,34 +60,6 @@ const CODE_LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "rust", label: "Rust" },
   { value: "diff", label: "Diff" },
 ];
-
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      data-plan-interactive
-      aria-label={copied ? "Copied" : "Copy code"}
-      title={copied ? "Copied" : "Copy code"}
-      className="plan-code-chip"
-      onClick={() => {
-        void navigator.clipboard?.writeText(value).then(
-          () => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1200);
-          },
-          () => {},
-        );
-      }}
-    >
-      {copied ? (
-        <IconCheck className="size-3.5" />
-      ) : (
-        <IconCopy className="size-3.5" />
-      )}
-    </button>
-  );
-}
 
 /* ── Read ──────────────────────────────────────────────────────────────────── */
 

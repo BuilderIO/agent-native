@@ -184,7 +184,7 @@ export function BuilderConnectPopover({
         sideOffset={-40}
         aria-labelledby="builder-connect-popover-title"
         data-testid={contentTestId}
-        className="z-[110] w-80 max-w-[calc(100vw-2rem)] p-3 text-left"
+        className="z-[330] w-80 max-w-[calc(100vw-2rem)] p-3 text-left"
       >
         <div className="space-y-2.5">
           <h2

@@ -123,10 +123,10 @@ beforeEach(() => {
 });
 
 describe("AgentSidebar lazy panel boundary", () => {
-  it("honors explicit right and closed preferences with hosted harness enabled", async () => {
+  it("defaults hosted-harness chat to the right and respects a closed preference", async () => {
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
-    renderSidebar(false, "right");
+    renderSidebar(false);
 
     await act(async () => {});
 
@@ -138,6 +138,26 @@ describe("AgentSidebar lazy panel boundary", () => {
     ).toBeTruthy();
     expect(
       container?.querySelector("[data-agent-sidebar-main-state='closed']"),
+    ).toBeTruthy();
+    expect(
+      container
+        ?.querySelector(".agent-sidebar-shell")
+        ?.getAttribute("data-agent-native-hosted-harness-ui"),
+    ).toBe("desktop");
+  });
+
+  it("respects an explicit position in hosted-harness UI", async () => {
+    mockHostedHarness.configured = true;
+    mockHostedHarness.enabled = true;
+    renderSidebar(false, "left");
+
+    await act(async () => {});
+
+    expect(
+      container?.querySelector("[data-agent-sidebar-position='left']"),
+    ).toBeTruthy();
+    expect(
+      container?.querySelector("[data-agent-sidebar-main-position='left']"),
     ).toBeTruthy();
   });
 
