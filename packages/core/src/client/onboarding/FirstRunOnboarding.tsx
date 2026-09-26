@@ -442,7 +442,7 @@ export function FirstRunOnboarding({
     });
   };
 
-  const navigateToKeySettings = useCallback(() => {
+  const navigateToKeySettings = () => {
     if (typeof window === "undefined") return;
     // Drop the onboarding preview params — useOnboardingPreviewMode() reads
     // them live from the URL, so carrying them over would re-trigger the
@@ -460,7 +460,7 @@ export function FirstRunOnboarding({
       )}${query ? `?${query}` : ""}`,
     );
     window.dispatchEvent(new Event("popstate"));
-  }, [pathname]);
+  };
 
   const handleOpenSettings = async () => {
     if (completionInFlightRef.current) return;
