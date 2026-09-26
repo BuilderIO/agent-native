@@ -49,7 +49,6 @@
 
 .mm-app {
   display: flex;
-  /* Expand the layout canvas before scaling it down so it still fills the frame. */
   width: 111.112%;
   height: 111.112%;
   min-width: 0;
