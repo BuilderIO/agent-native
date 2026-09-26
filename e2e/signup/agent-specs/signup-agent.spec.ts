@@ -58,19 +58,30 @@ async function waitForPostLinkState(
   return "unresolved";
 }
 
-async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
+async function completeFirstRunOnboarding(
+  page: Page,
+  captureSetupChoice: () => Promise<void>,
+): Promise<boolean> {
   const role = page.locator('[data-testid="first-run-role"]');
   if (!(await role.isVisible().catch(() => false))) return false;
 
   await role.getByRole("button", { name: /skip for now/i }).click();
 
-  // "Configure manually" now completes onboarding and redirects straight to
-  // Settings from the merged choice screen — there is no separate tools step
-  // on this path.
+  await expect(page.locator('[data-onboarding-screen="choice"]')).toBeVisible();
+  const skipToApp = page.locator('[data-testid="first-run-skip-to-app"]');
+  const usesConnectChoice = await skipToApp.isVisible();
   const skipManual = page.locator(
     '[data-testid="first-run-open-key-settings"]',
   );
-  await expect(skipManual).toBeVisible();
+  if (usesConnectChoice) {
+    await expect(
+      page.locator('[data-testid="first-run-builder-continue"]'),
+    ).toBeVisible();
+    await expect(skipManual).toBeVisible();
+    await captureSetupChoice();
+  } else {
+    await expect(skipManual).toBeVisible();
+  }
 
   const completionResponse = page.waitForResponse((response) => {
     const request = response.request();
@@ -81,7 +92,11 @@ async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
     );
   });
 
-  await skipManual.click();
+  if (usesConnectChoice) {
+    await skipToApp.click();
+  } else {
+    await skipManual.click();
+  }
 
   const completion = await completionResponse;
   expect(completion.ok()).toBe(true);
@@ -390,7 +405,31 @@ for (const target of targets) {
         ),
       );
       if (postLinkState === "onboarding") {
-        await completeFirstRunOnboarding(verificationPage);
+        await completeFirstRunOnboarding(verificationPage, async () => {
+          await verificationPage.emulateMedia({ colorScheme: "light" });
+          steps.push(
+            await capture(
+              verificationPage,
+              "first-run setup choice light",
+              [...errors, ...verificationErrors],
+              verificationPageNetwork.networkEvents,
+              verificationPageNetwork.pendingRequests,
+              testInfo,
+            ),
+          );
+          await verificationPage.emulateMedia({ colorScheme: "dark" });
+          steps.push(
+            await capture(
+              verificationPage,
+              "first-run setup choice dark",
+              [...errors, ...verificationErrors],
+              verificationPageNetwork.networkEvents,
+              verificationPageNetwork.pendingRequests,
+              testInfo,
+            ),
+          );
+          await verificationPage.emulateMedia({ colorScheme: "light" });
+        });
         await waitForPostLinkState(
           verificationPage,
           verificationPageNetwork.pendingRequests,

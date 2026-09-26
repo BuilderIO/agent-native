@@ -5,6 +5,16 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-26
 
+### Improved
+
+- AI inbox rules now apply to recent mail, appear as inbox tabs, and can be refined in chat.
+
+### Fixed
+
+- Fixed importance actions, label display, and triage loading feedback.
+- Inbox setup now keeps result counts and undo available while rules refresh.
+- Mail cancels stale thread-read cooldown retries after a newer unread action
+
 ### Changed
 
 - The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.

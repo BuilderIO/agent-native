@@ -32,6 +32,7 @@ const messages = {
     pinChat: "تثبيت المحادثة",
     pinned: "المثبتة",
     recents: "الأخيرة",
+    retryPreviousRequest: "أعِد محاولة طلبي السابق الآن بعد توصيل مزود النموذج.",
     renameChat: "إعادة تسمية المحادثة",
     renameFailed: "فشلت إعادة التسمية",
     renameThread: "إعادة تسمية السلسلة",

@@ -1,5 +1,15 @@
 # @agent-native/scheduling
 
+## 0.2.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- af54bfd: Keep Zoom-backed slots reserved until meeting cleanup succeeds.
+- Updated dependencies [7e8a10a]
+- Updated dependencies
+  - @agent-native/toolkit@0.22.1
+
 ## 0.2.0
 
 ### Minor Changes
