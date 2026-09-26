@@ -391,7 +391,6 @@ async function loadReferenceDeckGenerationContext(
 }
 
 export default function Index() {
-  const searchShortcutLabel = shortcutLabel("cmd+k");
   const t = useT();
   const {
     decks,
@@ -2366,6 +2365,7 @@ function DeckSearchInput({
   className?: string;
 }) {
   const t = useT();
+  const searchShortcutLabel = shortcutLabel("cmd+k");
   return (
     <div className={cn("relative min-w-0", className)}>
       <IconSearch
