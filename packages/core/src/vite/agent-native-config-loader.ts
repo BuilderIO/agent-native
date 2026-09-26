@@ -60,7 +60,9 @@ export async function loadAgentNativeConfigFile(
   if (!configPath) return undefined;
 
   try {
-    const module = (await import(pathToFileURL(configPath).href)) as {
+    const module = (await import(
+      /* @vite-ignore */ pathToFileURL(configPath).href
+    )) as {
       default?: unknown;
       agentNativeConfig?: unknown;
     };
@@ -90,7 +92,9 @@ export async function loadWorkspaceAgentNativeConfigFile(
   if (!configPath) return undefined;
 
   try {
-    const module = (await import(pathToFileURL(configPath).href)) as {
+    const module = (await import(
+      /* @vite-ignore */ pathToFileURL(configPath).href
+    )) as {
       default?: unknown;
       agentNativeConfig?: unknown;
     };
