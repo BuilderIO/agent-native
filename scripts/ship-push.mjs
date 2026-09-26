@@ -98,11 +98,16 @@ export function isExcludedPath(file) {
 }
 
 export function isSpecificCommitMessage(message) {
-  return Boolean(
-    message &&
-    !message.startsWith("-") &&
-    !/^chore:\s*publish branch work\b/i.test(message),
-  );
+  if (
+    !message ||
+    message.startsWith("-") ||
+    /^chore:\s*publish branch work\b/i.test(message)
+  ) {
+    return false;
+  }
+
+  const description = message.replace(/^[a-z]+(?:\([^)]*\))?:\s*/i, "").trim();
+  return /\S+\s+\S+/.test(description);
 }
 
 function main() {
@@ -151,7 +156,7 @@ function main() {
   const message = explicitMessage?.trim();
   if (publishable.length > 0 && !isSpecificCommitMessage(message)) {
     console.error(
-      "ship-push: pass -m with a specific commit subject; generic 'chore: publish branch work' commits are disabled.",
+      "ship-push: pass -m with a specific commit subject that describes the change.",
     );
     process.exit(1);
   }

@@ -97,6 +97,9 @@ describe("isSpecificCommitMessage", () => {
   it("rejects empty, generic, and option-looking commit subjects", () => {
     expect(isSpecificCommitMessage(undefined)).toBe(false);
     expect(isSpecificCommitMessage("chore: publish branch work")).toBe(false);
+    expect(isSpecificCommitMessage("fix")).toBe(false);
+    expect(isSpecificCommitMessage("update")).toBe(false);
+    expect(isSpecificCommitMessage("fix: update")).toBe(false);
     expect(isSpecificCommitMessage("--dry-run")).toBe(false);
     expect(isSpecificCommitMessage("-m --foo")).toBe(false);
     expect(isSpecificCommitMessage("fix: avoid repeated CI runs")).toBe(true);
