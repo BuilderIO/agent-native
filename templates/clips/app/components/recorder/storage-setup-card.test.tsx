@@ -240,6 +240,61 @@ describe("StorageSetupCard", () => {
     expect(mocks.cancel).toHaveBeenCalledOnce();
   });
 
+  it("does not start storage polling if Builder connects after cancellation", async () => {
+    const onConfigured = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ configured: true }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={onConfigured} />);
+    });
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-primary"]',
+        )
+        ?.click();
+    });
+
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      cancel: mocks.cancel,
+      configured: false,
+      envManaged: false,
+      accountExists: false,
+      connecting: true,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
+    });
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={onConfigured} />);
+    });
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-cancel"]',
+        )
+        ?.click();
+    });
+
+    const connectOptions = mocks.useBuilderConnectFlow.mock.calls[
+      mocks.useBuilderConnectFlow.mock.calls.length - 1
+    ]?.[0] as {
+      onConnected: () => void;
+    };
+    act(() => connectOptions.onConnected());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onConfigured).not.toHaveBeenCalled();
+  });
+
   it("surfaces the timeout after repeated failed status responses", async () => {
     act(() => {
       root.render(<StorageSetupCard onConfigured={vi.fn()} />);

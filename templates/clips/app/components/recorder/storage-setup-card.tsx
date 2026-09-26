@@ -169,6 +169,10 @@ export function StorageSetupCard({
     },
     [builderConnect.start],
   );
+  const handleBuilderCancel = useCallback(() => {
+    connectRequestedRef.current = false;
+    builderConnect.cancel();
+  }, [builderConnect.cancel]);
   const hasBuilderAccount =
     builderConnect.accountExists || hasBuilderOAuthCredential(builderConnect);
   const provisionAccount =
@@ -275,7 +279,7 @@ export function StorageSetupCard({
           size="sm"
           data-testid="storage-setup-builder-cancel"
           className="self-end text-xs font-normal text-muted-foreground"
-          onClick={builderConnect.cancel}
+          onClick={handleBuilderCancel}
         >
           {t("common.cancel")}
         </Button>
