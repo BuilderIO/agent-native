@@ -48,16 +48,19 @@ function BuilderConnectProbe({
   popupUrl,
   provisionAccount = false,
   startProvisionAccount,
+  onConnected,
 }: {
   enabled?: boolean;
   popupUrl?: string;
   provisionAccount?: boolean;
   startProvisionAccount?: boolean;
+  onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
 }) {
   const flow = useBuilderConnectFlow({
     enabled,
     popupUrl,
     provisionAccount,
+    onConnected,
   });
   return (
     <div>
@@ -876,6 +879,56 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(container.textContent).toContain("configured connecting resolved");
+  });
+
+  it("waits for an OAuth credential when only deployment-managed Builder credentials exist", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const deploymentManagedStatus = {
+      ...connectedBuilderStatus,
+      envManaged: true,
+      credentialSource: "env",
+    };
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(deploymentManagedStatus));
+    const onConnected = vi.fn();
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe onConnected={onConnected} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(onConnected).not.toHaveBeenCalled();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(container.textContent).toContain("configured connecting resolved");
+    expect(onConnected).not.toHaveBeenCalled();
+
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        ...deploymentManagedStatus,
+        credentialSource: "user",
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(onConnected).toHaveBeenCalledOnce();
   });
 
   it("does not probe Builder status when disabled", async () => {

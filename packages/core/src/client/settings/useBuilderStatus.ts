@@ -61,6 +61,18 @@ export interface BuilderStatus {
   authError?: { message: string; at: number };
 }
 
+export function hasBuilderOAuthCredential(
+  status: Pick<BuilderStatus, "configured" | "envManaged"> & {
+    credentialSource?: BuilderStatus["credentialSource"] | null;
+  },
+): boolean {
+  return (
+    status.configured &&
+    status.credentialSource !== "env" &&
+    (!status.envManaged || status.credentialSource != null)
+  );
+}
+
 /**
  * Fetches Builder connection status from the neutral connection-status route.
  * The legacy /_agent-native/builder/status route remains available for older
@@ -193,7 +205,7 @@ export interface BuilderConnectFlowOptions {
   trackingSource?: string;
   /** Product flow that needed Builder connect, e.g. connect_llm. */
   trackingFlow?: string;
-  /** Invoked after the status poll first sees `configured: true`. */
+  /** Invoked when the current user/org/workspace Builder credential is ready. */
   onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
 }
 
@@ -936,10 +948,11 @@ export function useBuilderConnectFlow(
       statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
       const org = s.orgName ?? null;
       setOrgName(org);
-      if (s.configured) {
+      const hasOAuthCredential = hasBuilderOAuthCredential(s);
+      if (hasOAuthCredential) {
         connectStartedAtRef.current = null;
       }
-      if (s.configured && !notifiedConnectedRef.current) {
+      if (hasOAuthCredential && !notifiedConnectedRef.current) {
         notifiedConnectedRef.current = true;
         notifyAgentEngineConfiguredChanged("builder-status");
         try {
@@ -947,7 +960,7 @@ export function useBuilderConnectFlow(
         } catch {
           // The caller's callback is a UI convenience; status is already set.
         }
-      } else if (!s.configured) {
+      } else if (!hasOAuthCredential) {
         notifiedConnectedRef.current = false;
       }
       // Surface persisted auth-failure messages on idle refreshes, but don't
@@ -1329,7 +1342,7 @@ export function useBuilderConnectFlow(
       );
       if (!mountedRef.current) return;
       if (s) setStatusResolved(true);
-      if (s?.configured) {
+      if (s && hasBuilderOAuthCredential(s)) {
         setConfigured(true);
         setCodeChangeConfigured(isCodeChangeConfigured(s));
         setEnvManaged(!!s.envManaged);
@@ -1516,7 +1529,7 @@ export function useBuilderConnectFlow(
             return;
           }
           if (
-            s?.configured ||
+            (s && hasBuilderOAuthCredential(s)) ||
             isCurrentConnectError(s?.connectError, started)
           ) {
             break;
@@ -1539,7 +1552,10 @@ export function useBuilderConnectFlow(
         }
         if (callbackSuccessInFlightAtRef.current === started) {
           callbackSuccessInFlightAtRef.current = null;
-          if (popupClosedAtRef.current !== null && !s?.configured) {
+          if (
+            popupClosedAtRef.current !== null &&
+            (!s || !hasBuilderOAuthCredential(s))
+          ) {
             popupClosedAtRef.current = Date.now();
           }
         }
@@ -1548,7 +1564,7 @@ export function useBuilderConnectFlow(
         return;
       }
       if (!s) return;
-      if (!s.configured) {
+      if (!hasBuilderOAuthCredential(s)) {
         const connectError = isCurrentConnectError(s?.connectError, started)
           ? s?.connectError
           : null;

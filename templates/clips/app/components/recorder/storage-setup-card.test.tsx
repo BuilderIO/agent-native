@@ -19,6 +19,14 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/settings", () => ({
+  hasBuilderOAuthCredential: (status: {
+    configured: boolean;
+    envManaged?: boolean | null;
+    credentialSource?: string | null;
+  }) =>
+    status.configured &&
+    status.credentialSource !== "env" &&
+    (!status.envManaged || status.credentialSource != null),
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
 
@@ -138,6 +146,7 @@ describe("StorageSetupCard", () => {
       start: mocks.start,
       configured: true,
       envManaged: true,
+      credentialSource: "env",
       accountExists: false,
       connecting: false,
       agentNativeProvisioningEnabled: true,

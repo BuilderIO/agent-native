@@ -1,6 +1,9 @@
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { useBuilderConnectFlow } from "@agent-native/core/client/settings";
+import {
+  hasBuilderOAuthCredential,
+  useBuilderConnectFlow,
+} from "@agent-native/core/client/settings";
 import {
   IconCheck,
   IconCloud,
@@ -166,8 +169,7 @@ export function StorageSetupCard({
     [builderConnect.start],
   );
   const hasBuilderAccount =
-    builderConnect.accountExists ||
-    (builderConnect.configured && !builderConnect.envManaged);
+    builderConnect.accountExists || hasBuilderOAuthCredential(builderConnect);
   const provisionAccount =
     !hasBuilderAccount &&
     (builderConnect.agentNativeProvisioningEnabled ||
