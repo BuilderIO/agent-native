@@ -28,6 +28,7 @@ import {
   isAnalyticsSettingsPath,
   markAnalyticsChatActivity,
   updateAnalyticsChatHandoffForRun,
+  type AnalyticsChatRunningRuns,
 } from "@/lib/chat-handoff";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -168,7 +169,7 @@ function InteractiveLayout({ children }: LayoutProps) {
     location.pathname.startsWith("/monitoring/");
   const isAskRoute = location.pathname === "/ask";
   const isSettingsRoute = isAnalyticsSettingsPath(location.pathname);
-  const runningTabs = useRef(new Set<string>());
+  const runningRuns = useRef<AnalyticsChatRunningRuns>(new Map());
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -196,7 +197,7 @@ function InteractiveLayout({ children }: LayoutProps) {
       if (typeof detail?.isRunning !== "boolean") return;
       if (location.pathname === "/ask") markAnalyticsChatActivity();
       updateAnalyticsChatHandoffForRun(
-        runningTabs.current,
+        runningRuns.current,
         detail,
         location.pathname,
       );

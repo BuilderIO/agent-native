@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ANALYTICS_CHAT_STORAGE_KEY,
   ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+  type AnalyticsChatRunningRuns,
   discardAnalyticsChatHandoffOnSettings,
   hasRecentAnalyticsChat,
   isAnalyticsSettingsPath,
@@ -75,13 +76,14 @@ describe("analytics chat handoff destinations", () => {
   it("refreshes a long-running chat handoff after returning to Ask", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
-    const runningTabs = new Set<string>();
+    const runningRuns: AnalyticsChatRunningRuns = new Map();
 
     updateAnalyticsChatHandoffForRun(
-      runningTabs,
+      runningRuns,
       {
         isRunning: true,
         tabId: "chat-1",
+        runId: "run-1",
       },
       "/ask",
     );
@@ -93,10 +95,11 @@ describe("analytics chat handoff destinations", () => {
     ).toBe(false);
 
     updateAnalyticsChatHandoffForRun(
-      runningTabs,
+      runningRuns,
       {
         isRunning: false,
         tabId: "chat-1",
+        runId: "run-1",
       },
       "/ask",
     );
@@ -110,7 +113,7 @@ describe("analytics chat handoff destinations", () => {
 
   it("does not create a handoff for an unrelated run completion", () => {
     updateAnalyticsChatHandoffForRun(
-      new Set(),
+      new Map(),
       {
         isRunning: false,
         tabId: "chat-1",
@@ -128,10 +131,10 @@ describe("analytics chat handoff destinations", () => {
   it("retires a tracked run completed after leaving Ask without refreshing it", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
-    const runningTabs = new Set<string>();
+    const runningRuns: AnalyticsChatRunningRuns = new Map();
     updateAnalyticsChatHandoffForRun(
-      runningTabs,
-      { isRunning: true, tabId: "chat-1" },
+      runningRuns,
+      { isRunning: true, tabId: "chat-1", runId: "run-1" },
       "/ask",
     );
     vi.setSystemTime(1_000 + ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS + 1);
@@ -142,16 +145,62 @@ describe("analytics chat handoff destinations", () => {
     ).toBe(false);
 
     updateAnalyticsChatHandoffForRun(
-      runningTabs,
-      { isRunning: false, tabId: "chat-1" },
+      runningRuns,
+      { isRunning: false, tabId: "chat-1", runId: "run-1" },
       "/dashboards/revenue",
     );
 
-    expect(runningTabs.has("chat-1")).toBe(false);
+    expect(runningRuns.has("chat-1")).toBe(false);
     expect(
       consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
         ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
       }),
     ).toBe(false);
+  });
+
+  it("keeps the successor run tracked after the first same-tab run completes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const runningRuns: AnalyticsChatRunningRuns = new Map();
+
+    updateAnalyticsChatHandoffForRun(
+      runningRuns,
+      { isRunning: true, tabId: "chat-1", runId: "run-a" },
+      "/ask",
+    );
+    vi.setSystemTime(1_000 + ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS + 1);
+    updateAnalyticsChatHandoffForRun(
+      runningRuns,
+      { isRunning: true, tabId: "chat-1", runId: "run-b" },
+      "/ask",
+    );
+    vi.setSystemTime(1_001 + ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS + 1);
+
+    updateAnalyticsChatHandoffForRun(
+      runningRuns,
+      { isRunning: false, tabId: "chat-1", runId: "run-a" },
+      "/ask",
+    );
+
+    vi.setSystemTime(1_002 + 2 * ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS + 1);
+    expect(
+      consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
+        ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+      }),
+    ).toBe(false);
+    expect(runningRuns.get("chat-1")?.runIds.has("run-b")).toBe(true);
+
+    updateAnalyticsChatHandoffForRun(
+      runningRuns,
+      { isRunning: false, tabId: "chat-1", runId: "run-b" },
+      "/ask",
+    );
+
+    expect(
+      consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
+        ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+      }),
+    ).toBe(true);
+    expect(runningRuns.has("chat-1")).toBe(false);
   });
 });
