@@ -234,6 +234,99 @@ describe("listAppUsageMetrics organization scoping", () => {
     expect(metrics.recent.map(({ id }) => id)).toEqual([4, 3, 2]);
   });
 
+  it("keeps older distinct turns after deduplicating legacy usage rows", async () => {
+    const now = Date.now();
+    const messages = Array.from({ length: 13 }, (_, index) => ({
+      message: {
+        id: `user-${index}`,
+        createdAt: new Date(now - 130_000 + index * 10_000).toISOString(),
+        role: "user",
+        content: [{ type: "text", text: `prompt ${index}` }],
+      },
+    }));
+    await pglite
+      .prepare(
+        `INSERT INTO chat_threads (id, preview, thread_data) VALUES (?, ?, ?)`,
+      )
+      .run("legacy-thread", "prompt 12", JSON.stringify({ messages }));
+
+    for (let index = 0; index < 13; index += 1) {
+      await pglite
+        .prepare(
+          `INSERT INTO token_usage (id, owner_email, label, app, thread_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          index + 1,
+          "a@example.com",
+          "chat",
+          "",
+          "legacy-thread",
+          now - 129_000 + index * 10_000,
+        );
+    }
+    for (let index = 0; index < 40; index += 1) {
+      await pglite
+        .prepare(
+          `INSERT INTO token_usage (id, owner_email, label, app, thread_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          100 + index,
+          "a@example.com",
+          "chat",
+          "",
+          "legacy-thread",
+          now - 4_000 + index * 80,
+        );
+    }
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "me" },
+      { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+    );
+
+    expect(metrics.recent).toHaveLength(12);
+    expect(metrics.recent[0]?.prompt).toBe("prompt 12");
+    expect(metrics.recent[11]?.prompt).toBe("prompt 1");
+  });
+
+  it("uses the sole legacy prompt when persisted messages have no timestamps", async () => {
+    await pglite
+      .prepare(
+        `INSERT INTO chat_threads (id, preview, thread_data) VALUES (?, ?, ?)`,
+      )
+      .run(
+        "timestampless-thread",
+        "legacy prompt",
+        JSON.stringify({
+          messages: [
+            {
+              message: {
+                id: "legacy-user",
+                role: "user",
+                content: [{ type: "text", text: "legacy prompt" }],
+              },
+            },
+          ],
+        }),
+      );
+    await pglite
+      .prepare(
+        `INSERT INTO token_usage (id, owner_email, label, app, thread_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(1, "a@example.com", "chat", "", "timestampless-thread", Date.now());
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "me" },
+      { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+    );
+
+    expect(metrics.recent[0]?.prompt).toBe("legacy prompt");
+    expect(metrics.recent[0]?.promptSource).toBe("thread");
+  });
+
   it("keeps estimated Builder credits visible while exact reporting is disabled", async () => {
     process.env.AGENT_ENGINE = "builder";
     await runWithRequestContext(

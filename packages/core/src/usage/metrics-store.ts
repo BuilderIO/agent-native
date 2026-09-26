@@ -480,11 +480,15 @@ function promptForTurn(
     timestamp: number;
     match: NonNullable<ReturnType<typeof promptAt>>;
   } | null = null;
+  let userMessageCount = 0;
+  let onlyUserMessageIndex = -1;
   for (let i = 0; i < messages.length; i += 1) {
     const message = messageRecord(messages[i]);
     if (!message || (message.role !== "user" && message.role !== "human")) {
       continue;
     }
+    userMessageCount += 1;
+    onlyUserMessageIndex = i;
     const timestamp = messageTimestamp(message);
     if (timestamp === null || timestamp > usageCreatedAt) continue;
     const match = promptAt(i);
@@ -492,7 +496,14 @@ function promptForTurn(
       latest = { timestamp, match };
     }
   }
-  return latest?.match ?? null;
+  if (latest) return latest.match;
+  if (userMessageCount === 1) {
+    const message = messageRecord(messages[onlyUserMessageIndex]);
+    if (message && messageTimestamp(message) === null) {
+      return promptAt(onlyUserMessageIndex);
+    }
+  }
+  return null;
 }
 
 async function hydrateRecentPrompts(
@@ -669,26 +680,16 @@ export async function listAppUsageMetrics(
           ORDER BY created_at ASC`,
         args: baseArgs,
       }),
+      // ponytail: cap legacy prompt hydration at 240 rows; raise only if real
+      // histories routinely crowd distinct prompts out of the 12-turn list.
       getDbExec().execute({
-        sql: `WITH ranked_recent AS (
-            SELECT id, created_at, owner_email, app, label, model,
-              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-              cost_cents_x100, builder_credits_used, engine_name, thread_id, task_id,
-              ROW_NUMBER() OVER (
-                PARTITION BY owner_email, app, thread_id, task_id,
-                  CASE WHEN thread_id IS NULL OR task_id IS NULL THEN id ELSE 0 END
-                ORDER BY created_at DESC, id DESC
-              ) AS turn_rank
-            FROM token_usage
-            WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?
-          )
-          SELECT id, created_at, owner_email, app, label, model,
+        sql: `SELECT id, created_at, owner_email, app, label, model,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
             cost_cents_x100, builder_credits_used, engine_name, thread_id, task_id
-          FROM ranked_recent
-          WHERE turn_rank = 1
+          FROM token_usage
+          WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?
           ORDER BY created_at DESC, id DESC
-          LIMIT 12`,
+          LIMIT 240`,
         args: baseArgs,
       }),
     ]);

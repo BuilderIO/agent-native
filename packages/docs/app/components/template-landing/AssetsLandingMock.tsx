@@ -223,7 +223,6 @@ export function AssetsLandingMock({
                         src={artwork[0]}
                         alt=""
                         draggable={false}
-                        loading="lazy"
                         decoding="async"
                       />
                       <div className="as-generated-secondary">
