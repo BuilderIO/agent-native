@@ -251,6 +251,19 @@ describe("Builder connection scope", () => {
       "Owners and admins connect Builder.io for the organization.",
     );
 
+    // A scopeless connect started as a member still lands personally, so a
+    // member promoted mid-flow is refused rather than shadowing the org grant.
+    await expect(
+      resolveBuilderCallbackPersonalDeny(
+        createMockEvent(),
+        "admin@example.com",
+        null,
+        "member",
+      ),
+    ).resolves.toBe(
+      "Owners and admins connect Builder.io for the organization.",
+    );
+
     // An org connect is re-checked by resolveBuilderCallbackWrite instead.
     await expect(
       resolveBuilderCallbackPersonalDeny(

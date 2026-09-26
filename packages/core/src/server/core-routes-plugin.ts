@@ -561,6 +561,9 @@ export function parseBuilderConnectionScope(
   return value === "org" || value === "personal" ? value : "invalid";
 }
 
+const BUILDER_PERSONAL_CONNECTION_DENIED =
+  "Owners and admins connect Builder.io for the organization.";
+
 /**
  * Who may start a connect for the named Builder.io connection. The org
  * connection needs owner/admin; a personal one is for members only, and only
@@ -581,10 +584,7 @@ export async function resolveBuilderConnectAuthorization(
       : { ...member, deny: BUILDER_ORG_CONNECTION_DENIED };
   }
   if (!canRoleConnectPersonalBuilder(member.role)) {
-    return {
-      ...member,
-      deny: "Owners and admins connect Builder.io for the organization.",
-    };
+    return { ...member, deny: BUILDER_PERSONAL_CONNECTION_DENIED };
   }
   if (
     !(await isPersonalBuilderGrantAllowed({
@@ -639,6 +639,15 @@ export async function resolveBuilderCallbackPersonalDeny(
     ).deny;
   }
   if (requestedScope === null && !isBuilderOrgManagerRole(pendingRole)) {
+    // The write keeps the role captured at start, so this flow lands as a
+    // personal grant; someone promoted since would shadow the org's
+    // connection with it.
+    const member = await resolveBuilderOrgMutation(event, {
+      allowMemberInitiation: true,
+    });
+    if (member.orgId && isBuilderOrgManagerRole(member.role)) {
+      return BUILDER_PERSONAL_CONNECTION_DENIED;
+    }
     return resolveScopelessBuilderConnectRestriction(event, ownerEmail);
   }
   return null;
