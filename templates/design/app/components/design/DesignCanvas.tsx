@@ -1142,7 +1142,7 @@ interface DesignCanvasProps {
    * persisted primitive (see `appendCanvasPrimitiveToHtml` /
    * `draftPrimitiveToInsert` on the overview side).
    */
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | false | void;
   onUpdatePenPath?: (
     nodeId: string,
     path: PenPath,
@@ -8636,7 +8636,7 @@ interface SingleScreenCreationOverlayProps {
   tool: CreationTool;
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   selectedPenPathNodeId?: string | null;
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | false | void;
   onUpdatePenPath?: (
     nodeId: string,
     path: PenPath,
@@ -8801,7 +8801,6 @@ function SingleScreenCreationOverlay({
           options?.preserveActiveTool === false ? "move" : undefined,
         );
         if (!updated) {
-          continuationPenPathRef.current = null;
           updatePenPath(committed);
           setPenGesturePreview(null);
           return;
@@ -8824,6 +8823,10 @@ function SingleScreenCreationOverlay({
           preserveActiveTool: options?.preserveActiveTool,
           nextTool: options?.nextTool,
         });
+        if (nodeId === false) {
+          updatePenPath(committed);
+          return;
+        }
         continuationPenPathRef.current =
           typeof nodeId === "string" &&
           !committed.closed &&

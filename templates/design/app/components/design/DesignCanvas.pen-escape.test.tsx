@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
 
+import {
+  createCornerNode,
+  serializePenNodes,
+  type PenPath,
+} from "@shared/pen-path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -66,33 +71,48 @@ describe("DesignCanvas Pen path completion", () => {
   });
 
   async function renderPenCanvas(
-    onCreatePrimitive: (spec: CreatePrimitiveSpec) => string | void,
+    onCreatePrimitive: (spec: CreatePrimitiveSpec) => string | false | void,
   ) {
-    await act(async () => {
-      root.render(
-        <DesignCanvas
-          content="<!doctype html><html><body></body></html>"
-          contentKey="screen"
-          screenId="screen"
-          zoom={100}
-          deviceFrame="none"
-          interactMode={false}
-          editMode
-          registerRuntimeBridge={false}
-          embeddedFrame={{
-            viewportWidth: 800,
-            viewportHeight: 600,
-            displayWidth: 800,
-            displayHeight: 600,
-          }}
-          activeCreationTool="pen"
-          onCreatePrimitive={onCreatePrimitive}
-          onElementSelect={() => {}}
-          onElementHover={() => {}}
-          tweakValues={{}}
-        />,
-      );
-    });
+    let options: {
+      content?: string;
+      selectedPenPathNodeId?: string | null;
+      onUpdatePenPath?: (
+        nodeId: string,
+        path: PenPath,
+        nextTool?: "move",
+      ) => boolean;
+    } = {};
+    const render = async () =>
+      act(async () => {
+        root.render(
+          <DesignCanvas
+            content={
+              options.content ?? "<!doctype html><html><body></body></html>"
+            }
+            contentKey="screen"
+            screenId="screen"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            embeddedFrame={{
+              viewportWidth: 800,
+              viewportHeight: 600,
+              displayWidth: 800,
+              displayHeight: 600,
+            }}
+            activeCreationTool="pen"
+            selectedPenPathNodeId={options.selectedPenPathNodeId}
+            onCreatePrimitive={onCreatePrimitive}
+            onUpdatePenPath={options.onUpdatePenPath}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        );
+      });
+    await render();
 
     const overlay = container.querySelector<HTMLDivElement>(
       "[data-design-canvas-creation-overlay]",
@@ -136,7 +156,16 @@ describe("DesignCanvas Pen path completion", () => {
       });
     };
 
-    return { releasePointerCapture, click, pressKey, sendPointer };
+    return {
+      releasePointerCapture,
+      click,
+      pressKey,
+      sendPointer,
+      update: async (nextOptions: typeof options) => {
+        options = { ...options, ...nextOptions };
+        await render();
+      },
+    };
   }
 
   it("releases an active anchor or closing gesture without restoring or committing it", async () => {
@@ -180,5 +209,79 @@ describe("DesignCanvas Pen path completion", () => {
         preserveActiveTool: false,
       }),
     );
+  });
+
+  it("keeps a new path visible when its create callback rejects the commit", async () => {
+    const onCreatePrimitive = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce("created-path");
+    const { click, pressKey } = await renderPenCanvas(onCreatePrimitive);
+
+    await click(1, 120, 120);
+    await click(2, 180, 180);
+    await pressKey("Enter");
+
+    expect(onCreatePrimitive).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+
+    await pressKey("Enter");
+
+    expect(onCreatePrimitive).toHaveBeenCalledTimes(2);
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+  });
+
+  it("retries a rejected continuation update against the same vector", async () => {
+    const path: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 100, y: 100 }),
+        createCornerNode({ x: 200, y: 100 }),
+      ],
+    };
+    const onCreatePrimitive = vi.fn();
+    const onUpdatePenPath = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const { click, pressKey, update } =
+      await renderPenCanvas(onCreatePrimitive);
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "[data-design-preview-iframe]",
+    );
+    const frameDocument = iframe?.contentDocument;
+    expect(frameDocument).not.toBeNull();
+    frameDocument!.body.innerHTML = `<svg viewBox="0 0 400 400" data-agent-native-node-id="vector-a" data-an-pen-nodes='${serializePenNodes(path)}'><path d="M 100 100 L 200 100" /></svg>`;
+    const svg = frameDocument!.querySelector("svg");
+    expect(svg).not.toBeNull();
+    Object.defineProperty(svg!, "getScreenCTM", {
+      value: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+    });
+    await update({ selectedPenPathNodeId: "vector-a", onUpdatePenPath });
+
+    await click(1, 200, 100);
+    await click(2, 280, 160);
+    await pressKey("Enter");
+
+    expect(
+      container.querySelectorAll("[data-pen-anchor]").length,
+    ).toBeGreaterThanOrEqual(2);
+    await pressKey("Enter");
+
+    expect(onUpdatePenPath).toHaveBeenCalledTimes(2);
+    expect(onUpdatePenPath).toHaveBeenNthCalledWith(
+      1,
+      "vector-a",
+      expect.objectContaining({ closed: false }),
+      undefined,
+    );
+    expect(onUpdatePenPath).toHaveBeenNthCalledWith(
+      2,
+      "vector-a",
+      expect.objectContaining({ closed: false }),
+      undefined,
+    );
+    expect(onCreatePrimitive).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
   });
 });

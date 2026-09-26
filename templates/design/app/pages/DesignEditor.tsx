@@ -11688,12 +11688,12 @@ function DesignEditor() {
    */
   const handleSingleScreenCreatePrimitive = useCallback(
     (spec: CreatePrimitiveSpec) => {
-      if (!activeFile || !canEditDesign) return;
+      if (!activeFile || !canEditDesign) return false;
       const nodeId = uniqueLayerId(spec.tool === "pen" ? "path" : spec.tool);
       const primitive = createPrimitiveInsertFromSpec(spec, nodeId);
-      if (!primitive) return;
+      if (!primitive) return false;
       const result = handleCreatePrimitive(activeFile.id, primitive);
-      if (!result) return;
+      if (!result) return false;
       const resultNodeId = typeof result === "string" ? result : nodeId;
       handlePrimitiveCreated(activeFile.id, resultNodeId, {
         nextTool:
