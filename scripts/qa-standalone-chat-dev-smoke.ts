@@ -2883,6 +2883,7 @@ async function runBrowserSmoke(
   network: BrowserNetworkState,
   browserErrors: string[],
   httpErrors: string[],
+  pendingHttpErrorDetails: Promise<void>[],
 ): Promise<void> {
   const baseUrl = running.baseUrl;
   // Warmup covers `/home` auto-login and the authenticated Chat handoff.
@@ -2935,6 +2936,7 @@ async function runBrowserSmoke(
 
   assert.deepEqual(browserErrors, [], "browser console/page errors on Chat");
   discardSettledNavigationAborts(httpErrors);
+  await Promise.all(pendingHttpErrorDetails);
   assert.deepEqual(httpErrors, [], "browser HTTP errors on Chat");
 }
 
@@ -3012,6 +3014,7 @@ async function main(): Promise<void> {
   let cleanupError: unknown;
   const browserErrors: string[] = [];
   const httpErrors: string[] = [];
+  const pendingHttpErrorDetails: Promise<void>[] = [];
   const browserDiagnostics: string[] = [];
   const network: BrowserNetworkState = {
     allowInitialHomeWarmupErrors: true,
@@ -3174,7 +3177,7 @@ async function main(): Promise<void> {
         `requestfailed ${request.method()} ${url}: ${request.failure()?.errorText ?? "unknown failure"}`,
       );
     });
-    page.on("response", async (response) => {
+    page.on("response", (response) => {
       const status = response.status();
       if (status < 400) return;
       const url = response.url();
@@ -3183,13 +3186,20 @@ async function main(): Promise<void> {
         recordSuppressedNoise(`${status} ${url}`);
         return;
       }
-      const detail =
-        status >= 500 && new URL(url).pathname === "/_agent-native/poll"
-          ? await response.text().catch(() => "")
-          : "";
-      httpErrors.push(
-        `${status} ${url}${detail ? `: ${detail.slice(0, 500)}` : ""}`,
-      );
+      const error = `${status} ${url}`;
+      const errorIndex = httpErrors.push(error) - 1;
+      if (status >= 500 && new URL(url).pathname === "/_agent-native/poll") {
+        pendingHttpErrorDetails.push(
+          response
+            .text()
+            .then((detail) => {
+              if (detail) {
+                httpErrors[errorIndex] = `${error}: ${detail.slice(0, 500)}`;
+              }
+            })
+            .catch(() => {}),
+        );
+      }
     });
 
     await runBrowserSmoke(
@@ -3199,6 +3209,7 @@ async function main(): Promise<void> {
       network,
       browserErrors,
       httpErrors,
+      pendingHttpErrorDetails,
     );
     assertCleanServerLogs(running.logs);
 
