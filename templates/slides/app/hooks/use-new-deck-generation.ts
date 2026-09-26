@@ -16,6 +16,9 @@ import {
 
 import { CHAT_STOP_DEBOUNCE_MS } from "./use-agent-generating";
 
+export const NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT =
+  "agentNative.chatSubmitTarget";
+
 type NewDeckGenerationLifecycle = {
   deckId: string;
   isNewDeckCreation: boolean;
@@ -332,12 +335,19 @@ export function useNewDeckGenerationRun(
           ? { ...previous, tabId: detail.tabId }
           : previous,
       );
-      rememberRunTabId(currentRun.deckId, submitId, detail.tabId);
+      rememberNewDeckGenerationRunTab(
+        currentRun.deckId,
+        submitId,
+        detail.tabId,
+      );
     };
-    window.addEventListener("agentNative.chatSubmitTarget", handleSubmitTarget);
+    window.addEventListener(
+      NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT,
+      handleSubmitTarget,
+    );
     return () =>
       window.removeEventListener(
-        "agentNative.chatSubmitTarget",
+        NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT,
         handleSubmitTarget,
       );
   }, [currentRun.deckId, currentRun.submitMessageId, currentRun.tabId]);
@@ -449,7 +459,7 @@ function getRunTabId(deckId: string, submitMessageId: string): string | null {
   return stored;
 }
 
-function rememberRunTabId(
+export function rememberNewDeckGenerationRunTab(
   deckId: string,
   submitMessageId: string,
   tabId: string,

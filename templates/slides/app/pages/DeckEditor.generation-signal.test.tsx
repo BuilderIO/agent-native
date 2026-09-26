@@ -117,6 +117,7 @@ vi.mock("@/context/DeckContext", () => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  AGENT_CHAT_SUBMIT_TARGET_EVENT: "agentNative.chatSubmitTarget",
   AGENT_CHAT_SUBMIT_RESULT_EVENT: "agentNative.chatSubmitResult",
   useGuidedQuestionFlow: () => ({
     questions: [],
@@ -645,10 +646,12 @@ describe("DeckEditor generation signal wiring", () => {
       kind: string;
       retryAttemptId: string;
       restoreAttemptId: string;
+      ownerTabId: string;
       restoreSearchParams: string;
     };
     expect(recovery.kind).toBe("retry_rollback");
     expect(recovery.restoreAttemptId).toBe("attempt-1");
+    expect(recovery.ownerTabId).toEqual(expect.any(String));
     expect(recovery.restoreSearchParams).toBe("source=history");
 
     cleanup();
@@ -752,6 +755,98 @@ describe("DeckEditor generation signal wiring", () => {
     render(<RouterProvider router={router} />);
 
     expect(window.localStorage.getItem(recoveryKey)).toBe(serializedRecovery);
+  });
+
+  it("limits retry rollback recovery to the submitting tab", async () => {
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    const ownerKey = "slides:empty-generation-retry-owner:deck-1";
+    const serializedRecovery = JSON.stringify({
+      kind: "retry_rollback",
+      retryAttemptId: "attempt-2",
+      restoreAttemptId: "attempt-1",
+      ownerTabId: "retry-owner-tab",
+      restoreSearchParams: "source=history",
+    });
+    window.localStorage.setItem(recoveryKey, serializedRecovery);
+    window.sessionStorage.setItem(ownerKey, "other-editor-tab");
+    Object.assign(mocks.deck, {
+      generationContext: {
+        generationAttemptId: "attempt-2",
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "attempt-1",
+      },
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1?source=history"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(mocks.deck.generationContext.generationAttemptId).toBe("attempt-2");
+    expect(window.localStorage.getItem(recoveryKey)).toBe(serializedRecovery);
+
+    cleanup();
+    router?.dispose();
+    router = undefined;
+    window.sessionStorage.setItem(ownerKey, "retry-owner-tab");
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1?source=history"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(mocks.deck.generationContext.generationAttemptId).toBe(
+        "attempt-1",
+      ),
+    );
+    await waitFor(() =>
+      expect(window.localStorage.getItem(recoveryKey)).toBeNull(),
+    );
+  });
+
+  it("persists the retry tab mapping before a synchronous submit-target event", async () => {
+    Object.assign(mocks.deck, {
+      generationContext: {
+        generationAttemptId: "attempt-1",
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "attempt-1",
+      },
+    });
+    mocks.submitAndConfirm.mockImplementationOnce(
+      async (_message, _context, options) => {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatSubmitTarget", {
+            detail: {
+              submitMessageId: options?.submitMessageId,
+              tabId: "retry-tab",
+            },
+          }),
+        );
+        return { tabId: "retry-tab", delivered: true };
+      },
+    );
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+
+    const submitMessageId = new URLSearchParams(
+      router.state.location.search,
+    ).get("generationSubmitId");
+    expect(submitMessageId).toBeTruthy();
+    expect(
+      window.sessionStorage.getItem(
+        `slides:new-deck-generation:deck-1:${submitMessageId}`,
+      ),
+    ).toBe("retry-tab");
   });
 
   it("shows feedback when retry delivery is rejected", async () => {

@@ -115,6 +115,8 @@ import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
 import {
   clearNewDeckGenerationRun,
+  NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT,
+  rememberNewDeckGenerationRunTab,
   useNewDeckGeneration,
   useNewDeckGenerationRun,
 } from "@/hooks/use-new-deck-generation";
@@ -397,6 +399,7 @@ type EmptyGenerationRecovery =
       kind: "retry_rollback";
       retryAttemptId: string;
       restoreAttemptId: string | null;
+      ownerTabId?: string;
       restoreSearchParams?: string;
     }
   | { kind: "retry_accepted"; retryAttemptId: string }
@@ -424,6 +427,9 @@ function parseEmptyGenerationRecovery(
       kind: "retry_rollback",
       retryAttemptId: record.retryAttemptId,
       restoreAttemptId: record.restoreAttemptId,
+      ...(typeof record.ownerTabId === "string"
+        ? { ownerTabId: record.ownerTabId }
+        : {}),
       ...(typeof record.restoreSearchParams === "string"
         ? { restoreSearchParams: record.restoreSearchParams }
         : {}),
@@ -450,6 +456,21 @@ function parseEmptyGenerationRecovery(
     };
   }
   return null;
+}
+
+function getEmptyGenerationRetryOwnerTabId(deckId: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const key = `slides:empty-generation-retry-owner:${deckId}`;
+    const stored = window.sessionStorage.getItem(key);
+    if (stored) return stored;
+    const ownerTabId = nanoid();
+    window.sessionStorage.setItem(key, ownerTabId);
+    return ownerTabId;
+  } catch (error) {
+    console.error("Failed to store Slides retry tab identity.", error);
+    return null;
+  }
 }
 
 function clearEmptyGenerationRecovery(
@@ -937,6 +958,23 @@ export default function DeckEditor() {
     }
     if (recovery.kind === "retry_rollback") {
       if (recovery.retryAttemptId !== generationAttemptId) return;
+      if (recovery.ownerTabId) {
+        try {
+          if (
+            window.sessionStorage.getItem(
+              `slides:empty-generation-retry-owner:${id}`,
+            ) !== recovery.ownerTabId
+          ) {
+            return;
+          }
+        } catch {
+          return;
+        }
+      } else if (
+        searchParams.get("generation_attempt_id") !== recovery.retryAttemptId
+      ) {
+        return;
+      }
       if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
       emptyGenerationRecoveryRef.current = serializedRecovery;
       if (
@@ -1329,6 +1367,13 @@ export default function DeckEditor() {
     const originalSearchParams = new URLSearchParams(searchParams);
     const retryAttemptId = nanoid();
     const submitMessageId = nanoid();
+    const ownerTabId = getEmptyGenerationRetryOwnerTabId(id);
+    if (!ownerTabId) {
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
+      toast.error(t("settings.saveFailed"));
+      return;
+    }
     const retryContext = {
       ...generationContext,
       generationAttemptId: retryAttemptId,
@@ -1338,6 +1383,7 @@ export default function DeckEditor() {
     const rollbackRecovery: EmptyGenerationRecovery = {
       kind: "retry_rollback",
       retryAttemptId,
+      ownerTabId,
       restoreAttemptId:
         typeof generationContext.generationFailureAttemptId === "string"
           ? generationContext.generationFailureAttemptId
@@ -1424,9 +1470,25 @@ export default function DeckEditor() {
           acceptedRecoverySerialized = storeRecovery(acceptedRecovery);
         }
       };
+      const rememberRetrySubmitTarget = (event: Event) => {
+        const { detail } = event as CustomEvent<{
+          submitMessageId?: string;
+          tabId?: string;
+        }>;
+        if (
+          detail?.submitMessageId === submitMessageId &&
+          typeof detail.tabId === "string"
+        ) {
+          rememberNewDeckGenerationRunTab(id, submitMessageId, detail.tabId);
+        }
+      };
       let submission: Awaited<
         ReturnType<typeof submitGenerationAttemptAndConfirm>
       >;
+      window.addEventListener(
+        NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT,
+        rememberRetrySubmitTarget,
+      );
       window.addEventListener(
         AGENT_CHAT_SUBMIT_RESULT_EVENT,
         rememberConfirmedDelivery,
@@ -1453,6 +1515,10 @@ export default function DeckEditor() {
         );
         return;
       } finally {
+        window.removeEventListener(
+          NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT,
+          rememberRetrySubmitTarget,
+        );
         window.removeEventListener(
           AGENT_CHAT_SUBMIT_RESULT_EVENT,
           rememberConfirmedDelivery,
