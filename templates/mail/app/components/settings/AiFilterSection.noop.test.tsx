@@ -251,6 +251,61 @@ describe("AiFilterSection prompt blur saves", () => {
     expect(mocks.refetchJevAvailability).toHaveBeenCalledOnce();
   });
 
+  it("allows clearing existing prompt rules when Jev is unavailable", async () => {
+    mocks.jevConfigured = false;
+    render(<AiFilterSection />, { wrapper: MemoryRouter });
+
+    const prompt = screen.getByRole("textbox", {
+      name: "mail.aiFilter.importantMode",
+    });
+    expect((prompt as HTMLTextAreaElement).disabled).toBe(false);
+    fireEvent.change(prompt, { target: { value: "" } });
+    fireEvent.blur(prompt);
+
+    await waitFor(() => {
+      expect(mocks.deleteRule).toHaveBeenCalledWith("important-rule");
+      expect(mocks.deleteRule).toHaveBeenCalledWith("important-rule-duplicate");
+    });
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.consolidateRule).not.toHaveBeenCalled();
+  });
+
+  it("does not save non-empty prompt edits when Jev is unavailable", async () => {
+    mocks.jevConfigured = false;
+    render(<AiFilterSection />, { wrapper: MemoryRouter });
+
+    const prompt = screen.getByRole("textbox", {
+      name: "mail.aiFilter.importantMode",
+    });
+    fireEvent.change(prompt, { target: { value: "A new instruction" } });
+    fireEvent.blur(prompt);
+
+    await waitFor(() => {
+      expect((prompt as HTMLTextAreaElement).value).toBe(
+        "Human comments on GitHub matter\nImportant customer conversations",
+      );
+    });
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.consolidateRule).not.toHaveBeenCalled();
+    expect(mocks.deleteRule).not.toHaveBeenCalled();
+  });
+
+  it("allows deleting existing AI tags when Jev is unavailable", async () => {
+    mocks.includeTagRule = true;
+    mocks.jevConfigured = false;
+    render(<AiFilterSection />, { wrapper: MemoryRouter });
+
+    const deleteButton = screen.getByRole("button", {
+      name: "mail.aiFilter.deleteInstruction",
+    });
+    expect((deleteButton as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => {
+      expect(mocks.deleteRule).toHaveBeenCalledWith("tag-rule");
+    });
+  });
+
   it("keeps disabled instructions out of prompt edits", async () => {
     mocks.includeDisabledImportant = true;
     mocks.consolidateRule.mockResolvedValue({ saved: true });

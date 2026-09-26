@@ -158,9 +158,7 @@ function AiTagRow({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100"
           aria-label={t("mail.aiFilter.deleteInstruction")}
-          disabled={disabled}
           onClick={() => onDelete(rule)}
         >
           <IconTrash className="size-3.5" />
@@ -208,6 +206,10 @@ export function AiFilterSection() {
   );
   const jevConfigured =
     !jevAvailability.isError && jevAvailability.data?.configured === true;
+  const jevUnavailable =
+    !jevAvailability.isLoading &&
+    !jevAvailability.isError &&
+    jevAvailability.data?.configured === false;
   const updateSettings = useManageAiFilter();
   const updatePreferences = useUpdateSettings();
   const consolidateAiFilterRules = useConsolidateAiFilterRules();
@@ -297,11 +299,17 @@ export function AiFilterSection() {
   };
 
   const savePrompt = async (mode: PromptMode) => {
-    if (!jevConfigured) return;
     const condition = promptDrafts[mode].trim();
     const existing = promptRules[mode];
-    const actions = actionsForMode(mode);
     if (condition === promptForRules(existing)) return;
+    if (!jevConfigured && condition) {
+      setPromptDrafts((drafts) => ({
+        ...drafts,
+        [mode]: promptForRules(existing),
+      }));
+      return;
+    }
+    const actions = actionsForMode(mode);
 
     const restoreRules = async (rulesToRestore: AutomationRule[]) => {
       const errors: unknown[] = [];
@@ -505,7 +513,6 @@ export function AiFilterSection() {
   };
 
   const removeTag = async (rule: AutomationRule) => {
-    if (!jevConfigured) return;
     try {
       await deleteRule.mutateAsync(rule.id);
       const labelName = labelForRule(rule);
@@ -729,10 +736,14 @@ export function AiFilterSection() {
             </h3>
             <AiRulePromptField
               value={promptDrafts[mode]}
-              disabled={!jevConfigured}
-              onChange={(value) =>
-                setPromptDrafts((drafts) => ({ ...drafts, [mode]: value }))
+              disabled={
+                !jevConfigured &&
+                !(jevUnavailable && promptRules[mode].length > 0)
               }
+              onChange={(value) => {
+                if (!jevConfigured && value.trim()) return;
+                setPromptDrafts((drafts) => ({ ...drafts, [mode]: value }));
+              }}
               onBlur={() => void savePrompt(mode)}
               label={
                 mode === "important"
