@@ -1,4 +1,3 @@
-
 import path from "node:path";
 
 import { getDatabaseUrl, toPostgresParams } from "../../db/client.js";

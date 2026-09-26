@@ -1,4 +1,3 @@
-
 import { z } from "zod";
 
 import type { EventDefinition } from "./types.js";

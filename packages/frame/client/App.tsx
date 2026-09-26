@@ -1,4 +1,3 @@
-
 import {
   clampAgentSidebarWidth,
   getAgentSidebarWideWidth,
@@ -210,7 +209,6 @@ export function App() {
     if (appId !== "design") return;
     return installDesktopDesignPreviewRelay({ iframeRef, appUrl });
   }, [appId, appUrl]);
-
 
   useEffect(() => {
     try {

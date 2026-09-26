@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-
 const SRC_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const NODE_BUILTINS = new Set([

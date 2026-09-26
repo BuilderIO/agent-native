@@ -139,7 +139,6 @@ describe("splitMarkdownBlocks", () => {
   });
 });
 
-
 describe("CRLF line endings", () => {
   it("splits two CRLF paragraphs separated by a blank CRLF line", () => {
     const text = "First.\r\n\r\nSecond.";

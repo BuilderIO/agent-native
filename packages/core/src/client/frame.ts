@@ -3,8 +3,6 @@ import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { frameworkRoutePrefix, isFrameworkRoutePath } from "./api-path.js";
 import { agentNativePath } from "./api-path.js";
 
-
-
 export function sendToFrame(type: string, data?: any): void {
   if (typeof window === "undefined") return;
   const target = window.parent !== window ? window.parent : window;
@@ -28,7 +26,6 @@ export function onFrameMessage(
   window.addEventListener("message", listener);
   return () => window.removeEventListener("message", listener);
 }
-
 
 let _frameOrigin: string | null = null;
 
@@ -226,7 +223,6 @@ export function oauthRedirectUri(callbackPath: string): string {
   return `${origin}${path}`;
 }
 
-
 export interface UserInfo {
   name?: string;
   email?: string;
@@ -269,7 +265,6 @@ export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
     );
   });
 }
-
 
 export function enterStyleEditing(selector: string): void {
   sendToFrame("agentNative.enterStyleEditing", { selector });

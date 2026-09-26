@@ -26,8 +26,6 @@ import {
 } from "./code-tabs.config.js";
 import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
 
-
-
 const lowlight = createLowlight(common);
 
 type LowlightNode = {
@@ -173,7 +171,6 @@ function highlightCode(code: string, language?: string): ReactNode {
   }
 }
 
-
 function CodeTabsRead({ data, blockId, title }: BlockReadProps<CodeTabsData>) {
   const [activeId, setActiveId] = useState(data.tabs[0]?.id ?? "");
   const active = data.tabs.find((tab) => tab.id === activeId) ?? data.tabs[0];
@@ -234,7 +231,6 @@ function CodeTabsRead({ data, blockId, title }: BlockReadProps<CodeTabsData>) {
     </section>
   );
 }
-
 
 const inputClass =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
@@ -567,7 +563,6 @@ function CodeTabsSettingsPopover({
     </Popover>
   );
 }
-
 
 export const codeTabsBlock = defineBlock<CodeTabsData>({
   type: "code-tabs",

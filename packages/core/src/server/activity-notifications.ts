@@ -1,4 +1,3 @@
-
 import { getUserSetting } from "../settings/user-settings.js";
 import { isEmailConfigured } from "./email.js";
 

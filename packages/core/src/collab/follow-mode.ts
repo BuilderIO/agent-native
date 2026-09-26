@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useCallback, useState } from "react";
 
 import type { OtherPresence } from "./presence.js";

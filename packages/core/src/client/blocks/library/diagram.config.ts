@@ -3,7 +3,6 @@ import { z } from "zod";
 import { childCodeFenceFields, serializeChildCodeFenceFields } from "../mdx.js";
 import type { BlockMdxConfig, BlockVisualFrame } from "../types.js";
 
-
 export interface DiagramNode {
   id: string;
   label: string;

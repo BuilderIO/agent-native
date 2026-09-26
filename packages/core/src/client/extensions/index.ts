@@ -61,7 +61,6 @@ export {
   type CreateHttpAgentNativeExtensionStorageOptions,
 } from "./portable-extension.js";
 
-
 export { ExtensionsSidebarSection as ToolsSidebarSection } from "./ExtensionsSidebarSection.js";
 export {
   ExtensionViewer as ToolViewer,

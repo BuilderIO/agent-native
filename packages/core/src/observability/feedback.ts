@@ -14,7 +14,6 @@ function generateId(): string {
   return `fb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-
 export interface SubmitFeedbackOpts {
   threadId: string;
   runId?: string;
@@ -54,7 +53,6 @@ export async function submitFeedback(
   await insertFeedback(entry);
   return entry;
 }
-
 
 interface ThreadMessage {
   role: "user" | "assistant";

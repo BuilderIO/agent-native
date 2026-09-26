@@ -1176,7 +1176,6 @@ describe("useDbSync", () => {
     container.remove();
   });
 
-
   it("uses a single fetch when useDbSync and useScreenRefreshKey are both mounted", async () => {
     const queryClient = new QueryClientProbe();
     let callCount = 0;

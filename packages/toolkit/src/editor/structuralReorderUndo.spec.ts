@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 
-
 const BlockAtom = Node.create({
   name: "blockAtom",
   group: "block",

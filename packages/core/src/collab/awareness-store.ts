@@ -1,4 +1,3 @@
-
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import type { AwarenessEntry } from "./awareness.js";

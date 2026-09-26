@@ -1,4 +1,3 @@
-
 export type WireEventType =
   | "text"
   | "thinking"

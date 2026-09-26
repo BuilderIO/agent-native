@@ -1,4 +1,3 @@
-
 export interface CliEntry {
   label: string;
   installPackage: string;

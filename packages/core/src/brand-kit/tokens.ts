@@ -1,4 +1,3 @@
-
 import type { BrandKitToken, BrandKitTokenType } from "./types.js";
 
 const BRAND_KIT_TOKEN_TYPES: readonly BrandKitTokenType[] = [

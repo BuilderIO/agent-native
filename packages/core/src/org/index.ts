@@ -1,4 +1,3 @@
-
 function lazyFunction<TModule, TKey extends keyof TModule>(
   load: () => Promise<TModule>,
   name: TKey,

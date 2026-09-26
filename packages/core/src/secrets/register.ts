@@ -1,4 +1,3 @@
-
 export type SecretScope = "user" | "workspace" | "org";
 export type SecretKind = "api-key" | "oauth";
 

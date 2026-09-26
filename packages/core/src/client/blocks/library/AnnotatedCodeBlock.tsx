@@ -31,8 +31,6 @@ import {
 } from "./code-highlight.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
-
-
 const COLLAPSE_MIN_TOTAL_LINES = 40;
 
 const COLLAPSE_THRESHOLD = 16;
@@ -104,7 +102,6 @@ function buildLineSegments(
     return seg;
   });
 }
-
 
 function AnnotatedCodeRead({
   data,
@@ -502,7 +499,6 @@ function AnnotatedCodeRead({
     </section>
   );
 }
-
 
 const codeAreaClass =
   "min-h-[160px] font-mono [font-size:var(--plan-code-size)] leading-5";

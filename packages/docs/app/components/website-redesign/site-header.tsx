@@ -61,12 +61,7 @@ function GithubStarsButton({ starCount, className }: GithubStarsButtonProps) {
     <Button
       variant="secondary"
       dimBorder
-      className={[
-        "min-w-[96px]",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={["min-w-[96px]", className].filter(Boolean).join(" ")}
       href={GITHUB_REPO_URL}
       target="_blank"
       rel="noreferrer"
@@ -164,9 +159,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
   const searchLabel = t("header.searchAria");
 
   return (
-    <header
-      className="builder-brand-tokens sticky top-0 z-50 h-[64px] w-full border-b border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] backdrop-blur-[12px]"
-    >
+    <header className="builder-brand-tokens sticky top-0 z-50 h-[64px] w-full border-b border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] backdrop-blur-[12px]">
       <div className="mx-auto flex h-full w-full max-w-site items-center justify-between">
         <div className="flex items-center gap-[var(--spacing-8)]">
           <LogoContextMenu brandHref={localizedPath("/brand")}>

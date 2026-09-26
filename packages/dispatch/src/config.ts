@@ -1,4 +1,3 @@
-
 export interface DispatchAuthConfig {
   googleOnly?: boolean;
   marketing?: Record<string, unknown>;

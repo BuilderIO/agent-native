@@ -1,4 +1,3 @@
-
 import { table, text, integer, now } from "../../db/schema.js";
 
 export const extensionSlots = table("tool_slots", {

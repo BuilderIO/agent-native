@@ -1,4 +1,3 @@
-
 import {
   createAcpHarnessAdapter,
   type AcpHarnessAdapterOptions,

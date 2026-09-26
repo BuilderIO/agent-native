@@ -1,4 +1,3 @@
-
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 
@@ -166,7 +165,6 @@ export async function deleteCollabState(docId: string): Promise<void> {
     args: [docId],
   });
 }
-
 
 function uint8ArrayToBase64(arr: Uint8Array): string {
   if (typeof Buffer !== "undefined") {

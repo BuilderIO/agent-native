@@ -13,7 +13,6 @@ import {
 } from "../../mcp-client/index.js";
 import { getH3App } from "../framework-request-handler.js";
 
-
 let _globalMcpManager: McpClientManager | null = null;
 let _globalMcpManagerReady: (() => Promise<void>) | null = null;
 let _globalMcpManagerGeneration = 0;

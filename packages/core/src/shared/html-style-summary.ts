@@ -1,4 +1,3 @@
-
 export interface HtmlStyleFragment {
   label: string;
   html: string;

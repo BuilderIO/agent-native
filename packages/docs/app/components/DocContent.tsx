@@ -1,4 +1,3 @@
-
 import { Suspense } from "react";
 
 import { hasDocBlockSyntax } from "./doc-block-detection";

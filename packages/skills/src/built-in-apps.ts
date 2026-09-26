@@ -1,4 +1,3 @@
-
 export type BuiltInAppAuthMode = "oauth" | "device" | "none";
 
 export interface BuiltInAppMcp {

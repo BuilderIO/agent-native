@@ -261,7 +261,6 @@ export function createRunCodeEntry(
   };
 }
 
-
 export interface ExecuteSandboxCodeOptions {
   code: string;
   timeoutMs: number;
@@ -360,7 +359,6 @@ export async function executeSandboxCode(
     cleanupBridge();
   }
 }
-
 
 function structuredRunCodeError(payload: {
   code: string;
@@ -625,7 +623,6 @@ export function createGetCodeExecutionEntry(): ActionEntry {
     },
   };
 }
-
 
 interface BridgeResult {
   server: http.Server;
@@ -1129,7 +1126,6 @@ function boundToolOrchestrationArgs(
     },
   };
 }
-
 
 function buildSandboxModule(
   userCode: string,

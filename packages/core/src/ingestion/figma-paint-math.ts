@@ -1,5 +1,3 @@
-
-
 export interface Vec2 {
   x: number;
   y: number;
@@ -43,7 +41,6 @@ export interface GradientGeometry {
   fromDeg: number;
 }
 
-
 export function mat2x3FromArray(m: Mat2x3Array): Mat2x3Object {
   return {
     m00: m[0][0],
@@ -78,7 +75,6 @@ function applyMat2x3(m: Mat2x3Object, v: Vec2): Vec2 {
     y: m.m10 * v.x + m.m11 * v.y + m.m12,
   };
 }
-
 
 export function handlePositionsFromObjectTransform(
   t: Mat2x3Object,
@@ -134,7 +130,6 @@ export function handlePositionsFromArrayTransform(
   return handlePositionsFromObjectTransform(mat2x3FromArray(t));
 }
 
-
 export function resolveGradientHandles(
   gradientHandlePositions: Array<Vec2> | undefined,
 ): GradientHandles | null {
@@ -146,7 +141,6 @@ export function resolveGradientHandles(
     width: gradientHandlePositions[2]!,
   };
 }
-
 
 export function gradientAngleDegrees(
   paint: { gradientHandlePositions?: Array<Vec2> },
@@ -178,7 +172,6 @@ export function gradientRayAngleDegreesFromHandles(
   return ((angleDeg % 360) + 360) % 360;
 }
 
-
 export function remapLinearStopPosition(
   handles: GradientHandles,
   box: { width: number; height: number },
@@ -204,7 +197,6 @@ export function remapLinearStopPosition(
   };
 }
 
-
 export function vectorLength(
   from: Vec2,
   to: Vec2,
@@ -214,7 +206,6 @@ export function vectorLength(
   const dy = (to.y - from.y) * box.height;
   return Math.sqrt(dx * dx + dy * dy);
 }
-
 
 const CSS_BLEND_MODES = new Set([
   "multiply",

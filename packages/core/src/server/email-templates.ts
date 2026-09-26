@@ -1,4 +1,3 @@
-
 import { isFirstPartyApp } from "../app-config/app-identity.js";
 import { getAppConfig, type AppConfig } from "../app-config/index.js";
 import { renderEmail, emailStrong } from "./email-template.js";
@@ -65,7 +64,6 @@ function resolveAppLogoUrl(): string | undefined {
   return isFirstPartyApp(app) ? undefined : app.logoUrl;
 }
 
-
 export interface RenderInviteEmailArgs {
   invitee: string;
   orgName: string;
@@ -103,7 +101,6 @@ export function renderInviteEmail(
     text,
   };
 }
-
 
 export interface RenderVerifySignupEmailArgs {
   email: string;
@@ -236,7 +233,6 @@ export function renderChangeEmailVerificationEmail(
   };
 }
 
-
 export interface RenderMagicLinkEmailArgs {
   email: string;
   magicLinkUrl: string;
@@ -273,7 +269,6 @@ export function renderMagicLinkEmail(
       : undefined,
   };
 }
-
 
 export interface RenderResetPasswordEmailArgs {
   email: string;

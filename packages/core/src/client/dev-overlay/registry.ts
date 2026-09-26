@@ -1,4 +1,3 @@
-
 import type { DevPanel } from "./types.js";
 
 const panels = new Map<string, DevPanel>();

@@ -1,4 +1,3 @@
-
 import { useMessageRuntime, useMessagePartText } from "@assistant-ui/react";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import React, {
@@ -35,7 +34,6 @@ import {
   parseLegacyChartShorthand,
   wrapLegacyChartShorthandLines,
 } from "./legacy-chart-shorthand.js";
-
 
 type ReactMarkdownModule = {
   default: typeof ReactMarkdownType;
@@ -76,7 +74,6 @@ export function onMarkdownReady(fn: () => void): () => void {
 }
 
 loadMarkdown();
-
 
 type ShikiHighlighter = {
   codeToHtml: (
@@ -128,7 +125,6 @@ export function loadHighlighter(): Promise<ShikiHighlighter> {
   }
   return highlighterLoader;
 }
-
 
 export const TextStreamingContext = React.createContext(false);
 export const ExternalTextStreamingContext = React.createContext(false);
@@ -209,7 +205,6 @@ export function messageMatchesActiveTextStream(
   );
 }
 
-
 export function HighlightedCodeBlock({
   code,
   lang,
@@ -228,7 +223,6 @@ export function HighlightedCodeBlock({
     />
   );
 }
-
 
 const CTA_BUTTON_CLASSES =
   "agent-markdown-cta mt-1 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background no-underline shadow-sm transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background cursor-pointer";
@@ -272,7 +266,6 @@ export function markdownUrlTransform(value: string): string {
   return markdownModule.defaultUrlTransform(value);
 }
 
-
 export function extractCodeText(child: React.ReactNode): string {
   if (typeof child === "string") return child;
   if (Array.isArray(child)) return child.map(extractCodeText).join("");
@@ -282,7 +275,6 @@ export function extractCodeText(child: React.ReactNode): string {
   }
   return "";
 }
-
 
 export const markdownComponents = {
   a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
@@ -383,7 +375,6 @@ export const markdownComponents = {
   },
 };
 
-
 const clipboardMarkdownComponents = {
   a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
     const { href, children } = props;
@@ -410,7 +401,6 @@ export function renderMarkdownToClipboardHtml(markdown: string): string | null {
     </ReactMarkdown>,
   );
 }
-
 
 function usePrefersReducedMotion(): boolean {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
@@ -727,7 +717,6 @@ export function useSmoothStreamingText(
   return visibleText;
 }
 
-
 export function useMarkdownReady(): boolean {
   const [ready, setReady] = useState(() => markdownModule !== null);
   useEffect(() => {
@@ -755,7 +744,6 @@ export const MemoizedMarkdownBlock = React.memo(function MemoizedMarkdownBlock({
     </ReactMarkdown>
   );
 });
-
 
 export function StreamingText({
   text,
@@ -813,7 +801,6 @@ export function StreamingText({
 
 /** @deprecated Use StreamingText for new AgentKit surfaces. */
 export const SmoothMarkdownText = StreamingText;
-
 
 export function shouldAnimateMarkdownText({
   textStreaming,

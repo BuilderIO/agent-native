@@ -1,4 +1,3 @@
-
 import type { WireEvent } from "./types";
 import { isTerminalWireEvent } from "./types";
 

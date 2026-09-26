@@ -1,4 +1,3 @@
-
 export interface NavigateCommand {
   view?: string;
   path?: string;

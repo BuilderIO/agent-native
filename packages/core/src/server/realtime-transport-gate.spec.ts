@@ -1,4 +1,3 @@
-
 import { afterEach, describe, expect, it } from "vitest";
 
 import { generateWorkerEntry } from "../deploy/build.js";

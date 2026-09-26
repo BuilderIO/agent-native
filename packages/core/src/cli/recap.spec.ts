@@ -3105,7 +3105,6 @@ describe("bundled workflow stays in sync with the source file", () => {
   });
 });
 
-
 describe("writePrVisualRecapWorkflow — installer overwrite protection", () => {
   it("writes the workflow when the file does not yet exist", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-wf-"));
@@ -3168,7 +3167,6 @@ describe("writePrVisualRecapWorkflow — installer overwrite protection", () => 
   });
 });
 
-
 describe("bundled workflow — RECAP_CLI_VERSION pinning", () => {
   it("uses vars.RECAP_CLI_VERSION in the Resolve recap CLI step", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_CLI_VERSION");
@@ -3184,7 +3182,6 @@ describe("bundled workflow — RECAP_CLI_VERSION pinning", () => {
     );
   });
 });
-
 
 describe("recap comment body — auth-failure differentiation", () => {
   it("shows auth-failure copy when RECAP_AUTH_FAILED=true", () => {
@@ -3227,7 +3224,6 @@ describe("recap comment body — auth-failure differentiation", () => {
     expect(body).toContain("get-plan-blocks was unavailable");
   });
 });
-
 
 describe("recap scan allowlist", () => {
   it("parseRecapScanAllowlist returns empty when file is absent", () => {
@@ -3674,7 +3670,6 @@ describe("reusable workflow file structure", () => {
   });
 });
 
-
 describe("sortDiffSourceFirst", () => {
   function makeDiff(paths: string[]): string {
     return paths
@@ -3743,7 +3738,6 @@ describe("sortDiffSourceFirst", () => {
   });
 });
 
-
 describe("buildRecapPrompt diff-consumption instructions", () => {
   const skillMd = "skill content";
 
@@ -3791,7 +3785,6 @@ describe("buildRecapPrompt diff-consumption instructions", () => {
   });
 });
 
-
 describe("buildRecapPrompt — small-diff override sentence", () => {
   it("instructs the agent to always author source, ignoring the skill's skip advice", () => {
     const prompt = buildRecapPrompt({
@@ -3804,7 +3797,6 @@ describe("buildRecapPrompt — small-diff override sentence", () => {
     expect(prompt).toContain("always produce output");
   });
 });
-
 
 describe("find-plan-id plan-id validation", () => {
   it("accepts a valid safe-id (alphanumeric + _ -)", () => {
@@ -3850,7 +3842,6 @@ describe("find-plan-id plan-id validation", () => {
     expect(safeId).toBe("");
   });
 });
-
 
 describe("reusable vs copy workflow step-sequence parity", () => {
   const reusableFile = path.join(

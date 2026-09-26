@@ -1,4 +1,3 @@
-
 export const WIREFRAME_QUALITY_CORE = `<!-- SHARED-CORE:wireframe-quality START -->
 
 **A wireframe is an HTML mockup. The renderer owns the look; you write the

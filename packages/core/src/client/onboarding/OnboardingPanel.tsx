@@ -176,7 +176,6 @@ export function OnboardingPanel({
   );
 }
 
-
 function StepCard({
   step,
   expanded: expandedProp,
@@ -443,7 +442,6 @@ function FormMethodPicker({
   );
 }
 
-
 function MethodBlock({
   method,
   stepId,
@@ -541,7 +539,6 @@ function MethodBody({
   }
 }
 
-
 function LinkMethod({
   method,
   onMarkComplete,
@@ -582,7 +579,6 @@ function LinkMethod({
     </a>
   );
 }
-
 
 function FormMethod({
   method,
@@ -690,7 +686,6 @@ function FormMethod({
   );
 }
 
-
 function BuilderCliAuthMethod({
   onCompleted,
   primary,
@@ -741,7 +736,6 @@ function BuilderCliAuthMethod({
   );
 }
 
-
 function AgentTaskMethod({
   method,
   stepId: _stepId,
@@ -765,7 +759,6 @@ function AgentTaskMethod({
     </button>
   );
 }
-
 
 function buttonPrimary(primary: boolean | undefined): React.CSSProperties {
   return {

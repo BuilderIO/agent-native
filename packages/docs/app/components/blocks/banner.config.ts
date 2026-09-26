@@ -1,7 +1,6 @@
 import type { BlockMdxConfig } from "@agent-native/core/blocks";
 import { z } from "zod";
 
-
 export const BANNER_TONES = [
   "info",
   "decision",

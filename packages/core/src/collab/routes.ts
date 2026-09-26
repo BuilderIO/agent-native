@@ -1,4 +1,3 @@
-
 import {
   defineEventHandler,
   setResponseStatus,

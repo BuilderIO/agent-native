@@ -1,4 +1,3 @@
-
 export function agentEndpointUrlError(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return "Enter an endpoint URL.";

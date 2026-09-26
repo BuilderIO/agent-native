@@ -267,7 +267,6 @@ export function appDirtyPaths(store: BaselineStore): string[] {
     .filter(Boolean);
 }
 
-
 function git(
   store: BaselineStore,
   args: string[],

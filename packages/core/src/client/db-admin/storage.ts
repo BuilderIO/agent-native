@@ -35,7 +35,6 @@ export function removeLS(key: string): void {
   }
 }
 
-
 export interface GridState {
   columnWidths?: Record<string, number>;
   sort?: DbAdminSort[];

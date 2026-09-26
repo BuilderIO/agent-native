@@ -43,7 +43,6 @@ const {
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
 
-
 function makeWriteAction(): ActionEntry {
   return {
     tool: {

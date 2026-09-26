@@ -579,7 +579,6 @@ export function TableEditor({
   );
 }
 
-
 function ToolbarButton({
   icon,
   label,

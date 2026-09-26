@@ -1,4 +1,3 @@
-
 export type AppStatus = "alpha" | "beta";
 
 export const DEFAULT_APP_STATUS: AppStatus = "alpha";

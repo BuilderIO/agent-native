@@ -1,4 +1,3 @@
-
 import { Switch } from "@agent-native/toolkit/design-system";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";

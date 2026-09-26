@@ -14,7 +14,6 @@ import type {
   DbAdminTableSummary,
 } from "./types.js";
 
-
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const LARGE_CELL_PREVIEW_CHARS = 16 * 1024;
 const LARGE_CELL_SUFFIX =
@@ -137,7 +136,6 @@ function assertNoLargeCellPreviewMutation(
   }
 }
 
-
 async function notifyDbAdminChange(runtime?: DbAdminRuntime): Promise<void> {
   if (runtime?.notifyChange) {
     await runtime.notifyChange();
@@ -145,7 +143,6 @@ async function notifyDbAdminChange(runtime?: DbAdminRuntime): Promise<void> {
   }
   await notifyActionChange({ actionName: "db-admin" }).catch(() => {});
 }
-
 
 export async function listTables(
   runtime?: DbAdminRuntime,
@@ -202,7 +199,6 @@ async function safeRowCount(
     return null;
   }
 }
-
 
 export async function getTableSchema(
   table: string,
@@ -324,7 +320,6 @@ async function getTableSchemaPostgres(
   };
 }
 
-
 const SAFE_OPS = new Set([
   "eq",
   "neq",
@@ -443,7 +438,6 @@ export async function getRows(
   };
 }
 
-
 function buildInsert(
   table: string,
   row: Record<string, unknown>,
@@ -546,7 +540,6 @@ export async function applyMutations(
   if (statements.length > 0) await notifyDbAdminChange(runtime);
   return result;
 }
-
 
 export class DbAdminConfirmRequiredError extends Error {
   readonly needsConfirm = true;

@@ -1099,7 +1099,6 @@ describe("extensions/actions", () => {
     expect(result).toEqual({ ok: true, id: "ext-zoom" });
   });
 
-
   it("create-extension hosts a pasted attachment by reference (named match)", async () => {
     const bigHtml = `<div x-data="dashboard()">${"<p>row</p>".repeat(5000)}</div>`;
     const createExtension = vi.fn(async (data: any) => ({
@@ -1248,7 +1247,6 @@ describe("extensions/actions", () => {
       expect.objectContaining({ content: "<div>inline</div>" }),
     );
   });
-
 
   it("create-extension hosts a workspace resource file by reference", async () => {
     const bigHtml = `<div x-data="dashboard()">${"<p>row</p>".repeat(6000)}</div>`;

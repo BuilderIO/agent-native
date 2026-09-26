@@ -1,4 +1,3 @@
-
 import { describe, expect, it, vi } from "vitest";
 
 import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";

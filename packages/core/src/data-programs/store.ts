@@ -1,4 +1,3 @@
-
 import { randomUUID } from "node:crypto";
 
 import { and, eq, isNull } from "drizzle-orm";
@@ -25,7 +24,6 @@ import {
   DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL,
 } from "./schema.js";
 
-
 export const MAX_PROGRAM_ROWS = 10_000;
 export const MAX_PROGRAM_RESULT_BYTES = 4 * 1024 * 1024;
 export const MAX_ACTIVE_PROGRAMS_PER_APP = 200;
@@ -34,7 +32,6 @@ export const MIN_REFRESH_TTL_MS = 60_000;
 const DEFAULT_RUN_KEEP = 5;
 
 const getDb = createGetDb({ dataPrograms, dataProgramShares });
-
 
 let _initPromise: Promise<void> | undefined;
 
@@ -95,7 +92,6 @@ export function registerDataProgramsShareable(): void {
 export function _resetDataProgramInitPromiseForTests(): void {
   _initPromise = undefined;
 }
-
 
 export type DataProgramRefreshMode = "manual" | "ttl";
 
@@ -361,7 +357,6 @@ export async function archiveDataProgram(
     .where(where);
   return true;
 }
-
 
 export type DataProgramRunStatus =
   | "queued"

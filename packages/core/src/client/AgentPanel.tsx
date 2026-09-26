@@ -1,4 +1,3 @@
-
 import { Tooltip as DesignSystemTooltip } from "@agent-native/toolkit/design-system";
 import {
   IconMessageCircle,
@@ -322,7 +321,6 @@ function useCliSelection(keyPrefix: string) {
   return [selected, select] as const;
 }
 
-
 function IconTooltip({
   content,
   children,
@@ -340,7 +338,6 @@ function IconTooltip({
     />
   );
 }
-
 
 type ChatHeaderRenderer = (
   props: MultiTabAssistantChatHeaderProps,
@@ -547,7 +544,6 @@ export function getAgentPanelShortcutHints(isMac: boolean) {
     widenChat: isMac ? "⌘⇧\\" : "^⇧\\",
   };
 }
-
 
 export interface AgentPanelCodeAccess {
   enabled: boolean;

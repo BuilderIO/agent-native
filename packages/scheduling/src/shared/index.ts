@@ -1,4 +1,3 @@
-
 export type SchedulingType =
   | "personal"
   | "collective"

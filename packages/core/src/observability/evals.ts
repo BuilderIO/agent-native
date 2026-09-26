@@ -55,7 +55,6 @@ function fromSummary(summary: TraceSummary): {
   };
 }
 
-
 function scoreToolSuccessRate(summary: TraceSummary): EvalResult {
   const total = summary.toolCalls;
   const score = total > 0 ? summary.successfulTools / total : 1.0;
@@ -157,7 +156,6 @@ export async function runAutomatedEvals(runId: string): Promise<EvalResult[]> {
 
   return results;
 }
-
 
 function buildConversationTranscript(
   events: Array<{ seq: number; eventData: string }>,
@@ -296,7 +294,6 @@ export async function runLlmJudgeEval(
     return null;
   }
 }
-
 
 export async function runDatasetEval(
   datasetId: string,
@@ -453,7 +450,6 @@ async function evaluateTestCase(
     return null;
   }
 }
-
 
 export async function evaluateRun(
   runId: string,

@@ -1,4 +1,3 @@
-
 import { runMigrations } from "../../db/migrations.js";
 import {
   awaitBootstrap,

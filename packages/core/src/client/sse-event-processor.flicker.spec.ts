@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { readSSEStreamRaw } from "./sse-event-processor.js";
 import type { ContentPart } from "./sse-event-processor.js";
 
-
 function eventsStream(events: object[]): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-
 interface RunRow {
   id: string;
   thread_id: string;

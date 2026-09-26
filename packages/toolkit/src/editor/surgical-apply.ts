@@ -1,4 +1,3 @@
-
 import { createNodeFromContent } from "@tiptap/core";
 import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Transform, type Step } from "@tiptap/pm/transform";

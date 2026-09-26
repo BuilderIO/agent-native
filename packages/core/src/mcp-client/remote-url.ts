@@ -1,4 +1,3 @@
-
 const BLOCKED_HOSTNAME_PATTERNS: RegExp[] = [
   /^localhost$/i,
   /\.localhost$/i,

@@ -1,6 +1,5 @@
 import type { ZodType } from "zod";
 
-
 export interface EnvAlias {
   path: string[];
   env: string[];

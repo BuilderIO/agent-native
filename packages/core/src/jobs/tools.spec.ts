@@ -404,14 +404,12 @@ describe("manage-jobs tool", () => {
     });
 
     it("allows a personal-scope job update without an admin check", async () => {
-      resourceGetByPathMock
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({
-          id: "r2",
-          owner: "alice@example.com",
-          path: "jobs/j.md",
-          content: sharedJobContent({ createdBy: "alice@example.com" }),
-        });
+      resourceGetByPathMock.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        id: "r2",
+        owner: "alice@example.com",
+        path: "jobs/j.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }),
+      });
 
       const out = JSON.parse(
         await run({ action: "update", name: "j", enabled: "false" }),

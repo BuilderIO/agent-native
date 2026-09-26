@@ -1,4 +1,3 @@
-
 import { CubeLoader } from "@agent-native/toolkit/ui/cube-loader";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import {
@@ -177,7 +176,6 @@ export function ToolActivityPresentation({
   );
 }
 
-
 type ToolDetailSection = "input" | "result";
 export type ToolDetailPayload = {
   section: ToolDetailSection;
@@ -305,7 +303,6 @@ export function toolResultPayload(
   };
 }
 
-
 type ToolIconComponent = React.ComponentType<{
   className?: string;
   size?: number | string;
@@ -377,7 +374,6 @@ function resolveToolIcon(toolName: string): ToolIconComponent {
   }
   return IconCode;
 }
-
 
 function SimpleCodeViewer({
   text,
@@ -478,7 +474,6 @@ function ToolOutputPopover({
   );
 }
 
-
 export function AnimatedCollapse({
   open,
   children,
@@ -513,7 +508,6 @@ export function AnimatedCollapse({
     </div>
   );
 }
-
 
 function ApprovalAffordance({
   toolName,
@@ -622,7 +616,6 @@ function ApprovalAffordance({
     />
   );
 }
-
 
 export function ToolCallDisplay({
   toolName,
@@ -1284,7 +1277,6 @@ function AgentActivityToolCallRow({
   );
 }
 
-
 export function ToolCallFallback({
   toolName,
   toolCallId,
@@ -1346,7 +1338,6 @@ export function ToolCallFallback({
     />
   );
 }
-
 
 export function ReconnectStreamMessage({
   content,
@@ -1543,7 +1534,6 @@ function isReconnectToolSummaryPart(
     .some((candidate) => candidate.type === "tool-call");
 }
 
-
 export function ReasoningCell({
   text,
   isStreaming = false,
@@ -1651,7 +1641,6 @@ export function ReasoningCell({
     </div>
   );
 }
-
 
 export function formatWorkedDuration(
   ms: number,

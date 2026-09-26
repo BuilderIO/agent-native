@@ -1,4 +1,3 @@
-
 import path from "node:path";
 
 import { getDatabaseUrl } from "../../db/client.js";

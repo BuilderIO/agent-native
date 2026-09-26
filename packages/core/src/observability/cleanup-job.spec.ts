@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-
 const deleteOldTraceData = vi.hoisted(() => vi.fn());
 
 vi.mock("./store.js", () => ({

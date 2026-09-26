@@ -27,7 +27,6 @@ import {
   type TableDensity,
 } from "./table.config.js";
 
-
 const densityClasses: Record<TableDensity, { header: string; cell: string }> = {
   compact: {
     header: "py-1.5",

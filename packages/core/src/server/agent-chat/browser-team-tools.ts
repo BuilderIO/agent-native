@@ -16,7 +16,6 @@ import {
 import { getRequestUserEmail } from "../request-context.js";
 import { getGlobalMcpManager } from "./mcp-glue.js";
 
-
 const MAX_EXTENSION_PROMOTION_CONTENT_CHARS = 200_000;
 
 interface ExtensionPromotionArtifact {

@@ -314,7 +314,6 @@ class AcpHarnessSession implements AgentHarnessSession {
     }
   }
 
-
   private createClient() {
     return {
       sessionUpdate: async (params: AcpSessionNotification) => {
@@ -425,7 +424,6 @@ class AcpHarnessSession implements AgentHarnessSession {
     return tail ? `${base}\n${tail.slice(-1_000)}` : base;
   }
 }
-
 
 export function buildAcpPromptBlocks(input: {
   prompt?: string;
@@ -721,7 +719,6 @@ function isExplicitlyMissingAcpSession(error: unknown): boolean {
     message,
   );
 }
-
 
 interface AcpContentBlock {
   type: string;

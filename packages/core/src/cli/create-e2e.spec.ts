@@ -115,7 +115,6 @@ function readAllTextFiles(dir: string): string {
   return chunks.join("\n");
 }
 
-
 describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
   it("rewrites the copied chat tracking app id to the generated app id", async () => {
     await createApp("test-app", { template: "chat" });
@@ -434,7 +433,6 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
   });
 });
 
-
 describe("in-place scaffold — safety boundary", { timeout: 60000 }, () => {
   function git(cwd: string, args: string[]): string {
     const res = spawnSync("git", args, {
@@ -624,7 +622,6 @@ describe("in-place scaffold — safety boundary", { timeout: 60000 }, () => {
   });
 });
 
-
 const SPEC_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CORE_ROOT = path.resolve(SPEC_DIR, "../..");
 const ROOT_ENTRY_SRC = path.join(CORE_ROOT, "src", "index.ts");
@@ -671,7 +668,6 @@ describe("headless onboarding guards", { timeout: 60000 }, () => {
     expect(rootEntry).toMatch(/from\s+["']\.\/action\.js["']/);
   });
 });
-
 
 const RUN_HEADLESS_INSTALL_E2E =
   process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1" &&
@@ -771,7 +767,6 @@ describe.skipIf(!RUN_HEADLESS_INSTALL_E2E)(
     });
   },
 );
-
 
 describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
   async function scaffoldWorkspace(
@@ -1912,7 +1907,6 @@ describe("Netlify scaffold rewrite", () => {
   });
 });
 
-
 describe("loadCatalog", () => {
   it("returns a non-empty catalog from the monorepo", () => {
     const catalog = _loadCatalog();
@@ -1921,7 +1915,6 @@ describe("loadCatalog", () => {
     expect(catalog["tailwindcss"]).toMatch(/^\^?\d/);
   });
 });
-
 
 describe("build artifacts", () => {
   const coreRoot = path.resolve(__dirname, "../..");

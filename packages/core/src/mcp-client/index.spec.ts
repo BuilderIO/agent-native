@@ -11,7 +11,6 @@ import {
 } from "./index.js";
 import { McpClientManager } from "./manager.js";
 
-
 const serverFixtures: Record<
   string,
   {

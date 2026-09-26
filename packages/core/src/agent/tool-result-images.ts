@@ -1,4 +1,3 @@
-
 import type { EngineToolResultImagePart } from "./engine/types.js";
 
 export const AGENT_IMAGES_FIELD = "_agentImages";

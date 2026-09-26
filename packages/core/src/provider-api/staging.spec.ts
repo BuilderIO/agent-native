@@ -1,6 +1,4 @@
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 
 const _metaStore = new Map<string, Record<string, unknown>>();
 const _rowStore = new Map<string, Record<string, unknown>[]>();
@@ -184,7 +182,6 @@ vi.mock("../db/client.js", () => ({
   }),
 }));
 
-
 vi.mock("../server/request-context.js", () => ({
   getCredentialContext: () => ({
     userEmail: "ada@example.com",
@@ -192,17 +189,14 @@ vi.mock("../server/request-context.js", () => ({
   }),
 }));
 
-
 vi.mock("../extensions/url-safety.js", () => ({
   createSsrfSafeDispatcher: vi.fn().mockResolvedValue(null),
   isBlockedExtensionUrlWithDns: vi.fn().mockResolvedValue(false),
 }));
 
-
 vi.mock("../credentials/index.js", () => ({
   resolveCredential: vi.fn().mockResolvedValue("test-token"),
 }));
-
 
 const { extractItemsArray } = await import("./staging.js");
 const { stagingExecuteRequest } = await import("./staging.js");
@@ -218,7 +212,6 @@ import type { ProviderApiRequestArgs } from "./index.js";
 beforeEach(() => {
   _executedSql.length = 0;
 });
-
 
 function makeExecutor(_appId = "testapp") {
   const runtime = createProviderApiRuntime({
@@ -239,7 +232,6 @@ function makeExecutor(_appId = "testapp") {
   });
   return (args: ProviderApiRequestArgs) => runtime.executeRequest(args);
 }
-
 
 describe("extractItemsArray", () => {
   it("returns top-level array unchanged", () => {
@@ -296,7 +288,6 @@ describe("extractItemsArray", () => {
     expect(extractItemsArray({ meta: { cursor: "abc" } })).toEqual([]);
   });
 });
-
 
 describe("staging caps", () => {
   beforeEach(() => {
@@ -375,7 +366,6 @@ describe("staged dataset DDL", () => {
     ).toBe(true);
   });
 });
-
 
 describe("stagingExecuteRequest — cursor pagination + 429", () => {
   beforeEach(() => {
@@ -559,7 +549,6 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
     vi.useRealTimers();
   });
 });
-
 
 describe("staged dataset scoping", () => {
   beforeEach(() => {

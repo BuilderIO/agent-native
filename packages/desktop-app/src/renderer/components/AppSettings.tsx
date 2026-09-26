@@ -1600,7 +1600,6 @@ export default function AppSettings({
   );
 }
 
-
 export function AddAppDialog({
   onSave,
   onCreated,
@@ -2008,7 +2007,6 @@ export function AddAppDialog({
     </div>
   );
 }
-
 
 export function AppEditForm({
   app,

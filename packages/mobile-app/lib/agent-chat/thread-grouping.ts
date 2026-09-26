@@ -1,4 +1,3 @@
-
 import type { ChatThreadSummary } from "./types";
 
 export function threadKey(thread: ChatThreadSummary): string {

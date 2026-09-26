@@ -1,7 +1,5 @@
-
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-
 
 const BACKOFF_BASE_MS = 500;
 const BACKOFF_MAX_MS = 15_000;
@@ -43,7 +41,6 @@ describe("calcBackoff contract", () => {
     expect(delay).toBeGreaterThanOrEqual(BACKOFF_BASE_MS);
   });
 });
-
 
 const STATE_VECTOR_FETCH_INTERVAL = 15;
 const POLL_RING_BUFFER_SIZE = 200;
@@ -94,7 +91,6 @@ describe("state-vector fetch gating", () => {
     );
   });
 });
-
 
 describe("update batching via Y.mergeUpdates", () => {
   it("merges multiple independent updates into a single equivalent update", () => {

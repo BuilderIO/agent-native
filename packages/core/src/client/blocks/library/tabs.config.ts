@@ -3,7 +3,6 @@ import { z } from "zod";
 import type { BlockMdxConfig } from "../types.js";
 import type { NestedBlock } from "../types.js";
 
-
 export interface TabsTab {
   id: string;
   label: string;

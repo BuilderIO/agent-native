@@ -53,7 +53,6 @@ import {
   type ResourceMeta,
 } from "./store.js";
 
-
 async function resolveOwner(event: any, shared?: boolean): Promise<string> {
   if (shared) return sharedResourceOwner(await resolveOrgId(event));
   const session = await getSession(event);
@@ -165,7 +164,6 @@ function shouldIncludeAgentScratch(query: Record<string, unknown>): boolean {
   );
 }
 
-
 interface JobMetadata {
   schedule?: string;
   scheduleDescription?: string;
@@ -239,7 +237,6 @@ function sortTree(nodes: TreeNode[]): void {
     if (node.children) sortTree(node.children);
   }
 }
-
 
 export async function handleListResources(event: any) {
   const query = getQuery(event);

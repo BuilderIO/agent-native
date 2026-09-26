@@ -1,6 +1,5 @@
 import type { ViteUserConfig } from "vitest/config";
 
-
 const DEFAULT_MAX_WORKERS = "25%";
 const ENV_KEYS = ["VITEST_CONCURRENCY", "AGENT_NATIVE_VITEST_CONCURRENCY"];
 

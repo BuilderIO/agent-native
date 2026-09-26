@@ -5,7 +5,6 @@ import {
   type FC,
 } from "react";
 
-
 type Listener = () => void;
 
 let currentTitle: ReactNode = null;

@@ -1,4 +1,3 @@
-
 export interface FileUploadInput {
   data: Uint8Array | Buffer;
   filename?: string;

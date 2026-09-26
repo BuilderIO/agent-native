@@ -1,4 +1,3 @@
-
 export const AGENT_NATIVE_DOCS_ORIGIN = "https://www.agent-native.com";
 
 export type DocsUrlOptions = {

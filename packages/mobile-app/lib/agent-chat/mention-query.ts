@@ -1,4 +1,3 @@
-
 import type { ChatReference, MentionItem } from "./types";
 
 export interface ActiveMention {

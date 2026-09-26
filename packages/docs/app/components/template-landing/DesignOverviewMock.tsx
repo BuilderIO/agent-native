@@ -358,7 +358,6 @@ function FilePanel() {
   );
 }
 
-
 function NumField({
   label,
   glyph: Glyph,
@@ -667,10 +666,7 @@ function BottomToolbar() {
     <div className="dm-toolbar">
       <span className="dm-tool-group">
         {TOOLBAR_TOOLS.map(({ icon: Icon, active, hasSubTools }, index) => (
-          <span
-            key={index}
-            className="dm-tool-slot"
-          >
+          <span key={index} className="dm-tool-slot">
             <span className={active ? "dm-tool is-active" : "dm-tool"}>
               <Icon size={18} />
             </span>

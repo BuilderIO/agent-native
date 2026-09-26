@@ -1,4 +1,3 @@
-
 export const MAX_USER_REGEX_LENGTH = 512;
 
 export const MAX_USER_REGEX_INPUT_LENGTH = 4096;

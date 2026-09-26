@@ -16,7 +16,6 @@ import {
   isTransientProviderRateLimitError,
 } from "./production-agent.js";
 
-
 const credentialState = vi.hoisted(() => ({
   lane: "identity" as "identity" | "gateway-deploy" | null,
 }));

@@ -39,7 +39,6 @@ function getRandomLoadingLabelIndex(): number {
   return Math.floor(Math.random() * LOADING_LABELS.length);
 }
 
-
 export function DefaultSpinner({
   ariaLabel = "Loading",
   height = "var(--agent-native-viewport-height, 100vh)",

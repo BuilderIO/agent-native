@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { createSharedEditorExtensions } from "./extensions.js";
 
-
 function buildEditor(content: string): Editor {
   return new Editor({
     element: document.createElement("div"),

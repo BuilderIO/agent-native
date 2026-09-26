@@ -17,7 +17,6 @@ import {
 } from "./context-tools.js";
 import { lazyFs } from "./lazy-fs.js";
 
-
 export function buildFrameworkPrompts(
   examples?: PromptExamples,
   options?: {

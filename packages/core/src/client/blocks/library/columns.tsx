@@ -16,7 +16,6 @@ import {
 } from "./columns.config.js";
 import { NarrowContainerProvider } from "./narrow-container.js";
 
-
 function newColId(): string {
   return `col-${Math.random().toString(36).slice(2, 10)}`;
 }

@@ -1,4 +1,3 @@
-
 export const MAX_REPLAY_QUOTA_PAUSE_MS = 5 * 60_000;
 
 export type ReplayQuotaDecision =

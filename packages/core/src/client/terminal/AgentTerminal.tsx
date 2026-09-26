@@ -1,4 +1,3 @@
-
 import { useRef, useEffect, useState, type CSSProperties } from "react";
 
 import { parseSubmitChatMessage } from "../agent-chat.js";

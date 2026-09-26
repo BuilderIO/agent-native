@@ -1,4 +1,3 @@
-
 .an-chat-history {
   display: flex;
   flex-direction: column;
@@ -178,7 +177,6 @@
   min-width: 0;
 }
 
-
 .an-chat-history-row {
   position: relative;
   min-width: 0;
@@ -315,7 +313,6 @@
   color: hsl(var(--muted-foreground) / 0.7);
 }
 
-
 .an-chat-history-row__rename {
   display: flex;
   align-items: center;
@@ -340,7 +337,6 @@
 .an-chat-history-row__rename-input:focus {
   box-shadow: 0 0 0 2px hsl(var(--ring) / 0.35);
 }
-
 
 .an-chat-history-row__menu {
   position: absolute;

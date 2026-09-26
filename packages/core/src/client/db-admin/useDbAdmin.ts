@@ -17,7 +17,6 @@ import { agentNativePath } from "../api-path.js";
 import { getBrowserTabId } from "../browser-tab-id.js";
 import { useChangeVersions } from "../use-change-version.js";
 
-
 export const dbAdminBasePath = agentNativePath("/_agent-native/db-admin");
 
 export interface DbAdminRequestConfig {
@@ -33,12 +32,10 @@ function requestScopeKey(config?: DbAdminRequestConfig): string {
   return config?.scopeKey ?? requestBasePath(config);
 }
 
-
 function getRequestSource(): string | undefined {
   if (typeof window === "undefined") return undefined;
   return getBrowserTabId();
 }
-
 
 interface ApiEnvelope {
   ok?: boolean;
@@ -103,7 +100,6 @@ export async function dbAdminPost<T>(
   return parseEnvelope<T>(res);
 }
 
-
 export interface DbAdminQueryState<T> {
   data: T | undefined;
   isLoading: boolean;
@@ -121,7 +117,6 @@ function toState<T>(query: UseQueryResult<T, Error>): DbAdminQueryState<T> {
     },
   };
 }
-
 
 export interface DbAdminOverview {
   tables: DbAdminTableSummary[];
@@ -152,7 +147,6 @@ export function useOverview(
   return toState(query);
 }
 
-
 interface SchemaResponse {
   ok: true;
   table: DbAdminTableSchema;
@@ -182,7 +176,6 @@ export function useTableSchema(
   });
   return toState(query);
 }
-
 
 export function useTableRows(
   table: string | null,
@@ -215,7 +208,6 @@ export function useTableRows(
   });
   return toState(query);
 }
-
 
 export async function mutateTable(
   table: string,

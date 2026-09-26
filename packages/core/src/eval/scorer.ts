@@ -1,4 +1,3 @@
-
 import type { AgentRunOutput, Scorer, ScorerDefinition } from "./types.js";
 
 export function createScorer<Pre = AgentRunOutput, Ana = Pre>(
@@ -25,7 +24,6 @@ export function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(1, n));
 }
-
 
 function normalize(s: string): string {
   return s.trim().toLowerCase();
@@ -101,7 +99,6 @@ export function usesTool(
     },
   });
 }
-
 
 interface JudgeVerdict {
   score: number;

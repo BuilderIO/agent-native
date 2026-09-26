@@ -4,7 +4,6 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-
 const ALLOW_LIST: Array<[string, string, string]> = [
   [
     "toolkit-provider.tsx",

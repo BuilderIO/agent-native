@@ -1,4 +1,3 @@
-
 export function isLocalhost(event: any): boolean {
   try {
     const host =

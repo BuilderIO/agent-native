@@ -1,6 +1,5 @@
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 
-
 export class EngineError extends Error {
   readonly errorCode?: string;
   readonly upgradeUrl?: string;
@@ -36,7 +35,6 @@ export class EngineError extends Error {
   }
 }
 
-
 export interface EngineTool {
   name: string;
   description: string;
@@ -48,7 +46,6 @@ export interface EngineTool {
   };
   providerOptions?: Record<string, unknown>;
 }
-
 
 export interface EngineTextPart {
   type: "text";
@@ -110,7 +107,6 @@ export type EngineContentPart =
 export type EngineMessage =
   | { role: "user"; content: EngineContentPart[] }
   | { role: "assistant"; content: EngineContentPart[] };
-
 
 export type EngineEvent =
   | { type: "text-delta"; text: string }
@@ -181,7 +177,6 @@ export interface EngineRequestShape {
   messageCount: number;
 }
 
-
 export interface EngineCapabilities {
   thinking: boolean;
   promptCaching: boolean;
@@ -189,7 +184,6 @@ export interface EngineCapabilities {
   computerUse: boolean;
   parallelToolCalls: boolean;
 }
-
 
 export interface EngineStreamOptions {
   model: string;
@@ -211,7 +205,6 @@ export interface EngineStreamOptions {
     [provider: string]: Record<string, unknown> | undefined;
   };
 }
-
 
 export interface AgentEngine {
   readonly name: string;

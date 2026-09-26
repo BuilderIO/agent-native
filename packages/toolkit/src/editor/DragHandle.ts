@@ -913,8 +913,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         !target ||
         (target.view === session.view &&
           (isSideDrop
-            ?
-              target.targetPos === session.sourcePos
+            ? target.targetPos === session.sourcePos
             : target.pos === session.sourcePos ||
               target.pos === sourceEnd ||
               (target.pos > session.sourcePos && target.pos < sourceEnd)))
@@ -1067,8 +1066,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         if (
           target.view !== session.view ||
           (isSideDrop
-            ?
-              target.targetPos !== sourceStart
+            ? target.targetPos !== sourceStart
             : dropPos !== sourceStart &&
               dropPos !== sourceEnd &&
               !(dropPos > sourceStart && dropPos < sourceEnd))

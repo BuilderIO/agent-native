@@ -1,4 +1,3 @@
-
 import { registerDevPanel } from "./registry.js";
 
 let registered = false;

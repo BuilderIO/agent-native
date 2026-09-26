@@ -1,4 +1,3 @@
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveAccessMock =
@@ -444,7 +443,6 @@ describe("awareness event scoping via poll-events", () => {
 });
 
 describe("awareness outer-map memory leak guard (pruneIfEmpty)", () => {
-
   it("cleans up empty doc maps after all clients expire", async () => {
     const { getDocAwareness, cleanExpired } = await import("./awareness.js");
 

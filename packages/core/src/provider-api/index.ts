@@ -2805,7 +2805,6 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-
 async function executeCustomProviderApiRequest(
   args: ProviderApiRequestArgs,
   customConfig: CustomProviderConfig,
@@ -3147,7 +3146,6 @@ function describeCustomAuth(auth: CustomProviderAuthKind): string {
     return `api-key-header:${auth.headerName}`;
   return "unknown";
 }
-
 
 function customProviderToCatalogEntry(config: CustomProviderConfig) {
   return {

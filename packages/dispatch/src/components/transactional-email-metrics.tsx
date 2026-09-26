@@ -3,7 +3,6 @@ import { useT } from "@agent-native/core/client/i18n";
 import { Skeleton } from "./ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
-
 export interface EmailEngagement {
   templateId: string;
   delivered: number;

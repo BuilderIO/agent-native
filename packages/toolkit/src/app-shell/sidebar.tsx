@@ -38,7 +38,6 @@ import {
 import { cn } from "../utils.js";
 import { usePersistentSidebarCollapsed } from "./use-persistent-sidebar-collapsed.js";
 
-
 export interface AppSidebarLinkProps extends Omit<
   AnchorHTMLAttributes<HTMLAnchorElement>,
   "href"
@@ -95,7 +94,6 @@ function renderSidebarIcon(
   return <IconComponent className={className} />;
 }
 
-
 export interface AppSidebarItemDefinition {
   id?: string;
   to?: string;
@@ -109,7 +107,6 @@ export interface AppSidebarItemDefinition {
   onClick?: (event: MouseEvent) => void;
   children?: ReactNode;
 }
-
 
 export interface AppSidebarHeaderProps extends HTMLAttributes<HTMLDivElement> {
   brandName?: ReactNode;
@@ -192,7 +189,6 @@ export const AppSidebarHeader = forwardRef<
   },
 );
 AppSidebarHeader.displayName = "AppSidebarHeader";
-
 
 export interface AppSidebarNavItemProps extends HTMLAttributes<HTMLDivElement> {
   label: ReactNode;
@@ -347,7 +343,6 @@ export const AppSidebarNavItem = forwardRef<
 );
 AppSidebarNavItem.displayName = "AppSidebarNavItem";
 
-
 export interface AppSidebarNavGroupProps extends HTMLAttributes<HTMLDivElement> {
   label: ReactNode;
   icon?: ComponentType<{ className?: string }> | ReactNode;
@@ -484,7 +479,6 @@ export const AppSidebarNavGroup = forwardRef<
 );
 AppSidebarNavGroup.displayName = "AppSidebarNavGroup";
 
-
 export interface AppSidebarSectionProps extends Omit<
   HTMLAttributes<HTMLDivElement>,
   "title"
@@ -522,7 +516,6 @@ export const AppSidebarSection = forwardRef<
   );
 });
 AppSidebarSection.displayName = "AppSidebarSection";
-
 
 export interface AppSidebarFeedbackButtonProps {
   label?: string;
@@ -576,7 +569,6 @@ export function AppSidebarFeedbackButton({
     </Tooltip>
   );
 }
-
 
 export interface AppSidebarFooterProps extends HTMLAttributes<HTMLDivElement> {
   feedback?: ReactNode;
@@ -688,7 +680,6 @@ export const AppSidebarFooter = forwardRef<
   },
 );
 AppSidebarFooter.displayName = "AppSidebarFooter";
-
 
 export interface AppSidebarProps extends HTMLAttributes<HTMLElement> {
   collapsed?: boolean;

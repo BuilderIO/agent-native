@@ -75,7 +75,6 @@ import {
   type Experiment,
 } from "./useObservability.js";
 
-
 function formatCost(centsX100: number): string {
   const cents = centsX100 / 100;
   if (cents < 1) return `${cents.toFixed(3)}¢`;
@@ -257,7 +256,6 @@ const RANGES = [
   { value: 90, label: "90d" },
 ] as const;
 
-
 function RangeSelector({
   value,
   onChange,
@@ -348,7 +346,6 @@ function LoadingState() {
   );
 }
 
-
 function OverviewTab({ days }: { days: number }) {
   const t = useT();
   const { data, isLoading } = useObservabilityOverview(days);
@@ -391,7 +388,6 @@ function OverviewTab({ days }: { days: number }) {
     </div>
   );
 }
-
 
 function ConversationsTab({ days }: { days: number }) {
   const t = useT();
@@ -716,7 +712,6 @@ function TraceDetailView({
   );
 }
 
-
 function EvalsTab({ days }: { days: number }) {
   const t = useT();
   const { data, isLoading } = useEvalStats(days);
@@ -772,7 +767,6 @@ function EvalsTab({ days }: { days: number }) {
     </div>
   );
 }
-
 
 function ExperimentsTab() {
   const t = useT();
@@ -984,7 +978,6 @@ function ExperimentDetailView({
     </div>
   );
 }
-
 
 function ReviewTab({
   days,
@@ -2428,7 +2421,6 @@ function ReviewTab({
   );
 }
 
-
 function FeedbackTab({ days }: { days: number }) {
   const t = useT();
   const {
@@ -2561,7 +2553,6 @@ function FeedbackTab({ days }: { days: number }) {
     </div>
   );
 }
-
 
 const TABS = [
   {

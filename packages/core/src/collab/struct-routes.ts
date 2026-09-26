@@ -1,4 +1,3 @@
-
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import type { H3Event } from "h3";
 import { getQuery } from "h3";

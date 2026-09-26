@@ -1,4 +1,3 @@
-
 import {
   RECENT_EDITS_MAX,
   RECENT_EDIT_TTL_MS,

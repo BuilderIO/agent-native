@@ -12,7 +12,6 @@ import {
   reconcileDocAgainstBase,
 } from "./surgical-apply.js";
 
-
 function makeEditor(markdown: string): Editor {
   const editor = new Editor({
     extensions: createRichMarkdownExtensions(),

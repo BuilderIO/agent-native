@@ -1,4 +1,3 @@
-
 export class JsonEventStreamParser {
   private buffer = "";
   private pendingSseData: string[] = [];

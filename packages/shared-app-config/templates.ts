@@ -1,4 +1,3 @@
-
 export interface TemplateMeta {
   name: string;
   label: string;

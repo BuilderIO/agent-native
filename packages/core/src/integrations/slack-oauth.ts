@@ -1,4 +1,3 @@
-
 import type { SecretScope } from "../secrets/register.js";
 import type {
   IntegrationInstallationHealth,

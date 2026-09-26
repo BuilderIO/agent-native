@@ -7,7 +7,6 @@ import {
   type GuidedQuestion,
 } from "./guided-questions.js";
 
-
 const GRAIN = "What time grain should the dashboard use?";
 const EXCLUSIONS = "Which orgs should be excluded?";
 

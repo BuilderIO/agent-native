@@ -1,4 +1,3 @@
-
 import {
   IconChevronDown,
   IconFile,
@@ -24,7 +23,6 @@ interface EditCellProps {
 }
 
 const MAX_COLLAPSED_LINES = 40;
-
 
 interface DiffLine {
   kind: "context" | "added" | "removed";
@@ -113,7 +111,6 @@ function diffStats(lines: DiffLine[]): { added: number; removed: number } {
   }
   return { added, removed };
 }
-
 
 const DiffView = memo(function DiffView({
   lines,

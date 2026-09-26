@@ -1,6 +1,4 @@
-
 import type { AgentEngine } from "../agent/engine/types.js";
-
 
 export interface AgentRunOutput {
   readonly text: string;
@@ -20,7 +18,6 @@ export interface AgentRunOutput {
   readonly runId: string;
   readonly durationMs: number;
 }
-
 
 export interface ScorerAnalyzeContext {
   readonly engine: AgentEngine;
@@ -57,7 +54,6 @@ export interface ScorerDefinition<Pre = AgentRunOutput, Ana = Pre> {
   }): string | Promise<string>;
 }
 
-
 export interface EvalInput {
   prompt: string;
   history?: Array<{ role: "user" | "assistant"; text: string }>;
@@ -76,7 +72,6 @@ export interface Eval {
   scorers: Scorer<any, any>[];
   threshold?: number;
 }
-
 
 export interface ScorerResult {
   scorer: string;

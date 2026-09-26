@@ -1,4 +1,3 @@
-
 import { createHash } from "node:crypto";
 
 export interface BuilderSpaceSummary {

@@ -1,4 +1,3 @@
-
 import type { SandboxAdapter } from "./adapter.js";
 import {
   BackgroundQueueAdapter,

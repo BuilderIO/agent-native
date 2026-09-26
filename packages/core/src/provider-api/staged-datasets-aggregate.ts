@@ -1,5 +1,3 @@
-
-
 export type AggregateOp =
   | "sum"
   | "avg"
@@ -41,7 +39,6 @@ export interface AggregateQuery {
   orderDir?: "asc" | "desc";
   limit?: number;
 }
-
 
 function getField(row: Record<string, unknown>, column: string): unknown {
   return row[column];
@@ -98,7 +95,6 @@ function applyWhere(
     where.every((clause) => matchesFilter(row, clause)),
   );
 }
-
 
 interface GroupAccumulator {
   count: number;
@@ -207,7 +203,6 @@ function applyAggregate(
   }));
 }
 
-
 function applySort(
   rows: Record<string, unknown>[],
   orderBy: string,
@@ -228,7 +223,6 @@ function applySort(
     return 0;
   });
 }
-
 
 export function runAggregateQuery(
   rows: Record<string, unknown>[],

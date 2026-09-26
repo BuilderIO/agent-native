@@ -1,4 +1,3 @@
-
 import { Tooltip as DesignSystemTooltip } from "@agent-native/toolkit/design-system";
 import { IconLayoutSidebarRight } from "@tabler/icons-react";
 import React, {
@@ -245,7 +244,6 @@ function AgentSidebarPanelSkeleton() {
     </div>
   );
 }
-
 
 export interface AgentSidebarProps {
   children: React.ReactNode;

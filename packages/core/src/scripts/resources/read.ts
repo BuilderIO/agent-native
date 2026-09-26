@@ -1,4 +1,3 @@
-
 import {
   SHARED_OWNER,
   resourceGetByPath,

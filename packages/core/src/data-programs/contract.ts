@@ -1,4 +1,3 @@
-
 export const DATA_PROGRAM_SENTINEL = "__DATA_PROGRAM_RESULT__";
 
 export type DataProgramColumnType = "number" | "string" | "boolean" | "json";

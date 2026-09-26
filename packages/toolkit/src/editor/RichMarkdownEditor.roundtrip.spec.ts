@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 
-
 function roundTrip(markdown: string): string {
   const editor = new Editor({
     element: document.createElement("div"),

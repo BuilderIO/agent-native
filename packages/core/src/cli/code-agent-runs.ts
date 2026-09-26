@@ -159,7 +159,6 @@ export function codeAgentRunTranscriptPath(runId: string): string {
   return path.join(codeAgentTranscriptsDir(), `${runId}.jsonl`);
 }
 
-
 const COMMAND_ALLOWLIST_FILENAME = "command-allowlist.json";
 
 export function codeAgentCommandAllowlistPath(): string {

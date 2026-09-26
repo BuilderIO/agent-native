@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { gfmToProseJSON, proseJSONToGfm } from "./gfmDoc.js";
 
-
 function once(markdown: string): string {
   return proseJSONToGfm(gfmToProseJSON(markdown));
 }

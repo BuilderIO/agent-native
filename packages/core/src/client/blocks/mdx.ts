@@ -1,8 +1,6 @@
 import type { BlockRegistry } from "./registry.js";
 import type { BlockSpec, BlockAttrReader, MdxAttrValue } from "./types.js";
 
-
-
 export function jsonExpression(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
@@ -29,7 +27,6 @@ export function prop(name: string, value: unknown): string {
   }
   return ` ${name}={${jsonExpression(value)}}`;
 }
-
 
 export type MdxAttrNode = {
   type: string;
@@ -228,7 +225,6 @@ export function serializeChildCodeFenceFields<TData extends object>(
   }
   return fences.length ? `\n${fences.join("\n\n")}\n` : "";
 }
-
 
 export interface SerializableBlock {
   id: string;

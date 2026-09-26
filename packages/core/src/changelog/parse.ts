@@ -1,4 +1,3 @@
-
 export interface ChangelogEntry {
   id: string;
   title: string;
@@ -159,8 +158,7 @@ export function renderReleaseBody(entries: PendingChangelogEntry[]): string {
     const text = cleanChangelogBody(entry.text);
     if (!text) continue;
     const bullet = text.includes("\n")
-      ?
-        text
+      ? text
           .split(/\r?\n/)
           .map((l, i) => (i === 0 ? `- ${l}` : `  ${l}`))
           .join("\n")

@@ -1,4 +1,3 @@
-
 import type { OnboardingStep } from "./types.js";
 
 const steps = new Map<string, OnboardingStep>();

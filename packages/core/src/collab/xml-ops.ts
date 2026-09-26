@@ -1,4 +1,3 @@
-
 import * as Y from "yjs";
 
 export function searchAndReplaceInYXml(

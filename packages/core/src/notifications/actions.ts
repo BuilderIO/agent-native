@@ -1,4 +1,3 @@
-
 import type { ActionEntry } from "../agent/production-agent.js";
 import { notify, listNotifications, countUnread } from "./registry.js";
 import type { NotificationSeverity } from "./types.js";

@@ -1,6 +1,5 @@
 import type { DbAdminColumn } from "../../db-admin/types.js";
 
-
 export type EditorKind =
   | "text"
   | "number"

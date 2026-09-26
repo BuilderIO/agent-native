@@ -1,4 +1,3 @@
-
 function cellToCSV(value: unknown): string {
   if (value === null || value === undefined) return "";
   let str: string;

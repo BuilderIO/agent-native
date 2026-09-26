@@ -1,4 +1,3 @@
-
 import { parseStackFrames } from "../tracking/posthog-exception.js";
 
 export interface ErrorSignalFrame {

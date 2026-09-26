@@ -1,7 +1,6 @@
 import { getAppConfig } from "../app-config/index.js";
 import { SYNTHETIC_TRAFFIC_BETA_E2E } from "../shared/test-traffic.js";
 
-
 declare const __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: string | undefined;
 declare const __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: string | undefined;
 

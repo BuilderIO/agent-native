@@ -40,7 +40,6 @@ import {
   parseSkillFrontmatter,
 } from "./skill-frontmatter.js";
 
-
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
 export const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 6_000;
 export const COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS = 48_000;

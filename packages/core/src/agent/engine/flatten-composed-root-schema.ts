@@ -1,4 +1,3 @@
-
 type JsonSchema = Record<string, unknown>;
 
 const COMPOSITIONS = ["anyOf", "oneOf", "allOf"] as const;

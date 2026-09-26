@@ -1,4 +1,3 @@
-
 import type Anthropic from "@anthropic-ai/sdk";
 
 import { flattenComposedRootSchema } from "./flatten-composed-root-schema.js";
@@ -14,7 +13,6 @@ import type {
   EngineContentPart,
   EngineEvent,
 } from "./types.js";
-
 
 type JsonSchemaRecord = Record<string, unknown>;
 
@@ -81,7 +79,6 @@ export function engineToolsToAnthropic(
 ): Anthropic.Tool[] {
   return tools.map((tool) => engineToolToAnthropic(tool, toolNameMap));
 }
-
 
 export function stringifyToolUseInputForGateway(input: unknown): string {
   try {
@@ -276,7 +273,6 @@ export function backfillEngineMessagesToolResults(
   return out;
 }
 
-
 function replayableAnthropicPart(part: EngineContentPart): boolean {
   if (part.type !== "thinking") return true;
   if (part.redactedData || part.signature) return true;
@@ -431,7 +427,6 @@ function toolResultContentToAnthropic(
   return [{ type: "text", text: part.content }, ...imageBlocks];
 }
 
-
 export function anthropicContentToEngine(
   content: Anthropic.ContentBlock[],
   toolNameMap?: ProviderToolNameMap,
@@ -471,7 +466,6 @@ export function anthropicContentToEngine(
     })
     .filter((p) => !(p.type === "text" && p.text === ""));
 }
-
 
 export interface AnthropicChunkStreamState {
   toolUseByIndex: Map<number, { id: string; name: string }>;
@@ -535,7 +529,6 @@ export function anthropicChunkToEngineEvents(
 
   return events;
 }
-
 
 export interface StreamedToolInputState {
   byId: Map<string, { name: string; text: string; delivered: boolean }>;
@@ -628,7 +621,6 @@ function parseStreamedToolInput(
 function isEmptyToolInput(input: unknown): boolean {
   return input == null || (isRecord(input) && Object.keys(input).length === 0);
 }
-
 
 export function buildToolResultPart(
   toolCallId: string,

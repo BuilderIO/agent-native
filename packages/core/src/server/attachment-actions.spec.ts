@@ -7,7 +7,6 @@ import {
   createCoreAttachmentActionEntries,
 } from "./attachment-actions.js";
 
-
 describe("isTextLikeMimeType", () => {
   it("recognises plain text variants", () => {
     expect(isTextLikeMimeType("text/plain")).toBe(true);
@@ -50,7 +49,6 @@ describe("isTextLikeFilename", () => {
     expect(isTextLikeFilename(undefined)).toBe(false);
   });
 });
-
 
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
@@ -216,7 +214,6 @@ describe("persistTextAttachmentsAsResources", () => {
     expect(result.size).toBe(0);
   });
 });
-
 
 describe("createCoreAttachmentActionEntries / read-attachment", () => {
   beforeEach(() => {

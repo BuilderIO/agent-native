@@ -1,4 +1,3 @@
-
 import { isSpreadsheetDocument } from "../ingestion/spreadsheet.js";
 
 export const MAX_INLINE_FILE_BASE64_CHARS = 1_000_000;

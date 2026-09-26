@@ -1,4 +1,3 @@
-
 export const MAX_PINCH_DELTA_PX = 40;
 
 export const ZOOM_GESTURE_IDLE_RESET_MS = 150;

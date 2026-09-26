@@ -14,8 +14,6 @@ import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockRenderContext } from "../types.js";
 
-
-
 export function parseLineRange(
   ref: string,
   lineCount: number,
@@ -77,7 +75,6 @@ export function rangeLabel(item: ResolvedAnnotation): string {
     : `Lines ${item.range.start}–${item.range.end}`;
 }
 
-
 export function AnnotationGutterMarker({
   marker,
   active,
@@ -102,7 +99,6 @@ export function AnnotationGutterMarker({
     </span>
   );
 }
-
 
 export function AnnotationCard<A extends RailAnnotation>({
   item,
@@ -384,7 +380,6 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
     </>
   );
 }
-
 
 export interface AnnotationAnchor {
   codeRight: number;

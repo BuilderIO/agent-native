@@ -1,4 +1,3 @@
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_PROGRAM_SENTINEL } from "./contract.js";

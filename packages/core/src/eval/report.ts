@@ -1,4 +1,3 @@
-
 import type { EvalRunReport } from "./types.js";
 
 function bar(score: number, width = 10): string {

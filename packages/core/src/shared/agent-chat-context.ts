@@ -1,4 +1,3 @@
-
 const CONTEXT_BLOCK_PATTERN = /<context\b[^>]*>([\s\S]*?)<\/context>\n?/gi;
 const UNCLOSED_CONTEXT_PATTERN = /<context\b[^>]*>([\s\S]*)$/i;
 const STRAY_CONTEXT_CLOSE_PATTERN = /<\/context>/gi;

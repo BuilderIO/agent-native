@@ -1,6 +1,5 @@
 import { Extension } from "@tiptap/core";
 
-
 const CHECKBOX_HINT =
   /(to-do-list|contains-task-list|task-list-item|checkbox|type=["']?checkbox)/i;
 

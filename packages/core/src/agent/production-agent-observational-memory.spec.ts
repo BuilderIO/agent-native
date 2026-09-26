@@ -60,7 +60,6 @@ import type {
   EngineMessage,
 } from "./engine/types.js";
 
-
 function recordingEngine(captured: EngineMessage[][]): AgentEngine {
   return {
     name: "test",

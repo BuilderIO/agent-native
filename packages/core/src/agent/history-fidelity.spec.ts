@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { createAgentChatAdapter } from "../client/agent-chat-adapter.js";
 import { structuredHistoryToEngineMessages } from "./production-agent.js";
 
-
 function sseResponse(events: unknown[]): Response {
   const body = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
   return new Response(body, {

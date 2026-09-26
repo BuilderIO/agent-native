@@ -23,8 +23,6 @@ import type {
 import { DATA_MODEL_CHANGES } from "./data-model.config.js";
 import { DevInput, DevSelect } from "./dev-doc-ui.js";
 
-
-
 const CHANGE_BADGE: Record<DataModelChange, string> = {
   added:
     "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -77,7 +75,6 @@ function ChangeChip({
   );
 }
 
-
 function parseFk(fk: string): { entity: string; field?: string } {
   const trimmed = fk.trim();
   const dot = trimmed.indexOf(".");
@@ -129,7 +126,6 @@ function effectiveRelations(data: DataModelData): DataModelRelation[] {
   }
   return inferred;
 }
-
 
 export function DataModelRead({
   data,
@@ -438,7 +434,6 @@ export function DataModelRead({
     </section>
   );
 }
-
 
 let entitySeq = 0;
 function newEntityId(): string {

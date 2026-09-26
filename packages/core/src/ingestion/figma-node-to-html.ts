@@ -303,7 +303,6 @@ const MAX_FIGMA_NODE_COUNT = 75_000;
 const MAX_FIGMA_NODE_DEPTH = 256;
 const MAX_METADATA_ATTRIBUTE_CHARS = 16_384;
 
-
 function round(value: number, precision = 2): number {
   const factor = 10 ** precision;
   return Math.round(value * factor) / factor;
@@ -374,7 +373,6 @@ function styleAttr(styles: Record<string, string | undefined>): string {
   return escapeAttr(parts.join("; "));
 }
 
-
 class FidelityTracker {
   private entries = new Map<string, FidelityEntry>();
 
@@ -413,7 +411,6 @@ class FidelityTracker {
     return { entries, summary };
   }
 }
-
 
 function resolveGradientGeometry(paint: FigmaPaint): GradientHandles | null {
   return resolveGradientHandles(paint.gradientHandlePositions);
@@ -527,7 +524,6 @@ function paintToCssImage(
       return null;
   }
 }
-
 
 interface BackgroundResult {
   backgroundColor?: string;
@@ -858,7 +854,6 @@ function buildFills(
   return result;
 }
 
-
 interface StrokeResult {
   styles: Record<string, string | undefined>;
   insetShadow?: string;
@@ -955,7 +950,6 @@ function buildStrokes(node: FigmaNode, tracker: FidelityTracker): StrokeResult {
   }
 }
 
-
 function buildCornerRadius(node: FigmaNode): string | undefined {
   if (node.rectangleCornerRadii) {
     const [tl, tr, br, bl] = node.rectangleCornerRadii;
@@ -966,7 +960,6 @@ function buildCornerRadius(node: FigmaNode): string | undefined {
   }
   return undefined;
 }
-
 
 interface EffectResult {
   boxShadowLayers: string[];
@@ -1075,7 +1068,6 @@ function buildEffects(
   };
 }
 
-
 function buildBlendMode(
   node: FigmaNode,
   tracker: FidelityTracker,
@@ -1093,7 +1085,6 @@ function buildBlendMode(
   }
   return result.cssMode;
 }
-
 
 function resolveLineHeight(style: FigmaTypeStyle): string | undefined {
   if (
@@ -1177,7 +1168,6 @@ function verticalAlignJustifyContent(
       return "flex-start";
   }
 }
-
 
 function primaryAxisJustify(align: FigmaNode["primaryAxisAlignItems"]): string {
   switch (align) {
@@ -1376,7 +1366,6 @@ function buildChildSizingStyles(
   }
   return styles;
 }
-
 
 const VECTOR_GEOMETRY_TYPES = new Set([
   "VECTOR",
@@ -1598,7 +1587,6 @@ function buildVectorSvg(
       : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" ${sizing} viewBox="${round(originX, 2)} ${round(originY, 2)} ${round(viewWidth, 2)} ${round(viewHeight, 2)}" fill="none" style="${placement}overflow: visible; display: block">${defsMarkup}${paths.join("")}</svg>`;
 }
-
 
 export function hasPrivateUseCharacters(text: string | undefined): boolean {
   if (!text) return false;
@@ -1911,7 +1899,6 @@ function buildMixedTextHtml(
     })
     .join("");
 }
-
 
 interface LocalBox {
   left: number;

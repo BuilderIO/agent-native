@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { createSharedEditorExtensions } from "./extensions.js";
 
-
 function makeEditor(disableHistory: boolean): Editor {
   const element = document.createElement("div");
   document.body.appendChild(element);

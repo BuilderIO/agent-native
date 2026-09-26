@@ -5,7 +5,6 @@ import type {
   DbAdminMutation,
 } from "../../db-admin/types.js";
 
-
 export interface NewRow {
   _localId: string;
   values: Record<string, unknown>;
@@ -54,8 +53,7 @@ export function pkStringFor(
   const cols =
     schema && schema.primaryKey.length > 0
       ? schema.primaryKey
-      :
-        Object.keys(row).sort();
+      : Object.keys(row).sort();
   return JSON.stringify(cols.map((c) => row[c] ?? null));
 }
 

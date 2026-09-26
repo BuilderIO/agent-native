@@ -1,4 +1,3 @@
-
 import {
   normalizeAgentActionScope,
   tryNormalizeAgentActionScope,

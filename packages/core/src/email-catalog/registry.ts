@@ -1,4 +1,3 @@
-
 import { getAppConfig } from "../app-config/index.js";
 import type { RenderedEmailMessage } from "../server/email-templates.js";
 

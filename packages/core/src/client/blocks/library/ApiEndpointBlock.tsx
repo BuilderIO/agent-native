@@ -33,8 +33,6 @@ import {
 } from "./dev-doc-ui.js";
 import { JsonExplorerSurface } from "./JsonExplorerBlock.js";
 
-
-
 const METHOD_PILL: Record<ApiEndpointMethod, string> = {
   GET: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
   POST: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
@@ -65,7 +63,6 @@ function statusPillClass(status: string): string {
     return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300";
   return "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300";
 }
-
 
 const CHANGE_BADGE: Record<ApiEndpointChange, string> = {
   added:
@@ -314,7 +311,6 @@ function ApiExample({
     />
   );
 }
-
 
 export function ApiEndpointRead({
   data,
@@ -627,7 +623,6 @@ export function ApiEndpointRead({
     </section>
   );
 }
-
 
 const fieldLabelClass = "text-xs font-medium text-muted-foreground";
 

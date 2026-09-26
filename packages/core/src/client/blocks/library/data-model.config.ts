@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import type { BlockMdxConfig } from "../types.js";
 
-
 export type DataModelRelationKind = "1-1" | "1-n" | "n-n";
 
 export const DATA_MODEL_RELATION_KINDS: DataModelRelationKind[] = [

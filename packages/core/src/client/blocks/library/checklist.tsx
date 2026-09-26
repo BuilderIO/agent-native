@@ -10,7 +10,6 @@ import {
   type ChecklistItem,
 } from "./checklist.config.js";
 
-
 function newItemId(): string {
   return `item-${Math.random().toString(36).slice(2, 10)}`;
 }

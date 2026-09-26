@@ -148,7 +148,6 @@ export function EditableCell({
   );
 }
 
-
 function BooleanCell({
   value,
   dirty,
@@ -196,7 +195,6 @@ function BooleanCell({
     </div>
   );
 }
-
 
 function InlineTextEditor({
   kind,
@@ -283,7 +281,6 @@ function InlineTextEditor({
   );
 }
 
-
 function EnumEditor({
   column,
   value,
@@ -328,7 +325,6 @@ function EnumEditor({
     </select>
   );
 }
-
 
 function JsonEditor({
   value,

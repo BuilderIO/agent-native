@@ -1,4 +1,3 @@
-
 import { getDbExec, type DbExec } from "./client.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;

@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import type { BlockMdxConfig } from "../types.js";
 
-
 export interface AnnotatedCodeAnnotation {
   lines: string;
   label?: string;

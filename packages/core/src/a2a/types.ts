@@ -8,7 +8,6 @@ export type {
   A2AAgentActivityToolStatus,
 } from "./activity.js";
 
-
 export interface TextPart {
   type: "text";
   text: string;
@@ -30,7 +29,6 @@ export interface DataPart {
 }
 
 export type Part = TextPart | FilePart | DataPart;
-
 
 export interface Message {
   role: "user" | "agent";
@@ -76,7 +74,6 @@ export interface A2AConnectionRequestMetadata {
   appId?: string;
   detail?: string;
 }
-
 
 export interface AgentSkill {
   id: string;
@@ -140,7 +137,6 @@ export interface AgentCard {
   security?: Record<string, string[]>[];
 }
 
-
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
   id: string | number;
@@ -187,7 +183,6 @@ export interface A2ACorrelationMetadata {
   visitedApps?: string[];
   callerModel?: string;
 }
-
 
 export interface A2AHandlerContext {
   taskId: string;

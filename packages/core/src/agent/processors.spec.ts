@@ -6,7 +6,6 @@ import { runAgentLoop } from "./production-agent.js";
 import type { ActionEntry as ProductionActionEntry } from "./production-agent.js";
 import type { AgentChatEvent } from "./types.js";
 
-
 const capabilities = {
   thinking: false,
   promptCaching: false,
@@ -82,7 +81,6 @@ function baseOpts(
   };
 }
 
-
 describe("processor seam — no processors", () => {
   it("completes normally and emits no tripwire when no processors are passed", async () => {
     const events: AgentChatEvent[] = [];
@@ -107,7 +105,6 @@ describe("processor seam — no processors", () => {
     expect(events.some((e) => e.type === "tripwire")).toBe(false);
   });
 });
-
 
 describe("processor seam — processOutputStream abort", () => {
   it("halts the run and emits a tripwire when a stream processor aborts", async () => {
@@ -149,7 +146,6 @@ describe("processor seam — processOutputStream abort", () => {
     expect(resultText).toBe("Blocked: secret detected");
   });
 });
-
 
 describe("processor seam — processOutputStep abort", () => {
   it("sees the model's requested tool calls and can abort before they run", async () => {
@@ -229,7 +225,6 @@ describe("processor seam — processOutputStep abort", () => {
     ]);
   });
 });
-
 
 describe("processor seam — per-processor state", () => {
   it("persists state across chunks and isolates it between processors", async () => {

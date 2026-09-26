@@ -1,4 +1,3 @@
-
 import { IconChevronDown, IconHistory, IconX } from "@tabler/icons-react";
 import React, { useEffect, useId, useMemo, useState } from "react";
 
@@ -17,7 +16,6 @@ export {
   useChangelogSeen,
 } from "./use-changelog-seen.js";
 
-
 function formatEntryHeading(entry: ChangelogEntry, locale: LocaleCode): string {
   if (entry.date) {
     const [y, m, d] = entry.date.split("-").map(Number);
@@ -32,7 +30,6 @@ function formatEntryHeading(entry: ChangelogEntry, locale: LocaleCode): string {
   }
   return entry.title;
 }
-
 
 const changelogMarkdownComponents = {
   h3: (props: React.HTMLAttributes<HTMLHeadingElement>) => (
@@ -98,7 +95,6 @@ function ChangelogBody({ markdown }: { markdown: string }) {
   );
 }
 
-
 function ChangelogEntries({
   entries,
   emptyText,
@@ -124,7 +120,6 @@ function ChangelogEntries({
     </div>
   );
 }
-
 
 export interface ChangelogDialogProps {
   open: boolean;
@@ -193,7 +188,6 @@ export function ChangelogDialog({
     </div>
   );
 }
-
 
 export interface ChangelogSettingsCardProps {
   markdown: string;

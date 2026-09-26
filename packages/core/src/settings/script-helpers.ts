@@ -1,4 +1,3 @@
-
 import { getSetting, putSetting, deleteSetting } from "./store.js";
 
 export async function readSetting(

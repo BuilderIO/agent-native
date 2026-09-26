@@ -1,4 +1,3 @@
-
 export const DIAGNOSTIC_SNIPPET_OPEN = "<<<diagnostic-snippet";
 export const DIAGNOSTIC_SNIPPET_CLOSE = ">>>end-diagnostic-snippet";
 

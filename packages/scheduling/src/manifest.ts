@@ -1,4 +1,3 @@
-
 export interface SchedulingManifest {
   manifestVersion: 1;
   name: string;

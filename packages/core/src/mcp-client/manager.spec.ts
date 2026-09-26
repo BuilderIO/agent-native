@@ -8,7 +8,6 @@ import {
   MCP_TOOL_PREFIX,
 } from "./manager.js";
 
-
 type FakeTool = {
   name: string;
   title?: string;

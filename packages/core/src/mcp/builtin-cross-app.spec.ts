@@ -33,7 +33,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-
 describe("verifyAuth — static-token caller identity", () => {
   it("dev-open with no owner hint has no identity (unchanged behavior)", async () => {
     const res = await verifyAuth(undefined);
@@ -109,7 +108,6 @@ describe("verifyAuth — static-token caller identity", () => {
     expect(res.identity?.orgDomain).toBe("acme.com");
   });
 });
-
 
 function baseConfig(over: Partial<MCPConfig> = {}): MCPConfig {
   return {
@@ -798,7 +796,6 @@ describe("ask_app — honest routing metadata", () => {
   });
 });
 
-
 describe("ask_app — bounded deadline & retry behavior for the hosted A2A poll loop", () => {
   function mockCallerAuth() {
     return vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
@@ -1034,7 +1031,6 @@ describe("ask_app — bounded deadline & retry behavior for the hosted A2A poll 
   });
 });
 
-
 describe("ask_app — in-process inline fallback when no app origin is derivable", () => {
   it("returns a working payload within the bound, then completes via ask_app_status once the slow askAgent settles", async () => {
     vi.useFakeTimers();
@@ -1080,7 +1076,6 @@ describe("ask_app — in-process inline fallback when no app origin is derivable
     });
   });
 });
-
 
 describe("list_apps — org-directory merge", () => {
   it("no directory env ⇒ fetchOrgApps()=[] and list_apps unchanged", async () => {

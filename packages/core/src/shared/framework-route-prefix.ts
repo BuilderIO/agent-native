@@ -1,4 +1,3 @@
-
 export const FRAMEWORK_INTERNAL_ROUTE_PREFIX = "/_agent-native";
 
 export const FRAMEWORK_ROUTE_PREFIX_ENV =

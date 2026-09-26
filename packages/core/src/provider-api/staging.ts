@@ -31,7 +31,6 @@ import {
   MAX_ROWS_PER_APP,
 } from "./staged-datasets-store.js";
 
-
 export type ItemsPath =
   | "auto"
   | "data"
@@ -81,7 +80,6 @@ export interface StagingResult {
   guidance: string;
 }
 
-
 export type ProviderApiExecutor = (
   args: ProviderApiRequestArgs,
 ) => Promise<unknown>;
@@ -90,7 +88,6 @@ export interface StagingRuntimeContext {
   appId: string;
   ownerEmail: string;
 }
-
 
 function getAtPath(obj: unknown, path: string): unknown {
   if (!path || obj === undefined || obj === null) return obj;
@@ -103,7 +100,6 @@ function getAtPath(obj: unknown, path: string): unknown {
   }
   return cur;
 }
-
 
 export function extractItemsArray(
   body: unknown,
@@ -160,7 +156,6 @@ function setAtPath(base: unknown, path: string, value: unknown): unknown {
   return root;
 }
 
-
 async function sleepMs(ms: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
@@ -189,7 +184,6 @@ function isProviderQuotaCooldown(response: Record<string, unknown>): boolean {
   const json = response.json as Record<string, unknown> | undefined;
   return json?.error === "provider_quota_exhausted";
 }
-
 
 export async function stagingExecuteRequest(
   args: StagingRequestArgs,
@@ -392,7 +386,6 @@ export async function stagingExecuteRequest(
       "Staging avoids sending raw response bodies through the context window.",
   };
 }
-
 
 function tryParseJson(text: string): unknown | null {
   try {

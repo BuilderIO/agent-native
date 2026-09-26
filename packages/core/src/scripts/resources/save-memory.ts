@@ -1,4 +1,3 @@
-
 import {
   resourceGetByPath,
   resourcePutSnapshotBatchIfCurrent,
@@ -170,7 +169,6 @@ export default async function saveMemoryScript(
       `Warning: Memory index has ${lineCount} lines (recommended: <200). Consider consolidating or removing old memories.`,
     );
   }
-
 
   if (parsed.quiet !== "true") {
     for (const entry of entries) {

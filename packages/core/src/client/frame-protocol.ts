@@ -1,11 +1,9 @@
-
 import type {
   AgentChatContextMutationOptions,
   AgentChatContextRemoveOptions,
   AgentChatContextSetOptions,
   AgentChatMessage,
 } from "./agent-chat.js";
-
 
 export interface AppReadyMessage {
   type: "agentNative.appReady";
@@ -100,7 +98,6 @@ export type AppToFrameMessage =
   | PresentationModeMessage
   | DesignCloseMessage;
 
-
 export interface FrameOriginMessage {
   type: "agentNative.frameOrigin";
   origin: string;
@@ -161,6 +158,5 @@ export type FrameToAppMessage =
   | SidebarModeMessage
   | PresentationModeMessage
   | DesignInitMessage;
-
 
 export type FrameMessage = AppToFrameMessage | FrameToAppMessage;

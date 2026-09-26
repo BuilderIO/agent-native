@@ -15,7 +15,6 @@ import {
   WIREFRAME_REFERENCE_MD,
 } from "./skills.js";
 
-
 function workspaceRoot(): string {
   let current = process.cwd();
   while (current !== path.dirname(current)) {

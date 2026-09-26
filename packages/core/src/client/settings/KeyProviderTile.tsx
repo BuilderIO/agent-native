@@ -1,4 +1,3 @@
-
 import { mcpIntegrationLogo } from "../resources/mcp-integration-logos.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 

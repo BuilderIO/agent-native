@@ -2,7 +2,6 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-
 const pglite = await createTestPglite();
 
 afterAll(async () => {
@@ -207,7 +206,6 @@ describe("foreground self-chain — reaper coverage for the handoff window", () 
     expect(await reapUnclaimedBackgroundRun(successor)).toBe(false);
     expect((await getRunById(successor))?.status).toBe("running");
   });
-
 
   it("a redispatched worker that ARRIVES AFTER the row was reaped cannot execute (CAS requires status='running')", async () => {
     const { successor, thread } = ids();

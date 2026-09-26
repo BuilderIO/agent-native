@@ -1,4 +1,3 @@
-
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
 import type { SignupAttributionContext } from "./attribution.js";

@@ -1,4 +1,3 @@
-
 import { getAppConfig } from "../app-config/index.js";
 import { getRequestContext } from "../server/request-context.js";
 import { isQaTestEmail } from "../shared/qa-test-email.js";
@@ -11,7 +10,6 @@ const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
   "https://analytics.agent-native.com/track";
 const BATCH_INTERVAL_MS = 10_000;
 const MAX_BATCH_SIZE = 50;
-
 
 interface QueuedEvent {
   url: string;
@@ -144,7 +142,6 @@ function agentNativeAnalyticsFlushesImmediately(): boolean {
   return isServerlessRuntime();
 }
 
-
 function isPostHogAiObservabilityEvent(eventName: string): boolean {
   return eventName.startsWith("$ai_");
 }
@@ -275,7 +272,6 @@ export function sendPostHogEvent(
   return true;
 }
 
-
 function createMixpanelProvider(token: string): TrackingProvider {
   return {
     name: "mixpanel",
@@ -307,7 +303,6 @@ function createMixpanelProvider(token: string): TrackingProvider {
     },
   };
 }
-
 
 function stripExceptionContextForAmplitude(
   properties: Record<string, unknown>,
@@ -369,7 +364,6 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
   };
 }
 
-
 function createWebhookProvider(
   url: string,
   authHeader?: string,
@@ -408,7 +402,6 @@ function createWebhookProvider(
     },
   };
 }
-
 
 function createAgentNativeAnalyticsProvider(
   publicKey: string,
@@ -452,7 +445,6 @@ function createAgentNativeAnalyticsProvider(
     },
   };
 }
-
 
 let _registered = false;
 

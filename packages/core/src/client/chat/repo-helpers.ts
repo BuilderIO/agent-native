@@ -1,5 +1,3 @@
-
-
 import { ASSISTANT_RUN_DURATION_METADATA_KEY } from "../../agent/thread-data-builder.js";
 
 export interface RepoMessageStatus {

@@ -1,4 +1,3 @@
-
 import { getOwnerActiveApiKey } from "../agent/production-agent.js";
 import {
   automationMatchesEventOwner,
@@ -50,7 +49,6 @@ export function buildTriggerContent(
 ): string {
   return buildJobResourceContent(meta, body);
 }
-
 
 export interface TriggerDispatcherDeps extends BackgroundAutomationDeps {
   getInitialToolNames?: (

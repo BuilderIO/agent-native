@@ -1,4 +1,3 @@
-
 import type { ReactElement } from "react";
 import ReactDOMServer from "react-dom/server.browser";
 import type { EntryContext, RouterContextProvider } from "react-router";

@@ -1,4 +1,3 @@
-
 import {
   BlockRegistry,
   BlockRegistryProvider,
@@ -43,7 +42,6 @@ export {
   type DocSegment,
 } from "../../lib/doc-block-segments";
 
-
 let cachedRegistry: BlockRegistry | null = null;
 
 function getDocBlockRegistry(): BlockRegistry {
@@ -65,7 +63,6 @@ function getDocBlockRegistry(): BlockRegistry {
   cachedRegistry = registry;
   return registry;
 }
-
 
 function useDocBlockContext(locale: DocsLocale): BlockRenderContext {
   const registry = getDocBlockRegistry();
@@ -116,7 +113,6 @@ function DocNestedBlock({
     view
   );
 }
-
 
 export function DocBlocksProvider({
   children,

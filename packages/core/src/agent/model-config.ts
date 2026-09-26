@@ -1,5 +1,3 @@
-
-
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "claude-fable-5": 1_000_000,
   "claude-opus-5-5": 1_000_000,
@@ -88,7 +86,6 @@ export function getContextWindowForModel(modelId: string): number {
 
   return DEFAULT_CONTEXT_WINDOW;
 }
-
 
 const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "claude-fable-5": 128_000,

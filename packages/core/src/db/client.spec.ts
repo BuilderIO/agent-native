@@ -4,7 +4,6 @@ import { join } from "node:path";
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-
 describe("PGlite dev reloads", () => {
   const processState = process as NodeJS.Process & {
     __agentNativePgliteClients?: Map<string, Promise<unknown>>;
@@ -1701,7 +1700,6 @@ describe("annotateMissingTable", () => {
     expect(twice.message.match(/server\/plugins\/db\.ts/g)).toHaveLength(1);
   });
 });
-
 
 describe("db/client shared connection pools", () => {
   afterEach(() => {

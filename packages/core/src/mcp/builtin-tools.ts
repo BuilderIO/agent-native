@@ -1,4 +1,3 @@
-
 import type { A2AApprovedAction, Task } from "../a2a/types.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
@@ -641,7 +640,6 @@ async function resolveTargetAppOrigin(
   }
 }
 
-
 function listAppsTool(
   config: MCPConfig,
   requestMeta?: { origin?: string },
@@ -731,7 +729,6 @@ function listAppsTool(
     },
   };
 }
-
 
 function openAppTool(
   config: MCPConfig,
@@ -913,7 +910,6 @@ function openAppTool(
   };
 }
 
-
 function createEmbedSessionTool(requestMeta?: {
   origin?: string;
 }): ActionEntry {
@@ -1093,7 +1089,6 @@ async function resolveAskAppStatusRoute(
 
   throw new Error(`No reachable ask_app task route for app "${requestedApp}".`);
 }
-
 
 function askAppTool(
   config: MCPConfig,
@@ -1352,7 +1347,6 @@ function askAppStatusTool(
   };
 }
 
-
 function listTemplatesTool(): ActionEntry {
   return {
     tool: tool(
@@ -1373,7 +1367,6 @@ function listTemplatesTool(): ActionEntry {
     },
   };
 }
-
 
 function createWorkspaceAppTool(): ActionEntry {
   return {
@@ -1475,7 +1468,6 @@ function createWorkspaceAppTool(): ActionEntry {
     },
   };
 }
-
 
 export function getBuiltinCrossAppTools(
   config: MCPConfig,

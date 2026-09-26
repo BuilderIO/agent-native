@@ -8,7 +8,6 @@ import { DevInput, DevLabel } from "./dev-doc-ui.js";
 import { DiagramLightbox } from "./diagram.js";
 import type { MermaidData } from "./mermaid.config.js";
 
-
 interface MermaidRenderState {
   svg?: string;
   error?: string;

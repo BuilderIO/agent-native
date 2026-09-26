@@ -229,7 +229,6 @@ export function createTranscribeVoiceHandler() {
 
     let builderError: string | null = null;
 
-
     if (providerPref === "gemini") {
       const geminiKey = await resolveApiKey("GEMINI_API_KEY");
       if (!geminiKey) {
@@ -328,7 +327,6 @@ export function createTranscribeVoiceHandler() {
       });
     }
 
-
     if (providerPref !== "openai" && (await hasBuilderCredential())) {
       try {
         const result = await transcribeWithBuilderForRequest({
@@ -377,8 +375,6 @@ export function createTranscribeVoiceHandler() {
         }
       }
     }
-
-
 
     let provider: {
       name: "groq" | "openai";

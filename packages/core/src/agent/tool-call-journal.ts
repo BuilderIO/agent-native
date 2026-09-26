@@ -1,4 +1,3 @@
-
 import {
   isArtifactReceipt,
   type ArtifactReceipt,

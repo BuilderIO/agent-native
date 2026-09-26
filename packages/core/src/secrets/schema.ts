@@ -1,4 +1,3 @@
-
 import { table, text, bigint } from "../db/schema.js";
 
 export const appSecrets = table("app_secrets", {

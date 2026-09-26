@@ -28,7 +28,6 @@ import {
   type TabsTab,
 } from "./tabs.config.js";
 
-
 function newTabId(): string {
   return `tab-${Math.random().toString(36).slice(2, 10)}`;
 }

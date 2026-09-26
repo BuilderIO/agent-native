@@ -1,4 +1,3 @@
-
 import { searchThreads, listThreads } from "../../chat-threads/store.js";
 import {
   getAmbientUserEmail,

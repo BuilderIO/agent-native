@@ -71,7 +71,6 @@ describe("streaming text smoothing helpers", () => {
     expect(fastRate).toBeGreaterThan(normalRate);
   });
 
-
   describe("incremental segmentation", () => {
     it("returns the same graphemes as full segmentation when text grows by appending", () => {
       const base = "Hello, world!";
@@ -180,7 +179,6 @@ describe("streaming text smoothing helpers", () => {
       const second = splitStreamingTextGraphemes(text);
       expect(second).toBe(first);
     });
-
 
     it("counts CJK characters as individual graphemes", () => {
       const text = "日本語テスト";

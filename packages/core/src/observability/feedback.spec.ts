@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-
 const insertFeedback = vi.hoisted(() => vi.fn());
 const upsertSatisfactionScore = vi.hoisted(() => vi.fn());
 const ensureObservabilityTables = vi.hoisted(() => vi.fn());

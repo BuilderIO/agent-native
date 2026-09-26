@@ -6,7 +6,6 @@ import {
 } from "drizzle-orm/pg-core";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-
 describe("ensureAdditiveColumns", () => {
   let originalEnv: NodeJS.ProcessEnv;
   beforeEach(() => {

@@ -65,7 +65,6 @@ interface QueryResult {
   durationMs: number;
 }
 
-
 function useIsDark(): boolean {
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
@@ -79,7 +78,6 @@ function useIsDark(): boolean {
   }, []);
   return isDark;
 }
-
 
 function splitStatements(
   text: string,
@@ -159,7 +157,6 @@ function resolveRunTarget(
   return (hit?.sql ?? buffer).trim() || buffer;
 }
 
-
 function Modal({
   title,
   children,
@@ -202,7 +199,6 @@ function Modal({
   );
 }
 
-
 function ToolbarButton({
   children,
   onClick,
@@ -237,7 +233,6 @@ const isMac =
   /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = isMac ? "Cmd" : "Ctrl";
 
-
 export function SqlEditor({
   tableNames,
   columnsByTable,
@@ -271,7 +266,6 @@ export function SqlEditor({
     setHistory(loadHistory());
     setSnippets(loadSnippets());
   }, []);
-
 
   const execute = useCallback(
     async (sqlText: string, confirmDestructive?: boolean) => {
@@ -331,7 +325,6 @@ export function SqlEditor({
     if (sqlText) void execute(sqlText, true);
   }, [confirmSql, execute]);
 
-
   const extensions = useMemo(() => {
     const langExt = sql({
       dialect: PostgreSQL,
@@ -366,7 +359,6 @@ export function SqlEditor({
     // Re-derive when the schema reference changes.
   }, [columnsByTable, tableNames, runActiveStatement, runWholeBuffer]);
 
-
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!dragState.current) return;
@@ -398,7 +390,6 @@ export function SqlEditor({
     document.body.style.userSelect = "none";
   };
 
-
   const loadIntoEditor = useCallback((sqlText: string) => {
     setValue(sqlText);
     requestAnimationFrame(() => {
@@ -409,7 +400,6 @@ export function SqlEditor({
       }
     });
   }, []);
-
 
   const exportAs = (format: "csv" | "json") => {
     if (!result || result.columns.length === 0) return;
@@ -429,7 +419,6 @@ export function SqlEditor({
     }
   };
 
-
   const openSaveModal = () => {
     if (!value.trim()) return;
     setSnippetName("");
@@ -446,7 +435,6 @@ export function SqlEditor({
   const removeSnippet = (id: string) => {
     setSnippets(deleteSnippet(id));
   };
-
 
   const firstTable = tableNames[0];
   const examples = useMemo(() => {
@@ -472,7 +460,6 @@ export function SqlEditor({
 
   const hasResults = result !== null;
   const canExport = hasResults && result!.columns.length > 0;
-
 
   return (
     <div className="flex h-full flex-col">

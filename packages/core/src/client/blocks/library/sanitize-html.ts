@@ -1,4 +1,3 @@
-
 const BLOCKED_TAGS =
   "script,style,iframe,object,embed,link,meta,base,form,noscript,frame,frameset,applet,marquee,portal";
 const DIAGRAM_BLOCKED_TAGS = `${BLOCKED_TAGS},math,foreignObject,foreignobject`;

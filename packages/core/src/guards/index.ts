@@ -1,4 +1,3 @@
-
 export { scanDbToolScoping } from "./db-tool-scoping.js";
 export type { DbToolScopingOptions } from "./db-tool-scoping.js";
 export { scanExplicitCollabAccess } from "./explicit-collab-access.js";

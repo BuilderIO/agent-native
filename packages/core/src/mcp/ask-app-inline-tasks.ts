@@ -1,4 +1,3 @@
-
 type AskAppInlineTaskStatus = "working" | "completed" | "failed";
 
 interface AskAppInlineTaskEntry {

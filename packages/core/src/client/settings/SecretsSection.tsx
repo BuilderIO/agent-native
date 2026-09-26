@@ -1,4 +1,3 @@
-
 import { Picker, TextField } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
@@ -812,7 +811,6 @@ function SecretCard({
     </div>
   );
 }
-
 
 interface AdHocKey {
   name: string;

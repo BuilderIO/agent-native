@@ -1,4 +1,3 @@
-
 import { table, text, now } from "../db/schema.js";
 
 export function ownableColumns() {

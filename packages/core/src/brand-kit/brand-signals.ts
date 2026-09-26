@@ -1,4 +1,3 @@
-
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import type { BrandWebsiteSignals } from "./types.js";
 

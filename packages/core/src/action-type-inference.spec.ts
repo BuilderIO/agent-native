@@ -5,7 +5,6 @@ import { defineAction } from "./action.js";
 import type { ActionDefinition } from "./action.js";
 import type { ActionRegistry } from "./client/use-action.js";
 
-
 const createItemAction = defineAction({
   description: "Create an item",
   schema: z.object({
@@ -47,7 +46,6 @@ describe("defineAction type inference", () => {
   });
 });
 
-
 const legacyAction = defineAction({
   description: "Legacy parameter action",
   parameters: {
@@ -66,7 +64,6 @@ describe("defineAction legacy parameters overload", () => {
   });
 });
 
-
 describe("ActionDefinition structure", () => {
   it("action.run is a function accepting the typed input", () => {
     expectTypeOf(createItemAction.run).toBeFunction();
@@ -77,7 +74,6 @@ describe("ActionDefinition structure", () => {
     expectTypeOf<RunResult["id"]>().toEqualTypeOf<string>();
   });
 });
-
 
 declare module "./client/use-action.js" {
   interface ActionRegistry {

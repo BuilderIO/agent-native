@@ -1,4 +1,3 @@
-
 export type OnboardingMethodBadge = "recommended" | "beta" | "free" | "soon";
 
 export interface OnboardingFormField {

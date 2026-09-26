@@ -8,8 +8,6 @@ export const DEFAULT_AI_SDK_MAX_OUTPUT_TOKENS = 8192;
 export const DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS = 8192;
 export const DEFAULT_BUILDER_MAX_OUTPUT_TOKENS = 8192;
 
-
-
 export const MAIN_CHAT_MAX_OUTPUT_TOKENS_CAP = 64_000;
 export const EMPTY_RESPONSE_RETRY_MAX_OUTPUT_TOKENS_CAP = 128_000;
 
@@ -30,7 +28,6 @@ export function resolveEmptyResponseRetryMaxOutputTokens(
     Math.max(emptyResponseRetryMaxOutputTokens, mainChatMaxOutputTokens),
   );
 }
-
 
 export const ANTHROPIC_MIN_THINKING_BUDGET_TOKENS = 1024;
 

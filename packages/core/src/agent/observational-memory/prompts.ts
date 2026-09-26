@@ -1,4 +1,3 @@
-
 export const OBSERVER_SYSTEM_PROMPT = `You are the Observer for a long-running agent thread. You compress a span of raw conversation into a single DENSE, DATED observation log that will REPLACE those raw messages in future context.
 
 Rules:

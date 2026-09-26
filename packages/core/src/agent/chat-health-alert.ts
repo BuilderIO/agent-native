@@ -5,7 +5,6 @@ import { notifyWithDelivery } from "../notifications/registry.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { deleteSettingIfValue, mutateSetting } from "../settings/store.js";
 
-
 const WINDOW_MS = 60 * 60_000;
 const MIN_TURNS = 5;
 const BAD_RATE_THRESHOLD = 0.5;

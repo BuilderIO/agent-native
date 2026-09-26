@@ -1285,7 +1285,6 @@ async function waitForFile(filePath: string): Promise<void> {
   }
 }
 
-
 describe("buildStructuredMessagesFromEvents", () => {
   function event(
     id: string,
@@ -1507,7 +1506,6 @@ describe("buildStructuredMessagesFromEvents", () => {
     expect(readResult?.toolCallId).toBe(readCall?.id);
   });
 });
-
 
 describe("buildRepoInstructionsBlock", () => {
   it("returns empty string when content is empty", () => {

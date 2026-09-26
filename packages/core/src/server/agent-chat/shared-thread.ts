@@ -12,7 +12,6 @@ import type { ChatThread } from "../../chat-threads/store.js";
 import { buildResourceSocialMeta } from "../../shared/social-meta.js";
 import { getAppBasePath, getOrigin } from "../google-oauth.js";
 
-
 function sanitizeSharedThread(thread: ChatThread): {
   id: string;
   title: string;

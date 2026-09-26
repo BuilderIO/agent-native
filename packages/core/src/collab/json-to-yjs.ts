@@ -1,13 +1,10 @@
-
 import * as Y from "yjs";
-
 
 export type PatchOp =
   | { op: "set"; path: string; value: any }
   | { op: "insert"; path: string; index: number; value: any }
   | { op: "delete"; path: string }
   | { op: "move"; path: string; from: number; to: number };
-
 
 function jsonToYType(value: any): any {
   if (value === null || value === undefined) return value;
@@ -51,7 +48,6 @@ export function seedYDocFromJson(
   });
 }
 
-
 export function yMapToJson(ymap: Y.Map<any>): Record<string, any> {
   const result: Record<string, any> = {};
   ymap.forEach((value, key) => {
@@ -80,7 +76,6 @@ export function yDocToJson(doc: Y.Doc, fieldName: string): any {
   if (existing instanceof Y.Map) return yMapToJson(existing);
   return {};
 }
-
 
 export function applyJsonDiff(
   doc: Y.Doc,
@@ -248,7 +243,6 @@ function diffArrayByIndex(yarray: Y.Array<any>, newArr: any[]): void {
   }
 }
 
-
 export function applyJsonPatch(
   doc: Y.Doc,
   fieldName: string,
@@ -373,7 +367,6 @@ function navigateToTarget(
   return current;
 }
 
-
 export function initYDocWithJson(
   fieldName: string,
   json: any,
@@ -384,7 +377,6 @@ export function initYDocWithJson(
   const state = Y.encodeStateAsUpdate(doc);
   return { doc, state };
 }
-
 
 function isPlainObject(value: any): value is Record<string, any> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

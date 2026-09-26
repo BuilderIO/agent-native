@@ -1,4 +1,3 @@
-
 import {
   classifyProviderError,
   describeErrorWithCauses,
@@ -17,7 +16,6 @@ import type {
   EngineContentPart,
   EngineEvent,
 } from "./types.js";
-
 
 export function engineToolsToAISDK(
   tools: EngineTool[],
@@ -41,7 +39,6 @@ export function engineToolsToAISDK(
   }
   return result;
 }
-
 
 export interface EngineToAISDKOptions {
   toolResultImages?: boolean;
@@ -177,7 +174,6 @@ export function engineMessagesToAISDK(
     engineMessageToAISDK(msg, { ...opts, toolNameMap }),
   );
 }
-
 
 export function aiSdkPartToEngineEvents(
   part: any,
@@ -323,7 +319,6 @@ function usageEventFromLanguageModelUsage(usage: any): EngineEvent {
       usage.outputTokenDetails?.reasoningTokens ?? usage.reasoningTokens,
   };
 }
-
 
 export function aiSdkStepToAssistantContent(
   step: any,

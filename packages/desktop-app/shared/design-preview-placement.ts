@@ -1,4 +1,3 @@
-
 export interface DesktopDesignPreviewRect {
   x: number;
   y: number;

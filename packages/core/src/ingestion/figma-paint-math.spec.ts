@@ -15,7 +15,6 @@ import {
   type Mat2x3Array,
 } from "./figma-paint-math.js";
 
-
 describe("invert2x3", () => {
   it("returns null for a singular matrix", () => {
     expect(
@@ -52,7 +51,6 @@ describe("invert2x3", () => {
   });
 });
 
-
 describe("mat2x3FromArray", () => {
   it("converts REST nested-array form to object form", () => {
     const arr: Mat2x3Array = [
@@ -63,7 +61,6 @@ describe("mat2x3FromArray", () => {
     expect(obj).toEqual({ m00: 2, m01: 3, m02: 4, m10: 5, m11: 6, m12: 7 });
   });
 });
-
 
 describe("handlePositionsFromObjectTransform", () => {
   it("returns null for a singular transform", () => {
@@ -130,7 +127,6 @@ describe("handlePositionsFromArrayTransform", () => {
   });
 });
 
-
 describe("resolveGradientHandles", () => {
   it("returns null when handles are missing", () => {
     expect(resolveGradientHandles(undefined)).toBeNull();
@@ -158,7 +154,6 @@ describe("resolveGradientHandles", () => {
     });
   });
 });
-
 
 describe("gradientAngleDegrees", () => {
   it("resolves identity left-to-right handles to 90 deg (CSS 'to right')", () => {
@@ -240,7 +235,6 @@ describe("gradientAngleDegrees", () => {
   });
 });
 
-
 describe("gradientAngleDegreesFromHandles", () => {
   it("matches gradientAngleDegrees for the same handle data", () => {
     const handles = {
@@ -294,7 +288,6 @@ describe("gradientAngleDegreesFromHandles", () => {
   });
 });
 
-
 describe("remapLinearStopPosition", () => {
   it("returns the identity mapping for a gradient whose handles exactly span the CSS line", () => {
     const handles = {
@@ -332,7 +325,6 @@ describe("remapLinearStopPosition", () => {
   });
 });
 
-
 describe("vectorLength", () => {
   it("returns pixel-space length between two normalized points", () => {
     expect(
@@ -346,7 +338,6 @@ describe("vectorLength", () => {
     ).toBeCloseTo(100 * Math.sqrt(2));
   });
 });
-
 
 describe("cssBlendMode", () => {
   it("returns null for PASS_THROUGH and NORMAL", () => {

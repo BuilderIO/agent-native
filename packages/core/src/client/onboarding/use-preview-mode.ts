@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 
 export const ONBOARDING_PREVIEW_STORAGE_KEY =

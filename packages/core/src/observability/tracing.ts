@@ -1,4 +1,3 @@
-
 const TRACER_NAME = "@agent-native/core/agent-loop";
 
 export interface AgentSpan {

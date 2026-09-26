@@ -25,8 +25,6 @@ import type {
 } from "./file-tree.config.js";
 import { FILE_TREE_CHANGES } from "./file-tree.config.js";
 
-
-
 const CHANGE_BADGE: Record<FileTreeChange, string> = {
   added:
     "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -90,7 +88,6 @@ function fence(snippet: string, language: string): string {
   const safe = snippet.replace(/```/g, "ʼʼʼ");
   return `\`\`\`${language}\n${safe.replace(/\s+$/, "")}\n\`\`\``;
 }
-
 
 interface FileLeaf {
   kind: "file";
@@ -251,7 +248,6 @@ function flattenVisibleRows(
 
   return rows;
 }
-
 
 const INDENT_STEP = 14;
 const DEFAULT_VISIBLE_TREE_ROWS = 10;
@@ -647,7 +643,6 @@ export function FileTreeRead({
     </section>
   );
 }
-
 
 const fieldLabelClass = "text-xs font-medium text-muted-foreground";
 

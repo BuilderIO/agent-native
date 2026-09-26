@@ -14,7 +14,6 @@ import {
   MAX_PENDING_TASK_ATTEMPTS,
 } from "./pending-tasks-store.js";
 
-
 const RETRY_INTERVAL_MS = 60_000;
 const PENDING_STUCK_AFTER_MS = 90_000;
 const DEFAULT_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;

@@ -25,7 +25,6 @@ import { ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { isBlockedExtensionUrlWithDns } from "../extensions/url-safety.js";
 
-
 export type CustomProviderScope = "user" | "org";
 
 export type CustomProviderAuthKind =
@@ -63,7 +62,6 @@ export interface UpsertCustomProviderArgs {
   orgRole: string | null;
 }
 
-
 const CREATE_SQL = `CREATE TABLE IF NOT EXISTS custom_api_providers (
   id TEXT NOT NULL,
   scope TEXT NOT NULL,
@@ -97,7 +95,6 @@ export async function ensureTable(): Promise<void> {
   }
   return _initPromise;
 }
-
 
 const PROVIDER_ID_RE = /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
@@ -223,7 +220,6 @@ export function validateAllowedHostSuffixes(suffixes: string[]): string[] {
   return normalized;
 }
 
-
 export class CustomProviderAuthError extends Error {
   constructor(
     readonly statusCode: number,
@@ -262,7 +258,6 @@ export function assertCanMutateCustomProviderScope(
     "Only organization owners and admins can register or modify org-scoped custom providers.",
   );
 }
-
 
 export async function upsertCustomProvider(
   args: UpsertCustomProviderArgs,

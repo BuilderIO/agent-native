@@ -73,7 +73,6 @@ describe("fromNormalized", () => {
   });
 });
 
-
 import { EventEmitter } from "events";
 
 function makeAwareness(
@@ -184,7 +183,7 @@ describe("usePresence — derivation logic", () => {
         [2, { user: { name: "Bob", email: "bob@ex.com", color: "#0f0" } }],
       ]),
     );
-    const others = deriveOthers(awareness, 1 );
+    const others = deriveOthers(awareness, 1);
     expect(others).toHaveLength(1);
     expect(others[0].clientId).toBe(2);
   });
@@ -244,7 +243,6 @@ describe("usePresence — derivation logic", () => {
     expect(other.user.color).toBe("#00B5FF");
   });
 });
-
 
 describe("awareness fast-path throttle", () => {
   beforeEach(() => {

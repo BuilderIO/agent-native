@@ -377,7 +377,6 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
         `;
 
       {
-
         await ensureTableExists("workspace_connections", createConnectionsSql);
         await ensureColumnExists(
           "workspace_connections",

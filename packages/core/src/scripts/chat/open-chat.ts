@@ -1,4 +1,3 @@
-
 import { writeAppState } from "../../application-state/script-helpers.js";
 import { getThread } from "../../chat-threads/store.js";
 import { parseArgs, fail } from "../utils.js";

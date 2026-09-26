@@ -1,4 +1,3 @@
-
 import { memo, useMemo, useState } from "react";
 
 import { AnimatedCollapse } from "../chat/tool-call-display.js";

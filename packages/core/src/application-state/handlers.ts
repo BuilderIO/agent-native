@@ -60,7 +60,6 @@ function requestScopedKey(key: string, event: H3Event): string {
     : key;
 }
 
-
 export const getState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const key = requestScopedKey(
@@ -167,7 +166,6 @@ export const deleteState = defineEventHandler(async (event: H3Event) => {
   await appStateDelete(sessionId, key, { requestSource });
   return { ok: true };
 });
-
 
 function composeDraftKey(id: string): string {
   return `compose-${safeKey(id)}`;

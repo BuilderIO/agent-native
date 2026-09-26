@@ -8,7 +8,6 @@ import { createBuilderEngine } from "./builder-engine.js";
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "./credential-errors.js";
 import { EngineError, type EngineStreamOptions } from "./types.js";
 
-
 const credentialState = vi.hoisted(() => ({
   lane: "identity" as "identity" | "gateway-deploy" | null,
 }));

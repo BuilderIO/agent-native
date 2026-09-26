@@ -8,7 +8,6 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
-
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   startRun,

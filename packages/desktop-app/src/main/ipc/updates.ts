@@ -1,4 +1,3 @@
-
 import { IPC, type UpdateStatus } from "@shared/ipc-channels";
 import { DESKTOP_RELEASE_CHANNEL } from "@shared/release-channel";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";

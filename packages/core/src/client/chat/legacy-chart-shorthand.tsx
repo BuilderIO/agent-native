@@ -1,4 +1,3 @@
-
 import React from "react";
 
 export const LEGACY_CHART_SHORTHAND_LANG = "chart-shorthand";
@@ -35,8 +34,7 @@ function extractBalancedArrayAt(
   for (let idx = startIndex; idx < text.length; idx++) {
     const ch = text[idx];
     if (inString) {
-      if (ch === "\\")
-        idx++;
+      if (ch === "\\") idx++;
       else if (ch === '"') inString = false;
       continue;
     }

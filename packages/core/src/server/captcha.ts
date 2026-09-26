@@ -1,4 +1,3 @@
-
 export interface CaptchaVerifyResult {
   success: boolean;
   errorCodes?: string[];

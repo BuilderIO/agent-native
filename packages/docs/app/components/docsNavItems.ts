@@ -1167,8 +1167,7 @@ export function getDocsNavSections(
 function flattenItems(items: NavItem[]): NavItem[] {
   return items.flatMap((item) =>
     item.children
-      ?
-        [...(item.to ? [item] : []), ...flattenItems(item.children)]
+      ? [...(item.to ? [item] : []), ...flattenItems(item.children)]
       : [item],
   );
 }

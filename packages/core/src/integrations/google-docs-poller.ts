@@ -73,7 +73,6 @@ let pollerStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeOptions: GoogleDocsPollerOptions | null = null;
 let pollerGeneration = 0;
 
-
 const WATCH_CHANNEL_TTL_MS = 23 * 60 * 60 * 1000;
 const WATCH_RETRY_MS = 5 * 60 * 1000;
 const WATCH_STOP_CLAIM_TTL_MS = WATCH_RETRY_MS - 30 * 1000;
@@ -579,7 +578,6 @@ function scheduleWatchCleanupRetry(
   unrefTimer(watchRenewalTimer);
 }
 
-
 async function getPageToken(): Promise<string | null> {
   const config = await getIntegrationConfig(PLATFORM, "page-token");
   return (config?.configData?.pageToken as string) ?? null;
@@ -588,7 +586,6 @@ async function getPageToken(): Promise<string | null> {
 async function setPageToken(token: string): Promise<void> {
   await saveIntegrationConfig(PLATFORM, { pageToken: token }, "page-token");
 }
-
 
 function isAgentMention(commentText: string, triggerKeyword: string): boolean {
   return commentText.toLowerCase().includes(triggerKeyword.toLowerCase());
@@ -709,7 +706,6 @@ async function checkDocumentComments(
   lastCheckedTimes.set(fileId, now);
 }
 
-
 export async function processChanges(
   options: GoogleDocsPollerOptions,
 ): Promise<void> {
@@ -762,7 +758,6 @@ export async function handlePushNotification(): Promise<void> {
     console.error("[google-docs] Error processing push notification:", err);
   }
 }
-
 
 async function processComment(
   fileId: string,
@@ -938,7 +933,6 @@ async function persistThreadData(
     // Best-effort
   }
 }
-
 
 export async function startGoogleDocsPoller(
   options: GoogleDocsPollerOptions,

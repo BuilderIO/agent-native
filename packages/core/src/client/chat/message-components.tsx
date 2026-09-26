@@ -1,4 +1,3 @@
-
 import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
 import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
 import {
@@ -139,7 +138,6 @@ export { toolCallHasPendingApproval };
 
 const PENDING_SELECTION_KEY = "pending-selection-context";
 
-
 export function displayableUserMessageText(text: string): string {
   return splitAgentChatContextFromMessage(text).message;
 }
@@ -159,7 +157,6 @@ export function isHiddenUserMessage(message: unknown): boolean {
     meta?.custom?.agentNativeRecoveryAction === "retry"
   );
 }
-
 
 export interface FormattedMessageTimestamp {
   short: string;
@@ -371,7 +368,6 @@ export function AssistantMessageActionBar({
   );
 }
 
-
 export function SelectionAttachedPill() {
   const t = useT();
   const formatters = useFormatters();
@@ -444,7 +440,6 @@ export function SelectionAttachedPill() {
     </div>
   );
 }
-
 
 export const CheckpointContext = React.createContext<{
   apiUrl: string;
@@ -728,7 +723,6 @@ export function resolveAssistantRequestId(
   );
 }
 
-
 export function MessageBranchPicker() {
   const t = useT();
   return (
@@ -762,7 +756,6 @@ export function MessageBranchPicker() {
     </BranchPickerPrimitive.Root>
   );
 }
-
 
 const mentionIconProps = {
   size: 14,
@@ -857,7 +850,6 @@ function UserMessageText({ text }: { text: string }) {
 
   return <>{parts.length > 0 ? parts : displayText}</>;
 }
-
 
 function UserMessageAttachments() {
   const messageRuntime = useMessageRuntime();
@@ -967,7 +959,6 @@ export function ChatImageAttachmentPreview({
   );
 }
 
-
 function UserMessageEditComposer() {
   const t = useT();
   return (
@@ -998,7 +989,6 @@ function UserMessageEditComposer() {
     </ComposerPrimitive.Root>
   );
 }
-
 
 export function MessageActionsMenu({
   onFork,
@@ -1241,7 +1231,6 @@ export function AssistantChatHistoryBeginningRevertButton() {
   );
 }
 
-
 export function UserMessage() {
   const t = useT();
   const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
@@ -1423,7 +1412,6 @@ export function UserMessage() {
     </div>
   );
 }
-
 
 function assistantMessageHasRenderableContent(message: {
   content?: unknown;
@@ -2690,7 +2678,6 @@ export function AssistantMessage() {
     </div>
   );
 }
-
 
 export function RunningActivityStatus({ label }: { label: string }) {
   return (

@@ -1,4 +1,3 @@
-
 export const AGENT_NAVIGATE_MESSAGE_TYPE = "agent-native:navigate";
 
 export interface AgentNavigateMessage {

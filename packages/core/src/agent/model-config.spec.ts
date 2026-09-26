@@ -242,7 +242,6 @@ describe("agent model config catalog", () => {
   });
 });
 
-
 describe("getContextWindowForModel", () => {
   it("returns 200K for standard Claude Haiku models", () => {
     expect(getContextWindowForModel("claude-haiku-4-5")).toBe(200_000);
@@ -312,7 +311,6 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("gpt-6-preview")).toBe(1_050_000);
   });
 });
-
 
 describe("getMaxOutputTokensForModel", () => {
   it("returns 128K for Claude flagship models (Fable 5, Opus 4.6+, Sonnet 5/4.6)", () => {

@@ -13,7 +13,6 @@ import {
 import type { WireframeData } from "./wireframe.config.js";
 import { WireframeBlock } from "./wireframe.js";
 
-
 const ctx = {} as unknown as BlockRenderContext;
 
 function render(data: WireframeData, renderCtx = ctx): string {

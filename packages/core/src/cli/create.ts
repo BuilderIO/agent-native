@@ -367,7 +367,6 @@ function resolveScaffoldTarget(
   return targetDir;
 }
 
-
 async function createWorkspaceInteractive(
   name: string | undefined,
   opts: CreateAppOptions | undefined,
@@ -665,7 +664,6 @@ function linkWorkspaceRootSkills(targetDir: string): void {
   }
 }
 
-
 export async function addAppToWorkspace(
   name?: string,
   opts?: CreateAppOptions,
@@ -823,7 +821,6 @@ async function scaffoldOneAppIntoWorkspace(
     ].join("\n"),
   );
 }
-
 
 async function createStandaloneApp(
   name: string | undefined,
@@ -997,7 +994,6 @@ function discoverEnclosingRepo(dir: string): RepoDiscovery {
   if (/not a git repository/i.test(stderr)) return { state: "outside" };
   return { state: "unknown", reason: stderr || `git exited ${result.status}` };
 }
-
 
 export interface ScaffoldTemplateResolution {
   templateRef?: string;
@@ -1815,7 +1811,6 @@ function postProcessStandalone(
 
   renameGitignore(targetDir);
 
-
   const catalog = loadCatalog();
   let hasNodePty = false;
   const pkgPath = path.join(targetDir, "package.json");
@@ -1970,7 +1965,6 @@ function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
   } catch {}
 }
 
-
 async function promptNameIfMissing(
   name: string | undefined,
   clack: typeof import("@clack/prompts"),
@@ -2080,7 +2074,6 @@ function listInstalledApps(workspaceRoot: string): string[] {
     .map((e) => e.name);
 }
 
-
 export function detectWorkspace(
   startDir: string,
 ): { workspaceRoot: string; workspaceCoreName: string } | null {
@@ -2159,7 +2152,6 @@ export {
   REPO as _REPO,
   TEMPLATES_DIR as _TEMPLATES_DIR,
 };
-
 
 function validateRepoName(repo: string): void {
   const parts = repo.split("/");
@@ -2968,7 +2960,6 @@ function githubTarballUrl(
 ): string {
   return `https://codeload.github.com/${repo}/tar.gz/refs/${kind === "tag" ? "tags" : "heads"}/${encodeURIComponent(ref)}`;
 }
-
 
 function mergeWorkspaceYamlSections(
   yaml: string,

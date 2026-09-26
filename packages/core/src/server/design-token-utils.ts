@@ -1,6 +1,4 @@
-
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
-
 
 export const MAX_FILES = 10;
 
@@ -79,7 +77,6 @@ export const FRAMEWORK_DETECTORS: { name: string; label: string }[] = [
   { name: "windicss", label: "windi" },
 ];
 
-
 export type ContentType =
   | "presentation"
   | "document"
@@ -144,7 +141,6 @@ export interface GitHubJsonResult<T = unknown> {
   message?: string;
 }
 
-
 export function validateUrl(url: string): void {
   const parsed = new URL(url);
   if (!["http:", "https:"].includes(parsed.protocol)) {
@@ -173,7 +169,6 @@ export function validateUrl(url: string): void {
     throw new Error("Internal/private URLs are not allowed");
   }
 }
-
 
 export function parseGitHubRepoReference(raw: string): GitHubRepoReference {
   const cleaned = raw
@@ -335,7 +330,6 @@ export async function fetchGitHubRaw(
   return text;
 }
 
-
 export function parseTailwindConfig(content: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
@@ -402,7 +396,6 @@ export function parseTailwindConfig(content: string): Record<string, unknown> {
   return result;
 }
 
-
 export function parseCss(content: string): ParsedCss {
   const cssCustomProperties: Record<string, string> = {};
   const varMatches = content.matchAll(/--([\w-]+)\s*:\s*([^;}\n]+)/g);
@@ -436,7 +429,6 @@ export function parseCss(content: string): ParsedCss {
   };
 }
 
-
 export function detectStylingFramework(content: string): string | undefined {
   try {
     const pkg = JSON.parse(content);
@@ -457,7 +449,6 @@ export function detectStylingFramework(content: string): string | undefined {
     return undefined;
   }
 }
-
 
 export function createCodeAnalysisState(): CodeAnalysisState {
   return {
@@ -850,7 +841,6 @@ export function analyzeCodeFiles(
   };
 }
 
-
 export function unique(arr: string[]): string[] {
   return [...new Set(arr.map((s) => s.trim()))];
 }
@@ -949,7 +939,6 @@ export function suggestionsForType(
 
   return base;
 }
-
 
 const URL_FETCH_TIMEOUT = 10_000;
 const MAX_URL_HTML_CHARS = 1_000_000;

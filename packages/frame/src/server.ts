@@ -1,4 +1,3 @@
-
 import { getTemplate } from "@agent-native/shared-app-config";
 import {
   createApp,

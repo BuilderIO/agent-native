@@ -1,4 +1,3 @@
-
 import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
 import { canManageOrg } from "../org/permissions.js";
 import {
@@ -15,13 +14,11 @@ import {
 } from "../resources/store.js";
 import { getRequestUserEmail } from "../server/request-context.js";
 
-
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 export const MAX_SCOPE_BYTES = 200 * 1024 * 1024;
 
 export const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024;
-
 
 export interface WorkspaceFilesScope {
   scope: "user" | "org";
@@ -97,7 +94,6 @@ export function validatePath(path: string): string | null {
   return null;
 }
 
-
 export interface WorkspaceFile {
   id: string;
   scope: string;
@@ -144,7 +140,6 @@ export function toWorkspaceFileCard(
     updatedAt: meta.updatedAt,
   };
 }
-
 
 export async function writeWorkspaceFile(
   scope: WorkspaceFilesScope,
@@ -368,7 +363,6 @@ export async function grepWorkspaceFiles(
 
   return results;
 }
-
 
 function normalizePrefix(prefix?: string): string | undefined {
   if (!prefix) return undefined;

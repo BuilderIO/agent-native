@@ -1,6 +1,5 @@
 import { z, type ZodType, type ZodTypeAny } from "zod";
 
-
 const MD_TAG = "x-an-field:markdown";
 const RT_TAG = "x-an-field:richtext";
 

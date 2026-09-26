@@ -15,7 +15,6 @@ import type {
   ExperimentMetricResult,
 } from "./types.js";
 
-
 function simpleHash(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -27,7 +26,6 @@ function simpleHash(str: string): number {
 function generateId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
-
 
 let _cachedActive: Experiment[] | null = null;
 let _cachedActiveAt = 0;
@@ -48,7 +46,6 @@ function invalidateCache(): void {
   _cachedActive = null;
   _cachedActiveAt = 0;
 }
-
 
 export async function createExperiment(opts: {
   name: string;
@@ -89,7 +86,6 @@ export async function completeExperiment(id: string): Promise<void> {
   await updateExperiment(id, { status: "completed", endedAt: Date.now() });
   invalidateCache();
 }
-
 
 export async function resolveVariant(
   experimentId: string,
@@ -163,7 +159,6 @@ export async function resolveActiveExperimentConfig(userId: string): Promise<{
 
   return { configs: merged, assignments };
 }
-
 
 export async function computeExperimentResults(
   experimentId: string,
@@ -319,7 +314,6 @@ export async function computeExperimentResults(
 
   return results;
 }
-
 
 function mean(values: number[]): number {
   if (values.length === 0) return 0;

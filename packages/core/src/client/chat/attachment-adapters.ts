@@ -1,4 +1,3 @@
-
 import {
   CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
   formatOversizedTextAttachmentError,

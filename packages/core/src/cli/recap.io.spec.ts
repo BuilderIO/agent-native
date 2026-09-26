@@ -1,4 +1,3 @@
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -15,7 +14,6 @@ import {
   waitForPublicRecapImage,
 } from "./recap.js";
 
-
 let tmpDir: string;
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "recap-io-spec-"));
@@ -23,7 +21,6 @@ beforeEach(() => {
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
-
 
 function makeResp(body: string, status: number, contentType: string): Response {
   return {
@@ -109,7 +106,6 @@ function makeFakeFetch(
   };
   return { fetchFn, calls };
 }
-
 
 describe("uploadRecapImage — success on first try (fake fetch)", () => {
   it("POSTs the PNG bytes and returns the imageUrl after public-readiness check passes", async () => {
@@ -268,7 +264,7 @@ describe("uploadRecapImage — missing imageUrl in response returns null", () =>
       {
         urlPattern: "/_agent-native/recap-image",
         method: "POST",
-        response: () => jsonResp({ ok: true  }),
+        response: () => jsonResp({ ok: true }),
       },
     ]);
 
@@ -294,7 +290,6 @@ describe("uploadRecapImage — missing imageUrl in response returns null", () =>
     }
   });
 });
-
 
 const PNG_MAGIC = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 1]);
 
@@ -413,7 +408,6 @@ describe("waitForPublicRecapImage — fake fetch", () => {
     expect(result).toBe(true);
   });
 });
-
 
 describe("runShot — playwright not available", () => {
   it("emits {ok:false, reason:'playwright not available…'} and returns without throwing", async () => {
@@ -578,7 +572,6 @@ describe("runShot — playwright not available", () => {
     }
   });
 });
-
 
 const MARKER = "<!-- pr-visual-recap -->";
 
@@ -854,7 +847,6 @@ describe("upsertComment — PATCH vs POST decision", () => {
     expect(getReqs).toHaveLength(2);
   });
 });
-
 
 function initGitRepo(
   dir: string,

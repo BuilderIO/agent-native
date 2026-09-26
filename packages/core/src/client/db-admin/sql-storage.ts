@@ -1,4 +1,3 @@
-
 const HISTORY_KEY = "agentnative.dbadmin.sql.history";
 const SNIPPETS_KEY = "agentnative.dbadmin.sql.snippets";
 const HISTORY_CAP = 50;
@@ -28,7 +27,6 @@ function writeJSON(key: string, value: unknown): void {
   }
 }
 
-
 export function loadHistory(): string[] {
   const list = readJSON<string[]>(HISTORY_KEY, []);
   return Array.isArray(list) ? list.filter((s) => typeof s === "string") : [];
@@ -55,7 +53,6 @@ export function clearHistory(): void {
     // ignore
   }
 }
-
 
 export interface SqlSnippet {
   id: string;

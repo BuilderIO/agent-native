@@ -1,4 +1,3 @@
-
 export const WORKSPACE_APP_CHAT_PROXY_PREFIX =
   "/_agent-native/workspace-app-chat";
 

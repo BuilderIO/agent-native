@@ -6,7 +6,6 @@ import type { BlockRenderContext, NestedBlock } from "../types.js";
 import type { ColumnsData } from "./columns.config.js";
 import { ColumnsBlockReader } from "./columns.js";
 
-
 const stubCtx = {
   renderBlock: ({ block }: { block: NestedBlock }) =>
     createElement("div", { "data-child": block.id }),

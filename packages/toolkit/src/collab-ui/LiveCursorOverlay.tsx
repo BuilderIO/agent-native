@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, memo, type RefObject } from "react";
 
 import type { OtherPresence, NormalizedPoint } from "./types.js";

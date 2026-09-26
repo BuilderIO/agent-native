@@ -1,7 +1,6 @@
 import type { BlockMdxConfig } from "@agent-native/core/blocks";
 import { z } from "zod";
 
-
 export const NOTICE_TONES = [
   "info",
   "decision",

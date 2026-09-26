@@ -5,7 +5,6 @@ import {
   TextFadeInStaggeredIfStreaming,
 } from "./StreamingFade";
 
-
 const MONO_FONT = Platform.select({ ios: "Menlo", android: "monospace" });
 
 type Block =

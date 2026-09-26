@@ -404,7 +404,6 @@ function orgFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
   return and(eq(table.ownerEmail, currentOwnerEmail()), isNull(table.orgId));
 }
 
-
 export type WorkspaceResourceKind =
   | "skill"
   | "instruction"
@@ -1468,7 +1467,6 @@ export async function deleteWorkspaceResource(resourceId: string) {
   return applyWorkspaceResourceDelete(resourceId);
 }
 
-
 export async function listResourceGrants(filter?: {
   resourceId?: string;
   appId?: string;
@@ -1614,7 +1612,6 @@ export async function revokeResourceGrant(
 
   return getResourceGrant(grantId, ctx);
 }
-
 
 export async function listWorkspaceResourcesOverview() {
   const [resources, grants] = await Promise.all([

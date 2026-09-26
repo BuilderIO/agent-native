@@ -1,4 +1,3 @@
-
 export interface GuardFinding {
   file: string;
   line: number;

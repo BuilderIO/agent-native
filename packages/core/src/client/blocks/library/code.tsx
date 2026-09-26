@@ -28,7 +28,6 @@ import {
 import { codeSchema, codeMdx, type CodeData } from "./code.config.js";
 import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
 
-
 const CODE_LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "", label: "Auto" },
   { value: "typescript", label: "TypeScript" },
@@ -48,7 +47,6 @@ const CODE_LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "rust", label: "Rust" },
   { value: "diff", label: "Diff" },
 ];
-
 
 function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
   const language =
@@ -95,7 +93,6 @@ function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
     </section>
   );
 }
-
 
 const SETTINGS_INPUT =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
@@ -375,7 +372,6 @@ function CodeEdit({ data, onChange, editable }: BlockEditProps<CodeData>) {
     </div>
   );
 }
-
 
 export const codeBlock = defineBlock<CodeData>({
   type: "code",

@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { AgentEngine } from "../agent/engine/types.js";
 import type { TraceSummary, EvalCriteria } from "./types.js";
 
-
 const store = vi.hoisted(() => ({
   getTraceSummary: vi.fn(),
   insertEvalResult: vi.fn(),

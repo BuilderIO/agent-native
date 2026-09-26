@@ -19,7 +19,6 @@ function fetchJson<T>(url: string): Promise<T> {
   });
 }
 
-
 export interface ObservabilityOverview {
   totalRuns: number;
   totalCostCents: number;
@@ -38,7 +37,6 @@ export function useObservabilityOverview(sinceDays = 7) {
     refetchInterval: 30_000,
   });
 }
-
 
 export interface TraceSummary {
   runId: string;
@@ -151,7 +149,6 @@ export function useTraceDetail(runId: string | null) {
   });
 }
 
-
 export interface FeedbackEntry {
   id: string;
   runId: string | null;
@@ -250,7 +247,6 @@ export function useSaveReviewFeedback() {
   >("save-observability-review-feedback");
 }
 
-
 export interface SatisfactionScore {
   id: string;
   threadId: string;
@@ -272,7 +268,6 @@ export function useSatisfaction(sinceDays = 7) {
   });
 }
 
-
 export interface EvalStats {
   totalEvals: number;
   avgScore: number;
@@ -287,7 +282,6 @@ export function useEvalStats(sinceDays = 7) {
     refetchInterval: 30_000,
   });
 }
-
 
 export interface Experiment {
   id: string;

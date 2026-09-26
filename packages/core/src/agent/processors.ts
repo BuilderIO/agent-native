@@ -1,4 +1,3 @@
-
 import type { EngineContentPart, EngineEvent } from "./engine/types.js";
 
 export class TripWire extends Error {

@@ -44,8 +44,6 @@ import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";
 import type { DiffAnnotation, DiffData, DiffMode } from "./diff.config.js";
 import { useInNarrowContainer } from "./narrow-container.js";
 
-
-
 interface Change {
   value: string;
   added?: boolean;
@@ -135,7 +133,6 @@ export function diffLines(before: string, after: string): Change[] {
   }
   return changes;
 }
-
 
 const lowlight = createLowlight(common);
 
@@ -291,7 +288,6 @@ function SyntaxHighlightedLine({
   return <>{highlighted ?? code}</>;
 }
 
-
 type DiffRowKind = "context" | "added" | "removed";
 
 interface DiffRow {
@@ -412,7 +408,6 @@ function segmentRows(
   }
   return segments;
 }
-
 
 const ROW_BG: Record<DiffRowKind, string> = {
   added: "bg-emerald-500/10 dark:bg-emerald-500/15",
@@ -560,7 +555,6 @@ function DiffLineText({ language, text }: { language: string; text: string }) {
     </span>
   );
 }
-
 
 function DiffRead({
   data,
@@ -946,7 +940,6 @@ function ModeButton({
   );
 }
 
-
 interface RowAnnotationProps {
   markersForRow: MarkersForRow;
   anchoredRow?: (row: DiffRow) => boolean;
@@ -995,7 +988,6 @@ function isMarkerRangeStart(
     annotationSide(marker.annotation) === "before" ? row.oldNo : row.newNo;
   return lineNo === marker.range.start;
 }
-
 
 function UnifiedView({
   rows,
@@ -1246,7 +1238,6 @@ function CollapsedRow({
     </button>
   );
 }
-
 
 interface SplitRow {
   left?: DiffRow;
@@ -1505,7 +1496,6 @@ function SplitCell({
     </div>
   );
 }
-
 
 const codeAreaClass =
   "min-h-[140px] font-mono [font-size:var(--plan-code-size)] leading-5";

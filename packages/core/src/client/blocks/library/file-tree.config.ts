@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import type { BlockMdxConfig } from "../types.js";
 
-
 export type FileTreeChange = "added" | "modified" | "removed" | "renamed";
 
 export const FILE_TREE_CHANGES: FileTreeChange[] = [

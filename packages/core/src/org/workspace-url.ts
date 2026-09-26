@@ -1,4 +1,3 @@
-
 export type ParsedWorkspaceUrl =
   | { ok: true; url: string }
   | { ok: false; reason: string };

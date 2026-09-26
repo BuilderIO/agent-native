@@ -1,4 +1,3 @@
-
 import {
   MAX_MESSAGE_LENGTH,
   MAX_STACK_LENGTH,

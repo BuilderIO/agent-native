@@ -1,4 +1,3 @@
-
 interface CfEnv {
   [key: string]: unknown;
 }

@@ -1,4 +1,3 @@
-
 export interface AgentChatMessage {
   message: string;
   context?: string;

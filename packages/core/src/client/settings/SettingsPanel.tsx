@@ -290,7 +290,6 @@ function SettingsSelect({
   );
 }
 
-
 function UseBuilderCard({
   builderFlow,
   connectUrl,
@@ -490,7 +489,6 @@ function UseBuilderCard({
   );
 }
 
-
 function ManualSetupCard({
   id,
   title = "Set up manually",
@@ -589,7 +587,6 @@ function ManualSetupCard({
     </Popover>
   );
 }
-
 
 function friendlyModelName(model: string): string {
   if (model === "z-ai/glm-5.2") return "GLM 5.2";
@@ -766,7 +763,6 @@ export function AppDefaultModelField({
     </div>
   );
 }
-
 
 interface EngineInfo {
   name: string;
@@ -2124,7 +2120,6 @@ function LLMSectionInner({
   );
 }
 
-
 interface AppModelDefaultEngine extends EngineInfo {
   configured: boolean;
 }
@@ -2712,7 +2707,6 @@ function AppModelDefaultsSectionInner({
   );
 }
 
-
 export function EmailSectionInner({
   open,
   onToggle,
@@ -3003,7 +2997,6 @@ export function EmailSectionInner({
     </SettingsSection>
   );
 }
-
 
 interface AgentLoopSettingsResponse {
   maxIterations: number;
@@ -3372,7 +3365,6 @@ function AgentLimitsSectionInner({
     </SettingsSection>
   );
 }
-
 
 export interface SettingsPanelProps {
   isDevMode: boolean;

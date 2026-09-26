@@ -1,4 +1,3 @@
-
 import { AppConfigurationError, getAppConfig } from "../../app-config/index.js";
 import {
   CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,

@@ -480,7 +480,6 @@ export async function ensureObservabilityTables(): Promise<void> {
   return _initPromise;
 }
 
-
 export async function insertTraceSpan(span: TraceSpan): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -1018,7 +1017,6 @@ export async function getLatestTraceSummaryForThread(
   return rowToTraceSummary(rows[0] as any);
 }
 
-
 export async function insertFeedback(entry: FeedbackEntry): Promise<boolean> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -1323,7 +1321,6 @@ export async function getInstructionUpdates(opts: {
   return (rows as any[]).map(rowToInstructionUpdate);
 }
 
-
 export async function upsertSatisfactionScore(
   score: SatisfactionScore,
 ): Promise<void> {
@@ -1388,7 +1385,6 @@ export async function getSatisfactionScores(opts: {
   });
   return (rows as any[]).map(rowToSatisfaction);
 }
-
 
 export async function insertEvalResult(result: EvalResult): Promise<void> {
   await ensureObservabilityTables();
@@ -1466,7 +1462,6 @@ export async function getEvalStats(
   };
 }
 
-
 export async function insertEvalDataset(dataset: EvalDataset): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -1533,7 +1528,6 @@ export async function updateEvalDataset(
     args,
   });
 }
-
 
 export async function insertExperiment(exp: Experiment): Promise<void> {
   await ensureObservabilityTables();
@@ -1620,7 +1614,6 @@ export async function getExperiment(id: string): Promise<Experiment | null> {
   return rowToExperiment(rows[0] as any);
 }
 
-
 export async function upsertAssignment(
   assignment: ExperimentAssignment,
 ): Promise<void> {
@@ -1665,7 +1658,6 @@ export async function getAssignment(
   };
 }
 
-
 export async function insertExperimentResult(
   result: ExperimentMetricResult,
 ): Promise<void> {
@@ -1703,7 +1695,6 @@ export async function getExperimentResults(
   });
   return (rows as any[]).map(rowToExperimentResult);
 }
-
 
 export async function getObservabilityOverview(
   sinceMs: number,
@@ -1774,7 +1765,6 @@ export async function getObservabilityOverview(
     avgEvalScore: Number(e.avg_score ?? 0),
   };
 }
-
 
 function rowToTraceSpan(row: Record<string, any>): TraceSpan {
   const storedMetadata = safeJsonParse<Record<string, unknown> | null>(

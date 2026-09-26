@@ -1,4 +1,3 @@
-
 export {
   AgentTerminal,
   type AgentTerminalProps,

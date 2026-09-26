@@ -1,4 +1,3 @@
-
 import { sendPostHogEvent } from "../tracking/providers.js";
 import { boundedText } from "../tracking/redaction.js";
 

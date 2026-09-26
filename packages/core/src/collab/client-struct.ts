@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from "react";
 import * as Y from "yjs";
 
@@ -8,7 +7,6 @@ import {
   type UseCollaborativeDocResult,
   type CollabUser,
 } from "./client.js";
-
 
 function yMapToJson(ymap: Y.Map<any>): Record<string, any> {
   const result: Record<string, any> = {};
@@ -49,7 +47,6 @@ function jsonToYType(value: any): any {
   }
   return value;
 }
-
 
 export interface UseCollaborativeMapOptions extends UseCollaborativeDocOptions {
   fieldName?: string;
@@ -159,7 +156,6 @@ export function useCollaborativeMap<T extends Record<string, any>>(
 
   return { ...collabResult, data, update, patch };
 }
-
 
 export interface UseCollaborativeArrayOptions extends UseCollaborativeDocOptions {
   fieldName?: string;
@@ -298,7 +294,6 @@ export function useCollaborativeArray<T>(
     replace,
   };
 }
-
 
 function deepEqual(a: any, b: any): boolean {
   if (a === b) return true;

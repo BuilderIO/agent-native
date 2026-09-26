@@ -13,7 +13,6 @@ import {
   startDesignConnectBridge,
 } from "./design-connect.js";
 
-
 const tmpRoots: string[] = [];
 
 function tmpDir() {

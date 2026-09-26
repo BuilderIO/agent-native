@@ -245,7 +245,6 @@ function FrontmatterBar({
   );
 }
 
-
 function highlightJson(text: string): string {
   const esc = text
     .replace(/&/g, "&amp;")
@@ -416,7 +415,6 @@ function VisualMarkdownEditor({
     </div>
   );
 }
-
 
 interface RemoteAgentFormValue {
   id?: string;
@@ -739,7 +737,6 @@ export function ResourceEditor({
     </div>
   );
 }
-
 
 const editorStyles = `
 /* Prose styling for the visual editor */

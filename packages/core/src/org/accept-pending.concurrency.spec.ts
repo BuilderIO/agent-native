@@ -4,7 +4,6 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 
 const mockTrackInviteAccepted = vi.fn();
 
-
 function createPgliteExec(
   pglite: Awaited<ReturnType<typeof createTestPglite>>,
 ) {

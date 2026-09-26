@@ -13,7 +13,6 @@ export const COMMUNITY_APP_SSR_CACHE_HEADERS = {
     "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
 };
 
-
 export function applyDocsSsrCacheKeyHeaders(
   headers: Headers,
   options: { varyByQuery?: boolean } = {},

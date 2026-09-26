@@ -11,7 +11,6 @@ import type {
 
 const GDOCS_MAX_LENGTH = 4000;
 
-
 interface ServiceAccountKey {
   client_email: string;
   private_key: string;
@@ -100,7 +99,6 @@ export async function getServiceAccountAccessToken(): Promise<string | null> {
     return null;
   }
 }
-
 
 export function extractFileId(urlOrId: string): string {
   const match = urlOrId.match(/\/d\/([a-zA-Z0-9_-]+)/);
@@ -225,7 +223,6 @@ export async function listChanges(
     nextPageToken: data.nextPageToken || data.newStartPageToken || pageToken,
   };
 }
-
 
 export function googleDocsAdapter(): PlatformAdapter {
   return {

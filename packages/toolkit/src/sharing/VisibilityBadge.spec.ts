@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 
 import { VisibilityBadge } from "./VisibilityBadge.js";
 
-
 interface SpanStyle {
   display: string;
   alignItems: string;

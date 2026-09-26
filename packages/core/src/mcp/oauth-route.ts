@@ -1,4 +1,3 @@
-
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import type { H3Event } from "h3";

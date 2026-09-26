@@ -1,4 +1,3 @@
-
 import type { ActionEntry } from "../../agent/production-agent.js";
 import type { ActionTool } from "../../agent/types.js";
 import { createCodingToolRegistry } from "../../coding-tools/index.js";

@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import type { BlockMdxConfig } from "../types.js";
 
-
 export const JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH = 2;
 export const JSON_EXPLORER_MAX_COLLAPSED_DEPTH = 20;
 

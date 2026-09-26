@@ -1,4 +1,3 @@
-
 import { docsUrl } from "../shared/docs-url.js";
 
 export const INTEGRATION_CATEGORIES = [

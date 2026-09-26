@@ -1,4 +1,3 @@
-
 import type { LocaleCode } from "../localization/shared.js";
 
 export type McpConnectGuideId =

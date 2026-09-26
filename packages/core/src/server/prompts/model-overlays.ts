@@ -1,4 +1,3 @@
-
 export function getModelFamilyOverlay(modelId: string): string {
   const id = modelId.toLowerCase();
 

@@ -5,7 +5,6 @@ import type { AgentChatEvent } from "../agent/types.js";
 import type { AgentRunner } from "./agent-runner.js";
 import type { AgentRunOutput } from "./types.js";
 
-
 const productionMod = vi.hoisted(() => ({
   actionsToEngineTools: vi.fn(() => []),
   runAgentLoop: vi.fn(),

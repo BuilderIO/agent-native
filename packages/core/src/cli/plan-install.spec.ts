@@ -103,7 +103,6 @@ function workspaceRoot(): string {
   throw new Error("Could not locate workspace root.");
 }
 
-
 describe("Plans template — allow-list & metadata", () => {
   it("is a known, non-hidden core template scaffoldable via --template plan", () => {
     expect(allTemplateNames()).toContain("plan");
@@ -225,7 +224,6 @@ describe(
   },
 );
 
-
 describe(
   "Plans tracking id — renamed standalone/app",
   { timeout: 60000 },
@@ -255,7 +253,6 @@ describe(
     });
   },
 );
-
 
 describe("Plans skills install — materialized output", () => {
   async function materializeViaAlias(
@@ -474,7 +471,6 @@ describe("Plans skills install — materialized output", () => {
   });
 });
 
-
 describe("Plans skill three-copy sync (deep)", () => {
   const SKILLS = [
     {
@@ -538,7 +534,6 @@ describe("Plans skill three-copy sync (deep)", () => {
     expect(VISUALIZE_REPO_SKILL_MD).toContain("`/visualize-repo`");
   });
 });
-
 
 describe("Plans first-run — adversarial inputs", { timeout: 60000 }, () => {
   it("refuses to scaffold into a non-empty existing directory", async () => {

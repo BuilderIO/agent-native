@@ -1,4 +1,3 @@
-
 export interface DbAdminColumn {
   name: string;
   type: string;

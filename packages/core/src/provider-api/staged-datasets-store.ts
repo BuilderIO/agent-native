@@ -1,10 +1,8 @@
-
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 
 export const MAX_ROWS_PER_APP = 200_000;
 export const MAX_BYTES_PER_APP = 50 * 1024 * 1024;
-
 
 let _initPromise: Promise<void> | undefined;
 
@@ -73,7 +71,6 @@ async function widenPostgresIntegerColumns(db: DbExec): Promise<void> {
   }
 }
 
-
 export interface StagedDatasetMeta {
   id: string;
   appId: string;
@@ -96,7 +93,6 @@ export interface UpsertDatasetOptions {
   append?: boolean;
 }
 
-
 function generateId(): string {
   return `ds_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -108,7 +104,6 @@ export function deriveColumns(rows: Record<string, unknown>[]): string[] {
   }
   return Array.from(seen);
 }
-
 
 async function getAppRowCount(appId: string): Promise<number> {
   const db = getDbExec();
@@ -127,7 +122,6 @@ async function getAppByteSize(appId: string): Promise<number> {
   });
   return Number(rows[0]?.total ?? 0);
 }
-
 
 export async function upsertStagedDataset(
   options: UpsertDatasetOptions,
@@ -241,7 +235,6 @@ export async function upsertStagedDataset(
   };
 }
 
-
 export async function getStagedDatasetRows(options: {
   id: string;
   appId: string;
@@ -292,7 +285,6 @@ export async function listStagedDatasets(options: {
   return rows.map(rowToMeta);
 }
 
-
 export async function deleteStagedDataset(options: {
   id: string;
   appId: string;
@@ -318,7 +310,6 @@ export async function deleteStagedDataset(options: {
   });
   return result.rowsAffected > 0;
 }
-
 
 function rowToMeta(row: Record<string, unknown>): StagedDatasetMeta {
   return {

@@ -1,4 +1,3 @@
-
 import { getThread } from "../../chat-threads/store.js";
 import type { EngineMessage } from "../engine/types.js";
 import { threadDataToEngineMessages } from "../thread-data-builder.js";

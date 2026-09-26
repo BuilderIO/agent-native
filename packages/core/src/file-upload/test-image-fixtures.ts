@@ -1,4 +1,3 @@
-
 import zlib from "node:zlib";
 
 function crc32(buf: Buffer): number {

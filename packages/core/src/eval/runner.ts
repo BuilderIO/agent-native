@@ -1,4 +1,3 @@
-
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -16,7 +15,6 @@ import type {
   EvalRunReport,
   ScorerResult,
 } from "./types.js";
-
 
 async function runScorer(
   scorer: Eval["scorers"][number],
@@ -150,7 +148,6 @@ async function persistEvalRow(row: EvalResultRow): Promise<void> {
   }
 }
 
-
 const EVAL_FILE_RE = /\.eval\.(ts|js|mjs)$/;
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".output", "build"]);
 
@@ -233,7 +230,6 @@ export async function loadEvals(
   }
   return { files, evals };
 }
-
 
 export interface RunEvalSuiteOptions {
   cwd?: string;

@@ -119,7 +119,6 @@ export const dispatchDreamProposals = table("dispatch_dream_proposals", {
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
-
 export const vaultSecrets = table("vault_secrets", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),
@@ -174,7 +173,6 @@ export const vaultAuditLog = table("vault_audit_log", {
   metadata: text("metadata"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
-
 
 export const workspaceResources = table("workspace_resources", {
   id: text("id").primaryKey(),

@@ -1,4 +1,3 @@
-
 export const MCP_LINK_HOSTS: Record<string, string[]> = {
   amplitude: ["amplitude.com"],
   apollo: ["apollo.io"],

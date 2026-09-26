@@ -1,4 +1,3 @@
-
 export { registerOnboardingStep, listOnboardingSteps } from "./registry.js";
 export type {
   OnboardingStep,

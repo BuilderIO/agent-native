@@ -1,6 +1,4 @@
-
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
-
 
 export type SpanType = "llm_call" | "tool_call" | "agent_run";
 export type SpanStatus = "success" | "error";
@@ -44,7 +42,6 @@ export interface TraceSummary {
   createdAt: number;
   runCount?: number;
 }
-
 
 export type FeedbackType = "thumbs_up" | "thumbs_down" | "category" | "text";
 
@@ -177,7 +174,6 @@ export interface SatisfactionScore {
   computedAt: number;
 }
 
-
 export type EvalType = "automated" | "llm_judge" | "human";
 
 export interface EvalResult {
@@ -215,7 +211,6 @@ export interface EvalCriteria {
   rubric?: string;
   scoreRange?: { min: number; max: number };
 }
-
 
 export type ExperimentStatus = "draft" | "running" | "paused" | "completed";
 
@@ -262,7 +257,6 @@ export interface ExperimentMetricResult {
   confidenceHigh: number;
   computedAt: number;
 }
-
 
 export interface ObservabilityConfig {
   enabled: boolean;

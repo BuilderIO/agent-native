@@ -51,7 +51,6 @@ function StatusDot({
   );
 }
 
-
 function getFileIcon(node: TreeNode): React.ReactNode {
   if (node.kind === "agent") {
     return (
@@ -91,7 +90,6 @@ function getFileIcon(node: TreeNode): React.ReactNode {
     return <IconPhoto className={iconClass} />;
   return <IconFile className={iconClass} />;
 }
-
 
 export interface ResourceTreeProps {
   tree: TreeNode[];
@@ -396,7 +394,6 @@ function CollectionResourceRow({
   );
 }
 
-
 function TreeNodeRow({
   node,
   depth,
@@ -563,7 +560,6 @@ function TreeNodeRow({
   );
 }
 
-
 function InlineInput({
   depth,
   onConfirm,
@@ -610,7 +606,6 @@ function InlineInput({
     </div>
   );
 }
-
 
 export function ResourceTree({
   tree,

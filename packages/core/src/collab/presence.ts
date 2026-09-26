@@ -1,4 +1,3 @@
-
 import type {
   CollabUser,
   NormalizedPoint,
@@ -153,7 +152,6 @@ export function usePresence(
 
   return { others, setPresence };
 }
-
 
 export function toNormalized(
   clientX: number,
