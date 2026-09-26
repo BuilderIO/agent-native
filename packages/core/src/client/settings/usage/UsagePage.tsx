@@ -2,6 +2,12 @@ import { Skeleton } from "@agent-native/toolkit/design-system";
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@agent-native/toolkit/ui/empty";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -18,6 +24,7 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@agent-native/toolkit/ui/toggle-group";
+import { IconChartBar, IconChartLine, IconTool } from "@tabler/icons-react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
@@ -82,7 +89,7 @@ const FEATURE_KEYS: Record<string, string> = {
   automations: "agentChat.settings.usage.featureAutomations",
 };
 
-const FILTER_TRIGGER = "h-8 w-auto min-w-0 gap-2 text-sm";
+const FILTER_TRIGGER = "w-auto";
 
 function UsageSkeleton() {
   return (
@@ -133,11 +140,20 @@ function MetricTile({
   );
 }
 
-function ChartEmpty({ children }: { children: ReactNode }) {
+function ChartEmpty({
+  icon,
+  children,
+}: {
+  icon: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <p className="py-10 text-center text-sm text-muted-foreground">
-      {children}
-    </p>
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">{icon}</EmptyMedia>
+        <EmptyTitle>{children}</EmptyTitle>
+      </EmptyHeader>
+    </Empty>
   );
 }
 
@@ -161,7 +177,7 @@ function ShowAllRow({
 }) {
   const t = useT();
   return (
-    <div className="px-3 py-2 sm:px-4">
+    <div className="flex min-h-12 items-center justify-center px-5 py-2 sm:px-6">
       <Button type="button" variant="ghost" size="sm" onClick={onToggle}>
         {t(
           expanded
@@ -416,6 +432,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
         onValueChange={(value) => setSinceDays(Number(value) as UsageRange)}
       >
         <SelectTrigger
+          size="sm"
           className={FILTER_TRIGGER}
           aria-label={t("agentChat.settings.usage.rangeLabel")}
         >
@@ -431,6 +448,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
       </Select>
       <Select value={app} onValueChange={setApp}>
         <SelectTrigger
+          size="sm"
           className={FILTER_TRIGGER}
           aria-label={t("agentChat.settings.usage.appFilterLabel")}
         >
@@ -453,6 +471,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
           onValueChange={(value) => setScope(value as UsageScope)}
         >
           <SelectTrigger
+            size="sm"
             className={FILTER_TRIGGER}
             aria-label={t("agentChat.settings.usage.peopleFilterLabel")}
           >
@@ -480,7 +499,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
         control={
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             size="sm"
             onClick={() => void query.refetch()}
             disabled={query.isFetching}
@@ -543,7 +562,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
               control={
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   onClick={() => void creditQuery.refetch()}
                   disabled={creditQuery.isFetching}
@@ -584,6 +603,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
               }
             >
               <SelectTrigger
+                size="sm"
                 className={FILTER_TRIGGER}
                 aria-label={t("agentChat.settings.usage.historyDimensionLabel")}
               >
@@ -614,7 +634,9 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
                 />
               </>
             ) : (
-              <ChartEmpty>{t("agentChat.settings.usage.noUsage")}</ChartEmpty>
+              <ChartEmpty icon={<IconChartBar />}>
+                {t("agentChat.settings.usage.noUsage")}
+              </ChartEmpty>
             )}
           </UsageChartCard>
         </UsageGroup>
@@ -664,7 +686,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
                 label={bucket.key}
                 status={
                   bucket.key === viewerEmail ? (
-                    <Badge variant="secondary">
+                    <Badge variant="outline">
                       {t("agentChat.settings.usage.you")}
                     </Badge>
                   ) : null
@@ -710,13 +732,13 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
                     />
                   </>
                 ) : (
-                  <ChartEmpty>
+                  <ChartEmpty icon={<IconTool />}>
                     {t("agentChat.settings.usage.noToolCalls")}
                   </ChartEmpty>
                 )}
               </>
             ) : (
-              <ChartEmpty>
+              <ChartEmpty icon={<IconTool />}>
                 {t("agentChat.settings.usage.toolCallsUnavailable")}
               </ChartEmpty>
             )}
@@ -769,7 +791,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
                 />
               </>
             ) : (
-              <ChartEmpty>
+              <ChartEmpty icon={<IconChartLine />}>
                 {t("agentChat.settings.usage.noModelCalls")}
               </ChartEmpty>
             )}
@@ -803,7 +825,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
                   entry.model,
                 ])}
                 status={
-                  count > 1 ? <Badge variant="secondary">×{count}</Badge> : null
+                  count > 1 ? <Badge variant="outline">×{count}</Badge> : null
                 }
                 control={<ValueText>{amountText(entry)}</ValueText>}
               />

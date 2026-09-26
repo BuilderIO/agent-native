@@ -274,6 +274,37 @@ describe("ProviderDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("keeps Add disabled until the key checks out and keeps a failed save open", async () => {
+    keyMock.fetchProviderModels.mockResolvedValue({
+      ok: true,
+      provider: "anthropic",
+      models: ["claude-sonnet-5"],
+      checkedAt: 1,
+    });
+    keyMock.saveAgentEngineProviderSettings.mockRejectedValue(
+      new Error("Vault is unavailable."),
+    );
+    const { onOpenChange } = render({ provider: "anthropic" });
+
+    expect(button("Add provider").disabled).toBe(true);
+    expect(button("Add provider").type).toBe("submit");
+    typeInto(inputByLabel("API key"), "sk-ant-test-0000");
+    expect(button("Add provider").disabled).toBe(true);
+    await vi.waitFor(() => {
+      expect(button("Add provider").disabled).toBe(false);
+    });
+
+    await act(async () => {
+      button("Add provider").click();
+    });
+    await vi.waitFor(() => {
+      expect(
+        document.querySelector('[role="dialog"] [role="alert"]')?.textContent,
+      ).toContain("Vault is unavailable.");
+    });
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
   it("locks members to a personal key", async () => {
     state.listing = listing({ canManageOrg: false });
     keyMock.fetchProviderModels.mockResolvedValue({

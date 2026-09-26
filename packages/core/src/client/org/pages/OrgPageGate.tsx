@@ -27,7 +27,7 @@ export function OrgSettingsGroupSkeleton({ rows = 2 }: { rows?: number }) {
               <Skeleton className="h-3.5 w-36" />
               <Skeleton className="h-3 w-56" />
             </div>
-            <Skeleton className="h-9 w-28" />
+            <Skeleton className="h-8 w-28" />
           </div>
         ))}
       </div>
@@ -65,7 +65,7 @@ export function OrgPageGate({
         </p>
         <Button
           type="button"
-          variant="outline"
+          variant="secondary"
           size="sm"
           disabled={isFetching}
           onClick={() => void refetch()}

@@ -14,6 +14,7 @@
  * dialog automatically — most templates never touch these directly.
  */
 
+import { Button } from "@agent-native/toolkit/ui/button";
 import { IconChevronDown, IconHistory, IconX } from "@tabler/icons-react";
 import React, { useEffect, useId, useMemo, useState } from "react";
 
@@ -283,22 +284,24 @@ export function ChangelogSettingsCard({
           <ChangelogEntries entries={visibleEntries} emptyText={emptyText} />
         </div>
         {hasMore && (
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={() => setExpanded((value) => !value)}
             aria-expanded={expanded}
             aria-controls={bodyId}
-            className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground underline underline-offset-2"
+            className="mt-4"
           >
-            <span>{expanded ? collapseLabel : viewAllLabel}</span>
+            {expanded ? collapseLabel : viewAllLabel}
             <IconChevronDown
               className={cn(
-                "h-4 w-4 transition-transform duration-200 ease-[var(--ease-collapse)]",
+                "transition-transform duration-200 ease-[var(--ease-collapse)]",
                 expanded && "rotate-180",
               )}
               aria-hidden="true"
             />
-          </button>
+          </Button>
         )}
       </div>
     </div>

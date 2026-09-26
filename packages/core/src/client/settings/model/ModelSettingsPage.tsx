@@ -10,10 +10,11 @@ import {
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { Switch } from "@agent-native/toolkit/ui/switch";
-import { IconLock, IconPlus } from "@tabler/icons-react";
+import { IconCpu, IconLock, IconPlus } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 
 import type { ProviderKeyPolicyStatus } from "../../../agent/actions/manage-provider-key-policy.js";
 import { CHATGPT_SUBSCRIPTION_LAB_KEY } from "../../../agent/chatgpt-subscription-contract.js";
@@ -39,8 +40,11 @@ import {
 import { useFormatters, useT } from "../../i18n.js";
 import { useLabState } from "../../labs/use-lab.js";
 import { useOrg } from "../../org/hooks.js";
+import {
+  ErrorRow,
+  SettingsEmpty,
+} from "../../resources/ResourceSettingsGroups.js";
 import { callAction, useActionQuery } from "../../use-action.js";
-import { cn } from "../../utils.js";
 import { DeferredBuilderConnectPopover } from "../deferred-builder-connect-popover.js";
 import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
 import { useSettingsPageHeader, useSettingsShell } from "../shell/context.js";
@@ -118,38 +122,21 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
   const header = useMemo(
     () => ({
       action: canAdd ? (
-        <Button
-          type="button"
-          size="sm"
-          className="h-8 px-3"
-          onClick={() => setDialog({ mode: "add" })}
-        >
-          <IconPlus className="size-4" aria-hidden />
-          {t(`${K}addProvider`)}
-        </Button>
+        <AddProviderButton onClick={() => setDialog({ mode: "add" })} />
       ) : undefined,
     }),
-    [canAdd, t],
+    [canAdd],
   );
   useSettingsPageHeader(header);
 
   if (listing.isError) {
     return (
-      <div
-        role="alert"
-        className="flex flex-col items-start gap-3 py-6 text-sm"
-      >
-        <p className="text-destructive">{t(`${K}loadFailed`)}</p>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          className="h-8 px-3"
-          onClick={() => void listing.refetch()}
-        >
-          {t(`${K}retry`)}
-        </Button>
-      </div>
+      <SettingsGroup>
+        <ErrorRow
+          text={t(`${K}loadFailed`)}
+          onRetry={() => void listing.refetch()}
+        />
+      </SettingsGroup>
     );
   }
   if (!listing.data || org.isLoading) return <ModelPageSkeleton />;
@@ -164,11 +151,21 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
   const orgName = org.data?.orgName ?? "";
   const openManage = (row: ProviderKeyRow) =>
     setDialog({ mode: "manage", provider: row.provider, scope: row.key.scope });
+  const needsProvider = !hasAnyProvider(data, rows, builder);
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex flex-col gap-8" data-model-settings="">
-        {data.hasOrganization ? (
+        {needsProvider ? (
+          <SettingsGroup id="llm">
+            <NoProviderEmpty
+              listing={data}
+              canAdd={canAdd}
+              builder={builder}
+              onAdd={() => setDialog({ mode: "add" })}
+            />
+          </SettingsGroup>
+        ) : data.hasOrganization ? (
           // #llm is where legacy links to the old LLM section land.
           <SettingsGroup id="llm" title={t(`${K}orgProviders`)}>
             <BuilderRow
@@ -194,6 +191,7 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
           rows={rows.personal}
           builder={builder}
           orgName={orgName}
+          hideBuilder={needsProvider}
           modelsLoading={modelsRead.status === "loading"}
           onManage={openManage}
           onRemove={setRemoving}
@@ -202,6 +200,7 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
           listing={data}
           models={modelsRead}
           builder={builder}
+          hasProvider={!needsProvider}
         />
       </div>
       <ProviderDialog
@@ -228,11 +227,118 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
   );
 }
 
+/** The page's one action, also the no-provider empty state's. */
+function AddProviderButton({ onClick }: { onClick: () => void }) {
+  const t = useT();
+  return (
+    <Button type="button" size="sm" onClick={onClick}>
+      <IconPlus />
+      {t(`${K}addProvider`)}
+    </Button>
+  );
+}
+
+/**
+ * Whether the agent has a provider to answer with: a connected Builder.io or
+ * an organization key, or for members (while personal API keys aren't
+ * restricted) and people without an organization, one of their own. Unknown
+ * Builder.io status counts as a provider, so the empty state never flashes
+ * before the status read answers.
+ */
+function hasAnyProvider(
+  listing: ModelProvidersListing,
+  rows: { org: ProviderKeyRow[]; personal: ProviderKeyRow[] },
+  builder: BuilderConnectFlow,
+): boolean {
+  if (!builder.hasFetchedStatus) return true;
+  if (!listing.hasOrganization) {
+    return builder.configured || rows.personal.length > 0;
+  }
+  if (builder.grants === null) return true;
+  const connected = (grant: { needsReconnect?: boolean } | null | undefined) =>
+    !!grant && !grant.needsReconnect;
+  if (connected(builder.grants.org) || rows.org.length > 0) return true;
+  // Restricted personal keys and connections stay listed but aren't used.
+  if (listing.canManageOrg || listing.personalKeysRestricted) return false;
+  return connected(builder.grants.personal) || rows.personal.length > 0;
+}
+
+/** No provider yet: why the agent needs one, and the ways to add it. */
+function NoProviderEmpty({
+  listing,
+  canAdd,
+  builder,
+  onAdd,
+}: {
+  listing: ModelProvidersListing;
+  canAdd: boolean;
+  builder: BuilderConnectFlow;
+  onAdd: () => void;
+}) {
+  const t = useT();
+  const scope: BuilderConnectionScope = listing.canManageOrg
+    ? "org"
+    : "personal";
+  const canConnect =
+    !listing.hasOrganization ||
+    (builder.canConnect[scope] &&
+      (scope === "org" || !listing.personalKeysRestricted));
+  const connect = canConnect ? (
+    <DeferredBuilderConnectPopover
+      flow={builder}
+      onConnect={(provisionAccount) =>
+        builder.start({
+          provisionAccount,
+          ...(listing.hasOrganization ? { scope } : {}),
+        })
+      }
+    >
+      <Button
+        type="button"
+        variant={canAdd ? "secondary" : "default"}
+        size="sm"
+        disabled={builder.connecting}
+      >
+        {builder.connecting ? <Spinner /> : null}
+        {builder.connecting
+          ? t(`${K}connecting`)
+          : t("agentChat.setup.connectBuilder")}
+      </Button>
+    </DeferredBuilderConnectPopover>
+  ) : null;
+  return (
+    <>
+      <SettingsEmpty
+        icon={IconCpu}
+        title={t(`${K}emptyTitle`)}
+        description={
+          canAdd || canConnect
+            ? t(`${K}emptyDescription`)
+            : t(`${K}emptyAskAdmin`)
+        }
+      >
+        {canAdd || connect ? (
+          <>
+            {canAdd ? <AddProviderButton onClick={onAdd} /> : null}
+            {connect}
+          </>
+        ) : null}
+      </SettingsEmpty>
+      {builder.error ? (
+        <p role="alert" className="px-5 pb-4 text-sm text-destructive sm:px-6">
+          {builder.error}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 function PersonalProvidersGroup({
   listing,
   rows,
   builder,
   orgName,
+  hideBuilder,
   modelsLoading,
   onManage,
   onRemove,
@@ -241,6 +347,8 @@ function PersonalProvidersGroup({
   rows: ProviderKeyRow[];
   builder: BuilderConnectFlow;
   orgName: string;
+  /** The no-provider empty state offers Builder.io instead. */
+  hideBuilder: boolean;
   modelsLoading: boolean;
   onManage: (row: ProviderKeyRow) => void;
   onRemove: (row: ProviderKeyRow) => void;
@@ -251,17 +359,22 @@ function PersonalProvidersGroup({
   const personalGrant = builder.grants?.personal;
   // Owners and admins connect Builder.io for the organization (open question
   // 8.1.1), so only members, and people without one, get a personal row.
-  const showBuilder = listing.hasOrganization
-    ? !listing.canManageOrg && (!!personalGrant || !restricted)
-    : true;
+  const showBuilder =
+    !hideBuilder &&
+    (listing.hasOrganization
+      ? !listing.canManageOrg && (!!personalGrant || !restricted)
+      : true);
   const showChatgpt = chatgptLab.enabled;
   const hasRows = showBuilder || rows.length > 0 || showChatgpt;
 
-  if (!hasRows && !restricted) return null;
+  // The no-provider empty state already says what a restricted member can do.
+  if (!hasRows && (!restricted || hideBuilder)) return null;
   return (
     <div>
       <SettingsGroup
-        id={listing.hasOrganization ? "personal-providers" : "llm"}
+        id={
+          listing.hasOrganization || hideBuilder ? "personal-providers" : "llm"
+        }
         title={t(`${K}personalProviders`)}
       >
         {showBuilder ? (
@@ -286,10 +399,7 @@ function PersonalProvidersGroup({
         ))}
         {showChatgpt ? <ChatGPTSubscriptionRow /> : null}
         {!hasRows ? (
-          <div className="flex items-center gap-2 px-5 py-4 text-sm text-muted-foreground sm:px-6">
-            <IconLock className="size-4 shrink-0" aria-hidden />
-            {t(`${K}restricted`)}
-          </div>
+          <SettingsEmpty icon={IconLock} title={t(`${K}restricted`)} />
         ) : null}
       </SettingsGroup>
       {restricted && hasRows ? (
@@ -393,9 +503,9 @@ function BuilderRow({
             type="button"
             variant="secondary"
             size="sm"
-            className="h-8 px-3"
             disabled={flow.connecting}
           >
+            {flow.connecting ? <Spinner /> : null}
             {flow.connecting ? t(`${K}connecting`) : t(`${K}connect`)}
           </Button>
         </DeferredBuilderConnectPopover>
@@ -503,10 +613,12 @@ function OrganizationSettingsGroup({
   listing,
   models,
   builder,
+  hasProvider,
 }: {
   listing: ModelProvidersListing;
   models: ModelsReadState;
   builder: BuilderConnectFlow;
+  hasProvider: boolean;
 }) {
   const t = useT();
   const hasOrg = listing.hasOrganization;
@@ -516,7 +628,12 @@ function OrganizationSettingsGroup({
       id="limits"
       title={hasOrg ? t(`${K}orgSettings`) : undefined}
     >
-      <DefaultModelRow listing={listing} models={models} builder={builder} />
+      <DefaultModelRow
+        listing={listing}
+        models={models}
+        builder={builder}
+        hasProvider={hasProvider}
+      />
       {hasOrg && listing.canManageOrg ? <RestrictKeysRow /> : null}
       <MaxIterationsRow />
     </SettingsGroup>
@@ -527,10 +644,12 @@ function DefaultModelRow({
   listing,
   models: modelsRead,
   builder,
+  hasProvider,
 }: {
   listing: ModelProvidersListing;
   models: ModelsReadState;
   builder: BuilderConnectFlow;
+  hasProvider: boolean;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -615,19 +734,38 @@ function DefaultModelRow({
     }
   };
 
+  // Until a provider is added there is nothing to choose; the row says so.
+  const waitingForProvider = !hasProvider;
+
   return (
     <SettingsRow
       id="default-model"
       label={t(DEFAULT_MODEL_LABEL)}
-      description={t(`${K}defaultModelDescription`)}
+      description={
+        waitingForProvider
+          ? t(`${K}defaultModelNeedsProvider`)
+          : t(`${K}defaultModelDescription`)
+      }
       control={
         modelsRead.status === "loading" ? (
           <Skeleton
-            className="h-10 w-64 max-w-full"
+            className="h-8 w-64 max-w-full"
             data-default-model-loading=""
           />
-        ) : modelsRead.status === "error" ? null : listing.canUpdateDefault &&
-          allGroups.length > 0 ? (
+        ) : modelsRead.status === "error" ? null : waitingForProvider ||
+          (listing.canUpdateDefault && allGroups.length === 0) ? (
+          <Select disabled>
+            <SelectTrigger
+              size="sm"
+              className="w-64 max-w-full"
+              aria-label={t(DEFAULT_MODEL_LABEL)}
+            >
+              <SelectValue
+                placeholder={current ? currentLabel : t(`${K}chooseModel`)}
+              />
+            </SelectTrigger>
+          </Select>
+        ) : listing.canUpdateDefault ? (
           <Select
             value={
               current?.model
@@ -637,6 +775,7 @@ function DefaultModelRow({
             onValueChange={(value) => void choose(value)}
           >
             <SelectTrigger
+              size="sm"
               className="w-64 max-w-full"
               aria-label={t(DEFAULT_MODEL_LABEL)}
             >
@@ -658,9 +797,6 @@ function DefaultModelRow({
               ))}
             </SelectContent>
           </Select>
-        ) : listing.canUpdateDefault ? (
-          // Nothing to choose until an organization provider is added.
-          <span className="text-sm text-muted-foreground">{currentLabel}</span>
         ) : (
           <ReadOnlyValue value={currentLabel} tip={t(`${K}lockedTip`)} />
         )
@@ -678,10 +814,9 @@ function DefaultModelRow({
             type="button"
             variant="secondary"
             size="sm"
-            className="h-8 px-3"
             onClick={modelsRead.retry}
           >
-            {t(`${K}retry`)}
+            {t("agentChat.common.retry")}
           </Button>
         </div>
       ) : null}
@@ -705,8 +840,8 @@ function RestrictKeysRow() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const set = async (restricted: boolean) => {
-    setError(null);
+  /** Throws the server's message when the change is refused. */
+  const write = async (restricted: boolean) => {
     setPending(restricted);
     try {
       const next = await callAction<ProviderKeyPolicyStatus>(
@@ -716,10 +851,16 @@ function RestrictKeysRow() {
       );
       queryClient.setQueryData(POLICY_QUERY_KEY, next);
       await queryClient.invalidateQueries({ queryKey: ["action"] });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setPending(null);
+    }
+  };
+  const unrestrict = async () => {
+    setError(null);
+    try {
+      await write(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -738,12 +879,13 @@ function RestrictKeysRow() {
               aria-label={label}
               disabled={pending !== null}
               onCheckedChange={(next) => {
+                setError(null);
                 if (next) setConfirmOpen(true);
-                else void set(false);
+                else void unrestrict();
               }}
             />
           ) : policy.isError ? null : (
-            <Skeleton className="h-6 w-11 rounded-full" />
+            <Skeleton className="h-4.5 w-8 rounded-full" />
           )
         }
       >
@@ -757,7 +899,7 @@ function RestrictKeysRow() {
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         affectedMembers={policy.data?.affectedMembers}
-        onConfirm={() => void set(true)}
+        onConfirm={() => write(true)}
       />
     </>
   );
@@ -773,6 +915,7 @@ function MaxIterationsRow() {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const errorId = useId();
   const settings = loop.data;
 
   useEffect(() => {
@@ -814,10 +957,11 @@ function MaxIterationsRow() {
   const label = t(MAX_ITERATIONS_LABEL);
   let control: ReactNode;
   if (!settings) {
-    control = loop.isError ? null : <Skeleton className="h-10 w-24" />;
+    control = loop.isError ? null : <Skeleton className="h-8 w-24" />;
   } else if (settings.canUpdate) {
     control = (
       <Input
+        size="sm"
         type="number"
         inputMode="numeric"
         min={settings.minMaxIterations}
@@ -826,6 +970,7 @@ function MaxIterationsRow() {
         className="w-24"
         aria-label={label}
         aria-invalid={!!error}
+        aria-describedby={error ? errorId : undefined}
         value={draft ?? String(settings.maxIterations)}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => void commit()}
@@ -858,7 +1003,7 @@ function MaxIterationsRow() {
       control={control}
     >
       {error || loop.isError ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p id={errorId} role="alert" className="text-sm text-destructive">
           {error ?? t(`${K}settingLoadFailed`)}
         </p>
       ) : null}
@@ -878,12 +1023,8 @@ function RowButton({
   return (
     <Button
       type="button"
-      variant="secondary"
+      variant={destructive ? "secondary-destructive" : "secondary"}
       size="sm"
-      className={cn(
-        "h-8 px-3",
-        destructive && "text-destructive hover:text-destructive",
-      )}
       onClick={onClick}
     >
       {children}

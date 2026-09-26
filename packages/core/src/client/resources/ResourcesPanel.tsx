@@ -21,7 +21,6 @@ import React, {
   useEffect,
   useMemo,
 } from "react";
-import { toast as notify } from "sonner";
 
 import {
   CLAUDE_SONNET_MODEL_ID,
@@ -2021,16 +2020,19 @@ export function ResourcesPanel({
                 nodes: personalTree,
                 isLoading: personalTreeQuery.isLoading,
                 isError: personalTreeQuery.isError,
+                retry: () => void personalTreeQuery.refetch(),
               },
               shared: {
                 nodes: sharedTree,
                 isLoading: sharedTreeQuery.isLoading,
                 isError: sharedTreeQuery.isError,
+                retry: () => void sharedTreeQuery.refetch(),
               },
               workspace: {
                 nodes: workspaceTree,
                 isLoading: workspaceTreeQuery.isLoading,
                 isError: workspaceTreeQuery.isError,
+                retry: () => void workspaceTreeQuery.refetch(),
               },
             }}
             canEditOrg={canEditOrg}
@@ -2041,17 +2043,7 @@ export function ResourcesPanel({
                 : null
             }
             onOpen={handleSelect}
-            onRemove={(resource) =>
-              deleteResource.mutate(resource.id, {
-                onError: () => {
-                  notify.error(
-                    t("agentChat.settingsResources.removeFailed", {
-                      name: resource.path,
-                    }),
-                  );
-                },
-              })
-            }
+            onRemove={(resource) => deleteResource.mutateAsync(resource.id)}
           />
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto">

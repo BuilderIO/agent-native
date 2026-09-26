@@ -1,6 +1,6 @@
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
   AlertDialog,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -9,7 +9,9 @@ import {
 } from "@agent-native/toolkit/ui/alert-dialog";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { IconLock, IconUser } from "@tabler/icons-react";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { IconAlertCircle, IconLock, IconUser } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 
 import type { PersonalProviderKeyHolder } from "../../../server/personal-provider-key-holders.js";
 import { useFormatters, useT } from "../../i18n.js";
@@ -21,7 +23,8 @@ export interface RestrictKeysDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Members whose personal keys stop; undefined while loading. */
   affectedMembers: readonly PersonalProviderKeyHolder[] | undefined;
-  onConfirm: () => void;
+  /** Rejects with the server's message; the dialog stays open to show it. */
+  onConfirm: () => Promise<void>;
 }
 
 /** "Restrict personal API keys?" listing each member and what stops for them. */
@@ -33,6 +36,26 @@ export function RestrictKeysDialog({
 }: RestrictKeysDialogProps) {
   const t = useT();
   const formatters = useFormatters();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) setError(null);
+  }, [open]);
+
+  const confirm = async () => {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      await onConfirm();
+      onOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPending(false);
+    }
+  };
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -103,17 +126,28 @@ export function RestrictKeysDialog({
             </li>
           </ul>
         </div>
+        {error ? (
+          <Alert variant="destructive">
+            <IconAlertCircle />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
         <AlertDialogFooter>
-          <AlertDialogCancel>{t(`${K}cancel`)}</AlertDialogCancel>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => onOpenChange(false)}
+          >
+            {t(`${K}cancel`)}
+          </Button>
           <Button
             type="button"
             variant="destructive"
-            onClick={() => {
-              onOpenChange(false);
-              onConfirm();
-            }}
+            disabled={pending || affectedMembers === undefined}
+            onClick={() => void confirm()}
           >
-            {t(`${K}restrictConfirm`)}
+            {pending ? <Spinner /> : null}
+            {pending ? t(`${K}restricting`) : t(`${K}restrictConfirm`)}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

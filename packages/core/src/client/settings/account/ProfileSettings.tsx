@@ -1,8 +1,9 @@
-import {
-  ActionButton,
-  Avatar,
-  TextField,
-} from "@agent-native/toolkit/design-system";
+import { Avatar } from "@agent-native/toolkit/design-system";
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import type { UserProfile } from "../../../user-profile/shared.js";
@@ -95,17 +96,16 @@ function ProfilePhotoRow({
             className="hidden"
             onChange={handleChange}
           />
-          <ActionButton
+          <Button
             type="button"
-            intent="neutral"
-            emphasis="outline"
-            size="compact"
-            pending={uploading}
+            variant="secondary"
+            size="sm"
             disabled={!email || uploading}
-            onPress={() => fileInputRef.current?.click()}
+            onClick={() => fileInputRef.current?.click()}
           >
+            {uploading ? <Spinner aria-hidden="true" /> : null}
             {uploading ? t(key("uploading")) : t(key("change"))}
-          </ActionButton>
+          </Button>
         </div>
       }
     />
@@ -188,13 +188,14 @@ function ProfileNameRow({
         )
       }
       control={
-        <TextField
+        <Input
           id="agent-native-profile-name"
+          size="sm"
           value={draft}
-          onChange={(value) => {
+          onChange={(event) => {
             editedRef.current = true;
             updateProfile.reset();
-            setDraft(value);
+            setDraft(event.currentTarget.value);
           }}
           onBlur={commit}
           onKeyDown={(event) => {
@@ -208,6 +209,7 @@ function ProfileNameRow({
           placeholder={t(key("namePlaceholder"))}
           disabled={!email || loading}
           aria-label={t(key("name"))}
+          aria-invalid={updateProfile.error ? true : undefined}
           autoComplete="name"
           className="w-full sm:w-64"
         />
@@ -254,16 +256,15 @@ function EmailRow({ email }: { email: string }) {
       }
       control={
         <Dialog open={open} onOpenChange={openDialog}>
-          <ActionButton
+          <Button
             type="button"
-            intent="neutral"
-            emphasis="outline"
-            size="compact"
-            onPress={() => openDialog(true)}
+            variant="secondary"
+            size="sm"
+            onClick={() => openDialog(true)}
           >
             {t(key("change"))}
-          </ActionButton>
-          <DialogContent className="sm:max-w-md">
+          </Button>
+          <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
             <DialogHeader>
               <DialogTitle>{t(key("changeEmail"))}</DialogTitle>
             </DialogHeader>
@@ -274,44 +275,43 @@ function EmailRow({ email }: { email: string }) {
                 void send();
               }}
             >
-              <TextField
-                id="agent-native-new-email"
-                type="email"
-                label={t(key("newEmail"))}
-                value={newEmail}
-                onChange={(value) => {
-                  setStatus("idle");
-                  setNewEmail(value);
-                }}
-                placeholder={t(key("newEmailPlaceholder"))}
-                autoComplete="email"
-                autoFocus
-                disabled={pending}
-                invalid={status === "error"}
-                errorMessage={
-                  status === "error" ? t(key("emailChangeError")) : undefined
-                }
-              />
-              <DialogFooter className="gap-2">
-                <ActionButton
+              <div className="grid gap-2">
+                <Label htmlFor="agent-native-new-email">
+                  {t(key("newEmail"))}
+                </Label>
+                <Input
+                  id="agent-native-new-email"
+                  type="email"
+                  value={newEmail}
+                  onChange={(event) => {
+                    setStatus("idle");
+                    setNewEmail(event.currentTarget.value);
+                  }}
+                  autoComplete="email"
+                  autoFocus
+                  required
+                  readOnly={pending}
+                />
+              </div>
+              {status === "error" ? (
+                <Alert variant="destructive">
+                  <AlertDescription>
+                    {t(key("emailChangeError"))}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+              <DialogFooter className="gap-2 sm:space-x-0">
+                <Button
                   type="button"
-                  intent="neutral"
-                  emphasis="outline"
-                  size="compact"
-                  onPress={() => openDialog(false)}
+                  variant="secondary"
+                  onClick={() => openDialog(false)}
                 >
                   {t("agentChat.common.cancel")}
-                </ActionButton>
-                <ActionButton
-                  type="submit"
-                  intent="primary"
-                  emphasis="solid"
-                  size="compact"
-                  pending={pending}
-                  disabled={!canSend}
-                >
+                </Button>
+                <Button type="submit" disabled={!canSend}>
+                  {pending ? <Spinner aria-hidden="true" /> : null}
                   {pending ? t(key("sending")) : t(key("sendConfirmation"))}
-                </ActionButton>
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>

@@ -1,3 +1,4 @@
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -16,17 +17,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@agent-native/toolkit/ui/dialog";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+} from "@agent-native/toolkit/ui/empty";
 import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
+  IconAlertCircle,
   IconCheck,
+  IconChevronRight,
   IconCopy,
   IconExternalLink,
-  IconLoader2,
+  IconMessages,
 } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type MouseEvent } from "react";
+import { useId, useMemo, useState, type MouseEvent } from "react";
 
 import type {
   BuiltInChannelId,
@@ -120,15 +131,21 @@ function useManageChannel() {
   );
 }
 
-function RowSkeleton() {
+function RowSkeleton({ link = false }: { link?: boolean }) {
   return (
-    <div className="flex items-center gap-3 px-5 py-4 sm:px-6">
-      <Skeleton className="size-8 rounded-md" />
-      <div className="min-w-0 flex-1 space-y-1.5">
-        <Skeleton className="h-3.5 w-28" />
-        <Skeleton className="h-3 w-20" />
+    <div className="flex items-center gap-4 px-5 py-4 sm:px-6">
+      <div className="flex min-w-0 flex-1 gap-3">
+        <Skeleton className="size-8 shrink-0 rounded-md" />
+        <div className="grid flex-1 gap-2">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-4 w-20" />
+        </div>
       </div>
-      <Skeleton className="h-8 w-16 rounded-md" />
+      {link ? (
+        <Skeleton className="size-4 shrink-0" />
+      ) : (
+        <Skeleton className="h-8 w-16 shrink-0" />
+      )}
     </div>
   );
 }
@@ -140,13 +157,7 @@ function LoadError({ onRetry }: { onRetry: () => void }) {
       id="channels-error"
       label={t(`${K}.loadFailed`)}
       control={
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 px-3 text-xs"
-          onClick={onRetry}
-        >
+        <Button type="button" variant="secondary" size="sm" onClick={onRetry}>
           {t(`${K}.retry`)}
         </Button>
       }
@@ -160,8 +171,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
     <Button
       type="button"
       variant="ghost"
-      size="icon"
-      className="size-8"
+      size="icon-sm"
       aria-label={label}
       onClick={async () => {
         if (await writeClipboardText(value)) {
@@ -171,38 +181,63 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       }}
     >
       {copied ? (
-        <IconCheck className="size-4" aria-hidden="true" />
+        <IconCheck aria-hidden="true" />
       ) : (
-        <IconCopy className="size-4" aria-hidden="true" />
+        <IconCopy aria-hidden="true" />
       )}
     </Button>
   );
 }
 
-function OpenChannelLink({
-  platform,
-  label,
+/**
+ * A channel row. It opens the channel's own page, so the whole row is the
+ * link and ends in a chevron instead of holding a button.
+ */
+function ChannelLinkRow({
+  channel,
+  state,
   ariaLabel,
 }: {
-  platform: string;
-  label: string;
+  channel: IntegrationCatalogEntry;
+  state: string;
   ariaLabel: string;
 }) {
   const { navigate } = useSettingsShell();
+  const stateId = useId();
   return (
-    <Button asChild variant="outline" size="sm" className="h-8 px-3 text-xs">
-      <a
-        href={settingsPageHref(PAGE_ID, platform)}
-        aria-label={ariaLabel}
-        onClick={(event) => {
-          if (isModifiedClick(event)) return;
-          event.preventDefault();
-          navigate(PAGE_ID, platform);
-        }}
-      >
-        {label}
-      </a>
-    </Button>
+    <a
+      id={channel.id}
+      href={settingsPageHref(PAGE_ID, channel.id)}
+      aria-label={ariaLabel}
+      aria-describedby={stateId}
+      onClick={(event) => {
+        if (isModifiedClick(event)) return;
+        event.preventDefault();
+        navigate(PAGE_ID, channel.id);
+      }}
+      className="agent-native-settings-row flex scroll-mt-16 items-center gap-4 px-5 py-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-6"
+    >
+      <span className="flex min-w-0 flex-1 gap-3">
+        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground [&>svg]:size-[18px]">
+          <ChannelIcon channel={channel} />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-foreground">
+            {channel.name}
+          </span>
+          <span
+            id={stateId}
+            className="mt-1 block text-sm leading-6 text-muted-foreground"
+          >
+            {state}
+          </span>
+        </span>
+      </span>
+      <IconChevronRight
+        className="size-4 shrink-0 text-muted-foreground rtl:-scale-x-100"
+        aria-hidden="true"
+      />
+    </a>
   );
 }
 
@@ -231,46 +266,43 @@ function ChannelList({ appName }: { appName: string }) {
       <p className="text-sm leading-6 text-muted-foreground">
         {t(`${K}.about.page`, { app: appName })}
       </p>
-      {list.isSuccess && available.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {t(`${K}.empty`, { app: appName })}
-        </p>
-      ) : (
-        <SettingsGroup id="channel-list">
-          {list.isPending ? (
-            channels.map((channel) => <RowSkeleton key={channel.id} />)
-          ) : list.isError ? (
-            <LoadError onRetry={() => void list.refetch()} />
-          ) : (
-            available.map((channel) => {
-              const state = statusById.get(channel.id)!.state;
-              const action = !canManage
-                ? "view"
-                : state === "not-set-up"
-                  ? "setUp"
-                  : "manage";
-              return (
-                <SettingsRow
-                  key={channel.id}
-                  id={channel.id}
-                  icon={<ChannelIcon channel={channel} />}
-                  label={channel.name}
-                  description={t(STATE_KEYS[state])}
-                  control={
-                    <OpenChannelLink
-                      platform={channel.id}
-                      label={t(`${K}.action.${action}`)}
-                      ariaLabel={t(`${K}.action.${action}Aria`, {
-                        platform: channel.name,
-                      })}
-                    />
-                  }
-                />
-              );
-            })
-          )}
-        </SettingsGroup>
-      )}
+      <SettingsGroup id="channel-list">
+        {list.isPending ? (
+          channels.map((channel) => <RowSkeleton key={channel.id} link />)
+        ) : list.isError ? (
+          <LoadError onRetry={() => void list.refetch()} />
+        ) : available.length === 0 ? (
+          <Empty data-channels-empty="">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconMessages aria-hidden="true" />
+              </EmptyMedia>
+              <EmptyDescription>
+                {t(`${K}.empty`, { app: appName })}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          available.map((channel) => {
+            const state = statusById.get(channel.id)!.state;
+            const action = !canManage
+              ? "view"
+              : state === "not-set-up"
+                ? "setUp"
+                : "manage";
+            return (
+              <ChannelLinkRow
+                key={channel.id}
+                channel={channel}
+                state={t(STATE_KEYS[state])}
+                ariaLabel={t(`${K}.action.${action}Aria`, {
+                  platform: channel.name,
+                })}
+              />
+            );
+          })
+        )}
+      </SettingsGroup>
     </div>
   );
 }
@@ -367,9 +399,8 @@ function CredentialValue({
         <p className="text-xs text-muted-foreground">{t(`${K}.setup.saved`)}</p>
         <Button
           type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs"
+          variant="secondary"
+          size="xs"
           aria-label={t(`${K}.setup.replaceAria`, { key: credential.key })}
           onClick={onReplace}
         >
@@ -507,12 +538,12 @@ function ChannelSetupDialog({
             return (
               <div
                 key={item.key}
-                className="flex flex-col gap-1.5"
+                className="grid gap-2"
                 data-channel-credential={item.key}
               >
-                <label
+                <Label
                   htmlFor={editing ? inputId : undefined}
-                  className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium text-foreground"
+                  className="flex flex-wrap items-baseline gap-x-2"
                 >
                   <span className="font-mono text-xs">{item.key}</span>
                   {item.required ? null : (
@@ -520,7 +551,7 @@ function ChannelSetupDialog({
                       {t(`${K}.setup.optional`)}
                     </span>
                   )}
-                </label>
+                </Label>
                 <CredentialValue
                   credential={item}
                   inputId={inputId}
@@ -537,8 +568,8 @@ function ChannelSetupDialog({
             );
           })}
           {webhookUrl && !isNonPublicWebhookUrl(webhookUrl) ? (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-foreground">
+            <div className="grid gap-2">
+              <span className="text-sm font-medium leading-none text-foreground">
                 {t(`${K}.webhookUrl`)}
               </span>
               <div className="flex items-center gap-2">
@@ -553,21 +584,26 @@ function ChannelSetupDialog({
             </div>
           ) : null}
           {error ? (
-            <p role="alert" className="text-xs text-destructive">
-              {error}
-            </p>
+            <Alert variant="destructive">
+              <IconAlertCircle aria-hidden="true" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           ) : null}
         </form>
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:space-x-0">
           {readOnly ? (
-            <Button type="button" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => onOpenChange(false)}
+            >
               {t(`${K}.setup.close`)}
             </Button>
           ) : (
             <>
               <Button
                 type="button"
-                variant="ghost"
+                variant="secondary"
                 disabled={save.isPending}
                 onClick={() => {
                   reset();
@@ -582,15 +618,12 @@ function ChannelSetupDialog({
                 disabled={save.isPending || nothingToDo || stillMissing}
                 aria-busy={save.isPending}
               >
-                {save.isPending ? (
-                  <IconLoader2
-                    className="size-4 animate-spin"
-                    aria-hidden="true"
-                  />
-                ) : null}
-                {state === "on"
-                  ? t(`${K}.setup.save`)
-                  : t(`${K}.setup.saveAndTurnOn`)}
+                {save.isPending ? <Spinner aria-hidden="true" /> : null}
+                {save.isPending
+                  ? t(`${K}.setup.saving`)
+                  : state === "on"
+                    ? t(`${K}.setup.save`)
+                    : t(`${K}.setup.saveAndTurnOn`)}
               </Button>
             </>
           )}
@@ -637,14 +670,19 @@ function RemoveCredentialsDialog({
           ))}
         </ul>
         {remove.isError ? (
-          <p role="alert" className="text-xs text-destructive">
-            {actionErrorMessage(remove.error) ??
-              t(`${K}.removeCredentials.failed`)}
-          </p>
+          <Alert variant="destructive">
+            <IconAlertCircle aria-hidden="true" />
+            <AlertDescription>
+              {actionErrorMessage(remove.error) ??
+                t(`${K}.removeCredentials.failed`)}
+            </AlertDescription>
+          </Alert>
         ) : null}
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={remove.isPending}>
-            {t("common.cancel")}
+          <AlertDialogCancel asChild disabled={remove.isPending}>
+            <Button type="button" variant="secondary">
+              {t("common.cancel")}
+            </Button>
           </AlertDialogCancel>
           <Button
             type="button"
@@ -658,10 +696,10 @@ function RemoveCredentialsDialog({
               )
             }
           >
-            {remove.isPending ? (
-              <IconLoader2 className="size-4 animate-spin" aria-hidden="true" />
-            ) : null}
-            {t(`${K}.removeCredentials.confirm`)}
+            {remove.isPending ? <Spinner aria-hidden="true" /> : null}
+            {remove.isPending
+              ? t(`${K}.removeCredentials.removing`)
+              : t(`${K}.removeCredentials.confirm`)}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -682,18 +720,15 @@ function RegisterWebhookControl({ platform }: { platform: string }) {
   return (
     <Button
       type="button"
-      variant="outline"
+      variant="secondary"
       size="sm"
-      className="h-8 px-3 text-xs"
       disabled={register.isPending}
       aria-busy={register.isPending}
       onClick={() =>
         register.mutate({ operation: "register-webhook", platform })
       }
     >
-      {register.isPending ? (
-        <IconLoader2 className="size-4 animate-spin" aria-hidden="true" />
-      ) : null}
+      {register.isPending ? <Spinner aria-hidden="true" /> : null}
       {t(`${K}.registerWebhook`)}
     </Button>
   );
@@ -701,15 +736,12 @@ function RegisterWebhookControl({ platform }: { platform: string }) {
 
 function ExternalLink({ href, label }: { href: string; label: string }) {
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex items-center gap-1 text-sm font-medium text-foreground underline-offset-4 hover:underline"
-    >
-      {label}
-      <IconExternalLink className="size-3.5" aria-hidden="true" />
-    </a>
+    <Button asChild variant="secondary" size="sm">
+      <a href={href} target="_blank" rel="noreferrer">
+        {label}
+        <IconExternalLink aria-hidden="true" />
+      </a>
+    </Button>
   );
 }
 
@@ -740,7 +772,6 @@ function ChannelDetail({
               <Button
                 type="button"
                 size="sm"
-                className="h-8 px-3 text-xs"
                 onClick={() => setSetupOpen(true)}
               >
                 {state === "not-set-up"
@@ -891,9 +922,8 @@ function ChannelDetail({
                     control={
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="secondary-destructive"
                         size="sm"
-                        className="h-8 px-3 text-xs"
                         aria-label={t(`${K}.removeCredentials.aria`, {
                           platform: channel.name,
                         })}

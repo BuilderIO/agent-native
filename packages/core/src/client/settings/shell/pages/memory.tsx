@@ -8,7 +8,7 @@ import {
   MEMORY_RESOURCE_SEED,
 } from "../../../resources/ResourcesPanel.js";
 import {
-  EmptyRowButton,
+  EmptyActionButton,
   ResourceSettingsPage,
   useOpenResourceRef,
   useSeedResource,
@@ -26,11 +26,12 @@ export default function MemorySettingsPage() {
         view: "memory",
         sources: ["personal"],
         emptyIcon: IconNotebook,
-        emptyText: t("agentChat.settingsResources.memory.empty"),
+        emptyTitle: t("agentChat.settingsResources.memory.emptyTitle"),
+        emptyDescription: t("agentChat.settingsResources.memory.empty"),
         emptyAction: (
-          <EmptyRowButton
+          <EmptyActionButton
             label={t("agentChat.settingsResources.memory.add")}
-            disabled={isPending}
+            pending={isPending}
             onClick={() =>
               seed(
                 MEMORY_RESOURCE_SEED.path,
@@ -46,7 +47,7 @@ export default function MemorySettingsPage() {
         view: "memory",
         sources: ["shared"],
         emptyIcon: IconNotebook,
-        emptyText: t("agentChat.settingsResources.memory.orgEmpty"),
+        emptyTitle: t("agentChat.settingsResources.memory.orgEmpty"),
       },
       {
         id: "learnings",
@@ -54,11 +55,12 @@ export default function MemorySettingsPage() {
         sources: ["personal", "shared"],
         title: t("agentChat.settingsShell.learnings"),
         emptyIcon: IconBulb,
-        emptyText: t("agentChat.settingsResources.learnings.empty"),
+        emptyTitle: t("agentChat.settingsResources.learnings.emptyTitle"),
+        emptyDescription: t("agentChat.settingsResources.learnings.empty"),
         emptyAction: (
-          <EmptyRowButton
+          <EmptyActionButton
             label={t("agentChat.settingsResources.learnings.add")}
-            disabled={isPending}
+            pending={isPending}
             onClick={() =>
               seed(
                 LEARNINGS_RESOURCE_SEED.path,

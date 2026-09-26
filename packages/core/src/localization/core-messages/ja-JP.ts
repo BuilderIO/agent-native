@@ -262,6 +262,7 @@ const messages: AgentChatTranslation = {
   "agents.formDescriptionPlaceholder": "説明 (任意)",
   "agents.formCheck": "確認",
   "agents.formAdd": "追加",
+  "agents.formAdding": "追加しています",
   "agents.formAddAnyway": "このまま追加",
   "agents.formRemove": "削除",
   "agents.formSaveFailed": "エージェントを保存できませんでした。",
@@ -1069,6 +1070,8 @@ const messages: AgentChatTranslation = {
   "settings.audit.changedBy": "変更者",
   "settings.audit.close": "閉じる",
   "settings.audit.empty": "この期間に変更はありません。",
+  "settings.audit.emptyDescription":
+    "ユーザーとエージェントによる変更がここに表示されます。",
   "settings.audit.failed": "失敗",
   "settings.audit.input": "入力",
   "settings.audit.inputLoadFailed": "入力を読み込めませんでした。",
@@ -1118,6 +1121,7 @@ const messages: AgentChatTranslation = {
     "{{org}}にアクセスできなくなります。所有しているものは選択した人に移ります。",
   "settingsOrg.members.roleFor": "{{name}}のロール",
   "settingsOrg.members.moreActions": "{{name}}のその他の操作",
+  "settingsOrg.members.removing": "削除中…",
   "settingsOrg.members.groupsEmpty":
     "メンバーをグループにまとめて、アプリへのアクセスを一緒に管理します。",
   "settingsOrg.auth.signIn": "サインイン",
@@ -1197,6 +1201,7 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.addAsAdmins": "管理者として追加",
   "settingsOrg.invite.add": "追加",
   "settingsOrg.invite.send": "招待を送信",
+  "settingsOrg.invite.sending": "送信中…",
   "settingsOrg.invite.close": "閉じる",
   "settingsOrg.invite.csvNoEmails":
     "この CSV に有効なメールアドレスが見つかりませんでした。",
@@ -1256,11 +1261,13 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.sendConfirmation": "確認メールを送信",
   "settingsShell.account.sending": "送信中...",
   "settingsShell.account.setUpTwoFactor": "2 要素認証を設定",
+  "settingsShell.account.settingUp": "設定中...",
   "settingsShell.account.signIn": "ログイン",
   "settingsShell.account.timezone": "タイムゾーン",
   "settingsShell.account.timezoneDescription":
     "タイムスタンプとスケジュールされた自動化に使われます。",
   "settingsShell.account.turnOffTwoFactor": "2 要素認証をオフにする",
+  "settingsShell.account.turningOff": "オフにしています...",
   "settingsShell.account.twoFactor": "2 要素認証",
   "settingsShell.account.twoFactorBackupCodes":
     "これらのバックアップコードを安全な場所に保管してください。認証アプリにアクセスできなくなった場合、各コードを 1 回ずつ使用できます。",
@@ -1282,6 +1289,7 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.twoFactorSetupTitle": "2 要素認証を設定",
   "settingsShell.account.uploading": "アップロード中...",
   "settingsShell.account.verifyAndEnable": "確認して有効にする",
+  "settingsShell.account.verifying": "確認中...",
   "settingsShell.account.voiceBatch": "一括",
   "settingsShell.account.voiceDescription":
     "音声入力の文字起こし方法を選択します。",
@@ -1333,6 +1341,7 @@ const messages: AgentChatTranslation = {
   "settingsShell.builder.connectedTo": "接続済み · {{space}}",
   "settingsShell.builder.connection": "接続",
   "settingsShell.builder.disconnect": "接続を解除",
+  "settingsShell.builder.disconnecting": "接続を解除中…",
   "settingsShell.builder.disconnectBody":
     "{{org}} で自分のアカウントを接続していない全員に影響します。",
   "settingsShell.builder.disconnectFailed":
@@ -1450,6 +1459,7 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.removeCredentials.confirm": "削除",
   "settingsShell.channels.removeCredentials.failed":
     "認証情報を削除できませんでした。",
+  "settingsShell.channels.removeCredentials.removing": "削除中…",
   "settingsShell.channels.removeCredentials.title":
     "{{platform}} の認証情報を削除しますか？",
   "settingsShell.channels.retry": "再試行",
@@ -1464,6 +1474,7 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.setup.replaceAria": "{{key}} を置き換え",
   "settingsShell.channels.setup.save": "保存",
   "settingsShell.channels.setup.saveAndTurnOn": "保存してオンにする",
+  "settingsShell.channels.setup.saving": "保存中…",
   "settingsShell.channels.setup.saved": "保存済み",
   "settingsShell.channels.setup.savedElsewhere": "チャネル以外で保存済み",
   "settingsShell.channels.setup.setInEnvironment": "デプロイ環境で設定",
@@ -1505,10 +1516,24 @@ const messages: AgentChatTranslation = {
   "settingsShell.integrations.category.sales": "営業",
   "settingsShell.integrations.category.support": "サポート",
   "settingsShell.integrations.connectName": "{{name}} を接続",
+  "settingsShell.integrations.connectedEmptyDescription":
+    "下のツールを接続すると、エージェントがチャットで使えるようになります。",
+  "settingsShell.integrations.connectedEmptyTitle":
+    "まだ何も接続されていません",
   "settingsShell.integrations.footnote":
     "これらはエージェントが使うツールです。Claude、ChatGPT、Cursor から {{app}} を使うには、{{link}} を参照してください。",
+  "settingsShell.integrations.moreActions": "{{name}} のその他の操作",
   "settingsShell.integrations.noResults":
     "一致する連携がありません。別の名前でお試しください。",
+  "settingsShell.integrations.remove": "削除",
+  "settingsShell.integrations.removeFailed":
+    "{{name}} を削除できませんでした。",
+  "settingsShell.integrations.removePersonal":
+    "エージェントはあなたのために {{name}} を使わなくなります。",
+  "settingsShell.integrations.removeTitle": "{{name}} を削除しますか？",
+  "settingsShell.integrations.removeWorkspace":
+    "エージェントはワークスペースの全員のために {{name}} を使わなくなります。",
+  "settingsShell.integrations.removing": "削除中…",
   "settingsShell.integrations.retry": "再試行",
   "settingsShell.integrations.seeMoreMany": "{{first}}、{{second}} などを表示",
   "settingsShell.integrations.seeMoreOne": "{{first}} を表示",
@@ -1573,7 +1598,7 @@ const messages: AgentChatTranslation = {
   "settingsResources.allApps": "すべてのアプリ",
   "settingsResources.allAppsHint": "Dispatch がすべてのアプリと共有しています",
   "settingsResources.dispatchEmpty":
-    "Dispatch から共有されているものはありません。",
+    "Dispatch から共有されているものはありません",
   "settingsResources.loadFailed": "これらのリソースを読み込めませんでした。",
   "settingsResources.moreActions": "その他の操作",
   "settingsResources.open": "開く",
@@ -1586,9 +1611,13 @@ const messages: AgentChatTranslation = {
   "settingsResources.cancel": "キャンセル",
   "settingsResources.save": "保存",
   "settingsResources.create": "作成",
+  "settingsResources.saving": "保存しています",
+  "settingsResources.creating": "作成しています",
+  "settingsResources.removing": "削除しています",
   "settingsResources.instructions.empty":
     "エージェントにあなたとの働き方を伝えましょう。",
-  "settingsResources.instructions.orgEmpty": "{{org}} の指示はまだありません。",
+  "settingsResources.instructions.emptyTitle": "指示はまだありません",
+  "settingsResources.instructions.orgEmpty": "{{org}} の指示はまだありません",
   "settingsResources.instructions.add": "指示を追加",
   "settingsResources.instructions.fieldLabel":
     "エージェントにどのように働いてほしいですか？",
@@ -1598,14 +1627,17 @@ const messages: AgentChatTranslation = {
     "個人リソースに AGENTS.md として保存されます。",
   "settingsResources.memory.empty":
     "エージェントがあなたについて学んだことをここに保存します。",
-  "settingsResources.memory.orgEmpty": "共有メモリーはまだありません。",
+  "settingsResources.memory.emptyTitle": "メモリーはまだありません",
+  "settingsResources.memory.orgEmpty": "共有メモリーはまだありません",
   "settingsResources.memory.add": "メモリーを追加",
   "settingsResources.learnings.empty":
     "エージェントに伝えた修正は学習として保存されます。",
+  "settingsResources.learnings.emptyTitle": "学習はまだありません",
   "settingsResources.learnings.add": "学習を追加",
   "settingsResources.skills.empty":
     "ワークフローを一度保存すれば、エージェントが再利用できます。",
-  "settingsResources.skills.orgEmpty": "共有スキルはまだありません。",
+  "settingsResources.skills.emptyTitle": "スキルはまだありません",
+  "settingsResources.skills.orgEmpty": "共有スキルはまだありません",
   "settingsResources.skills.add": "スキルを追加",
   "settingsResources.skills.describe": "エージェントに説明する",
   "settingsResources.skills.upload": "スキルファイルをアップロード",
@@ -1613,7 +1645,8 @@ const messages: AgentChatTranslation = {
     "プルリクエストのセキュリティ問題をレビューするスキル",
   "settingsResources.files.empty":
     "ファイルを追加して、エージェントにより多くのコンテキストを与えましょう。",
-  "settingsResources.files.orgEmpty": "共有ファイルはまだありません。",
+  "settingsResources.files.emptyTitle": "ファイルはまだありません",
+  "settingsResources.files.orgEmpty": "共有ファイルはまだありません",
   "settingsResources.files.add": "ファイルを追加",
   "settingsResources.files.upload": "ファイルをアップロード",
   "settingsResources.files.create": "ファイルを作成",
@@ -1634,6 +1667,7 @@ const messages: AgentChatTranslation = {
   "settingsInfra.close": "閉じる",
   "settingsInfra.cancel": "キャンセル",
   "settingsInfra.save": "保存",
+  "settingsInfra.saving": "保存中…",
   "settingsInfra.required": "必須",
   "settingsInfra.recommended": "推奨",
   "settingsInfra.optional": "任意",
@@ -1741,8 +1775,10 @@ const messages: AgentChatTranslation = {
   "settingsInfra.copied": "コピーしました",
   "settingsInfra.copyFailed": "コピーできませんでした。",
   "settingsApiKeys.addKey": "キーを追加",
+  "settingsApiKeys.adding": "追加中…",
   "settingsApiKeys.availableTo": "利用できる人",
   "settingsApiKeys.deleteKey": "キーを削除",
+  "settingsApiKeys.deleting": "削除中…",
   "settingsApiKeys.deleteTitle": "{{name}} を削除しますか？",
   "settingsApiKeys.everyoneIn": "{{org}} の全員",
   "settingsApiKeys.getKey": "キーを取得",
@@ -1762,11 +1798,14 @@ const messages: AgentChatTranslation = {
     "独自のモデルプロバイダーを使うには、{{link}}。",
   "settingsApiKeys.modelFootnoteLink": "モデルで追加します",
   "settingsApiKeys.name": "名前",
-  "settingsApiKeys.noKeys": "まだキーはありません。",
+  "settingsApiKeys.noKeys": "まだキーはありません",
+  "settingsApiKeys.noKeysDescription":
+    "キーを追加すると、アプリとエージェントがサービスにアクセスできます。",
   "settingsApiKeys.orgKeys": "組織のキー",
   "settingsApiKeys.providerInModel": "{{provider}} は {{link}} で追加します。",
   "settingsApiKeys.replaceTitle": "{{name}} を置き換え",
   "settingsApiKeys.replaceValue": "値を置き換え",
+  "settingsApiKeys.saving": "保存中…",
   "settingsApiKeys.showKeys_other": "{{count}} 件のキーを表示",
   "settingsApiKeys.test": "テスト",
   "settingsApiKeys.testPassed": "保存された値は有効です。",
@@ -1777,6 +1816,7 @@ const messages: AgentChatTranslation = {
   "settingsModel.addEndpoint": "エンドポイント URL を追加",
   "settingsModel.addNamed": "{{provider}} を追加",
   "settingsModel.addProvider": "プロバイダーを追加",
+  "settingsModel.adding": "追加しています",
   "settingsModel.affectsOrg": "{{org}} の全員に影響します。",
   "settingsModel.affectsYou": "影響するのはあなただけです。",
   "settingsModel.allApps": "すべてのアプリ",
@@ -1817,6 +1857,8 @@ const messages: AgentChatTranslation = {
   "settingsModel.connecting": "接続しています…",
   "settingsModel.defaultModelDescription":
     "アプリが独自に設定しない限り、すべてのアプリで使われます。",
+  "settingsModel.defaultModelNeedsProvider":
+    "デフォルトのモデルを選ぶには、プロバイダーを追加してください。",
   "settingsModel.disconnect": "接続を解除",
   "settingsModel.effectDefaultStops":
     "別のプロバイダーを設定するまでチャットが停止します。",
@@ -1828,6 +1870,11 @@ const messages: AgentChatTranslation = {
     "ワークスペースのキーで引き続き動作します。",
   "settingsModel.effectModelsLeave":
     "{{provider}} のモデルがモデル選択から外れます。",
+  "settingsModel.emptyAskAdmin":
+    "オーナーまたは管理者に追加を依頼してください。",
+  "settingsModel.emptyDescription":
+    "エージェントが応答するにはプロバイダーが必要です。",
+  "settingsModel.emptyTitle": "モデルプロバイダーを追加",
   "settingsModel.endpointFirst": "先にエンドポイント URL を入力してください。",
   "settingsModel.endpointHint":
     "任意。LiteLLM などの OpenAI 互換ゲートウェイで使います。",
@@ -1890,6 +1937,7 @@ const messages: AgentChatTranslation = {
   "settingsModel.remove": "削除",
   "settingsModel.removeProvider": "プロバイダーを削除",
   "settingsModel.removeTitle": "{{provider}} を削除しますか？",
+  "settingsModel.removing": "削除しています",
   "settingsModel.replace": "置き換え",
   "settingsModel.replaceKey": "キーを置き換え",
   "settingsModel.restrictBody": "メンバーは組織のプロバイダーだけを使えます。",
@@ -1911,10 +1959,12 @@ const messages: AgentChatTranslation = {
     "オーナーと管理者が個人の API キーを制限しています。",
   "settingsModel.restrictedRow":
     "個人の API キーが制限されている間は使われません。",
+  "settingsModel.restricting": "制限しています",
   "settingsModel.retry": "再試行",
   "settingsModel.save": "保存",
   "settingsModel.savedRejected":
     "{{provider}} が保存済みのキーを拒否しました。新しいキーを貼り付けてください。",
+  "settingsModel.saving": "保存しています",
   "settingsModel.selectAll": "すべて選択",
   "settingsModel.settingLoadFailed": "この設定を読み込めませんでした。",
   "settingsModel.unreachableHeadline": "{{provider}} に接続できませんでした",
@@ -1932,12 +1982,14 @@ const messages: AgentChatTranslation = {
   "settingsSubAgents.external": "外部エージェント",
   "settingsSubAgents.custom": "カスタムエージェント",
   "settingsSubAgents.managedByAdmins": "管理者が管理",
-  "settingsSubAgents.appsEmpty": "接続済みのアプリはまだありません。",
+  "settingsSubAgents.appsEmpty": "接続済みのアプリはまだありません",
   "settingsSubAgents.externalEmpty":
     "Foundry、Gemini Enterprise、Anthropic、または任意の A2A エージェントを接続します。",
+  "settingsSubAgents.externalEmptyTitle": "外部エージェントはまだありません",
   "settingsSubAgents.browseDirectory": "ディレクトリを見る",
   "settingsSubAgents.customEmpty":
     "メインエージェントが作業を任せられる専用エージェントを定義します。",
+  "settingsSubAgents.customEmptyTitle": "カスタムエージェントはまだありません",
   "settingsSubAgents.addAgent": "エージェントを追加",
   "settingsSubAgents.describe": "エージェントに説明する",
   "settingsSubAgents.describePlaceholder":

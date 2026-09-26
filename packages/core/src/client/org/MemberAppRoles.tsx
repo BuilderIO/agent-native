@@ -1,3 +1,4 @@
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import {
   Command,
@@ -6,7 +7,8 @@ import {
   CommandItem,
   CommandList,
 } from "@agent-native/toolkit/ui/command";
-import { IconLoader2, IconHelpCircle } from "@tabler/icons-react";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { IconHelpCircle } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 // Type-only: erased at build time, so declaring app roles pulls no server or
@@ -21,7 +23,7 @@ import { useT } from "../i18n.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
 import { useSetAppMemberRoles } from "./hooks.js";
-import { Button, ErrorText } from "./TeamPrimitives.js";
+import { ErrorText } from "./TeamPrimitives.js";
 
 export function AppRoleControl({
   email,
@@ -46,13 +48,17 @@ export function AppRoleControl({
 
   // An unassigned member shows the app's default only as a hint. The default
   // never satisfies a server guard, so it must not read as a granted role.
-  const display = draftRoles.length ? (
-    <span className="inline-flex min-h-8 items-center rounded border border-border px-2 py-1 text-xs text-muted-foreground">
-      {draftRoles.map(labelFor).join(", ")}
-    </span>
-  ) : (
-    <span className="text-xs text-muted-foreground/70">
-      {t("org.notAssigned")}
+  const summary = draftRoles.length
+    ? draftRoles.map(labelFor).join(", ")
+    : t("org.notAssigned");
+  const display = (
+    <span
+      className={cn(
+        "text-sm",
+        draftRoles.length ? "text-foreground" : "text-muted-foreground",
+      )}
+    >
+      {summary}
     </span>
   );
 
@@ -61,14 +67,16 @@ export function AppRoleControl({
       <div className="min-w-0">
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <Button
+            <ToolkitButton
               type="button"
-              className="min-h-8 cursor-pointer rounded hover:opacity-80"
+              variant="secondary"
+              size="sm"
+              className="max-w-48"
               disabled={setAppRoles.isPending}
               aria-busy={setAppRoles.isPending}
             >
-              {display}
-            </Button>
+              <span className="truncate">{summary}</span>
+            </ToolkitButton>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-56 p-0">
             <Command>
@@ -139,13 +147,14 @@ function ExplainAccessPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
+        <ToolkitButton
           type="button"
+          variant="ghost"
+          size="icon-sm"
           aria-label={t("org.appPermissions")}
-          className="inline-flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
         >
-          <IconHelpCircle className="size-3" />
-        </Button>
+          <IconHelpCircle />
+        </ToolkitButton>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-2">
         <p className="mb-1 text-xs font-medium">{t("org.appPermissions")}</p>
@@ -177,7 +186,7 @@ function ExplainAccessPopover({
         </Command>
         {explain.isPending && (
           <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-            <IconLoader2 className="size-3 animate-spin" />
+            <Spinner className="size-3" aria-hidden="true" />
             {t("org.loading")}
           </div>
         )}
@@ -283,8 +292,10 @@ export function AppPermissionsPanel({
                 </label>
               ))}
               {grant.overridden && (
-                <Button
+                <ToolkitButton
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   disabled={setPermission.isPending}
                   onClick={() =>
                     (() => {
@@ -307,10 +318,9 @@ export function AppPermissionsPanel({
                       );
                     })()
                   }
-                  className="text-xs text-muted-foreground"
                 >
                   {t("org.resetToDefaults")}
-                </Button>
+                </ToolkitButton>
               )}
             </div>
           </div>

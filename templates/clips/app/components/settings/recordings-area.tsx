@@ -88,7 +88,7 @@ function VisibilitySelect<Value extends string>({
 }) {
   return (
     <Select value={value} onValueChange={(next) => onChange(next as Value)}>
-      <SelectTrigger className="w-full sm:w-64" aria-label={label}>
+      <SelectTrigger size="sm" className="w-full sm:w-64" aria-label={label}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -144,6 +144,7 @@ function YourDefaultsGroup() {
                 }
               >
                 <SelectTrigger
+                  size="sm"
                   className="w-full sm:w-40"
                   aria-label={speedLabel}
                 >

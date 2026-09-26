@@ -56,7 +56,11 @@ export function UploadWorkspaceRow({ description }: { description?: string }) {
           onValueChange={handleChange}
           disabled={switchOrg.isPending || orgs.length < 2}
         >
-          <SelectTrigger id="upload-workspace-select" className="w-64">
+          <SelectTrigger
+            id="upload-workspace-select"
+            size="sm"
+            className="w-full sm:w-64"
+          >
             <SelectValue
               placeholder={t("settings.uploadWorkspacePlaceholder")}
             />

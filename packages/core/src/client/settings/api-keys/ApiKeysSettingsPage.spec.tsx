@@ -87,7 +87,7 @@ vi.mock("../../i18n.js", () => ({
   }),
 }));
 
-import { DeleteKeyDialog } from "./ApiKeyDialogs.js";
+import { DeleteKeyDialog, ServiceKeyDialog } from "./ApiKeyDialogs.js";
 import ApiKeysSettingsPage from "./ApiKeysSettingsPage.js";
 
 function entry(overrides: Partial<ApiKeyEntry>): ApiKeyEntry {
@@ -413,6 +413,57 @@ describe("ApiKeysSettingsPage", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(state.providerDialog).toMatchObject({ open: false });
   });
+  it("starts Your keys from an empty state whose action is Add key", async () => {
+    state.listing = listing({ keys: [], managed: [] });
+    await render();
+    const empty = container.querySelector("[data-api-keys-empty]");
+    expect(empty?.textContent).toContain("No keys yet");
+    expect(empty?.textContent).toContain(
+      "Add a key so your apps and the agent can reach a service.",
+    );
+    await act(async () => buttonByText("Add key", empty!).click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Add key",
+    );
+  });
+
+  it("keeps Add key open with the server's reason when the save fails", async () => {
+    clientMock.save.mockRejectedValue(new Error("That value is too short."));
+    await render();
+    const header = await renderHeader();
+    await act(async () => buttonByText("Add key", header).click());
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const [name, value] = [
+      ...dialog.querySelectorAll("input"),
+    ] as HTMLInputElement[];
+    await act(async () => typeInto(name!, "LINEAR_KEY"));
+    await act(async () => typeInto(value!, "x"));
+    await act(async () => {
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toBe(
+      "That value is too short.",
+    );
+  });
+
+  it("marks a name another page owns as invalid", async () => {
+    await render();
+    const header = await renderHeader();
+    await act(async () => buttonByText("Add key", header).click());
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const [name] = [...dialog.querySelectorAll("input")] as HTMLInputElement[];
+    await act(async () => typeInto(name!, "OPENAI_API_KEY"));
+    expect(name!.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      document.getElementById(name!.getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toBe("Add OpenAI in Model.");
+  });
 });
 
 describe("DeleteKeyDialog", () => {
@@ -487,5 +538,78 @@ describe("DeleteKeyDialog", () => {
       storedScope: "user",
     });
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("adds a service's key for the organization in place", async () => {
+    state.listing = listing({ canManageOrg: true });
+    clientMock.save.mockResolvedValue(undefined);
+    const onSaved = vi.fn();
+    const onOpenChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <ServiceKeyDialog
+            open
+            onOpenChange={onOpenChange}
+            keyName="VOYAGE_API_KEY"
+            mode="add"
+            onSaved={onSaved}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const [name, value] = [
+      ...dialog.querySelectorAll("input"),
+    ] as HTMLInputElement[];
+    expect(name!.value).toBe("VOYAGE_API_KEY");
+    expect(name!.readOnly).toBe(true);
+    expect(dialog.textContent).toContain("Everyone in Acme");
+    expect(dialog.querySelector('[role="combobox"]')).toBeNull();
+
+    await act(async () => typeInto(value!, "fake-voyage-value"));
+    await act(async () => {
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    expect(clientMock.save).toHaveBeenCalledWith({
+      name: "VOYAGE_API_KEY",
+      value: "fake-voyage-value",
+      registered: false,
+      shared: true,
+    });
+    expect(onSaved).toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("replaces a service's saved organization key from Manage", async () => {
+    state.listing = listing({
+      canManageOrg: true,
+      keys: [
+        entry({
+          name: "VOYAGE_API_KEY",
+          scope: "org",
+          storedScope: "org",
+        }),
+      ],
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <ServiceKeyDialog
+            open
+            onOpenChange={vi.fn()}
+            keyName="VOYAGE_API_KEY"
+            mode="manage"
+          />
+        </QueryClientProvider>,
+      );
+    });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain("Replace VOYAGE_API_KEY");
+    expect(dialog.querySelectorAll("input")).toHaveLength(1);
   });
 });

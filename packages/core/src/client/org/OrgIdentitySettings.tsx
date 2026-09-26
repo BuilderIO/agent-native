@@ -1,14 +1,13 @@
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@agent-native/toolkit/ui/dialog";
 import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Select,
@@ -31,7 +30,7 @@ import {
   useCreateOrgScimConnection,
   useDeleteOrgScimConnection,
 } from "./hooks.js";
-import { ErrorText } from "./TeamPrimitives.js";
+import { DialogErrorAlert, ErrorText, PendingLabel } from "./TeamPrimitives.js";
 
 export function OrgIdentitySettings({
   org,
@@ -160,7 +159,8 @@ export function OrgIdentitySettings({
             }
           >
             <SelectTrigger
-              className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto"
+              size="sm"
+              className="w-48"
               aria-label={t("org.sso.requiredProvider")}
             >
               <SelectValue />
@@ -182,7 +182,7 @@ export function OrgIdentitySettings({
           </Select>
         }
       >
-        {setAuthProvider.error ? (
+        {setAuthProvider.error && !pendingAuthProvider ? (
           <ErrorText error={setAuthProvider.error} />
         ) : null}
       </SettingsRow>
@@ -194,6 +194,18 @@ export function OrgIdentitySettings({
           id="organization-sso"
           label={t("org.sso.title")}
           description={t("org.sso.description")}
+          control={
+            showProviderForm ? undefined : (
+              <ToolkitButton
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowProviderForm(true)}
+              >
+                {t("org.sso.addProvider")}
+              </ToolkitButton>
+            )
+          }
         >
           {ssoQuery.error ? <ErrorText error={ssoQuery.error} /> : null}
           {providers.map((provider) => (
@@ -210,8 +222,9 @@ export function OrgIdentitySettings({
               <span className="flex gap-2">
                 {!provider.domainVerified && (
                   <ToolkitButton
+                    type="button"
                     size="sm"
-                    variant="outline"
+                    variant="secondary"
                     disabled={verifySso.isPending}
                     onClick={() => verifySso.mutate(provider.providerId)}
                   >
@@ -219,8 +232,9 @@ export function OrgIdentitySettings({
                   </ToolkitButton>
                 )}
                 <ToolkitButton
+                  type="button"
                   size="sm"
-                  variant="ghost"
+                  variant="secondary-destructive"
                   disabled={deleteSso.isPending}
                   onClick={() => deleteSso.mutate(provider.providerId)}
                 >
@@ -365,18 +379,10 @@ export function OrgIdentitySettings({
                 {t("org.sso.domainHelp")}
               </p>
               {createSso.error ? <ErrorText error={createSso.error} /> : null}
-              <div className="flex gap-2">
-                <ToolkitButton
-                  type="submit"
-                  size="sm"
-                  disabled={createSso.isPending || !org.allowedDomain}
-                >
-                  {t("org.sso.saveProvider")}
-                </ToolkitButton>
+              <div className="flex justify-end gap-2">
                 <ToolkitButton
                   type="button"
-                  size="sm"
-                  variant="outline"
+                  variant="secondary"
                   onClick={() => {
                     setShowProviderForm(false);
                     setClientSecret("");
@@ -386,18 +392,19 @@ export function OrgIdentitySettings({
                 >
                   {t("org.sso.cancel")}
                 </ToolkitButton>
+                <ToolkitButton
+                  type="submit"
+                  disabled={createSso.isPending || !org.allowedDomain}
+                >
+                  <PendingLabel
+                    pending={createSso.isPending}
+                    label={t("org.sso.saveProvider")}
+                    pendingLabel={t("agentChat.common.saving")}
+                  />
+                </ToolkitButton>
               </div>
             </form>
-          ) : (
-            <ToolkitButton
-              variant="outline"
-              size="sm"
-              className="mt-2"
-              onClick={() => setShowProviderForm(true)}
-            >
-              {t("org.sso.addProvider")}
-            </ToolkitButton>
-          )}
+          ) : null}
         </SettingsRow>
       )}
 
@@ -406,6 +413,27 @@ export function OrgIdentitySettings({
           id="organization-scim"
           label={t("org.scim.title")}
           description={t("org.scim.description")}
+          control={
+            oneTimeScimToken ? undefined : (
+              <ToolkitButton
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={createScim.isPending}
+                onClick={() =>
+                  createScim.mutate(undefined, {
+                    onSuccess: (result) => setOneTimeScimToken(result.token),
+                  })
+                }
+              >
+                <PendingLabel
+                  pending={createScim.isPending}
+                  label={t("org.scim.createConnection")}
+                  pendingLabel={t("org.scim.createConnection")}
+                />
+              </ToolkitButton>
+            )
+          }
         >
           {scimQuery.error ? <ErrorText error={scimQuery.error} /> : null}
           {scimQuery.data?.connections.map((connection) => (
@@ -415,8 +443,9 @@ export function OrgIdentitySettings({
             >
               <span>{connection.status}</span>
               <ToolkitButton
+                type="button"
                 size="sm"
-                variant="ghost"
+                variant="secondary-destructive"
                 disabled={deleteScim.isPending}
                 onClick={() => deleteScim.mutate(connection.connectionId)}
               >
@@ -431,61 +460,63 @@ export function OrgIdentitySettings({
               <code className="break-all">{oneTimeScimToken}</code>
               <code className="break-all">{scimQuery.data?.endpoint}</code>
               <ToolkitButton
+                type="button"
                 size="sm"
-                variant="outline"
+                variant="secondary"
+                className="justify-self-start"
                 onClick={() => setOneTimeScimToken(null)}
               >
                 {t("org.scim.dismissToken")}
               </ToolkitButton>
             </div>
-          ) : (
-            <ToolkitButton
-              size="sm"
-              variant="outline"
-              disabled={createScim.isPending}
-              onClick={() =>
-                createScim.mutate(undefined, {
-                  onSuccess: (result) => setOneTimeScimToken(result.token),
-                })
-              }
-            >
-              {t("org.scim.createConnection")}
-            </ToolkitButton>
-          )}
+          ) : null}
           {createScim.error ? <ErrorText error={createScim.error} /> : null}
         </SettingsRow>
       )}
-      <AlertDialog
+      <Dialog
         open={pendingAuthProvider !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingAuthProvider(null);
+          if (!open) {
+            setPendingAuthProvider(null);
+            setAuthProvider.reset();
+          }
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("org.ssoConfirm.title")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("org.ssoConfirm.description")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={setAuthProvider.isPending}>
-              {t("org.sso.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={setAuthProvider.isPending}
-              onClick={() => {
-                if (!pendingAuthProvider) return;
-                setAuthProvider.mutate(pendingAuthProvider, {
-                  onSuccess: () => setPendingAuthProvider(null),
-                });
-              }}
-            >
-              {t("org.ssoConfirm.confirm")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <DialogContent>
+          <form
+            className="grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!pendingAuthProvider || setAuthProvider.isPending) return;
+              setAuthProvider.mutate(pendingAuthProvider, {
+                onSuccess: () => setPendingAuthProvider(null),
+              });
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t("org.ssoConfirm.title")}</DialogTitle>
+              <DialogDescription>
+                {t("org.ssoConfirm.description")}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogErrorAlert error={setAuthProvider.error} />
+            <DialogFooter>
+              <DialogClose asChild>
+                <ToolkitButton type="button" variant="secondary">
+                  {t("org.sso.cancel")}
+                </ToolkitButton>
+              </DialogClose>
+              <ToolkitButton type="submit" disabled={setAuthProvider.isPending}>
+                <PendingLabel
+                  pending={setAuthProvider.isPending}
+                  label={t("org.ssoConfirm.confirm")}
+                  pendingLabel={t("agentChat.common.saving")}
+                />
+              </ToolkitButton>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -110,7 +110,6 @@ export function ChatGPTSubscriptionRow() {
       type="button"
       variant="secondary"
       size="sm"
-      className="h-8 px-3"
       disabled={disconnecting}
       onClick={() => void disconnect()}
     >
@@ -121,7 +120,6 @@ export function ChatGPTSubscriptionRow() {
       type="button"
       variant="secondary"
       size="sm"
-      className="h-8 px-3"
       disabled={connecting || !status.data}
       onClick={connect}
     >

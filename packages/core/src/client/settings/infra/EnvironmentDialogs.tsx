@@ -71,8 +71,8 @@ function CommandLine({ command }: { command: string }) {
       <Button
         type="button"
         variant="ghost"
-        size="icon"
-        className="size-7 shrink-0"
+        size="icon-sm"
+        className="shrink-0"
         aria-label={t(`${K}copy`)}
         onClick={() => {
           void navigator.clipboard?.writeText(command).then(
@@ -81,7 +81,7 @@ function CommandLine({ command }: { command: string }) {
           );
         }}
       >
-        <IconCopy className="size-4" aria-hidden />
+        <IconCopy aria-hidden />
       </Button>
     </div>
   );
@@ -181,7 +181,6 @@ export function EnvironmentDialog({
             <Button
               type="button"
               variant="secondary"
-              className="h-9 px-3"
               onClick={() => onOpenChange(false)}
             >
               {t(`${K}close`)}
@@ -255,23 +254,25 @@ function HostingBody({
   const secretKey = status.workspace ? "A2A_SECRET" : "BETTER_AUTH_SECRET";
   return (
     <>
-      <ItemCard>
-        {hosting.apps.map((app) => (
-          <StatusItem
-            key={app.id}
-            icon={
-              <BrandLogo
-                logoId={HOSTING_PLATFORM_LOGOS[hosting.platform]}
-                fallback={IconServer}
-                size="sm"
-              />
-            }
-            label={`${app.name} · ${hostLabel}`}
-            detail={appAddress(app, hosting.gatewayUrl, origin)}
-            mono
-          />
-        ))}
-      </ItemCard>
+      {hosting.apps.length > 0 ? (
+        <ItemCard>
+          {hosting.apps.map((app) => (
+            <StatusItem
+              key={app.id}
+              icon={
+                <BrandLogo
+                  logoId={HOSTING_PLATFORM_LOGOS[hosting.platform]}
+                  fallback={IconServer}
+                  size="sm"
+                />
+              }
+              label={`${app.name} · ${hostLabel}`}
+              detail={appAddress(app, hosting.gatewayUrl, origin)}
+              mono
+            />
+          ))}
+        </ItemCard>
+      ) : null}
       <p className="text-sm leading-6 text-muted-foreground">
         {status.workspace ? t(`${K}hostIntroWorkspace`) : t(`${K}hostIntro`)}
       </p>

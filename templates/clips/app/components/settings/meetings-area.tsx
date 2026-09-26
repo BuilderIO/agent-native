@@ -11,7 +11,7 @@ import {
 import {
   IconArrowUpRight,
   IconBrandGoogle,
-  IconLoader2,
+  IconCalendar,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
@@ -19,8 +19,6 @@ import { toast } from "sonner";
 
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -28,6 +26,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Spinner } from "@/components/ui/spinner";
 import { startCalendarOAuth } from "@/lib/calendar-oauth";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
 
@@ -117,12 +124,12 @@ function CalendarGroup() {
   const connectButton = (label: string, expectedAccountId?: string) => (
     <Button
       type="button"
-      variant="outline"
+      variant="secondary"
       size="sm"
       disabled={connecting}
       onClick={() => connect(expectedAccountId)}
     >
-      {connecting ? <IconLoader2 className="animate-spin" /> : null}
+      {connecting ? <Spinner /> : null}
       {label}
     </Button>
   );
@@ -135,13 +142,20 @@ function CalendarGroup() {
         ) : !accounts.data ? (
           <SettingsLoadingRow />
         ) : googleAccounts.length === 0 ? (
-          <SettingsRow
-            id="google-calendar"
-            icon={<IconBrandGoogle />}
-            label={t("clipsSettings.googleCalendar")}
-            description={t("common.notConnected")}
-            control={connectButton(t("clipsSettings.connect"))}
-          />
+          <Empty id="google-calendar" className="scroll-mt-16">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconCalendar />
+              </EmptyMedia>
+              <EmptyTitle>{t("meetingsRoute.guideCalendarTitle")}</EmptyTitle>
+              <EmptyDescription>
+                {t("meetingsRoute.guideCalendarDescription")}
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              {connectButton(t("clipsSettings.connect"))}
+            </EmptyContent>
+          </Empty>
         ) : (
           <>
             {googleAccounts.map((account, index) => (
@@ -165,7 +179,7 @@ function CalendarGroup() {
                   ) : (
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="secondary"
                       size="sm"
                       onClick={() => setTarget(account)}
                     >
@@ -202,20 +216,25 @@ function CalendarGroup() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={disconnect.isPending}>
-              {t("common.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
+            <Button
+              type="button"
+              variant="secondary"
               disabled={disconnect.isPending}
-              onClick={(event) => {
-                event.preventDefault();
-                confirmDisconnect();
-              }}
+              onClick={() => setTarget(null)}
             >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={disconnect.isPending}
+              onClick={confirmDisconnect}
+            >
+              {disconnect.isPending ? <Spinner /> : null}
               {disconnect.isPending
                 ? t("common.disconnecting")
                 : t("common.disconnect")}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -244,7 +263,7 @@ export function ClipsMeetingsArea({ canManage }: { canManage: boolean }) {
           control={
             <Button
               type="button"
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() => attemptOpenDesktopApp()}
             >

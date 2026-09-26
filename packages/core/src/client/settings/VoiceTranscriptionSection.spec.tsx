@@ -4,37 +4,62 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@agent-native/toolkit/design-system", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("@agent-native/toolkit/design-system")
-    >();
+// A native select stands in for the Radix one so the test can pick. The
+// options come from the SelectItems, the name from the SelectTrigger.
+vi.mock("@agent-native/toolkit/ui/select", () => {
+  type Props = { children?: React.ReactNode; [key: string]: unknown };
+  const SelectTrigger = (_props: Props) => null;
+  const SelectItem = (_props: Props) => null;
+  const Passthrough = ({ children }: Props) => <>{children}</>;
+  const collect = (
+    children: React.ReactNode,
+    found: { label?: string; options: { value: string; label: string }[] },
+  ) => {
+    React.Children.forEach(children, (child) => {
+      if (!React.isValidElement<Props>(child)) return;
+      if (child.type === SelectTrigger) {
+        found.label = child.props["aria-label"] as string;
+      } else if (child.type === SelectItem) {
+        found.options.push({
+          value: child.props.value as string,
+          label: String(child.props.children),
+        });
+      } else {
+        collect(child.props.children, found);
+      }
+    });
+    return found;
+  };
   return {
-    ...actual,
-    // A native select stands in for the Radix one so the test can pick.
-    Picker: ({
-      options,
+    Select: ({
       value,
-      onChange,
-      "aria-label": ariaLabel,
+      onValueChange,
+      children,
     }: {
-      options: { value: string; label: string }[];
-      value: string | null;
-      onChange: (value: string | null) => void;
-      "aria-label"?: string;
-    }) => (
-      <select
-        aria-label={ariaLabel}
-        value={value ?? ""}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    ),
+      value: string;
+      onValueChange: (value: string) => void;
+      children: React.ReactNode;
+    }) => {
+      const { label, options } = collect(children, { options: [] });
+      return (
+        <select
+          aria-label={label}
+          value={value}
+          onChange={(event) => onValueChange(event.target.value)}
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      );
+    },
+    SelectContent: Passthrough,
+    SelectGroup: Passthrough,
+    SelectItem,
+    SelectTrigger,
+    SelectValue: () => null,
   };
 });
 

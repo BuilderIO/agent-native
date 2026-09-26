@@ -44,13 +44,14 @@ const INLINE_SUPPRESSION_RE =
 // `oxfmt` rewrites `type='search'` to `type="search"` but keeps the braces on
 // `type={"search"}`, so both bare and braced literals reach the repo.
 const SEARCH_TYPE_RE = /type=(?:["']search["']|\{\s*["']search["']\s*\})/;
-// A clear control belonging to this field: a button (native or the shared
-// `Button` component) whose accessible name says "clear". Matching the
+// A clear control belonging to this field: a button (native, the shared
+// `Button`, or a composed one such as `InputGroupButton`) whose accessible
+// name says "clear". Matching the
 // attribute alone, without confirming it sits on a button element, would
 // treat an unrelated "Clear filters" div elsewhere on the page as this
 // field's clear button — and named via `title` is as valid as `aria-label`.
-const BUTTON_OPEN_RE = /<(button|Button)\b/;
-const BUTTON_CLOSE_RE = /\/>|<\/(button|Button)>/;
+const BUTTON_OPEN_RE = /<(button|\w*Button)\b/;
+const BUTTON_CLOSE_RE = /\/>|<\/(button|\w*Button)>/;
 const ACCESSIBLE_CLEAR_RE =
   /(?:aria-label|title)=(?:"[^"]*clear[^"]*"|\{[^}]*[Cc]lear[^}]*\})/i;
 const ALLOW_PRAGMA = /guard:allow-duplicate-search-clear\b/;
@@ -83,12 +84,17 @@ function walk(directory, files = []) {
   return files;
 }
 
+// The field element itself: native, the shared `Input`, or a composed one
+// such as `InputGroupInput`.
+const INPUT_OPEN_RE = /<(input|\w*Input)\b/;
+const INPUT_CLOSE_RE = /\/>|><\/(input|\w*Input)>/;
+
 /** The JSX attributes of the element containing `type="search"` at `index`. */
 function elementAround(lines, index) {
   let start = index;
-  while (start > 0 && !/<(input|Input)\b/.test(lines[start])) start -= 1;
+  while (start > 0 && !INPUT_OPEN_RE.test(lines[start])) start -= 1;
   let end = index;
-  while (end < lines.length - 1 && !/\/>|><\/(input|Input)>/.test(lines[end])) {
+  while (end < lines.length - 1 && !INPUT_CLOSE_RE.test(lines[end])) {
     end += 1;
   }
   return { start, end, text: lines.slice(start, end + 1).join("\n") };

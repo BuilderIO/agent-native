@@ -88,23 +88,49 @@ function useLabsSettingsState(
 }
 
 function LabRows({ state }: { state: LabsSettingsState }) {
+  const t = useT();
   return (
     <>
+      {state.loadFailed ? (
+        <SettingsRow
+          label={t("agentChat.settingsShell.appGroup.labsLoadError")}
+          control={
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={state.retry}
+            >
+              {t("agentChat.settingsShell.appGroup.retry")}
+            </Button>
+          }
+        />
+      ) : null}
       {state.labs.map((lab) => {
         const label = lab.displayName ?? lab.key;
+        const failed = state.failedLab?.key === lab.key;
         return (
           <SettingsRow
             key={lab.key}
             id={`lab-${lab.key}`}
             label={label}
-            description={lab.description}
+            description={
+              failed ? (
+                <span role="alert" className="text-destructive">
+                  {t("agentChat.settingsShell.appGroup.labsSaveError", {
+                    lab: label,
+                  })}
+                </span>
+              ) : (
+                lab.description
+              )
+            }
             control={
               <Switch
                 checked={state.enabled(lab)}
                 onChange={(next) => state.toggle(lab, next)}
                 disabled={state.disabled}
                 aria-label={label}
-                className="shrink-0"
               />
             }
           />
@@ -112,39 +138,6 @@ function LabRows({ state }: { state: LabsSettingsState }) {
       })}
     </>
   );
-}
-
-function LabsProblems({ state }: { state: LabsSettingsState }) {
-  const t = useT();
-  if (state.loadFailed) {
-    return (
-      <p
-        role="alert"
-        className="flex flex-wrap items-center gap-x-2 text-xs text-destructive"
-      >
-        {t("agentChat.settingsShell.appGroup.labsLoadError")}
-        <Button
-          type="button"
-          variant="link"
-          size="sm"
-          className="h-auto p-0 text-xs"
-          onClick={state.retry}
-        >
-          {t("agentChat.settingsShell.appGroup.retry")}
-        </Button>
-      </p>
-    );
-  }
-  if (state.failedLab) {
-    return (
-      <p role="alert" className="text-xs text-destructive">
-        {t("agentChat.settingsShell.appGroup.labsSaveError", {
-          lab: state.failedLab.displayName ?? state.failedLab.key,
-        })}
-      </p>
-    );
-  }
-  return null;
 }
 
 export function LabsSettings({
@@ -162,7 +155,6 @@ export function LabsSettings({
         </div>
         <LabRows state={state} />
       </SettingsGroup>
-      <LabsProblems state={state} />
     </div>
   );
 }
@@ -185,7 +177,6 @@ export function LabsSettingsGroup({ labs, title }: LabsSettingsGroupProps) {
       <p className="px-0.5 text-xs text-muted-foreground">
         {t("agentChat.settingsShell.appGroup.labsFootnote")}
       </p>
-      <LabsProblems state={state} />
     </div>
   );
 }

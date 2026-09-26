@@ -42,6 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { OrganizationIdentityCard } from "@/components/workspace/organization-identity-card";
 import { useSecretStatus } from "@/hooks/use-secret-status";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
@@ -201,7 +202,7 @@ function LegacyGeneralSettings() {
                 onValueChange={setDefaultSpeed}
                 disabled={loading}
               >
-                <SelectTrigger id="speed" className="w-40">
+                <SelectTrigger id="speed" size="sm" className="w-40">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -226,7 +227,11 @@ function LegacyGeneralSettings() {
                 }
                 disabled={loading}
               >
-                <SelectTrigger id="default-visibility" className="w-56">
+                <SelectTrigger
+                  id="default-visibility"
+                  size="sm"
+                  className="w-56"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -266,10 +271,11 @@ function LegacyGeneralSettings() {
 
         <div className="flex justify-end">
           <Button
+            type="button"
             onClick={handleSave}
             disabled={loading || saving}
-            className="bg-primary hover:bg-primary/90"
           >
+            {saving ? <Spinner /> : null}
             {saving ? t("common.saving") : t("common.saveChanges")}
           </Button>
         </div>

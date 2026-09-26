@@ -5,7 +5,7 @@ import {
   SettingsRow,
   StorageSettingsForm,
 } from "@agent-native/core/client/settings";
-import { IconCheck, IconLoader2 } from "@tabler/icons-react";
+import { IconCheck } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Spinner } from "@/components/ui/spinner";
 import type { SecretStatus } from "@/hooks/use-secret-status";
 import type { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 
@@ -64,7 +65,7 @@ export function VideoStorageSection({
             <div className="flex flex-wrap items-center justify-end gap-2">
               {builder.connected ? (
                 <span className="inline-flex items-center gap-1.5 text-sm font-medium text-primary">
-                  <IconCheck className="h-4 w-4" />
+                  <IconCheck className="size-4" aria-hidden="true" />
                   {t("common.connected")}
                 </span>
               ) : (
@@ -80,19 +81,17 @@ export function VideoStorageSection({
                 >
                   <Button
                     type="button"
-                    variant="default"
+                    variant="secondary"
                     size="sm"
                     disabled={builder.connecting || builder.loading}
                   >
-                    {builder.connecting ? (
-                      <IconLoader2 className="h-4 w-4 animate-spin" />
-                    ) : null}
+                    {builder.connecting ? <Spinner /> : null}
                     {t("settings.connectBuilder")}
                   </Button>
                 </BuilderConnectPopover>
               )}
               <CollapsibleTrigger asChild>
-                <Button type="button" variant="outline" size="sm">
+                <Button type="button" variant="secondary" size="sm">
                   {expanded
                     ? t("settings.hideS3")
                     : s3Configured
@@ -105,7 +104,7 @@ export function VideoStorageSection({
         />
 
         <CollapsibleContent>
-          <div className="border-t border-border px-5 py-4">
+          <div className="border-t border-border px-5 py-4 sm:px-6">
             <StorageSettingsForm onSaved={refresh} onCleared={refresh} />
           </div>
         </CollapsibleContent>

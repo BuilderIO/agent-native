@@ -24,7 +24,7 @@ export function PreferencesSettings() {
             description={t(key("languageDescription"))}
             control={
               <div className="w-full sm:w-56">
-                <LanguagePicker label={languageLabel} />
+                <LanguagePicker label={languageLabel} size="sm" />
               </div>
             }
           />

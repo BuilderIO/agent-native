@@ -8,7 +8,7 @@ import type { OrgInfo } from "../../../org/types.js";
 
 const mocks = vi.hoisted(() => {
   const mutation = () => ({
-    error: null,
+    error: null as Error | null,
     isPending: false,
     mutate: vi.fn(),
     reset: vi.fn(),
@@ -264,6 +264,59 @@ describe("Organization settings pages", () => {
       render(<OrgGeneralPage />);
 
       expect(container.querySelector("#delete-organization")).not.toBeNull();
+    });
+
+    it("keeps Delete organization disabled until the name is typed", () => {
+      mocks.org = orgInfo();
+      render(<OrgGeneralPage />);
+
+      const trigger = Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          "#delete-organization button",
+        ),
+      ).find((button) => button.textContent === "org.deleteOrg");
+      act(() => trigger!.click());
+
+      const dialog = document.body.querySelector('[role="dialog"]')!;
+      const submit = dialog.querySelector<HTMLButtonElement>(
+        'button[type="submit"]',
+      )!;
+      expect(submit.disabled).toBe(true);
+
+      const input = dialog.querySelector<HTMLInputElement>("input")!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set?.call(input, "example");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(submit.disabled).toBe(false);
+
+      act(() => submit.click());
+      expect(mocks.deleteOrg.mutate).toHaveBeenCalledWith(
+        "Example",
+        expect.objectContaining({ onSuccess: expect.any(Function) }),
+      );
+    });
+
+    it("keeps the delete dialog open with the server error", () => {
+      mocks.org = orgInfo();
+      mocks.deleteOrg.error = new Error("Only the owner can delete.");
+      render(<OrgGeneralPage />);
+
+      const trigger = Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          "#delete-organization button",
+        ),
+      ).find((button) => button.textContent === "org.deleteOrg");
+      act(() => trigger!.click());
+
+      const alert = document.body.querySelector(
+        '[role="dialog"] [role="alert"]',
+      );
+      expect(alert?.textContent).toContain("Only the owner can delete.");
+      mocks.deleteOrg.error = null;
     });
 
     it("offers a way into an organization when there is none", () => {

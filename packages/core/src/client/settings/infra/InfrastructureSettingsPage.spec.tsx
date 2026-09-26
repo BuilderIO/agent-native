@@ -22,6 +22,7 @@ const state = vi.hoisted(() => ({
 const callActionMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const providerDialog = vi.hoisted(() => ({ last: null as any }));
+const serviceKeyDialog = vi.hoisted(() => ({ last: null as any }));
 const toastMock = vi.hoisted(() =>
   Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
 );
@@ -57,6 +58,13 @@ vi.mock("../model/ProviderDialog.js", () => ({
   ProviderDialog: (props: { open: boolean }) => {
     providerDialog.last = props;
     return props.open ? <div data-testid="provider-dialog" /> : null;
+  },
+}));
+
+vi.mock("../api-keys/ApiKeyDialogs.js", () => ({
+  ServiceKeyDialog: (props: { open: boolean }) => {
+    serviceKeyDialog.last = props;
+    return props.open ? <div data-testid="service-key-dialog" /> : null;
   },
 }));
 
@@ -278,6 +286,7 @@ describe("InfrastructureSettingsPage", () => {
     toastMock.success.mockReset();
     toastMock.error.mockReset();
     providerDialog.last = null;
+    serviceKeyDialog.last = null;
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -462,7 +471,7 @@ describe("InfrastructureSettingsPage", () => {
     );
   });
 
-  it("rolls the row back when the change fails", async () => {
+  it("rolls the row back and keeps the dialog open with the reason when the change fails", async () => {
     callActionMock.mockImplementation(
       async (_name: string, params: { service?: string }) => {
         if (!params?.service) return servicesRead;
@@ -481,12 +490,112 @@ describe("InfrastructureSettingsPage", () => {
     );
     await flush();
     expect(row("voice").textContent).toContain("Not set up");
-    expect(toastMock.error).toHaveBeenCalledWith(
-      "Couldn't change Voice input.",
-      {
-        description: "Only organization owners and admins can change services.",
+    const alert = document.querySelector(
+      '[data-service-dialog="voice"] [role="alert"]',
+    );
+    expect(alert?.textContent).toContain("Couldn't change Voice input.");
+    expect(alert?.textContent).toContain(
+      "Only organization owners and admins can change services.",
+    );
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it("shows Saving on the primary button until the write settles", async () => {
+    let resolveSet: (value: ServiceProvidersStatus) => void = () => {};
+    callActionMock.mockImplementation(
+      (name: string, params: { service?: string }) => {
+        if (!params?.service) return Promise.resolve(servicesRead);
+        return new Promise((resolve) => {
+          resolveSet = resolve;
+        });
       },
     );
+    await render();
+    act(() => button(row("voice"), "Set up").click());
+    act(() =>
+      button(
+        document.querySelector('[data-service-dialog="voice"]')!,
+        "Save",
+      ).click(),
+    );
+    await flush();
+    const dialog = document.querySelector('[data-service-dialog="voice"]');
+    // The spinner's inline <style> is part of the button's text content.
+    const saving = [...dialog!.querySelectorAll("button")].find((candidate) =>
+      candidate.textContent?.endsWith("Saving…"),
+    );
+    expect(saving?.disabled).toBe(true);
+    expect(button(dialog!, "Cancel").disabled).toBe(false);
+
+    await act(async () => resolveSet(servicesRead));
+    await flush();
+    expect(document.querySelector('[data-service-dialog="voice"]')).toBeNull();
+  });
+
+  it("sends an AI model with no provider to Model, where the empty state starts setup", async () => {
+    state.queries["list-model-providers"] = {
+      ...LISTING,
+      providers: [],
+    } as unknown as ModelProvidersListing;
+    await render();
+    expect(row("ai-model").textContent).toContain("Not set up · Every app");
+    expect(row("ai-model").textContent).toContain("Required");
+    act(() => button(row("ai-model"), "Set up").click());
+    expect(navigateMock).toHaveBeenCalledWith("model");
+    expect(providerDialog.last?.open).toBe(false);
+  });
+
+  it("adds a Voyage key in place, then uses it for the service", async () => {
+    servicesRead = servicesStatus([
+      service("voice", { gemini: "org" }),
+      service("images", {}),
+      { ...service("embeddings", {}), provider: "voyage" },
+    ]);
+    await render();
+    act(() => button(row("embeddings"), "Set up").click());
+    const dialog = document.querySelector(
+      '[data-service-dialog="embeddings"]',
+    )!;
+    act(() => button(dialog, "Add Voyage AI").click());
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(
+      document.querySelector('[data-service-dialog="embeddings"]'),
+    ).toBeNull();
+    expect(serviceKeyDialog.last).toMatchObject({
+      open: true,
+      mode: "add",
+      keyName: "VOYAGE_API_KEY",
+    });
+
+    callActionMock.mockImplementation(async () => servicesRead);
+    act(() => serviceKeyDialog.last.onSaved());
+    expect(callActionMock).toHaveBeenCalledWith("manage-service-providers", {
+      service: "embeddings",
+      provider: "voyage",
+    });
+  });
+
+  it("opens the saved Voyage key in place from Manage key", async () => {
+    servicesRead = servicesStatus([
+      service("voice", { gemini: "org" }),
+      service("images", {}),
+      {
+        ...service("embeddings", { voyage: "org" }, "voyage"),
+        provider: "voyage",
+      },
+    ]);
+    await render();
+    act(() => button(row("embeddings"), "Manage").click());
+    const dialog = document.querySelector(
+      '[data-service-dialog="embeddings"]',
+    )!;
+    act(() => button(dialog, "Manage key").click());
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(serviceKeyDialog.last).toMatchObject({
+      open: true,
+      mode: "manage",
+      keyName: "VOYAGE_API_KEY",
+    });
   });
 
   it("adds a missing key through the provider dialog, then uses it", async () => {

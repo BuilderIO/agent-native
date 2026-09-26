@@ -1,5 +1,7 @@
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
-import { IconHelpCircle } from "@tabler/icons-react";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { IconAlertCircle, IconHelpCircle } from "@tabler/icons-react";
 import {
   forwardRef,
   type ComponentPropsWithoutRef,
@@ -38,12 +40,42 @@ export function SectionTooltipProvider({ children }: { children: ReactNode }) {
   return <TooltipProvider delayDuration={200}>{children}</TooltipProvider>;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function ErrorText({ error }: { error: unknown }) {
   if (!error) return null;
+  return <p className="text-xs text-destructive">{errorMessage(error)}</p>;
+}
+
+/** A failed dialog save: the server's message above the footer. */
+export function DialogErrorAlert({ error }: { error: unknown }) {
+  if (!error) return null;
   return (
-    <p className="text-xs text-destructive">
-      {error instanceof Error ? error.message : String(error)}
-    </p>
+    <Alert variant="destructive">
+      <IconAlertCircle aria-hidden="true" />
+      <AlertDescription>{errorMessage(error)}</AlertDescription>
+    </Alert>
+  );
+}
+
+/** A dialog's primary label, or a spinner and the in-progress label. */
+export function PendingLabel({
+  pending,
+  label,
+  pendingLabel,
+}: {
+  pending: boolean;
+  label: ReactNode;
+  pendingLabel: ReactNode;
+}) {
+  if (!pending) return <>{label}</>;
+  return (
+    <>
+      <Spinner aria-hidden="true" />
+      {pendingLabel}
+    </>
   );
 }
 

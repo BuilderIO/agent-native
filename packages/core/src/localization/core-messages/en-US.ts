@@ -254,6 +254,7 @@ const messages = {
   "agents.formDescriptionPlaceholder": "Description (optional)",
   "agents.formCheck": "Check",
   "agents.formAdd": "Add",
+  "agents.formAdding": "Adding",
   "agents.formAddAnyway": "Add anyway",
   "agents.formRemove": "Remove",
   "agents.formSaveFailed": "Couldn't save the agent.",
@@ -1055,6 +1056,8 @@ const messages = {
   "settings.audit.changedBy": "Changed by",
   "settings.audit.close": "Close",
   "settings.audit.empty": "No changes in this period.",
+  "settings.audit.emptyDescription":
+    "Changes people and the agent make appear here.",
   "settings.audit.failed": "Failed",
   "settings.audit.input": "Input",
   "settings.audit.inputLoadFailed": "Could not load the input.",
@@ -1104,6 +1107,7 @@ const messages = {
     "They lose access to {{org}}. What they own moves to the person you choose.",
   "settingsOrg.members.roleFor": "Role for {{name}}",
   "settingsOrg.members.moreActions": "More actions for {{name}}",
+  "settingsOrg.members.removing": "Removing…",
   "settingsOrg.members.groupsEmpty":
     "Group members to manage app access together.",
   "settingsOrg.auth.signIn": "Sign-in",
@@ -1181,6 +1185,7 @@ const messages = {
   "settingsOrg.invite.addAsAdmins": "Add as admins",
   "settingsOrg.invite.add": "Add",
   "settingsOrg.invite.send": "Send invites",
+  "settingsOrg.invite.sending": "Sending…",
   "settingsOrg.invite.close": "Close",
   "settingsOrg.invite.csvNoEmails": "No valid emails found in this CSV.",
   "settingsOrg.auth.synced_one": "Synced to {{count}} app.",
@@ -1240,11 +1245,13 @@ const messages = {
   "settingsShell.account.sendConfirmation": "Send confirmation",
   "settingsShell.account.sending": "Sending...",
   "settingsShell.account.setUpTwoFactor": "Set up two-factor",
+  "settingsShell.account.settingUp": "Setting up...",
   "settingsShell.account.signIn": "Sign-in",
   "settingsShell.account.timezone": "Timezone",
   "settingsShell.account.timezoneDescription":
     "Used for timestamps and scheduled automations.",
   "settingsShell.account.turnOffTwoFactor": "Turn off two-factor",
+  "settingsShell.account.turningOff": "Turning off...",
   "settingsShell.account.twoFactor": "Two-factor authentication",
   "settingsShell.account.twoFactorBackupCodes":
     "Save these backup codes somewhere safe. Each one can be used once if you lose access to your authenticator.",
@@ -1267,6 +1274,7 @@ const messages = {
     "Set up two-factor authentication",
   "settingsShell.account.uploading": "Uploading...",
   "settingsShell.account.verifyAndEnable": "Verify and enable",
+  "settingsShell.account.verifying": "Verifying...",
   "settingsShell.account.voiceBatch": "Batch",
   "settingsShell.account.voiceDescription":
     "Choose how voice input is transcribed.",
@@ -1318,6 +1326,7 @@ const messages = {
   "settingsShell.builder.connectedTo": "Connected · {{space}}",
   "settingsShell.builder.connection": "Connection",
   "settingsShell.builder.disconnect": "Disconnect",
+  "settingsShell.builder.disconnecting": "Disconnecting…",
   "settingsShell.builder.disconnectBody":
     "This affects everyone in {{org}} who hasn't connected their own account.",
   "settingsShell.builder.disconnectFailed": "Couldn't disconnect Builder.io.",
@@ -1432,6 +1441,7 @@ const messages = {
   "settingsShell.channels.removeCredentials.confirm": "Remove",
   "settingsShell.channels.removeCredentials.failed":
     "Couldn't remove the credentials.",
+  "settingsShell.channels.removeCredentials.removing": "Removing…",
   "settingsShell.channels.removeCredentials.title":
     "Remove {{platform}} credentials?",
   "settingsShell.channels.retry": "Retry",
@@ -1446,6 +1456,7 @@ const messages = {
   "settingsShell.channels.setup.replaceAria": "Replace {{key}}",
   "settingsShell.channels.setup.save": "Save",
   "settingsShell.channels.setup.saveAndTurnOn": "Save and turn on",
+  "settingsShell.channels.setup.saving": "Saving…",
   "settingsShell.channels.setup.saved": "Saved",
   "settingsShell.channels.setup.savedElsewhere": "Saved outside Channels",
   "settingsShell.channels.setup.setInEnvironment":
@@ -1487,10 +1498,22 @@ const messages = {
   "settingsShell.integrations.category.sales": "Sales",
   "settingsShell.integrations.category.support": "Support",
   "settingsShell.integrations.connectName": "Connect {{name}}",
+  "settingsShell.integrations.connectedEmptyDescription":
+    "Connect a tool below and the agent can use it in chat.",
+  "settingsShell.integrations.connectedEmptyTitle": "Nothing connected yet",
   "settingsShell.integrations.footnote":
     "These are tools the agent uses. To use {{app}} from Claude, ChatGPT, or Cursor, see {{link}}.",
+  "settingsShell.integrations.moreActions": "More actions for {{name}}",
   "settingsShell.integrations.noResults":
     "No integrations match. Try another name.",
+  "settingsShell.integrations.remove": "Remove",
+  "settingsShell.integrations.removeFailed": "Couldn't remove {{name}}.",
+  "settingsShell.integrations.removePersonal":
+    "The agent stops using {{name}} for you.",
+  "settingsShell.integrations.removeTitle": "Remove {{name}}?",
+  "settingsShell.integrations.removeWorkspace":
+    "The agent stops using {{name}} for everyone in the workspace.",
+  "settingsShell.integrations.removing": "Removing…",
   "settingsShell.integrations.retry": "Retry",
   "settingsShell.integrations.seeMoreMany":
     "See {{first}}, {{second}}, and more",
@@ -1555,7 +1578,7 @@ const messages = {
   "settingsResources.openDispatch": "Open Dispatch",
   "settingsResources.allApps": "All apps",
   "settingsResources.allAppsHint": "Dispatch shares this with every app",
-  "settingsResources.dispatchEmpty": "Nothing shared from Dispatch.",
+  "settingsResources.dispatchEmpty": "Nothing shared from Dispatch",
   "settingsResources.loadFailed": "Couldn't load these resources.",
   "settingsResources.moreActions": "More actions",
   "settingsResources.open": "Open",
@@ -1568,9 +1591,13 @@ const messages = {
   "settingsResources.cancel": "Cancel",
   "settingsResources.save": "Save",
   "settingsResources.create": "Create",
+  "settingsResources.saving": "Saving",
+  "settingsResources.creating": "Creating",
+  "settingsResources.removing": "Removing",
   "settingsResources.instructions.empty":
     "Tell the agent how to work with you.",
-  "settingsResources.instructions.orgEmpty": "No instructions for {{org}} yet.",
+  "settingsResources.instructions.emptyTitle": "No instructions yet",
+  "settingsResources.instructions.orgEmpty": "No instructions for {{org}} yet",
   "settingsResources.instructions.add": "Add instructions",
   "settingsResources.instructions.fieldLabel":
     "How should the agent work with you?",
@@ -1580,14 +1607,17 @@ const messages = {
     "Saved as AGENTS.md in your personal resources.",
   "settingsResources.memory.empty":
     "The agent saves what it learns about you here.",
-  "settingsResources.memory.orgEmpty": "No shared memories yet.",
+  "settingsResources.memory.emptyTitle": "No memories yet",
+  "settingsResources.memory.orgEmpty": "No shared memories yet",
   "settingsResources.memory.add": "Add memory",
   "settingsResources.learnings.empty":
     "Corrections you give the agent are saved as learnings.",
+  "settingsResources.learnings.emptyTitle": "No learnings yet",
   "settingsResources.learnings.add": "Add learning",
   "settingsResources.skills.empty":
     "Save a workflow once and the agent can reuse it.",
-  "settingsResources.skills.orgEmpty": "No shared skills yet.",
+  "settingsResources.skills.emptyTitle": "No skills yet",
+  "settingsResources.skills.orgEmpty": "No shared skills yet",
   "settingsResources.skills.add": "Add skill",
   "settingsResources.skills.describe": "Describe it to the agent",
   "settingsResources.skills.upload": "Upload a skill file",
@@ -1595,7 +1625,8 @@ const messages = {
     "A skill that reviews pull requests for security issues",
   "settingsResources.files.empty":
     "Add a file to give your agent more context.",
-  "settingsResources.files.orgEmpty": "No shared files yet.",
+  "settingsResources.files.emptyTitle": "No files yet",
+  "settingsResources.files.orgEmpty": "No shared files yet",
   "settingsResources.files.add": "Add file",
   "settingsResources.files.upload": "Upload file",
   "settingsResources.files.create": "Create file",
@@ -1616,6 +1647,7 @@ const messages = {
   "settingsInfra.close": "Close",
   "settingsInfra.cancel": "Cancel",
   "settingsInfra.save": "Save",
+  "settingsInfra.saving": "Saving…",
   "settingsInfra.required": "Required",
   "settingsInfra.recommended": "Recommended",
   "settingsInfra.optional": "Optional",
@@ -1720,8 +1752,10 @@ const messages = {
   "settingsInfra.copied": "Copied",
   "settingsInfra.copyFailed": "Couldn't copy.",
   "settingsApiKeys.addKey": "Add key",
+  "settingsApiKeys.adding": "Adding…",
   "settingsApiKeys.availableTo": "Available to",
   "settingsApiKeys.deleteKey": "Delete key",
+  "settingsApiKeys.deleting": "Deleting…",
   "settingsApiKeys.deleteTitle": "Delete {{name}}?",
   "settingsApiKeys.everyoneIn": "Everyone in {{org}}",
   "settingsApiKeys.getKey": "Get key",
@@ -1740,11 +1774,14 @@ const messages = {
   "settingsApiKeys.modelFootnote": "To use your own model provider, {{link}}.",
   "settingsApiKeys.modelFootnoteLink": "add it in Model",
   "settingsApiKeys.name": "Name",
-  "settingsApiKeys.noKeys": "No keys yet.",
+  "settingsApiKeys.noKeys": "No keys yet",
+  "settingsApiKeys.noKeysDescription":
+    "Add a key so your apps and the agent can reach a service.",
   "settingsApiKeys.orgKeys": "Organization keys",
   "settingsApiKeys.providerInModel": "Add {{provider}} in {{link}}.",
   "settingsApiKeys.replaceTitle": "Replace {{name}}",
   "settingsApiKeys.replaceValue": "Replace value",
+  "settingsApiKeys.saving": "Saving…",
   "settingsApiKeys.showKeys_one": "Show {{count}} key",
   "settingsApiKeys.showKeys_other": "Show {{count}} keys",
   "settingsApiKeys.test": "Test",
@@ -1756,6 +1793,7 @@ const messages = {
   "settingsModel.addEndpoint": "Add an endpoint URL",
   "settingsModel.addNamed": "Add {{provider}}",
   "settingsModel.addProvider": "Add provider",
+  "settingsModel.adding": "Adding",
   "settingsModel.affectsOrg": "This affects everyone in {{org}}.",
   "settingsModel.affectsYou": "This affects only you.",
   "settingsModel.allApps": "All apps",
@@ -1796,6 +1834,8 @@ const messages = {
   "settingsModel.connecting": "Connecting…",
   "settingsModel.defaultModelDescription":
     "Used in every app unless the app sets its own.",
+  "settingsModel.defaultModelNeedsProvider":
+    "Add a provider to choose a default model.",
   "settingsModel.disconnect": "Disconnect",
   "settingsModel.effectDefaultStops":
     "Chats stop until another provider is set up.",
@@ -1806,6 +1846,9 @@ const messages = {
   "settingsModel.effectKeepsWorkspace": "Keeps working with the workspace key.",
   "settingsModel.effectModelsLeave":
     "{{provider}} models leave the model picker.",
+  "settingsModel.emptyAskAdmin": "Ask an owner or admin to add one.",
+  "settingsModel.emptyDescription": "The agent needs a provider to respond.",
+  "settingsModel.emptyTitle": "Add a model provider",
   "settingsModel.endpointFirst": "Enter the endpoint URL first.",
   "settingsModel.endpointHint":
     "Optional. Use this for LiteLLM or another OpenAI-compatible gateway.",
@@ -1866,6 +1909,7 @@ const messages = {
   "settingsModel.remove": "Remove",
   "settingsModel.removeProvider": "Remove provider",
   "settingsModel.removeTitle": "Remove {{provider}}?",
+  "settingsModel.removing": "Removing",
   "settingsModel.replace": "Replace",
   "settingsModel.replaceKey": "Replace key",
   "settingsModel.restrictBody": "Members can only use organization providers.",
@@ -1888,10 +1932,12 @@ const messages = {
   "settingsModel.restricted": "Owners and admins restricted personal API keys.",
   "settingsModel.restrictedRow":
     "Not used while personal API keys are restricted.",
+  "settingsModel.restricting": "Restricting",
   "settingsModel.retry": "Try again",
   "settingsModel.save": "Save",
   "settingsModel.savedRejected":
     "{{provider}} rejected the saved key. Paste a new one.",
+  "settingsModel.saving": "Saving",
   "settingsModel.selectAll": "Select all",
   "settingsModel.settingLoadFailed": "Couldn't load this setting.",
   "settingsModel.unreachableHeadline": "Couldn't reach {{provider}}",
@@ -1909,12 +1955,14 @@ const messages = {
   "settingsSubAgents.external": "External agents",
   "settingsSubAgents.custom": "Custom agents",
   "settingsSubAgents.managedByAdmins": "Managed by admins",
-  "settingsSubAgents.appsEmpty": "No apps connected yet.",
+  "settingsSubAgents.appsEmpty": "No apps connected yet",
   "settingsSubAgents.externalEmpty":
     "Connect Foundry, Gemini Enterprise, Anthropic, or any A2A agent.",
+  "settingsSubAgents.externalEmptyTitle": "No external agents yet",
   "settingsSubAgents.browseDirectory": "Browse directory",
   "settingsSubAgents.customEmpty":
     "Define a focused agent the main agent can delegate to.",
+  "settingsSubAgents.customEmptyTitle": "No custom agents yet",
   "settingsSubAgents.addAgent": "Add agent",
   "settingsSubAgents.describe": "Describe it to the agent",
   "settingsSubAgents.describePlaceholder":

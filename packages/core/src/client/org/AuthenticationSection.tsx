@@ -1,8 +1,8 @@
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import { Input } from "@agent-native/toolkit/ui/input";
 import { Label } from "@agent-native/toolkit/ui/label";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
-  IconLoader2,
   IconCheck,
   IconPencil,
   IconAt,
@@ -40,9 +40,9 @@ import {
 } from "./hooks.js";
 import { OrgIdentitySettings } from "./OrgIdentitySettings.js";
 import {
-  Button,
   ErrorText,
   OrganizationDescription,
+  PendingLabel,
   SectionTooltipProvider,
 } from "./TeamPrimitives.js";
 
@@ -97,26 +97,27 @@ export function DomainSettingsSection({
       }
       control={
         !editing ? (
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-1">
             {domain ? (
               <>
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
-                  <IconAt className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="me-1 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-sm">
+                  <IconAt className="size-3.5 text-muted-foreground" />
                   {domain}
                 </span>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
+                    <ToolkitButton
                       type="button"
+                      variant="ghost"
+                      size="icon-sm"
                       aria-label={t("agentChat.settingsOrg.auth.editDomain")}
                       onClick={() => {
                         setDraft(domain);
                         setEditing(true);
                       }}
-                      className="text-muted-foreground hover:text-foreground"
                     >
-                      <IconPencil size={14} />
-                    </Button>
+                      <IconPencil />
+                    </ToolkitButton>
                   </TooltipTrigger>
                   <TooltipContent>
                     {t("agentChat.settingsOrg.auth.editDomain")}
@@ -124,17 +125,16 @@ export function DomainSettingsSection({
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
+                    <ToolkitButton
                       type="button"
-                      intent="danger"
-                      emphasis="ghost"
+                      variant="ghost"
+                      size="icon-sm"
                       aria-label={t("agentChat.settingsOrg.auth.removeDomain")}
                       disabled={setOrgDomain.isPending}
                       onClick={() => setOrgDomain.mutate(null)}
-                      className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                     >
-                      <IconX size={14} />
-                    </Button>
+                      <IconX />
+                    </ToolkitButton>
                   </TooltipTrigger>
                   <TooltipContent>
                     {t("agentChat.settingsOrg.auth.removeDomain")}
@@ -142,62 +142,68 @@ export function DomainSettingsSection({
                 </Tooltip>
               </>
             ) : canEnableOwnDomain ? (
-              <Button
+              <ToolkitButton
                 type="button"
-                intent="primary"
-                emphasis="solid"
+                variant="secondary"
+                size="sm"
                 disabled={setOrgDomain.isPending}
                 onClick={() => setOrgDomain.mutate(ownDomain)}
-                className="flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
-                {setOrgDomain.isPending ? (
-                  <IconLoader2 size={14} className="animate-spin" />
-                ) : (
-                  <IconAt size={14} />
-                )}
-                {t("org.enableDomainJoin", { domain: ownDomain })}
-              </Button>
+                <PendingLabel
+                  pending={setOrgDomain.isPending}
+                  label={t("org.enableDomainJoin", { domain: ownDomain })}
+                  pendingLabel={t("org.enableDomainJoin", {
+                    domain: ownDomain,
+                  })}
+                />
+              </ToolkitButton>
             ) : null}
           </div>
         ) : (
-          <div className="flex items-center gap-2">
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              save();
+            }}
+          >
             <Input
               type="text"
+              size="sm"
               value={draft}
               aria-label={t("agentChat.settingsOrg.search.domainAutoJoin")}
+              aria-invalid={setOrgDomain.error ? true : undefined}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") save();
                 if (e.key === "Escape") setEditing(false);
               }}
               placeholder={ownDomain || "example.com"}
-              className="h-8 w-44"
+              className="w-44"
               autoFocus
             />
-            <Button
+            <ToolkitButton
               type="button"
-              intent="primary"
-              emphasis="solid"
-              disabled={setOrgDomain.isPending}
-              onClick={save}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              {setOrgDomain.isPending ? (
-                <IconLoader2 size={14} className="animate-spin" />
-              ) : (
-                t("agentChat.common.save")
-              )}
-            </Button>
-            <Button
-              type="button"
-              intent="neutral"
-              emphasis="outline"
-              onClick={() => setEditing(false)}
-              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setEditing(false);
+                setOrgDomain.reset();
+              }}
             >
               {t("agentChat.common.cancel")}
-            </Button>
-          </div>
+            </ToolkitButton>
+            <ToolkitButton
+              type="submit"
+              size="sm"
+              disabled={setOrgDomain.isPending}
+            >
+              <PendingLabel
+                pending={setOrgDomain.isPending}
+                label={t("agentChat.common.save")}
+                pendingLabel={t("agentChat.common.saving")}
+              />
+            </ToolkitButton>
+          </form>
         )
       }
     >
@@ -305,13 +311,7 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
       control={
         <Popover>
           <PopoverTrigger asChild>
-            <ToolkitButton
-              type="button"
-              variant="ghost"
-              intent="neutral"
-              emphasis="outline"
-              className="inline-flex h-9 min-h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-medium leading-none text-foreground hover:bg-accent/40 active:scale-100"
-            >
+            <ToolkitButton type="button" variant="secondary" size="sm">
               {t("agentChat.settingsOrg.auth.manage")}
             </ToolkitButton>
           </PopoverTrigger>
@@ -328,37 +328,31 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
                 <div className="flex shrink-0 items-center gap-1">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button
+                      <ToolkitButton
                         type="button"
+                        variant="ghost"
+                        size="icon-sm"
                         onClick={toggleReveal}
                         disabled={revealA2ASecret.isPending}
                         aria-label={revealLabel}
-                        className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
                       >
-                        {secret ? (
-                          <IconEyeOff size={14} />
-                        ) : (
-                          <IconEye size={14} />
-                        )}
-                      </Button>
+                        {secret ? <IconEyeOff /> : <IconEye />}
+                      </ToolkitButton>
                     </TooltipTrigger>
                     <TooltipContent>{revealLabel}</TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button
+                      <ToolkitButton
                         type="button"
+                        variant="ghost"
+                        size="icon-sm"
                         onClick={copyToClipboard}
                         disabled={revealA2ASecret.isPending}
                         aria-label={t("agentChat.common.copy")}
-                        className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
                       >
-                        {copied ? (
-                          <IconCheck size={14} className="text-primary" />
-                        ) : (
-                          <IconCopy size={14} />
-                        )}
-                      </Button>
+                        {copied ? <IconCheck /> : <IconCopy />}
+                      </ToolkitButton>
                     </TooltipTrigger>
                     <TooltipContent>
                       {t("agentChat.common.copy")}
@@ -369,99 +363,101 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button
+              <ToolkitButton
                 type="button"
-                intent="danger"
-                emphasis="outline"
+                variant="secondary-destructive"
+                size="sm"
                 onClick={regenerate}
                 disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-                className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
               >
-                {setA2ASecret.isPending ? (
-                  <IconLoader2 size={14} className="animate-spin" />
+                {setA2ASecret.isPending && !pasteMode ? (
+                  <Spinner aria-hidden="true" />
                 ) : (
-                  <IconRefresh size={14} />
+                  <IconRefresh />
                 )}
                 {t("agentChat.settingsOrg.auth.regenerate")}
-              </Button>
+              </ToolkitButton>
               {isSet ? (
-                <Button
+                <ToolkitButton
                   type="button"
-                  intent="neutral"
-                  emphasis="outline"
+                  variant="secondary"
+                  size="sm"
                   onClick={() => syncToApps()}
                   disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-                  className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
                 >
                   {syncA2ASecret.isPending ? (
-                    <IconLoader2 size={14} className="animate-spin" />
+                    <Spinner aria-hidden="true" />
                   ) : (
-                    <IconCloudUpload size={14} />
+                    <IconCloudUpload />
                   )}
                   {t("agentChat.settingsOrg.auth.syncToApps")}
-                </Button>
+                </ToolkitButton>
               ) : null}
             </div>
 
             {!pasteMode ? (
-              <Button
+              <ToolkitButton
                 type="button"
-                intent="neutral"
-                emphasis="outline"
+                variant="secondary"
+                size="sm"
+                className="w-full"
                 onClick={() => setPasteMode(true)}
-                className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent/50"
               >
-                <IconKey size={14} />
+                <IconKey />
                 {t("agentChat.settingsOrg.auth.pasteSecret")}
-              </Button>
+              </ToolkitButton>
             ) : (
-              <div className="space-y-2 rounded-lg border border-border bg-background p-3">
-                <Label htmlFor="cross-app-secret" className="text-xs">
+              <form
+                className="grid gap-2 rounded-lg border border-border bg-background p-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  saveSecret();
+                }}
+              >
+                <Label htmlFor="cross-app-secret">
                   {t("agentChat.settingsOrg.auth.pasteSecretLabel")}
                 </Label>
                 <Input
                   id="cross-app-secret"
                   type="text"
+                  size="sm"
                   value={pasteValue}
                   onChange={(e) => setPasteValue(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") saveSecret();
                     if (e.key === "Escape") {
                       setPasteMode(false);
                       setPasteValue("");
                     }
                   }}
-                  className="h-8 font-mono"
+                  aria-invalid={setA2ASecret.error ? true : undefined}
+                  autoComplete="off"
                   autoFocus
                 />
                 <div className="flex justify-end gap-2">
-                  <Button
+                  <ToolkitButton
                     type="button"
-                    intent="neutral"
-                    emphasis="outline"
+                    variant="secondary"
+                    size="sm"
                     onClick={() => {
                       setPasteMode(false);
                       setPasteValue("");
                     }}
-                    className="h-8 rounded-md border border-border px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
                   >
                     {t("agentChat.common.cancel")}
-                  </Button>
-                  <Button
-                    type="button"
-                    intent="primary"
-                    emphasis="solid"
+                  </ToolkitButton>
+                  <ToolkitButton
+                    type="submit"
+                    size="sm"
                     disabled={!pasteValue.trim() || setA2ASecret.isPending}
-                    onClick={saveSecret}
-                    className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                   >
-                    {setA2ASecret.isPending ? (
-                      <IconLoader2 size={14} className="animate-spin" />
-                    ) : null}
-                    {t("agentChat.common.save")}
-                  </Button>
+                    <PendingLabel
+                      pending={setA2ASecret.isPending}
+                      label={t("agentChat.common.save")}
+                      pendingLabel={t("agentChat.common.saving")}
+                    />
+                  </ToolkitButton>
                 </div>
-              </div>
+              </form>
             )}
 
             {syncA2ASecret.isPending && (

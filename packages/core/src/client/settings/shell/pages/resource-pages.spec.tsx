@@ -267,14 +267,27 @@ describe("Skills page", () => {
     ).toBe("release-notes");
   });
 
-  it("gives admins an organization Add skill action", async () => {
+  it("gives admins an organization Add skill action in its empty state", async () => {
     await renderPage(SkillsSettingsPage);
-    expect(group("organization").querySelector("header button")).toBeNull();
+    expect(group("organization").querySelector("button")).toBeNull();
 
     orgState.value = { orgId: "org-1", orgName: "Acme", role: "owner" };
     await renderPage(SkillsSettingsPage);
+    const organization = group("organization");
+    expect(organization.textContent).toContain("No shared skills yet");
+    // While the group is empty its filling action lives in the empty state.
+    expect(organization.querySelector("header button")).toBeNull();
     expect(
-      group("organization").querySelector("header button")?.textContent,
+      organization.querySelector('[data-slot="empty"] button')?.textContent,
+    ).toContain("Add skill");
+  });
+
+  it("offers Add skill in the empty personal group", async () => {
+    await renderPage(SkillsSettingsPage);
+    const personal = group("personal");
+    expect(personal.textContent).toContain("No skills yet");
+    expect(
+      personal.querySelector('[data-slot="empty"] button')?.textContent,
     ).toContain("Add skill");
   });
 });
@@ -293,7 +306,10 @@ describe("Files page", () => {
       "Add a file to give your agent more context.",
     );
     expect(group("from-dispatch").textContent).toContain(
-      "Nothing shared from Dispatch.",
+      "Nothing shared from Dispatch",
     );
+    expect(
+      group("from-dispatch").querySelector('[data-slot="empty"] button'),
+    ).toBeNull();
   });
 });

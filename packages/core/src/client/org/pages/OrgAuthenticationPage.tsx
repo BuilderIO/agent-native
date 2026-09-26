@@ -1,6 +1,7 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -117,7 +118,7 @@ function SignInMethodsRow({
         <>
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             size="sm"
             onClick={() => setOpen(true)}
           >
@@ -152,14 +153,11 @@ function SignInMethodsRow({
                 {t("agentChat.settingsOrg.auth.requireHint", { org: orgName })}
               </p>
               <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setOpen(false)}
-                >
-                  {t("agentChat.settingsOrg.auth.close")}
-                </Button>
+                <DialogClose asChild>
+                  <Button type="button" variant="secondary">
+                    {t("agentChat.settingsOrg.auth.close")}
+                  </Button>
+                </DialogClose>
               </DialogFooter>
             </DialogContent>
           </Dialog>

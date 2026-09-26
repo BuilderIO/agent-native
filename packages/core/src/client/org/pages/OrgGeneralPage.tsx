@@ -1,19 +1,19 @@
 import { Skeleton } from "@agent-native/toolkit/design-system";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@agent-native/toolkit/ui/alert-dialog";
 import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@agent-native/toolkit/ui/dialog";
 import { Input } from "@agent-native/toolkit/ui/input";
-import { IconLoader2, IconLock } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { Label } from "@agent-native/toolkit/ui/label";
+import { IconLock } from "@tabler/icons-react";
+import { useEffect, useId, useState } from "react";
 
 import type { OrgInfo } from "../../../org/types.js";
 import {
@@ -39,7 +39,11 @@ import {
   JoinByDomainCard,
   PendingInvitationsCard,
 } from "../TeamOnboardingCards.js";
-import { ErrorText } from "../TeamPrimitives.js";
+import {
+  DialogErrorAlert,
+  ErrorText,
+  PendingLabel,
+} from "../TeamPrimitives.js";
 import { OrgPageGate, orgRoleLabel } from "./OrgPageGate.js";
 
 function OrgNameControl({ org }: { org: OrgInfo }) {
@@ -81,7 +85,8 @@ function OrgNameControl({ org }: { org: OrgInfo }) {
             }}
             aria-label={t("agentChat.settingsOrg.general.name")}
             disabled={updateOrg.isPending}
-            className="h-9 w-56"
+            size="sm"
+            className="w-56"
           />
         ) : (
           <Tooltip>
@@ -139,64 +144,77 @@ function MemberCountLink() {
 function DeleteOrganizationButton({ orgName }: { orgName: string }) {
   const t = useT();
   const deleteOrg = useDeleteOrg();
+  const inputId = useId();
   const [open, setOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const canConfirm =
     confirmText.trim().toLowerCase() === orgName.trim().toLowerCase();
 
+  function onOpenChange(next: boolean) {
+    setOpen(next);
+    if (!next) {
+      setConfirmText("");
+      deleteOrg.reset();
+    }
+  }
+
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setConfirmText("");
-      }}
-    >
-      <AlertDialogTrigger asChild>
-        <Button type="button" variant="destructive" size="sm">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="secondary-destructive" size="sm">
           {t("org.deleteOrg")}
         </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t("org.deleteOrg")}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {t("org.deleteOrgDescription")}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <label className="grid gap-1.5 text-sm">
-          <span>{t("org.deleteOrgConfirmPrompt", { name: orgName })}</span>
-          <Input
-            value={confirmText}
-            onChange={(event) => setConfirmText(event.target.value)}
-            placeholder={t("org.deleteOrgConfirmPlaceholder")}
-            autoFocus
-          />
-        </label>
-        <ErrorText error={deleteOrg.error} />
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t("org.cancel")}</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={!canConfirm || deleteOrg.isPending}
-            onClick={(event) => {
-              event.preventDefault();
-              if (!canConfirm || deleteOrg.isPending) return;
-              deleteOrg.mutate(orgName, { onSuccess: () => setOpen(false) });
-            }}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            {deleteOrg.isPending ? (
-              <span className="inline-flex items-center gap-1.5">
-                <IconLoader2 className="size-3.5 animate-spin" />
-                {t("org.deleteOrgPending")}
-              </span>
-            ) : (
-              t("org.deleteOrgConfirmCta")
-            )}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      </DialogTrigger>
+      <DialogContent>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!canConfirm || deleteOrg.isPending) return;
+            deleteOrg.mutate(orgName, { onSuccess: () => setOpen(false) });
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{t("org.deleteOrg")}</DialogTitle>
+            <DialogDescription>
+              {t("org.deleteOrgDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor={inputId}>
+              {t("org.deleteOrgConfirmPrompt", { name: orgName })}
+            </Label>
+            <Input
+              id={inputId}
+              value={confirmText}
+              onChange={(event) => setConfirmText(event.target.value)}
+              placeholder={t("org.deleteOrgConfirmPlaceholder")}
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
+          <DialogErrorAlert error={deleteOrg.error} />
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                {t("org.cancel")}
+              </Button>
+            </DialogClose>
+            <Button
+              type="submit"
+              variant="destructive"
+              disabled={!canConfirm || deleteOrg.isPending}
+            >
+              <PendingLabel
+                pending={deleteOrg.isPending}
+                label={t("org.deleteOrgConfirmCta")}
+                pendingLabel={t("org.deleteOrgPending")}
+              />
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

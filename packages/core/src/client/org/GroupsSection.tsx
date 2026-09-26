@@ -1,25 +1,29 @@
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@agent-native/toolkit/ui/alert-dialog";
+import { Skeleton } from "@agent-native/toolkit/design-system";
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@agent-native/toolkit/ui/empty";
 import { Input } from "@agent-native/toolkit/ui/input";
 import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@agent-native/toolkit/ui/input-group";
+import { Label } from "@agent-native/toolkit/ui/label";
+import {
   IconTrash,
-  IconLoader2,
   IconPencil,
   IconPlus,
   IconUsersGroup,
   IconSearch,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 
 import type { WorkspaceUserGroup } from "../../workspace-connections/groups.js";
 import {
@@ -30,10 +34,15 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useT } from "../i18n.js";
+import { SettingsRow } from "../settings/SettingsRow.js";
 import { useShareOrgMemberSearch } from "../sharing/share-controller-helpers.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { useOrg } from "./hooks.js";
-import { Button, ErrorText, SectionTooltipProvider } from "./TeamPrimitives.js";
+import {
+  DialogErrorAlert,
+  PendingLabel,
+  SectionTooltipProvider,
+} from "./TeamPrimitives.js";
 
 export function WorkspaceGroupEditor({
   open,
@@ -47,11 +56,14 @@ export function WorkspaceGroupEditor({
   onClose: () => void;
 }) {
   const t = useT();
+  const nameId = useId();
+  const peopleId = useId();
   const [name, setName] = useState("");
   const [members, setMembers] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const memberSearch = useShareOrgMemberSearch(search, open, { limit: 100 });
   const saveGroup = useActionMutation("upsert-workspace-user-group");
+  const [saveError, setSaveError] = useState<unknown>(null);
   const selected = useMemo(
     () => new Set(members.map((email) => email.toLowerCase())),
     [members],
@@ -62,6 +74,7 @@ export function WorkspaceGroupEditor({
     setName(group?.name ?? "");
     setMembers(group?.memberEmails ?? initialMemberEmails);
     setSearch("");
+    setSaveError(null);
   }, [group, initialMemberEmails, open]);
 
   const searchMembers = memberSearch.members.map((member) => ({
@@ -83,16 +96,18 @@ export function WorkspaceGroupEditor({
     );
   }
 
-  function save() {
+  function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     const trimmedName = name.trim();
     if (!trimmedName || saveGroup.isPending) return;
+    setSaveError(null);
     saveGroup.mutate(
       {
         ...(group?.id ? { id: group.id } : {}),
         name: trimmedName,
         memberEmails: members,
       },
-      { onSuccess: onClose },
+      { onSuccess: onClose, onError: setSaveError },
     );
   }
 
@@ -100,67 +115,77 @@ export function WorkspaceGroupEditor({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next && !saveGroup.isPending) onClose();
+        if (!next) onClose();
       }}
     >
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
-            {group
-              ? t("org.editGroup", { defaultValue: "Edit group" })
-              : t("org.createGroup", { defaultValue: "Create group" })}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-4">
-          <div className="grid gap-1.5">
-            <label
-              htmlFor="workspace-group-name"
-              className="text-xs font-medium"
-            >
+      <DialogContent>
+        <form className="grid gap-4" onSubmit={save}>
+          <DialogHeader>
+            <DialogTitle>
+              {group
+                ? t("org.editGroup", { defaultValue: "Edit group" })
+                : t("org.createGroup", { defaultValue: "Create group" })}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor={nameId}>
               {t("org.groupName", { defaultValue: "Group name" })}
-            </label>
+            </Label>
             <Input
-              id="workspace-group-name"
+              id={nameId}
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Rev Ops"
+              autoComplete="off"
               autoFocus
             />
           </div>
           <div className="grid gap-2">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-medium">
+              <Label htmlFor={peopleId}>
                 {t("org.groupMembers", { defaultValue: "People" })}
-              </span>
-              <span className="text-xs text-muted-foreground">
+              </Label>
+              <span className="text-sm tabular-nums text-muted-foreground">
                 {members.length}
               </span>
             </div>
-            <div className="relative">
-              <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
+            <InputGroup>
+              <InputGroupInput
+                id={peopleId}
+                type="search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder={t("org.searchPeople", {
                   defaultValue: "Search people",
                 })}
-                aria-label={t("org.searchPeople", {
-                  defaultValue: "Search people",
-                })}
-                className="ps-9"
+                autoComplete="off"
               />
-            </div>
-            <div className="max-h-64 overflow-y-auto rounded-md bg-muted/30 p-1">
+              <InputGroupAddon>
+                <IconSearch aria-hidden="true" />
+              </InputGroupAddon>
+            </InputGroup>
+            <div
+              className="h-64 overflow-y-auto rounded-md border border-border p-1"
+              aria-busy={memberSearch.isLoading}
+            >
               {memberSearch.isLoading ? (
-                <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-                  {t("org.loadingPeople", { defaultValue: "Loading people…" })}
+                <div className="grid gap-1">
+                  {["w-40", "w-52", "w-36", "w-48"].map((width) => (
+                    <div
+                      key={width}
+                      className="flex h-9 items-center justify-between gap-3 px-3"
+                    >
+                      <Skeleton className={`h-3.5 ${width}`} />
+                      <Skeleton className="size-4 rounded-sm" />
+                    </div>
+                  ))}
                 </div>
               ) : visibleMembers.length > 0 ? (
                 visibleMembers.map((member) => (
                   <label
                     key={member.email}
                     htmlFor={`workspace-group-member-${member.email}`}
-                    className="flex cursor-pointer items-center justify-between gap-3 rounded px-3 py-2 hover:bg-background"
+                    className="flex h-9 cursor-pointer items-center justify-between gap-3 rounded-sm px-3 hover:bg-accent"
                   >
                     <span className="min-w-0 truncate text-sm">
                       {member.name || member.email}
@@ -176,52 +201,125 @@ export function WorkspaceGroupEditor({
                   </label>
                 ))
               ) : (
-                <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
                   {t("org.noPeopleFound", { defaultValue: "No people found" })}
-                </div>
+                </p>
               )}
             </div>
             {memberSearch.hasMore ? (
-              <Button
+              <ToolkitButton
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={memberSearch.loadMore}
                 disabled={memberSearch.isLoadingMore}
-                className="w-fit text-xs text-muted-foreground"
+                className="justify-self-start"
               >
                 {t("org.loadMorePeople", { defaultValue: "Load more" })}
-              </Button>
+              </ToolkitButton>
+            ) : null}
+            {memberSearch.error ? (
+              <p className="text-sm text-destructive">
+                {t("agentChat.share.loadPeopleFailed")}
+              </p>
             ) : null}
           </div>
-          <ErrorText
-            error={
-              memberSearch.error ? new Error("Could not load people.") : null
-            }
-          />
-          <ErrorText error={saveGroup.error} />
-        </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            onClick={onClose}
-            className="text-muted-foreground"
-          >
-            {t("org.cancel")}
-          </Button>
-          <Button
-            type="button"
-            intent="primary"
-            emphasis="solid"
-            disabled={!name.trim() || saveGroup.isPending}
-            onClick={save}
-            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {saveGroup.isPending ? (
-              <IconLoader2 size={14} className="animate-spin" />
-            ) : (
-              t("org.saveGroup", { defaultValue: "Save group" })
-            )}
-          </Button>
-        </DialogFooter>
+          <DialogErrorAlert error={saveError} />
+          <DialogFooter>
+            <ToolkitButton type="button" variant="secondary" onClick={onClose}>
+              {t("org.cancel")}
+            </ToolkitButton>
+            <ToolkitButton
+              type="submit"
+              disabled={!name.trim() || saveGroup.isPending}
+            >
+              <PendingLabel
+                pending={saveGroup.isPending}
+                label={t("org.saveGroup", { defaultValue: "Save group" })}
+                pendingLabel={t("agentChat.common.saving")}
+              />
+            </ToolkitButton>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteGroupDialog({
+  group,
+  onOpenChange,
+}: {
+  group: WorkspaceUserGroup | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const t = useT();
+  const deleteGroup = useActionMutation("delete-workspace-user-group");
+  const [confirmText, setConfirmText] = useState("");
+  const [deleteError, setDeleteError] = useState<unknown>(null);
+  const canConfirm = group !== null && confirmText.trim() === group.name.trim();
+
+  const groupId = group?.id;
+  useEffect(() => {
+    setConfirmText("");
+    setDeleteError(null);
+  }, [groupId]);
+
+  return (
+    <Dialog open={group !== null} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!group || !canConfirm || deleteGroup.isPending) return;
+            setDeleteError(null);
+            deleteGroup.mutate(
+              { id: group.id },
+              { onSuccess: () => onOpenChange(false), onError: setDeleteError },
+            );
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {t("org.deleteGroup", { defaultValue: "Delete group?" })}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor={`workspace-delete-group-name-${groupId}`}>
+              {t("org.deleteGroupConfirm", { name: group?.name ?? "" })}
+            </Label>
+            <Input
+              id={`workspace-delete-group-name-${groupId}`}
+              value={confirmText}
+              onChange={(event) => setConfirmText(event.target.value)}
+              placeholder={t("org.groupName", { defaultValue: "Group name" })}
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
+          <DialogErrorAlert error={deleteError} />
+          <DialogFooter>
+            <ToolkitButton
+              type="button"
+              variant="secondary"
+              onClick={() => onOpenChange(false)}
+            >
+              {t("org.cancel")}
+            </ToolkitButton>
+            <ToolkitButton
+              type="submit"
+              variant="destructive"
+              disabled={!canConfirm || deleteGroup.isPending}
+            >
+              <PendingLabel
+                pending={deleteGroup.isPending}
+                label={t("org.delete", { defaultValue: "Delete" })}
+                pendingLabel={t("org.deleting", { defaultValue: "Deleting…" })}
+              />
+            </ToolkitButton>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -236,160 +334,99 @@ export function WorkspaceGroupsCard({
   groups: WorkspaceUserGroup[];
   onNewGroup: () => void;
   onEditGroup: (group: WorkspaceUserGroup) => void;
-  /** Replaces "No groups yet" when there are no groups. */
+  /** The empty state's description when there are no groups. */
   emptyMessage?: string;
 }) {
   const t = useT();
-  const [deleteError, setDeleteError] = useState<unknown>(null);
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
-  const [deleteDialogGroupId, setDeleteDialogGroupId] = useState<string | null>(
-    null,
-  );
-  const deleteGroup = useActionMutation("delete-workspace-user-group");
+  const [deleting, setDeleting] = useState<WorkspaceUserGroup | null>(null);
+  const newGroupLabel = t("org.newGroup", { defaultValue: "New group" });
 
   return (
-    <section className="overflow-hidden rounded-xl bg-card text-card-foreground">
-      <div className="flex items-center justify-between gap-3 px-5 py-4">
-        <h3 className="text-sm font-medium">
+    <section className="scroll-mt-16">
+      <header className="mb-2.5 flex min-h-6 items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-foreground">
           {t("org.groups", { defaultValue: "Groups" })}
-        </h3>
-        <Button
-          type="button"
-          intent="primary"
-          emphasis="solid"
-          onClick={onNewGroup}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          <IconPlus size={14} />
-          {t("org.newGroup", { defaultValue: "New group" })}
-        </Button>
-      </div>
-      <div className="grid gap-1 px-3 pb-3">
+        </h2>
+        {groups.length > 0 ? (
+          <ToolkitButton
+            type="button"
+            variant="secondary"
+            size="xs"
+            onClick={onNewGroup}
+          >
+            <IconPlus />
+            {newGroupLabel}
+          </ToolkitButton>
+        ) : null}
+      </header>
+      <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
         {groups.length > 0 ? (
           groups.map((group) => (
-            <div
+            <SettingsRow
               key={group.id}
-              className="flex items-center gap-3 rounded-lg bg-muted/35 px-3 py-2.5"
-            >
-              <IconUsersGroup className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                {group.name}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {group.memberEmails.length}
-              </span>
-              <Button
-                type="button"
-                onClick={() => onEditGroup(group)}
-                aria-label={t("org.editGroupAria", {
-                  defaultValue: "Edit group {{name}}",
-                  name: group.name,
-                })}
-                className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground"
-              >
-                <IconPencil size={14} />
-              </Button>
-              <AlertDialog
-                open={deleteDialogGroupId === group.id}
-                onOpenChange={(open) => {
-                  if (open) {
-                    setDeleteDialogGroupId(group.id);
-                    setDeleteConfirmText("");
-                    setDeleteError(null);
-                  } else if (!deleteGroup.isPending) {
-                    setDeleteDialogGroupId(null);
-                    setDeleteConfirmText("");
-                    setDeleteError(null);
-                  }
-                }}
-              >
-                <AlertDialogTrigger asChild>
-                  <Button
+              icon={<IconUsersGroup />}
+              label={group.name}
+              description={t("org.memberCount", {
+                count: group.memberEmails.length,
+              })}
+              control={
+                <div className="flex items-center gap-1">
+                  <ToolkitButton
                     type="button"
-                    intent="danger"
-                    emphasis="ghost"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => onEditGroup(group)}
+                    aria-label={t("org.editGroupAria", {
+                      defaultValue: "Edit group {{name}}",
+                      name: group.name,
+                    })}
+                  >
+                    <IconPencil />
+                  </ToolkitButton>
+                  <ToolkitButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setDeleting(group)}
                     aria-label={t("org.deleteGroupAria", {
                       defaultValue: "Delete group {{name}}",
                       name: group.name,
                     })}
-                    className="rounded p-1 text-muted-foreground hover:bg-background hover:text-destructive"
                   >
-                    <IconTrash size={14} />
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>
-                      {t("org.deleteGroup", { defaultValue: "Delete group?" })}
-                    </AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {t("org.deleteOrgConfirmPrompt", {
-                        name: group.name,
-                      })}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <label
-                    htmlFor={`workspace-delete-group-name-${group.id}`}
-                    className="sr-only"
-                  >
-                    {t("org.groupName", { defaultValue: "Group name" })}
-                  </label>
-                  <Input
-                    id={`workspace-delete-group-name-${group.id}`}
-                    value={deleteConfirmText}
-                    onChange={(event) =>
-                      setDeleteConfirmText(event.target.value)
-                    }
-                    placeholder={t("org.groupName", {
-                      defaultValue: "Group name",
-                    })}
-                    autoFocus
-                  />
-                  <ErrorText error={deleteError} />
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>{t("org.cancel")}</AlertDialogCancel>
-                    <AlertDialogAction
-                      disabled={
-                        deleteGroup.isPending ||
-                        deleteConfirmText.trim() !== group.name.trim()
-                      }
-                      onClick={(event) => {
-                        if (deleteConfirmText.trim() !== group.name.trim())
-                          return;
-                        event.preventDefault();
-                        setDeleteError(null);
-                        deleteGroup.mutate(
-                          { id: group.id },
-                          {
-                            onSuccess: () => {
-                              setDeleteDialogGroupId(null);
-                              setDeleteConfirmText("");
-                              setDeleteError(null);
-                            },
-                            onError: (error) => {
-                              setDeleteError(error);
-                              setDeleteDialogGroupId(group.id);
-                            },
-                          },
-                        );
-                      }}
-                    >
-                      {deleteGroup.isPending
-                        ? t("org.deleting", { defaultValue: "Deleting…" })
-                        : t("org.delete", { defaultValue: "Delete" })}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
+                    <IconTrash />
+                  </ToolkitButton>
+                </div>
+              }
+            />
           ))
         ) : (
-          <p className="px-2 py-3 text-sm text-muted-foreground">
-            {emptyMessage ??
-              t("org.noGroups", { defaultValue: "No groups yet" })}
-          </p>
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconUsersGroup />
+              </EmptyMedia>
+              <EmptyTitle>
+                {t("org.noGroups", { defaultValue: "No groups yet" })}
+              </EmptyTitle>
+              {emptyMessage ? (
+                <EmptyDescription>{emptyMessage}</EmptyDescription>
+              ) : null}
+            </EmptyHeader>
+            <EmptyContent>
+              <ToolkitButton type="button" size="sm" onClick={onNewGroup}>
+                <IconPlus />
+                {newGroupLabel}
+              </ToolkitButton>
+            </EmptyContent>
+          </Empty>
         )}
       </div>
+      <DeleteGroupDialog
+        group={deleting}
+        onOpenChange={(open) => {
+          if (!open) setDeleting(null);
+        }}
+      />
     </section>
   );
 }

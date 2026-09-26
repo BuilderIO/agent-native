@@ -40,6 +40,7 @@ export default function AutomationsSettingsPage({
           title={t("agentChat.settingsShell.appGroup.automationsCreateTitle")}
           label={t("agentChat.settingsShell.appGroup.newAutomation")}
           icon={<IconPlus aria-hidden="true" />}
+          variant="default"
         />
       ),
     }),

@@ -3,12 +3,18 @@ import {
   Skeleton,
   TextField,
 } from "@agent-native/toolkit/design-system";
-import { ButtonBase as ToolkitButtonBase } from "@agent-native/toolkit/ui/button";
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
+import {
+  Button,
+  ButtonBase as ToolkitButtonBase,
+} from "@agent-native/toolkit/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@agent-native/toolkit/ui/collapsible";
+import { DialogFooter } from "@agent-native/toolkit/ui/dialog";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconPlus,
   IconTrash,
@@ -20,10 +26,12 @@ import {
   IconRefresh,
   IconTopologyRing2,
   IconChevronDown,
+  IconAlertCircle,
 } from "@tabler/icons-react";
 import {
   useState,
   useEffect,
+  useId,
   useRef,
   useCallback,
   useMemo,
@@ -56,6 +64,7 @@ import {
 import { useT } from "../i18n.js";
 import { useOrg, useSyncA2ASecret } from "../org/hooks.js";
 import { useChangeVersion } from "../use-change-version.js";
+import { cn } from "../utils.js";
 import { NewKeyMenu, type NewKeyOption } from "./NewKeyMenu.js";
 
 /** A registered remote agent: one `remote-agents/<id>.json` manifest. */
@@ -285,6 +294,7 @@ function HostedAgentFields({
   onKindChange,
   credentialOptions,
   openOnMount = false,
+  variant = "compact",
 }: {
   url: string;
   onUrlChange: (value: string) => void;
@@ -296,6 +306,7 @@ function HostedAgentFields({
   onKindChange: (value?: RemoteAgentKind) => void;
   credentialOptions: NewKeyOption[];
   openOnMount?: boolean;
+  variant?: AgentFormVariant;
 }) {
   const t = useT();
   const [open, setOpen] = useState(() =>
@@ -382,6 +393,150 @@ function HostedAgentFields({
     onKindChange({ ...next, [field]: value });
   };
 
+  const providerOptions = [
+    { value: "a2a", label: t("agentChat.agents.providerA2A") },
+    {
+      value: "anthropic-managed-agents",
+      label: t("agentChat.agents.providerAnthropic"),
+    },
+  ];
+  const authOptions = [
+    { value: "none", label: t("agentChat.agents.authNone") },
+    { value: "bearer", label: t("agentChat.agents.authBearer") },
+    {
+      value: "oauth-client-credentials",
+      label: t("agentChat.agents.authClientCredentials"),
+    },
+  ];
+
+  if (variant === "dialog") {
+    const credentialField = (
+      selected: string | undefined,
+      onPick: (key: string) => void,
+    ) => {
+      const menu = (label: string) => (
+        <NewKeyMenu
+          options={credentialOptions}
+          label={label}
+          onPick={(option) => onPick(option.key)}
+          onCustom={(name) => {
+            if (name) onPick(name);
+          }}
+          triggerClassName="shrink-0"
+        />
+      );
+      if (!selected) {
+        return (
+          <div className="justify-self-start">
+            {menu(t("agentChat.agents.chooseCredential"))}
+          </div>
+        );
+      }
+      return (
+        <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-input bg-background ps-3 pe-1.5">
+          <span className="min-w-0 truncate text-sm">
+            {credentialOptions.find((option) => option.key === selected)
+              ?.label ?? selected}
+          </span>
+          {menu(t("agentChat.settingsModel.change"))}
+        </div>
+      );
+    };
+    return (
+      <Collapsible open={open} onOpenChange={setOpen} className="grid gap-4">
+        <CollapsibleTrigger className="group/hosted flex items-center gap-1 justify-self-start rounded-sm text-sm font-medium text-foreground outline-none underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+          {t("agentChat.agents.hostedAgent")}
+          <IconChevronDown
+            className="size-4 transition-transform duration-200 group-data-[state=open]/hosted:rotate-180"
+            aria-hidden
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="grid gap-4">
+          <Picker
+            mode="select"
+            value={provider}
+            onChange={(value) => {
+              if (value) updateProvider(String(value));
+            }}
+            label={t("agentChat.agents.provider")}
+            options={providerOptions}
+          />
+          {provider === "a2a" ? (
+            <>
+              <TextField
+                value={cardUrl}
+                onChange={onCardUrlChange}
+                label={t("agentChat.agents.cardUrl")}
+                placeholder={t("agentChat.agents.cardUrlPlaceholder")}
+              />
+              <Picker
+                mode="select"
+                value={authType}
+                onChange={(value) => updateAuthType(String(value))}
+                label={t("agentChat.agents.authType")}
+                options={authOptions}
+              />
+              {authType !== "none" &&
+                credentialField(
+                  selectedCredentialRef || undefined,
+                  updateCredentialRef,
+                )}
+              {oauthAuth && (
+                <>
+                  <TextField
+                    value={oauthAuth.tokenUrl}
+                    onChange={(value) =>
+                      onAuthChange({ ...oauthAuth, tokenUrl: value })
+                    }
+                    label={t("agentChat.agents.tokenUrl")}
+                  />
+                  <TextField
+                    value={oauthAuth.clientId}
+                    onChange={(value) =>
+                      onAuthChange({ ...oauthAuth, clientId: value })
+                    }
+                    label={t("agentChat.agents.clientId")}
+                  />
+                  <TextField
+                    value={oauthAuth.scope ?? ""}
+                    onChange={(value) =>
+                      onAuthChange({ ...oauthAuth, scope: value })
+                    }
+                    label={t("agentChat.agents.scope")}
+                  />
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <TextField
+                value={url}
+                onChange={onUrlChange}
+                label={t("agentChat.agents.apiBaseUrl")}
+                placeholder={t("agentChat.agents.apiBaseUrlPlaceholder")}
+              />
+              <TextField
+                value={managedKind?.agentId ?? ""}
+                onChange={(value) => updateManagedKind("agentId", value)}
+                label={t("agentChat.agents.agentId")}
+                placeholder={t("agentChat.agents.agentIdPlaceholder")}
+              />
+              <TextField
+                value={managedKind?.environmentId ?? ""}
+                onChange={(value) => updateManagedKind("environmentId", value)}
+                label={t("agentChat.agents.environmentId")}
+                placeholder={t("agentChat.agents.environmentIdPlaceholder")}
+              />
+              {credentialField(managedKind?.credentialRef || undefined, (key) =>
+                updateManagedKind("credentialRef", key),
+              )}
+            </>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+    );
+  }
+
   return (
     <Collapsible
       open={open}
@@ -406,13 +561,7 @@ function HostedAgentFields({
             if (value) updateProvider(String(value));
           }}
           aria-label={t("agentChat.agents.provider")}
-          options={[
-            { value: "a2a", label: t("agentChat.agents.providerA2A") },
-            {
-              value: "anthropic-managed-agents",
-              label: t("agentChat.agents.providerAnthropic"),
-            },
-          ]}
+          options={providerOptions}
           className="text-[11px]"
         />
         {provider === "a2a" ? (
@@ -429,14 +578,7 @@ function HostedAgentFields({
               value={authType}
               onChange={(value) => updateAuthType(String(value))}
               aria-label={t("agentChat.agents.authType")}
-              options={[
-                { value: "none", label: t("agentChat.agents.authNone") },
-                { value: "bearer", label: t("agentChat.agents.authBearer") },
-                {
-                  value: "oauth-client-credentials",
-                  label: t("agentChat.agents.authClientCredentials"),
-                },
-              ]}
+              options={authOptions}
               className="text-[11px]"
             />
             {authType !== "none" && (
@@ -539,50 +681,32 @@ function HostedAgentFields({
 /** `compact` fits today's inline popovers; `dialog` fills a Settings dialog. */
 export type AgentFormVariant = "compact" | "dialog";
 
-const AGENT_FORM_CLASSES: Record<
-  AgentFormVariant,
-  {
-    stack: string;
-    field: string;
-    text: string;
-    primary: string;
-    secondary: string;
-    ghost: string;
-    destructive: string;
-    footer: string;
-  }
-> = {
-  compact: {
-    stack: "flex flex-col gap-1.5",
-    field:
-      "w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent",
-    text: "text-[10px]",
-    primary:
-      "cursor-pointer rounded bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40",
-    secondary:
-      "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40",
-    ghost:
-      "cursor-pointer rounded px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground",
-    destructive:
-      "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/10",
-    footer: "pt-0.5",
-  },
-  dialog: {
-    stack: "flex flex-col gap-2.5",
-    field:
-      "h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
-    text: "text-xs",
-    primary:
-      "inline-flex h-8 cursor-pointer items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50",
-    secondary:
-      "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border px-3 text-sm text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-50",
-    ghost:
-      "inline-flex h-8 cursor-pointer items-center justify-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground",
-    destructive:
-      "inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm text-destructive hover:bg-destructive/10",
-    footer: "pt-2",
-  },
+/** The inline popovers' compact controls; the dialog uses toolkit ones. */
+const COMPACT_FORM_CLASSES = {
+  stack: "flex flex-col gap-1.5",
+  field:
+    "w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent",
+  text: "text-[10px]",
+  primary:
+    "cursor-pointer rounded bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40",
+  secondary:
+    "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40",
+  ghost:
+    "cursor-pointer rounded px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground",
+  destructive:
+    "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/10",
+  footer: "pt-0.5",
 };
+
+/** A failed save in a dialog form: the server's message, above the footer. */
+function FormErrorAlert({ message }: { message: string }) {
+  return (
+    <Alert variant="destructive">
+      <IconAlertCircle />
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
+  );
+}
 
 /** Edit one registered agent: name, endpoint, description, hosted auth. */
 export function AgentEditForm({
@@ -602,7 +726,7 @@ export function AgentEditForm({
   variant?: AgentFormVariant;
 }) {
   const t = useT();
-  const classes = AGENT_FORM_CLASSES[variant];
+  const classes = COMPACT_FORM_CLASSES;
   const [name, setName] = useState(agent.name);
   const [url, setUrl] = useState(agent.url);
   const [description, setDescription] = useState(agent.description ?? "");
@@ -610,13 +734,14 @@ export function AgentEditForm({
   const [auth, setAuth] = useState<HostedAgentAuth | undefined>(agent.auth);
   const [kind, setKind] = useState<RemoteAgentKind | undefined>(agent.kind);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const canSave =
+    !!name.trim() &&
+    (!!url.trim() || kind?.provider === "anthropic-managed-agents");
 
   const handleSave = async () => {
-    if (
-      !name.trim() ||
-      (!url.trim() && kind?.provider !== "anthropic-managed-agents")
-    )
-      return;
+    if (!canSave || saving) return;
+    setSaving(true);
     try {
       await onSave({
         ...agent,
@@ -634,13 +759,82 @@ export function AgentEditForm({
           ? error.message
           : t("agentChat.agents.formSaveFailed"),
       );
+    } finally {
+      setSaving(false);
     }
   };
 
-  // A dialog owns Escape itself; the inline popover closes on it here.
+  if (variant === "dialog") {
+    return (
+      <form
+        className="grid gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSave();
+        }}
+      >
+        <TextField
+          value={name}
+          onChange={setName}
+          label={t("agentChat.agents.formName")}
+          autoFocus
+        />
+        {kind?.provider !== "anthropic-managed-agents" && (
+          <TextField
+            value={url}
+            onChange={setUrl}
+            label={t("agentChat.agents.formUrl")}
+            placeholder={t("agentChat.agents.formUrlPlaceholder")}
+          />
+        )}
+        <TextField
+          value={description}
+          onChange={setDescription}
+          label={t("agentChat.agents.formDescription")}
+        />
+        <HostedAgentFields
+          variant="dialog"
+          url={url}
+          onUrlChange={setUrl}
+          cardUrl={cardUrl}
+          onCardUrlChange={setCardUrl}
+          auth={auth}
+          onAuthChange={setAuth}
+          kind={kind}
+          onKindChange={setKind}
+          credentialOptions={credentialOptions}
+        />
+        {saveError ? <FormErrorAlert message={saveError} /> : null}
+        <DialogFooter className="gap-2 sm:space-x-0">
+          {onDelete ? (
+            <Button
+              type="button"
+              variant="secondary-destructive"
+              className="sm:me-auto"
+              disabled={saving}
+              onClick={() => onDelete(agent.id)}
+            >
+              {t("agentChat.agents.formRemove")}
+            </Button>
+          ) : null}
+          <Button type="button" variant="secondary" onClick={onClose}>
+            {t("agentChat.common.cancel")}
+          </Button>
+          <Button type="submit" disabled={!canSave || saving}>
+            {saving ? <Spinner /> : null}
+            {saving
+              ? t("agentChat.settingsResources.saving")
+              : t("agentChat.common.save")}
+          </Button>
+        </DialogFooter>
+      </form>
+    );
+  }
+
+  // The inline popover closes on Escape; Enter saves.
   const onFieldKeyDown = (e: ReactKeyboardEvent) => {
     if (e.key === "Enter") void handleSave();
-    if (e.key === "Escape" && variant === "compact") onClose();
+    if (e.key === "Escape") onClose();
   };
 
   return (
@@ -692,7 +886,7 @@ export function AgentEditForm({
             onClick={() => onDelete(agent.id)}
             className={classes.destructive}
           >
-            <IconTrash size={variant === "compact" ? 10 : 14} />
+            <IconTrash size={10} />
             {t("agentChat.agents.formRemove")}
           </button>
         ) : (
@@ -705,10 +899,7 @@ export function AgentEditForm({
           <button
             type="button"
             onClick={() => void handleSave()}
-            disabled={
-              !name.trim() ||
-              (!url.trim() && kind?.provider !== "anthropic-managed-agents")
-            }
+            disabled={!canSave}
             className={classes.primary}
           >
             {t("agentChat.common.save")}
@@ -825,8 +1016,8 @@ export function AgentAddForm({
   variant = "compact",
 }: AgentAddFormProps) {
   const t = useT();
-  const classes = AGENT_FORM_CLASSES[variant];
-  const iconSize = variant === "compact" ? 10 : 14;
+  const classes = COMPACT_FORM_CLASSES;
+  const iconSize = 10;
   const [name, setName] = useState(initialName);
   const [url, setUrl] = useState(
     initialUrl ||
@@ -844,8 +1035,14 @@ export function AgentAddForm({
   );
   const [check, setCheck] = useState<CheckState>({ status: "idle" });
   const [added, setAdded] = useState<AddedAgentInfo | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const formId = useId();
   const nameRef = useRef<HTMLInputElement>(null);
   const urlRef = useRef<HTMLInputElement>(null);
+  const canAdd =
+    !!name.trim() &&
+    (!!url.trim() || kind?.provider === "anthropic-managed-agents");
 
   useEffect(() => {
     const t = setTimeout(
@@ -943,14 +1140,12 @@ export function AgentAddForm({
   }, [url, cardUrl, name, description, auth, kind, t]);
 
   const handleAdd = async () => {
+    if (!canAdd || adding) return;
     const trimmedName = name.trim();
     const trimmedUrl = url.trim();
-    if (
-      !trimmedName ||
-      (!trimmedUrl && kind?.provider !== "anthropic-managed-agents")
-    )
-      return;
     const trimmedDescription = description.trim();
+    setAdding(true);
+    setAddError(null);
     try {
       const ok = await onAdd(
         trimmedName,
@@ -972,20 +1167,240 @@ export function AgentAddForm({
         });
       }
     } catch (error) {
-      setCheck({
-        status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : t("agentChat.agents.formAddFailed"),
-      });
+      setAddError(
+        error instanceof Error
+          ? error.message
+          : t("agentChat.agents.formAddFailed"),
+      );
+    } finally {
+      setAdding(false);
     }
   };
 
-  // A dialog owns Escape itself; the inline popover closes on it here.
+  // The inline popover closes on Escape; a dialog owns Escape itself.
   const closeOnEscape = (e: ReactKeyboardEvent) => {
-    if (e.key === "Escape" && variant === "compact") onClose();
+    if (e.key === "Escape") onClose();
   };
+
+  if (variant === "dialog") {
+    if (added) {
+      return (
+        <div className="grid gap-4">
+          <p className="text-sm text-muted-foreground">
+            {t("agentChat.agents.addedOneWay", { name: added.name })}
+          </p>
+          {added.provider === "a2a" ? (
+            <Button asChild variant="secondary" className="justify-self-start">
+              <a
+                href={buildPeerRegisterBackLink(added.url)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <IconExternalLink />
+                {t("agentChat.agents.openPeerSettings", { name: added.name })}
+              </a>
+            </Button>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {t("agentChat.agents.managedAgentSaved")}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" onClick={onClose}>
+              {t("agentChat.common.dismiss")}
+            </Button>
+          </DialogFooter>
+        </div>
+      );
+    }
+    const checked = check.status === "done" ? check.result : null;
+    const warn = checked
+      ? !checked.reachable || checked.authorized === false
+      : false;
+    const checking = check.status === "checking";
+    const checkStatusId = `${formId}-check`;
+    const checkStatus = (
+      <p
+        id={checkStatusId}
+        aria-live="polite"
+        className={cn(
+          "flex min-h-5 items-start gap-1.5 text-xs leading-5",
+          check.status === "error"
+            ? "text-destructive"
+            : "text-muted-foreground",
+        )}
+      >
+        {check.status === "error" ? (
+          <>
+            <IconAlertTriangle
+              className="mt-0.5 size-3.5 shrink-0"
+              aria-hidden
+            />
+            {check.message}
+          </>
+        ) : checked ? (
+          <>
+            {warn ? (
+              <IconAlertTriangle
+                className="mt-0.5 size-3.5 shrink-0 text-destructive"
+                aria-hidden
+              />
+            ) : (
+              <IconCheck
+                className="mt-0.5 size-3.5 shrink-0 text-primary"
+                aria-hidden
+              />
+            )}
+            <span>
+              {describeCheckResult(checked, t)}
+              {!checked.reachable ? (
+                <span className="block">
+                  {t("agentChat.agents.unreachableHint")}
+                </span>
+              ) : null}
+            </span>
+          </>
+        ) : (
+          t("agentChat.settingsSubAgents.anyAgentHint")
+        )}
+      </p>
+    );
+    const checkButton = (
+      <Button
+        type="button"
+        variant="secondary"
+        className="shrink-0"
+        disabled={!url.trim() || checking}
+        onClick={() => void handleCheck()}
+      >
+        {checking ? <Spinner /> : null}
+        {t("agentChat.agents.formCheck")}
+      </Button>
+    );
+    return (
+      <form
+        className="grid gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleAdd();
+        }}
+      >
+        {kind?.provider !== "anthropic-managed-agents" ? (
+          <div className="grid gap-1.5">
+            <TextField
+              value={url}
+              onChange={(value) => {
+                setUrl(value);
+                setCheck({ status: "idle" });
+              }}
+              label={t("agentChat.agents.formUrl")}
+              placeholder={t("agentChat.agents.formUrlPlaceholder")}
+              inputRef={urlRef}
+              invalid={check.status === "error"}
+              aria-describedby={checkStatusId}
+              trailingContent={checkButton}
+              onKeyDown={(event) => {
+                // Enter on the URL checks it; the name comes back from the check.
+                if (event.key === "Enter" && !canAdd) {
+                  event.preventDefault();
+                  void handleCheck();
+                }
+              }}
+            />
+            {checkStatus}
+          </div>
+        ) : (
+          <div className="grid gap-1.5">
+            <div className="justify-self-start">{checkButton}</div>
+            {checkStatus}
+          </div>
+        )}
+        {checked?.authorized === false ? (
+          secretSet === true ? (
+            <Button
+              type="button"
+              variant="secondary"
+              className="justify-self-start"
+              disabled={syncSecret.isPending}
+              onClick={() => syncSecret.mutate(undefined)}
+            >
+              {syncSecret.isPending ? <Spinner /> : <IconRefresh />}
+              {t("agentChat.agents.syncSecret")}
+            </Button>
+          ) : (
+            <p className="text-xs leading-5 text-muted-foreground">
+              {secretSet === false ? (
+                <>
+                  {t("agentChat.agents.noSharedSecret")}{" "}
+                  <a
+                    href={appMountedPath(
+                      buildSettingsRoute(STANDARD_SETTINGS_TABS.team),
+                      STANDARD_APP_ROUTES.settings,
+                    )}
+                    className="font-medium text-foreground underline underline-offset-4"
+                  >
+                    {t("agentChat.agents.noSharedSecretLink")}
+                  </a>
+                </>
+              ) : (
+                t("agentChat.agents.askOwnerSyncSecret")
+              )}
+            </p>
+          )
+        ) : null}
+        <TextField
+          value={name}
+          onChange={setName}
+          label={t("agentChat.agents.formName")}
+          inputRef={nameRef}
+        />
+        <TextField
+          value={description}
+          onChange={setDescription}
+          label={t("agentChat.agents.formDescription")}
+        />
+        <HostedAgentFields
+          variant="dialog"
+          url={url}
+          onUrlChange={(value) => {
+            setUrl(value);
+            setCheck({ status: "idle" });
+          }}
+          cardUrl={cardUrl}
+          onCardUrlChange={(value) => {
+            setCardUrl(value);
+            setCheck({ status: "idle" });
+          }}
+          auth={auth}
+          onAuthChange={(value) => {
+            setAuth(value);
+            setCheck({ status: "idle" });
+          }}
+          kind={kind}
+          onKindChange={(value) => {
+            setKind(value);
+            setCheck({ status: "idle" });
+          }}
+          credentialOptions={credentialOptions}
+          openOnMount={Boolean(initialProvider)}
+        />
+        {addError ? <FormErrorAlert message={addError} /> : null}
+        <DialogFooter>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            {t("agentChat.common.cancel")}
+          </Button>
+          <Button type="submit" disabled={!canAdd || adding}>
+            {adding ? <Spinner /> : null}
+            {adding
+              ? t("agentChat.agents.formAdding")
+              : checked && !checked.reachable
+                ? t("agentChat.agents.formAddAnyway")
+                : t("agentChat.agents.formAdd")}
+          </Button>
+        </DialogFooter>
+      </form>
+    );
+  }
 
   if (added) {
     return (
@@ -998,11 +1413,7 @@ export function AgentAddForm({
             href={buildPeerRegisterBackLink(added.url)}
             target="_blank"
             rel="noopener noreferrer"
-            className={
-              variant === "compact"
-                ? "inline-flex cursor-pointer items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground no-underline hover:bg-accent/80"
-                : `${classes.secondary} justify-center no-underline`
-            }
+            className="inline-flex cursor-pointer items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground no-underline hover:bg-accent/80"
           >
             <IconExternalLink size={iconSize} />
             {t("agentChat.agents.openPeerSettings", { name: added.name })}
@@ -1012,13 +1423,7 @@ export function AgentAddForm({
             {t("agentChat.agents.managedAgentSaved")}
           </p>
         )}
-        <button
-          type="button"
-          onClick={onClose}
-          className={
-            variant === "compact" ? classes.ghost : `${classes.ghost} self-end`
-          }
-        >
+        <button type="button" onClick={onClose} className={classes.ghost}>
           {t("agentChat.common.dismiss")}
         </button>
       </div>
@@ -1076,6 +1481,14 @@ export function AgentAddForm({
         >
           <IconAlertTriangle size={11} className="mt-px shrink-0" />
           {check.message}
+        </p>
+      )}
+      {addError && (
+        <p
+          className={`flex items-start gap-1 ${classes.text} text-destructive`}
+        >
+          <IconAlertTriangle size={11} className="mt-px shrink-0" />
+          {addError}
         </p>
       )}
       {result && (
@@ -1421,6 +1834,8 @@ export interface RemoteAgentsState {
   save: (agent: RemoteAgentInfo) => Promise<void>;
   /** Resolves false when the delete failed and the row was restored. */
   remove: (resourceId: string) => Promise<boolean>;
+  /** Reads the list again after it failed to load. */
+  retry: () => void;
 }
 
 /**
@@ -1806,6 +2221,11 @@ export function useRemoteAgents(): RemoteAgentsState {
     }
   };
 
+  const retry = useCallback(() => {
+    setStatus("loading");
+    void fetchAgents();
+  }, [fetchAgents]);
+
   return {
     agents,
     status,
@@ -1815,6 +2235,7 @@ export function useRemoteAgents(): RemoteAgentsState {
     add,
     save,
     remove,
+    retry,
   };
 }
 

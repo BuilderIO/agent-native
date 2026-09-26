@@ -1,13 +1,20 @@
 import { Skeleton } from "@agent-native/toolkit/design-system";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
+  Empty,
+  EmptyContent,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@agent-native/toolkit/ui/empty";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
-import { IconArrowUpRight } from "@tabler/icons-react";
+import { IconApps, IconArrowUpRight } from "@tabler/icons-react";
 import { useMemo } from "react";
 
 import type { OrgInfo } from "../../../org/types.js";
@@ -20,7 +27,7 @@ import { ErrorText } from "../TeamPrimitives.js";
 import { useOrgSwitcherAppLinks } from "../workspace-app-links.js";
 import { OrgPageGate } from "./OrgPageGate.js";
 
-function AppAccessRows() {
+function AppAccessRows({ browseHref }: { browseHref: string | null }) {
   const t = useT();
   const query = useWorkspaceAppAccess();
   const setAccess = useSetWorkspaceAppAccess();
@@ -36,7 +43,7 @@ function AppAccessRows() {
             aria-busy="true"
           >
             <Skeleton className="h-3.5 w-32" />
-            <Skeleton className="h-9 w-36" />
+            <Skeleton className="h-8 w-40" />
           </div>
         ))}
       </>
@@ -45,17 +52,41 @@ function AppAccessRows() {
 
   if (query.error) {
     return (
-      <p className="px-5 py-4 text-sm text-destructive sm:px-6" role="alert">
-        {t("org.applicationsLoadFailed")}
-      </p>
+      <div
+        role="alert"
+        className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6"
+      >
+        <p className="text-sm text-destructive">
+          {t("org.applicationsLoadFailed")}
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          {t("agentChat.common.retry")}
+        </Button>
+      </div>
     );
   }
 
   if (apps.length === 0) {
     return (
-      <p className="px-5 py-4 text-sm text-muted-foreground sm:px-6">
-        {t("org.applicationsEmpty")}
-      </p>
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <IconApps />
+          </EmptyMedia>
+          <EmptyTitle>{t("org.applicationsEmpty")}</EmptyTitle>
+        </EmptyHeader>
+        {browseHref ? (
+          <EmptyContent>
+            <BrowseAppsAction href={browseHref} />
+          </EmptyContent>
+        ) : null}
+      </Empty>
     );
   }
 
@@ -82,7 +113,8 @@ function AppAccessRows() {
               disabled={setAccess.isPending}
             >
               <SelectTrigger
-                className="h-9 w-40"
+                size="sm"
+                className="w-40"
                 aria-label={t("org.applicationAccess", { name: app.name })}
               >
                 <SelectValue />
@@ -141,7 +173,7 @@ function OrgAppsContent({ org }: { org: OrgInfo }) {
         id="app-access"
         title={t("agentChat.settingsOrg.apps.access")}
       >
-        <AppAccessRows />
+        <AppAccessRows browseHref={isWorkspace ? dispatchAllAppsHref : null} />
       </SettingsGroup>
       <SettingsGroup
         id="app-defaults"

@@ -134,22 +134,6 @@ vi.mock("@/components/ui/alert-dialog", () => {
     AlertDialogDescription: ({ children }: { children: ReactNode }) => (
       <p data-dialog-description="">{children}</p>
     ),
-    AlertDialogCancel: ({ children }: { children: ReactNode }) => (
-      <button type="button" data-dialog-cancel="">
-        {children}
-      </button>
-    ),
-    AlertDialogAction: ({
-      children,
-      onClick,
-    }: {
-      children: ReactNode;
-      onClick: (event: { preventDefault: () => void }) => void;
-    }) => (
-      <button type="button" data-dialog-confirm="" onClick={onClick}>
-        {children}
-      </button>
-    ),
   };
 });
 
@@ -170,6 +154,7 @@ import { FeatureKeysGroup } from "./feature-keys-group";
 import { ClipsMeetingsArea } from "./meetings-area";
 import { ClipsRecordingsArea } from "./recordings-area";
 import { ClipsSharingGroup } from "./sharing-group";
+import { SlackSection } from "./slack-section";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -425,6 +410,21 @@ describe("FeatureKeysGroup", () => {
 });
 
 describe("Meetings › Calendar", () => {
+  it("starts with an empty state that connects Google Calendar", async () => {
+    mocks.queries["list-calendar-accounts"] = { accounts: [] };
+    mocks.startCalendarOAuth.mockResolvedValue(null);
+    await render(<ClipsMeetingsArea canManage={false} />);
+
+    const empty = container.querySelector<HTMLElement>(
+      '#google-calendar[data-slot="empty"]',
+    );
+    expect(empty?.textContent).toContain("meetingsRoute.guideCalendarTitle");
+    await click(button(empty as HTMLElement, "clipsSettings.connect"));
+    expect(mocks.startCalendarOAuth).toHaveBeenCalledWith(undefined);
+  });
+});
+
+describe("Meetings › Calendar accounts", () => {
   beforeEach(() => {
     mocks.queries["list-calendar-accounts"] = {
       accounts: [
@@ -471,7 +471,7 @@ describe("Meetings › Calendar", () => {
     );
     expect(mocks.mutate).not.toHaveBeenCalled();
 
-    await click(dialog?.querySelector("[data-dialog-confirm]") as Element);
+    await click(button(dialog as Element, "common.disconnect"));
     const { args, options } = lastMutation("disconnect-calendar");
     expect(args).toEqual({ id: "cal-ok" });
 
@@ -485,7 +485,12 @@ describe("Meetings › Calendar", () => {
   it("keeps the dialog open and toasts when disconnecting fails", async () => {
     await render(<ClipsMeetingsArea canManage={false} />);
     await click(button(row("google-calendar"), "common.disconnect"));
-    await click(container.querySelector("[data-dialog-confirm]") as Element);
+    await click(
+      button(
+        container.querySelector('[role="alertdialog"]') as Element,
+        "common.disconnect",
+      ),
+    );
     const { options } = lastMutation("disconnect-calendar");
     await settle(() => options.onError?.(new Error("")));
 
@@ -493,5 +498,74 @@ describe("Meetings › Calendar", () => {
     expect(mocks.toastError).toHaveBeenCalledWith(
       "clipsSettings.disconnectFailed",
     );
+  });
+});
+
+describe("Channels › Slack › Link previews", () => {
+  const installation = {
+    id: "inst-1",
+    teamId: "T1",
+    teamName: "Acme",
+    enterpriseName: null,
+    apiAppId: null,
+    ownerEmail: "admin@example.com",
+    orgId: "org-1",
+    status: "active",
+    updatedAt: "2026-09-26T00:00:00.000Z",
+  };
+
+  it("shows a failed read as an error with a retry, not as missing credentials", async () => {
+    mocks.queries["list-slack-installations"] = new Error("boom");
+    await render(<SlackSection variant="channel" />);
+    expect(container.textContent).toContain("clipsSettings.loadFailed");
+    expect(container.textContent).not.toContain("settings.slackOauthNeeded");
+  });
+
+  it("offers Add workspace in the empty state", async () => {
+    mocks.queries["list-slack-installations"] = {
+      oauthConfigured: true,
+      signingConfigured: true,
+      scopes: [],
+      installations: [],
+    };
+    await render(<SlackSection variant="channel" />);
+    const empty = container.querySelector<HTMLElement>('[data-slot="empty"]');
+    expect(empty?.textContent).toContain("common.notConnected");
+    expect(
+      button(empty as HTMLElement, "clipsSettings.addWorkspace").disabled,
+    ).toBe(false);
+  });
+
+  it("can't add a workspace until the Slack app credentials are set", async () => {
+    mocks.queries["list-slack-installations"] = {
+      oauthConfigured: false,
+      signingConfigured: false,
+      scopes: [],
+      installations: [],
+    };
+    await render(<SlackSection variant="channel" />);
+    const empty = container.querySelector<HTMLElement>('[data-slot="empty"]');
+    expect(empty?.textContent).toContain("settings.slackOauthNeeded");
+    expect(empty?.textContent).toContain("settings.slackClientMissing");
+    expect(
+      button(empty as HTMLElement, "clipsSettings.addWorkspace").disabled,
+    ).toBe(true);
+  });
+
+  it("lists connected workspaces and asks before disconnecting one", async () => {
+    mocks.queries["list-slack-installations"] = {
+      oauthConfigured: true,
+      signingConfigured: true,
+      scopes: [],
+      installations: [installation],
+    };
+    await render(<SlackSection variant="channel" />);
+    expect(container.querySelector('[data-slot="empty"]')).toBeNull();
+    expect(container.textContent).toContain("Acme");
+
+    await click(button(container, "common.disconnect"));
+    expect(
+      container.querySelector('[role="alertdialog"]')?.textContent,
+    ).toContain('settings.disconnectSlackDescription {"team":"Acme"}');
   });
 });

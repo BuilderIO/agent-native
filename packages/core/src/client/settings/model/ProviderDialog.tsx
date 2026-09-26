@@ -1,3 +1,4 @@
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import { Input } from "@agent-native/toolkit/ui/input";
@@ -14,10 +15,10 @@ import {
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconAlertCircle,
   IconKey,
-  IconLoader2,
   IconLock,
   IconServer,
 } from "@tabler/icons-react";
@@ -45,6 +46,7 @@ import { useFormatters, useT } from "../../i18n.js";
 import { useOrg } from "../../org/hooks.js";
 import { callAction, useActionQuery } from "../../use-action.js";
 import { cn } from "../../utils.js";
+import { BrandLogo } from "../infra/logos.js";
 import {
   addDialogChoices,
   explicitSelectionAt,
@@ -62,6 +64,18 @@ const K = "agentChat.settingsModel.";
 const CHECK_DEBOUNCE_MS = 400;
 const OLLAMA_PLACEHOLDER = "http://localhost:11434";
 const GATEWAY_PLACEHOLDER = "https://gateway.example/v1";
+
+/** Each provider's mark in the integration logo set; Ollama has none. */
+const PROVIDER_LOGO_IDS: Record<AgentProviderId, string | null> = {
+  anthropic: "anthropic",
+  openai: "openai",
+  openrouter: "openrouter",
+  google: "google-gemini",
+  groq: "groq",
+  mistral: "mistral",
+  cohere: "cohere",
+  ollama: null,
+};
 
 /**
  * `add` offers the providers the viewer hasn't added, plus ones with a
@@ -161,7 +175,7 @@ function ProviderDialogContent(props: ProviderDialogProps) {
   return (
     <DialogContent
       className="max-w-lg"
-      closeLabel={t(`${K}cancel`)}
+      closeLabel={t("agentChat.settingsInfra.close")}
       aria-describedby={undefined}
     >
       <DialogHeader>
@@ -174,13 +188,12 @@ function ProviderDialogContent(props: ProviderDialogProps) {
             type="button"
             variant="secondary"
             size="sm"
-            className="h-8 px-3"
             onClick={() => {
               void listing.refetch();
               void models.refetch();
             }}
           >
-            {t(`${K}retry`)}
+            {t("agentChat.common.retry")}
           </Button>
         </div>
       ) : (
@@ -189,10 +202,10 @@ function ProviderDialogContent(props: ProviderDialogProps) {
           aria-busy="true"
           aria-label={t("agentChat.settingsShell.loading")}
         >
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-9 w-full" />
           <Skeleton className="h-44 w-full" />
-          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-9 w-full" />
         </div>
       )}
     </DialogContent>
@@ -487,7 +500,7 @@ function ProviderDialogForm({
     return (
       <DialogContent
         className="max-w-lg"
-        closeLabel={t(`${K}cancel`)}
+        closeLabel={t("agentChat.settingsInfra.close")}
         aria-describedby={undefined}
       >
         <DialogHeader>
@@ -501,7 +514,6 @@ function ProviderDialogForm({
           <Button
             type="button"
             variant="secondary"
-            className="h-9 px-3"
             onClick={() => onOpenChange(false)}
           >
             {t(`${K}cancel`)}
@@ -511,9 +523,14 @@ function ProviderDialogForm({
     );
   }
 
-  const busy = saving || check.state === "checking";
-  const primaryLabel =
-    mode === "manage"
+  // Save needs a key the provider accepted; a saved key needs no new check.
+  const ready = !replacing || check.state === "ok";
+  const addsNew = mode !== "manage" && !replaceTarget;
+  const primaryLabel = saving
+    ? addsNew
+      ? t(`${K}adding`)
+      : t(`${K}saving`)
+    : mode === "manage"
       ? t(`${K}save`)
       : fromService
         ? t(`${K}addNamed`, { provider: name })
@@ -524,7 +541,7 @@ function ProviderDialogForm({
   return (
     <DialogContent
       className="max-w-lg"
-      closeLabel={t(`${K}cancel`)}
+      closeLabel={t("agentChat.settingsInfra.close")}
       aria-describedby={undefined}
     >
       <DialogHeader>
@@ -547,13 +564,20 @@ function ProviderDialogForm({
               }
               disabled={saving}
             >
-              <SelectTrigger id={ids.provider}>
+              <SelectTrigger id={ids.provider} autoFocus>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {choices.map((id) => (
                   <SelectItem key={id} value={id}>
-                    {providerLabel(id)}
+                    <span className="flex items-center gap-2">
+                      <BrandLogo
+                        logoId={PROVIDER_LOGO_IDS[id]}
+                        fallback={IconServer}
+                        size="sm"
+                      />
+                      {providerLabel(id)}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -573,7 +597,7 @@ function ProviderDialogForm({
               value={keyValue}
               autoComplete="off"
               spellCheck={false}
-              autoFocus
+              autoFocus={mode !== "add"}
               disabled={saving}
               placeholder={
                 isOllama
@@ -588,15 +612,14 @@ function ProviderDialogForm({
               }}
             />
           ) : (
-            <div className="flex h-10 items-center justify-between gap-2 rounded-md border border-input bg-background ps-3 pe-1">
+            <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-input bg-background ps-3 pe-1.5">
               <span className="truncate font-mono text-sm">
                 {isOllama ? existing?.endpoint : existing?.masked}
               </span>
               <Button
                 type="button"
                 variant="secondary"
-                size="sm"
-                className="h-8 px-3"
+                size="xs"
                 disabled={saving}
                 onClick={() => {
                   setReplacing(true);
@@ -715,17 +738,18 @@ function ProviderDialogForm({
         ) : null}
 
         {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
+          <Alert variant="destructive">
+            <IconAlertCircle />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         ) : null}
 
         <DialogFooter className="gap-2 sm:space-x-0">
           {mode === "manage" ? (
             <Button
               type="button"
-              variant="ghost"
-              className="me-auto h-9 px-3 text-destructive hover:text-destructive"
+              variant="secondary-destructive"
+              className="sm:me-auto"
               disabled={saving}
               onClick={() => setRemoveOpen(true)}
             >
@@ -735,16 +759,12 @@ function ProviderDialogForm({
           <Button
             type="button"
             variant="secondary"
-            className="h-9 px-3"
-            disabled={saving}
             onClick={() => onOpenChange(false)}
           >
             {t(`${K}cancel`)}
           </Button>
-          <Button type="submit" className="h-9 px-3" disabled={busy}>
-            {saving ? (
-              <IconLoader2 className="size-4 animate-spin" aria-hidden />
-            ) : null}
+          <Button type="submit" disabled={saving || !ready}>
+            {saving ? <Spinner /> : null}
             {primaryLabel}
           </Button>
         </DialogFooter>
@@ -810,7 +830,7 @@ function KeyHint({
             "flex items-center gap-1.5 text-muted-foreground",
           )}
         >
-          <IconLoader2 className="size-3 animate-spin" aria-hidden />
+          <Spinner className="size-3" />
           {isOllama ? t(`${K}checkingEndpoint`) : t(`${K}checkingSaved`)}
         </p>
       );
@@ -952,7 +972,7 @@ function ModelsBox({
   if (check.state === "checking") {
     return (
       <div role="status" className={cn(state, "text-muted-foreground")}>
-        <IconLoader2 className="size-4 animate-spin" aria-hidden />
+        <Spinner />
         <span>
           {isOllama
             ? t(`${K}checkingOllama`)
@@ -1077,7 +1097,7 @@ function WhoField({
       ) : (
         <div
           aria-labelledby={id}
-          className="flex h-10 items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground"
+          className="flex h-9 items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground"
         >
           <IconLock className="size-4 shrink-0" aria-hidden />
           <span>

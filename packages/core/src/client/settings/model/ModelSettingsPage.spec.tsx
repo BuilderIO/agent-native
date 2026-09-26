@@ -525,7 +525,7 @@ describe("ModelSettingsPage", () => {
     await act(async () => {
       (
         [...defaultRow.querySelectorAll("button")].find(
-          (button) => button.textContent === "Try again",
+          (button) => button.textContent === "Retry",
         ) as HTMLElement
       ).click();
     });
@@ -535,6 +535,88 @@ describe("ModelSettingsPage", () => {
   it("offers Add provider while something can be added", async () => {
     await render();
     expect(state.header?.action).toBeTruthy();
+  });
+
+  it("starts an owner with no provider at an empty state that adds one", async () => {
+    state.listing = listing({
+      canManageOrg: true,
+      canUpdateDefault: true,
+      defaultModel: null,
+    });
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
+    });
+    await render();
+
+    const empty = row("llm");
+    expect(empty.textContent).toContain("Add a model provider");
+    expect(empty.textContent).toContain(
+      "The agent needs a provider to respond.",
+    );
+    expect(buttons(empty)).toEqual(["Add provider", "Connect Builder.io"]);
+    expect(document.getElementById("provider-org-builder")).toBeNull();
+
+    const defaultRow = row("default-model");
+    expect(defaultRow.textContent).toContain(
+      "Add a provider to choose a default model.",
+    );
+    expect(
+      defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
+        ?.disabled,
+    ).toBe(true);
+    expect(defaultRow.textContent).not.toContain("Not set");
+
+    await act(async () => {
+      (
+        [...empty.querySelectorAll("button")].find(
+          (button) => button.textContent === "Add provider",
+        ) as HTMLElement
+      ).click();
+    });
+    expect(
+      document.querySelector('[data-testid="provider-dialog"]'),
+    ).not.toBeNull();
+    act(() => {
+      (
+        [...empty.querySelectorAll("button")].find(
+          (button) => button.textContent === "Connect Builder.io",
+        ) as HTMLElement
+      ).click();
+    });
+    expect(state.builder.start).toHaveBeenCalledWith({
+      provisionAccount: false,
+      scope: "org",
+    });
+  });
+
+  it("tells a restricted member with no provider to ask an admin", async () => {
+    state.listing = listing({ personalKeysRestricted: true });
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: false, personal: true },
+    });
+    await render();
+
+    const empty = row("llm");
+    expect(empty.textContent).toContain("Add a model provider");
+    expect(empty.textContent).toContain("Ask an owner or admin to add one.");
+    expect(buttons(empty)).toEqual([]);
+    expect(document.getElementById("personal-providers")).toBeNull();
+  });
+
+  it("keeps the provider groups until the Builder.io status is known", async () => {
+    state.listing = listing({ canManageOrg: true });
+    state.builder = builderFlow({
+      hasFetchedStatus: false,
+      grants: null,
+    });
+    await render();
+
+    expect(container.textContent).not.toContain("Add a model provider");
+    expect(row("provider-org-builder")).toBeTruthy();
   });
 
   it("lists the ChatGPT subscription with a Labs badge while its lab is on", async () => {

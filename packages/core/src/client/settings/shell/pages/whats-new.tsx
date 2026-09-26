@@ -1,8 +1,19 @@
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+} from "@agent-native/toolkit/ui/empty";
+import { IconNews } from "@tabler/icons-react";
 import { useMemo } from "react";
 
-import { ChangelogSettingsCard } from "../../../changelog/Changelog.js";
+import {
+  ChangelogSettingsCard,
+  parseChangelog,
+} from "../../../changelog/Changelog.js";
 import { useT } from "../../../i18n.js";
 import { SettingsHeaderBadge } from "../../app-group/SettingsHeaderBadge.js";
+import { SettingsGroup } from "../../SettingsRow.js";
 import { useSettingsPageHeader } from "../context.js";
 import type { SettingsPageProps } from "../registry.js";
 
@@ -20,11 +31,33 @@ export default function WhatsNewSettingsPage({ bridge }: SettingsPageProps) {
     [appName, chipTooltip],
   );
   useSettingsPageHeader(header);
+  const markdown = bridge.whatsNewMarkdown;
+  const hasEntries = useMemo(
+    () => !!markdown && parseChangelog(markdown).length > 0,
+    [markdown],
+  );
   // A template that passed only a custom element keeps it.
-  if (!bridge.whatsNewMarkdown) return <>{bridge.whatsNew}</>;
+  if (!markdown) return <>{bridge.whatsNew}</>;
+  if (!hasEntries) {
+    return (
+      <SettingsGroup>
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <IconNews aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyDescription>
+              {t("agentChat.settingsShell.appGroup.whatsNewEmpty")}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </SettingsGroup>
+    );
+  }
   return (
     <ChangelogSettingsCard
-      markdown={bridge.whatsNewMarkdown}
+      markdown={markdown}
+      className="rounded-xl border-border/70"
       hideTitle
       emptyText={t("agentChat.settingsShell.appGroup.whatsNewEmpty")}
       viewAllLabel={t("agentChat.settingsShell.appGroup.whatsNewViewAll")}

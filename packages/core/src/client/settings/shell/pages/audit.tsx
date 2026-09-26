@@ -9,6 +9,13 @@ import {
   DialogTitle,
 } from "@agent-native/toolkit/ui/dialog";
 import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@agent-native/toolkit/ui/empty";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -102,13 +109,7 @@ function StatusBadge({ event }: { event: AuditEvent }) {
   const t = useT();
   if (event.status === "success") return null;
   return (
-    <Badge
-      variant="outline"
-      className={cn(
-        "shrink-0 px-2 py-0 font-medium",
-        event.status === "error" ? "text-destructive" : "text-muted-foreground",
-      )}
-    >
+    <Badge variant="outline">
       {event.status === "denied"
         ? t("agentChat.settings.audit.refused")
         : t("agentChat.settings.audit.failed")}
@@ -147,7 +148,7 @@ function AuditRow({
       type="button"
       data-audit-event={event.id}
       onClick={() => onOpen(event)}
-      className="flex w-full items-center gap-3 px-5 py-3.5 text-start transition-colors hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none sm:px-6"
+      className="flex w-full items-center gap-3 px-5 py-4 text-start transition-colors hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none sm:px-6"
     >
       <ActorMark event={event} />
       <span className="min-w-0 flex-1">
@@ -177,7 +178,7 @@ function AuditRowsSkeleton({ rows }: { rows: number }) {
       {Array.from({ length: rows }, (_, index) => (
         <div
           key={index}
-          className="flex items-center gap-3 px-5 py-3.5 sm:px-6"
+          className="flex items-center gap-3 px-5 py-4 sm:px-6"
           data-audit-skeleton=""
         >
           <Skeleton className="size-8 shrink-0 rounded-full" />
@@ -395,15 +396,18 @@ export default function AuditLogSettingsPage() {
   let body: ReactNode;
   if (events.isError && !events.data) {
     body = (
-      <div className="flex min-h-[60px] items-center gap-3 px-5 py-4 text-sm sm:px-6">
-        <span className="text-destructive">
+      <div
+        role="alert"
+        className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6"
+      >
+        <p className="text-sm text-destructive">
           {t("agentChat.settings.audit.loadFailed")}
-        </span>
+        </p>
         <Button
           type="button"
-          variant="ghost"
+          variant="secondary"
           size="sm"
-          className="ms-auto h-7 px-2 text-xs"
+          disabled={events.isFetching}
           onClick={() => void events.refetch()}
         >
           {t("agentChat.common.retry")}
@@ -414,10 +418,17 @@ export default function AuditLogSettingsPage() {
     body = <AuditRowsSkeleton rows={5} />;
   } else if (shown.length === 0) {
     body = (
-      <div className="flex min-h-[60px] items-center gap-3 px-5 py-4 text-sm text-muted-foreground sm:px-6">
-        <IconHistory className="size-4 shrink-0" aria-hidden="true" />
-        <span>{t("agentChat.settings.audit.empty")}</span>
-      </div>
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <IconHistory />
+          </EmptyMedia>
+          <EmptyTitle>{t("agentChat.settings.audit.empty")}</EmptyTitle>
+          <EmptyDescription>
+            {t("agentChat.settings.audit.emptyDescription")}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   } else {
     body = (
@@ -437,15 +448,17 @@ export default function AuditLogSettingsPage() {
             </Button>
           </div>
         ) : lastShownHasMore && events.isFetchNextPageError ? (
-          <div className="flex min-h-12 items-center gap-3 px-5 py-2 text-sm sm:px-6">
-            <span className="text-destructive">
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6"
+          >
+            <p className="text-sm text-destructive">
               {t("agentChat.settings.audit.loadFailed")}
-            </span>
+            </p>
             <Button
               type="button"
-              variant="ghost"
+              variant="secondary"
               size="sm"
-              className="ms-auto h-7 px-2 text-xs"
               onClick={() => void fetchNextPage()}
             >
               {t("agentChat.common.retry")}
@@ -463,7 +476,8 @@ export default function AuditLogSettingsPage() {
       <div className="flex flex-wrap items-center gap-2">
         <Select value={String(range)} onValueChange={changeRange}>
           <SelectTrigger
-            className="h-8 w-auto gap-2 text-sm"
+            size="sm"
+            className="w-auto"
             aria-label={t("agentChat.settings.audit.range")}
           >
             <SelectValue />
@@ -478,7 +492,8 @@ export default function AuditLogSettingsPage() {
         </Select>
         <Select value={app} onValueChange={changeApp}>
           <SelectTrigger
-            className="h-8 w-auto gap-2 text-sm"
+            size="sm"
+            className="w-auto"
             aria-label={t("agentChat.settings.audit.app")}
           >
             <SelectValue />

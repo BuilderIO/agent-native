@@ -1,11 +1,13 @@
 import { Skeleton } from "@agent-native/toolkit/design-system";
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import { Input } from "@agent-native/toolkit/ui/input";
 import { Label } from "@agent-native/toolkit/ui/label";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { Switch } from "@agent-native/toolkit/ui/switch";
-import { IconLoader2 } from "@tabler/icons-react";
+import { IconAlertCircle } from "@tabler/icons-react";
 import { useId, useState } from "react";
 
 import {
@@ -17,6 +19,7 @@ import {
 } from "../../components/ui/dialog.js";
 import { useFormatters, useT } from "../../i18n.js";
 import { useActionMutation, useActionQuery } from "../../use-action.js";
+import { cn } from "../../utils.js";
 import { SettingsRow } from "../SettingsRow.js";
 import { UsageGroup } from "./UsageGroup.js";
 
@@ -161,7 +164,7 @@ export function UsageAlertsGroup({
           control={
             <Button
               type="button"
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() => void query.refetch()}
               disabled={query.isFetching}
@@ -188,7 +191,7 @@ export function UsageAlertsGroup({
             label={ruleName(t, rule)}
             status={
               rule.isDefault ? (
-                <Badge variant="secondary">
+                <Badge variant="outline">
                   {t("agentChat.settings.usage.alertDefault")}
                 </Badge>
               ) : rule.appId ? (
@@ -205,7 +208,7 @@ export function UsageAlertsGroup({
                 {rule.enabled && rule.status === "triggered" ? (
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
                     disabled={mutation.isPending}
                     onClick={() =>
@@ -221,7 +224,7 @@ export function UsageAlertsGroup({
                 ) : null}
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   onClick={() => setEditing(rule)}
                 >
@@ -258,7 +261,6 @@ function AlertDialog({
   const [limit, setLimit] = useState(String(rule.limit));
   const [channels, setChannels] = useState<AlertChannel[]>(rule.channels);
   const [enabled, setEnabled] = useState(rule.enabled);
-  const [error, setError] = useState<string | null>(null);
   const mutation = useActionMutation<unknown, AlertMutationInput>(
     "manage-usage-alert",
   );
@@ -284,21 +286,18 @@ function AlertDialog({
         ? "agentChat.settings.usage.unitTokens"
         : "agentChat.settings.usage.unitCredits",
   );
+  const parsedLimit = Number(limit);
+  const limitValid =
+    limit.trim() !== "" && Number.isFinite(parsedLimit) && parsedLimit > 0;
+  const limitInvalid = limit.trim() !== "" && !limitValid;
+  const channelsValid = channels.length > 0;
 
   function save(next: {
     limit: number;
     channels: AlertChannel[];
     enabled: boolean;
   }) {
-    if (!Number.isFinite(next.limit) || next.limit <= 0) {
-      setError(t("agentChat.settings.usage.alertInvalidLimit"));
-      return;
-    }
-    if (next.channels.length === 0) {
-      setError(t("agentChat.settings.usage.alertNoChannel"));
-      return;
-    }
-    setError(null);
+    if (mutation.isPending) return;
     mutation.mutate(
       {
         operation: "save",
@@ -313,28 +312,26 @@ function AlertDialog({
         channels: next.channels,
         enabled: next.enabled,
       },
-      {
-        onSuccess: onClose,
-        onError: () => setError(t("agentChat.settings.usage.alertSaveError")),
-      },
+      { onSuccess: onClose },
     );
   }
 
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            {t("agentChat.settings.usage.alertDialogTitle", { name })}
-          </DialogTitle>
-        </DialogHeader>
         <form
           className="grid gap-5"
           onSubmit={(event) => {
             event.preventDefault();
-            save({ limit: Number(limit), channels, enabled });
+            if (!limitValid || !channelsValid) return;
+            save({ limit: parsedLimit, channels, enabled });
           }}
         >
+          <DialogHeader>
+            <DialogTitle>
+              {t("agentChat.settings.usage.alertDialogTitle", { name })}
+            </DialogTitle>
+          </DialogHeader>
           <div className="grid gap-2">
             <Label htmlFor={inputId}>
               {t("agentChat.settings.usage.alertThreshold")}
@@ -348,17 +345,30 @@ function AlertDialog({
                 step={rule.unit === "tokens" ? "1" : "0.01"}
                 value={limit}
                 onChange={(event) => setLimit(event.target.value)}
+                aria-invalid={limitInvalid ? true : undefined}
                 aria-describedby={`${inputId}-hint`}
+                autoFocus
               />
               <span className="shrink-0 text-sm text-muted-foreground">
                 {unitLabel}
               </span>
             </div>
-            <p id={`${inputId}-hint`} className="text-xs text-muted-foreground">
-              {hint}
+            <p
+              id={`${inputId}-hint`}
+              className={cn(
+                "text-sm",
+                limitInvalid ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {limitInvalid
+                ? t("agentChat.settings.usage.alertInvalidLimit")
+                : hint}
             </p>
           </div>
-          <fieldset className="grid gap-2">
+          <fieldset
+            className="grid gap-2"
+            aria-describedby={`${inputId}-channels`}
+          >
             <legend className="mb-2 text-sm font-medium">
               {t("agentChat.settings.usage.alertNotify")}
             </legend>
@@ -375,6 +385,7 @@ function AlertDialog({
                 >
                   <Checkbox
                     checked={channels.includes(channel)}
+                    aria-invalid={channelsValid ? undefined : true}
                     onCheckedChange={(checked) =>
                       setChannels((current) =>
                         checked === true
@@ -387,6 +398,14 @@ function AlertDialog({
                 </Label>
               ))}
             </div>
+            <p
+              id={`${inputId}-channels`}
+              className="min-h-5 text-sm text-destructive"
+            >
+              {channelsValid
+                ? null
+                : t("agentChat.settings.usage.alertNoChannel")}
+            </p>
           </fieldset>
           <div className="flex items-center justify-between gap-3">
             <Label htmlFor={switchId}>
@@ -398,16 +417,21 @@ function AlertDialog({
               onCheckedChange={setEnabled}
             />
           </div>
-          {error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
+          {mutation.error ? (
+            <Alert variant="destructive">
+              <IconAlertCircle aria-hidden="true" />
+              <AlertDescription>
+                {mutation.error.message ||
+                  t("agentChat.settings.usage.alertSaveError")}
+              </AlertDescription>
+            </Alert>
           ) : null}
-          <DialogFooter className="gap-2 sm:justify-between">
+          <DialogFooter className="gap-2 sm:space-x-0">
             {resetLimit !== undefined ? (
               <Button
                 type="button"
                 variant="ghost"
+                className="sm:me-auto"
                 disabled={mutation.isPending}
                 onClick={() => {
                   const reset = {
@@ -423,20 +447,23 @@ function AlertDialog({
               >
                 {t("agentChat.settings.usage.alertReset")}
               </Button>
-            ) : (
-              <span />
-            )}
-            <div className="flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" onClick={onClose}>
-                {t("agentChat.common.cancel")}
-              </Button>
-              <Button type="submit" disabled={mutation.isPending}>
-                {mutation.isPending ? (
-                  <IconLoader2 className="animate-spin" />
-                ) : null}
-                {t("agentChat.common.save")}
-              </Button>
-            </div>
+            ) : null}
+            <Button type="button" variant="secondary" onClick={onClose}>
+              {t("agentChat.common.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              disabled={!limitValid || !channelsValid || mutation.isPending}
+            >
+              {mutation.isPending ? (
+                <>
+                  <Spinner aria-hidden="true" />
+                  {t("agentChat.common.saving")}
+                </>
+              ) : (
+                t("agentChat.common.save")
+              )}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

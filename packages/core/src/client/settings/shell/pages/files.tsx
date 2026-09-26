@@ -35,14 +35,21 @@ export default function FilesSettingsPage() {
         view: "files",
         sources: ["personal"],
         emptyIcon: IconFolder,
-        emptyText: t("agentChat.settingsResources.files.empty"),
+        emptyTitle: t("agentChat.settingsResources.files.emptyTitle"),
+        emptyDescription: t("agentChat.settingsResources.files.empty"),
+        emptyAction: (
+          <AddFileMenu scope="personal" placement="empty" onCreated={open} />
+        ),
       },
       {
         id: "organization",
         view: "files",
         sources: ["shared"],
         emptyIcon: IconFolder,
-        emptyText: t("agentChat.settingsResources.files.orgEmpty"),
+        emptyTitle: t("agentChat.settingsResources.files.orgEmpty"),
+        emptyAction: (
+          <AddFileMenu scope="shared" placement="empty" onCreated={open} />
+        ),
         action: canEditOrg ? (
           <AddFileMenu scope="shared" placement="group" onCreated={open} />
         ) : undefined,

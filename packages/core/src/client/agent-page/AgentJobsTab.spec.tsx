@@ -304,12 +304,12 @@ describe("AgentJobsTab organization automations", () => {
     const eventRow = Array.from(container.querySelectorAll("article")).find(
       (row) => row.textContent?.includes("new lead alert"),
     );
-    const pauseButton = Array.from(
-      eventRow?.querySelectorAll("button") ?? [],
-    ).find((button) => button.textContent?.includes("Pause"));
+    const toggle =
+      eventRow?.querySelector<HTMLButtonElement>('[role="switch"]');
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
 
     act(() => {
-      pauseButton?.click();
+      toggle?.click();
     });
 
     expect(jobMocks.manageAutomation.org).toHaveBeenCalledWith(

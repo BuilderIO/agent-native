@@ -42,7 +42,8 @@ export const SERVICE_PROVIDER_LOGOS: Record<ServiceProviderId, string | null> =
 
 /**
  * The provider dialog that adds each service provider's organization key.
- * Voyage isn't a chat provider, so its key is added on the API keys page.
+ * Voyage isn't a chat provider, so its key is an ordinary API key
+ * (`SERVICE_PROVIDER_API_KEY_NAMES`).
  */
 export const SERVICE_PROVIDER_AGENT_IDS: Record<
   ServiceProviderId,
@@ -54,6 +55,13 @@ export const SERVICE_PROVIDER_AGENT_IDS: Record<
   openai: "openai",
   cohere: "cohere",
   voyage: null,
+};
+
+/** The API key a provider with no chat provider reads, e.g. Voyage's. */
+export const SERVICE_PROVIDER_API_KEY_NAMES: Partial<
+  Record<ServiceProviderId, string>
+> = {
+  voyage: "VOYAGE_API_KEY",
 };
 
 export const AGENT_PROVIDER_LOGOS: Partial<Record<AgentProviderId, string>> = {

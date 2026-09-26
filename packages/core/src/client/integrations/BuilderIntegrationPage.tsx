@@ -1,3 +1,4 @@
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -9,12 +10,13 @@ import {
 } from "@agent-native/toolkit/ui/alert-dialog";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
+  IconAlertCircle,
   IconBox,
   IconBrowser,
   IconCode,
   IconCpu,
-  IconLoader2,
   IconMicrophone,
   IconPalette,
   IconPhoto,
@@ -259,9 +261,8 @@ function ConnectButton({
     >
       <Button
         type="button"
-        variant="outline"
+        variant="secondary"
         size="sm"
-        className="h-8 px-3 text-xs"
         disabled={flow.connecting}
       >
         {t(`${K}.connect`)}
@@ -289,9 +290,8 @@ function ManageMenu({
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
-          variant="outline"
+          variant="secondary"
           size="sm"
-          className="h-8 px-3 text-xs"
           data-builder-manage={scope ?? "legacy"}
         >
           {t(`${K}.manage`)}
@@ -443,15 +443,18 @@ function DisconnectOrgDialog({
               })
             )}
           </ul>
-          {error ? (
-            <p role="alert" className="text-xs text-destructive">
-              {error}
-            </p>
-          ) : null}
         </div>
+        {error ? (
+          <Alert variant="destructive">
+            <IconAlertCircle aria-hidden="true" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending}>
-            {t("common.cancel")}
+          <AlertDialogCancel asChild disabled={pending}>
+            <Button type="button" variant="secondary">
+              {t("common.cancel")}
+            </Button>
           </AlertDialogCancel>
           <Button
             type="button"
@@ -460,10 +463,8 @@ function DisconnectOrgDialog({
             aria-busy={pending}
             onClick={() => void confirm()}
           >
-            {pending ? (
-              <IconLoader2 className="size-4 animate-spin" aria-hidden="true" />
-            ) : null}
-            {t(`${K}.disconnect`)}
+            {pending ? <Spinner aria-hidden="true" /> : null}
+            {pending ? t(`${K}.disconnecting`) : t(`${K}.disconnect`)}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -515,14 +516,15 @@ export function BuilderIntegrationPage({
   const connectingFor = (scope: BuilderConnectionScope | "legacy") =>
     flow.connecting && startedScope === scope;
   const cancelButton = (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      className="h-8 px-3 text-xs"
-      onClick={flow.cancel}
-    >
+    <Button type="button" variant="secondary" size="sm" onClick={flow.cancel}>
       {t("common.cancel")}
+    </Button>
+  );
+
+  const disconnectingButton = (
+    <Button type="button" variant="secondary" size="sm" disabled>
+      <Spinner aria-hidden="true" />
+      {t(`${K}.disconnecting`)}
     </Button>
   );
 
@@ -586,7 +588,7 @@ export function BuilderIntegrationPage({
   const personalControl = connectingFor("personal") ? (
     cancelButton
   ) : personalPending ? (
-    <IconLoader2 className="size-4 animate-spin text-muted-foreground" />
+    disconnectingButton
   ) : personalGrant ? (
     <ManageMenu
       flow={flow}
@@ -608,7 +610,7 @@ export function BuilderIntegrationPage({
   const soloControl = connectingFor("legacy") ? (
     cancelButton
   ) : personalPending ? (
-    <IconLoader2 className="size-4 animate-spin text-muted-foreground" />
+    disconnectingButton
   ) : soloConnected ? (
     flow.canDisconnect ? (
       <ManageMenu
@@ -643,9 +645,8 @@ export function BuilderIntegrationPage({
             control={
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
-                className="h-8 px-3 text-xs"
                 onClick={() => flow.retry()}
               >
                 {t(`${K}.retry`)}
@@ -701,24 +702,31 @@ export function BuilderIntegrationPage({
                 <RowSkeleton />
               </>
             ) : (
-              <UsageRows usages={usage.usages} />
+              <>
+                <UsageRows usages={usage.usages} />
+                {usage.failed ? (
+                  <SettingsRow
+                    id="builder-used-for-error"
+                    label={
+                      <span role="alert" className="text-destructive">
+                        {t(`${K}.usedForLoadFailed`)}
+                      </span>
+                    }
+                    control={
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={usage.retry}
+                      >
+                        {t(`${K}.retry`)}
+                      </Button>
+                    }
+                  />
+                ) : null}
+              </>
             )}
           </SettingsGroup>
-          {usage.failed ? (
-            <p
-              role="alert"
-              className="flex items-center gap-2 text-xs text-destructive"
-            >
-              {t(`${K}.usedForLoadFailed`)}
-              <button
-                type="button"
-                onClick={usage.retry}
-                className="font-medium underline underline-offset-2 hover:text-foreground"
-              >
-                {t(`${K}.retry`)}
-              </button>
-            </p>
-          ) : null}
           {context.isAdmin ? (
             <p className="text-xs leading-5 text-muted-foreground">
               <SentenceWithLink

@@ -242,7 +242,7 @@ describe("SecuritySettings", () => {
     await act(async () => {
       setInputValue(input("agent-native-two-factor-code"), "12");
     });
-    await click(button("Verify and enable"));
+    expect(button("Verify and enable")?.disabled).toBe(true);
     expect(document.body.textContent).toContain(
       "Enter the six-digit code from your authenticator app.",
     );

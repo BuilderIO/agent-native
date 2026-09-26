@@ -1,6 +1,6 @@
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
   AlertDialog,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -9,7 +9,8 @@ import {
 } from "@agent-native/toolkit/ui/alert-dialog";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { IconLoader2 } from "@tabler/icons-react";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { IconAlertCircle } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -109,13 +110,13 @@ function RemoveProviderContent({
         <AlertDialogTitle>
           {t(`${K}removeTitle`, { provider: name })}
         </AlertDialogTitle>
-      </AlertDialogHeader>
-      <div className="grid gap-4 text-sm">
         <AlertDialogDescription>
           {affectsOrg
             ? t(`${K}affectsOrg`, { org: org.data?.orgName ?? "" })
             : t(`${K}affectsYou`)}
         </AlertDialogDescription>
+      </AlertDialogHeader>
+      <div className="grid gap-4 text-sm">
         <div className="grid gap-2">
           <p className="font-medium">{t(`${K}whatHappens`)}</p>
           <div className="overflow-hidden rounded-lg border border-border/70">
@@ -156,25 +157,28 @@ function RemoveProviderContent({
           </div>
         </div>
         {error ? (
-          <p role="alert" className="text-destructive">
-            {error}
-          </p>
+          <Alert variant="destructive">
+            <IconAlertCircle />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         ) : null}
       </div>
       <AlertDialogFooter>
-        <AlertDialogCancel disabled={removing}>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => onOpenChange(false)}
+        >
           {t(`${K}cancel`)}
-        </AlertDialogCancel>
+        </Button>
         <Button
           type="button"
           variant="destructive"
           disabled={removing}
           onClick={() => void remove()}
         >
-          {removing ? (
-            <IconLoader2 className="size-4 animate-spin" aria-hidden />
-          ) : null}
-          {t(`${K}removeProvider`)}
+          {removing ? <Spinner /> : null}
+          {removing ? t(`${K}removing`) : t(`${K}removeProvider`)}
         </Button>
       </AlertDialogFooter>
     </AlertDialogContent>

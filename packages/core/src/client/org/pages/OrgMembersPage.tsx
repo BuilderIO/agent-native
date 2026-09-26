@@ -1,15 +1,5 @@
 import { Skeleton } from "@agent-native/toolkit/design-system";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import {
   Avatar,
   AvatarFallback,
   AvatarImage,
@@ -18,7 +8,10 @@ import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@agent-native/toolkit/ui/dialog";
@@ -28,7 +21,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
+import {
+  Empty,
+  EmptyContent,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@agent-native/toolkit/ui/empty";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@agent-native/toolkit/ui/input-group";
+import { Label } from "@agent-native/toolkit/ui/label";
 import {
   Select,
   SelectContent,
@@ -42,8 +47,9 @@ import {
   IconSearch,
   IconUserMinus,
   IconUserPlus,
+  IconUsers,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
@@ -64,7 +70,11 @@ import {
 } from "../hooks.js";
 import { AppPermissionsPanel, AppRoleControl } from "../MemberAppRoles.js";
 import { MemberPagination } from "../MembersSection.js";
-import { ErrorText } from "../TeamPrimitives.js";
+import {
+  DialogErrorAlert,
+  ErrorText,
+  PendingLabel,
+} from "../TeamPrimitives.js";
 import { OrgPageGate, orgRoleLabel } from "./OrgPageGate.js";
 
 interface MemberItem {
@@ -102,6 +112,7 @@ function RemoveMemberDialog({
 }) {
   const t = useT();
   const removeMember = useRemoveMember();
+  const transferId = useId();
   const [transferTo, setTransferTo] = useState(currentUserEmail);
   const options = useMemo(() => {
     if (!member) return [];
@@ -126,62 +137,75 @@ function RemoveMemberDialog({
   );
 
   return (
-    <AlertDialog
+    <Dialog
       open={member !== null}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
     >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            {t("agentChat.settingsOrg.members.removeTitle", { name })}
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {t("agentChat.settingsOrg.members.removeDescription", {
-              org: orgName,
-            })}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="grid gap-1.5 text-sm">
-          <span id="remove-member-transfer-label">{t("org.transferTo")}</span>
-          <Select
-            value={transferTo || undefined}
-            onValueChange={setTransferTo}
-            disabled={removeMember.isPending}
-          >
-            <SelectTrigger aria-labelledby="remove-member-transfer-label">
-              <SelectValue placeholder={t("org.transferTo")} />
-            </SelectTrigger>
-            <SelectContent>
-              {options.map((candidate) => (
-                <SelectItem key={candidate.email} value={candidate.email}>
-                  {candidate.name?.trim() || candidate.email}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <ErrorText error={removeMember.error} />
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t("org.cancel")}</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={!validTransfer || removeMember.isPending}
-            onClick={(event) => {
-              event.preventDefault();
-              if (!member || !validTransfer) return;
-              removeMember.mutate(
-                { email: member.email, transferTo },
-                { onSuccess: onClose },
-              );
-            }}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            {t("org.remove")}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      <DialogContent>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!member || !validTransfer || removeMember.isPending) return;
+            removeMember.mutate(
+              { email: member.email, transferTo },
+              { onSuccess: onClose },
+            );
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {t("agentChat.settingsOrg.members.removeTitle", { name })}
+            </DialogTitle>
+            <DialogDescription>
+              {t("agentChat.settingsOrg.members.removeDescription", {
+                org: orgName,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor={transferId}>{t("org.transferTo")}</Label>
+            <Select
+              value={transferTo || undefined}
+              onValueChange={setTransferTo}
+              disabled={removeMember.isPending}
+            >
+              <SelectTrigger id={transferId}>
+                <SelectValue placeholder={t("org.transferTo")} />
+              </SelectTrigger>
+              <SelectContent>
+                {options.map((candidate) => (
+                  <SelectItem key={candidate.email} value={candidate.email}>
+                    {candidate.name?.trim() || candidate.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogErrorAlert error={removeMember.error} />
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                {t("org.cancel")}
+              </Button>
+            </DialogClose>
+            <Button
+              type="submit"
+              variant="destructive"
+              disabled={!validTransfer || removeMember.isPending}
+            >
+              <PendingLabel
+                pending={removeMember.isPending}
+                label={t("org.remove")}
+                pendingLabel={t("agentChat.settingsOrg.members.removing")}
+              />
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -231,7 +255,8 @@ function MemberRoleControl({
           disabled={changeRole.isPending}
         >
           <SelectTrigger
-            className="h-9 w-32"
+            size="sm"
+            className="w-32"
             aria-label={t("agentChat.settingsOrg.members.roleFor", { name })}
           >
             <SelectValue />
@@ -259,8 +284,7 @@ function MemberRoleControl({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
+              size="icon-sm"
               aria-label={t("agentChat.settingsOrg.members.moreActions", {
                 name,
               })}
@@ -273,7 +297,7 @@ function MemberRoleControl({
               className="text-destructive focus:text-destructive"
               onSelect={onRemove}
             >
-              <IconUserMinus className="size-4" />
+              <IconUserMinus />
               {t("org.removeMember")}
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -307,7 +331,7 @@ function MemberRowItem({
   const avatarUrl = member.image?.trim() || null;
 
   return (
-    <div className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:px-6">
+    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <Avatar className="size-8 shrink-0">
           {avatarUrl ? <AvatarImage src={avatarUrl} alt={displayName} /> : null}
@@ -319,7 +343,7 @@ function MemberRowItem({
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium">{displayName}</span>
             {isCurrentUser ? (
-              <Badge variant="secondary">{t("org.you")}</Badge>
+              <Badge variant="outline">{t("org.you")}</Badge>
             ) : null}
           </div>
           {displayName !== member.email ? (
@@ -353,16 +377,13 @@ function MemberRowsSkeleton() {
   return (
     <div role="status" aria-busy="true">
       {["w-40", "w-52", "w-44"].map((width) => (
-        <div
-          key={width}
-          className="flex items-center gap-3 px-5 py-3.5 sm:px-6"
-        >
+        <div key={width} className="flex items-center gap-3 px-5 py-4 sm:px-6">
           <Skeleton className="size-8 rounded-full" />
           <div className="flex-1 space-y-2">
             <Skeleton className={`h-3.5 ${width}`} />
             <Skeleton className="h-3 w-28" />
           </div>
-          <Skeleton className="h-9 w-32" />
+          <Skeleton className="h-8 w-32" />
         </div>
       ))}
     </div>
@@ -459,25 +480,22 @@ function OrgMembersContent({
   return (
     <div className="space-y-8">
       <section id="members" className="scroll-mt-16 space-y-3">
-        <form
-          role="search"
-          className="relative w-full sm:w-72"
-          onSubmit={(event) => event.preventDefault()}
-        >
-          <IconSearch
-            className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <Input
-            type="search"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder={t("org.searchPeople")}
-            aria-label={t("org.searchPeople")}
-            aria-controls="organization-members-list"
-            autoComplete="off"
-            className="h-9 ps-8"
-          />
+        <form role="search" onSubmit={(event) => event.preventDefault()}>
+          <InputGroup size="sm">
+            <InputGroupInput
+              type="search"
+              size="sm"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder={t("org.searchPeople")}
+              aria-label={t("org.searchPeople")}
+              aria-controls="organization-members-list"
+              autoComplete="off"
+            />
+            <InputGroupAddon>
+              <IconSearch aria-hidden="true" />
+            </InputGroupAddon>
+          </InputGroup>
         </form>
         <div
           id="organization-members-list"
@@ -494,7 +512,7 @@ function OrgMembersContent({
               </p>
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 disabled={membersQuery.isFetching}
                 onClick={() => void membersQuery.refetch()}
@@ -505,9 +523,21 @@ function OrgMembersContent({
           ) : membersQuery.data === undefined ? (
             <MemberRowsSkeleton />
           ) : isEmpty ? (
-            <p className="px-5 py-10 text-center text-sm text-muted-foreground">
-              {search ? t("org.noPeopleFound") : t("org.noMembers")}
-            </p>
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  {search ? <IconSearch /> : <IconUsers />}
+                </EmptyMedia>
+                <EmptyTitle>
+                  {search ? t("org.noPeopleFound") : t("org.noMembers")}
+                </EmptyTitle>
+              </EmptyHeader>
+              {!search && canInvite ? (
+                <EmptyContent>
+                  <InviteMembersAction org={org} appRoles={appRoles} />
+                </EmptyContent>
+              ) : null}
+            </Empty>
           ) : (
             <>
               {members.map((member) => (
@@ -526,7 +556,7 @@ function OrgMembersContent({
               {pendingInvites.map((invite) => (
                 <div
                   key={invite.id}
-                  className="flex items-center gap-3 px-5 py-3.5 sm:px-6"
+                  className="flex items-center gap-3 px-5 py-4 sm:px-6"
                 >
                   <Avatar className="size-8 shrink-0 opacity-70">
                     <AvatarFallback className="border border-border bg-background text-xs font-medium text-muted-foreground">

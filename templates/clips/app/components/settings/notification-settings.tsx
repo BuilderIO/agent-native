@@ -19,8 +19,9 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+
+import { LoadFailedRow } from "./load-failed-row";
 
 const DEFAULT_PREFERENCES = getClipsNotificationPreferences(null);
 
@@ -76,18 +77,7 @@ export function NotificationSettings({ title }: { title?: string } = {}) {
   if (query.isError) {
     return (
       <SettingsGroup title={groupTitle}>
-        <SettingsRow
-          label={t("settings.emailNotifications")}
-          control={
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => query.refetch()}
-            >
-              {t("libraryGrid.retry")}
-            </Button>
-          }
-        />
+        <LoadFailedRow onRetry={() => void query.refetch()} />
       </SettingsGroup>
     );
   }

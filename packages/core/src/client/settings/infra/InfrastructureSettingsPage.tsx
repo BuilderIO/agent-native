@@ -1,6 +1,7 @@
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconBox,
   IconBrowser,
@@ -36,11 +37,13 @@ import type { AgentProviderId } from "../../agent-provider-catalog.js";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog.js";
 import { useFormatters, useT } from "../../i18n.js";
 import { callAction, useActionQuery } from "../../use-action.js";
+import { ServiceKeyDialog } from "../api-keys/ApiKeyDialogs.js";
 import { DeferredBuilderConnectPopover } from "../deferred-builder-connect-popover.js";
 import type { ModelProvidersListing } from "../model/model-page-state.js";
 import { ProviderDialog } from "../model/ProviderDialog.js";
@@ -67,6 +70,7 @@ import {
   HOSTING_PLATFORM_LABELS,
   HOSTING_PLATFORM_LOGOS,
   SERVICE_PROVIDER_AGENT_IDS,
+  SERVICE_PROVIDER_API_KEY_NAMES,
   SERVICE_PROVIDER_LABELS,
   aiModelSources,
   appAddress,
@@ -147,6 +151,16 @@ const BUILDER_ONLY_SERVICES: Record<
 type ServiceKeyDialog =
   | { mode: "add-from-service"; service: ServiceId; provider: AgentProviderId }
   | { mode: "manage"; provider: AgentProviderId };
+
+/** A service provider's key that is an ordinary API key, like Voyage's. */
+type ServiceApiKeyDialog =
+  | {
+      mode: "add";
+      keyName: string;
+      service: ServiceId;
+      provider: ServiceProviderId;
+    }
+  | { mode: "manage"; keyName: string };
 
 /** A read of a POST action, keyed like useActionQuery so invalidation refreshes it. */
 function usePostActionRead<T>(name: string, enabled: boolean) {
@@ -240,6 +254,9 @@ function InfrastructurePageContent({
   const [storageOpen, setStorageOpen] = useState(false);
   const [serviceOpen, setServiceOpen] = useState<ServiceId | null>(null);
   const [keyDialog, setKeyDialog] = useState<ServiceKeyDialog | null>(null);
+  const [apiKeyDialog, setApiKeyDialog] = useState<ServiceApiKeyDialog | null>(
+    null,
+  );
   const [environmentOpen, setEnvironmentOpen] =
     useState<EnvironmentDialogId | null>(null);
 
@@ -253,9 +270,13 @@ function InfrastructurePageContent({
   const builderUnknown = hasOrg && flow.grants === null;
   const tags = infra.data?.setupTags;
 
-  const setService = (service: ServiceId, provider: ServiceProviderId) => {
-    const label = t(PROVIDER_SERVICES[service].labelKey);
-    const name = SERVICE_PROVIDER_LABELS[provider];
+  // The row changes before the server answers and rolls back on failure. The
+  // service dialog awaits the write so a failure stays in the dialog; a write
+  // that follows a key dialog has no dialog left open, so it reports by toast.
+  const setService = async (
+    service: ServiceId,
+    provider: ServiceProviderId,
+  ): Promise<void> => {
     const previous =
       queryClient.getQueryData<ServiceProvidersStatus>(SERVICES_QUERY_KEY);
     void queryClient.cancelQueries({ queryKey: SERVICES_QUERY_KEY });
@@ -265,24 +286,37 @@ function InfrastructurePageContent({
         optimisticServiceStatus(previous, service, provider),
       );
     }
-    callAction<ServiceProvidersStatus>(
-      "manage-service-providers" as never,
-      { service, provider } as never,
-    ).then(
-      (result) => {
-        queryClient.setQueryData(SERVICES_QUERY_KEY, result);
-        toast.success(
-          t(`${K}serviceSaved`, { service: label, provider: name }),
-        );
-        if (result.reindexRequired) toast(t(`${K}reindex`));
-      },
-      (cause: unknown) => {
-        if (previous) queryClient.setQueryData(SERVICES_QUERY_KEY, previous);
-        toast.error(t(`${K}serviceSaveFailed`, { service: label }), {
-          description: errorMessage(cause),
-        });
-      },
-    );
+    try {
+      const result = await callAction<ServiceProvidersStatus>(
+        "manage-service-providers" as never,
+        { service, provider } as never,
+      );
+      queryClient.setQueryData(SERVICES_QUERY_KEY, result);
+      toast.success(
+        t(`${K}serviceSaved`, {
+          service: t(PROVIDER_SERVICES[service].labelKey),
+          provider: SERVICE_PROVIDER_LABELS[provider],
+        }),
+      );
+      if (result.reindexRequired) toast(t(`${K}reindex`));
+    } catch (cause) {
+      if (previous) queryClient.setQueryData(SERVICES_QUERY_KEY, previous);
+      throw cause;
+    }
+  };
+
+  const setServiceAfterKey = (
+    service: ServiceId,
+    provider: ServiceProviderId,
+  ) => {
+    setService(service, provider).catch((cause: unknown) => {
+      toast.error(
+        t(`${K}serviceSaveFailed`, {
+          service: t(PROVIDER_SERVICES[service].labelKey),
+        }),
+        { description: errorMessage(cause) },
+      );
+    });
   };
 
   const openKeyForService = (
@@ -291,9 +325,11 @@ function InfrastructurePageContent({
   ) => {
     const agentProvider = SERVICE_PROVIDER_AGENT_IDS[provider];
     setServiceOpen(null);
-    // Voyage isn't a chat provider; its key is added on the API keys page.
     if (!agentProvider) {
-      navigate("api-keys");
+      const keyName = SERVICE_PROVIDER_API_KEY_NAMES[provider];
+      if (keyName) {
+        setApiKeyDialog({ mode: "add", keyName, service, provider });
+      }
       return;
     }
     setKeyDialog({
@@ -307,7 +343,8 @@ function InfrastructurePageContent({
     const agentProvider = SERVICE_PROVIDER_AGENT_IDS[provider];
     setServiceOpen(null);
     if (!agentProvider) {
-      navigate("api-keys");
+      const keyName = SERVICE_PROVIDER_API_KEY_NAMES[provider];
+      if (keyName) setApiKeyDialog({ mode: "manage", keyName });
       return;
     }
     setKeyDialog({ mode: "manage", provider: agentProvider });
@@ -315,11 +352,7 @@ function InfrastructurePageContent({
 
   const tag = (value: InfrastructureSetupTag | null | undefined) =>
     value ? (
-      <Badge
-        variant="secondary"
-        className="text-[11px] font-normal"
-        data-setup-tag={value}
-      >
+      <Badge variant="outline" data-setup-tag={value}>
         {value === "required" ? t(`${K}required`) : t(`${K}recommended`)}
       </Badge>
     ) : undefined;
@@ -368,9 +401,9 @@ function InfrastructurePageContent({
             type="button"
             variant="secondary"
             size="sm"
-            className="h-8 px-3"
             disabled={flow.connecting}
           >
+            {flow.connecting ? <Spinner aria-hidden /> : null}
             {flow.connecting ? t(`${K}connecting`) : t(`${K}connect`)}
           </Button>
         </DeferredBuilderConnectPopover>
@@ -539,12 +572,7 @@ function InfrastructurePageContent({
                   label={t(entry.labelKey)}
                   status={
                     builderConnected ? undefined : (
-                      <Badge
-                        variant="secondary"
-                        className="text-[11px] font-normal"
-                      >
-                        {t(`${K}needsBuilder`)}
-                      </Badge>
+                      <Badge variant="outline">{t(`${K}needsBuilder`)}</Badge>
                     )
                   }
                   description={rowDescription(
@@ -569,16 +597,13 @@ function InfrastructurePageContent({
         {storageOpen ? (
           <DialogContent
             className="max-w-2xl"
-            closeLabel={t(`${K}cancel`)}
-            aria-describedby={undefined}
+            closeLabel={t(`${K}close`)}
             data-storage-dialog=""
           >
             <DialogHeader>
               <DialogTitle>{t(`${K}storageTitle`)}</DialogTitle>
+              <DialogDescription>{t(`${K}storageIntro`)}</DialogDescription>
             </DialogHeader>
-            <p className="text-sm leading-6 text-muted-foreground">
-              {t(`${K}storageIntro`)}
-            </p>
             <StorageSettingsForm
               onCancel={() => setStorageOpen(false)}
               onSaved={(status) => {
@@ -609,9 +634,9 @@ function InfrastructurePageContent({
         onOpenChange={(open) => {
           if (!open) setServiceOpen(null);
         }}
-        onSave={(provider) => {
-          if (serviceOpen) setService(serviceOpen, provider);
-        }}
+        onSave={(provider) =>
+          serviceOpen ? setService(serviceOpen, provider) : Promise.resolve()
+        }
         onAddKey={(provider) => {
           if (serviceOpen) openKeyForService(serviceOpen, provider);
         }}
@@ -641,7 +666,23 @@ function InfrastructurePageContent({
           const serviceProvider = (
             Object.keys(SERVICE_PROVIDER_AGENT_IDS) as ServiceProviderId[]
           ).find((id) => SERVICE_PROVIDER_AGENT_IDS[id] === provider);
-          if (serviceProvider) setService(keyDialog.service, serviceProvider);
+          if (serviceProvider) {
+            setServiceAfterKey(keyDialog.service, serviceProvider);
+          }
+        }}
+      />
+
+      <ServiceKeyDialog
+        open={apiKeyDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setApiKeyDialog(null);
+        }}
+        keyName={apiKeyDialog?.keyName ?? ""}
+        mode={apiKeyDialog?.mode ?? "add"}
+        onSaved={() => {
+          if (apiKeyDialog?.mode === "add") {
+            setServiceAfterKey(apiKeyDialog.service, apiKeyDialog.provider);
+          }
         }}
       />
 
@@ -779,9 +820,7 @@ function EnvironmentGroup({
         label={t(`${K}variables`)}
         status={
           missing.length ? (
-            <Badge variant="secondary" className="text-[11px] font-normal">
-              {t(`${K}required`)}
-            </Badge>
+            <Badge variant="outline">{t(`${K}required`)}</Badge>
           ) : undefined
         }
         description={variablesDescription}
@@ -799,13 +838,7 @@ function RowButton({
   onClick: () => void;
 }) {
   return (
-    <Button
-      type="button"
-      variant="secondary"
-      size="sm"
-      className="h-8 px-3"
-      onClick={onClick}
-    >
+    <Button type="button" variant="secondary" size="sm" onClick={onClick}>
       {children}
     </Button>
   );

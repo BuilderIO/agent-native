@@ -103,7 +103,7 @@ export function FeatureKeysGroup({
           control={
             <Button
               type="button"
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() =>
                 navigate("api-keys", null, {

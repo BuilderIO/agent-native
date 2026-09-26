@@ -268,6 +268,7 @@ const messages: AgentChatTranslation = {
   "agents.formDescriptionPlaceholder": "Descripción (opcional)",
   "agents.formCheck": "Comprobar",
   "agents.formAdd": "Añadir",
+  "agents.formAdding": "Añadiendo",
   "agents.formAddAnyway": "Añadir de todos modos",
   "agents.formRemove": "Quitar",
   "agents.formSaveFailed": "No se pudo guardar el agente.",
@@ -1115,6 +1116,8 @@ const messages: AgentChatTranslation = {
   "settings.audit.changedBy": "Cambiado por",
   "settings.audit.close": "Cerrar",
   "settings.audit.empty": "No hay cambios en este periodo.",
+  "settings.audit.emptyDescription":
+    "Aquí aparecen los cambios que hacen las personas y el agente.",
   "settings.audit.failed": "Error",
   "settings.audit.input": "Entrada",
   "settings.audit.inputLoadFailed": "No se pudo cargar la entrada.",
@@ -1165,6 +1168,7 @@ const messages: AgentChatTranslation = {
     "Pierde el acceso a {{org}}. Lo que le pertenece pasa a la persona que elijas.",
   "settingsOrg.members.roleFor": "Rol de {{name}}",
   "settingsOrg.members.moreActions": "Más acciones para {{name}}",
+  "settingsOrg.members.removing": "Quitando…",
   "settingsOrg.members.groupsEmpty":
     "Agrupa a los miembros para gestionar juntos el acceso a las apps.",
   "settingsOrg.auth.signIn": "Inicio de sesión",
@@ -1245,6 +1249,7 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.addAsAdmins": "Añadir como administradores",
   "settingsOrg.invite.add": "Añadir",
   "settingsOrg.invite.send": "Enviar invitaciones",
+  "settingsOrg.invite.sending": "Enviando…",
   "settingsOrg.invite.close": "Cerrar",
   "settingsOrg.invite.csvNoEmails":
     "No se encontraron correos válidos en este CSV.",
@@ -1314,11 +1319,13 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.sendConfirmation": "Enviar confirmación",
   "settingsShell.account.sending": "Enviando...",
   "settingsShell.account.setUpTwoFactor": "Configurar dos factores",
+  "settingsShell.account.settingUp": "Configurando...",
   "settingsShell.account.signIn": "Inicio de sesión",
   "settingsShell.account.timezone": "Zona horaria",
   "settingsShell.account.timezoneDescription":
     "Se usa para las marcas de tiempo y las automatizaciones programadas.",
   "settingsShell.account.turnOffTwoFactor": "Desactivar dos factores",
+  "settingsShell.account.turningOff": "Desactivando...",
   "settingsShell.account.twoFactor": "Autenticación de dos factores",
   "settingsShell.account.twoFactorBackupCodes":
     "Guarda estos códigos de respaldo en un lugar seguro. Cada uno se puede usar una vez si pierdes el acceso a tu autenticador.",
@@ -1344,6 +1351,7 @@ const messages: AgentChatTranslation = {
     "Configurar la autenticación de dos factores",
   "settingsShell.account.uploading": "Subiendo...",
   "settingsShell.account.verifyAndEnable": "Verificar y activar",
+  "settingsShell.account.verifying": "Verificando...",
   "settingsShell.account.voiceBatch": "Por lotes",
   "settingsShell.account.voiceDescription":
     "Elige cómo se transcribe la entrada de voz.",
@@ -1396,6 +1404,7 @@ const messages: AgentChatTranslation = {
   "settingsShell.builder.connectedTo": "Conectado · {{space}}",
   "settingsShell.builder.connection": "Conexión",
   "settingsShell.builder.disconnect": "Desconectar",
+  "settingsShell.builder.disconnecting": "Desconectando…",
   "settingsShell.builder.disconnectBody":
     "Afecta a todas las personas de {{org}} que no hayan conectado su propia cuenta.",
   "settingsShell.builder.disconnectFailed":
@@ -1513,6 +1522,7 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.removeCredentials.confirm": "Quitar",
   "settingsShell.channels.removeCredentials.failed":
     "No se pudieron quitar las credenciales.",
+  "settingsShell.channels.removeCredentials.removing": "Quitando…",
   "settingsShell.channels.removeCredentials.title":
     "¿Quitar las credenciales de {{platform}}?",
   "settingsShell.channels.retry": "Reintentar",
@@ -1528,6 +1538,7 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.setup.replaceAria": "Reemplazar {{key}}",
   "settingsShell.channels.setup.save": "Guardar",
   "settingsShell.channels.setup.saveAndTurnOn": "Guardar y activar",
+  "settingsShell.channels.setup.saving": "Guardando…",
   "settingsShell.channels.setup.saved": "Guardada",
   "settingsShell.channels.setup.savedElsewhere": "Guardada fuera de Canales",
   "settingsShell.channels.setup.setInEnvironment":
@@ -1569,10 +1580,22 @@ const messages: AgentChatTranslation = {
   "settingsShell.integrations.category.sales": "Ventas",
   "settingsShell.integrations.category.support": "Soporte",
   "settingsShell.integrations.connectName": "Conectar {{name}}",
+  "settingsShell.integrations.connectedEmptyDescription":
+    "Conecta una herramienta abajo y el agente podrá usarla en el chat.",
+  "settingsShell.integrations.connectedEmptyTitle": "Aún no hay nada conectado",
   "settingsShell.integrations.footnote":
     "Estas son las herramientas que usa el agente. Para usar {{app}} desde Claude, ChatGPT o Cursor, consulta {{link}}.",
+  "settingsShell.integrations.moreActions": "Más acciones para {{name}}",
   "settingsShell.integrations.noResults":
     "Ninguna integración coincide. Prueba con otro nombre.",
+  "settingsShell.integrations.remove": "Quitar",
+  "settingsShell.integrations.removeFailed": "No se pudo quitar {{name}}.",
+  "settingsShell.integrations.removePersonal":
+    "El agente dejará de usar {{name}} para ti.",
+  "settingsShell.integrations.removeTitle": "¿Quitar {{name}}?",
+  "settingsShell.integrations.removeWorkspace":
+    "El agente dejará de usar {{name}} para todos en el espacio de trabajo.",
+  "settingsShell.integrations.removing": "Quitando…",
   "settingsShell.integrations.retry": "Reintentar",
   "settingsShell.integrations.seeMoreMany": "Ver {{first}}, {{second}} y más",
   "settingsShell.integrations.seeMoreOne": "Ver {{first}}",
@@ -1637,7 +1660,7 @@ const messages: AgentChatTranslation = {
   "settingsResources.openDispatch": "Abrir Dispatch",
   "settingsResources.allApps": "Todas las apps",
   "settingsResources.allAppsHint": "Dispatch comparte esto con todas las apps",
-  "settingsResources.dispatchEmpty": "No se comparte nada desde Dispatch.",
+  "settingsResources.dispatchEmpty": "No se comparte nada desde Dispatch",
   "settingsResources.loadFailed": "No se pudieron cargar estos recursos.",
   "settingsResources.moreActions": "Más acciones",
   "settingsResources.open": "Abrir",
@@ -1650,10 +1673,14 @@ const messages: AgentChatTranslation = {
   "settingsResources.cancel": "Cancelar",
   "settingsResources.save": "Guardar",
   "settingsResources.create": "Crear",
+  "settingsResources.saving": "Guardando",
+  "settingsResources.creating": "Creando",
+  "settingsResources.removing": "Quitando",
   "settingsResources.instructions.empty":
     "Dile al agente cómo trabajar contigo.",
+  "settingsResources.instructions.emptyTitle": "Aún no hay instrucciones",
   "settingsResources.instructions.orgEmpty":
-    "Aún no hay instrucciones para {{org}}.",
+    "Aún no hay instrucciones para {{org}}",
   "settingsResources.instructions.add": "Añadir instrucciones",
   "settingsResources.instructions.fieldLabel":
     "¿Cómo debe trabajar el agente contigo?",
@@ -1663,14 +1690,17 @@ const messages: AgentChatTranslation = {
     "Se guarda como AGENTS.md en tus recursos personales.",
   "settingsResources.memory.empty":
     "Aquí el agente guarda lo que aprende de ti.",
-  "settingsResources.memory.orgEmpty": "Aún no hay memorias compartidas.",
+  "settingsResources.memory.emptyTitle": "Aún no hay memorias",
+  "settingsResources.memory.orgEmpty": "Aún no hay memorias compartidas",
   "settingsResources.memory.add": "Añadir memoria",
   "settingsResources.learnings.empty":
     "Las correcciones que le das al agente se guardan como aprendizajes.",
+  "settingsResources.learnings.emptyTitle": "Aún no hay aprendizajes",
   "settingsResources.learnings.add": "Añadir aprendizaje",
   "settingsResources.skills.empty":
     "Guarda un flujo de trabajo una vez y el agente podrá reutilizarlo.",
-  "settingsResources.skills.orgEmpty": "Aún no hay habilidades compartidas.",
+  "settingsResources.skills.emptyTitle": "Aún no hay habilidades",
+  "settingsResources.skills.orgEmpty": "Aún no hay habilidades compartidas",
   "settingsResources.skills.add": "Añadir habilidad",
   "settingsResources.skills.describe": "Descríbesela al agente",
   "settingsResources.skills.upload": "Subir un archivo de habilidad",
@@ -1678,7 +1708,8 @@ const messages: AgentChatTranslation = {
     "Una habilidad que revisa pull requests en busca de problemas de seguridad",
   "settingsResources.files.empty":
     "Añade un archivo para darle más contexto a tu agente.",
-  "settingsResources.files.orgEmpty": "Aún no hay archivos compartidos.",
+  "settingsResources.files.emptyTitle": "Aún no hay archivos",
+  "settingsResources.files.orgEmpty": "Aún no hay archivos compartidos",
   "settingsResources.files.add": "Añadir archivo",
   "settingsResources.files.upload": "Subir archivo",
   "settingsResources.files.create": "Crear archivo",
@@ -1700,6 +1731,7 @@ const messages: AgentChatTranslation = {
   "settingsInfra.close": "Cerrar",
   "settingsInfra.cancel": "Cancelar",
   "settingsInfra.save": "Guardar",
+  "settingsInfra.saving": "Guardando…",
   "settingsInfra.required": "Obligatorio",
   "settingsInfra.recommended": "Recomendado",
   "settingsInfra.optional": "Opcional",
@@ -1808,8 +1840,10 @@ const messages: AgentChatTranslation = {
   "settingsInfra.copied": "Copiado",
   "settingsInfra.copyFailed": "No se pudo copiar.",
   "settingsApiKeys.addKey": "Añadir clave",
+  "settingsApiKeys.adding": "Añadiendo…",
   "settingsApiKeys.availableTo": "Disponible para",
   "settingsApiKeys.deleteKey": "Eliminar clave",
+  "settingsApiKeys.deleting": "Eliminando…",
   "settingsApiKeys.deleteTitle": "¿Eliminar {{name}}?",
   "settingsApiKeys.everyoneIn": "Todos en {{org}}",
   "settingsApiKeys.getKey": "Obtener clave",
@@ -1829,11 +1863,14 @@ const messages: AgentChatTranslation = {
     "Para usar tu propio proveedor de modelos, {{link}}.",
   "settingsApiKeys.modelFootnoteLink": "añádelo en Modelo",
   "settingsApiKeys.name": "Nombre",
-  "settingsApiKeys.noKeys": "Aún no hay claves.",
+  "settingsApiKeys.noKeys": "Aún no hay claves",
+  "settingsApiKeys.noKeysDescription":
+    "Añade una clave para que tus apps y el agente puedan acceder a un servicio.",
   "settingsApiKeys.orgKeys": "Claves de la organización",
   "settingsApiKeys.providerInModel": "Añade {{provider}} en {{link}}.",
   "settingsApiKeys.replaceTitle": "Reemplazar {{name}}",
   "settingsApiKeys.replaceValue": "Reemplazar valor",
+  "settingsApiKeys.saving": "Guardando…",
   "settingsApiKeys.showKeys_many": "Mostrar {{count}} claves",
   "settingsApiKeys.showKeys_one": "Mostrar {{count}} clave",
   "settingsApiKeys.showKeys_other": "Mostrar {{count}} claves",
@@ -1846,6 +1883,7 @@ const messages: AgentChatTranslation = {
   "settingsModel.addEndpoint": "Añadir una URL de endpoint",
   "settingsModel.addNamed": "Añadir {{provider}}",
   "settingsModel.addProvider": "Añadir proveedor",
+  "settingsModel.adding": "Añadiendo",
   "settingsModel.affectsOrg": "Esto afecta a todas las personas de {{org}}.",
   "settingsModel.affectsYou": "Esto solo te afecta a ti.",
   "settingsModel.allApps": "Todas las apps",
@@ -1887,6 +1925,8 @@ const messages: AgentChatTranslation = {
   "settingsModel.connecting": "Conectando…",
   "settingsModel.defaultModelDescription":
     "Se usa en todas las apps, salvo que la app defina el suyo.",
+  "settingsModel.defaultModelNeedsProvider":
+    "Añade un proveedor para elegir un modelo predeterminado.",
   "settingsModel.disconnect": "Desconectar",
   "settingsModel.effectDefaultStops":
     "Los chats se detienen hasta que se configure otro proveedor.",
@@ -1899,6 +1939,11 @@ const messages: AgentChatTranslation = {
     "Sigue funcionando con la clave del espacio de trabajo.",
   "settingsModel.effectModelsLeave":
     "Los modelos de {{provider}} salen del selector de modelos.",
+  "settingsModel.emptyAskAdmin":
+    "Pide a un propietario o administrador que añada uno.",
+  "settingsModel.emptyDescription":
+    "El agente necesita un proveedor para responder.",
+  "settingsModel.emptyTitle": "Añade un proveedor de modelos",
   "settingsModel.endpointFirst": "Primero introduce la URL del endpoint.",
   "settingsModel.endpointHint":
     "Opcional. Úsala para LiteLLM u otra pasarela compatible con OpenAI.",
@@ -1964,6 +2009,7 @@ const messages: AgentChatTranslation = {
   "settingsModel.remove": "Quitar",
   "settingsModel.removeProvider": "Quitar proveedor",
   "settingsModel.removeTitle": "¿Quitar {{provider}}?",
+  "settingsModel.removing": "Quitando",
   "settingsModel.replace": "Sustituir",
   "settingsModel.replaceKey": "Sustituir clave",
   "settingsModel.restrictBody":
@@ -1990,10 +2036,12 @@ const messages: AgentChatTranslation = {
     "Los propietarios y administradores restringieron las claves de API personales.",
   "settingsModel.restrictedRow":
     "No se usa mientras las claves de API personales estén restringidas.",
+  "settingsModel.restricting": "Restringiendo",
   "settingsModel.retry": "Reintentar",
   "settingsModel.save": "Guardar",
   "settingsModel.savedRejected":
     "{{provider}} rechazó la clave guardada. Pega una nueva.",
+  "settingsModel.saving": "Guardando",
   "settingsModel.selectAll": "Seleccionar todo",
   "settingsModel.settingLoadFailed": "No se pudo cargar este ajuste.",
   "settingsModel.unreachableHeadline": "No se pudo conectar con {{provider}}",
@@ -2012,12 +2060,14 @@ const messages: AgentChatTranslation = {
   "settingsSubAgents.external": "Agentes externos",
   "settingsSubAgents.custom": "Agentes personalizados",
   "settingsSubAgents.managedByAdmins": "Gestionado por administradores",
-  "settingsSubAgents.appsEmpty": "Aún no hay apps conectadas.",
+  "settingsSubAgents.appsEmpty": "Aún no hay apps conectadas",
   "settingsSubAgents.externalEmpty":
     "Conecta Foundry, Gemini Enterprise, Anthropic o cualquier agente A2A.",
+  "settingsSubAgents.externalEmptyTitle": "Aún no hay agentes externos",
   "settingsSubAgents.browseDirectory": "Explorar directorio",
   "settingsSubAgents.customEmpty":
     "Define un agente especializado en el que el agente principal pueda delegar.",
+  "settingsSubAgents.customEmptyTitle": "Aún no hay agentes personalizados",
   "settingsSubAgents.addAgent": "Añadir agente",
   "settingsSubAgents.describe": "Descríbelo al agente",
   "settingsSubAgents.describePlaceholder":

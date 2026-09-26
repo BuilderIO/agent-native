@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useT } from "../../../i18n.js";
 import type { ResourceSettingsGroupConfig } from "../../../resources/ResourceSettingsGroups.js";
 import {
-  EmptyRowButton,
+  EmptyActionButton,
   InstructionsDialog,
   ResourceSettingsPage,
   useDispatchGroup,
@@ -26,9 +26,10 @@ export default function InstructionsSettingsPage() {
         view: "instructions",
         sources: ["personal"],
         emptyIcon: IconFileText,
-        emptyText: t("agentChat.settingsResources.instructions.empty"),
+        emptyTitle: t("agentChat.settingsResources.instructions.emptyTitle"),
+        emptyDescription: t("agentChat.settingsResources.instructions.empty"),
         emptyAction: (
-          <EmptyRowButton
+          <EmptyActionButton
             label={t("agentChat.settingsResources.instructions.add")}
             onClick={() => setAdding(true)}
           />
@@ -39,7 +40,7 @@ export default function InstructionsSettingsPage() {
         view: "instructions",
         sources: ["shared"],
         emptyIcon: IconFileText,
-        emptyText: t("agentChat.settingsResources.instructions.orgEmpty", {
+        emptyTitle: t("agentChat.settingsResources.instructions.orgEmpty", {
           org: orgName || t("agentChat.settingsResources.organization"),
         }),
       },

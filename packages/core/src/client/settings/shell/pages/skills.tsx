@@ -35,14 +35,21 @@ export default function SkillsSettingsPage() {
         view: "skills",
         sources: ["personal"],
         emptyIcon: IconBolt,
-        emptyText: t("agentChat.settingsResources.skills.empty"),
+        emptyTitle: t("agentChat.settingsResources.skills.emptyTitle"),
+        emptyDescription: t("agentChat.settingsResources.skills.empty"),
+        emptyAction: (
+          <AddSkillMenu scope="personal" placement="empty" onCreated={open} />
+        ),
       },
       {
         id: "organization",
         view: "skills",
         sources: ["shared"],
         emptyIcon: IconBolt,
-        emptyText: t("agentChat.settingsResources.skills.orgEmpty"),
+        emptyTitle: t("agentChat.settingsResources.skills.orgEmpty"),
+        emptyAction: (
+          <AddSkillMenu scope="shared" placement="empty" onCreated={open} />
+        ),
         action: canEditOrg ? (
           <AddSkillMenu scope="shared" placement="group" onCreated={open} />
         ) : undefined,

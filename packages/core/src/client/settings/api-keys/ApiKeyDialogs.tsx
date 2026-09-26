@@ -1,3 +1,4 @@
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -18,9 +19,14 @@ import {
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { IconExternalLink, IconLoader2, IconLock } from "@tabler/icons-react";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import {
+  IconAlertCircle,
+  IconExternalLink,
+  IconLock,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { SecretRemovalPreview } from "../../../secrets/usage.js";
@@ -38,6 +44,7 @@ import {
   SentenceWithLink,
   SettingsPageLink,
 } from "../../integrations/settings-page-link.js";
+import { useOrg } from "../../org/hooks.js";
 import { callAction, useActionQuery } from "../../use-action.js";
 import { effectText } from "../model/RemoveProviderDialog.js";
 import { normalizeKeyName } from "../NewKeyMenu.js";
@@ -57,7 +64,11 @@ function refreshKeys(queryClient: ReturnType<typeof useQueryClient>) {
 }
 
 export type KeyValueDialogMode =
-  | { mode: "add"; initialName?: string }
+  /**
+   * `forService`: a service's organization key (Infrastructure). The name is
+   * fixed and the key is saved for everyone in the organization.
+   */
+  | { mode: "add"; initialName?: string; forService?: boolean }
   | { mode: "replace"; entry: ApiKeyEntry };
 
 export interface KeyValueDialogProps {
@@ -66,6 +77,8 @@ export interface KeyValueDialogProps {
   dialog: KeyValueDialogMode;
   listing: ApiKeysListing;
   orgName: string;
+  /** Called after the value is saved, before the dialog closes. */
+  onSaved?: () => void;
 }
 
 /** Add key (Name, Value, Available to), or Replace value on a saved key. */
@@ -77,16 +90,46 @@ export function KeyValueDialog(props: KeyValueDialogProps) {
   );
 }
 
+/** False once the dialog content unmounts, so a late save can't close a newer dialog. */
+function useMounted() {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  return mounted;
+}
+
+function FormError({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <Alert variant="destructive">
+      <IconAlertCircle aria-hidden />
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
+  );
+}
+
 function KeyValueDialogContent({
   onOpenChange,
   dialog,
   listing,
   orgName,
+  onSaved,
 }: KeyValueDialogProps) {
   const t = useT();
   const queryClient = useQueryClient();
-  const ids = { name: useId(), value: useId(), who: useId() };
+  const mounted = useMounted();
+  const ids = {
+    name: useId(),
+    nameHint: useId(),
+    value: useId(),
+    who: useId(),
+  };
   const replacing = dialog.mode === "replace" ? dialog.entry : null;
+  const forService = dialog.mode === "add" && dialog.forService === true;
   const [name, setName] = useState(
     replacing?.name ??
       (dialog.mode === "add" ? (dialog.initialName ?? "") : ""),
@@ -109,22 +152,28 @@ function KeyValueDialogContent({
         } as const)
       : ({ kind: "custom", name: replacing.name } as const)
     : addKeyTarget(name, listing);
-  const suggestions = replacing ? [] : addableSuggestions(name, listing);
+  const suggestions =
+    replacing || forService ? [] : addableSuggestions(name, listing);
   const blocked = target.kind === "provider" || target.kind === "managed";
 
-  // Registered keys save at their registered scope; only an ad-hoc key's
-  // owner or admin chooses. Replacing keeps the row where it is.
+  // Registered keys save at their registered scope, which the server
+  // enforces, so they show it; a service's other keys are the organization's.
+  // Only an ad-hoc key's owner or admin chooses. Replacing keeps the row
+  // where it is.
   const lockedShared = replacing
     ? replacing.storedScope !== "user"
     : target.kind === "registered"
       ? target.key.scope !== "user"
-      : null;
+      : forService
+        ? true
+        : null;
   const canChoose =
     lockedShared === null && listing.hasOrganization && listing.canManageOrg;
   const isShared = lockedShared ?? (canChoose && shared);
+  const valid = !blocked && target.kind !== "empty" && !!value.trim();
 
   const save = async () => {
-    if (saving || blocked || target.kind === "empty" || !value.trim()) return;
+    if (saving || !valid) return;
     setSaving(true);
     setError(null);
     try {
@@ -136,7 +185,8 @@ function KeyValueDialogContent({
       });
       void refreshKeys(queryClient);
       toast.success(replacing ? t(`${K}valueReplaced`) : t(`${K}keyAdded`));
-      onOpenChange(false);
+      onSaved?.();
+      if (mounted.current) onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -152,7 +202,7 @@ function KeyValueDialogContent({
   return (
     <DialogContent
       className="max-w-lg"
-      closeLabel={t(`${M}cancel`)}
+      closeLabel={t("agentChat.settingsInfra.close")}
       aria-describedby={undefined}
     >
       <DialogHeader>
@@ -175,14 +225,23 @@ function KeyValueDialogContent({
             <Input
               id={ids.name}
               value={name}
-              autoFocus
+              autoFocus={!forService}
+              readOnly={forService}
               autoComplete="off"
               spellCheck={false}
               placeholder="STRIPE_SECRET_KEY"
-              className="font-mono"
-              onChange={(event) =>
-                setName(normalizeKeyName(event.target.value))
+              aria-invalid={blocked || undefined}
+              aria-describedby={
+                target.kind === "provider" ||
+                target.kind === "managed" ||
+                target.kind === "registered"
+                  ? ids.nameHint
+                  : undefined
               }
+              onChange={(event) => {
+                setName(normalizeKeyName(event.target.value));
+                setError(null);
+              }}
             />
             {suggestions.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
@@ -191,16 +250,15 @@ function KeyValueDialogContent({
                     key={key.name}
                     type="button"
                     variant="secondary"
-                    size="sm"
-                    className="h-7 px-2 font-mono text-xs"
+                    size="xs"
                     onClick={() => setName(key.name)}
                   >
-                    {key.name}
+                    <span className="font-mono">{key.name}</span>
                   </Button>
                 ))}
               </div>
             ) : null}
-            <NameHint target={target} />
+            <NameHint id={ids.nameHint} target={target} />
           </div>
         )}
         <div className="grid gap-2">
@@ -209,10 +267,13 @@ function KeyValueDialogContent({
             id={ids.value}
             type="password"
             value={value}
-            autoFocus={!!replacing}
+            autoFocus={!!replacing || forService}
             autoComplete="off"
             disabled={blocked}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => {
+              setValue(event.target.value);
+              setError(null);
+            }}
           />
           {docsUrl ? (
             <a
@@ -252,7 +313,7 @@ function KeyValueDialogContent({
             ) : (
               <div
                 aria-labelledby={ids.who}
-                className="flex h-10 items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground"
+                className="flex h-9 items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground"
               >
                 <IconLock className="size-4 shrink-0" aria-hidden />
                 <span>{whoValue}</span>
@@ -265,32 +326,24 @@ function KeyValueDialogContent({
             ) : null}
           </div>
         ) : null}
-        {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
+        <FormError message={error} />
         <DialogFooter className="gap-2 sm:space-x-0">
           <Button
             type="button"
             variant="secondary"
-            className="h-9 px-3"
-            disabled={saving}
             onClick={() => onOpenChange(false)}
           >
             {t(`${M}cancel`)}
           </Button>
-          <Button
-            type="submit"
-            className="h-9 px-3"
-            disabled={
-              saving || blocked || target.kind === "empty" || !value.trim()
-            }
-          >
-            {saving ? (
-              <IconLoader2 className="size-4 animate-spin" aria-hidden />
-            ) : null}
-            {replacing ? t(`${M}save`) : t(`${K}addKey`)}
+          <Button type="submit" disabled={saving || !valid}>
+            {saving ? <Spinner aria-hidden /> : null}
+            {replacing
+              ? saving
+                ? t(`${K}saving`)
+                : t(`${M}save`)
+              : saving
+                ? t(`${K}adding`)
+                : t(`${K}addKey`)}
           </Button>
         </DialogFooter>
       </form>
@@ -298,11 +351,132 @@ function KeyValueDialogContent({
   );
 }
 
-function NameHint({ target }: { target: ReturnType<typeof addKeyTarget> }) {
+export interface ServiceKeyDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** The API key the service reads, e.g. `VOYAGE_API_KEY`. */
+  keyName: string;
+  /** `add` a new organization key, or `manage` (replace) the saved one. */
+  mode: "add" | "manage";
+  onSaved?: () => void;
+}
+
+/**
+ * Add key or Replace value for a service's organization key, opened in place
+ * from Infrastructure. Reads the listing the dialog needs itself.
+ */
+export function ServiceKeyDialog(props: ServiceKeyDialogProps) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      {props.open && props.keyName ? (
+        <ServiceKeyDialogContent {...props} />
+      ) : null}
+    </Dialog>
+  );
+}
+
+function ServiceKeyDialogContent({
+  onOpenChange,
+  keyName,
+  mode,
+  onSaved,
+}: ServiceKeyDialogProps) {
+  const t = useT();
+  const org = useOrg();
+  const listing = useActionQuery<ApiKeysListing>("list-api-keys" as never);
+
+  if (listing.data && !org.isLoading) {
+    const saved =
+      mode === "manage"
+        ? listing.data.keys.find(
+            (entry) => entry.name === keyName && entry.scope === "org",
+          )
+        : undefined;
+    return (
+      <KeyValueDialogContent
+        open
+        onOpenChange={onOpenChange}
+        dialog={
+          saved
+            ? { mode: "replace", entry: saved }
+            : { mode: "add", initialName: keyName, forService: true }
+        }
+        listing={listing.data}
+        orgName={org.data?.orgName ?? ""}
+        {...(onSaved ? { onSaved } : {})}
+      />
+    );
+  }
+
+  return (
+    <DialogContent
+      className="max-w-lg"
+      closeLabel={t("agentChat.settingsInfra.close")}
+      aria-describedby={undefined}
+    >
+      <DialogHeader>
+        <DialogTitle>
+          {mode === "manage"
+            ? t(`${K}replaceTitle`, { name: keyName })
+            : t(`${K}addKey`)}
+        </DialogTitle>
+      </DialogHeader>
+      {listing.isError ? (
+        <div className="flex items-center justify-between gap-4">
+          <p role="alert" className="text-sm text-destructive">
+            {t(`${K}loadFailed`)}
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => void listing.refetch()}
+          >
+            {t(`${M}retry`)}
+          </Button>
+        </div>
+      ) : (
+        <div
+          className="grid gap-5"
+          aria-busy="true"
+          aria-label={t("agentChat.settingsShell.loading")}
+        >
+          {/* Add has Name, Value, and Available to; Replace drops Name. */}
+          {(mode === "manage" ? [0, 1] : [0, 1, 2]).map((index) => (
+            <div key={index} className="grid gap-2">
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+          ))}
+        </div>
+      )}
+      <DialogFooter className="gap-2 sm:space-x-0">
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => onOpenChange(false)}
+        >
+          {t(`${M}cancel`)}
+        </Button>
+        <Button type="button" disabled>
+          {mode === "manage" ? t(`${M}save`) : t(`${K}addKey`)}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+function NameHint({
+  id,
+  target,
+}: {
+  id: string;
+  target: ReturnType<typeof addKeyTarget>;
+}) {
   const t = useT();
   if (target.kind === "provider") {
     return (
-      <p className="text-xs leading-5 text-muted-foreground">
+      <p id={id} className="text-xs leading-5 text-destructive">
         <SentenceWithLink
           text={t(`${K}providerInModel`, {
             provider: getAgentProviderOption(target.provider).label,
@@ -319,14 +493,14 @@ function NameHint({ target }: { target: ReturnType<typeof addKeyTarget> }) {
   }
   if (target.kind === "managed") {
     return (
-      <p className="text-xs leading-5 text-muted-foreground">
+      <p id={id} className="text-xs leading-5 text-destructive">
         {t(`${K}managedName`, { owner: target.owner })}
       </p>
     );
   }
   if (target.kind === "registered") {
     return (
-      <p className="text-xs leading-5 text-muted-foreground">
+      <p id={id} className="text-xs leading-5 text-muted-foreground">
         {target.key.label}
       </p>
     );
@@ -364,6 +538,7 @@ function DeleteKeyContent({
     "preview-secret-removal" as never,
     { key: entry.name, scope: entry.storedScope } as never,
   );
+  const mounted = useMounted();
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -383,7 +558,7 @@ function DeleteKeyContent({
       notifyKeysChanged();
       void refreshKeys(queryClient);
       toast.success(t(`${K}keyDeleted`));
-      onOpenChange(false);
+      if (mounted.current) onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -452,15 +627,13 @@ function DeleteKeyContent({
             )}
           </div>
         </div>
-        {error ? (
-          <p role="alert" className="text-destructive">
-            {error}
-          </p>
-        ) : null}
+        <FormError message={error} />
       </div>
       <AlertDialogFooter>
-        <AlertDialogCancel disabled={deleting}>
-          {t(`${M}cancel`)}
+        <AlertDialogCancel asChild disabled={deleting}>
+          <Button type="button" variant="secondary">
+            {t(`${M}cancel`)}
+          </Button>
         </AlertDialogCancel>
         <Button
           type="button"
@@ -468,10 +641,8 @@ function DeleteKeyContent({
           disabled={deleting}
           onClick={() => void remove()}
         >
-          {deleting ? (
-            <IconLoader2 className="size-4 animate-spin" aria-hidden />
-          ) : null}
-          {t(`${K}deleteKey`)}
+          {deleting ? <Spinner aria-hidden /> : null}
+          {deleting ? t(`${K}deleting`) : t(`${K}deleteKey`)}
         </Button>
       </AlertDialogFooter>
     </AlertDialogContent>

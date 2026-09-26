@@ -30,7 +30,6 @@ function DemoModeRow() {
           checked={enabled}
           onChange={setBrowserDemoModeEnabled}
           aria-label={label}
-          className="shrink-0"
         />
       }
     />

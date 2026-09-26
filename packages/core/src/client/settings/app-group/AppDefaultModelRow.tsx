@@ -130,7 +130,7 @@ export function AppDefaultModelRow({ appName }: { appName: string }) {
           control={
             <Button
               type="button"
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() => void query.refetch()}
             >
@@ -156,7 +156,7 @@ export function AppDefaultModelRow({ appName }: { appName: string }) {
             <Skeleton className="h-3.5 w-72 max-w-full" />
           </div>
           <div className="agent-native-settings-row__control max-w-full shrink-0">
-            <Skeleton className="h-10 w-64" />
+            <Skeleton className="h-8 w-64" />
           </div>
         </div>
       </div>
@@ -204,7 +204,7 @@ export function AppDefaultModelRow({ appName }: { appName: string }) {
               if (next !== value) mutation.mutate(next);
             }}
           >
-            <SelectTrigger className="w-64" aria-label={label}>
+            <SelectTrigger size="sm" className="w-64" aria-label={label}>
               <SelectValue>{selectedLabel}</SelectValue>
             </SelectTrigger>
             <SelectContent>

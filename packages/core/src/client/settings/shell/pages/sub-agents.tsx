@@ -1,14 +1,14 @@
 import { TextField } from "@agent-native/toolkit/design-system";
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@agent-native/toolkit/ui/alert-dialog";
+import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
@@ -25,11 +25,11 @@ import {
 } from "@agent-native/toolkit/ui/dropdown-menu";
 import { Input } from "@agent-native/toolkit/ui/input";
 import { Label } from "@agent-native/toolkit/ui/label";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconAlertCircle,
   IconApps,
-  IconDots,
   IconExternalLink,
   IconLink,
   IconMessage,
@@ -49,7 +49,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { toast } from "sonner";
 
 import { getTemplate } from "../../../../cli/templates-meta.js";
 import { getRemoteAgentIdFromPath } from "../../../../resources/metadata.js";
@@ -59,9 +58,11 @@ import { useT } from "../../../i18n.js";
 import { useOrg, useSyncA2ASecret } from "../../../org/hooks.js";
 import type { ResourceSettingsGroupConfig } from "../../../resources/ResourceSettingsGroups.js";
 import {
-  EmptyRow,
+  ErrorRow,
   ReadOnlyNote,
   ResourceRowsSkeleton,
+  RowMenuTrigger,
+  SettingsEmpty,
 } from "../../../resources/ResourceSettingsGroups.js";
 import {
   buildAgentResourceContent,
@@ -98,6 +99,7 @@ import { useSettingsPageHeader } from "../context.js";
 import {
   ResourceSettingsPage,
   useOpenResourceRef,
+  type AddActionPlacement,
 } from "./resource-settings-page.js";
 
 /** Group ids double as anchors for search hits and legacy links. */
@@ -216,18 +218,10 @@ export default function SubAgentsSettingsPage() {
   const header = useMemo(
     () => ({
       action: canManage ? (
-        <Button
-          type="button"
-          size="sm"
-          className="h-7 gap-1.5 px-2.5 text-xs"
-          onClick={openDirectory}
-        >
-          <IconPlus className="size-3.5" />
-          {t("agentChat.settingsSubAgents.connect")}
-        </Button>
+        <ConnectAgentButton onClick={openDirectory} />
       ) : undefined,
     }),
-    [canManage, openDirectory, t],
+    [canManage, openDirectory],
   );
   useSettingsPageHeader(header);
 
@@ -235,7 +229,6 @@ export default function SubAgentsSettingsPage() {
     () => groupSubAgents(remote.agents, remote.probeById),
     [remote.agents, remote.probeById],
   );
-  const probePending = remote.probeById === null && !remote.probeFailed;
   const managedNote = canManage ? undefined : (
     <ReadOnlyNote
       label={t("agentChat.settingsSubAgents.managedByAdmins")}
@@ -249,7 +242,6 @@ export default function SubAgentsSettingsPage() {
         key={row.agentId}
         row={row}
         probe={remote.probeById?.get(row.agentId)}
-        probePending={probePending}
         actions={
           canManage && row.agent ? (
             <SubAgentRowMenu
@@ -271,8 +263,14 @@ export default function SubAgentsSettingsPage() {
         sources: ["personal", "shared"],
         title: t("agentChat.settingsSubAgents.custom"),
         emptyIcon: IconUserBolt,
-        emptyText: t("agentChat.settingsSubAgents.customEmpty"),
-        action: <AddCustomAgentMenu onCreated={openResource} />,
+        emptyTitle: t("agentChat.settingsSubAgents.customEmptyTitle"),
+        emptyDescription: t("agentChat.settingsSubAgents.customEmpty"),
+        emptyAction: (
+          <AddCustomAgentMenu placement="empty" onCreated={openResource} />
+        ),
+        action: (
+          <AddCustomAgentMenu placement="group" onCreated={openResource} />
+        ),
       },
     ],
     [openResource, t],
@@ -290,10 +288,11 @@ export default function SubAgentsSettingsPage() {
         }
         note={managedNote}
         status={remote.status}
+        onRetry={remote.retry}
         empty={
-          <EmptyRow
+          <SettingsEmpty
             icon={IconApps}
-            text={t("agentChat.settingsSubAgents.appsEmpty")}
+            title={t("agentChat.settingsSubAgents.appsEmpty")}
           />
         }
       >
@@ -305,24 +304,15 @@ export default function SubAgentsSettingsPage() {
         title={t("agentChat.settingsSubAgents.external")}
         note={managedNote}
         status={remote.status}
+        onRetry={remote.retry}
         empty={
-          <EmptyRow
+          <SettingsEmpty
             icon={IconWorld}
-            text={t("agentChat.settingsSubAgents.externalEmpty")}
-            action={
-              canManage ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2.5 text-xs"
-                  onClick={openDirectory}
-                >
-                  {t("agentChat.settingsSubAgents.browseDirectory")}
-                </Button>
-              ) : undefined
-            }
-          />
+            title={t("agentChat.settingsSubAgents.externalEmptyTitle")}
+            description={t("agentChat.settingsSubAgents.externalEmpty")}
+          >
+            {canManage ? <ConnectAgentButton onClick={openDirectory} /> : null}
+          </SettingsEmpty>
         }
       >
         {external.length > 0 ? rowsFor(external, true) : null}
@@ -350,7 +340,7 @@ export default function SubAgentsSettingsPage() {
           if (!open) setEditing(null);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>
               {t("agentChat.settingsSubAgents.editTitle", {
@@ -373,57 +363,106 @@ export default function SubAgentsSettingsPage() {
           )}
         </DialogContent>
       </Dialog>
-      <AlertDialog
-        open={removing !== null}
+      <RemoveAgentDialog
+        agent={removing}
+        orgName={orgName}
         onOpenChange={(open) => {
           if (!open) setRemoving(null);
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("agentChat.settingsResources.removeTitle", {
-                name: removing?.name ?? "",
-              })}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {orgName
-                ? t("agentChat.settingsSubAgents.removeDescription", {
-                    name: removing?.name ?? "",
-                    org: orgName,
-                  })
-                : t("agentChat.settingsSubAgents.removeDescriptionSolo", {
-                    name: removing?.name ?? "",
-                  })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>
-              {t("agentChat.settingsResources.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                const agent = removing;
-                setRemoving(null);
-                if (!agent) return;
-                void remote.remove(agent.id).then((removed) => {
-                  if (!removed) {
-                    toast.error(
-                      t("agentChat.settingsResources.removeFailed", {
-                        name: agent.name,
-                      }),
-                    );
-                  }
-                });
-              }}
-            >
-              {t("agentChat.settingsResources.remove")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onRemove={remote.remove}
+      />
     </div>
+  );
+}
+
+/** The page's one action, also the External agents empty state's. */
+function ConnectAgentButton({ onClick }: { onClick: () => void }) {
+  const t = useT();
+  return (
+    <Button type="button" size="sm" onClick={onClick}>
+      <IconPlus />
+      {t("agentChat.settingsSubAgents.connect")}
+    </Button>
+  );
+}
+
+function RemoveAgentDialog({
+  agent,
+  orgName,
+  onOpenChange,
+  onRemove,
+}: {
+  agent: RemoteAgentInfo | null;
+  orgName: string | null;
+  onOpenChange: (open: boolean) => void;
+  /** Resolves false when the delete failed. */
+  onRemove: (resourceId: string) => Promise<boolean>;
+}) {
+  const t = useT();
+  const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const name = agent?.name ?? "";
+
+  useEffect(() => setFailed(false), [agent?.id]);
+
+  const remove = async () => {
+    if (!agent || pending) return;
+    setPending(true);
+    setFailed(false);
+    const removed = await onRemove(agent.id);
+    setPending(false);
+    if (removed) onOpenChange(false);
+    else setFailed(true);
+  };
+
+  return (
+    <AlertDialog open={agent !== null} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {t("agentChat.settingsResources.removeTitle", { name })}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {orgName
+              ? t("agentChat.settingsSubAgents.removeDescription", {
+                  name,
+                  org: orgName,
+                })
+              : t("agentChat.settingsSubAgents.removeDescriptionSolo", {
+                  name,
+                })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {failed ? (
+          <Alert variant="destructive">
+            <IconAlertCircle />
+            <AlertDescription>
+              {t("agentChat.settingsResources.removeFailed", { name })}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        <AlertDialogFooter>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => onOpenChange(false)}
+          >
+            {t("agentChat.settingsResources.cancel")}
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={pending}
+            onClick={() => void remove()}
+          >
+            {pending ? <Spinner /> : null}
+            {pending
+              ? t("agentChat.settingsResources.removing")
+              : t("agentChat.settingsResources.remove")}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -433,6 +472,7 @@ function SubAgentGroup({
   title,
   note,
   status,
+  onRetry,
   empty,
   children,
 }: {
@@ -441,6 +481,7 @@ function SubAgentGroup({
   title: string;
   note?: ReactNode;
   status: "loading" | "ready" | "error";
+  onRetry: () => void;
   empty: ReactNode;
   children: ReactNode;
 }) {
@@ -460,10 +501,9 @@ function SubAgentGroup({
         {status === "loading" ? (
           <ResourceRowsSkeleton />
         ) : status === "error" ? (
-          <EmptyRow
-            icon={IconAlertCircle}
+          <ErrorRow
             text={t("agentChat.settingsSubAgents.loadFailed")}
-            tone="error"
+            onRetry={onRetry}
           />
         ) : children ? (
           <div className="divide-y divide-border/60">{children}</div>
@@ -499,12 +539,10 @@ function probeLabel(
 function SubAgentListRow({
   row,
   probe,
-  probePending,
   actions,
 }: {
   row: SubAgentRow;
   probe: AgentProbeResult | undefined;
-  probePending: boolean;
   actions?: ReactNode;
 }) {
   const t = useT();
@@ -512,7 +550,7 @@ function SubAgentListRow({
   return (
     <div
       data-sub-agent-row={row.agentId}
-      className="flex items-center gap-3 px-4 py-3"
+      className="flex items-center gap-3 px-5 py-4 sm:px-6"
     >
       <span
         aria-hidden
@@ -541,11 +579,6 @@ function SubAgentListRow({
                 ·
               </span>
             </>
-          ) : probePending ? (
-            <span
-              aria-hidden
-              className="h-3 w-14 shrink-0 animate-pulse rounded bg-muted"
-            />
           ) : null}
           <span className="truncate font-mono">{row.url}</span>
         </span>
@@ -564,34 +597,21 @@ function SubAgentRowMenu({
 }) {
   const t = useT();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0 text-muted-foreground"
-          aria-label={t("agentChat.settingsResources.moreActions")}
+    <RowMenuTrigger>
+      <DropdownMenuItem onSelect={onEdit}>
+        <IconPencil className="size-4" />
+        {t("agentChat.settingsSubAgents.edit")}
+      </DropdownMenuItem>
+      {onRemove && (
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive"
+          onSelect={onRemove}
         >
-          <IconDots className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={onEdit}>
-          <IconPencil className="size-4" />
-          {t("agentChat.settingsSubAgents.edit")}
+          <IconTrash className="size-4" />
+          {t("agentChat.settingsResources.remove")}
         </DropdownMenuItem>
-        {onRemove && (
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onSelect={onRemove}
-          >
-            <IconTrash className="size-4" />
-            {t("agentChat.settingsResources.remove")}
-          </DropdownMenuItem>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      )}
+    </RowMenuTrigger>
   );
 }
 
@@ -618,7 +638,8 @@ function ConnectAgentDialog({
       }}
     >
       <DialogContent
-        className={state?.stage === "form" ? "sm:max-w-md" : "sm:max-w-lg"}
+        className={state?.stage === "form" ? "sm:max-w-md" : undefined}
+        aria-describedby={undefined}
       >
         <DialogHeader>
           <DialogTitle>
@@ -727,9 +748,9 @@ function AgentDirectory({
             )}
           </div>
         ) : (
-          <EmptyRow
+          <SettingsEmpty
             icon={IconSearch}
-            text={t("agentChat.agents.directoryNoMatches")}
+            title={t("agentChat.agents.directoryNoMatches")}
           />
         )}
       </div>
@@ -743,7 +764,7 @@ function AgentDirectory({
         <IconExternalLink className="size-3.5" />
       </a>
       <DialogFooter>
-        <Button type="button" variant="outline" onClick={onClose}>
+        <Button type="button" variant="secondary" onClick={onClose}>
           {t("agentChat.settingsSubAgents.close")}
         </Button>
       </DialogFooter>
@@ -779,11 +800,7 @@ function DirectoryRow({
           <span className="truncate text-sm font-medium text-foreground">
             {name}
           </span>
-          {badge && (
-            <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
-              {badge}
-            </span>
-          )}
+          {badge && <Badge variant="outline">{badge}</Badge>}
         </span>
         {hint && (
           <span className="mt-0.5 block truncate text-xs text-muted-foreground">
@@ -793,9 +810,9 @@ function DirectoryRow({
       </span>
       <Button
         type="button"
-        variant="outline"
+        variant="secondary"
         size="sm"
-        className="h-7 shrink-0 px-2.5 text-xs"
+        className="shrink-0"
         onClick={onAction}
       >
         {actionLabel}
@@ -825,8 +842,10 @@ function uniqueAgentPath(slug: string, taken: ReadonlySet<string>): string {
 
 /** Custom agents "Add agent": describe it to the agent, or write it. */
 function AddCustomAgentMenu({
+  placement,
   onCreated,
 }: {
+  placement: Exclude<AddActionPlacement, "header">;
   onCreated: (resource: ResourceMeta) => void;
 }) {
   const t = useT();
@@ -839,11 +858,10 @@ function AddCustomAgentMenu({
         <DropdownMenuTrigger asChild>
           <Button
             type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1.5 px-2.5 text-xs"
+            variant={placement === "group" ? "secondary" : "default"}
+            size={placement === "group" ? "xs" : "sm"}
           >
-            <IconPlus className="size-3.5" />
+            <IconPlus />
             {t("agentChat.settingsSubAgents.addAgent")}
           </Button>
         </DropdownMenuTrigger>
@@ -859,7 +877,7 @@ function AddCustomAgentMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       <Dialog open={describing} onOpenChange={setDescribing}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>
               {t("agentChat.settingsSubAgents.describe")}
@@ -901,6 +919,7 @@ function WriteCustomAgentDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState(CUSTOM_AGENT_BODY_TEMPLATE);
+  const [failedPath, setFailedPath] = useState<string | null>(null);
   const create = useCreateResource();
   const tree = useResourceTree("personal");
 
@@ -909,20 +928,22 @@ function WriteCustomAgentDialog({
     setName("");
     setDescription("");
     setInstructions(CUSTOM_AGENT_BODY_TEMPLATE);
+    setFailedPath(null);
   }, [open]);
 
-  const canSubmit =
-    Boolean(name.trim() && description.trim() && instructions.trim()) &&
-    !create.isPending;
+  const valid = Boolean(
+    name.trim() && description.trim() && instructions.trim(),
+  );
 
-  const submit = () => {
-    if (!canSubmit) return;
+  const submit = async () => {
+    if (!valid || create.isPending) return;
     const path = uniqueAgentPath(
       slugifyName(name.trim()),
       collectResourcePaths(tree.data ?? []),
     );
-    create.mutate(
-      {
+    setFailedPath(null);
+    try {
+      const resource = await create.mutateAsync({
         path,
         content: buildAgentResourceContent({
           name: name.trim(),
@@ -933,35 +954,28 @@ function WriteCustomAgentDialog({
         }),
         mimeType: "text/markdown",
         shared: false,
-      },
-      {
-        onSuccess: (resource) => {
-          onOpenChange(false);
-          onCreated(resource);
-        },
-        onError: () => {
-          toast.error(
-            t("agentChat.settingsResources.saveFailed", { name: path }),
-          );
-        },
-      },
-    );
+      });
+      onOpenChange(false);
+      onCreated(resource);
+    } catch {
+      setFailedPath(path);
+    }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t("agentChat.settingsSubAgents.addAgent")}</DialogTitle>
         </DialogHeader>
         <form
-          className="grid gap-3"
+          className="grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            submit();
+            void submit();
           }}
         >
-          <div className="grid gap-1.5">
+          <div className="grid gap-2">
             <Label htmlFor={nameId}>
               {t("agentChat.settingsSubAgents.name")}
             </Label>
@@ -972,7 +986,7 @@ function WriteCustomAgentDialog({
               onChange={(event) => setName(event.target.value)}
             />
           </div>
-          <div className="grid gap-1.5">
+          <div className="grid gap-2">
             <Label htmlFor={descriptionId}>
               {t("agentChat.settingsSubAgents.description")}
             </Label>
@@ -982,7 +996,7 @@ function WriteCustomAgentDialog({
               onChange={(event) => setDescription(event.target.value)}
             />
           </div>
-          <div className="grid gap-1.5">
+          <div className="grid gap-2">
             <Label htmlFor={instructionsId}>
               {t("agentChat.settingsSubAgents.instructions")}
             </Label>
@@ -993,16 +1007,29 @@ function WriteCustomAgentDialog({
               onChange={(event) => setInstructions(event.target.value)}
             />
           </div>
-          <DialogFooter className="mt-1">
+          {failedPath ? (
+            <Alert variant="destructive">
+              <IconAlertCircle />
+              <AlertDescription>
+                {t("agentChat.settingsResources.saveFailed", {
+                  name: failedPath,
+                })}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <DialogFooter>
             <Button
               type="button"
-              variant="ghost"
+              variant="secondary"
               onClick={() => onOpenChange(false)}
             >
               {t("agentChat.settingsResources.cancel")}
             </Button>
-            <Button type="submit" disabled={!canSubmit}>
-              {t("agentChat.settingsResources.create")}
+            <Button type="submit" disabled={!valid || create.isPending}>
+              {create.isPending ? <Spinner /> : null}
+              {create.isPending
+                ? t("agentChat.settingsResources.creating")
+                : t("agentChat.settingsResources.create")}
             </Button>
           </DialogFooter>
         </form>

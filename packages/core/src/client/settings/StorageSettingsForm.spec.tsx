@@ -160,16 +160,54 @@ describe("StorageSettingsForm", () => {
     );
   });
 
-  it("requires the keys and public URL on first setup", () => {
+  it("keeps Save disabled until the keys and public URL are filled in", () => {
     queryState.data = emptyStatus;
     render();
     typeInto(inputByLabel("Endpoint URL"), "https://s3.example.com");
     typeInto(inputByLabel("Bucket"), "uploads-example");
+    expect(buttonByText("Save").disabled).toBe(true);
+    typeInto(inputByLabel("Access key ID"), "access-example");
+    typeInto(inputByLabel("Secret access key"), "secret-example");
+    expect(buttonByText("Save").disabled).toBe(true);
+    typeInto(inputByLabel("Public URL"), "https://cdn.example.com");
+    expect(buttonByText("Save").disabled).toBe(false);
+    expect(mutateMock).not.toHaveBeenCalled();
+  });
+
+  it("marks the field a format check rejects and doesn't save", () => {
+    queryState.data = savedStatus;
+    render();
+    typeInto(inputByLabel("Endpoint URL"), "not a url");
     act(() => buttonByText("Save").click());
-    expect(container.textContent).toContain(
-      "Fill in the endpoint, bucket, keys, and public URL first.",
+    const endpoint = inputByLabel("Endpoint URL");
+    expect(endpoint.getAttribute("aria-invalid")).toBe("true");
+    const note = document.getElementById(
+      endpoint.getAttribute("aria-describedby")!,
+    );
+    expect(note?.textContent).toBe(
+      englishMessages["settings.storage.invalidUrl"],
     );
     expect(mutateMock).not.toHaveBeenCalled();
+    typeInto(endpoint, "https://abc.r2.cloudflarestorage.com");
+    expect(endpoint.getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("shows the server's reason in an alert when the save fails", () => {
+    queryState.data = savedStatus;
+    mutateMock.mockImplementation(
+      (
+        _input: unknown,
+        options: { onError: (error: unknown) => void; onSettled: () => void },
+      ) => {
+        options.onError(new Error("The bucket rejected these keys."));
+        options.onSettled();
+      },
+    );
+    render();
+    act(() => buttonByText("Save").click());
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "The bucket rejected these keys.",
+    );
   });
 
   it("makes the public URL optional when the provider serves without one", () => {
@@ -240,6 +278,32 @@ describe("StorageSettingsForm", () => {
       expect.anything(),
     );
     expect(onCleared).toHaveBeenCalledWith(emptyStatus);
+  });
+
+  it("keeps the clear confirm open with the reason when clearing fails", () => {
+    queryState.data = savedStatus;
+    mutateMock.mockImplementation(
+      (
+        _input: unknown,
+        options: { onError: (error: unknown) => void; onSettled: () => void },
+      ) => {
+        options.onError(new Error("Storage is managed by the deployment."));
+        options.onSettled();
+      },
+    );
+    render();
+    act(() => buttonByText("Clear credentials").click());
+    const confirm = [...document.querySelectorAll("[role=alertdialog] button")]
+      .reverse()
+      .find((el) => el.textContent?.trim() === "Clear credentials") as
+      | HTMLButtonElement
+      | undefined;
+    act(() => confirm!.click());
+    const dialog = document.querySelector("[role=alertdialog]");
+    expect(dialog).not.toBeNull();
+    expect(dialog?.querySelector('[role="alert"]')?.textContent).toBe(
+      "Storage is managed by the deployment.",
+    );
   });
 
   it("says new uploads go to Builder.io when it is connected", () => {

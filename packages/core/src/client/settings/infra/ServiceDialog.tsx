@@ -1,3 +1,8 @@
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@agent-native/toolkit/ui/alert";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Label } from "@agent-native/toolkit/ui/label";
 import {
@@ -7,12 +12,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
-import { useId, useState, type ReactNode } from "react";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { IconAlertCircle } from "@tabler/icons-react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import type { ServiceProviderServiceStatus } from "../../../agent/actions/manage-service-providers.js";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -35,8 +43,11 @@ export interface ServiceDialogProps {
   label: string;
   why: string;
   onOpenChange: (open: boolean) => void;
-  /** Save `provider` as the service's choice. The page updates optimistically. */
-  onSave: (provider: ServiceProviderId) => void;
+  /**
+   * Save `provider` as the service's choice. The page updates optimistically;
+   * the dialog stays open until the write settles and shows a rejection.
+   */
+  onSave: (provider: ServiceProviderId) => Promise<void>;
   /** Add an organization key for `provider`, then use it. */
   onAddKey: (provider: ServiceProviderId) => void;
   /** Open `provider`'s saved organization key. */
@@ -71,6 +82,17 @@ function ServiceDialogContent({
   const [provider, setProvider] = useState<ServiceProviderId>(() =>
     initialServiceChoice(service),
   );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Cancel stays live while a save runs; a save that settles after the
+  // dialog closed must not close whichever dialog opened since.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const choices = serviceDialogChoices(service);
   const name = SERVICE_PROVIDER_LABELS[provider];
   const step = serviceDialogStep(service, provider);
@@ -83,15 +105,26 @@ function ServiceDialogContent({
         ? t(`${K}save`)
         : t(`${K}addNamed`, { provider: name });
 
-  const submit = () => {
+  const submit = async () => {
+    if (saving) return;
     if (step.kind === "add") {
       onAddKey(provider);
       return;
     }
-    onOpenChange(false);
     // Saving what's already in effect changes nothing.
-    if (provider !== (service.provider ?? service.effectiveProvider)) {
-      onSave(provider);
+    if (provider === (service.provider ?? service.effectiveProvider)) {
+      onOpenChange(false);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(provider);
+      if (mounted.current) onOpenChange(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -122,26 +155,29 @@ function ServiceDialogContent({
   return (
     <DialogContent
       className="max-w-lg"
-      closeLabel={t(`${K}cancel`)}
-      aria-describedby={undefined}
+      closeLabel={t(`${K}close`)}
       data-service-dialog={service.service}
     >
       <DialogHeader>
         <DialogTitle>{label}</DialogTitle>
+        <DialogDescription>{why}</DialogDescription>
       </DialogHeader>
       <form
         className="grid gap-5"
         onSubmit={(event) => {
           event.preventDefault();
-          submit();
+          void submit();
         }}
       >
-        <p className="text-sm leading-6 text-muted-foreground">{why}</p>
         <div className="grid gap-2">
           <Label htmlFor={selectId}>{t(`${K}provider`)}</Label>
           <Select
             value={provider}
-            onValueChange={(value) => setProvider(value as ServiceProviderId)}
+            disabled={saving}
+            onValueChange={(value) => {
+              setProvider(value as ServiceProviderId);
+              setError(null);
+            }}
           >
             <SelectTrigger id={selectId}>
               <SelectValue />
@@ -157,26 +193,35 @@ function ServiceDialogContent({
               ))}
             </SelectContent>
           </Select>
-          {hint ? (
-            <p
-              className="text-xs leading-5 text-muted-foreground"
-              data-service-key-state={keyState}
-            >
-              {hint}
-            </p>
-          ) : null}
+          {/* Every provider but Builder.io has a key line, so switching to
+              and from it is the only change that moves the footer. */}
+          <p
+            className="min-h-5 text-xs leading-5 text-muted-foreground"
+            data-service-key-state={hint ? keyState : undefined}
+          >
+            {hint}
+          </p>
         </div>
-        <DialogFooter>
+        {error ? (
+          <Alert variant="destructive">
+            <IconAlertCircle aria-hidden />
+            <AlertTitle>
+              {t(`${K}serviceSaveFailed`, { service: label })}
+            </AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        <DialogFooter className="gap-2 sm:space-x-0">
           <Button
             type="button"
             variant="secondary"
-            className="h-9 px-3"
             onClick={() => onOpenChange(false)}
           >
             {t(`${K}cancel`)}
           </Button>
-          <Button type="submit" className="h-9 px-3">
-            {primaryLabel}
+          <Button type="submit" disabled={saving}>
+            {saving ? <Spinner aria-hidden /> : null}
+            {saving ? t(`${K}saving`) : primaryLabel}
           </Button>
         </DialogFooter>
       </form>

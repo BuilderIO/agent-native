@@ -251,7 +251,13 @@ describe("Sub-agents page", () => {
     await act(async () => buttonByText(dialog!, "Add by URL")!.click());
     const form = document.body.querySelector('[role="dialog"]');
     expect(form?.querySelector("h2")?.textContent).toBe("Any A2A agent");
-    expect(form?.querySelector('input[aria-label="URL"]')).toBeTruthy();
+    const urlField = Array.from(form?.querySelectorAll("label") ?? []).find(
+      (label) => label.textContent?.startsWith("URL"),
+    );
+    expect(urlField?.querySelector("input")).toBeTruthy();
+    const add = buttonByText(form!, "Add") as HTMLButtonElement | undefined;
+    expect(add?.type).toBe("submit");
+    expect(add?.disabled).toBe(true);
     act(() => headerRoot.unmount());
   });
 
@@ -276,7 +282,7 @@ describe("Sub-agents page", () => {
     expect(window.location.search).toBe("?tab=x");
   });
 
-  it("shows the empty External agents state with Browse directory for admins", async () => {
+  it("shows the empty External agents state with Connect agent for admins", async () => {
     orgState.value = { ...orgState.value, role: "admin" };
     const saved = resources.splice(3, 1);
     try {
@@ -289,7 +295,8 @@ describe("Sub-agents page", () => {
     expect(external.textContent).toContain(
       "Connect Foundry, Gemini Enterprise, Anthropic, or any A2A agent.",
     );
-    expect(buttonByText(external, "Browse directory")).toBeTruthy();
+    expect(external.textContent).toContain("No external agents yet");
+    expect(buttonByText(external, "Connect agent")).toBeTruthy();
   });
 });
 

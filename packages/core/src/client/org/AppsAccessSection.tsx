@@ -42,7 +42,13 @@ export function WorkspaceAppPrivacySettingsSection({
           }
           disabled={setDefault.isPending}
         >
-          <SelectTrigger className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto">
+          <SelectTrigger
+            size="sm"
+            className="w-40"
+            aria-label={t("org.workspaceAppsDefaultPrivacy", {
+              defaultValue: "New app privacy",
+            })}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -74,8 +80,8 @@ export function WorkspaceApplicationsSection() {
       <h3 className="text-sm font-medium">{t("org.applications")}</h3>
       {query.isLoading ? (
         <div className="mt-3 space-y-2" aria-busy="true">
-          <Skeleton className="h-9 w-full" />
-          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-8 w-full" />
         </div>
       ) : query.error ? (
         <p className="mt-2 text-xs text-destructive" role="alert">
@@ -112,7 +118,8 @@ export function WorkspaceApplicationsSection() {
                 disabled={setAccess.isPending}
               >
                 <SelectTrigger
-                  className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-36"
+                  size="sm"
+                  className="w-full sm:w-40"
                   aria-label={t("org.applicationAccess", { name: app.name })}
                 >
                   <SelectValue />

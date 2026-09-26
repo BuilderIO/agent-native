@@ -1,3 +1,4 @@
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
@@ -14,8 +15,10 @@ import {
 } from "@agent-native/toolkit/ui/dropdown-menu";
 import { Input } from "@agent-native/toolkit/ui/input";
 import { Label } from "@agent-native/toolkit/ui/label";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
+  IconAlertCircle,
   IconApps,
   IconFilePlus,
   IconMessage,
@@ -24,6 +27,7 @@ import {
 } from "@tabler/icons-react";
 import {
   useCallback,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -112,55 +116,60 @@ export function useDispatchGroup(
       view,
       sources: ["workspace"],
       emptyIcon: IconApps,
-      emptyText: t("agentChat.settingsResources.dispatchEmpty"),
+      emptyTitle: t("agentChat.settingsResources.dispatchEmpty"),
     }),
     [t, view],
   );
 }
 
-/** A header- or group-sized "Add" button. */
+/**
+ * Where an "Add" action sits: the page header or a group's empty state
+ * (primary), or beside a group heading (secondary, extra small).
+ */
+export type AddActionPlacement = "header" | "empty" | "group";
+
+/** An "Add" action button, sized for where it sits. */
 function AddButton({
   label,
   placement,
+  pending = false,
   ...props
 }: {
   label: string;
-  placement: "header" | "group";
+  placement: AddActionPlacement;
+  pending?: boolean;
 } & ComponentProps<typeof Button>) {
   return (
     <Button
       type="button"
-      variant={placement === "header" ? "default" : "ghost"}
-      size="sm"
-      className="h-7 gap-1.5 px-2.5 text-xs"
+      variant={placement === "group" ? "secondary" : "default"}
+      size={placement === "group" ? "xs" : "sm"}
       {...props}
     >
-      <IconPlus className="size-3.5" />
+      {pending ? <Spinner /> : <IconPlus />}
       {label}
     </Button>
   );
 }
 
-export function EmptyRowButton({
+/** The action in a group's empty state, e.g. "Add memory". */
+export function EmptyActionButton({
   label,
   onClick,
-  disabled,
+  pending,
 }: {
   label: string;
   onClick: () => void;
-  disabled?: boolean;
+  pending?: boolean;
 }) {
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className="h-7 px-2.5 text-xs"
-      disabled={disabled}
+    <AddButton
+      label={label}
+      placement="empty"
+      pending={pending}
+      disabled={pending}
       onClick={onClick}
-    >
-      {label}
-    </Button>
+    />
   );
 }
 
@@ -220,7 +229,7 @@ export function AddSkillMenu({
   onCreated,
 }: {
   scope: EditableResourceScope;
-  placement: "header" | "group";
+  placement: AddActionPlacement;
   onCreated: (resource: ResourceMeta) => void;
 }) {
   const t = useT();
@@ -278,6 +287,7 @@ export function AddSkillMenu({
           <AddButton
             label={t("agentChat.settingsResources.skills.add")}
             placement={placement}
+            pending={create.isPending}
             disabled={create.isPending}
           />
         </DropdownMenuTrigger>
@@ -293,7 +303,7 @@ export function AddSkillMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       <Dialog open={describing} onOpenChange={setDescribing}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>
               {t("agentChat.settingsResources.skills.describe")}
@@ -323,17 +333,13 @@ export function AddFileMenu({
   onCreated,
 }: {
   scope: EditableResourceScope;
-  placement: "header" | "group";
+  placement: AddActionPlacement;
   onCreated: (resource: ResourceMeta) => void;
 }) {
   const t = useT();
-  const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
-  const create = useCreateResource();
   const upload = useUploadResource();
-  const path = normalizeResourceFileName(name);
 
   const uploadFiles = (files: FileList) => {
     for (const file of Array.from(files)) {
@@ -348,24 +354,6 @@ export function AddFileMenu({
         },
       });
     }
-  };
-
-  const submit = () => {
-    if (!path) return;
-    create.mutate(
-      { path, content: "", shared: scope === "shared" },
-      {
-        onSuccess: (resource) => {
-          setCreating(false);
-          onCreated(resource);
-        },
-        onError: () => {
-          toast.error(
-            t("agentChat.settingsResources.saveFailed", { name: path }),
-          );
-        },
-      },
-    );
   };
 
   return (
@@ -386,6 +374,7 @@ export function AddFileMenu({
           <AddButton
             label={t("agentChat.settingsResources.files.add")}
             placement={placement}
+            pending={upload.isPending}
           />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -393,31 +382,78 @@ export function AddFileMenu({
             <IconUpload className="size-4" />
             {t("agentChat.settingsResources.files.upload")}
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() => {
-              setName("");
-              setCreating(true);
-            }}
-          >
+          <DropdownMenuItem onSelect={() => setCreating(true)}>
             <IconFilePlus className="size-4" />
             {t("agentChat.settingsResources.files.create")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <Dialog open={creating} onOpenChange={setCreating}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {t("agentChat.settingsResources.files.create")}
-            </DialogTitle>
-          </DialogHeader>
-          <form
-            className="grid gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              submit();
-            }}
-          >
+      <CreateFileDialog
+        open={creating}
+        onOpenChange={setCreating}
+        scope={scope}
+        onCreated={onCreated}
+      />
+    </>
+  );
+}
+
+function CreateFileDialog({
+  open,
+  onOpenChange,
+  scope,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  scope: EditableResourceScope;
+  onCreated: (resource: ResourceMeta) => void;
+}) {
+  const t = useT();
+  const inputId = useId();
+  const [name, setName] = useState("");
+  const [failed, setFailed] = useState(false);
+  const create = useCreateResource();
+  const path = normalizeResourceFileName(name);
+
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setFailed(false);
+  }, [open]);
+
+  const submit = async () => {
+    if (!path || create.isPending) return;
+    setFailed(false);
+    try {
+      const resource = await create.mutateAsync({
+        path,
+        content: "",
+        shared: scope === "shared",
+      });
+      onOpenChange(false);
+      onCreated(resource);
+    } catch {
+      setFailed(true);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {t("agentChat.settingsResources.files.create")}
+          </DialogTitle>
+        </DialogHeader>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          <div className="grid gap-2">
             <Label htmlFor={inputId}>
               {t("agentResources.createFile.nameLabel")}
             </Label>
@@ -428,22 +464,41 @@ export function AddFileMenu({
               onChange={(event) => setName(event.target.value)}
               placeholder={t("agentResources.createFile.namePlaceholder")}
             />
-            <DialogFooter className="mt-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setCreating(false)}
-              >
-                {t("agentChat.settingsResources.cancel")}
-              </Button>
-              <Button type="submit" disabled={!path || create.isPending}>
-                {t("agentChat.settingsResources.create")}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
+          </div>
+          {failed ? (
+            <SaveFailedAlert
+              message={t("agentChat.settingsResources.saveFailed", {
+                name: path,
+              })}
+            />
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => onOpenChange(false)}
+            >
+              {t("agentChat.settingsResources.cancel")}
+            </Button>
+            <Button type="submit" disabled={!path || create.isPending}>
+              {create.isPending ? <Spinner /> : null}
+              {create.isPending
+                ? t("agentChat.settingsResources.creating")
+                : t("agentChat.settingsResources.create")}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SaveFailedAlert({ message }: { message: string }) {
+  return (
+    <Alert variant="destructive">
+      <IconAlertCircle />
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
   );
 }
 
@@ -457,75 +512,90 @@ export function InstructionsDialog({
 }) {
   const t = useT();
   const fieldId = useId();
+  const hintId = useId();
   const [text, setText] = useState("");
+  const [failed, setFailed] = useState(false);
   const create = useCreateResource();
 
-  const save = () => {
+  useEffect(() => {
+    if (open) setFailed(false);
+  }, [open]);
+
+  const save = async () => {
     const body = text.trim();
-    if (!body) return;
-    create.mutate(
-      {
+    if (!body || create.isPending) return;
+    setFailed(false);
+    try {
+      await create.mutateAsync({
         path: "AGENTS.md",
         content: `# Agent Instructions\n\n${body}\n`,
         mimeType: "text/markdown",
         shared: false,
-      },
-      {
-        onSuccess: () => {
-          setText("");
-          onOpenChange(false);
-        },
-        onError: () => {
-          toast.error(
-            t("agentChat.settingsResources.saveFailed", { name: "AGENTS.md" }),
-          );
-        },
-      },
-    );
+      });
+      setText("");
+      onOpenChange(false);
+    } catch {
+      setFailed(true);
+    }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>
             {t("agentChat.settingsShell.page.instructions")}
           </DialogTitle>
         </DialogHeader>
-        <div className="grid gap-2">
-          <Label htmlFor={fieldId}>
-            {t("agentChat.settingsResources.instructions.fieldLabel")}
-          </Label>
-          <Textarea
-            id={fieldId}
-            autoFocus
-            rows={6}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            placeholder={t(
-              "agentChat.settingsResources.instructions.placeholder",
-            )}
-          />
-          <p className="text-xs text-muted-foreground">
-            {t("agentChat.settingsResources.instructions.savedAs")}
-          </p>
-        </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-          >
-            {t("agentChat.settingsResources.cancel")}
-          </Button>
-          <Button
-            type="button"
-            disabled={!text.trim() || create.isPending}
-            onClick={save}
-          >
-            {t("agentChat.settingsResources.save")}
-          </Button>
-        </DialogFooter>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
+          <div className="grid gap-2">
+            <Label htmlFor={fieldId}>
+              {t("agentChat.settingsResources.instructions.fieldLabel")}
+            </Label>
+            <Textarea
+              id={fieldId}
+              autoFocus
+              rows={6}
+              value={text}
+              aria-describedby={hintId}
+              onChange={(event) => setText(event.target.value)}
+              placeholder={t(
+                "agentChat.settingsResources.instructions.placeholder",
+              )}
+            />
+            <p id={hintId} className="text-xs text-muted-foreground">
+              {t("agentChat.settingsResources.instructions.savedAs")}
+            </p>
+          </div>
+          {failed ? (
+            <SaveFailedAlert
+              message={t("agentChat.settingsResources.saveFailed", {
+                name: "AGENTS.md",
+              })}
+            />
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => onOpenChange(false)}
+            >
+              {t("agentChat.settingsResources.cancel")}
+            </Button>
+            <Button type="submit" disabled={!text.trim() || create.isPending}>
+              {create.isPending ? <Spinner /> : null}
+              {create.isPending
+                ? t("agentChat.settingsResources.saving")
+                : t("agentChat.settingsResources.save")}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

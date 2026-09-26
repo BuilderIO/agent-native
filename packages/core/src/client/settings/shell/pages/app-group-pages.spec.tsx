@@ -91,7 +91,8 @@ vi.mock("../../../resources/McpAccessSettings.js", () => ({
 const changelogCard = vi.hoisted(() => ({
   props: null as Record<string, unknown> | null,
 }));
-vi.mock("../../../changelog/Changelog.js", () => ({
+vi.mock("../../../changelog/Changelog.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../changelog/Changelog.js")>()),
   ChangelogSettingsCard: (props: Record<string, unknown>) => {
     changelogCard.props = props;
     return <div data-testid="changelog" />;
@@ -501,6 +502,23 @@ describe("app group pages", () => {
         viewAllLabel: "View all updates",
       });
       expect(header?.badge).toBeTruthy();
+    });
+
+    it("shows an empty state instead of a blank page when no entries parse", async () => {
+      changelogCard.props = null;
+      await renderPage(WhatsNewSettingsPage, {
+        input: {
+          whatsNew: (
+            <div>
+              <FakeCard markdown={"# Changelog"} />
+            </div>
+          ),
+        },
+      });
+      expect(changelogCard.props).toBeNull();
+      expect(container.querySelector('[data-slot="empty"]')?.textContent).toBe(
+        "No updates yet.",
+      );
     });
   });
 });

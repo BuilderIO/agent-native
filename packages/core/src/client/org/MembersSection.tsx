@@ -583,13 +583,11 @@ export function MemberPagination({
           <PaginationItem>
             <PaginationPrevious
               href="#"
+              size="sm"
               aria-label={t("org.previousMemberPage")}
               aria-disabled={!canGoPrevious}
               tabIndex={canGoPrevious ? undefined : -1}
-              className={cn(
-                "text-xs",
-                !canGoPrevious && "pointer-events-none opacity-50",
-              )}
+              className={cn(!canGoPrevious && "pointer-events-none opacity-50")}
               onClick={(event) => {
                 event.preventDefault();
                 if (canGoPrevious) {
@@ -603,13 +601,11 @@ export function MemberPagination({
           <PaginationItem>
             <PaginationNext
               href="#"
+              size="sm"
               aria-label={t("org.nextMemberPage")}
               aria-disabled={!canGoNext}
               tabIndex={canGoNext ? undefined : -1}
-              className={cn(
-                "text-xs",
-                !canGoNext && "pointer-events-none opacity-50",
-              )}
+              className={cn(!canGoNext && "pointer-events-none opacity-50")}
               onClick={(event) => {
                 event.preventDefault();
                 if (canGoNext && nextMemberOffset !== null) {

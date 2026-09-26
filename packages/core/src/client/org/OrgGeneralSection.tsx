@@ -10,6 +10,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@agent-native/toolkit/ui/alert-dialog";
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Select,
@@ -51,6 +52,7 @@ import {
   Button,
   ErrorText,
   OrganizationDescription,
+  PendingLabel,
   SectionTooltipProvider,
 } from "./TeamPrimitives.js";
 
@@ -146,17 +148,19 @@ export function WorkspaceUrlSettingsSection({
       }
       control={
         !editing ? (
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-1">
             {workspaceUrl ? (
               <>
-                <span className="inline-flex max-w-72 items-center gap-1.5 truncate rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
-                  <IconExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="me-1 inline-flex h-8 max-w-72 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-sm">
+                  <IconExternalLink className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate">{workspaceUrl}</span>
                 </span>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
+                    <ToolkitButton
                       type="button"
+                      variant="ghost"
+                      size="icon-sm"
                       aria-label={t(
                         "agentChat.settingsOrg.general.editWorkspaceUrl",
                       )}
@@ -164,10 +168,9 @@ export function WorkspaceUrlSettingsSection({
                         setDraft(workspaceUrl);
                         setEditing(true);
                       }}
-                      className="text-muted-foreground hover:text-foreground"
                     >
-                      <IconPencil size={14} />
-                    </Button>
+                      <IconPencil />
+                    </ToolkitButton>
                   </TooltipTrigger>
                   <TooltipContent>
                     {t("agentChat.settingsOrg.general.editWorkspaceUrl")}
@@ -175,19 +178,18 @@ export function WorkspaceUrlSettingsSection({
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
+                    <ToolkitButton
                       type="button"
-                      intent="danger"
-                      emphasis="ghost"
+                      variant="ghost"
+                      size="icon-sm"
                       aria-label={t(
                         "agentChat.settingsOrg.general.removeWorkspaceUrl",
                       )}
                       disabled={setWorkspaceUrl.isPending}
                       onClick={() => setWorkspaceUrl.mutate(null)}
-                      className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                     >
-                      <IconX size={14} />
-                    </Button>
+                      <IconX />
+                    </ToolkitButton>
                   </TooltipTrigger>
                   <TooltipContent>
                     {t("agentChat.settingsOrg.general.removeWorkspaceUrl")}
@@ -195,56 +197,64 @@ export function WorkspaceUrlSettingsSection({
                 </Tooltip>
               </>
             ) : (
-              <Button
+              <ToolkitButton
                 type="button"
-                intent="neutral"
-                emphasis="outline"
-                onClick={() => setEditing(true)}
-                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setDraft("");
+                  setEditing(true);
+                }}
               >
                 {t("agentChat.settingsOrg.general.setWorkspaceUrl")}
-              </Button>
+              </ToolkitButton>
             )}
           </div>
         ) : (
-          <div className="flex items-center gap-2">
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              save();
+            }}
+          >
             <Input
               type="text"
+              size="sm"
               value={draft}
               aria-label={t("agentChat.settingsOrg.general.workspaceUrl")}
+              aria-invalid={setWorkspaceUrl.error ? true : undefined}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") save();
                 if (e.key === "Escape") setEditing(false);
               }}
               placeholder="workspace.example.com"
-              className="h-8 w-56"
+              className="w-56"
               autoFocus
             />
-            <Button
+            <ToolkitButton
               type="button"
-              intent="primary"
-              emphasis="solid"
-              disabled={setWorkspaceUrl.isPending}
-              onClick={save}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              {setWorkspaceUrl.isPending ? (
-                <IconLoader2 size={14} className="animate-spin" />
-              ) : (
-                t("agentChat.common.save")
-              )}
-            </Button>
-            <Button
-              type="button"
-              intent="neutral"
-              emphasis="outline"
-              onClick={() => setEditing(false)}
-              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setEditing(false);
+                setWorkspaceUrl.reset();
+              }}
             >
               {t("agentChat.common.cancel")}
-            </Button>
-          </div>
+            </ToolkitButton>
+            <ToolkitButton
+              type="submit"
+              size="sm"
+              disabled={setWorkspaceUrl.isPending}
+            >
+              <PendingLabel
+                pending={setWorkspaceUrl.isPending}
+                label={t("agentChat.common.save")}
+                pendingLabel={t("agentChat.common.saving")}
+              />
+            </ToolkitButton>
+          </form>
         )
       }
     >
@@ -409,9 +419,10 @@ export function OrgIconControl({
         }),
       }}
     >
-      <Button
+      <ToolkitButton
         type="button"
-        className="flex size-7 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        variant="ghost"
+        size="icon-sm"
         aria-label={t("org.workspaceIcon", {
           defaultValue: "Workspace icon",
         })}
@@ -424,7 +435,7 @@ export function OrgIconControl({
           }
           fallback={<IconUsersGroup className="size-4 text-muted-foreground" />}
         />
-      </Button>
+      </ToolkitButton>
     </ResourceIconPicker>
   ) : (
     <ResourceIcon

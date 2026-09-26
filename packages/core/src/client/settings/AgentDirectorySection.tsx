@@ -1,4 +1,5 @@
 import { TextField } from "@agent-native/toolkit/design-system";
+import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconArrowUpRight,
@@ -111,9 +112,9 @@ export function AgentDirectorySection() {
             intent="neutral"
             emphasis="outline"
             onClick={() => openAgentConnection()}
-            className="h-9 shrink-0 gap-1.5"
+            className="shrink-0"
           >
-            <IconPlugConnected size={15} />
+            <IconPlugConnected />
             {t("agentChat.agents.directoryManual")}
           </Button>
         )}
@@ -146,9 +147,7 @@ export function AgentDirectorySection() {
                         {t(provider.nameKey)}
                       </h3>
                     </div>
-                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
-                      {t(provider.protocolKey)}
-                    </span>
+                    <Badge variant="outline">{t(provider.protocolKey)}</Badge>
                   </div>
                   <p className="text-xs leading-5 text-muted-foreground">
                     {t(provider.hintKey)}
@@ -158,12 +157,13 @@ export function AgentDirectorySection() {
                   <Button
                     type="button"
                     variant="ghost"
+                    size="sm"
                     intent="neutral"
                     onClick={() => openAgentConnection(provider.provider)}
-                    className="mt-4 h-8 justify-between px-2 text-xs"
+                    className="mt-4 justify-between"
                   >
                     {t("agentChat.common.connect")}
-                    <IconArrowUpRight size={14} />
+                    <IconArrowUpRight />
                   </Button>
                 )}
               </article>

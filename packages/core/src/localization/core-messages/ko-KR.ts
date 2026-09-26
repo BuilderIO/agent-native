@@ -254,6 +254,7 @@ const messages: AgentChatTranslation = {
   "agents.formDescriptionPlaceholder": "설명 (선택 사항)",
   "agents.formCheck": "확인",
   "agents.formAdd": "추가",
+  "agents.formAdding": "추가하는 중",
   "agents.formAddAnyway": "그래도 추가",
   "agents.formRemove": "제거",
   "agents.formSaveFailed": "에이전트를 저장할 수 없습니다.",
@@ -1046,6 +1047,8 @@ const messages: AgentChatTranslation = {
   "settings.audit.changedBy": "변경한 사람",
   "settings.audit.close": "닫기",
   "settings.audit.empty": "이 기간에는 변경 사항이 없습니다.",
+  "settings.audit.emptyDescription":
+    "사용자와 에이전트가 변경한 내용이 여기에 표시됩니다.",
   "settings.audit.failed": "실패",
   "settings.audit.input": "입력",
   "settings.audit.inputLoadFailed": "입력을 불러올 수 없습니다.",
@@ -1096,6 +1099,7 @@ const messages: AgentChatTranslation = {
     "{{org}}에 대한 액세스 권한을 잃습니다. 소유한 항목은 선택한 사람에게 이전됩니다.",
   "settingsOrg.members.roleFor": "{{name}}님의 역할",
   "settingsOrg.members.moreActions": "{{name}}님에 대한 추가 작업",
+  "settingsOrg.members.removing": "제거하는 중…",
   "settingsOrg.members.groupsEmpty":
     "멤버를 그룹으로 묶어 앱 액세스를 함께 관리하세요.",
   "settingsOrg.auth.signIn": "로그인",
@@ -1173,6 +1177,7 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.addAsAdmins": "관리자로 추가",
   "settingsOrg.invite.add": "추가",
   "settingsOrg.invite.send": "초대 보내기",
+  "settingsOrg.invite.sending": "보내는 중…",
   "settingsOrg.invite.close": "닫기",
   "settingsOrg.invite.csvNoEmails":
     "이 CSV에서 유효한 이메일을 찾지 못했습니다.",
@@ -1230,11 +1235,13 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.sendConfirmation": "확인 메일 보내기",
   "settingsShell.account.sending": "보내는 중...",
   "settingsShell.account.setUpTwoFactor": "2단계 인증 설정",
+  "settingsShell.account.settingUp": "설정 중...",
   "settingsShell.account.signIn": "로그인",
   "settingsShell.account.timezone": "시간대",
   "settingsShell.account.timezoneDescription":
     "타임스탬프와 예약된 자동화에 사용됩니다.",
   "settingsShell.account.turnOffTwoFactor": "2단계 인증 끄기",
+  "settingsShell.account.turningOff": "끄는 중...",
   "settingsShell.account.twoFactor": "2단계 인증",
   "settingsShell.account.twoFactorBackupCodes":
     "이 백업 코드를 안전한 곳에 보관하세요. 인증 앱에 접근할 수 없게 되면 각 코드를 한 번씩 사용할 수 있습니다.",
@@ -1255,6 +1262,7 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.twoFactorSetupTitle": "2단계 인증 설정",
   "settingsShell.account.uploading": "업로드 중...",
   "settingsShell.account.verifyAndEnable": "확인 후 사용",
+  "settingsShell.account.verifying": "확인 중...",
   "settingsShell.account.voiceBatch": "일괄",
   "settingsShell.account.voiceDescription":
     "음성 입력을 받아쓰는 방법을 선택합니다.",
@@ -1306,6 +1314,7 @@ const messages: AgentChatTranslation = {
   "settingsShell.builder.connectedTo": "연결됨 · {{space}}",
   "settingsShell.builder.connection": "연결",
   "settingsShell.builder.disconnect": "연결 해제",
+  "settingsShell.builder.disconnecting": "연결 해제 중…",
   "settingsShell.builder.disconnectBody":
     "{{org}}에서 자신의 계정을 연결하지 않은 모든 사람에게 영향을 줍니다.",
   "settingsShell.builder.disconnectFailed":
@@ -1419,6 +1428,7 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.removeCredentials.confirm": "제거",
   "settingsShell.channels.removeCredentials.failed":
     "자격 증명을 제거하지 못했습니다.",
+  "settingsShell.channels.removeCredentials.removing": "제거 중…",
   "settingsShell.channels.removeCredentials.title":
     "{{platform}} 자격 증명을 제거할까요?",
   "settingsShell.channels.retry": "다시 시도",
@@ -1432,6 +1442,7 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.setup.replaceAria": "{{key}} 교체",
   "settingsShell.channels.setup.save": "저장",
   "settingsShell.channels.setup.saveAndTurnOn": "저장하고 켜기",
+  "settingsShell.channels.setup.saving": "저장 중…",
   "settingsShell.channels.setup.saved": "저장됨",
   "settingsShell.channels.setup.savedElsewhere": "채널 외부에 저장됨",
   "settingsShell.channels.setup.setInEnvironment": "배포 환경에서 설정",
@@ -1473,10 +1484,24 @@ const messages: AgentChatTranslation = {
   "settingsShell.integrations.category.sales": "영업",
   "settingsShell.integrations.category.support": "지원",
   "settingsShell.integrations.connectName": "{{name}} 연결",
+  "settingsShell.integrations.connectedEmptyDescription":
+    "아래에서 도구를 연결하면 에이전트가 채팅에서 사용할 수 있습니다.",
+  "settingsShell.integrations.connectedEmptyTitle":
+    "아직 연결된 항목이 없습니다",
   "settingsShell.integrations.footnote":
     "에이전트가 사용하는 도구입니다. Claude, ChatGPT, Cursor에서 {{app}}을(를) 사용하려면 {{link}}을(를) 참고하세요.",
+  "settingsShell.integrations.moreActions": "{{name}} 추가 작업",
   "settingsShell.integrations.noResults":
     "일치하는 통합이 없습니다. 다른 이름으로 시도해 보세요.",
+  "settingsShell.integrations.remove": "제거",
+  "settingsShell.integrations.removeFailed":
+    "{{name}}을(를) 제거하지 못했습니다.",
+  "settingsShell.integrations.removePersonal":
+    "에이전트가 더 이상 회원님을 위해 {{name}}을(를) 사용하지 않습니다.",
+  "settingsShell.integrations.removeTitle": "{{name}}을(를) 제거할까요?",
+  "settingsShell.integrations.removeWorkspace":
+    "에이전트가 더 이상 워크스페이스의 모든 사람을 위해 {{name}}을(를) 사용하지 않습니다.",
+  "settingsShell.integrations.removing": "제거 중…",
   "settingsShell.integrations.retry": "다시 시도",
   "settingsShell.integrations.seeMoreMany": "{{first}}, {{second}} 외 더 보기",
   "settingsShell.integrations.seeMoreOne": "{{first}} 보기",
@@ -1540,7 +1565,7 @@ const messages: AgentChatTranslation = {
   "settingsResources.openDispatch": "Dispatch 열기",
   "settingsResources.allApps": "모든 앱",
   "settingsResources.allAppsHint": "Dispatch가 모든 앱과 공유합니다",
-  "settingsResources.dispatchEmpty": "Dispatch에서 공유된 항목이 없습니다.",
+  "settingsResources.dispatchEmpty": "Dispatch에서 공유된 항목이 없습니다",
   "settingsResources.loadFailed": "이 리소스를 불러오지 못했습니다.",
   "settingsResources.moreActions": "추가 작업",
   "settingsResources.open": "열기",
@@ -1553,9 +1578,13 @@ const messages: AgentChatTranslation = {
   "settingsResources.cancel": "취소",
   "settingsResources.save": "저장",
   "settingsResources.create": "만들기",
+  "settingsResources.saving": "저장하는 중",
+  "settingsResources.creating": "만드는 중",
+  "settingsResources.removing": "제거하는 중",
   "settingsResources.instructions.empty":
     "에이전트에게 함께 일하는 방식을 알려 주세요.",
-  "settingsResources.instructions.orgEmpty": "아직 {{org}}의 지침이 없습니다.",
+  "settingsResources.instructions.emptyTitle": "아직 지침이 없습니다",
+  "settingsResources.instructions.orgEmpty": "아직 {{org}}의 지침이 없습니다",
   "settingsResources.instructions.add": "지침 추가",
   "settingsResources.instructions.fieldLabel":
     "에이전트가 어떻게 일하길 원하시나요?",
@@ -1565,14 +1594,17 @@ const messages: AgentChatTranslation = {
     "개인 리소스에 AGENTS.md로 저장됩니다.",
   "settingsResources.memory.empty":
     "에이전트가 당신에 대해 알게 된 내용을 여기에 저장합니다.",
-  "settingsResources.memory.orgEmpty": "아직 공유된 메모리가 없습니다.",
+  "settingsResources.memory.emptyTitle": "아직 메모리가 없습니다",
+  "settingsResources.memory.orgEmpty": "아직 공유된 메모리가 없습니다",
   "settingsResources.memory.add": "메모리 추가",
   "settingsResources.learnings.empty":
     "에이전트에게 준 수정 사항은 학습 내용으로 저장됩니다.",
+  "settingsResources.learnings.emptyTitle": "아직 학습 내용이 없습니다",
   "settingsResources.learnings.add": "학습 내용 추가",
   "settingsResources.skills.empty":
     "워크플로를 한 번 저장하면 에이전트가 재사용할 수 있습니다.",
-  "settingsResources.skills.orgEmpty": "아직 공유된 스킬이 없습니다.",
+  "settingsResources.skills.emptyTitle": "아직 스킬이 없습니다",
+  "settingsResources.skills.orgEmpty": "아직 공유된 스킬이 없습니다",
   "settingsResources.skills.add": "스킬 추가",
   "settingsResources.skills.describe": "에이전트에게 설명하기",
   "settingsResources.skills.upload": "스킬 파일 업로드",
@@ -1580,7 +1612,8 @@ const messages: AgentChatTranslation = {
     "풀 리퀘스트의 보안 문제를 검토하는 스킬",
   "settingsResources.files.empty":
     "파일을 추가해 에이전트에게 더 많은 컨텍스트를 제공하세요.",
-  "settingsResources.files.orgEmpty": "아직 공유된 파일이 없습니다.",
+  "settingsResources.files.emptyTitle": "아직 파일이 없습니다",
+  "settingsResources.files.orgEmpty": "아직 공유된 파일이 없습니다",
   "settingsResources.files.add": "파일 추가",
   "settingsResources.files.upload": "파일 업로드",
   "settingsResources.files.create": "파일 만들기",
@@ -1601,6 +1634,7 @@ const messages: AgentChatTranslation = {
   "settingsInfra.close": "닫기",
   "settingsInfra.cancel": "취소",
   "settingsInfra.save": "저장",
+  "settingsInfra.saving": "저장 중…",
   "settingsInfra.required": "필수",
   "settingsInfra.recommended": "권장",
   "settingsInfra.optional": "선택",
@@ -1709,8 +1743,10 @@ const messages: AgentChatTranslation = {
   "settingsInfra.copied": "복사됨",
   "settingsInfra.copyFailed": "복사할 수 없습니다.",
   "settingsApiKeys.addKey": "키 추가",
+  "settingsApiKeys.adding": "추가 중…",
   "settingsApiKeys.availableTo": "사용 가능 대상",
   "settingsApiKeys.deleteKey": "키 삭제",
+  "settingsApiKeys.deleting": "삭제 중…",
   "settingsApiKeys.deleteTitle": "{{name}}을(를) 삭제할까요?",
   "settingsApiKeys.everyoneIn": "{{org}}의 모든 사용자",
   "settingsApiKeys.getKey": "키 받기",
@@ -1729,12 +1765,15 @@ const messages: AgentChatTranslation = {
   "settingsApiKeys.modelFootnote": "자체 모델 제공업체를 사용하려면 {{link}}.",
   "settingsApiKeys.modelFootnoteLink": "모델에서 추가하세요",
   "settingsApiKeys.name": "이름",
-  "settingsApiKeys.noKeys": "아직 키가 없습니다.",
+  "settingsApiKeys.noKeys": "아직 키가 없습니다",
+  "settingsApiKeys.noKeysDescription":
+    "키를 추가하면 앱과 에이전트가 서비스에 접근할 수 있습니다.",
   "settingsApiKeys.orgKeys": "조직 키",
   "settingsApiKeys.providerInModel":
     "{{provider}}은(는) {{link}}에서 추가하세요.",
   "settingsApiKeys.replaceTitle": "{{name}} 교체",
   "settingsApiKeys.replaceValue": "값 교체",
+  "settingsApiKeys.saving": "저장 중…",
   "settingsApiKeys.showKeys_other": "키 {{count}}개 표시",
   "settingsApiKeys.test": "테스트",
   "settingsApiKeys.testPassed": "저장된 값이 작동합니다.",
@@ -1745,6 +1784,7 @@ const messages: AgentChatTranslation = {
   "settingsModel.addEndpoint": "엔드포인트 URL 추가",
   "settingsModel.addNamed": "{{provider}} 추가",
   "settingsModel.addProvider": "공급자 추가",
+  "settingsModel.adding": "추가하는 중",
   "settingsModel.affectsOrg": "{{org}}의 모든 사용자에게 영향을 줍니다.",
   "settingsModel.affectsYou": "나에게만 영향을 줍니다.",
   "settingsModel.allApps": "모든 앱",
@@ -1785,6 +1825,8 @@ const messages: AgentChatTranslation = {
   "settingsModel.connecting": "연결하는 중…",
   "settingsModel.defaultModelDescription":
     "앱에서 따로 설정하지 않으면 모든 앱에서 사용됩니다.",
+  "settingsModel.defaultModelNeedsProvider":
+    "기본 모델을 선택하려면 공급자를 추가하세요.",
   "settingsModel.disconnect": "연결 해제",
   "settingsModel.effectDefaultStops":
     "다른 공급자를 설정할 때까지 채팅이 중지됩니다.",
@@ -1794,6 +1836,10 @@ const messages: AgentChatTranslation = {
   "settingsModel.effectKeepsWorkspace": "워크스페이스 키로 계속 작동합니다.",
   "settingsModel.effectModelsLeave":
     "{{provider}} 모델이 모델 선택기에서 사라집니다.",
+  "settingsModel.emptyAskAdmin": "소유자나 관리자에게 추가를 요청하세요.",
+  "settingsModel.emptyDescription":
+    "에이전트가 응답하려면 공급자가 필요합니다.",
+  "settingsModel.emptyTitle": "모델 공급자 추가",
   "settingsModel.endpointFirst": "먼저 엔드포인트 URL을 입력하세요.",
   "settingsModel.endpointHint":
     "선택 사항입니다. LiteLLM이나 다른 OpenAI 호환 게이트웨이에 사용하세요.",
@@ -1855,6 +1901,7 @@ const messages: AgentChatTranslation = {
   "settingsModel.remove": "삭제",
   "settingsModel.removeProvider": "공급자 삭제",
   "settingsModel.removeTitle": "{{provider}}을(를) 삭제할까요?",
+  "settingsModel.removing": "삭제하는 중",
   "settingsModel.replace": "교체",
   "settingsModel.replaceKey": "키 교체",
   "settingsModel.restrictBody": "멤버는 조직 공급자만 사용할 수 있습니다.",
@@ -1874,10 +1921,12 @@ const messages: AgentChatTranslation = {
   "settingsModel.restricted": "소유자와 관리자가 개인 API 키를 제한했습니다.",
   "settingsModel.restrictedRow":
     "개인 API 키가 제한되어 있는 동안에는 사용되지 않습니다.",
+  "settingsModel.restricting": "제한하는 중",
   "settingsModel.retry": "다시 시도",
   "settingsModel.save": "저장",
   "settingsModel.savedRejected":
     "{{provider}}에서 저장된 키를 거부했습니다. 새 키를 붙여넣으세요.",
+  "settingsModel.saving": "저장하는 중",
   "settingsModel.selectAll": "모두 선택",
   "settingsModel.settingLoadFailed": "이 설정을 불러올 수 없습니다.",
   "settingsModel.unreachableHeadline": "{{provider}}에 연결할 수 없습니다",
@@ -1895,12 +1944,14 @@ const messages: AgentChatTranslation = {
   "settingsSubAgents.external": "외부 에이전트",
   "settingsSubAgents.custom": "사용자 지정 에이전트",
   "settingsSubAgents.managedByAdmins": "관리자가 관리",
-  "settingsSubAgents.appsEmpty": "아직 연결된 앱이 없습니다.",
+  "settingsSubAgents.appsEmpty": "아직 연결된 앱이 없습니다",
   "settingsSubAgents.externalEmpty":
     "Foundry, Gemini Enterprise, Anthropic 또는 모든 A2A 에이전트를 연결하세요.",
+  "settingsSubAgents.externalEmptyTitle": "아직 외부 에이전트가 없습니다",
   "settingsSubAgents.browseDirectory": "디렉터리 둘러보기",
   "settingsSubAgents.customEmpty":
     "메인 에이전트가 작업을 맡길 수 있는 전문 에이전트를 정의하세요.",
+  "settingsSubAgents.customEmptyTitle": "아직 사용자 지정 에이전트가 없습니다",
   "settingsSubAgents.addAgent": "에이전트 추가",
   "settingsSubAgents.describe": "에이전트에게 설명하기",
   "settingsSubAgents.describePlaceholder":

@@ -1,24 +1,25 @@
-import { ActionButton, TextField } from "@agent-native/toolkit/design-system";
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@agent-native/toolkit/ui/alert-dialog";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { IconExternalLink } from "@tabler/icons-react";
 import { QRCodeSVG } from "qrcode.react";
-import { useState, type ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 
 import { docsUrl } from "../../../shared/docs-url.js";
 import { PASSWORD_MIN_LENGTH } from "../../../shared/password-policy.js";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -36,6 +37,8 @@ import {
 } from "./account-hooks.js";
 
 const key = (name: string) => `agentChat.settingsShell.account.${name}`;
+
+const TWO_FACTOR_CODE = /^\d{6,8}$/;
 
 /** Account › Security: sign-in methods and data requests. */
 export function SecuritySettings() {
@@ -74,31 +77,73 @@ function StatusText({
   );
 }
 
-function RowButton({
-  children,
-  intent = "neutral",
-  disabled,
+/** A dialog field: label, control, and one line for its hint or error. */
+function Field({
+  id,
+  label,
+  message,
+  invalid,
+  ...inputProps
+}: Omit<ComponentProps<typeof Input>, "id" | "size"> & {
+  id: string;
+  label: string;
+  /** The hint, or the error while `invalid`. */
+  message?: string;
+  invalid?: boolean;
+}) {
+  const messageId = message ? `${id}-message` : undefined;
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        aria-invalid={invalid || undefined}
+        aria-describedby={messageId}
+        {...inputProps}
+      />
+      {message ? (
+        <p
+          id={messageId}
+          className={
+            invalid
+              ? "text-sm text-destructive"
+              : "text-sm text-muted-foreground"
+          }
+        >
+          {message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ErrorAlert({ children }: { children: ReactNode }) {
+  return (
+    <Alert variant="destructive">
+      <AlertDescription>{children}</AlertDescription>
+    </Alert>
+  );
+}
+
+/** The dialog's primary action: a spinner and the pending label while it runs. */
+function SubmitButton({
   pending,
-  onPress,
+  pendingLabel,
+  disabled,
+  variant = "default",
+  children,
 }: {
-  children: ReactNode;
-  intent?: "neutral" | "danger";
-  disabled?: boolean;
   pending?: boolean;
-  onPress: () => void;
+  pendingLabel?: string;
+  disabled?: boolean;
+  variant?: "default" | "destructive";
+  children: ReactNode;
 }) {
   return (
-    <ActionButton
-      type="button"
-      intent={intent}
-      emphasis="outline"
-      size="compact"
-      disabled={disabled}
-      pending={pending}
-      onPress={onPress}
-    >
-      {children}
-    </ActionButton>
+    <Button type="submit" variant={variant} disabled={disabled || pending}>
+      {pending ? <Spinner aria-hidden="true" /> : null}
+      {pending && pendingLabel ? pendingLabel : children}
+    </Button>
   );
 }
 
@@ -111,14 +156,6 @@ function PasswordRow({ signedIn }: { signedIn: boolean }) {
   const actionLabel = form.hasPassword
     ? t(key("changePassword"))
     : t(key("addPassword"));
-  const error =
-    form.validationError === "length"
-      ? t(key("passwordMinLength"), { count: PASSWORD_MIN_LENGTH })
-      : form.validationError === "mismatch"
-        ? t(key("passwordMismatch"))
-        : form.saveFailed
-          ? t(key("passwordSaveError"))
-          : undefined;
 
   const openDialog = (next: boolean) => {
     if (next) {
@@ -143,13 +180,16 @@ function PasswordRow({ signedIn }: { signedIn: boolean }) {
       }
       control={
         <Dialog open={open} onOpenChange={openDialog}>
-          <RowButton
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
             disabled={!signedIn || form.isLoading || form.loadFailed}
-            onPress={() => openDialog(true)}
+            onClick={() => openDialog(true)}
           >
             {actionLabel}
-          </RowButton>
-          <DialogContent className="sm:max-w-md">
+          </Button>
+          <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
             <DialogHeader>
               <DialogTitle>{actionLabel}</DialogTitle>
             </DialogHeader>
@@ -165,61 +205,73 @@ function PasswordRow({ signedIn }: { signedIn: boolean }) {
               }}
             >
               {form.hasPassword ? (
-                <TextField
+                <Field
                   id="agent-native-current-password"
                   type="password"
                   label={t(key("currentPassword"))}
                   value={form.currentPassword}
-                  onChange={form.setCurrentPassword}
+                  onChange={(event) =>
+                    form.setCurrentPassword(event.currentTarget.value)
+                  }
                   autoComplete="current-password"
                   autoFocus
-                  disabled={form.isPending}
+                  required
+                  readOnly={form.isPending}
                 />
               ) : null}
-              <TextField
+              <Field
                 id="agent-native-new-password"
                 type="password"
                 label={t(key("newPassword"))}
                 value={form.newPassword}
-                onChange={form.setNewPassword}
+                onChange={(event) =>
+                  form.setNewPassword(event.currentTarget.value)
+                }
                 autoComplete="new-password"
                 autoFocus={!form.hasPassword}
-                disabled={form.isPending}
-                invalid={!!error}
+                required
+                readOnly={form.isPending}
+                message={t(key("passwordMinLength"), {
+                  count: PASSWORD_MIN_LENGTH,
+                })}
+                invalid={form.validationError === "length"}
               />
-              <TextField
+              <Field
                 id="agent-native-confirm-password"
                 type="password"
                 label={t(key("confirmPassword"))}
                 value={form.confirmPassword}
-                onChange={form.setConfirmPassword}
+                onChange={(event) =>
+                  form.setConfirmPassword(event.currentTarget.value)
+                }
                 autoComplete="new-password"
-                disabled={form.isPending}
-                invalid={!!error}
-                errorMessage={error}
+                required
+                readOnly={form.isPending}
+                message={
+                  form.validationError === "mismatch"
+                    ? t(key("passwordMismatch"))
+                    : undefined
+                }
+                invalid={form.validationError === "mismatch"}
               />
-              <DialogFooter className="gap-2">
-                <ActionButton
+              {form.saveFailed ? (
+                <ErrorAlert>{t(key("passwordSaveError"))}</ErrorAlert>
+              ) : null}
+              <DialogFooter className="gap-2 sm:space-x-0">
+                <Button
                   type="button"
-                  intent="neutral"
-                  emphasis="outline"
-                  size="compact"
-                  onPress={() => openDialog(false)}
+                  variant="secondary"
+                  onClick={() => openDialog(false)}
                 >
                   {t("agentChat.common.cancel")}
-                </ActionButton>
-                <ActionButton
-                  type="submit"
-                  intent="primary"
-                  emphasis="solid"
-                  size="compact"
+                </Button>
+                <SubmitButton
                   pending={form.isPending}
+                  pendingLabel={t("agentChat.common.saving")}
                   disabled={!form.canSubmit}
                 >
-                  {form.isPending
-                    ? t("agentChat.common.saving")
-                    : t(key("savePassword"))}
-                </ActionButton>
+                  {t(key("savePassword"))}
+                </SubmitButton>
               </DialogFooter>
             </form>
           </DialogContent>
@@ -266,35 +318,27 @@ function TwoFactorRow() {
   };
 
   const passwordField = hasPassword ? (
-    <TextField
+    <Field
       id="agent-native-two-factor-password"
       type="password"
       label={t(key("currentPassword"))}
       value={twoFactor.password}
-      onChange={twoFactor.setPassword}
+      onChange={(event) => twoFactor.setPassword(event.currentTarget.value)}
       autoComplete="current-password"
       autoFocus
-      disabled={pending}
+      required
+      readOnly={pending}
     />
   ) : null;
 
   const cancel = (
-    <ActionButton
-      type="button"
-      intent="neutral"
-      emphasis="outline"
-      size="compact"
-      onPress={() => openDialog(false)}
-    >
+    <Button type="button" variant="secondary" onClick={() => openDialog(false)}>
       {t("agentChat.common.cancel")}
-    </ActionButton>
+    </Button>
   );
   const needsPassword = hasPassword && !twoFactor.password;
-  const errorLine = error ? (
-    <p className="text-sm text-destructive" role="alert">
-      {error}
-    </p>
-  ) : null;
+  const errorAlert =
+    error && !loadFailed ? <ErrorAlert>{error}</ErrorAlert> : null;
 
   let title: string;
   let body: ReactNode;
@@ -315,16 +359,7 @@ function TwoFactorRow() {
       </div>
     );
     onSubmit = () => openDialog(false);
-    footer = (
-      <ActionButton
-        type="submit"
-        intent="primary"
-        emphasis="solid"
-        size="compact"
-      >
-        {t(key("done"))}
-      </ActionButton>
-    );
+    footer = <SubmitButton>{t(key("done"))}</SubmitButton>;
   } else if (setup) {
     title = t(key("twoFactorSetupTitle"));
     body = (
@@ -340,38 +375,39 @@ function TwoFactorRow() {
           className="rounded-md p-2"
           aria-label={t(key("twoFactorQrLabel"))}
         />
-        <code className="block break-all rounded-md bg-muted p-2 text-[11px] text-muted-foreground">
+        <code className="block break-all rounded-md bg-muted p-2 font-mono text-xs text-muted-foreground">
           {setup.totpURI}
         </code>
-        <TextField
+        <Field
           id="agent-native-two-factor-code"
           type="text"
           label={t(key("authenticatorCode"))}
           value={twoFactor.code}
-          onChange={(value) => twoFactor.setCode(value.replace(/\D/g, ""))}
-          placeholder="123456"
+          onChange={(event) =>
+            twoFactor.setCode(event.currentTarget.value.replace(/\D/g, ""))
+          }
           inputMode="numeric"
+          maxLength={8}
           autoComplete="one-time-code"
           autoFocus
-          disabled={pending}
+          required
+          readOnly={pending}
+          message={error ?? t(key("twoFactorCodeError"))}
+          invalid={!!error}
         />
-        {errorLine}
       </div>
     );
     onSubmit = () => void twoFactor.confirmSetup();
     footer = (
       <>
         {cancel}
-        <ActionButton
-          type="submit"
-          intent="primary"
-          emphasis="solid"
-          size="compact"
+        <SubmitButton
           pending={pending}
-          disabled={pending || !twoFactor.code}
+          pendingLabel={t(key("verifying"))}
+          disabled={!TWO_FACTOR_CODE.test(twoFactor.code)}
         >
           {t(key("verifyAndEnable"))}
-        </ActionButton>
+        </SubmitButton>
       </>
     );
   } else if (enabled) {
@@ -382,7 +418,7 @@ function TwoFactorRow() {
           {t(key("twoFactorEnabled"))}
         </p>
         {passwordField}
-        {errorLine}
+        {errorAlert}
       </div>
     );
     onSubmit = () =>
@@ -392,16 +428,14 @@ function TwoFactorRow() {
     footer = (
       <>
         {cancel}
-        <ActionButton
-          type="submit"
-          intent="danger"
-          emphasis="solid"
-          size="compact"
+        <SubmitButton
+          variant="destructive"
           pending={pending}
-          disabled={pending || needsPassword}
+          pendingLabel={t(key("turningOff"))}
+          disabled={needsPassword}
         >
           {t(key("turnOffTwoFactor"))}
-        </ActionButton>
+        </SubmitButton>
       </>
     );
   } else {
@@ -412,23 +446,20 @@ function TwoFactorRow() {
           {t(key("twoFactorDescription"))}
         </p>
         {passwordField}
-        {errorLine}
+        {errorAlert}
       </div>
     );
     onSubmit = () => void twoFactor.startSetup();
     footer = (
       <>
         {cancel}
-        <ActionButton
-          type="submit"
-          intent="primary"
-          emphasis="solid"
-          size="compact"
+        <SubmitButton
           pending={pending}
-          disabled={pending || needsPassword}
+          pendingLabel={t(key("settingUp"))}
+          disabled={needsPassword}
         >
           {t("agentChat.common.continue")}
-        </ActionButton>
+        </SubmitButton>
       </>
     );
   }
@@ -450,27 +481,30 @@ function TwoFactorRow() {
       description={description}
       control={
         <Dialog open={open} onOpenChange={openDialog}>
-          <RowButton
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
             disabled={!signedIn || isLoading || loadFailed}
-            onPress={() => openDialog(true)}
+            onClick={() => openDialog(true)}
           >
             {enabled ? t(key("manage")) : t(key("setUpTwoFactor"))}
-          </RowButton>
-          <DialogContent className="sm:max-w-md">
+          </Button>
+          <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
             <DialogHeader>
               <DialogTitle>{title}</DialogTitle>
-              {/* Radix wants a description; the body carries the copy. */}
-              <DialogDescription className="sr-only">{title}</DialogDescription>
             </DialogHeader>
             <form
               className="grid gap-4"
               onSubmit={(event) => {
                 event.preventDefault();
-                onSubmit();
+                if (!pending) onSubmit();
               }}
             >
               {body}
-              <DialogFooter className="gap-2">{footer}</DialogFooter>
+              <DialogFooter className="gap-2 sm:space-x-0">
+                {footer}
+              </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
@@ -483,6 +517,8 @@ function YourDataGroup() {
   const t = useT();
   const privacy = usePrivacyRequest();
   const [deletionOpen, setDeletionOpen] = useState(false);
+  const deletionPending = privacy.pendingType === "deletion";
+  const accessPending = privacy.pendingType === "access";
 
   const describe = (type: PrivacyRequestType, fallback: string) =>
     privacy.failedType === type ? (
@@ -494,20 +530,25 @@ function YourDataGroup() {
     );
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2.5">
       <SettingsGroup id="your-data" title={t(key("yourData"))}>
         <SettingsRow
           id="data-copy"
           label={t(key("requestCopyLabel"))}
           description={describe("access", t(key("requestCopyDescription")))}
           control={
-            <RowButton
-              pending={privacy.pendingType === "access"}
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
               disabled={privacy.isPending}
-              onPress={() => privacy.submit("access")}
+              onClick={() => privacy.submit("access")}
             >
-              {t("settings.privacyRequestCopy")}
-            </RowButton>
+              {accessPending ? <Spinner aria-hidden="true" /> : null}
+              {accessPending
+                ? t("settings.privacyRequesting")
+                : t("settings.privacyRequestCopy")}
+            </Button>
           }
         />
         <SettingsRow
@@ -518,14 +559,21 @@ function YourDataGroup() {
             t(key("requestDeletionDescription")),
           )}
           control={
-            <AlertDialog open={deletionOpen} onOpenChange={setDeletionOpen}>
-              <RowButton
-                intent="danger"
+            <AlertDialog
+              open={deletionOpen}
+              onOpenChange={(next) => {
+                if (!deletionPending) setDeletionOpen(next);
+              }}
+            >
+              <Button
+                type="button"
+                variant="secondary-destructive"
+                size="sm"
                 disabled={privacy.isPending}
-                onPress={() => setDeletionOpen(true)}
+                onClick={() => setDeletionOpen(true)}
               >
                 {t("settings.privacyRequestDeletion")}
-              </RowButton>
+              </Button>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>
@@ -536,41 +584,46 @@ function YourDataGroup() {
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 {privacy.failedType === "deletion" ? (
-                  <p className="text-sm text-destructive" role="alert">
-                    {t("settings.privacyRequestError")}
-                  </p>
+                  <ErrorAlert>{t("settings.privacyRequestError")}</ErrorAlert>
                 ) : null}
-                <AlertDialogFooter>
-                  <AlertDialogCancel>
-                    {t("agentChat.common.cancel")}
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    disabled={privacy.isPending}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      privacy.submit("deletion", () => setDeletionOpen(false));
-                    }}
+                <AlertDialogFooter className="gap-2 sm:space-x-0">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={deletionPending}
+                    onClick={() => setDeletionOpen(false)}
                   >
-                    {privacy.pendingType === "deletion"
+                    {t("agentChat.common.cancel")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={privacy.isPending}
+                    onClick={() =>
+                      privacy.submit("deletion", () => setDeletionOpen(false))
+                    }
+                  >
+                    {deletionPending ? <Spinner aria-hidden="true" /> : null}
+                    {deletionPending
                       ? t("settings.privacyRequesting")
                       : t("settings.privacyRequestDeletion")}
-                  </AlertDialogAction>
+                  </Button>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
           }
         />
       </SettingsGroup>
-      <a
-        href={docsUrl("privacy-and-data-rights")}
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex items-center gap-1 self-start px-1 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-      >
-        {t("settings.privacyDocsLink")}
-        <IconExternalLink className="size-3" />
-      </a>
+      <Button asChild variant="link" size="xs" className="self-start">
+        <a
+          href={docsUrl("privacy-and-data-rights")}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {t("settings.privacyDocsLink")}
+          <IconExternalLink aria-hidden="true" />
+        </a>
+      </Button>
     </div>
   );
 }

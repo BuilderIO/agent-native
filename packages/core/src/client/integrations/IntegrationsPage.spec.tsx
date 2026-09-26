@@ -97,6 +97,7 @@ describe("IntegrationsPage", () => {
     mcpMocks.useMcpServers.mockReturnValue({
       data: { user: [], org: [], orgId: "acme", role: "member" },
       isError: false,
+      isSuccess: true,
       isLoading: false,
     });
     mcpMocks.useCreateMcpServer.mockReturnValue({ mutateAsync: vi.fn() });
@@ -263,6 +264,80 @@ describe("IntegrationsPage", () => {
       expect.arrayContaining(["Recommended", "Connected"]),
     );
     expect(container.textContent).toContain("Internal docs");
+  });
+
+  it("starts Connected from an empty state when nothing is connected", async () => {
+    await render();
+
+    const empty = container.querySelector(
+      "[data-integrations-connected-empty]",
+    );
+    expect(empty?.textContent).toContain("Nothing connected yet");
+    expect(empty?.textContent).toContain(
+      "Connect a tool below and the agent can use it in chat.",
+    );
+  });
+
+  it("confirms before removing a connected server, naming who loses it", async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    mcpMocks.useDeleteMcpServer.mockReturnValue({
+      isPending: false,
+      mutateAsync,
+    });
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: {
+        user: [
+          {
+            id: "internal-docs",
+            scope: "user",
+            name: "Internal docs",
+            url: "https://mcp.example.com/mcp",
+            authMode: "headers",
+            createdAt: 1,
+            status: { state: "connected", toolCount: 3 },
+          },
+        ],
+        org: [],
+        orgId: "acme",
+        role: "member",
+      },
+      isError: false,
+      isSuccess: true,
+      isLoading: false,
+    });
+    await render();
+
+    expect(
+      container.querySelector("[data-integrations-connected-empty]"),
+    ).toBeNull();
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions for Internal docs"]',
+    );
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    const remove = Array.from(
+      document.querySelectorAll('[role="menuitem"]'),
+    ).find((item) => item.textContent === "Remove") as HTMLElement;
+    await act(async () => remove.click());
+    expect(mutateAsync).not.toHaveBeenCalled();
+
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("Remove Internal docs?");
+    expect(dialog?.textContent).toContain(
+      "The agent stops using Internal docs for you.",
+    );
+    const confirm = Array.from(dialog!.querySelectorAll("button")).find(
+      (button) => button.textContent === "Remove",
+    ) as HTMLButtonElement;
+    await act(async () => confirm.click());
+    expect(mutateAsync).toHaveBeenCalledWith({
+      id: "internal-docs",
+      scope: "user",
+    });
   });
 
   it("filters to matching tiles and says when nothing matches", async () => {

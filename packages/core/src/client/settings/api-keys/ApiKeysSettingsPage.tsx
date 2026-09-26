@@ -1,7 +1,16 @@
 import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@agent-native/toolkit/ui/empty";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconDots,
+  IconKey,
   IconPlugConnected,
   IconPlus,
   IconRefresh,
@@ -100,11 +109,10 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
         <Button
           type="button"
           size="sm"
-          className="h-8 px-3"
           disabled={!ready}
           onClick={() => setValueDialog({ mode: "add" })}
         >
-          <IconPlus className="size-4" aria-hidden />
+          <IconPlus aria-hidden />
           {t(`${K}addKey`)}
         </Button>
       ),
@@ -146,7 +154,6 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 px-3"
           onClick={() => void listing.refetch()}
         >
           {t(`${M}retry`)}
@@ -187,9 +194,27 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
                 />
               ))
             ) : (
-              <p className="px-5 py-4 text-sm text-muted-foreground sm:px-6">
-                {t(`${K}noKeys`)}
-              </p>
+              <Empty data-api-keys-empty="">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <IconKey aria-hidden />
+                  </EmptyMedia>
+                  <EmptyTitle>{t(`${K}noKeys`)}</EmptyTitle>
+                  <EmptyDescription>
+                    {t(`${K}noKeysDescription`)}
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setValueDialog({ mode: "add" })}
+                  >
+                    <IconPlus aria-hidden />
+                    {t(`${K}addKey`)}
+                  </Button>
+                </EmptyContent>
+              </Empty>
             )}
           </SettingsGroup>
           <p className="mt-2 px-1 text-xs leading-5 text-muted-foreground">
@@ -317,7 +342,6 @@ function KeyRow({
         type="button"
         variant="secondary"
         size="sm"
-        className="h-8 px-3"
         onClick={() => onManageProvider(entry)}
       >
         {t(`${M}manage`)}
@@ -368,11 +392,10 @@ function KeyMenu({
         <Button
           type="button"
           variant="ghost"
-          size="sm"
-          className="size-8 p-0"
+          size="icon-sm"
           aria-label={t(`${K}manageKey`, { name: entry.name })}
         >
-          <IconDots className="size-4" aria-hidden />
+          <IconDots aria-hidden />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
@@ -459,17 +482,19 @@ function ManagedKeysGroup({
             );
           })
         : null}
-      <Button
-        type="button"
-        variant="ghost"
-        className="h-auto w-full justify-start rounded-none px-5 py-3 text-sm font-normal text-muted-foreground hover:text-foreground sm:px-6"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {open
-          ? t(`${K}hideKeys`)
-          : t(`${K}showKeys`, { count: entries.length })}
-      </Button>
+      <div className="flex justify-center px-5 py-2 sm:px-6">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open
+            ? t(`${K}hideKeys`)
+            : t(`${K}showKeys`, { count: entries.length })}
+        </Button>
+      </div>
     </SettingsGroup>
   );
 }

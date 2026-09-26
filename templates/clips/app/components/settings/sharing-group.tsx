@@ -4,7 +4,7 @@ import {
   SettingsLoadingRow,
   SettingsRow,
 } from "@agent-native/core/client/settings";
-import { IconLoader2, IconPhoto } from "@tabler/icons-react";
+import { IconPhoto } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { toast } from "sonner";
 
@@ -15,6 +15,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Spinner } from "@/components/ui/spinner";
 import {
   BRAND_COLOR_PRESETS,
   uploadLogo,
@@ -77,7 +78,7 @@ function LogoControl({
       {organization.brandLogoUrl ? (
         <Button
           type="button"
-          variant="ghost"
+          variant="secondary-destructive"
           size="sm"
           disabled={uploading}
           onClick={() => {
@@ -90,12 +91,12 @@ function LogoControl({
       ) : null}
       <Button
         type="button"
-        variant="outline"
+        variant="secondary"
         size="sm"
         disabled={uploading}
         onClick={() => inputRef.current?.click()}
       >
-        {uploading ? <IconLoader2 className="animate-spin" /> : null}
+        {uploading ? <Spinner /> : null}
         {t("clipsSettings.change")}
       </Button>
       <input
@@ -147,7 +148,7 @@ function BrandColorControl({
       }}
     >
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" size="sm">
+        <Button type="button" variant="secondary" size="sm">
           {t("clipsSettings.change")}
         </Button>
       </PopoverTrigger>

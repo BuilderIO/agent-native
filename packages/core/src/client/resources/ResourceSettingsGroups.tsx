@@ -1,13 +1,14 @@
 import { Skeleton } from "@agent-native/toolkit/design-system";
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
+  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@agent-native/toolkit/ui/alert-dialog";
+import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   DropdownMenu,
@@ -16,8 +17,16 @@ import {
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui/dropdown-menu";
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@agent-native/toolkit/ui/empty";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import {
   IconAlertCircle,
-  IconApps,
   IconArrowUpRight,
   IconDots,
   IconDownload,
@@ -26,7 +35,7 @@ import {
   IconTrash,
   type Icon,
 } from "@tabler/icons-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
   Tooltip,
@@ -61,8 +70,12 @@ export interface ResourceSettingsGroupConfig {
   /** Defaults to Personal, the organization name, or From Dispatch. */
   title?: string;
   emptyIcon: Icon;
-  emptyText: string;
-  /** Shown in the empty row, for viewers who can write to the group. */
+  emptyTitle: string;
+  emptyDescription?: string;
+  /**
+   * The one action that fills the empty group, for viewers who can write to
+   * it. While the group is empty it stands in for the heading `action`.
+   */
   emptyAction?: ReactNode;
   /** Shown at the right of the group heading. */
   action?: ReactNode;
@@ -72,6 +85,7 @@ export interface ResourceSourceTree {
   nodes: TreeNode[];
   isLoading: boolean;
   isError: boolean;
+  retry: () => void;
 }
 
 const DISPATCH_RESOURCE_METADATA_SOURCE = "dispatch-workspace-resource";
@@ -141,14 +155,15 @@ export function ResourceSettingsGroups({
   orgName: string | null;
   deletingId: string | null;
   onOpen: (resource: ResourceMeta) => void;
-  onRemove: (resource: ResourceMeta) => void;
+  /** Rejects when the delete failed; the confirm stays open to say so. */
+  onRemove: (resource: ResourceMeta) => Promise<void>;
 }) {
   const t = useT();
   const hasWorkspaceGroup = groups.some((group) =>
     group.sources.includes("workspace"),
   );
   const dispatchLinks = useOrgSwitcherAppLinks(hasWorkspaceGroup);
-  const [removing, setRemoving] = useState<ResourceMeta | null>(null);
+  const [removing, setRemoving] = useState<GroupRow | null>(null);
 
   const sourceLabel = (source: ResourceGroupSource) =>
     source === "personal"
@@ -179,6 +194,8 @@ export function ResourceSettingsGroups({
         );
         const isDispatch =
           group.sources.length === 1 && group.sources[0] === "workspace";
+        const emptyAction = groupReadOnly ? undefined : group.emptyAction;
+        const showsEmpty = rows.length === 0 && !isLoading && !isError;
 
         return (
           <section
@@ -201,22 +218,17 @@ export function ResourceSettingsGroups({
                   }
                 />
               )}
-              <div className="ms-auto flex items-center gap-1">
-                {group.action}
+              <div className="ms-auto flex items-center gap-2">
+                {showsEmpty && emptyAction ? null : group.action}
                 {isDispatch && dispatchLinks.isWorkspace && (
-                  <Button
-                    asChild
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 px-2 text-xs"
-                  >
+                  <Button asChild variant="secondary" size="xs">
                     <a
                       href={dispatchLinks.dispatchResourcesHref}
                       target="_blank"
                       rel="noreferrer"
                     >
                       {t("agentChat.settingsResources.openDispatch")}
-                      <IconArrowUpRight className="size-3.5" />
+                      <IconArrowUpRight />
                     </a>
                   </Button>
                 )}
@@ -236,60 +248,129 @@ export function ResourceSettingsGroups({
                       }
                       isDeleting={deletingId === row.node.resource.id}
                       onOpen={onOpen}
-                      onRemove={setRemoving}
+                      onRemove={() => setRemoving(row)}
                     />
                   ))}
                 </div>
               ) : isLoading ? (
                 <ResourceRowsSkeleton />
               ) : isError ? (
-                <EmptyRow
-                  icon={IconAlertCircle}
+                <ErrorRow
                   text={t("agentChat.settingsResources.loadFailed")}
-                  tone="error"
+                  onRetry={() => {
+                    for (const source of group.sources) {
+                      if (trees[source].isError) trees[source].retry();
+                    }
+                  }}
                 />
               ) : (
-                <EmptyRow
+                <SettingsEmpty
                   icon={group.emptyIcon}
-                  text={group.emptyText}
-                  action={groupReadOnly ? undefined : group.emptyAction}
-                />
+                  title={group.emptyTitle}
+                  description={group.emptyDescription}
+                >
+                  {emptyAction}
+                </SettingsEmpty>
               )}
             </div>
           </section>
         );
       })}
-      <AlertDialog
-        open={removing !== null}
+      <RemoveResourceDialog
+        row={removing}
+        orgName={orgName}
         onOpenChange={(open) => {
           if (!open) setRemoving(null);
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("agentChat.settingsResources.removeTitle", {
-                name: removing?.path ?? "",
-              })}
-            </AlertDialogTitle>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>
-              {t("agentChat.settingsResources.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (removing) onRemove(removing);
-                setRemoving(null);
-              }}
-            >
-              {t("agentChat.settingsResources.remove")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onRemove={onRemove}
+      />
     </div>
+  );
+}
+
+function RemoveResourceDialog({
+  row,
+  orgName,
+  onOpenChange,
+  onRemove,
+}: {
+  row: GroupRow | null;
+  orgName: string | null;
+  onOpenChange: (open: boolean) => void;
+  onRemove: (resource: ResourceMeta) => Promise<void>;
+}) {
+  const t = useT();
+  const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const resource = row?.node.resource ?? null;
+  const name = resource?.path ?? "";
+
+  useEffect(() => setFailed(false), [resource?.id]);
+
+  const remove = async () => {
+    if (!resource || pending) return;
+    setPending(true);
+    setFailed(false);
+    try {
+      await onRemove(resource);
+      onOpenChange(false);
+    } catch {
+      setFailed(true);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const affects =
+    row?.source === "personal"
+      ? t("agentChat.settingsModel.affectsYou")
+      : row?.source === "shared"
+        ? t("agentChat.settingsModel.affectsOrg", {
+            org: orgName || t("agentChat.settingsResources.organization"),
+          })
+        : null;
+
+  return (
+    <AlertDialog open={row !== null} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {t("agentChat.settingsResources.removeTitle", { name })}
+          </AlertDialogTitle>
+          {affects ? (
+            <AlertDialogDescription>{affects}</AlertDialogDescription>
+          ) : null}
+        </AlertDialogHeader>
+        {failed ? (
+          <Alert variant="destructive">
+            <IconAlertCircle />
+            <AlertDescription>
+              {t("agentChat.settingsResources.removeFailed", { name })}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        <AlertDialogFooter>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => onOpenChange(false)}
+          >
+            {t("agentChat.settingsResources.cancel")}
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={pending}
+            onClick={() => void remove()}
+          >
+            {pending ? <Spinner /> : null}
+            {pending
+              ? t("agentChat.settingsResources.removing")
+              : t("agentChat.settingsResources.remove")}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -321,7 +402,7 @@ function ResourceSettingsRow({
   scopeLabel?: string;
   isDeleting: boolean;
   onOpen: (resource: ResourceMeta) => void;
-  onRemove: (resource: ResourceMeta) => void;
+  onRemove: () => void;
 }) {
   const t = useT();
   const { node, source, readOnly } = row;
@@ -335,7 +416,7 @@ function ResourceSettingsRow({
     <div
       data-resource-row={resource.path}
       className={cn(
-        "flex items-center gap-3 px-4 py-3 transition-opacity",
+        "flex items-center gap-3 px-5 py-4 transition-opacity sm:px-6",
         isDeleting && "pointer-events-none opacity-40",
       )}
     >
@@ -358,93 +439,130 @@ function ResourceSettingsRow({
           </span>
         </span>
       </button>
-      {scopeLabel && (
-        <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
-          {scopeLabel}
-        </span>
-      )}
+      {scopeLabel && <Badge variant="outline">{scopeLabel}</Badge>}
       {fromDispatch && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span
-              tabIndex={0}
-              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <IconApps className="size-3.5" />
+            <Badge variant="outline" tabIndex={0}>
               {t("agentChat.settingsResources.allApps")}
-            </span>
+            </Badge>
           </TooltipTrigger>
           <TooltipContent>
             {t("agentChat.settingsResources.allAppsHint")}
           </TooltipContent>
         </Tooltip>
       )}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7 shrink-0 text-muted-foreground"
-            aria-label={t("agentChat.settingsResources.moreActions")}
-          >
-            <IconDots className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => onOpen(resource)}>
-            <IconExternalLink className="size-4" />
-            {t("agentChat.settingsResources.open")}
+      <RowMenuTrigger>
+        <DropdownMenuItem onSelect={() => onOpen(resource)}>
+          <IconExternalLink className="size-4" />
+          {t("agentChat.settingsResources.open")}
+        </DropdownMenuItem>
+        {isTextResource(resource) && (
+          <DropdownMenuItem asChild>
+            <a href={resourceDownloadUrl(resource.id)} download>
+              <IconDownload className="size-4" />
+              {t("agentChat.settingsResources.download")}
+            </a>
           </DropdownMenuItem>
-          {isTextResource(resource) && (
-            <DropdownMenuItem asChild>
-              <a href={resourceDownloadUrl(resource.id)} download>
-                <IconDownload className="size-4" />
-                {t("agentChat.settingsResources.download")}
-              </a>
-            </DropdownMenuItem>
-          )}
-          {!readOnly && (
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onSelect={() => onRemove(resource)}
-            >
-              <IconTrash className="size-4" />
-              {t("agentChat.settingsResources.remove")}
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        )}
+        {!readOnly && (
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onSelect={onRemove}
+          >
+            <IconTrash className="size-4" />
+            {t("agentChat.settingsResources.remove")}
+          </DropdownMenuItem>
+        )}
+      </RowMenuTrigger>
     </div>
   );
 }
 
-export function EmptyRow({
-  icon: RowIcon,
-  text,
-  action,
-  tone = "muted",
+/** A settings row's More actions menu: a ghost icon button and its items. */
+export function RowMenuTrigger({ children }: { children: ReactNode }) {
+  const t = useT();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="shrink-0"
+          aria-label={t("agentChat.settingsResources.moreActions")}
+        >
+          <IconDots />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">{children}</DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * The empty state of a settings group or list: what's missing and the one
+ * action that fills it. Rendered inside the group's card.
+ */
+export function SettingsEmpty({
+  icon: EmptyIcon,
+  title,
+  description,
+  children,
 }: {
   icon: Icon;
-  text: string;
-  action?: ReactNode;
-  tone?: "muted" | "error";
+  title: string;
+  description?: string;
+  /** The filling action, or a primary and a secondary action. */
+  children?: ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-3.5">
-      <RowIcon
-        className={cn(
-          "size-4 shrink-0",
-          tone === "error" ? "text-destructive" : "text-muted-foreground",
-        )}
-      />
-      <span
-        role={tone === "error" ? "alert" : undefined}
-        className="min-w-0 flex-1 text-sm text-muted-foreground"
-      >
-        {text}
-      </span>
-      {action && <span className="shrink-0">{action}</span>}
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <EmptyIcon />
+        </EmptyMedia>
+        <EmptyTitle>{title}</EmptyTitle>
+        {description ? (
+          <EmptyDescription>{description}</EmptyDescription>
+        ) : null}
+      </EmptyHeader>
+      {children ? (
+        <EmptyContent>
+          <div className="flex flex-wrap justify-center gap-2">{children}</div>
+        </EmptyContent>
+      ) : null}
+    </Empty>
+  );
+}
+
+/** A group that couldn't load: the message and a Retry. */
+export function ErrorRow({
+  text,
+  onRetry,
+}: {
+  text: string;
+  onRetry?: () => void;
+}) {
+  const t = useT();
+  return (
+    <div
+      role="alert"
+      className="flex items-center gap-3 px-5 py-4 text-sm sm:px-6"
+    >
+      <IconAlertCircle className="size-4 shrink-0 text-destructive" />
+      <span className="min-w-0 flex-1 text-muted-foreground">{text}</span>
+      {onRetry ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="shrink-0"
+          onClick={onRetry}
+        >
+          {t("agentChat.common.retry")}
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -461,13 +579,13 @@ export function ResourceRowsSkeleton() {
       className="divide-y divide-border/60"
     >
       {SKELETON_LABEL_WIDTHS.map((width) => (
-        <div key={width} className="flex items-center gap-3 px-4 py-3">
+        <div key={width} className="flex items-center gap-3 px-5 py-4 sm:px-6">
           <Skeleton className="size-8 shrink-0 rounded-md" />
           <div className="min-w-0 flex-1 space-y-1.5">
             <Skeleton className={cn("h-3.5", width)} />
             <Skeleton className="h-3 w-52 max-w-[70%]" />
           </div>
-          <Skeleton className="size-7 shrink-0 rounded-md" />
+          <Skeleton className="size-8 shrink-0 rounded-md" />
         </div>
       ))}
     </div>

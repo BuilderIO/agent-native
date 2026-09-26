@@ -10,7 +10,16 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
-import { Picker, Skeleton, Switch } from "@agent-native/toolkit/design-system";
+import { Skeleton, Switch } from "@agent-native/toolkit/design-system";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
 import {
   IconAlertCircle,
   IconCheck,
@@ -145,6 +154,7 @@ export function VoiceTranscriptionSection({
   // The picker must not present the Batch default as the saved choice when
   // the saved choice could not be read.
   const [loadFailed, setLoadFailed] = useState(false);
+  const [prefsRequest, setPrefsRequest] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [cleanupEnabled, setCleanupEnabled] = useState<boolean | null>(null);
   const { status: builderStatus, refetch: refetchBuilderStatus } =
@@ -256,7 +266,7 @@ export function VoiceTranscriptionSection({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [prefsRequest]);
 
   useEffect(() => {
     let cancelled = false;
@@ -396,6 +406,11 @@ export function VoiceTranscriptionSection({
         loadFailed={loadFailed}
         saveFailed={!!saveError && !saving}
         onChoose={chooseSource}
+        onRetry={() => {
+          setLoadFailed(false);
+          setTranscriptionMode(null);
+          setPrefsRequest((request) => request + 1);
+        }}
       />
     );
   }
@@ -756,6 +771,8 @@ interface ProviderOptionProps {
   rightSlot?: React.ReactNode;
 }
 
+const COMPACT_MODES = ["mac-native", "google-realtime", "batch"] as const;
+
 const COMPACT_MODE_LABEL_KEYS: Record<TranscriptionMode, string> = {
   "mac-native": "agentChat.settingsShell.account.voiceMacNative",
   "google-realtime": "agentChat.settingsShell.account.voiceGoogleRealtime",
@@ -768,11 +785,13 @@ function CompactVoiceTranscriptionRow({
   loadFailed,
   saveFailed,
   onChoose,
+  onRetry,
 }: {
   mode: TranscriptionMode | null;
   loadFailed: boolean;
   saveFailed: boolean;
   onChoose: (mode: TranscriptionMode) => void;
+  onRetry: () => void;
 }) {
   const t = useT();
   const label = t("agentChat.settingsShell.search.voiceTranscription");
@@ -795,26 +814,33 @@ function CompactVoiceTranscriptionRow({
       control={
         mode === null ? (
           <Skeleton
-            className="h-9 w-44 border border-border bg-muted-foreground/10"
+            className="h-8 w-44"
             aria-label={t("agentChat.common.loading")}
           />
-        ) : loadFailed ? null : (
-          <Picker
-            mode="select"
-            options={(["mac-native", "google-realtime", "batch"] as const).map(
-              (value) => ({
-                value,
-                label: t(COMPACT_MODE_LABEL_KEYS[value]),
-              }),
-            )}
+        ) : loadFailed ? (
+          <Button type="button" variant="secondary" size="sm" onClick={onRetry}>
+            {t("agentChat.common.retry")}
+          </Button>
+        ) : (
+          <Select
             value={mode}
-            onChange={(next) => {
-              const value = String(next ?? "");
+            onValueChange={(value) => {
               if (isTranscriptionMode(value)) onChoose(value);
             }}
-            aria-label={label}
-            className="w-44 text-start"
-          />
+          >
+            <SelectTrigger size="sm" className="w-44" aria-label={label}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {COMPACT_MODES.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {t(COMPACT_MODE_LABEL_KEYS[value])}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         )
       }
     />

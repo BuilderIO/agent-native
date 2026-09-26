@@ -1,6 +1,6 @@
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -19,11 +19,12 @@ import {
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
+  IconAlertCircle,
   IconBrandAws,
   IconBrandCloudflare,
   IconBrandSupabase,
-  IconLoader2,
   IconLock,
   IconServer,
 } from "@tabler/icons-react";
@@ -105,6 +106,7 @@ export function fileStorageProviderPreset(id: FileStorageProviderId): {
 }
 
 type FormValues = Record<FileStorageField, string>;
+type FieldErrors = Partial<Record<FileStorageField, string>>;
 
 const EMPTY_VALUES: FormValues = {
   endpoint: "",
@@ -163,15 +165,17 @@ export function StorageSettingsForm(props: StorageSettingsFormProps) {
 
   if (statusQuery.isError && !statusQuery.data) {
     return (
-      <div className={cn("flex items-center gap-2 text-xs", className)}>
-        <span className="text-destructive">
+      <div
+        role="alert"
+        className={cn("flex items-center justify-between gap-4", className)}
+      >
+        <span className="text-sm text-destructive">
           {t("agentChat.settings.storage.loadFailed")}
         </span>
         <Button
           type="button"
-          variant="ghost"
+          variant="secondary"
           size="sm"
-          className="h-7 px-2 text-xs"
           onClick={() => void statusQuery.refetch()}
         >
           {t("agentChat.settings.storage.retry")}
@@ -221,8 +225,10 @@ function LoadedStorageSettingsForm({
     valuesFromStatus(status),
   );
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
   const [pending, setPending] = useState<"save" | "clear" | null>(null);
 
   const hasSavedValues = Object.values(status.saved).some(Boolean);
@@ -248,45 +254,44 @@ function LoadedStorageSettingsForm({
 
   const setValue = (field: FileStorageField, value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
+    setFieldErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
     setError(null);
     setNotice(null);
   };
 
-  const validate = (): string | null => {
-    const trimmed = (field: FileStorageField) => values[field].trim();
-    const missingKeys =
-      (!trimmed("accessKeyId") && !status.saved.accessKeyId) ||
-      (!trimmed("secretAccessKey") && !status.saved.secretAccessKey);
-    const missingPublicUrl =
-      status.publicUrlRequired && !trimmed("publicBaseUrl");
-    if (!trimmed("endpoint") || !trimmed("bucket") || missingKeys) {
-      return status.publicUrlRequired
-        ? t("agentChat.settings.storage.missingPublicUrl")
-        : t("agentChat.settings.storage.missing");
+  const trimmed = (field: FileStorageField) => values[field].trim();
+  const missingRequired =
+    !trimmed("endpoint") ||
+    !trimmed("bucket") ||
+    (!trimmed("accessKeyId") && !status.saved.accessKeyId) ||
+    (!trimmed("secretAccessKey") && !status.saved.secretAccessKey) ||
+    (status.publicUrlRequired && !trimmed("publicBaseUrl"));
+
+  const validate = (): FieldErrors => {
+    const errors: FieldErrors = {};
+    if (!isHttpUrl(trimmed("endpoint"))) {
+      errors.endpoint = t("agentChat.settings.storage.invalidUrl");
     }
-    if (missingPublicUrl) {
-      return t("agentChat.settings.storage.missingPublicUrl");
-    }
-    if (
-      !isHttpUrl(trimmed("endpoint")) ||
-      (trimmed("publicBaseUrl") && !isHttpUrl(trimmed("publicBaseUrl")))
-    ) {
-      return t("agentChat.settings.storage.invalidUrl");
+    if (trimmed("publicBaseUrl") && !isHttpUrl(trimmed("publicBaseUrl"))) {
+      errors.publicBaseUrl = t("agentChat.settings.storage.invalidUrl");
     }
     if (!BUCKET_NAME.test(trimmed("bucket"))) {
-      return t("agentChat.settings.storage.invalidBucket");
+      errors.bucket = t("agentChat.settings.storage.invalidBucket");
     }
-    return null;
+    return errors;
   };
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (pending) return;
+    if (pending || missingRequired) return;
     const invalid = validate();
-    if (invalid) {
-      setError(invalid);
-      return;
-    }
+    setFieldErrors(invalid);
+    if (Object.keys(invalid).length > 0) return;
     const input: ManageFileStorageVariables = {
       operation: "save",
       endpoint: values.endpoint.trim(),
@@ -329,10 +334,10 @@ function LoadedStorageSettingsForm({
     });
   };
 
-  const handleClear = (event: React.MouseEvent) => {
-    event.preventDefault();
+  const handleClear = () => {
     if (pending) return;
     setPending("clear");
+    setClearError(null);
     setError(null);
     setNotice(null);
     manage.mutate(
@@ -341,6 +346,7 @@ function LoadedStorageSettingsForm({
         onSuccess: (result) => {
           setConfirmClear(false);
           setValues(EMPTY_VALUES);
+          setFieldErrors({});
           setNotice(
             result.status.builderUploadConfigured
               ? t("agentChat.settings.storage.clearedBuilder")
@@ -352,8 +358,7 @@ function LoadedStorageSettingsForm({
           onCleared?.(result.status);
         },
         onError: (cause) => {
-          setConfirmClear(false);
-          setError(
+          setClearError(
             actionErrorMessage(cause) ??
               t("agentChat.settings.storage.clearFailed"),
           );
@@ -377,38 +382,50 @@ function LoadedStorageSettingsForm({
       hint?: string;
       type?: "text" | "password";
     } = {},
-  ) => (
-    <div className="space-y-1">
-      <Label htmlFor={fieldId(field)} className="text-xs font-medium">
-        {label}
-      </Label>
-      <Input
-        id={fieldId(field)}
-        type={options.type ?? "text"}
-        value={values[field]}
-        onChange={(event) => setValue(field, event.target.value)}
-        placeholder={options.placeholder}
-        autoComplete="off"
-        spellCheck={false}
-        disabled={pending !== null}
-        className="h-8 text-xs md:text-xs"
-      />
-      {options.hint ? (
-        <p className="text-[11px] text-muted-foreground">{options.hint}</p>
-      ) : null}
-    </div>
-  );
+  ) => {
+    const fieldError = fieldErrors[field];
+    const note = fieldError ?? options.hint;
+    const noteId = `${fieldId(field)}-note`;
+    return (
+      <div className="grid content-start gap-2">
+        <Label htmlFor={fieldId(field)}>{label}</Label>
+        <Input
+          id={fieldId(field)}
+          type={options.type ?? "text"}
+          value={values[field]}
+          onChange={(event) => setValue(field, event.target.value)}
+          placeholder={options.placeholder}
+          autoComplete="off"
+          spellCheck={false}
+          disabled={pending !== null}
+          aria-invalid={fieldError ? true : undefined}
+          aria-describedby={note ? noteId : undefined}
+        />
+        {note ? (
+          <p
+            id={noteId}
+            className={cn(
+              "text-xs leading-5",
+              fieldError ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {note}
+          </p>
+        ) : null}
+      </div>
+    );
+  };
 
   const bucketName = status.bucket;
 
   return (
     <form
       onSubmit={handleSubmit}
-      className={cn("space-y-3", className)}
+      className={cn("grid gap-5", className)}
       data-testid="storage-settings-form"
     >
-      <div className="space-y-1">
-        <Label htmlFor={`${idPrefix}-provider`} className="text-xs font-medium">
+      <div className="grid gap-2">
+        <Label htmlFor={`${idPrefix}-provider`}>
           {t("agentChat.settings.storage.provider")}
         </Label>
         <Select
@@ -416,16 +433,16 @@ function LoadedStorageSettingsForm({
           onValueChange={(next) => setProvider(next as FileStorageProviderId)}
           disabled={pending !== null}
         >
-          <SelectTrigger id={`${idPrefix}-provider`} className="h-8 text-xs">
+          <SelectTrigger id={`${idPrefix}-provider`}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {PROVIDERS.map((entry) => {
               const Icon = entry.icon;
               return (
-                <SelectItem key={entry.id} value={entry.id} className="text-xs">
+                <SelectItem key={entry.id} value={entry.id}>
                   <span className="flex items-center gap-2">
-                    <Icon size={14} aria-hidden />
+                    <Icon className="size-4" aria-hidden />
                     {providerLabel(entry)}
                   </span>
                 </SelectItem>
@@ -434,7 +451,7 @@ function LoadedStorageSettingsForm({
           </SelectContent>
         </Select>
       </div>
-      <div className={cn("grid gap-3", columns === 2 && "sm:grid-cols-2")}>
+      <div className={cn("grid gap-4", columns === 2 && "sm:grid-cols-2")}>
         {textField("endpoint", t("agentChat.settings.storage.endpoint"), {
           placeholder: preset.endpointPlaceholder,
           hint: t(preset.hintKey),
@@ -463,54 +480,41 @@ function LoadedStorageSettingsForm({
         })}
       </div>
       {error ? (
-        <p role="alert" className="text-[11px] text-destructive">
-          {error}
-        </p>
+        <Alert variant="destructive">
+          <IconAlertCircle aria-hidden />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       ) : notice ? (
-        <p role="status" className="text-[11px] text-muted-foreground">
+        <p role="status" className="text-sm text-muted-foreground">
           {notice}
         </p>
       ) : null}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
         {hasSavedValues ? (
           <Button
             type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2 text-xs text-muted-foreground hover:text-destructive"
+            variant="secondary-destructive"
+            className="sm:me-auto"
             disabled={pending !== null}
-            onClick={() => setConfirmClear(true)}
+            onClick={() => {
+              setClearError(null);
+              setConfirmClear(true);
+            }}
           >
             {t("agentChat.settings.storage.clear")}
           </Button>
         ) : null}
-        <div className="ms-auto flex items-center gap-2">
-          {onCancel ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 px-3 text-xs"
-              onClick={onCancel}
-              disabled={pending !== null}
-            >
-              {t("agentChat.settings.storage.cancel")}
-            </Button>
-          ) : null}
-          <Button
-            type="submit"
-            size="sm"
-            className="h-8 px-3 text-xs"
-            disabled={pending !== null}
-          >
-            {pending === "save" ? (
-              <IconLoader2 size={13} className="animate-spin" aria-hidden />
-            ) : null}
-            {pending === "save"
-              ? t("agentChat.settings.storage.saving")
-              : t("agentChat.settings.storage.save")}
+        {onCancel ? (
+          <Button type="button" variant="secondary" onClick={onCancel}>
+            {t("agentChat.settings.storage.cancel")}
           </Button>
-        </div>
+        ) : null}
+        <Button type="submit" disabled={pending !== null || missingRequired}>
+          {pending === "save" ? <Spinner aria-hidden /> : null}
+          {pending === "save"
+            ? t("agentChat.settings.storage.saving")
+            : t("agentChat.settings.storage.save")}
+        </Button>
       </div>
       <AlertDialog
         open={confirmClear}
@@ -534,22 +538,29 @@ function LoadedStorageSettingsForm({
                 : t("agentChat.settings.storage.clearExistingGeneric")}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {clearError ? (
+            <Alert variant="destructive">
+              <IconAlertCircle aria-hidden />
+              <AlertDescription>{clearError}</AlertDescription>
+            </Alert>
+          ) : null}
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={pending === "clear"}>
-              {t("agentChat.settings.storage.cancel")}
+            <AlertDialogCancel asChild disabled={pending === "clear"}>
+              <Button type="button" variant="secondary">
+                {t("agentChat.settings.storage.cancel")}
+              </Button>
             </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            <Button
+              type="button"
+              variant="destructive"
               disabled={pending === "clear"}
               onClick={handleClear}
             >
-              {pending === "clear" ? (
-                <IconLoader2 size={14} className="animate-spin" aria-hidden />
-              ) : null}
+              {pending === "clear" ? <Spinner aria-hidden /> : null}
               {pending === "clear"
                 ? t("agentChat.settings.storage.clearing")
                 : t("agentChat.settings.storage.clear")}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -559,21 +570,21 @@ function LoadedStorageSettingsForm({
 
 function StorageSettingsFormSkeleton({ className }: { className?: string }) {
   return (
-    <div className={cn("space-y-3", className)} aria-hidden>
-      <div className="space-y-1">
-        <Skeleton className="h-3 w-16" />
-        <Skeleton className="h-8 w-full" />
+    <div className={cn("grid gap-5", className)} aria-hidden>
+      <div className="grid gap-2">
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-9 w-full" />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2">
         {Array.from({ length: 6 }, (_, index) => (
-          <div key={index} className="space-y-1">
-            <Skeleton className="h-3 w-24" />
-            <Skeleton className="h-8 w-full" />
+          <div key={index} className="grid gap-2">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-9 w-full" />
           </div>
         ))}
       </div>
       <div className="flex justify-end">
-        <Skeleton className="h-8 w-16" />
+        <Skeleton className="h-9 w-16" />
       </div>
     </div>
   );

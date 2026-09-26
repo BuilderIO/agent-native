@@ -1,3 +1,4 @@
+import { Button } from "@agent-native/toolkit/ui/button";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import {
   Command,
@@ -6,6 +7,7 @@ import {
   CommandItem,
   CommandList,
 } from "@agent-native/toolkit/ui/command";
+import { DialogFooter } from "@agent-native/toolkit/ui/dialog";
 import { Input } from "@agent-native/toolkit/ui/input";
 import { Label } from "@agent-native/toolkit/ui/label";
 import {
@@ -18,14 +20,11 @@ import {
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconUserPlus,
-  IconLoader2,
-  IconCheck,
   IconX,
   IconFileImport,
   IconPlus,
-  IconAlertTriangle,
 } from "@tabler/icons-react";
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState, type FormEvent } from "react";
 
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
@@ -37,7 +36,7 @@ import {
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
 import { useBulkInviteMembers, type InviteRole } from "./hooks.js";
-import { Button, ErrorText } from "./TeamPrimitives.js";
+import { DialogErrorAlert, PendingLabel } from "./TeamPrimitives.js";
 
 interface DraftInvite {
   email: string;
@@ -89,13 +88,12 @@ function InviteAppRolePicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          className="h-auto max-w-40 truncate rounded-md border border-border bg-background px-2 py-1.5 text-xs"
-        >
-          {selected.length
-            ? selected.map(labelFor).join(", ")
-            : t("org.appRolesOptional")}
+        <Button type="button" variant="secondary" className="max-w-40">
+          <span className="truncate">
+            {selected.length
+              ? selected.map(labelFor).join(", ")
+              : t("org.appRolesOptional")}
+          </span>
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-56 p-0">
@@ -145,21 +143,25 @@ export function BulkInviteForm({
   const t = useT();
   const bulkInvite = useBulkInviteMembers();
   const fileRef = useRef<HTMLInputElement>(null);
+  const idPrefix = useId();
   const [drafts, setDrafts] = useState<DraftInvite[]>([
     { email: "", role: "member" },
   ]);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteValue, setPasteValue] = useState("");
   const [pasteRole, setPasteRole] = useState<InviteRole>("member");
-  const [resultBanner, setResultBanner] = useState<{
+  const [csvError, setCsvError] = useState<string | null>(null);
+  const [result, setResult] = useState<{
     succeeded: number;
-    failed: { email: string; error: string }[];
+    failed: Map<string, string>;
   } | null>(null);
 
   const canSetAdmin = currentUserRole === "owner";
   const ownerOnlyAdmin = canSetAdmin
     ? undefined
     : t("agentChat.settingsOrg.invite.ownerOnlyAdmin");
+  const emailId = (index: number) => `${idPrefix}-email-${index}`;
+  const noteId = `${idPrefix}-note`;
 
   const validDrafts = useMemo(
     () =>
@@ -197,26 +199,18 @@ export function BulkInviteForm({
   }
 
   function handleFile(file: File) {
+    setCsvError(null);
     void file.text().then((text) => {
       const emails = parseCsvEmails(text);
-      if (emails.length) {
-        appendEmails(emails, "member");
-      } else {
-        setResultBanner({
-          succeeded: 0,
-          failed: [
-            {
-              email: file.name,
-              error: t("agentChat.settingsOrg.invite.csvNoEmails"),
-            },
-          ],
-        });
-      }
+      if (emails.length) appendEmails(emails, "member");
+      else setCsvError(t("agentChat.settingsOrg.invite.csvNoEmails"));
     });
   }
 
-  async function submit() {
-    setResultBanner(null);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (bulkInvite.isPending) return;
+    setResult(null);
     const dedup = new Map<string, DraftInvite>();
     for (const d of validDrafts) {
       // Mirrors createInvitationHandler, which refuses an admin invite from
@@ -231,92 +225,116 @@ export function BulkInviteForm({
     }));
     if (invites.length === 0) return;
 
-    const result = await bulkInvite.mutateAsync(invites);
-    setResultBanner({
-      succeeded: result.succeeded.length,
-      failed: result.failed,
-    });
+    let response: Awaited<ReturnType<typeof bulkInvite.mutateAsync>>;
+    try {
+      response = await bulkInvite.mutateAsync(invites);
+    } catch {
+      // bulkInvite.error carries the message into the dialog's alert.
+      return;
+    }
 
-    // Wipe drafts that succeeded; leave failed ones so the user can fix
-    // and retry. If everything succeeded, reset to a single blank row.
-    const failedEmails = new Set(result.failed.map((f) => f.email));
+    if (response.failed.length === 0) {
+      onClose();
+      return;
+    }
+
+    // Keep only the rows that failed, each with its own error, so they can be
+    // fixed and sent again.
+    const failed = new Map(response.failed.map((f) => [f.email, f.error]));
+    setResult({ succeeded: response.succeeded.length, failed });
     setDrafts((prev) => {
       const remaining = prev.filter((d) =>
-        failedEmails.has(d.email.trim().toLowerCase()),
+        failed.has(d.email.trim().toLowerCase()),
       );
       return remaining.length > 0 ? remaining : [{ email: "", role: "member" }];
     });
-
-    // Auto-close on full success.
-    if (result.failed.length === 0 && result.succeeded.length > 0) {
-      setTimeout(() => onClose(), 1200);
-    }
   }
 
   return (
-    <div className="space-y-3">
-      <div className="space-y-2">
-        <Label htmlFor="invite-email-0">
+    <form className="grid gap-4" onSubmit={submit}>
+      <div className="grid gap-2">
+        <Label htmlFor={emailId(0)}>
           {t("agentChat.settingsOrg.invite.emails")}
         </Label>
-        {drafts.map((draft, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <Input
-              id={`invite-email-${i}`}
-              type="email"
-              value={draft.email}
-              onChange={(e) => setDraft(i, { email: e.target.value })}
-              placeholder={t("agentChat.settingsOrg.invite.emailPlaceholder")}
-              className="h-8 flex-1"
-              autoFocus={i === drafts.length - 1}
-            />
-            <Select
-              value={draft.role}
-              onValueChange={(value) =>
-                setDraft(i, {
-                  role: value === "admin" ? "admin" : "member",
-                })
-              }
-              disabled={!canSetAdmin}
-            >
-              <SelectTrigger
-                aria-label={t("agentChat.settingsOrg.invite.role")}
-                title={ownerOnlyAdmin}
-                className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="member">
-                  {t("agentChat.settingsOrg.invite.member")}
-                </SelectItem>
-                <SelectItem value="admin">
-                  {t("agentChat.settingsOrg.invite.admin")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            {appRoles && (
-              <InviteAppRolePicker
-                appRoles={appRoles}
-                selected={draft.appRoles ?? []}
-                onChange={(next) => setDraft(i, { appRoles: next })}
-              />
-            )}
-            {drafts.length > 1 && (
-              <Button
-                type="button"
-                aria-label={t("agentChat.settingsOrg.invite.removeRow")}
-                onClick={() =>
-                  setDrafts((prev) => prev.filter((_, j) => j !== i))
-                }
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <IconX size={14} />
-              </Button>
-            )}
-          </div>
-        ))}
-        <p className="text-[11px] text-muted-foreground">
+        {drafts.map((draft, i) => {
+          const rowError = result?.failed.get(draft.email.trim().toLowerCase());
+          const errorId = `${emailId(i)}-error`;
+          return (
+            <div key={i} className="grid gap-1.5">
+              <div className="flex items-center gap-2">
+                <Input
+                  id={emailId(i)}
+                  type="email"
+                  value={draft.email}
+                  onChange={(e) => setDraft(i, { email: e.target.value })}
+                  placeholder={t(
+                    "agentChat.settingsOrg.invite.emailPlaceholder",
+                  )}
+                  aria-label={
+                    i === 0
+                      ? undefined
+                      : t("agentChat.settingsOrg.invite.emails")
+                  }
+                  aria-invalid={rowError ? true : undefined}
+                  aria-describedby={rowError ? errorId : noteId}
+                  className="min-w-0 flex-1"
+                  autoFocus={i === drafts.length - 1}
+                />
+                <Select
+                  value={draft.role}
+                  onValueChange={(value) =>
+                    setDraft(i, {
+                      role: value === "admin" ? "admin" : "member",
+                    })
+                  }
+                  disabled={!canSetAdmin}
+                >
+                  <SelectTrigger
+                    aria-label={t("agentChat.settingsOrg.invite.role")}
+                    title={ownerOnlyAdmin}
+                    className="w-28"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="member">
+                      {t("agentChat.settingsOrg.invite.member")}
+                    </SelectItem>
+                    <SelectItem value="admin">
+                      {t("agentChat.settingsOrg.invite.admin")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {appRoles && (
+                  <InviteAppRolePicker
+                    appRoles={appRoles}
+                    selected={draft.appRoles ?? []}
+                    onChange={(next) => setDraft(i, { appRoles: next })}
+                  />
+                )}
+                {drafts.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t("agentChat.settingsOrg.invite.removeRow")}
+                    onClick={() =>
+                      setDrafts((prev) => prev.filter((_, j) => j !== i))
+                    }
+                  >
+                    <IconX />
+                  </Button>
+                )}
+              </div>
+              {rowError ? (
+                <p id={errorId} className="text-sm text-destructive">
+                  {rowError}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
+        <p id={noteId} className="text-sm text-muted-foreground">
           {t("agentChat.settingsOrg.invite.note")}
         </p>
       </div>
@@ -324,34 +342,32 @@ export function BulkInviteForm({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
-          intent="neutral"
-          emphasis="outline"
+          variant="secondary"
+          size="sm"
           onClick={() =>
             setDrafts((prev) => [...prev, { email: "", role: "member" }])
           }
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
-          <IconPlus size={14} />
+          <IconPlus />
           {t("agentChat.settingsOrg.invite.addAnother")}
         </Button>
         <Button
           type="button"
-          intent="neutral"
-          emphasis="outline"
+          variant="secondary"
+          size="sm"
+          aria-expanded={pasteOpen}
           onClick={() => setPasteOpen((v) => !v)}
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
-          <IconUserPlus size={14} />
+          <IconUserPlus />
           {t("agentChat.settingsOrg.invite.pasteMany")}
         </Button>
         <Button
           type="button"
-          intent="neutral"
-          emphasis="outline"
+          variant="secondary"
+          size="sm"
           onClick={() => fileRef.current?.click()}
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
-          <IconFileImport size={14} />
+          <IconFileImport />
           {t("agentChat.settingsOrg.invite.importCsv")}
         </Button>
         <input
@@ -369,15 +385,12 @@ export function BulkInviteForm({
       </div>
 
       {pasteOpen && (
-        <div className="space-y-2 rounded-md border border-border p-3">
-          <Label
-            htmlFor="invite-paste"
-            className="text-xs font-medium text-muted-foreground"
-          >
+        <div className="grid gap-2 rounded-lg border border-border p-3">
+          <Label htmlFor={`${idPrefix}-paste`}>
             {t("agentChat.settingsOrg.invite.pasteLabel")}
           </Label>
           <Textarea
-            id="invite-paste"
+            id={`${idPrefix}-paste`}
             value={pasteValue}
             onChange={(e) => setPasteValue(e.target.value)}
             rows={4}
@@ -394,7 +407,7 @@ export function BulkInviteForm({
               <SelectTrigger
                 aria-label={t("agentChat.settingsOrg.invite.role")}
                 title={ownerOnlyAdmin}
-                className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
+                className="w-40"
               >
                 <SelectValue />
               </SelectTrigger>
@@ -409,87 +422,53 @@ export function BulkInviteForm({
             </Select>
             <Button
               type="button"
-              intent="primary"
-              emphasis="solid"
+              variant="ghost"
+              className="ms-auto"
+              onClick={() => {
+                setPasteValue("");
+                setPasteOpen(false);
+              }}
+            >
+              {t("agentChat.common.cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
               onClick={() => {
                 appendEmails(parseEmailList(pasteValue), pasteRole);
                 setPasteValue("");
                 setPasteOpen(false);
               }}
               disabled={parseEmailList(pasteValue).length === 0}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {t("agentChat.settingsOrg.invite.add")}
-            </Button>
-            <Button
-              type="button"
-              intent="neutral"
-              emphasis="outline"
-              onClick={() => {
-                setPasteValue("");
-                setPasteOpen(false);
-              }}
-              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-            >
-              {t("agentChat.common.cancel")}
             </Button>
           </div>
         </div>
       )}
 
-      <div className="flex items-center gap-2">
+      {result && result.succeeded > 0 ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          {t("agentChat.settingsOrg.invite.sent", { count: result.succeeded })}
+        </p>
+      ) : null}
+      <DialogErrorAlert error={csvError ?? bulkInvite.error} />
+
+      <DialogFooter>
+        <Button type="button" variant="secondary" onClick={onClose}>
+          {t("agentChat.common.cancel")}
+        </Button>
         <Button
-          type="button"
-          intent="primary"
-          emphasis="solid"
+          type="submit"
           disabled={validDrafts.length === 0 || bulkInvite.isPending}
-          onClick={submit}
-          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
-          {bulkInvite.isPending ? (
-            <IconLoader2 size={14} className="animate-spin" />
-          ) : (
-            <span className="inline-flex items-center gap-1">
-              <IconCheck size={14} />
-              {t("agentChat.settingsOrg.invite.send")}
-            </span>
-          )}
+          <PendingLabel
+            pending={bulkInvite.isPending}
+            label={t("agentChat.settingsOrg.invite.send")}
+            pendingLabel={t("agentChat.settingsOrg.invite.sending")}
+          />
         </Button>
-        <Button
-          type="button"
-          intent="neutral"
-          emphasis="outline"
-          onClick={onClose}
-          className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-        >
-          {t("agentChat.settingsOrg.invite.close")}
-        </Button>
-      </div>
-
-      {resultBanner && (
-        <div className="space-y-1 rounded-md border border-border bg-accent/30 p-2.5">
-          {resultBanner.succeeded > 0 && (
-            <p className="text-[11px] text-primary">
-              <IconCheck className="inline h-3 w-3 -mt-0.5 me-1" />
-              {t("agentChat.settingsOrg.invite.sent", {
-                count: resultBanner.succeeded,
-              })}
-            </p>
-          )}
-          {resultBanner.failed.length > 0 && (
-            <ul className="space-y-0.5 text-[11px] text-destructive">
-              {resultBanner.failed.map((f) => (
-                <li key={f.email}>
-                  <IconAlertTriangle className="inline h-3 w-3 -mt-0.5 me-1" />
-                  {f.email}: {f.error}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      <ErrorText error={bulkInvite.error} />
-    </div>
+      </DialogFooter>
+    </form>
   );
 }

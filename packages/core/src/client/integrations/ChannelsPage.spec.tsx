@@ -309,6 +309,16 @@ describe("ChannelsPage", () => {
       'a[aria-label="Set up Telegram"]',
     );
     expect(link?.getAttribute("href")).toContain("/settings/channels/telegram");
+    // The whole row is the link to the channel's page: no button inside,
+    // a trailing chevron, and the state read as its description.
+    expect(link?.id).toBe("telegram");
+    expect(link?.querySelector("button")).toBeNull();
+    expect(link?.querySelector("svg.tabler-icon-chevron-right")).not.toBeNull();
+    expect(
+      document.getElementById(link!.getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toBe("Not set up");
+    expect(container.querySelector("[data-channels-page] button")).toBeNull();
     await act(async () => link?.click());
     expect(navigate).toHaveBeenCalledWith("channels", "telegram");
   });
@@ -330,6 +340,15 @@ describe("ChannelsPage", () => {
     });
     await render(null);
     expect(rowLabels()).toEqual(["Slack", "Telegram"]);
+  });
+
+  it("shows an empty state inside the card when no channel is mounted", async () => {
+    actions.list.mockResolvedValue({ canManage: true, channels: [] });
+    await render(null);
+    const empty = container.querySelector(
+      "#channel-list [data-channels-empty]",
+    );
+    expect(empty?.textContent).toBe("No channels are available in Clips.");
   });
 
   it("says so when the channel list can't load", async () => {

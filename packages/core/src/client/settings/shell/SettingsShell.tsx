@@ -1,4 +1,9 @@
-import { Input } from "@agent-native/toolkit/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@agent-native/toolkit/ui/input-group";
 import { Kbd } from "@agent-native/toolkit/ui/kbd";
 import {
   IconArrowLeft,
@@ -769,7 +774,12 @@ function SettingsShellContent({
           )}
         >
           <header className="sticky top-0 z-10 bg-background">
-            <div className="mx-auto flex h-[60px] w-full max-w-[824px] items-center gap-2 ps-4 pe-14 min-[760px]:ps-8">
+            {/* Header actions end on the content column's edge. The agent
+                toggle is pinned 14px from the scroll area's edge (46px with
+                its 32px button, plus an 8px gap), so the end padding only
+                grows past the column's 32px when the centered column is close
+                enough to reach it. */}
+            <div className="mx-auto flex h-[60px] w-full max-w-[824px] items-center gap-2 ps-4 pe-[max(2rem,calc(3.375rem_-_max(0px,(100%_-_824px)_/_2)))] min-[760px]:ps-8">
               <button
                 type="button"
                 onClick={() => setNavOpen(true)}
@@ -981,14 +991,11 @@ function SettingsNav({
           </span>
         </a>
         {enableSearch ? (
-          <div className="relative mb-1.5 mt-2">
-            <IconSearch
-              aria-hidden="true"
-              className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
+          <InputGroup size="sm" className="mb-1.5 mt-2">
+            <InputGroupInput
               ref={inputRef}
               type="search"
+              size="sm"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -1004,23 +1011,25 @@ function SettingsNav({
               placeholder={t("agentChat.settingsShell.searchPlaceholder")}
               aria-label={t("agentChat.settingsShell.searchPlaceholder")}
               autoComplete="off"
-              className="agent-native-search-input h-8 py-0 ps-8 pe-8 text-[13px] focus-visible:ring-offset-0 md:text-[13px]"
+              className="agent-native-search-input text-[13px] md:text-[13px]"
             />
-            {query ? (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label={t("agentChat.settingsShell.clearSearch")}
-                className="absolute end-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                <IconX className="size-3.5" aria-hidden="true" />
-              </button>
-            ) : (
-              <Kbd className="pointer-events-none absolute end-1.5 top-1/2 -translate-y-1/2 border border-border bg-background">
-                /
-              </Kbd>
-            )}
-          </div>
+            <InputGroupAddon>
+              <IconSearch aria-hidden="true" />
+            </InputGroupAddon>
+            <InputGroupAddon align="inline-end">
+              {query ? (
+                <InputGroupButton
+                  size="icon-xs"
+                  onClick={() => setQuery("")}
+                  aria-label={t("agentChat.settingsShell.clearSearch")}
+                >
+                  <IconX aria-hidden="true" />
+                </InputGroupButton>
+              ) : (
+                <Kbd className="border border-border bg-background">/</Kbd>
+              )}
+            </InputGroupAddon>
+          </InputGroup>
         ) : null}
       </div>
       {searching ? (
