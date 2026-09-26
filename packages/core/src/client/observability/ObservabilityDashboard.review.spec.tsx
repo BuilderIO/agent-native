@@ -80,6 +80,7 @@ vi.mock("./useObservability.js", () => ({
   useSubmitFeedback: () => ({ mutate: mockSubmitFeedback, isPending: false }),
   useSaveReviewFeedback: () => ({
     mutate: mockSubmitFeedback,
+    mutateAsync: mockSubmitFeedback,
     isPending: false,
   }),
 }));
@@ -628,7 +629,11 @@ describe("ObservabilityDashboard human review", () => {
           : review,
       ),
     });
-    mockSubmitFeedback.mockImplementation(() => {});
+    const finishVote = new Map<string, () => void>();
+    mockSubmitFeedback.mockImplementation(
+      (input: { runId: string }) =>
+        new Promise<void>((resolve) => finishVote.set(input.runId, resolve)),
+    );
 
     await act(async () => {
       root.render(
@@ -719,6 +724,30 @@ describe("ObservabilityDashboard human review", () => {
         .querySelector<HTMLElement>('[data-review-row="run-2"]')
         ?.querySelector<HTMLButtonElement>('[data-review-vote="up"]')?.disabled,
     ).toBe(false);
+    const secondVote = container
+      .querySelector<HTMLElement>('[data-review-row="run-2"]')
+      ?.querySelector<HTMLButtonElement>('[data-review-vote="up"]');
+    await act(async () => secondVote?.click());
+    expect(secondVote?.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      container
+        .querySelector<HTMLElement>('[data-review-row="run-2"]')
+        ?.querySelector('[role="status"]')?.textContent,
+    ).toBeTruthy();
+    await act(async () => {
+      finishVote.get("run-1")?.();
+      await Promise.resolve();
+    });
+    expect(firstRow.querySelector('[role="status"]')).toBeNull();
+    expect(
+      container
+        .querySelector<HTMLElement>('[data-review-row="run-2"]')
+        ?.querySelector('[role="status"]')?.textContent,
+    ).toBeTruthy();
+    await act(async () => {
+      finishVote.get("run-2")?.();
+      await Promise.resolve();
+    });
 
     const secondRow = container.querySelector<HTMLElement>(
       '[data-review-row="run-no-preview"]',
@@ -737,9 +766,7 @@ describe("ObservabilityDashboard human review", () => {
   });
 
   it("rolls back a failed optimistic vote and reports the failure", async () => {
-    mockSubmitFeedback.mockImplementation((_input, callbacks) =>
-      callbacks?.onError?.(new Error("offline")),
-    );
+    mockSubmitFeedback.mockRejectedValue(new Error("offline"));
 
     await act(async () => {
       root.render(
@@ -910,7 +937,6 @@ describe("ObservabilityDashboard human review", () => {
     );
     expect(mockSubmitFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ runId: "run-1", feedbackType: "thumbs_up" }),
-      expect.any(Object),
     );
 
     await act(async () =>
@@ -1175,9 +1201,13 @@ describe("ObservabilityDashboard human review", () => {
   it("keeps a newer row's drafts open when an earlier save completes", async () => {
     let finishFeedbackA: (() => void) | undefined;
     let finishInstructionA: (() => void) | undefined;
-    mockSubmitFeedback.mockImplementation((_input, callbacks) => {
-      finishFeedbackA = () => callbacks?.onSuccess?.();
-    });
+    mockSubmitFeedback.mockImplementation(
+      (input: { runId: string }) =>
+        new Promise<void>((resolve) => {
+          if (input.runId === "run-1") finishFeedbackA = resolve;
+          else resolve();
+        }),
+    );
     mockSaveInstructionUpdate.mockImplementation((_input, callbacks) => {
       finishInstructionA = () => callbacks?.onSuccess?.();
     });
@@ -1241,7 +1271,10 @@ describe("ObservabilityDashboard human review", () => {
     );
     expect(input).toBeTruthy();
     await setText(input!, "Feedback for B");
-    await act(async () => finishFeedbackA?.());
+    await act(async () => {
+      finishFeedbackA?.();
+      await Promise.resolve();
+    });
     expect(input?.value).toBe("Feedback for B");
 
     await openRun("run-1");

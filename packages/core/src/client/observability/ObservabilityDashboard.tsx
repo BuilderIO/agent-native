@@ -1050,7 +1050,9 @@ function ReviewTab({
     Record<string, "thumbs_up" | "thumbs_down">
   >({});
   const [pendingVotes, setPendingVotes] = useState<Record<string, boolean>>({});
-  const [voteErrorRunId, setVoteErrorRunId] = useState<string | null>(null);
+  const [feedbackErrorRunId, setFeedbackErrorRunId] = useState<string | null>(
+    null,
+  );
   const [summaryStatus, setSummaryStatus] = useState<
     "sending" | "sent" | "failed" | null
   >(null);
@@ -1210,7 +1212,7 @@ function ReviewTab({
     return <EmptyState message={t("observability.noReviews")} />;
   }
 
-  const saveFeedback = (
+  const saveFeedback = async (
     runId: string,
     feedbackType: "thumbs_up" | "thumbs_down",
   ) => {
@@ -1218,65 +1220,55 @@ function ReviewTab({
     const previous = optimisticVotes[runId];
     setOptimisticVotes((current) => ({ ...current, [runId]: feedbackType }));
     setPendingVotes((current) => ({ ...current, [runId]: true }));
-    setVoteErrorRunId(null);
-    feedbackMutation.mutate(
-      {
+    setFeedbackErrorRunId(null);
+    try {
+      await feedbackMutation.mutateAsync({
         runId,
         feedbackType,
-      },
-      {
-        onSuccess: () => {
-          setPendingVotes((current) => {
-            const next = { ...current };
-            delete next[runId];
-            return next;
-          });
-        },
-        onError: () => {
-          setOptimisticVotes((current) => {
-            const next = { ...current };
-            if (previous) next[runId] = previous;
-            else delete next[runId];
-            return next;
-          });
-          setPendingVotes((current) => {
-            const next = { ...current };
-            delete next[runId];
-            return next;
-          });
-          setVoteErrorRunId(runId);
-        },
-      },
-    );
+      });
+    } catch {
+      setOptimisticVotes((current) => {
+        const next = { ...current };
+        if (previous) next[runId] = previous;
+        else delete next[runId];
+        return next;
+      });
+      setFeedbackErrorRunId(runId);
+    } finally {
+      setPendingVotes((current) => {
+        const next = { ...current };
+        delete next[runId];
+        return next;
+      });
+    }
   };
 
   const saveNote = (runId: string) => {
     const note = feedbackNote?.runId === runId ? feedbackNote.value.trim() : "";
     if (!note) return;
-    feedbackMutation.mutate(
-      {
+    setFeedbackErrorRunId(null);
+    void feedbackMutation
+      .mutateAsync({
         runId,
         feedbackType: "text",
         value: note,
-      },
-      {
-        onSuccess: () => {
-          setFeedbackNote((current) =>
-            current?.runId === runId && current.value.trim() === note
-              ? null
-              : current,
-          );
-          setOpenPopover((current) =>
-            current?.runId === runId && current.kind === "feedback"
-              ? null
-              : current,
-          );
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "list-observability-reviews"],
-          });
-        },
-      },
-    );
+      })
+      .then(() => {
+        setFeedbackNote((current) =>
+          current?.runId === runId && current.value.trim() === note
+            ? null
+            : current,
+        );
+        setOpenPopover((current) =>
+          current?.runId === runId && current.kind === "feedback"
+            ? null
+            : current,
+        );
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-observability-reviews"],
+        });
+      })
+      .catch(() => setFeedbackErrorRunId(runId));
   };
 
   const saveInstruction = (runId: string, threadId: string | null) => {
@@ -1761,7 +1753,7 @@ function ReviewTab({
                             {t("agentChat.common.saving")}
                           </span>
                         )}
-                        {voteErrorRunId === review.runId && (
+                        {feedbackErrorRunId === review.runId && (
                           <span
                             role="status"
                             aria-live="polite"
@@ -2175,7 +2167,7 @@ function ReviewTab({
                                   {t("agentChat.common.saving")}
                                 </span>
                               )}
-                              {activeRunId === voteErrorRunId && (
+                              {activeRunId === feedbackErrorRunId && (
                                 <span
                                   role="status"
                                   aria-live="polite"
