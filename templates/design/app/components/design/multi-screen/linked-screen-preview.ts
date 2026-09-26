@@ -56,9 +56,6 @@ type LinkedPreviewHandlers = {
 
 const linkedPreviewHandlersByFrameId = new Map<string, LinkedPreviewHandlers>();
 
-/** True when `frameId` is the primary iframe or a `::bp-<width>` sibling of
- *  `screenId`. Used so undo/redo and style commits can target every linked
- *  breakpoint preview that shares one design_files row. */
 export function isLinkedScreenPreviewFrameId(
   screenId: string,
   frameId: string,
@@ -93,9 +90,6 @@ export function registerLinkedScreenPreviewHandlers(
   };
 }
 
-/** Replace document content in every mounted linked preview for this screen
- *  (primary + breakpoint sub-frames). Each DesignCanvas applies its own
- *  embedded-frame wrapping. */
 export function replaceLinkedScreenPreviewContent(
   screenId: string,
   nextContent: string,
@@ -117,9 +111,6 @@ export function replaceLinkedScreenPreviewContent(
   return replaced;
 }
 
-/** Apply a runtime style patch to every mounted linked preview for this
- *  screen so base edits that cascade across breakpoints stay visually in
- *  sync before the next full-document replace. */
 export function sendLinkedScreenPreviewStyleChange(
   screenId: string,
   selector: string,
@@ -169,9 +160,6 @@ export function sendLinkedScreenPreviewCancelPendingDelete(
   return sent;
 }
 
-/** Apply an interaction-state preview only to the mounted frames for one
- * screen. The active route is checked by each frame handler before posting so
- * overview siblings cannot paint a preview onto a different route. */
 export function sendLinkedScreenPreviewInteractionStateStyle(
   screenId: string,
   args: Parameters<LinkedScreenPreviewInteractionStateFn>[0],
@@ -185,12 +173,10 @@ export function sendLinkedScreenPreviewInteractionStateStyle(
   return sent;
 }
 
-/** Test-only: drop every registered linked-preview handler. */
 export function __clearLinkedScreenPreviewHandlersForTests() {
   linkedPreviewHandlersByFrameId.clear();
 }
 
-/** Test-only: how many linked-preview handlers are currently registered. */
 export function __linkedScreenPreviewHandlerCountForTests() {
   return linkedPreviewHandlersByFrameId.size;
 }

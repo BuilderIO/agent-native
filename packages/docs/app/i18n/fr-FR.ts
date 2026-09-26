@@ -757,7 +757,6 @@ const frFR = {
         answer5:
           "Oui. Partagez des tableaux de bord avec des coéquipiers ou votre organisation avec un accès lecteur, éditeur ou administrateur. Vous pouvez aussi planifier des rapports par e-mail avec les résultats actuels du tableau de bord, ou configurer des alertes pour les conditions que vous souhaitez surveiller.",
       },
-      // Copy V3 de la landing page (2026-09-14) — du hero au CTA final ci-dessous.
       heroEyebrow: "Analytics",
       heroTitle:
         "Posez une question. Obtenez le graphique, la requête et le contexte.",
@@ -887,7 +886,6 @@ const frFR = {
           "Oui. Ajoutez des co-hôtes obligatoires, et Calendar vérifie leurs informations libre/occupé avant de proposer un créneau. Pour respecter également les horaires de travail configurés de chaque co-hôte, vous et ce co-hôte devez ajouter mutuellement vos calendriers en superposition. Sans ce partage mutuel, Calendar ne vérifie que leurs informations libre/occupé.",
       },
       s001: "Capture d'écran du modèle Calendar",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Calendar",
       heroTitle:
         "Trouvez du temps, réservez des rendez-vous et adaptez votre journée avec un agent",
@@ -1077,7 +1075,6 @@ const frFR = {
           "Oui. Créez une copie avec la CLI, ajoutez vos actions, données et interface, puis déployez votre application. Configurez l'authentification et l'accès aux fournisseurs pour votre environnement, et testez les workflows que vous ajoutez avant de les partager avec vos utilisateurs.",
       },
       s001: "Capture d'écran de l'app Chat",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "Créez votre propre app de chat IA",
       heroDescription:
@@ -1123,7 +1120,6 @@ const frFR = {
     },
     clips: {
       s001: "Capture d'écran du modèle Clips",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle:
         "Des enregistrements d'écran que votre agent IA peut voir et entendre",
@@ -1295,7 +1291,6 @@ const frFR = {
           "Oui. Les nouveaux documents sont privés par défaut. Partagez-les avec un accès lecteur, éditeur ou administrateur, et utilisez l'historique des versions de la page pour restaurer un instantané antérieur. La restauration d'un instantané remplace le contenu actuel de la page.",
       },
       s001: "Capture d'écran du modèle Content",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "Créez et organisez votre travail avec votre agent IA",
       heroDescription:
@@ -1419,7 +1414,6 @@ const frFR = {
           "Exportez le HTML ou un ZIP des fichiers de design, ou préparez une passation pour un agent de développement. Le prototype offre un point de départ pour le développement : la logique applicative, les intégrations, les tests et le déploiement restent à mettre en œuvre et à vérifier. Les exports HTML peuvent utiliser des ressources externes au moment de l'exécution.",
       },
       s001: "Capture d'écran du modèle Design",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "Concevez des prototypes interactifs avec votre agent IA",
       heroDescription:
@@ -1544,7 +1538,6 @@ const frFR = {
           "Non. Dans un espace de travail d'équipe, Dispatch peut exiger une vérification de ses propres modifications aux ressources et paramètres partagés. Les actions effectuées dans les applications connectées, comme l'envoi d'un e-mail, suivent les contrôles propres à ces applications. La file d'approbation de Dispatch n'est pas un point de contrôle universel pour chaque action d'agent.",
       },
       s001: "Capture d'écran du modèle Dispatch",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "Coordonnez vos agents IA depuis un seul endroit",
       heroDescription:
@@ -1782,7 +1775,6 @@ const frFR = {
           "Oui. Un collègue peut demander un brouillon qui apparaît dans votre file de relecture. Ouvrez-le, modifiez le message et envoyez-le lorsqu'il est prêt. La personne à l'origine de la demande ne peut pas l'envoyer à votre place ; c'est le propriétaire du brouillon ou un administrateur de l'organisation qui contrôle l'envoi.",
       },
       s001: "Capture d'écran du modèle Mail",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
       heroTitle: "Reprenez le contrôle de votre boîte de réception avec Jev",
       heroDescription:
@@ -1975,7 +1967,6 @@ const frFR = {
           "Exportez un fichier PPTX pour l'ouvrir dans PowerPoint. Pour utiliser la présentation dans Google Slides, importez-y ce fichier. Vérifiez les polices et les mises en page après l'export, car elles peuvent s'afficher différemment selon les éditeurs.",
       },
       s001: "Capture d'écran du modèle Slides",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "Créez des présentations avec votre agent IA",
       heroDescription:

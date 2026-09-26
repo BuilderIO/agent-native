@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./DesignEditor.tsx", import.meta.url), {
   encoding: "utf8",
 });
-// handleCreatePrimitive now lives in its own command module.
 const createPrimitiveSource = readFileSync(
   new URL("./design-editor/commands/create-primitive.ts", import.meta.url),
   { encoding: "utf8" },
@@ -14,7 +13,6 @@ const createPrimitiveStart = createPrimitiveSource.indexOf(
   "export function runCreatePrimitive",
 );
 const createPrimitiveEnd = createPrimitiveSource.length;
-// recordPendingLiveStructureEdit now lives in its own command module.
 const recordPendingSource = readFileSync(
   new URL(
     "./design-editor/commands/record-pending-live-structure-edit.ts",

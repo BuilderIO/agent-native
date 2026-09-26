@@ -183,8 +183,6 @@ describe("CSRF middleware", () => {
   }
 
   it("still lets the extension's own device-token relay calls through", async () => {
-    // The extension posts JSON with a bearer token from `chrome-extension://`,
-    // so it carries no cookie and trips neither branch of the check.
     expect(
       await status(
         { "content-type": "application/json" },

@@ -196,7 +196,6 @@ describe("Nitro dev startup recovery", () => {
         },
       } as never);
 
-      // The interval observes readiness while no browser request is present.
       time = 150;
       vi.advanceTimersByTime(100);
 
@@ -394,8 +393,6 @@ describe("dev action bridge origin", () => {
       config: { logger: { warn: vi.fn() } },
     };
     const { configuredServer, listening } = listeningHandlerFor(server);
-    // Vite prepends its own listening handler, which resolves the URLs before
-    // plugin listeners run. Read the value at callback time, not registration.
     configuredServer.resolvedUrls = {
       local: ["http://localhost:8082/"],
       network: [],
@@ -589,7 +586,6 @@ describe("dev server startup banner", () => {
           address: { address: "::1", port: 47132 },
         },
         (server) => {
-          // Vite rewrites config.server.port to the bound port at listen.
           (
             server as { config: { server: { port: number } } }
           ).config.server.port = 47132;
@@ -702,9 +698,6 @@ describe("dev server mounted path helpers", () => {
     };
     plugin.configureServer(server as any);
 
-    // Real Chromium tags its native speculation-rules auto-fetch with this
-    // exact destination, never absent — the forwarder must still normalize
-    // it, or Nitro's dev classifier treats it as a static asset and 404s.
     const request: any = {
       url: "/_agent-native/speculation-rules.json",
       headers: {
@@ -996,9 +989,6 @@ describe("dev server mounted path helpers", () => {
   });
 
   it("leaves the browser manifest relative for same-origin requests behind a Host-rewriting proxy", () => {
-    // The page and manifest share a public origin, but the proxy in front of
-    // the dev server forwards Host: localhost:8080. Rewriting from Host would
-    // point every route module at the viewer's own localhost.
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1064,12 +1054,6 @@ describe("dev server mounted path helpers", () => {
   });
 
   it("strips the mounted base off API paths for media Sec-Fetch-Dest requests", () => {
-    // <img>/<video>/<audio> fetches send Sec-Fetch-Dest: image/video/audio/
-    // track, not "empty" or "document". Nitro's dev router matches routes
-    // against req.url with the mount prefix already gone (its own baseURL is
-    // unset in dev), so unless we strip here too, these requests fall through
-    // to Vite/connect's generic 404 instead of the real API handler — this is
-    // the Assets thumbnail "Preview unavailable" bug.
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1132,10 +1116,6 @@ describe("dev server mounted path helpers", () => {
   });
 
   it("never strips non-API mounted paths regardless of Sec-Fetch-Dest", () => {
-    // Guards the original Clips regression: only /api/** paths are ever
-    // rewritten (see stripMountedDevApiPath's isApiDevPath gate), so widening
-    // which Sec-Fetch-Dest values trigger stripping can never make Vite's own
-    // base middleware see an unprefixed non-API path.
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1639,7 +1619,6 @@ describe("agent-native app config", () => {
       );
       expect(staged.nitro.replace[key]).toBe(JSON.stringify("connect"));
       expect(staged.define[key]).toBe(JSON.stringify("connect"));
-      // The separate deploy build process reads the same resolved value.
       expect(readAgentNativeBuildConfigMarker(tmpDir)?.firstRunOnboarding).toBe(
         "connect",
       );
@@ -1673,9 +1652,6 @@ describe("agent-native app config", () => {
     try {
       process.chdir(tmpDir);
 
-      // Only set via agent-native.config.ts, like chat/mail/analytics/calendar —
-      // this is the exact shape that a runtime disk read cannot see once
-      // deployed, since the config file is never shipped into the function.
       const configured = await configFor(
         { agentNativeConfig: { version: 1, harness: true } },
         "production",
@@ -1684,9 +1660,6 @@ describe("agent-native app config", () => {
       expect(configured.define[key]).toBe(JSON.stringify("true"));
       expect(readAgentNativeBuildConfigMarker(tmpDir)?.harness).toBe("true");
 
-      // Unconfigured apps embed a positive "null", never the un-embedded
-      // sentinel "" — that sentinel is reserved for builds run with an older
-      // core that never recorded a value at all.
       const unconfigured = await configFor({}, "production");
       expect(unconfigured.nitro.replace[key]).toBe(JSON.stringify("null"));
       expect(readAgentNativeBuildConfigMarker(tmpDir)?.harness).toBe("null");
@@ -2194,8 +2167,6 @@ describe("agentNative Vite plugin preset", () => {
       "agent-native-external-store-esm-shim",
       "agent-native:no-dep-prebundle-sourcemaps",
     ]);
-    // Vite hardcodes `sourcemap: "hidden"` in the optimizer's bundle.write();
-    // only a late outputOptions hook can turn it back off.
     expect(depPlugins.at(-1).outputOptions({ dir: "/deps" })).toEqual({
       dir: "/deps",
       sourcemap: false,
@@ -2206,9 +2177,6 @@ describe("agentNative Vite plugin preset", () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
 
-    // Vite 8 hands plugins a config where `rollupOptions` is a getter alias of
-    // `rolldownOptions`. Spreading it back out alongside our own
-    // `rolldownOptions` makes Vite warn that this plugin set both.
     const aliasSection = (rolldownOptions: unknown) => {
       const section: any = { rolldownOptions };
       Object.defineProperty(section, "rollupOptions", {
@@ -2352,10 +2320,6 @@ describe("app changelog raw imports", () => {
       const entries = parseChangelog(markdown);
 
       expect(watched).toContain(path.join(tmpDir, "CHANGELOG.md"));
-      // Watch the individual folder files, never the directory itself: Vite's
-      // import-analysis would try to resolve a watched directory as a module
-      // and fail ("Failed to resolve import .../changelog"), breaking
-      // hydration. New/removed files are still caught by the root dev watcher.
       expect(watched).toContain(
         path.join(pendingDir, "2026-07-01-new-thing.md"),
       );
@@ -2761,11 +2725,6 @@ describe("Vite connection reset noise", () => {
 });
 
 describe("Nitro dev full-reload debounce", () => {
-  // These fakes mirror the shape nitro's own `hotUpdate` hook actually uses
-  // (see nitro/dist/vite.mjs): `this.environment.moduleGraph.invalidateModule`
-  // for every changed module, followed by `this.environment.hot.send({ type:
-  // "full-reload" })`. We only need enough of that shape to exercise the
-  // wrapper, not a real Vite dev server.
   function fakeNitroMainPlugin(
     handler: (
       this: { environment: any },
@@ -2863,7 +2822,6 @@ describe("Nitro dev full-reload debounce", () => {
       expect(invalidateModule).toHaveBeenCalledTimes(2);
       expect(invalidateModule).toHaveBeenCalledWith("a.ts");
       expect(invalidateModule).toHaveBeenCalledWith("b.ts");
-      // The reload itself is still debounced.
       expect(send).not.toHaveBeenCalled();
       vi.advanceTimersByTime(300);
       expect(send).toHaveBeenCalledTimes(1);
@@ -2893,7 +2851,6 @@ describe("Nitro dev full-reload debounce", () => {
         { modules: [] },
       );
 
-      // 300ms after the "ssr" call, but only 150ms after "worker"'s call.
       vi.advanceTimersByTime(150);
       expect(sendSsr).toHaveBeenCalledTimes(1);
       expect(sendWorker).not.toHaveBeenCalled();
@@ -2938,10 +2895,6 @@ describe("React Router virtual-module invalidation mirror", () => {
   const SERVER_BUILD_ID = "\0virtual:react-router/server-build";
   const BROWSER_MANIFEST_ID = "\0virtual:react-router/browser-manifest";
 
-  // These fakes mirror the shapes both sides of the bug actually use:
-  // react-router's framework plugin calls `server.moduleGraph.invalidateModule`
-  // (Vite's back-compat graph, which proxies only client + ssr), while requests
-  // are served from Nitro's own environment.
   function fakeEnvironment(
     name: string,
     { ids = [] as string[], consumer = "server" } = {},
@@ -2969,8 +2922,6 @@ describe("React Router virtual-module invalidation mirror", () => {
   function fakeServer(environments: ReturnType<typeof fakeEnvironment>[]) {
     return {
       environments: Object.fromEntries(environments.map((e) => [e.name, e])),
-      // Vite's deprecated back-compat graph. Only its `invalidateModule` matters
-      // here — react-router calls it, and it never reaches `nitro`.
       moduleGraph: { invalidateModule: vi.fn(() => "original-result") },
     } as any;
   }

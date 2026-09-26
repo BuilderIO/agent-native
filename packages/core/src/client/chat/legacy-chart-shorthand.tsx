@@ -1,13 +1,3 @@
-// Some tool schemas expose chart parameters named `type`/`title`/`labels`/
-// `data` (e.g. a chart-generation action). Models occasionally regress to
-// typing those parameter names as a bare chat line instead of calling the
-// tool or emitting a real ```embed fence, e.g.:
-//   /chart type=bar title="..." labels=["Mon","Tue"] data=[5,8]
-// That has no real markdown syntax and would otherwise render as inert text.
-// This module detects that generic shape (any "/word ... labels=[...]
-// data=[...]" line) and renders a best-effort inline chart so the user still
-// sees something useful, without hardcoding any single template's tool name.
-
 import React from "react";
 
 export const LEGACY_CHART_SHORTHAND_LANG = "chart-shorthand";
@@ -34,9 +24,6 @@ export interface LegacyChartShorthand {
   series: { label: string; data: number[]; color?: string }[];
 }
 
-// Extracts a balanced JSON array/object starting exactly at `startIndex`
-// (which must point at "["), tracking string/escape state so brackets or
-// braces inside JSON string values don't confuse the boundary.
 function extractBalancedArrayAt(
   text: string,
   startIndex: number,
@@ -47,8 +34,7 @@ function extractBalancedArrayAt(
   for (let idx = startIndex; idx < text.length; idx++) {
     const ch = text[idx];
     if (inString) {
-      if (ch === "\\")
-        idx++; // skip escaped character, including \"
+      if (ch === "\\") idx++;
       else if (ch === '"') inString = false;
       continue;
     }
@@ -62,10 +48,6 @@ function extractBalancedArrayAt(
   return null;
 }
 
-// Marks which character indices fall inside a JSON/quoted-string literal so
-// key-token scanning can ignore false matches such as a key= that's part of
-// a title string, or embedded in a label's own text, rather than a real
-// assignment in the line.
 function computeStringMask(text: string): boolean[] {
   const mask = new Array<boolean>(text.length).fill(false);
   let inString = false;
@@ -86,12 +68,6 @@ function computeStringMask(text: string): boolean[] {
   return mask;
 }
 
-// Finds the array value immediately following a `key=` token, scanning every
-// occurrence of `key=` outside of quoted strings (not just the first) so a
-// `key=` that appears inside an unrelated quoted string (e.g.
-// title="data=quality", or a label literally containing "data=[1,2]") is
-// skipped in favor of the real one. Only whitespace is allowed between
-// `key=` and the `[`.
 function extractArrayForKey(
   text: string,
   key: "labels" | "data",
@@ -100,7 +76,7 @@ function extractArrayForKey(
   const re = new RegExp(`\\b${key}=`, "g");
   let match: RegExpExecArray | null;
   while ((match = re.exec(text))) {
-    if (mask[match.index]) continue; // this key= is inside a string literal
+    if (mask[match.index]) continue;
     let idx = match.index + match[0].length;
     while (idx < text.length && /\s/.test(text[idx])) idx++;
     const arr = extractBalancedArrayAt(text, idx);
@@ -109,9 +85,6 @@ function extractArrayForKey(
   return null;
 }
 
-// Extracts the value of a `title="..."`/`title='...'` token, honoring
-// backslash-escaped quotes and backslashes inside the string (e.g.
-// title="Sales \"Metrics\"") instead of stopping at the first escaped quote.
 function extractLegacyChartTitle(text: string): string {
   const match = /\btitle=/.exec(text);
   if (!match) return "";
@@ -137,13 +110,6 @@ function extractLegacyChartTitle(text: string): string {
   return "";
 }
 
-/**
- * Cheap-ish pre-check so callers can skip the full parse on ordinary text.
- * Requires `labels=`/`data=` to actually resolve to bracketed arrays (not
- * just appear as substrings) so unrelated slash commands or API paths that
- * happen to mention both words aren't diverted out of normal markdown
- * rendering.
- */
 export function looksLikeLegacyChartShorthand(line: string): boolean {
   const trimmed = line.trim();
   if (trimmed.length === 0 || trimmed.length > MAX_LINE_LENGTH) return false;
@@ -183,8 +149,6 @@ export function parseLegacyChartShorthand(
     !Array.isArray(parsedLabels) ||
     parsedLabels.length === 0 ||
     parsedLabels.length > MAX_LABELS ||
-    // Reject nested arrays/objects as labels — String(nestedArray) recurses
-    // through Array.prototype.join and can throw on deeply nested input.
     !parsedLabels.every((l) =>
       ["string", "number", "boolean"].includes(typeof l),
     )
@@ -212,8 +176,6 @@ export function parseLegacyChartShorthand(
   } else if (
     Array.isArray(parsedData) &&
     parsedData.length > 0 &&
-    // Reject rather than silently truncate an over-limit series count:
-    // presenting a partial chart as complete is worse than plain text.
     parsedData.length <= MAX_SERIES &&
     parsedData.every(
       (d) =>
@@ -244,24 +206,14 @@ export function parseLegacyChartShorthand(
   };
 }
 
-// Wraps any line matching the legacy shorthand shape in a fenced code block
-// tagged `chart-shorthand`, so it routes through markdownComponents.pre()
-// like any other language fence instead of rendering as inert prose.
-// Fence/indented-code tracking mirrors ../../shared/markdown-block-split.ts
-// (marker char + length, indented-code detection) so real code blocks —
-// including ~~~ fences, longer-than-3 fences, and 4-space/tab indented code —
-// are never mistaken for chat prose and rewritten.
 export function wrapLegacyChartShorthandLines(markdown: string): string {
   if (!markdown.includes("labels=") || !markdown.includes("data=")) {
     return markdown;
   }
-  let fenceMarker = ""; // non-empty while inside a ``` or ~~~ fence
+  let fenceMarker = "";
   const lines = markdown.split("\n");
   const out: string[] = [];
   for (const line of lines) {
-    // CommonMark: a line indented 4+ spaces (or a tab) is an indented code
-    // block, not a fence marker. Check this first so a literal four-space
-    // "    ```" example in a message doesn't toggle fence state.
     if (/^(?: {4}|\t)/.test(line)) {
       out.push(line);
       continue;
@@ -286,9 +238,6 @@ export function wrapLegacyChartShorthandLines(markdown: string): string {
       continue;
     }
     if (looksLikeLegacyChartShorthand(line)) {
-      // Preserve the line's own indentation on the emitted fence so
-      // shorthand inside a list item or blockquote continuation stays part
-      // of that container instead of being dedented to a top-level block.
       const leadingWs = line.match(/^\s*/)?.[0] ?? "";
       out.push(
         leadingWs + "```" + LEGACY_CHART_SHORTHAND_LANG,
@@ -403,8 +352,6 @@ export function LegacyChartShorthandChart({
               return { x, y };
             });
             if (coords.length === 1) {
-              // A single point has no line segment to draw — render a marker
-              // instead of an invisible zero-length polyline.
               return (
                 <circle
                   key={si}

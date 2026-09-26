@@ -10,12 +10,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-// A row carries the lock/hide icon button AND the row context menu's
-// Lock/Hide item, and the row itself sits inside a ContextMenuTrigger. Each
-// pointer path has to stay wired to exactly one invocation: the toggles take
-// an absolute next state, so a second invocation off the same click is
-// silently destructive rather than merely redundant once anything downstream
-// (source write, undo entry, agent handoff) is no longer idempotent.
 function renderPanel() {
   const onToggleLocked = vi.fn();
   const onToggleHidden = vi.fn();
@@ -44,12 +38,6 @@ function renderPanel() {
       (candidate) => candidate.getAttribute("aria-label") === label,
     );
     if (!button) throw new Error(`no button labelled ${label}`);
-    // A real pointer click fires mousedown before click — the toggle now
-    // lives on mousedown (see LayersPanel.tsx) so a click-drag onto a
-    // DIFFERENT row's icon, which never fires "click" on this one at all
-    // (mouseup lands elsewhere), still toggles it exactly once. click's own
-    // handler is a keyboard-only (detail===0) fallback, so it must stay
-    // silent here or this would count two invocations for one real click.
     await act(async () => {
       button.dispatchEvent(
         new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
@@ -84,9 +72,6 @@ describe("LayersPanel lock/hide toggles", () => {
     panel.root.unmount();
   });
 
-  // Keyboard activation (Enter/Space on a focused button) fires "click"
-  // with no preceding mousedown — the icon's own toggle must still work
-  // through that path, not just through the mousedown a pointer click adds.
   it("invokes onToggleHidden exactly once for a keyboard (detail 0) activation", async () => {
     const panel = renderPanel();
     await panel.mount();
@@ -103,10 +88,6 @@ describe("LayersPanel lock/hide toggles", () => {
     panel.root.unmount();
   });
 
-  // The click-drag-across-a-run gesture (see beginIconToggleDrag in
-  // LayersPanel.tsx) only self-clears on mouseup: if the pointer leaves the
-  // browser window before release, mouseup never fires on this window, so a
-  // later unrelated hover must not still apply the armed toggle.
   it("clears the click-drag toggle gesture on window blur instead of applying it to a later hover", async () => {
     const onToggleHidden = vi.fn();
     const host = document.createElement("div");
@@ -152,9 +133,6 @@ describe("LayersPanel lock/hide toggles", () => {
         new MouseEvent("mouseenter", { bubbles: true }),
       );
     });
-    // Only the first button's own mousedown toggle — the blur ended the
-    // gesture, so hovering the other row's icon never re-applied a stale
-    // "hidden: true" to it.
     expect(onToggleHidden.mock.calls).toEqual([[toggledId, true]]);
     root.unmount();
     host.remove();

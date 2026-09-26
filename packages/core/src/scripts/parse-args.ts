@@ -1,12 +1,3 @@
-/**
- * Pure script utilities — no Node.js dependencies.
- * Safe to import from browser bundles and Vite SSR.
- */
-
-/**
- * Parse CLI args in --key value format.
- * Supports: --key value, --key=value, --flag (boolean true)
- */
 export function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {
@@ -31,9 +22,6 @@ export function parseArgs(args: string[]): Record<string, string> {
   return result;
 }
 
-/**
- * Convert kebab-case keys to camelCase.
- */
 export function camelCaseArgs(
   args: Record<string, string>,
 ): Record<string, string> {

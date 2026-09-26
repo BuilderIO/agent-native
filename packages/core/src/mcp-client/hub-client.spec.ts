@@ -5,7 +5,6 @@ import {
   fetchHubServersDetailed,
 } from "./hub-client.js";
 
-// Minimal fake fetch response.
 function ok(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -50,8 +49,6 @@ describe("fetchHubServersDetailed", () => {
     const result = await fetchHubServersDetailed();
     expect(result.state).toBe("ok");
     if (result.state !== "ok") return;
-    // Key must be lowercased + symbol-stripped to match the normalization
-    // in `isMcpToolAllowedForRequest()` in visibility.ts.
     expect(Object.keys(result.servers)).toEqual(["hub_acme-corp_zapier"]);
   });
 
@@ -72,7 +69,6 @@ describe("fetchHubServersDetailed", () => {
     const second = await fetchHubServersDetailed();
     expect(second.state).toBe("unreachable");
     if (second.state !== "unreachable") return;
-    // Cache served across the transient failure.
     expect(Object.keys(second.servers)).toEqual(["hub_acme_zapier"]);
   });
 
@@ -92,7 +88,6 @@ describe("fetchHubServersDetailed", () => {
     const second = await fetchHubServersDetailed();
     expect(second.state).toBe("unreachable");
     if (second.state !== "unreachable") return;
-    // Auth error must NOT fall back to the cached set.
     expect(Object.keys(second.servers)).toEqual([]);
   });
 

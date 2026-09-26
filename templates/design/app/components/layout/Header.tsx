@@ -117,11 +117,6 @@ export function Header() {
   );
 }
 
-/**
- * Mobile counterpart of the header actions slot: <Header> is `md:flex`, so
- * without this every control a page publishes through `useSetHeaderActions`
- * is unmounted below the `md` breakpoint.
- */
 export function MobileHeaderActions() {
   const isHome = useLocation().pathname === "/home";
   const actions = useHeaderActions();

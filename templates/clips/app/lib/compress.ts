@@ -46,33 +46,13 @@ import {
   resetFfmpegInstance,
 } from "./ffmpeg-export";
 
-/**
- * Master switch for browser-side compression.
- *
- * Builder's upload provider now handles large files directly (>30 MB go
- * through the GCS signed-URL flow in `packages/core/src/file-upload/builder.ts`),
- * so we no longer need to shrink recordings client-side. ffmpeg.wasm transcode
- * is slow, so it stays off.
- *
- * Flip to `true` to re-enable the threshold-based compression path. When off,
- * `compressBlobIfTooLarge` is a pass-through and the `MAX_UPLOAD_BYTES`
- * hard-stop is skipped so large recordings upload as-is.
- */
 export const COMPRESSION_ENABLED = false;
 
-/** Start compressing at 24 MB. Below this, the upload clears Builder's ~32 MB
- * Cloud Run edge cap and we don't pay for ffmpeg.wasm load + transcode. */
 export const COMPRESS_THRESHOLD_BYTES = 24 * 1024 * 1024;
 export const AUDIO_LOUDNESS_FILTER = "loudnorm=I=-16:TP=-1.5:LRA=11";
 
-// The per-recording upload ceiling lives in `@shared/upload-limits`
-// (MAX_UPLOAD_BYTES) — it's shared with the server routes and actions and is
-// env-overridable. Re-exported here so existing `@/lib/compress` importers
-// keep working.
 export { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
 
-/** Preferred compressed output size. The hard cap above leaves room for
- * encoder variance and container overhead. */
 const TARGET_COMPRESSED_BYTES = 18 * 1024 * 1024;
 
 const MIN_VIDEO_RATE_LIMIT_KBPS = 350;
@@ -134,49 +114,32 @@ const COMPRESSION_PROFILES: CompressionProfile[] = [
   },
 ];
 
-/** Hard cap on total compression time. ffmpeg.wasm is single-threaded WASM
- * and can wedge on certain inputs; we'd rather give the user a clear error
- * after 5 minutes than let them stare at a spinner for an hour. */
 const COMPRESSION_TIMEOUT_MS = 5 * 60 * 1000;
 
-/** Number of stderr lines retained for crash diagnostics. */
 const STDERR_TAIL_LINES = 50;
 
 export interface CompressionProgress {
   stage: "loading-ffmpeg" | "preparing" | "encoding" | "finalizing";
-  /** 0..1, or null when indeterminate. */
   progress: number | null;
   message?: string;
 }
 
 export interface CompressionResult {
-  /** Output blob. May be the SAME ref as `input` when below threshold. */
   blob: Blob;
-  /** True when we actually re-encoded (vs. passed the input through). */
   compressed: boolean;
   originalBytes: number;
   compressedBytes: number;
-  /** `compressedBytes / originalBytes`. 1 when not compressed. */
   ratio: number;
-  /** Wall-clock ms spent in this function. ~0 when below threshold. */
   elapsedMs: number;
-  /** ffmpeg's chosen output mime type (matches container). */
   outputMimeType: string;
 }
 
 export interface CompressOptions {
-  /** Override the threshold (mostly for testing). Defaults to
-   * COMPRESS_THRESHOLD_BYTES (24 MB). */
   thresholdBytes?: number;
-  /** Optional progress callback for UI plumbing. */
   onProgress?: (p: CompressionProgress) => void;
-  /** Detected source dimensions, if known — picks the scale profile. */
   width?: number;
   height?: number;
-  /** Recording duration, used to keep multi-minute clips under the upload cap. */
   durationMs?: number;
-  /** External abort signal (e.g. the user navigated away). Combined with
-   * the internal 5-minute timeout. */
   signal?: AbortSignal;
 }
 
@@ -184,10 +147,6 @@ function evenDimension(value: number): number {
   return Math.max(2, Math.round(value / 2) * 2);
 }
 
-/**
- * Downscale compressed output for the active profile. We preserve aspect ratio and
- * handle portrait/ultrawide captures by bounding both the long and short side.
- */
 export function pickCompressedDimensions(
   width?: number,
   height?: number,
@@ -285,7 +244,6 @@ export function pickAudioFilters(): string[] {
   return ["-af", AUDIO_LOUDNESS_FILTER];
 }
 
-/** Build a HandBrake-style MP4 transcode command. */
 function pickEncodeArgs(
   width: number | undefined,
   height: number | undefined,
@@ -329,31 +287,16 @@ function pickEncodeArgs(
       `${profile.audioBitrateKbps}k`,
       "-ac",
       "2",
-      // moov before mdat so the result streams cleanly via HTTP range
-      // requests (mirrors the existing pure-TS faststart pass on the
-      // server, but cheaper to do here while we already have the
-      // transcoded mp4 in hand).
       "-movflags",
       "+faststart",
     ],
   };
 }
 
-/**
- * Compress `input` if it's larger than the threshold; otherwise return it
- * untouched.
- *
- * Errors during compression are NOT thrown — we return a result with
- * `compressed: false` and the original blob, so the caller can still attempt
- * to upload (and let Builder.io's 500 / our hard-cap check surface to Sentry
- * with the original-bytes context). The optional `onError` callback receives
- * a structured failure record for Sentry tagging.
- */
 export async function compressBlobIfTooLarge(
   input: Blob,
   inputMimeType: string,
   opts: CompressOptions & {
-    /** Called with diagnostic info if compression is attempted but fails. */
     onError?: (err: {
       message: string;
       stderrTail: string[];
@@ -379,9 +322,6 @@ export async function compressBlobIfTooLarge(
 
   opts.onProgress?.({ stage: "loading-ffmpeg", progress: null });
 
-  // Capture a tail of ffmpeg stderr so a crash later in this function can be
-  // reported to Sentry with enough context to tell whether the source was
-  // unsupported, OOMed, etc.
   const stderrTail: string[] = [];
   const onLog = (msg: string) => {
     stderrTail.push(msg);
@@ -413,15 +353,10 @@ export async function compressBlobIfTooLarge(
     };
   }
 
-  // Pick a container-appropriate input filename — ffmpeg.wasm uses the
-  // extension to detect the demuxer. Webm vs. mp4 matters for short-circuit
-  // probe behaviour inside libavformat.
   const inputName = /mp4|quicktime/i.test(inputMimeType)
     ? "input.mp4"
     : "input.webm";
 
-  // Plumb encoder progress events back to the UI. ffmpeg.wasm reports the
-  // progress as 0..1 over the duration of the input.
   const handleProgress = ({ progress }: { progress: number }) => {
     const safeProgress = Math.max(0, Math.min(1, progress));
     opts.onProgress?.({
@@ -431,11 +366,6 @@ export async function compressBlobIfTooLarge(
   };
   ffmpeg.on("progress", handleProgress);
 
-  // Internal AbortController owns the 5-minute hard cap; if the caller
-  // passed in their own signal we forward its abort too. We track whether
-  // the timeout has fired separately from the external signal so the catch
-  // path below can tell timeout vs external-cancel vs ffmpeg-crash apart
-  // and throw a clearly-named error each caller can branch on.
   const internalAbort = new AbortController();
   let timedOut = false;
   const timeoutId = setTimeout(() => {
@@ -566,8 +496,6 @@ export async function compressBlobIfTooLarge(
         : typeof err === "string"
           ? err
           : "unknown error";
-    // Best-effort cleanup so a failed run doesn't leak input data inside
-    // the wasm FS for the lifetime of the tab.
     try {
       await ffmpeg.deleteFile(inputName);
     } catch {
@@ -578,34 +506,15 @@ export async function compressBlobIfTooLarge(
     } catch {
       // ignore
     }
-    // Any abort — internal 5-minute timeout OR external cancel — leaves
-    // the ffmpeg.wasm worker in an undefined state per ffmpeg.wasm docs:
-    // once an exec/writeFile is aborted, subsequent operations on the same
-    // instance silently misbehave (corrupt outputs, stuck progress, etc.)
-    // until the tab reloads. So treat both as requiring `terminate()` +
-    // `resetFfmpegInstance()` — checking only `opts.signal?.aborted` would
-    // skip cleanup on the timeout path and poison the shared instance for
-    // every subsequent compress / export op in this tab.
     const externallyAborted = opts.signal?.aborted ?? false;
     const anyAborted = internalAbort.signal.aborted || externallyAborted;
     if (anyAborted) {
-      // Terminate the wasm worker — once an exec/writeFile is aborted the
-      // instance state is undefined per ffmpeg.wasm docs, so the next call
-      // must re-load. resetFfmpegInstance() drops the cached promise.
       try {
         ffmpeg.terminate();
       } catch {
         // ignore — terminate is best effort.
       }
       resetFfmpegInstance();
-      // Throw with a name the caller can branch on so the UI can
-      // distinguish "user cancelled" from "compression timed out" from
-      // "ffmpeg crashed" without string-matching error messages.
-      //  - External cancel: AbortError, "Compression cancelled"
-      //  - Internal timeout: TimeoutError, "Compression timed out…"
-      //  - Ffmpeg crash that happened during/after an unrelated abort:
-      //    re-throw original (rare — would mean the worker died on its
-      //    own and an abort fired in the same tick).
       if (externallyAborted) {
         const cancelErr = new Error("Compression cancelled");
         cancelErr.name = "AbortError";
@@ -616,13 +525,8 @@ export async function compressBlobIfTooLarge(
         timeoutErr.name = "TimeoutError";
         throw timeoutErr;
       }
-      // Internal abort fired but neither timeout nor external — should be
-      // unreachable in practice; surface the original.
       throw err instanceof Error ? err : new Error(message);
     }
-    // Genuine ffmpeg failure (encoder error, OOM, unsupported source, …):
-    // capture diagnostics for Sentry and fall through to the safe-upload
-    // fallback so the user's recording still has a chance.
     opts.onError?.({
       message,
       stderrTail,
@@ -638,13 +542,6 @@ export async function compressBlobIfTooLarge(
       outputMimeType: inputMimeType,
     };
   } finally {
-    // Each cleanup is wrapped independently — a throw from one (e.g.
-    // `removeEventListener` after the signal was already torn down, or
-    // `ffmpeg.off` on an instance whose worker was just terminated)
-    // must NOT prevent the others from running, or stale listeners pile
-    // up on the shared ffmpeg instance and cause memory leaks across
-    // recordings. Don't collapse this to a single `try { … }` — that
-    // defeats the purpose.
     try {
       clearTimeout(timeoutId);
     } catch {
@@ -670,8 +567,6 @@ export async function compressBlobIfTooLarge(
   }
 }
 
-/** Format a byte count as "12.3mb" for user-facing error strings. Lowercase
- * and zero-padded to 1 decimal so the message reads naturally. */
 export function formatMb(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}mb`;
 }

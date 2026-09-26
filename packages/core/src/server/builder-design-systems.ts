@@ -25,9 +25,6 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-// GCS resumable uploads require every chunk except the last to be a multiple
-// of 256 KiB. 16 MiB is the recommended default and keeps very large `.fig`
-// files off a single unbounded request body.
 const GCS_CHUNK_SIZE = 16 * 1024 * 1024;
 const MAX_CHUNK_RETRIES = 5;
 const RETRYABLE_INDEX_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -44,20 +41,6 @@ export interface BuilderDesignSystemCodeFileInput {
   filename: string;
   content: string;
   mimeType?: string;
-  /**
-   * How `content` is encoded. Defaults to `"utf8"` (existing behavior,
-   * unchanged for every current text-file caller). Pass `"base64"` for
-   * binary files -- most importantly `.fig` (a zip/kiwi binary container,
-   * never valid UTF-8 text). Without this, a `.fig` upload silently
-   * corrupts: `mimeTypeForBuilderDesignSystemFilename` already special-cases
-   * `.fig` as `application/octet-stream`, but the actual byte pipeline ran
-   * every file through `TextEncoder().encode()` regardless, which mangles
-   * any byte >= 0x80 in a binary-as-string payload (or, if the caller
-   * base64-encoded first with no decode step here, stores the literal
-   * base64 text instead of the decoded binary). Callers sending `.fig`/PDF/
-   * other binary bytes must base64-encode `content` and set this to
-   * `"base64"`.
-   */
   encoding?: "utf8" | "base64";
 }
 
@@ -67,7 +50,6 @@ export interface BuildBuilderDesignSystemIndexFilesOptions {
   designMdFilename?: string;
   maxCodeFiles?: number;
   maxTotalCodeBytes?: number;
-  /** Default keeps legacy best-effort code indexing; upload/chat surfaces should fail loudly. */
   overflowBehavior?: "skip" | "throw";
 }
 
@@ -128,9 +110,7 @@ export interface BuilderDesignSystemDocument {
 export interface BuilderDesignSystemHydratedReference extends BuilderDesignSystemProxyReference {
   docs: BuilderDesignSystemDocument[];
   tokenValues: Record<string, string>;
-  /** Builder-reported indexed document count; the only trusted readiness signal. */
   docCount: number;
-  /** True only when Builder reports at least one indexed document. */
   completionConfirmed?: boolean;
 }
 
@@ -153,7 +133,6 @@ export interface BuilderDesignSystemIndexOptions {
   devToolsVersion?: string;
 }
 
-/** A durable, replayable GitHub source configuration for a Builder DSI kit. */
 export interface BuilderDesignSystemGitHubSource {
   repoUrl: string;
   ref?: string;
@@ -186,13 +165,6 @@ interface UploadStartResponse {
   uploads?: Array<{ idx: number; uploadUrl: string; uploadToken: string }>;
 }
 
-/**
- * Plan/quota state for the DSI tier cap. `max: null` means unlimited
- * (Enterprise); `plan`/`current` are `null` only when the underlying
- * `/tier-limit` call could not be answered (Builder not connected, network
- * failure) -- callers must treat that as "unknown", not as "under the cap",
- * so `status` names it explicitly instead of a silently permissive default.
- */
 export interface BuilderDesignSystemTierLimit {
   status: "ok" | "unavailable";
   plan: string | null;
@@ -215,11 +187,6 @@ interface TierLimitResponseBody {
   upgradeUrl?: unknown;
 }
 
-// Enterprise-only code indexing is confirmed product policy, mirrored here
-// as a fallback in case the endpoint ever omits `codeIndexingAllowed`. This
-// is an allowlist (not a denylist of known-non-Enterprise plans) so an
-// unknown, empty, or newly named plan defaults to denied rather than
-// silently allowed.
 const DESIGN_SYSTEM_CODE_INDEXING_ALLOWED_PLANS = new Set(["enterprise"]);
 
 function designSystemTierLimitFromBody(
@@ -461,11 +428,6 @@ function normalizedGitHubSource(source: BuilderDesignSystemGitHubSource): {
   return { source: normalized, reference: { ...reference, ref } };
 }
 
-/**
- * Resolve an explicitly scoped/ref'd GitHub source into bounded file uploads.
- * Native Builder public-repo sources are preferred for unscoped public repos;
- * this path exists so branch, folder, and private-repo imports are replayable.
- */
 export async function collectBuilderDesignSystemGitHubFiles(
   input: BuilderDesignSystemGitHubSource,
 ): Promise<BuilderDesignSystemGitHubFileCollection> {
@@ -625,12 +587,6 @@ export interface BuilderDesignSystemRecord {
   branchName?: string;
 }
 
-/**
- * Looks up the project + branch a Builder-indexed design system lives on.
- * `builderUrl` is frozen at index time and often falls back to the docs page
- * because the Fusion branch isn't cut yet -- this lets a caller resolve the
- * real project/branch preview link later, once it exists.
- */
 export async function fetchBuilderDesignSystemRecord(
   designSystemId: string,
 ): Promise<BuilderDesignSystemRecord | null> {
@@ -658,19 +614,6 @@ export async function fetchBuilderDesignSystemRecord(
   };
 }
 
-/**
- * Reads the DSI tier cap (plan, current design-system count, max allowed)
- * from Builder's `/design-systems/v1/tier-limit`, the same endpoint
- * server-side create enforcement queries. Used to gate the "new design
- * system" entry point and code-indexing options before the user attempts a
- * create, so the 402 from `indexBuilderDesignSystem` is a backstop rather
- * than the only signal. Fails open on the count cap (`atMax: false`) when
- * Builder isn't reachable, since an unwarranted create attempt is still
- * backstopped by that same 402. Fails closed on `codeIndexingAllowed`
- * instead: unlike the count cap, nothing in `indexBuilderDesignSystem`
- * re-checks the Enterprise-only code/GitHub entitlement, so an unknown
- * entitlement must not read as "allowed".
- */
 export async function fetchBuilderDesignSystemTierLimit(): Promise<BuilderDesignSystemTierLimit> {
   try {
     const response = await requestBuilderDesignSystem(
@@ -712,14 +655,6 @@ export async function fetchBuilderDesignSystemTierLimit(): Promise<BuilderDesign
   }
 }
 
-/**
- * Server-side backstop for the Enterprise-only code/GitHub entitlement.
- * `indexBuilderDesignSystem` itself never re-checks this -- Builder's
- * `/index` endpoint only enforces the count cap (via 402) -- so callers with
- * a code/GitHub source (agent action payloads included) must call this
- * before indexing, or a non-Enterprise caller could bypass the UI lock
- * entirely.
- */
 export async function assertBuilderDesignSystemCodeIndexingAllowed(): Promise<void> {
   const tierLimit = await fetchBuilderDesignSystemTierLimit();
   if (tierLimit.status === "ok" && tierLimit.codeIndexingAllowed) return;
@@ -819,9 +754,6 @@ export function buildBuilderDesignSystemIndexFiles({
     encoding?: "utf8" | "base64",
   ) {
     const normalizedName = filename.replace(/^\/+/, "") || "code.txt";
-    // `.fig`/PDF/other binary payloads must round-trip through base64, not
-    // UTF-8 -- TextEncoder().encode() on a binary-as-string payload mangles
-    // any byte >= 0x80. See BuilderDesignSystemCodeFileInput.encoding.
     const data =
       encoding === "base64"
         ? new Uint8Array(Buffer.from(content, "base64"))
@@ -907,13 +839,6 @@ async function builderDesignSystemOAuthRejection(
   return BUILDER_DESIGN_SYSTEM_OAUTH_UNSUPPORTED.test(body) ? body : null;
 }
 
-/**
- * Issue a Builder design-system request, preferring the caller's OAuth grant
- * and retrying once with a legacy Builder key when Builder reports the route
- * itself is closed to OAuth. The retry disappears on its own once Builder
- * enables the routes; until then it is the difference between indexing working
- * and every workspace with a Builder OAuth connection losing DSI outright.
- */
 async function requestBuilderDesignSystem(
   requiredScope: BuilderOAuthPermissionScope,
   makeRequest: (
@@ -928,11 +853,6 @@ async function requestBuilderDesignSystem(
   const rejection = await builderDesignSystemOAuthRejection(response);
   if (!rejection) return response;
 
-  // Same bar the primary path applies: a legacy credential without its public
-  // key is not a usable design-system credential, so it is not a usable
-  // fallback either. Accepting one here would make the identical credential
-  // set work or refuse depending only on whether an unrelated OAuth grant
-  // happens to exist.
   const legacy = await resolveBuilderLegacyRequestAuthorization();
   if (!legacy?.legacyPublicKey) {
     if (response.body) await response.body.cancel();
@@ -1035,7 +955,6 @@ async function assertBuilderDesignSystemIndexOk(
   );
 }
 
-// GCS reports the highest committed byte in a `Range: bytes=0-<end>` header.
 function committedOffsetFromRange(response: Response): number | null {
   const match = response.headers.get("Range")?.match(/bytes=0-(\d+)/);
   return match ? parseInt(match[1], 10) + 1 : null;
@@ -1123,9 +1042,6 @@ async function uploadToResumableUrl(
     return;
   }
 
-  // A failed PUT may have still landed at GCS, so the local offset can't be
-  // trusted after an error — only GCS's committed-offset response is
-  // authoritative.
   let offset = 0;
   let retries = 0;
   while (offset < total) {
@@ -1207,7 +1123,6 @@ export function builderProjectBranchUrl(
   });
 }
 
-/** Fallback upgrade link when a 402/tier-limit response carries no `upgradeUrl`. */
 export function designSystemTierUpgradeUrl(): string {
   const host = trimTrailingSlash(getBuilderAppHost());
   return withBuilderUtmTrackingParams(`${host}/account/subscription`, {
@@ -1469,21 +1384,10 @@ function normalizeBuilderDesignSystemStatus(
   }
 }
 
-/**
- * Builder's own status field drifts out of sync with reality, so the indexed
- * document count is the only readiness signal worth branching on. Every
- * consumer shares this one definition rather than re-deriving the comparison.
- */
 export function isBuilderDesignSystemReadyByCount(docCount: number): boolean {
   return docCount > 0;
 }
 
-/**
- * Reads docCount from Builder's design-system detail endpoint. A count that
- * cannot be read is never reported as zero: "still indexing" and "Builder did
- * not answer" must stay distinguishable, or a stalled network reads as a
- * legitimately empty system forever.
- */
 export async function fetchBuilderDesignSystemDocumentCount(
   designSystemId: string,
 ): Promise<BuilderDesignSystemDocumentCountResult> {
@@ -1652,12 +1556,6 @@ export async function hydrateBuilderDesignSystemReference(
   };
 }
 
-/**
- * Opens signed resumable-upload slots for `.fig`/code/design attachments so
- * the browser can stream each file's bytes straight to GCS. Large `.fig`
- * files must not ride through the app server as one request body -- the
- * serverless host caps request bodies well below Figma export sizes.
- */
 export async function startBuilderDesignSystemUpload(
   attachments: BuilderDesignSystemUploadAttachment[],
 ): Promise<BuilderDesignSystemUploadSlot[]> {
@@ -1691,11 +1589,6 @@ export async function startBuilderDesignSystemUpload(
   return slots;
 }
 
-/**
- * Finalizes indexing from already-resolved sources (uploaded file tokens,
- * public repos, connected projects). Callers that stream uploads from the
- * browser pass the returned `uploadToken`s as `file` sources here.
- */
 export async function indexBuilderDesignSystem(
   options: BuilderDesignSystemIndexFromSourcesOptions,
 ): Promise<BuilderDesignSystemIndexResult> {
@@ -1738,9 +1631,6 @@ export async function indexBuilderDesignSystem(
   }
 
   const jobId = indexed.jobId ?? "";
-  // The `.fig` decode job creates the Fusion branch asynchronously, so
-  // `/index` usually can't return a branchUrl yet — the caller polls the
-  // decode-job status endpoint for it once the job completes.
   const branchUrl = indexed.branchUrl?.trim() || null;
 
   return {
@@ -1758,12 +1648,6 @@ export async function indexBuilderDesignSystem(
   };
 }
 
-/**
- * Server-side indexing for in-memory files (the agent action's small inline
- * payloads). Uploads each file server->GCS in resumable chunks, then
- * finalizes. Browser callers should instead stream via
- * `startBuilderDesignSystemUpload` + `indexBuilderDesignSystem`.
- */
 export async function startBuilderDesignSystemIndex(
   options: BuilderDesignSystemIndexOptions,
 ): Promise<BuilderDesignSystemIndexResult> {

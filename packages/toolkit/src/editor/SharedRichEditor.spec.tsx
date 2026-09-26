@@ -150,10 +150,6 @@ describe("SharedRichEditor unstyled mode", () => {
   });
 
   it("honors StarterKit overrides such as disabling the trailing node", async () => {
-    // `value` is markdown source (gfm dialect), not raw HTML, so a real `<ul>`
-    // needs list syntax. TrailingNode's `appendTransaction` only runs on a
-    // dispatched transaction (not the initial `content` seed), so a `focus`
-    // command exercises it the same way real editing would.
     let overriddenEditor: Editor | undefined;
     await act(async () => {
       root.render(

@@ -232,9 +232,6 @@ export default defineAction({
     if (!id) throw new Error("--id is required");
     const actor = requireDocumentRequestActor(ctx);
 
-    // Only publish AI presence for genuine agent invocations (in-app tool loop,
-    // sub-agents/A2A → "tool"; external MCP agents → "mcp"). A browser or
-    // programmatic call must never light the "AI editing" flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
@@ -366,17 +363,6 @@ export default defineAction({
       return result;
     }
 
-    // ─── Apply edits to the document markdown ───────────────────────────────
-    //
-    // Native documents edit canonical `documents.content`. A linked local file
-    // instead commits through its exact live source bridge before SQL mirrors
-    // the accepted bytes. The SQL change is delivered to open editors through
-    // normal change-sync and parsed through the real editor pipeline so new
-    // block structure renders correctly and merges through Yjs.
-    //
-    // (The old approach POSTed a Yjs search-replace to a localhost collab origin,
-    // which silently no-oped on serverless — different process, no localhost —
-    // and could only patch text inside existing nodes, never create structure.)
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;
@@ -481,8 +467,6 @@ export default defineAction({
       };
     }
 
-    // Persist. The fresh updatedAt is the signal the open editor uses to tell an
-    // intentional external edit apart from a stale autosave echo.
     const db = getDb();
     const now = nextDocumentUpdatedAt(existing.updatedAt);
     try {
@@ -571,8 +555,6 @@ export default defineAction({
       };
     }
 
-    // Presence is metadata only. Canonical SQL and change-sync are the sole
-    // body-delivery path; this action must never independently mutate Yjs.
     if (isAgentCaller) {
       try {
         const firstChange = edits.find((edit) => edit.replace)?.replace;

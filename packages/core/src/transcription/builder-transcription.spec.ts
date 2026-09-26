@@ -54,10 +54,6 @@ describe("transcribeWithBuilder", () => {
     recordAuthFailure.mockClear();
   });
 
-  // The chat path records a rejected credential so it is not retried for
-  // BUILDER_AUTH_FAILURE_TTL_MS. Transcription did not, so one unusable
-  // credential re-sent the same doomed request on every attempt -- prod logged
-  // 24 identical "Missing Authentication header" 401s in a day.
   it("records the auth failure on a 401 so it is not retried forever", async () => {
     authState.auth = {
       authorization: "Bearer tok",
@@ -102,9 +98,6 @@ describe("transcribeWithBuilder", () => {
     expect(recordAuthFailure).not.toHaveBeenCalled();
   });
 
-  // Without the space id the gateway answers 403 "Space ID is required for
-  // personal access token authentication" before it consults any route policy,
-  // so a Builder-credits site's transcription would be dead on arrival.
   it("sends the gateway token with its space id", async () => {
     authState.auth = {
       authorization: "Bearer btk-site-token",

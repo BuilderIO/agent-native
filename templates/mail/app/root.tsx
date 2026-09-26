@@ -260,7 +260,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Ensure the app window has focus so keyboard shortcuts work immediately */
 function AutoFocus() {
   useEffect(() => {
     window.focus();
@@ -270,7 +269,6 @@ function AutoFocus() {
     const handleFocusRestore = () => window.focus();
     document.addEventListener("visibilitychange", handleVisibility);
     document.addEventListener("click", handleFocusRestore, true);
-    // Restore focus when cursor re-enters the app (e.g. after using the agent chat panel)
     document.documentElement.addEventListener("mouseenter", handleFocusRestore);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibility);
@@ -284,7 +282,6 @@ function AutoFocus() {
   return null;
 }
 
-/** Trigger automation processing on window focus and initial load */
 function AutomationTrigger() {
   const lastTrigger = useRef(0);
   useEffect(() => {
@@ -296,9 +293,7 @@ function AutomationTrigger() {
         () => {},
       );
     };
-    // Trigger on load
     trigger();
-    // Trigger on window focus
     const onVisibility = () => {
       if (document.visibilityState === "visible") trigger();
     };
@@ -308,7 +303,6 @@ function AutomationTrigger() {
   return null;
 }
 
-/** Invalidate email queries when the window regains focus or visibility */
 function VisibilityRefresh() {
   const qc = useQueryClient();
   const lastRefresh = useRef(0);
@@ -340,22 +334,10 @@ type MailSyncEvent = {
   requestSource?: string;
 };
 
-/**
- * Builds DbSyncSetup's `onEvent` handler. A factory (rather than an inline
- * closure) so the refresh-signal coalescing flag below is scoped to one
- * handler instance instead of the component, and so it's callable directly
- * from a test without mounting the component.
- */
 export function createMailSyncEventHandler(qc: QueryClient) {
-  // Coalesces refresh-signal's inbox/label invalidation to once per sync
-  // batch: core's useDbSync forwards every event in a batch to onEvent
-  // synchronously (see use-db-sync.ts), and a batch of N refresh-signal
-  // events used to cancel-and-restart list-inbox-threads/list-labels N
-  // times with TanStack's default cancelRefetch:true.
   let refreshSignalInvalidationScheduled = false;
 
   return (data: MailSyncEvent) => {
-    // Ignore events we caused — the mutation's onSettled handles our own updates
     const isOwnEvent = data.requestSource === TAB_ID;
     const invalidateSettingsSurfaces = () => {
       void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
@@ -395,11 +377,6 @@ export function createMailSyncEventHandler(qc: QueryClient) {
         markExternalEmailRefresh();
         void qc.invalidateQueries({ queryKey: ["emails"] });
         void qc.invalidateQueries({ queryKey: ["email"] });
-        // A pure app-state batch never reaches core's own ["action"]
-        // invalidation (that only fires for a data-changing event source),
-        // so this is the only refresh these two get — but a batch can
-        // carry several refresh-signal events, so schedule at most one
-        // invalidation per batch instead of one per event.
         if (!refreshSignalInvalidationScheduled) {
           refreshSignalInvalidationScheduled = true;
           queueMicrotask(() => {
@@ -413,11 +390,6 @@ export function createMailSyncEventHandler(qc: QueryClient) {
       if (!isOwnEvent) {
         void qc.invalidateQueries({ queryKey: ["settings"] });
         void qc.invalidateQueries({ queryKey: ["aliases"] });
-        // list-inbox-threads/list-labels are ["action", ...]-keyed, so
-        // core's useDbSync already refreshed them above through
-        // shouldInvalidateMailQueryForActionEvent, without cancelling an
-        // in-flight poll and with a trailing refresh. Invalidating them
-        // again here only re-triggers TanStack's default cancelRefetch.
         void qc.invalidateQueries({ queryKey: ["emails"] });
         void qc.invalidateQueries({ queryKey: ["email"] });
         invalidateSettingsSurfaces();
@@ -430,8 +402,6 @@ export function createMailSyncEventHandler(qc: QueryClient) {
     } else if (data.source === "screen-refresh") {
       if (!isOwnEvent) {
         markExternalEmailRefresh();
-        // See the "settings" branch above: core already refreshed
-        // list-inbox-threads/list-labels without cancelling in flight.
         void qc.invalidateQueries({ queryKey: ["emails"] });
         void qc.invalidateQueries({ queryKey: ["email"] });
         invalidateSettingsSurfaces();
@@ -447,18 +417,13 @@ function DbSyncSetup() {
   useDbSync({
     queryClient: qc,
     queryKeys: [],
-    // Action events refresh action-backed reads (such as queued drafts) while
-    // expensive Gmail/provider queries stay on their targeted sync paths.
     actionInvalidatePredicate: shouldInvalidateMailQueryForActionEvent,
-    // Skip events this tab caused — our mutations already handle cache updates
     ignoreSource: TAB_ID,
     onEvent,
   });
   return null;
 }
 
-// Mail supplies its own styled Toaster from @/components/ui/sonner, so the
-// AppProviders built-in toaster is suppressed via toaster={null}.
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;
 
 function AppContent() {

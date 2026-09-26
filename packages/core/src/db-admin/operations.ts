@@ -1,17 +1,3 @@
-/**
- * Database admin operations.
- *
- * Pure, raw, unscoped helpers backing the Supabase-Studio-like
- * DB admin. These run the FULL database with no per-user `accessFilter`
- * scoping. Callers MUST gate access before invoking them. The built-in core
- * route gates this to dev + localhost; production-reachable surfaces must pass
- * an explicit runtime for the target database and enforce their own admin-only
- * checks before reading or mutating.
- *
- * All access goes through the unified `getDbExec()` client and returns rows
- * keyed by column name. Identifiers are validated against a strict pattern and
- * always double-quoted; values are always parameterized - never interpolated.
- */
 import { getDbExec, type DbExec } from "../db/client.js";
 import { notifyActionChange } from "../server/action-change.js";
 import type {
@@ -28,10 +14,6 @@ import type {
   DbAdminTableSummary,
 } from "./types.js";
 
-// ---------------------------------------------------------------------------
-// Identifier validation + quoting
-// ---------------------------------------------------------------------------
-
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const LARGE_CELL_PREVIEW_CHARS = 16 * 1024;
 const LARGE_CELL_SUFFIX =
@@ -42,7 +24,6 @@ export interface DbAdminRuntime {
   notifyChange?: () => Promise<void>;
 }
 
-/** Throw on any identifier that isn't a plain `[A-Za-z_][A-Za-z0-9_]*`. */
 function assertIdent(name: string, kind = "identifier"): string {
   if (typeof name !== "string" || !IDENT_RE.test(name)) {
     throw new Error(`Invalid ${kind}: ${JSON.stringify(name)}`);
@@ -50,7 +31,6 @@ function assertIdent(name: string, kind = "identifier"): string {
   return name;
 }
 
-/** Double-quote an already-validated identifier. */
 function quoteIdent(name: string): string {
   return `"${assertIdent(name)}"`;
 }
@@ -156,25 +136,13 @@ function assertNoLargeCellPreviewMutation(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Notify the UI after a real mutation so polling refetches.
-// ---------------------------------------------------------------------------
-
 async function notifyDbAdminChange(runtime?: DbAdminRuntime): Promise<void> {
   if (runtime?.notifyChange) {
     await runtime.notifyChange();
     return;
   }
-  // The UI keys on useChangeVersions(["db-admin","action"]). notifyActionChange
-  // records a "db-admin" change AND a marker; the action route layer's generic
-  // "action" source is covered by passing the db-admin action name through the
-  // same primitive that the action surface uses.
   await notifyActionChange({ actionName: "db-admin" }).catch(() => {});
 }
-
-// ---------------------------------------------------------------------------
-// listTables
-// ---------------------------------------------------------------------------
 
 export async function listTables(
   runtime?: DbAdminRuntime,
@@ -231,10 +199,6 @@ async function safeRowCount(
     return null;
   }
 }
-
-// ---------------------------------------------------------------------------
-// getTableSchema
-// ---------------------------------------------------------------------------
 
 export async function getTableSchema(
   table: string,
@@ -339,7 +303,6 @@ async function getTableSchemaPostgres(
       nullable: Number((r as any).nullable) === 1,
       pk: pkSet.has(name),
       defaultValue,
-      // Postgres serial/identity columns default to a sequence call.
       autoIncrement:
         defaultValue != null &&
         (/nextval\(/i.test(defaultValue) || /identity/i.test(defaultValue)),
@@ -356,10 +319,6 @@ async function getTableSchemaPostgres(
     rowCount: type === "view" ? null : await safeRowCount(table, runtime),
   };
 }
-
-// ---------------------------------------------------------------------------
-// getRows
-// ---------------------------------------------------------------------------
 
 const SAFE_OPS = new Set([
   "eq",
@@ -385,7 +344,6 @@ const OP_SQL: Record<string, string> = {
   like: "LIKE",
 };
 
-/** Build a parameterized WHERE clause + args from filters. */
 function buildWhere(filters: DbAdminFilter[] | undefined): {
   clause: string;
   args: unknown[];
@@ -408,7 +366,6 @@ function buildWhere(filters: DbAdminFilter[] | undefined): {
       case "in": {
         const values = Array.isArray(f.value) ? f.value : [f.value];
         if (values.length === 0) {
-          // `col IN ()` is invalid SQL; an empty set matches nothing.
           parts.push(`1 = 0`);
           break;
         }
@@ -480,10 +437,6 @@ export async function getRows(
     truncatedCells: includeLargeCells ? 0 : countTruncatedResultCells(rows),
   };
 }
-
-// ---------------------------------------------------------------------------
-// applyMutations
-// ---------------------------------------------------------------------------
 
 function buildInsert(
   table: string,
@@ -564,14 +517,9 @@ export async function applyMutations(
   };
 
   if (m.dryRun) {
-    // dryRun returns the SQL strings WITHOUT executing.
     return result;
   }
 
-  // getDbExec() does not expose a transaction handle, so statements run
-  // sequentially. A failure mid-batch surfaces as a thrown error with the
-  // counts accumulated so far; callers should treat a partial batch as a
-  // failure and re-run with a corrected payload.
   const client = db(runtime);
   const insertCount = m.inserts?.length ?? 0;
   const updateCount = m.updates?.length ?? 0;
@@ -593,11 +541,6 @@ export async function applyMutations(
   return result;
 }
 
-// ---------------------------------------------------------------------------
-// runSql
-// ---------------------------------------------------------------------------
-
-/** Error thrown when a destructive statement is run without confirmation. */
 export class DbAdminConfirmRequiredError extends Error {
   readonly needsConfirm = true;
   constructor(message: string) {
@@ -606,7 +549,6 @@ export class DbAdminConfirmRequiredError extends Error {
   }
 }
 
-/** Strip `--` line comments and `/* *\/` block comments from SQL. */
 function stripComments(sql: string): string {
   return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n\r]*/g, " ");
 }
@@ -616,7 +558,6 @@ function isMutatingSql(sql: string): boolean {
   return /^(insert|update|delete|create|alter|drop|truncate|merge)/.test(head);
 }
 
-/** Detect destructive ops on comment-stripped SQL. */
 function isDestructiveSql(sql: string): boolean {
   const cleaned = stripComments(sql).trim();
   const lower = cleaned.toLowerCase();
@@ -627,7 +568,6 @@ function isDestructiveSql(sql: string): boolean {
   return false;
 }
 
-/** A leading SELECT (or CTE that ends in SELECT) with no LIMIT clause. */
 function isBareSelectWithoutLimit(sql: string): boolean {
   const cleaned = stripComments(sql).trim();
   const lower = cleaned.toLowerCase();
@@ -653,8 +593,6 @@ export async function runSql(
     );
   }
 
-  // Guardrail: auto-append LIMIT 100 to a bare SELECT so an accidental
-  // full-table scan can't dump a huge result set.
   let finalSql = sql.trim().replace(/;\s*$/, "");
   if (isBareSelectWithoutLimit(finalSql)) {
     finalSql = `${finalSql} LIMIT 100`;

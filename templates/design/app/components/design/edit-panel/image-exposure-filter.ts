@@ -1,9 +1,3 @@
-/**
- * Figma's Exposure is not a per-channel curve. Brightening scales each linear
- * channel by a luminance gain (clipping per channel, which keeps hue) and then
- * lifts toward white by luminance; darkening multiplies a channel curve by a
- * luminance curve. Tables are fitted to Figma exports of a colour grid.
- */
 const EXPOSURE_TABLES = new Map<number, { t: number[]; h: number[] }>([
   [
     -100,
@@ -111,7 +105,6 @@ const EXPOSURE_TABLES = new Map<number, { t: number[]; h: number[] }>([
   ],
 ]);
 
-/** Brightening gain headroom: `t` stores gain / GAIN so tables stay in 0..1. */
 const GAIN = 32;
 const KNOTS = 17;
 const IDENTITY = Array.from(
@@ -149,13 +142,10 @@ const funcs = (values: number[]) =>
     )
     .join("");
 
-/** A self-contained `url(data:…)` filter, so duplicates and moves carry it. */
 export function exposureFilterUrl(value: number): string {
   const rounded = Math.round(value);
   const { t, h } = tablesFor(rounded);
   const brighten = rounded > 0;
-  // Colour maths runs on an opaque copy; alpha is restored at the end so
-  // anti-aliased edges keep their coverage.
   const opaque = `<feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 1" result="o"/>`;
   const luma = `<feColorMatrix in="o" type="matrix" values="${"0.2126 0.7152 0.0722 0 0 ".repeat(3)}0 0 0 0 1" result="l"/>`;
   const body = brighten

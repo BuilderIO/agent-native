@@ -106,7 +106,6 @@ export function isConfirmedOpenAiEngineStatus(
   }
 }
 
-/** Validate the exact credential once before installing it on any beta host. */
 export async function validateOpenAiKey(apiKey: string): Promise<void> {
   let response: Response;
   try {
@@ -164,10 +163,6 @@ export async function validateOpenAiKey(apiKey: string): Promise<void> {
   );
 }
 
-/**
- * POST the key from inside a loaded page on the target origin. Same-origin is
- * required: the framework rejects a cross-origin credential write.
- */
 export async function installOpenAiKey(
   context: BrowserContext,
   origin: string,

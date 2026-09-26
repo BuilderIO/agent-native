@@ -1,10 +1,3 @@
-// Camera/microphone permission onboarding. Opened in a tab when the user hits
-// Record without having granted access yet. Requesting getUserMedia from a real
-// extension page (not the headless offscreen document, not a focus-stealing
-// popup) is what makes Chrome show the standard permission dialog and persist
-// the grant for the whole chrome-extension:// origin — so the offscreen recorder
-// (mic) and the camera-bubble iframe both work afterward.
-
 import { writeCachedMediaPermission } from "./media-permission";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
@@ -137,7 +130,6 @@ async function finish(camOk: boolean, micOk: boolean): Promise<void> {
 async function enable(): Promise<void> {
   showEnableButton(enableBtn.textContent ?? "Enable camera & microphone", true);
   setStatus("Waiting for Chrome's permission prompt…");
-  // Request separately so a camera denial doesn't also block the microphone.
   const micOk = shouldRequestMicrophone ? await requestOne("mic") : true;
   const camOk = shouldRequestCamera ? await requestOne("cam") : true;
   await finish(camOk, micOk);
@@ -145,7 +137,6 @@ async function enable(): Promise<void> {
 
 enableBtn.addEventListener("click", () => void enable());
 
-// If both are already granted (returning here later), reflect that immediately.
 void (async () => {
   const [cam, mic] = await Promise.all([
     permissionState("camera"),

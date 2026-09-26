@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// Capture every SQL string + bound args. Reads default to empty results,
-// with selected rows supplied only when a mapper needs exercising.
 interface ExecCall {
   sql: string;
   args: any[];
@@ -19,8 +17,6 @@ function createCapturingDb() {
       const rawSql = typeof sql === "string" ? sql : sql.sql;
       const args = typeof sql === "string" ? [] : (sql.args ?? []);
       execCalls.push({ sql: rawSql, args });
-      // Most calls just need to "succeed" with empty rows. SELECTs in this
-      // store return an array shape; provide one to keep the mappers happy.
       return {
         rows: /^\s*SELECT\b/i.test(rawSql) ? selectedRows : [],
         rowsAffected: 0,
@@ -42,7 +38,6 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Pull the store after the mock is wired so it picks up the capturing db.
 const {
   getTraceSummaries,
   getTraceSummary,
@@ -72,7 +67,6 @@ const {
 } = await import("./store.js");
 
 function lastSelect(): ExecCall {
-  // Skip CREATE/ALTER/INDEX init calls; return the most recent SELECT.
   const selects = execCalls.filter((c) => /^\s*SELECT\b/i.test(c.sql));
   if (selects.length === 0) throw new Error("no SELECT was executed");
   return selects[selects.length - 1];
@@ -118,10 +112,6 @@ describe("observability store: per-user isolation", () => {
     });
 
     it("getTraceSummaries omits user_id filter when userId is undefined", async () => {
-      // Internal callers (background reports, admin tools) can pass no
-      // filter to read across all users. The omission must produce a
-      // SELECT without a `user_id =` clause — load-bearing for any
-      // future callers that intentionally want unfiltered reads.
       await getTraceSummaries({ sinceMs: 1000, limit: 50 });
       const call = lastSelect();
       expect(call.sql).not.toMatch(/user_id/);
@@ -744,9 +734,6 @@ describe("observability store: per-user isolation", () => {
 
     it("getEvalStats applies user_id to BOTH sub-queries", async () => {
       await getEvalStats(3000, { userId: "alice" });
-      // getEvalStats fires two SELECTs (totals + per-criteria); both must
-      // carry the user filter, otherwise the per-criteria breakdown leaks
-      // other users' eval data while only the totals are scoped.
       const selects = execCalls.filter((c) => /^\s*SELECT\b/i.test(c.sql));
       expect(selects.length).toBe(2);
       for (const s of selects) {

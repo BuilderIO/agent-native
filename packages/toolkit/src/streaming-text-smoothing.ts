@@ -43,7 +43,6 @@ function promoteSegmenterCache(entry: SegmenterCache): void {
   }
 }
 
-/** Splits text into graphemes while incrementally segmenting appended chunks. */
 export function splitStreamingTextGraphemes(text: string): string[] {
   const activeSegmenter = getSegmenter();
   if (!activeSegmenter) return Array.from(text);
@@ -100,7 +99,6 @@ export function initialSmoothStreamingGraphemeCount(
   return 0;
 }
 
-/** Returns an adaptive reveal count for one animation-frame interval. */
 export function smoothStreamingRevealCount({
   backlog,
   elapsedMs,

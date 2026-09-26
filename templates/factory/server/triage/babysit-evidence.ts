@@ -46,11 +46,6 @@ export interface BabysitEvidenceDetails {
   }[];
 }
 
-/**
- * Closed and draft pull requests stop at the summary. Nothing downstream may
- * infer evidence from its absence, so the two cases are separate shapes rather
- * than one shape with empty arrays.
- */
 export type BabysitEvidenceRead =
   | { open: false; summary: GitHubPullRequestSummary }
   | {
@@ -134,7 +129,6 @@ export interface BabysitStoredState {
   commentsTruncated: boolean;
   reviewsTruncated: boolean;
   changesRequested: boolean;
-  /** Poll set this when reopening on new human work; write clears it after acting. */
   pendingReopen: boolean;
   factoryAuthor: string | undefined;
   lastPingHeadSha: string | undefined;
@@ -199,11 +193,6 @@ export interface BabysitMechanicalVerdict {
   ping: BabysitPingDecision;
 }
 
-/**
- * One derivation of the ping veto, read by the briefing and enforced by the
- * write action. Two copies would let the agent be told a ping is allowed and
- * then have it refused, or worse, the reverse.
- */
 export function babysitMechanicalVerdict(input: {
   stored: BabysitStoredState;
   summary: {
@@ -265,8 +254,6 @@ export function babysitMechanicalVerdict(input: {
     nowMs: input.nowMs,
   });
   return {
-    // The sticky conflict, not the live one: letting an uncomputed read park a
-    // conflicted branch as clean ends the episode and buys it a fresh ping.
     needsWork: shouldRequestBabysitWork({
       mergeConflict: mergeability.mergeConflict,
       snapshot: input.proposal,

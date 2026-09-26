@@ -210,12 +210,8 @@ interface PromptPopoverProps {
   onOpenChange: (open: boolean) => void;
   title: string;
   placeholder?: string;
-  /** Return false when the caller navigates and the popover must not issue a
-   * competing close-state navigation after the handoff completes. */
   onSkip?: () => void | boolean | Promise<void | boolean>;
   skipLabel?: string;
-  /** Open on a two-way choice — blank canvas or AI — instead of dropping the
-   *  user straight into a prompt with the blank path hidden in a corner link. */
   offerStartChoice?: boolean;
   onSubmit: (
     prompt: string,
@@ -238,12 +234,6 @@ interface PromptPopoverProps {
   templatesLoading?: boolean;
   selectedTemplateId?: string | null;
   onTemplateChange?: (id: string | null) => void;
-  /**
-   * "Design" (inline prototype, default) vs "Full app" (Builder Fusion cloud
-   * container). Omit both this and `onCreationModeChange` to hide the mode
-   * selector entirely — used when full-app building is flag-disabled, so the
-   * popover renders pixel-identical to the design-only version.
-   */
   creationMode?: PromptCreationMode;
   onCreationModeChange?: (mode: PromptCreationMode) => void;
   /**
@@ -260,7 +250,6 @@ interface PromptPopoverProps {
    * fold the org id in themselves.
    */
   draftScope?: string;
-  /** Keep organization lookups out of unauthenticated prompt hosts. */
   scopeDraftsToOrg?: boolean;
 }
 
@@ -280,22 +269,6 @@ function isNestedPromptPopoverTarget(target: EventTarget | null) {
   );
 }
 
-// While a nested Radix Select/Popover/Dropdown is open, Radix locks
-// `pointer-events` on everything outside its own portalled content so only
-// that content (and its trigger) remain interactive. That lockout is what
-// lets the interaction happen at all, but it also means the pointer/focus
-// event that reaches our `onInteractOutside` handler resolves its `target`
-// to `<html>`/`document` instead of the element the user actually clicked —
-// the real target sits under a `pointer-events: none` ancestor, so the
-// browser reports the outermost still-hit-testable node. That target fails
-// any `closest()` containment check, so the click looks "outside" the
-// dialog and dismisses it even though the user never left the popover.
-//
-// Rather than pattern-match on the resolved (and unreliable) target, check
-// whether any of our nested portalled surfaces are currently open in the
-// DOM — they're stamped with the same data attributes whether or not the
-// interact-outside target correctly resolved into them. If one is open,
-// this is never a genuine outside click.
 function hasOpenNestedPromptPopoverSurface() {
   if (typeof document === "undefined") return false;
   return Boolean(
@@ -367,21 +340,10 @@ export default function PromptPopover({
     },
     [inline, onPopoverOpenChange],
   );
-  // Composer drafts persist to localStorage, which is scoped to the browser
-  // origin, not to the signed-in account — switching orgs is a client-side
-  // transition with no reload and no storage clear (see useSwitchOrg). Fold
-  // the active org id into the key so a draft abandoned under one account
-  // never resurfaces after switching to another.
   const { data: org, isPending: orgPending } = useOrg({
     enabled: scopeDraftsToOrg,
   });
   const baseDraftScope = draftScope ?? title;
-  // Before the org query resolves, we don't yet know which account this
-  // draft belongs to. Route to a distinct "pending" bucket rather than
-  // falling back to the unscoped base key, which could otherwise restore
-  // (or later leak) a different account's abandoned draft during the brief
-  // window before `org` loads. `org?.orgId` is legitimately `null` for
-  // users with no active org, so that gets its own stable suffix too.
   const orgScopedDraftScope = scopeDraftsToOrg
     ? orgPending
       ? `${baseDraftScope}:pending`
@@ -397,9 +359,6 @@ export default function PromptPopover({
   const submittingRef = useRef(false);
   const draftTextRef = useRef<string | undefined>(undefined);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  // A failed popover handoff can remount the composer. Leave its normal
-  // localStorage restoration untouched unless that handoff needs recovery;
-  // a defined initialText (even "") would short-circuit draft restoration.
   const [restoredPrompt, setRestoredPrompt] = useState<{
     text: string;
     initialTextKey: number | undefined;
@@ -417,7 +376,6 @@ export default function PromptPopover({
     },
     [initialTextKey, recoveryScope],
   );
-  // A new starter must not consume its seed key with the previous failed text.
   const activeRestoredPrompt =
     restoredPrompt?.initialTextKey === initialTextKey &&
     restoredPrompt?.draftScope === recoveryScope
@@ -425,24 +383,11 @@ export default function PromptPopover({
       : undefined;
   useEffect(() => {
     if (open) return;
-    // A submit closes the popover immediately and may still fail, which
-    // reopens it to restore the typed prompt. Resetting to the start choice
-    // here would hide that restored composer behind the two cards.
     if (submittingRef.current) return;
     setShowStartChoice(offerStartChoice);
     skipInFlightRef.current = false;
     setSkipInFlight(false);
   }, [open]);
-  // While the nested design-system Select is open, Radix disables pointer
-  // events on everything else and the click that closes the Select also
-  // moves focus back to its trigger. That focus-return is itself reported to
-  // the popover's dismissable layer as a "focus outside" interaction — and it
-  // fires *after* the Select has already unmounted its portalled content, so
-  // by then there is nothing left in the DOM for `onInteractOutside` to
-  // recognize as "still nested and open". Latch a short-lived flag the
-  // instant the Select reports closing, and have the popover's
-  // interact-outside guard also honor that flag so the popover survives the
-  // Select's own close-triggered focus shuffle. See PromptDialog R87/R91.
   const justClosedNestedSelectRef = useRef(false);
   const clearJustClosedNestedSelectTimeoutRef = useRef<ReturnType<
     typeof setTimeout
@@ -469,12 +414,7 @@ export default function PromptPopover({
   useEffect(() => {
     if (open) return;
     setTemplatePickerOpen(false);
-    // Same reason as above: a still-running submit owns these until it either
-    // commits them or fails and hands the composer back with its attachments.
     if (submittingRef.current) return;
-    // Only sticks for the session immediately following a failed submit; a
-    // fresh open after a real close should fall back to the composer's own
-    // localStorage draft restore for this scope, not a stale failed prompt.
     setRestoredPrompt(undefined);
   }, [open]);
 
@@ -589,9 +529,6 @@ export default function PromptPopover({
       const submissionScope = recoveryScope;
       submittingRef.current = true;
       setSubmitting(true);
-      // The work continues in the caller and the editor shows its own loading
-      // state, so holding the popover open until the round trip finishes just
-      // leaves a dead panel over the result. Reopened below if it fails.
       onOpenChange(false);
       let uploaded: UploadedFile[];
       let submissionOptions = options;
@@ -660,11 +597,6 @@ export default function PromptPopover({
   );
 
   const hasLiveVirtualAnchor = !centered && Boolean(anchorRef?.current);
-  // Radix keeps the closed popover mounted while the exit animation plays, but
-  // callers may clear `anchorRef` as soon as they close it. Latch the anchor
-  // mode from the last open render so the closing popover never swaps over to
-  // the static fallback anchor mid-exit (which re-anchored the fading popover
-  // to the top-left corner of the screen).
   const anchorModeWhileOpenRef = useRef(hasLiveVirtualAnchor);
   if (open) {
     anchorModeWhileOpenRef.current = hasLiveVirtualAnchor;
@@ -673,11 +605,6 @@ export default function PromptPopover({
     ? hasLiveVirtualAnchor
     : anchorModeWhileOpenRef.current;
 
-  // Stable virtual anchor that measures the live anchor element while it is
-  // attached and falls back to the last good rect afterwards. The anchor
-  // element can unmount on unrelated sidebar re-renders, and the ref can be
-  // cleared during the exit animation; measuring a detached element returns a
-  // zero rect, which used to reposition the popover to the viewport origin.
   const latestAnchorRef = useRef(anchorRef);
   latestAnchorRef.current = anchorRef;
   const lastAnchorRectRef = useRef<DOMRect | null>(null);
@@ -741,8 +668,6 @@ export default function PromptPopover({
                 mode: "ai",
               });
               setShowStartChoice(false);
-              // autoFocus already ran while the composer was display:none,
-              // so revealing it leaves no caret. Focus it once it is shown.
               requestAnimationFrame(() => {
                 const composer = document.querySelector<HTMLElement>(
                   "[data-agent-native-prompt-popover] .ProseMirror",
@@ -773,8 +698,6 @@ export default function PromptPopover({
               });
               skipInFlightRef.current = true;
               setSkipInFlight(true);
-              // Close on commit rather than after the design is created and
-              // navigated to — the editor owns the loading state from here.
               onOpenChange(false);
               void (async () => {
                 try {
@@ -982,8 +905,6 @@ export default function PromptPopover({
                   const shouldClose = await onSkip();
                   if (shouldClose !== false) onOpenChange(false);
                 } catch {
-                  // The caller owns error presentation. Keep the prompt open
-                  // and usable so the user can retry or submit a prompt.
                   skipInFlightRef.current = false;
                   setSkipInFlight(false);
                 }
@@ -1045,12 +966,6 @@ export default function PromptPopover({
   );
 }
 
-/**
- * Compact segmented "Design" / "Full app" pill selector shown in the new-design
- * popover title row. Only rendered by the caller when full-app building is
- * flag-enabled by the Design page — when
- * absent the popover renders with no mode control at all.
- */
 function CreationModeToggle({
   mode,
   onChange,

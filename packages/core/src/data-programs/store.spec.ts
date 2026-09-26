@@ -1,10 +1,3 @@
-/**
- * Store tests for the data-programs primitive. Uses a real in-memory
- * PGlite database (via `drizzle-orm/pglite`) wired in place
- * of `../db/client.js` / `../db/create-get-db.js`, mirroring the pattern in
- * `../sharing/restricted-sharing.spec.ts` and `../extensions/store.spec.ts`.
- */
-
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -310,10 +303,6 @@ describe("data-programs/store", () => {
       const { ensureDataProgramTables, upsertDataProgram } = await loadStore();
       await ensureDataProgramTables();
 
-      // Directly seed the count check via repeated creates would be slow —
-      // instead, exercise the cap logic by inserting one program then
-      // asserting the count-based query path with a tiny cap-equivalent
-      // scenario: create one, then update it repeatedly (should never throw).
       const row = await upsertDataProgram({
         appId,
         name: "only-one",

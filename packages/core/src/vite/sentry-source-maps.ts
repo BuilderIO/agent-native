@@ -1,9 +1,3 @@
-/**
- * The release name here MUST match what `client/analytics.ts` sends as
- * `event.release` at runtime, or uploaded source maps never resolve against
- * captured events. Both derive it from the same `resolveAgentNativeBuildId()`
- * identifier so they can't drift apart independently.
- */
 import { rm } from "node:fs/promises";
 import path from "node:path";
 
@@ -48,10 +42,6 @@ function resolveSentrySourceMapUploadCredentials(
   const authToken = firstNonEmpty(env.SENTRY_AUTH_TOKEN);
   if (!authToken) return null;
   const org = firstNonEmpty(env.SENTRY_ORG, env.SENTRY_ORG_SLUG);
-  // SENTRY_PROJECT_ID is the numeric DSN project id used elsewhere in this
-  // repo (sentry-config.ts) — not a valid value for the plugin's `project`
-  // option, which wants the project slug. Passing the numeric id would
-  // silently target the wrong project instead of cleanly no-oping.
   const project = firstNonEmpty(env.SENTRY_PROJECT, env.SENTRY_CLIENT_PROJECT);
   if (!org || !project) return null;
   return {
@@ -110,9 +100,6 @@ function resolvedClientBuildId(config: ResolvedConfig): string | null {
   return typeof buildId === "string" && buildId.trim() ? buildId.trim() : null;
 }
 
-// Safe to always include in the plugins array regardless of `vite build` vs
-// `vite dev` — `@sentry/vite-plugin`'s hooks only act during a real Rollup
-// build.
 export function createSentrySourceMapUploadPlugin(
   env: Record<string, string | undefined> = process.env,
 ): Plugin[] {
@@ -143,9 +130,6 @@ export function createSentrySourceMapUploadPlugin(
         url: uploadConfig.url,
         telemetry: false,
         release: {
-          // inject: false — client/analytics.ts already sets `release` itself;
-          // letting the plugin also inject its own git-SHA-based release would
-          // create a second, divergent source of truth for the same field.
           name: uploadConfig.release,
           inject: false,
         },

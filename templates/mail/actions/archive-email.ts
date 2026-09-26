@@ -77,10 +77,6 @@ export default defineAction({
 
     const results: { id: string; success: boolean; error?: string }[] = [];
 
-    // Bulk path: one Gmail batchModify call per account instead of one
-    // modify call per message. Only applies when Gmail is connected and the
-    // caller isn't resolving a label-view removeLabel (that needs a
-    // per-message label lookup, see archiveEmail's reconciliation notes).
     if (
       ids.length > 1 &&
       !args.removeLabel &&
@@ -91,9 +87,6 @@ export default defineAction({
         threadId: threadIdFor(i),
         accountEmail: accountEmailFor(i),
       }));
-      // Resolve every target's account once, up front, with the same rule
-      // used by the single-item path — so the Gmail mutation below and the
-      // store mirror after it never group by different accounts.
       const { resolved, unresolved } = await resolveMutationAccounts(
         ownerEmail,
         targets,

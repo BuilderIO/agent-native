@@ -58,50 +58,22 @@ export interface ShareButtonProps {
   trigger?: "label" | "icon" | "label-icon";
   /** @deprecated No longer affects rendering — kept for callsite compatibility. */
   hideTriggerIcon?: boolean;
-  /** Optional className applied to the trigger button. */
   triggerClassName?: string;
-  /** Optional heading rendered inside the share surface. */
   panelTitle?: ReactNode;
-  /** Optional compact trigger content for dense host toolbars. The accessible
-   * label remains the localized Share label. */
   triggerContent?: ReactNode;
-  /** Notified when the share popover opens or closes. Hosts that render the
-   *  button next to an iframe use this to disable the iframe's pointer events
-   *  while the popover is open, so popover hover/clicks aren't swallowed. */
   onOpenChange?: (open: boolean) => void;
-  /** Called after a new share or a private-to-shared visibility change succeeds. */
   onShareSuccess?: () => void;
-  /** Open the popover on first render. Useful after an upgrade/create flow that
-   *  lands the user directly in the shareable resource. */
   defaultOpen?: boolean;
-  /** Optional public/share URL shown as a copyable link in the popover.
-   *  This is treated as the primary "Copy link" target — same convention
-   *  as Google Docs' Share dialog, which copies the editor URL. */
   shareUrl?: string;
-  /** Optional label for the primary copyable link section. */
   shareUrlLabel?: string;
-  /** Optional helper text for the primary copyable link section. */
   shareUrlDescription?: ReactNode;
-  /** Where to render share links in the popover. Defaults to the top,
-   *  keeping the copyable link as the primary share action. */
   shareUrlPlacement?: "top" | "bottom";
-  /** Whether to render copyable share URL fields. Defaults to true. */
   showShareLinks?: boolean;
   /** @deprecated The Done action was removed; share popovers dismiss directly. */
   showDoneButton?: boolean;
-  /** Optional placeholder shown in the share-URL slot when `shareUrl` is
-   *  undefined. Use this to explain *why* there's no link yet (e.g. "Publish
-   *  this form to get a public response link") instead of leaving the slot
-   *  empty. */
   shareUrlPlaceholder?: ReactNode;
-  /** Optional secondary copyable link (e.g. a presentation / read-only
-   *  surface for the same resource). Anyone with at least viewer access
-   *  can open it — access is enforced on the resource itself, not the
-   *  URL shape, so we never gate this behind visibility. */
   secondaryShareUrl?: string;
-  /** Optional label for the secondary copyable link. */
   secondaryShareUrlLabel?: string;
-  /** Optional helper text for the secondary copyable link. */
   secondaryShareUrlDescription?: ReactNode;
   /** @deprecated No longer enforced — access is checked on the resource,
    *  not the URL shape, mirroring Google Slides. Kept for callsite
@@ -109,25 +81,15 @@ export interface ShareButtonProps {
   shareUrlRequiresPublic?: boolean;
   /** @deprecated See `shareUrlRequiresPublic`. No longer rendered. */
   shareUrlUnavailableDescription?: ReactNode;
-  /** Optional template-specific copy for the visibility picker. */
   visibilityCopy?: Partial<
     Record<Visibility, { label?: string; description?: string }>
   >;
-  /** Optional template-specific labels and descriptions for share roles. */
   roleCopy?: Partial<Record<Role, { label?: string; description?: string }>>;
-  /** Optional role capability boundary for resources without comment support. */
   allowedRoles?: readonly Role[];
-  /** Optional label for the explicit per-person access list. */
   peopleAccessLabel?: ReactNode;
-  /** Optional label for the coarse visibility control. */
   generalAccessLabel?: ReactNode;
-  /** Optional note rendered between general access and the copyable link. */
   accessNote?: ReactNode;
-  /** Optional host-rendered footer for compact app-specific share actions. */
   shareFooterContent?: ReactNode;
-  /** Optional Notion-style organization access control. When present, the
-   *  share panel exposes a "Hide in search" switch under Advanced for org
-   *  visibility. */
   hideInSearchControl?: {
     checked: boolean;
     pending?: boolean;
@@ -135,7 +97,6 @@ export interface ShareButtonProps {
     description?: ReactNode;
     onCheckedChange: (checked: boolean) => void | Promise<void>;
   };
-  /** Optional extra tabs rendered beside the default sharing/access panel. */
   shareTabs?: {
     shareLabel?: ReactNode;
     defaultValue?: string;
@@ -147,7 +108,6 @@ export interface ShareButtonProps {
     }>;
     onValueChange?: (value: string) => void;
   };
-  /** Optional className for the popover content, useful for wider custom tabs. */
   popoverClassName?: string;
 }
 
@@ -159,8 +119,6 @@ type OrgMemberSearch = ShareButtonOrgMemberSearch;
 
 type Share = ShareButtonShare;
 
-// Match shadcn's <Button size="sm" variant="outline"> sizing so the trigger
-// sits flush next to other controls while staying transparent at rest.
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
 const BUTTON_PRIMARY_SM = cn(
@@ -304,12 +262,6 @@ function handleSharePopoverInteractOutside(
   }
 }
 
-/**
- * Framework share control. Renders a shadcn-outline-styled trigger that
- * opens a Google-Docs-style popover anchored beneath it. Uses Tailwind
- * + CSS variables so the same component renders natively in light and
- * dark mode in any shadcn template.
- */
 export function ShareButton(props: ShareButtonProps) {
   const t = useT();
   const controller = useShareButtonController({
@@ -396,12 +348,6 @@ function SharePanel(
   } = controller;
   const hasInviteEmail = inviteEmail.trim().length > 0;
 
-  // `data` stays undefined after a failed read, so a stuck skeleton is
-  // indistinguishable from loading unless the error comes off the query itself.
-  // `isError` alone is not that signal: it is also true when a refetch fails
-  // while React Query still holds usable data, and this panel refetches on open
-  // and after every mutation — blocking on that would swap a working panel for
-  // a retry screen on one transient failure.
   const loadFailed = controller.sharesQuery.isError && data === undefined;
   const isLoading = !loadFailed && data === undefined;
   const meta = visibilityMeta(visibility, t, props.visibilityCopy);
@@ -1269,10 +1215,6 @@ function CopyLinkField({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Radix Select wrappers styled like shadcn Select (no native <select> anywhere)
-// ---------------------------------------------------------------------------
-
 const selectContentClass = `${SHARE_NESTED_OVERLAY_Z} min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0`;
 const selectItemClass =
   "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-2 ps-8 pe-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
@@ -1315,8 +1257,6 @@ function RoleSelect(props: {
   value: Role;
   onChange: (v: Role) => void;
   disabled?: boolean;
-  /** When true, render as inline text + chevron (no border / bg) — matches
-   *  the per-person role picker in Google Docs. */
   plain?: boolean;
   roleCopy?: ShareButtonProps["roleCopy"];
   allowedRoles?: ShareButtonProps["allowedRoles"];
@@ -1378,9 +1318,7 @@ function VisibilitySelect(props: {
   onChange: (v: Visibility) => void;
   disabled?: boolean;
   visibilityCopy?: ShareButtonProps["visibilityCopy"];
-  /** When false, the "Private" option is omitted unless currently selected. */
   allowPrivate?: boolean;
-  /** When false, the "Public" option is omitted. Default: true. */
   allowPublic?: boolean;
 }) {
   const t = useT();

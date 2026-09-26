@@ -137,8 +137,6 @@ export default defineAction({
         and(
           eq(schema.deckShares.resourceId, deckId),
           eq(schema.deckShares.principalType, "user"),
-          // Share email principals are normalized on write, but this keeps
-          // approval idempotent for rows created before that convention.
           sql`lower(${schema.deckShares.principalId}) = ${requesterEmail}`,
         ),
       )
@@ -158,9 +156,6 @@ export default defineAction({
       throw httpError("This access request is invalid or expired.", 404);
     }
 
-    // Use a deterministic primary key as the idempotency key. The generic
-    // shares table predates a composite unique constraint, but concurrent
-    // approvals for this flow still collide atomically on this key.
     const shareId = deckViewerShareId(deckId, requesterEmail);
     const [insertedShare] = await db
       .insert(schema.deckShares)

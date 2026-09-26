@@ -2,27 +2,22 @@ import { useLocale } from "@agent-native/core/client/i18n";
 
 const MESSAGES = {
   "en-US": {
-    // Toolbar / list
     searchPlaceholder: "Search errors…", // i18n-ignore feature-local i18n source
     refresh: "Refresh",
     sendTestError: "Send test error",
     sending: "Sending…",
-    // Filter tabs
     tabUnresolved: "Unresolved",
     tabResolved: "Resolved",
     tabIgnored: "Ignored",
     tabAll: "All",
-    // Status labels
     statusUnresolved: "Unresolved",
     statusResolved: "Resolved",
     statusIgnored: "Ignored",
-    // Level labels
     levelFatal: "Fatal",
     levelError: "Error",
     levelWarning: "Warning",
     levelInfo: "Info",
     levelDebug: "Debug",
-    // List columns / meta
     events: "events",
     users: "users",
     eventCount: "{count} events",
@@ -31,14 +26,12 @@ const MESSAGES = {
     firstSeen: "First seen {time}",
     handled: "Handled",
     unhandled: "Unhandled",
-    // Empty state
     emptyTitle: "No errors captured yet", // i18n-ignore feature-local i18n source
     emptyDescription:
       "Your app's analytics SDK automatically captures uncaught exceptions and unhandled promise rejections, groups them into issues, and links each one to the session replay where it happened.",
     emptySearch: "No errors match your filter.",
     installTitle: "Enable error capture",
     docs: "Docs",
-    // Detail
     back: "Back to errors",
     resolve: "Resolve",
     reopen: "Reopen",
@@ -77,14 +70,12 @@ const MESSAGES = {
     additionalData: "Additional data",
     loadFailed: "Could not load errors: {message}",
     detailLoadFailed: "Could not load this error: {message}",
-    // Cross-links from session recordings
     viewIssue: "View issue",
     viewIssueTooltip:
       "Open this error's issue — how many users hit it, the stack trace, and recent occurrences",
     searchIssues: "Find similar",
     searchIssuesTooltip:
       "Search Monitoring for all captured issues matching this console error",
-    // Toasts
     resolvedToast: "Issue resolved.",
     reopenedToast: "Issue reopened.",
     ignoredToast: "Issue ignored.",
@@ -104,7 +95,6 @@ export function useErrorsT(): ErrorMessages {
   };
 }
 
-/** Interpolate {placeholders} in a message template. */
 export function fmt(
   template: string,
   vars: Record<string, string | number> = {},

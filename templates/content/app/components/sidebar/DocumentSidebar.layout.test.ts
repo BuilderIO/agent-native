@@ -403,11 +403,6 @@ describe("document sidebar layout", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const hooks = readSidebarSource("../../hooks/use-content-database.ts");
 
-    // useDeferredFilesDatabaseId must keep returning the real databaseId
-    // while paused (only `enabled` toggles) — swapping databaseId itself to
-    // null moves the query to a disabled key with no cached rows and flashes
-    // the tree empty for the whole deferred window (see the New page repro
-    // in this file's other Files-tree tests).
     expect(sidebar).not.toContain(
       "return expanded && ready ? databaseId : null",
     );
@@ -450,7 +445,6 @@ describe("document sidebar layout", () => {
     const rowActions = readSidebarSource("./SidebarRowActions.tsx");
     const reorder = readSidebarSource("./sidebar-reorder.tsx");
 
-    // Revealed actions fade the title's end instead of re-truncating it.
     expect(rowActions).toContain(
       "group-hover:[mask-image:linear-gradient(to_left,transparent_3rem,#000_4rem)]",
     );
@@ -470,7 +464,6 @@ describe("document sidebar layout", () => {
     expect(databaseSidebar).toContain(
       'className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"',
     );
-    // Nested rows keep the same 2px rhythm as roots.
     expect(databaseSidebar).toMatch(
       /key=\{navigationItem\.membershipId\}\s+className="grid min-w-0 gap-0\.5"/,
     );
@@ -507,8 +500,6 @@ describe("document sidebar layout", () => {
   it("removes the standalone Local files destination and gates the dev database link to Code mode", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
-    // The dev-only "Database admin" link must never render for normal users;
-    // it is allowed only behind the Code mode gate.
     expect(sidebar).toContain("isCodeMode ? <DevDatabaseLink");
     expect(sidebar).not.toContain("renderLocalFilesNavButton");
     expect(sidebar).not.toContain('to="/local-files"\n              className');
@@ -565,7 +556,6 @@ describe("document sidebar layout", () => {
     expect(sections).toContain("group-focus-visible/toggle:opacity-100");
     expect(sections).toContain("<SidebarNavigationRow");
     expect(sections).toContain("renderPinned(limits.pinned)");
-    // Show more / less share the row height and the rows' icon column.
     expect(sections).toContain("sidebarShowMoreClassName");
     expect(sections).toContain("grid-cols-[0.25rem_1.75rem_minmax(0,1fr)]");
     expect(sections).not.toContain("min-h-[38px]");
@@ -620,7 +610,6 @@ describe("document sidebar layout", () => {
     expect(recentRow).toContain("<SidebarPageMenu");
     expect(recentRow).toContain("onTogglePin=");
     expect(recentRow).toContain("onRemoveFromRecent=");
-    // Recent is personal history: nothing that changes the Page or tree.
     for (const shared of [
       "onRename",
       "onDuplicate",
@@ -642,7 +631,6 @@ describe("document sidebar layout", () => {
 
     expect(databaseSidebar).toContain("<SidebarPageMenu");
     expect(databaseSidebar).not.toContain("<SidebarRowMenu");
-    // Pin, then link/open, then page changes, then lifecycle, then activity.
     const order = [
       "<SidebarPinMenuItem",
       't("sidebar.copyLink")',
@@ -656,14 +644,10 @@ describe("document sidebar layout", () => {
     ].map((needle) => menu.indexOf(needle));
     expect(order.every((index) => index >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    // Rename keeps focus in its input instead of returning to the trigger.
     expect(menu).toContain("event.preventDefault()");
-    // Local-file Pages mirror disk, so they cannot be renamed, duplicated, or
-    // moved from the sidebar.
     expect(databaseSidebar).toContain(
       "canEdit && !isLocalFile && pageActions !== null",
     );
-    // Reorderable rows (Pinned) stay inside the sidebar so their menu shows.
     expect(databaseSidebar).toContain('className="relative min-w-0"');
   });
 
@@ -671,13 +655,10 @@ describe("document sidebar layout", () => {
     const dialog = readSidebarSource("./MovePageDialog.tsx");
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
-    // Choosing a place in another space opens the access warning instead of
-    // moving; only its confirm button calls onMove.
     expect(dialog).toContain("if (crossSpace) setPendingParentId(parentId);");
     expect(dialog).toContain("else move(parentId);");
     expect(dialog).toContain("sidebar.moveToSpaceWarningShared");
     expect(dialog).toContain("sidebar.moveToSpaceWarningPrivate");
-    // The picker starts in the Page's own space, not the sidebar's selection.
     expect(dialog).toContain("setTargetSpaceId(page?.spaceId");
     expect(sidebar).toContain('space.kind !== "source_backed"');
     expect(sidebar).toContain('useActionMutation("duplicate-page"');
@@ -711,11 +692,9 @@ describe("document sidebar layout", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const sections = readSidebarSource("./PersonalSidebarSections.tsx");
 
-    // The space switcher and the Page/Collection `+` share one header row.
     expect(sidebar).toContain(
       "grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2",
     );
-    // Search is a quiet row whose icon and label line up with the tree rows.
     expect(sidebar).toContain("grid-cols-[1.75rem_minmax(0,1fr)_auto]");
     expect(sidebar).not.toContain('variant="outline"');
     expect(sidebar).toContain("w-[var(--radix-dropdown-menu-trigger-width)]");
@@ -730,25 +709,18 @@ describe("document sidebar layout", () => {
   it("keeps section visibility inside each section menu instead of a duplicate customize row", () => {
     const sections = readSidebarSource("./PersonalSidebarSections.tsx");
 
-    // A standalone sidebar-level 3-dot row duplicated the section header menu
-    // and burned a whole row of vertical space.
     expect(sections).not.toContain('className="flex justify-end px-3"');
     expect(sections).not.toContain('<IconDots className="size-4" />');
 
-    // The visibility toggles now live under Move up/Move down in every section
-    // menu, so a hidden section is always restorable.
     expect(sections).toContain("<DropdownMenuSeparator />");
     expect(sections).toContain("checked={sections[sectionId].visible}");
     expect(sections).toContain("onChangeVisible(sectionId, visible)");
     expect(sections).toContain("change(sectionId, { visible })");
 
-    // Both call sites, including the always-visible "workspaces" section, wire
-    // the visibility group.
     expect(
       sections.split("onChangeVisible={(sectionId, visible) =>").length - 1,
     ).toBe(2);
 
-    // The section menu trigger must not reuse the drag handle's label.
     expect(sections).toContain('aria-label={t("sidebar.customizeSidebar")}');
     const menuTrigger = sections.slice(
       sections.indexOf("<DropdownMenuTrigger"),

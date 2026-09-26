@@ -1,13 +1,3 @@
-/**
- * Upload a still-frame thumbnail for a recording. Called by the video player
- * once the owner loads the first frame of their clip — we capture the frame
- * client-side, POST the bytes here, push them through the framework
- * `uploadFile`, and store the resulting URL in `recordings.thumbnail_url`.
- *
- * Route: POST /api/recordings/:recordingId/thumbnail
- * Body: raw JPEG (or PNG) bytes. Content-Type: image/jpeg | image/png.
- */
-
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import {

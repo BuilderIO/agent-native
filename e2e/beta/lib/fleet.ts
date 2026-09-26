@@ -2,14 +2,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/**
- * The beta fleet under test.
- *
- * The site list is read from the same `scripts/netlify-beta-sites.json` the
- * deploy workflow publishes from, so a new beta site is covered by this suite
- * the moment it is deployable — there is no second list to forget.
- */
-
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -24,19 +16,8 @@ export interface BetaSite {
   e2e?: boolean;
 }
 
-/**
- * Apps whose sign-in is Google-only (`googleOnly: true` in their auth plugin),
- * so a seeded session grants no provider tokens and the product surface behind
- * it is not meaningfully exercisable from CI. They still get the full
- * unauthenticated sweep — which is where their reported breakage lives.
- */
 const GOOGLE_ONLY_APPS = new Set(["calendar", "factory", "mail"]);
 
-/**
- * Apps that carry an agent chat surface worth spending model tokens on. Kept
- * explicit rather than derived: adding an app here costs real money per run,
- * so it should be a decision someone makes, not a side effect of deploying.
- */
 const CHAT_APPS = ["chat", "slides", "analytics", "content", "dispatch"];
 const AUTHENTICATED_ENTRY_PATHS: Record<string, string> = {
   design: "/home",
@@ -74,12 +55,6 @@ function readSites(): BetaSite[] {
 
 export const ALL_SITES: BetaSite[] = readSites();
 
-/**
- * Restrict the run to a subset, e.g. `BETA_E2E_APPS=slides,analytics`.
- *
- * An unknown id is an error, not an empty selection: a typo in a workflow
- * input must not present as "everything passed".
- */
 export function selectedSites(): BetaSite[] {
   const raw = process.env.BETA_E2E_APPS?.trim();
   const selectableSites = ALL_SITES.filter((site) => site.e2e !== false);
@@ -88,8 +63,6 @@ export function selectedSites(): BetaSite[] {
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
-  // A value like "," or " , " normalizes to nothing. Returning an empty fleet
-  // would let a promotion run finish green having probed no host at all.
   if (wanted.length === 0) {
     throw new Error(
       `BETA_E2E_APPS=${JSON.stringify(raw)} names no app. Use "all" or a comma-separated list of app ids.`,
@@ -125,7 +98,6 @@ export function authenticatedEntryPath(site: BetaSite | string): string {
   return AUTHENTICATED_ENTRY_PATHS[id] ?? "/";
 }
 
-/** The production twin of a beta host, used for isolation checks. */
 export function productionHostFor(site: BetaSite): string {
   return site.host.replace(/^beta\./, "");
 }
@@ -135,12 +107,10 @@ export function isGoogleOnly(site: BetaSite | string): boolean {
   return GOOGLE_ONLY_APPS.has(id);
 }
 
-/** Sites eligible for an authenticated journey, honouring `BETA_E2E_APPS`. */
 export function authenticatableSites(): BetaSite[] {
   return selectedSites().filter((site) => !isGoogleOnly(site));
 }
 
-/** Sites whose agent chat is worth spending luna tokens on this run. */
 export function chatSites(): BetaSite[] {
   const selected = new Set(selectedSites().map((site) => site.id));
   return CHAT_APPS.filter((id) => selected.has(id)).map(siteById);

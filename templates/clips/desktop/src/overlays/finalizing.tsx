@@ -63,12 +63,6 @@ function takePersistedFinalizingResult(): NativeUploadFinished | null {
   }
 }
 
-/**
- * Compact bottom-left feedback window. Rendered the moment the user clicks
- * Stop and kept visible while the desktop finishes its durable backup and
- * first upload/finalize attempt. The browser can open `/r/:id` earlier so the
- * page shows live progress.
- */
 export function Finalizing() {
   const [progress, setProgress] = useState<ProcessingProgress>({
     stage: "finalizing",

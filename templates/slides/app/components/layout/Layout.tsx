@@ -52,13 +52,9 @@ interface EditorSidebarOverride {
   collapsed: boolean;
 }
 
-/** Routes whose pages render their own toolbar — Layout still renders chrome
- * (sidebar + AgentSidebar wrapper) but skips its own Header. */
 function pageHasOwnToolbar(pathname: string): boolean {
   if (pathname === "/chat" || pathname.startsWith("/chat/")) return true;
   if (pathname.startsWith("/deck/")) return true;
-  // /extensions (list) and /extensions/<id> (viewer) both render their own headers
-  // from @agent-native/core/client/extensions.
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
   return false;
@@ -256,10 +252,6 @@ export function Layout({ children }: LayoutProps) {
           >
             <Sidebar
               collapsed={effectiveSidebarCollapsed && !sidebarOpen}
-              // In the mobile drawer the sidebar is forced expanded, so the
-              // desktop collapse toggle would be a silent no-op (worse: it'd
-              // mutate the desktop preference). Hide it while the drawer is
-              // open.
               onToggleCollapsed={
                 sidebarOpen ? undefined : toggleSidebarCollapsed
               }

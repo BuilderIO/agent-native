@@ -13,8 +13,6 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async () => {
-    // Theme is read during first paint; an unauthenticated or failed lookup
-    // must still resolve to the default rather than break the shell.
     try {
       const scope = resolveRequestScope();
       const data = await getScopedSettingRecord(scope, "analytics-theme");

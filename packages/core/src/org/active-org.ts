@@ -41,8 +41,6 @@ async function warnOnCrossOrgRepoint(
     )) as ActiveOrgSetting;
     previousOrgId = typeof setting?.orgId === "string" ? setting.orgId : null;
   } catch {
-    // "Unreadable" is not "had no previous org" — report which one happened, so
-    // a silent repoint can never read as a first-time assignment in the log.
     warnAgent({
       severity: "critical",
       code: "org-active-org-previous-unreadable",

@@ -27,22 +27,13 @@ import {
 } from "@agent-native/core/db/schema";
 import { boolean } from "drizzle-orm/pg-core";
 
-/**
- * Grouped error issues. A stable `fingerprint` (error type + top meaningful
- * stack frame, or message when there's no usable stack) collapses many
- * occurrences into one triageable issue.
- */
 export const errorIssues = table(
   "error_issues",
   {
     id: text("id").primaryKey(),
-    /** Stable grouping key; unique per owner scope. */
     fingerprint: text("fingerprint").notNull(),
-    /** Error class/name, e.g. "TypeError" or "Error" (or "Message"). */
     type: text("type").notNull().default("Error"),
-    /** Human-readable issue title (type + first line of the message). */
     title: text("title").notNull(),
-    /** Best-effort culprit — the top in-app frame ("fn (file:line)"). */
     culprit: text("culprit"),
     level: text("level", {
       enum: ["fatal", "error", "warning", "info", "debug"],
@@ -56,17 +47,11 @@ export const errorIssues = table(
       .default("unresolved"),
     firstSeenAt: text("first_seen_at").notNull(),
     lastSeenAt: text("last_seen_at").notNull(),
-    /** Lifetime occurrence count (monotonic; not affected by retention). */
     eventCount: integer("event_count").notNull().default(0),
-    /** Approximate distinct users, recomputed over retained occurrences. */
     usersAffected: integer("users_affected").notNull().default(0),
-    /** id of a representative occurrence for the detail view. */
     sampleEventId: text("sample_event_id"),
-    /** Most recent linked session_recordings.id (sr_...), if any. */
     lastSessionRecordingId: text("last_session_recording_id"),
-    /** Optional triage owner (email). */
     assignee: text("assignee"),
-    /** Denormalized product dimensions for filtering/display. */
     app: text("app"),
     template: text("template"),
     createdAt: text("created_at").notNull().default(now()),
@@ -93,12 +78,6 @@ export const errorIssues = table(
 
 export const errorIssueShares = createSharesTable("error_issue_shares");
 
-/**
- * Individual error occurrences (events). Owner-scoped like analytics_events.
- * Always read behind an issue whose access the caller already resolved through
- * `accessFilter`, and additionally filtered by owner scope for defense in
- * depth. Pruned to a bounded retention per issue at ingest time.
- */
 export const errorEvents = table(
   "error_events",
   {
@@ -113,9 +92,7 @@ export const errorEvents = table(
     })
       .notNull()
       .default("error"),
-    /** Normalized stack frames as JSON (ParsedStackFrame[]). */
     stack: text("stack").notNull().default("[]"),
-    /** Bounded raw stack string kept for display fidelity. */
     rawStack: text("raw_stack"),
     handled: boolean("handled").notNull().default(true),
     url: text("url"),
@@ -123,9 +100,7 @@ export const errorEvents = table(
     anonymousId: text("anonymous_id"),
     userKey: text("user_key"),
     sessionId: text("session_id"),
-    /** Client replay id (localStorage) reported by the SDK. */
     clientRecordingId: text("client_recording_id"),
-    /** Resolved session_recordings.id (sr_...) when a replay exists. */
     sessionRecordingId: text("session_recording_id"),
     release: text("release"),
     environment: text("environment"),

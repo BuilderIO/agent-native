@@ -1,8 +1,5 @@
 import { registerRequiredSecret } from "@agent-native/core/secrets";
 
-// Optional: enables design-system import from private GitHub repositories.
-// The import-github action reads this server-side via resolveSecret(); tokens
-// should never be pasted into chat or passed as action parameters.
 registerRequiredSecret({
   key: "GITHUB_TOKEN",
   label: "GitHub token",

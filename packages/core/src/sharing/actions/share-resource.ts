@@ -125,16 +125,6 @@ function principalIdMatches(
     : eq(sharesTable.principalId, principalId);
 }
 
-/**
- * Returns true if the given email is either an active member of `orgId` or
- * has a pending invitation to `orgId`. Used by resources whose registration
- * sets `requireOrgMemberForUserShares` (currently extensions) to refuse
- * cross-org user shares.
- *
- * Both `org_members` and `org_invitations` store email case-insensitively
- * via `LOWER()` in the rest of the framework, so we follow the same
- * convention here.
- */
 async function isOrgMemberOrInvited(
   orgId: string,
   email: string,
@@ -153,10 +143,6 @@ async function isOrgMemberOrInvited(
 export default defineAction({
   description:
     "Grant a user, group, or org access to a shareable resource. Owner or admin role required.",
-  // (audit H5) Sharing-grant operations are admin-tier and let a caller
-  // expand who can read/write a resource. Refuse from the tools iframe
-  // bridge so a malicious shared tool can't silently re-share its
-  // viewer's resources to an attacker-controlled email.
   toolCallable: false,
   schema: z.object({
     resourceType: z
@@ -258,10 +244,6 @@ export default defineAction({
           );
         }
       } else if (args.principalType === "org") {
-        // Cross-org org shares would let an outside org's members run
-        // extension code in the viewer's auth context — the same threat
-        // model that blocks public + cross-org user shares. Pin org-
-        // principal shares to the resource's own org.
         if (principalId !== resourceOrgId) {
           throw new ForbiddenError(
             `${reg.displayName} can only be shared with its own organization, not a different one.`,
@@ -500,9 +482,6 @@ export default defineAction({
     }
 
     if (notified) {
-      // The provider already accepted the email, so a failed marker write must
-      // not fail the share. It costs the recipient a follow-up nudge, never a
-      // duplicate or a false one.
       try {
         await db
           .update(reg.sharesTable)

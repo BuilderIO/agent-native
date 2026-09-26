@@ -48,8 +48,6 @@ import { uploadChunkRequest } from "@/lib/upload-request";
 
 import { StreamingDeliveryRecovery } from "./streaming-delivery-recovery";
 
-// Re-exported for existing callers; the canonical impls live in
-// @shared/recording-core and are shared with the Chrome extension recorder.
 export { pickMimeType, pickMimeTypeCandidates, canUseTimeslicedRecorderChunks };
 
 export type RecordingMode = "screen" | "camera" | "screen+camera";
@@ -115,92 +113,31 @@ const RECORDING_AT_RISK_STATES = new Set<RecorderState>([
 ]);
 
 export interface RecorderEngineOptions {
-  /** Server-assigned recording id. Required before `start()`. */
   recordingId: string;
-  /** Capture mode. */
   mode: RecordingMode;
-  /** Preferred browser picker surface when recording the screen. */
   displaySurface?: DisplaySurface;
-  /** Selected mic deviceId (optional — default used when omitted). */
   micDeviceId?: string | null;
-  /** Last known user-visible mic label, used to recover rotated device ids. */
   micDeviceLabel?: string | null;
-  /** Selected camera deviceId (optional — default used when omitted). */
   cameraDeviceId?: string | null;
-  /** Camera bubble size selected in the pre-record UI. */
   cameraBubbleSize?: "sm" | "md" | "lg";
-  /**
-   * Blur the camera background (sharp person, blurred surroundings) for both the
-   * live preview bubble and the baked-in recording composite. Resolved at
-   * `acquire()` time. Silently no-ops (records un-blurred) if segmentation is
-   * unavailable in the browser.
-   */
   cameraBlur?: boolean;
-  /** Background blur radius in px when `cameraBlur` is on. Defaults to ~12. */
   cameraBlurRadius?: number;
-  /** Chunk size in ms (MediaRecorder timeslice). Default 2000. */
   chunkIntervalMs?: number;
-  /** Base URL for the chunk upload endpoint. Default `/api/uploads/:id/chunk`. */
   uploadUrl?: string;
-  /** Abort URL. Default `/api/uploads/:id/abort`. */
   abortUrl?: string;
-  /** Reset-chunks URL. Defaults to the authenticated recording route. */
   resetUrl?: string;
-  /**
-   * Upload strategy returned by create-recording.
-   * `"streaming"` — server has a resumable session; engine flushes aligned
-   * chunks during recording. `"buffered"` — blob assembled after stop() and
-   * uploaded in slices via the SQL chunk path.
-   */
   uploadMode?: UploadMode;
-  /** Fired whenever the state machine transitions. */
   onState?: (state: RecorderState, detail?: Record<string, unknown>) => void;
-  /** Fired on each uploaded chunk (for progress UI). */
   onChunk?: (info: {
     index: number;
     bytes: number;
     total: number | null;
   }) => void;
-  /** Fired on any error. */
   onError?: (err: Error) => void;
-  /**
-   * Fired with a non-fatal notice the UI should surface (e.g. a toast) without
-   * stopping the recording. Used when an optional camera or microphone
-   * disconnects: the engine tears that input down cleanly and keeps going,
-   * then reports here so the user knows the webcam/audio dropped. Unlike
-   * `onError`, this does NOT transition the engine into the `error` state.
-   */
   onWarning?: (message: string) => void;
-  /**
-   * Fired when the camera ends (unplugged / revoked) any time after acquire,
-   * so the UI can drop the on-page camera bubble to match the recorded output.
-   */
   onCameraEnded?: () => void;
-  /**
-   * Called when the required video source ends: either the display stream or
-   * the sole camera-only track. When provided, the engine delegates the stop
-   * flow to this callback instead of calling `stop()` internally — so the UI
-   * can run its own side-effects (thumbnail capture, transcription flush,
-   * navigation) before the MediaRecorder is finalized.
-   */
   onDisplayTrackEnded?: () => void;
-  /**
-   * Fired with the *actual* capture surface the user selected in the browser's
-   * native screen picker, read from the resulting display track's settings.
-   * The `displaySurface` we request is only a hint, and `surfaceSwitching:
-   * include` lets the user swap surfaces mid-recording — so this is the
-   * authority for "is the whole screen (this tab included) being captured?".
-   * Fires once right after acquisition and again on `configurationchange` when
-   * the shared surface switches. Reports `null` when the browser doesn't expose
-   * the resolved surface (Firefox/Safari are partial).
-   */
   onResolvedDisplaySurface?: (surface: DisplaySurface | null) => void;
-  /**
-   * Fired with progress updates while ffmpeg.wasm is re-encoding a too-large
-   * recording. Stage transitions from `loading-ffmpeg` → `preparing` →
-   * `encoding` (with 0..1 progress) → `finalizing`. The engine itself
-   * transitions through the `compressing` state for the duration.
-   */
   onCompressionProgress?: (info: {
     stage: "loading-ffmpeg" | "preparing" | "encoding" | "finalizing";
     progress: number | null;
@@ -208,9 +145,7 @@ export interface RecorderEngineOptions {
 }
 
 export interface RecorderStartResult {
-  /** The preview stream the UI should render (composited or display). */
   previewStream: MediaStream;
-  /** The camera-only stream (if applicable) for the camera bubble. */
   cameraStream: MediaStream | null;
 }
 
@@ -241,23 +176,14 @@ interface CompressionUploadMeta {
 }
 
 const DEFAULT_CHUNK_MS = 1000;
-// GCS resumable uploads require every non-final chunk to be a multiple of
-// 256 KiB. MediaRecorder emits arbitrary blob sizes, so on the streaming path
-// we buffer raw blobs and only PUT aligned slices. ~4 MiB per streamed chunk.
 const GCS_CHUNK_ALIGN_BYTES = 256 * 1024;
-const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
+const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES;
 const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
 const CHUNK_UPLOAD_TIMEOUT_MS = 60_000;
 const FINAL_CHUNK_UPLOAD_TIMEOUT_MS = 180_000;
 const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
   408, 425, 429, 500, 502, 503, 504,
 ]);
-// Capture quality for the browser MediaRecorder. We no longer shrink files
-// client-side (ffmpeg.wasm re-encode is disabled — see COMPRESSION_ENABLED in
-// `@/lib/compress`) and the upload provider streams large files directly, so we
-// capture at a crisp 1080p bitrate instead of a tight budget. 1.2 Mbps left
-// dense UI (fine text and code) visibly fuzzy; 8 Mbps keeps it sharp.
-// Dial down here if file sizes become a concern for a deployment.
 const RECORDING_VIDEO_BITRATE_BPS = 8_000_000;
 const RECORDING_AUDIO_BITRATE_BPS = 128_000;
 type CaptureSource = "screen" | "camera" | "microphone" | "unknown";
@@ -374,10 +300,6 @@ function isScreenPickerDismissal(err: unknown): boolean {
   const message = errorMessage(err);
   if (name === "AbortError") return true;
   if (/cancelled|canceled|dismissed/i.test(message)) return true;
-  // Chromium reports a user-cancelled screen picker as NotAllowedError with
-  // a "by user" / "user denied" signal in the message. A bare NotAllowedError
-  // without that signal can be an enterprise-policy block or other genuine
-  // denial — surface those as errors instead of silently swallowing them.
   if (
     name === "NotAllowedError" &&
     /by user|user (cancelled|canceled|denied|dismissed)/i.test(message)
@@ -388,10 +310,6 @@ function isScreenPickerDismissal(err: unknown): boolean {
 }
 
 function canUseTimeslicedRecorderChunks(mimeType: string): boolean {
-  // WebM chunks emitted by MediaRecorder are safe to concatenate locally before
-  // compression/upload. Browser MP4 chunks are not reliably self-contained; in
-  // Safari/WebKit we have seen ftyp+mdat-only assemblies with no top-level moov
-  // atom, so MP4/QuickTime stays as one final recorder blob after stop().
   return /^video\/webm(?:;|$)/i.test(mimeType);
 }
 
@@ -535,20 +453,9 @@ export class RecorderEngine {
 
   private displayStream: MediaStream | null = null;
   private cameraStream: MediaStream | null = null;
-  /**
-   * Raw getUserMedia camera stream. When background blur is active,
-   * `cameraStream` points at the processed (blurred) derivative and this field
-   * keeps the original so teardown stops the real camera tracks and the
-   * disconnect handler can observe the hardware ending.
-   */
   private rawCameraStream: MediaStream | null = null;
   private cameraBlur: CameraBlurHandle | null = null;
-  // True once the camera is acquired, through preview/countdown/recording, until
-  // teardown — gates disconnect handling outside the recording state.
   private cameraLive = false;
-  // Latched when MediaRecorder starts with a live webcam track. Unlike the live
-  // stream reference, this remains true if that camera disconnects after some
-  // camera footage has already been recorded.
   private recordedCameraVideo = false;
   private micStream: MediaStream | null = null;
   private combinedStream: MediaStream | null = null;
@@ -570,47 +477,16 @@ export class RecorderEngine {
   private pausedStartedMs: number | null = null;
   private uploadFailure: Error | null = null;
   private uploadFailureStopStarted = false;
-  /**
-   * Local mirror of every recorder chunk, in record order. We upload after stop
-   * so the server never stores the uncompressed source before compression has a
-   * chance to run.
-   *
-   * Memory cost: one Blob per 2s slice. A 10-min 1080p screen capture is
-   * ~600 MB worst case (heavy motion); typical screen capture is much
-   * smaller. The browser handles ~1 GB blob arrays without trouble.
-   */
   private localChunks: Blob[] = [];
   private totalRecordedBytes = 0;
   private lastFinalizeMeta: RecordingFinalizeMeta | null = null;
-  /**
-   * Count of chunks mirrored to IndexedDB for this take (`recording-backup.ts`).
-   * Best-effort and independent of `chunkIndex`/upload state — a mirror write
-   * failure never blocks or retries the actual upload.
-   */
   private backupChunkIndex = 0;
   private backupMirrorQueue: Promise<void> = Promise.resolve();
-  /**
-   * Owns the abort signal threaded into the compression pass so a `cancel()`
-   * during a multi-minute ffmpeg.wasm encode actually terminates the worker
-   * (and the chunked re-upload that follows it) rather than running them to
-   * completion against a recording the user already discarded.
-   */
   private compressionAbort: AbortController | null = null;
-  /**
-   * Aborts in-flight chunk uploads (queueChunk + the non-compression finalize
-   * sentinel) when cancel() runs, so a Cancel during upload doesn't let the
-   * fetch quietly complete and the recording finalise server-side.
-   */
   private uploadAbort: AbortController | null = null;
   private uploadMode: UploadMode = "buffered";
   private uploadAttemptId: string | null = null;
   private uploadGenerationId: string | null = null;
-  /**
-   * Streaming-path buffer. MediaRecorder blobs accumulate here until at least
-   * STREAM_CHUNK_BYTES is available, then a 256 KiB-aligned slice is PUT to API
-   * as a non-final chunk. The unaligned remainder is held and uploaded as the
-   * final chunk on stop().
-   */
   private pendingStreamBlobs: Blob[] = [];
   private pendingStreamBytes = 0;
   private streamingUploadGeneration = 0;
@@ -631,22 +507,9 @@ export class RecorderEngine {
       if (this.uploadMode === "streaming") this.flushAlignedStreamChunks();
     },
   });
-  /**
-   * One-shot guards so a camera/mic disconnect warning fires at most once even
-   * when a device exposes multiple tracks that each emit `ended`.
-   */
   private cameraDisconnectNotified = false;
   private micDisconnectNotified = false;
-  /**
-   * Set only when a stale/unavailable `micDeviceId` forces a bare system
-   * default mic during `acquire()`. Explicit concrete fallback mics do not set
-   * this because Web Speech cannot pin live transcription to those devices.
-   */
   private micFellBackToDefault = false;
-  /**
-   * True when the final recorded mic stream is the browser/OS default input.
-   * Used to decide whether live transcription will listen to the same device.
-   */
   private micUsesSystemDefault = false;
 
   private state: RecorderState = "idle";
@@ -681,10 +544,6 @@ export class RecorderEngine {
     return this.hasLiveCameraVideo() ? this.cameraStream : null;
   }
 
-  /**
-   * Read-only access to the microphone track already owned by this engine.
-   * Recording chrome may analyse it, but must never stop or reconnect it.
-   */
   getMicrophoneTrack(): MediaStreamTrack | null {
     return (
       this.micStream
@@ -693,19 +552,10 @@ export class RecorderEngine {
     );
   }
 
-  /**
-   * True only when `acquire()` had to fall back from a concrete requested mic
-   * to the system default mic.
-   */
   didMicFallBackToDefault(): boolean {
     return this.micFellBackToDefault;
   }
 
-  /**
-   * True when the final recorded mic stream is the system default. Live Web
-   * Speech transcription can only use that same default input, not an explicit
-   * concrete fallback device.
-   */
   didMicUseSystemDefault(): boolean {
     return this.micUsesSystemDefault;
   }
@@ -934,14 +784,6 @@ export class RecorderEngine {
     };
   }
 
-  // -------------------------------------------------------------------------
-  // Acquire media
-  // -------------------------------------------------------------------------
-
-  /**
-   * Prompt the user for their sources (screen / camera / mic) based on mode.
-   * Throws with a friendly message if the user cancels or denies a permission.
-   */
   async acquire(): Promise<RecorderStartResult> {
     this.transition("pickingSources");
 
@@ -1016,13 +858,6 @@ export class RecorderEngine {
         } catch (err) {
           throw this.friendlyError(err, "screen");
         }
-        // The OS is as free to sleep/lock the display during a pause as
-        // during active recording, which ends getDisplayMedia's video track
-        // outright (unlike the mic/camera, display capture requires an
-        // active compositor). Without this, a paused recording left idle
-        // finalizes early — see onDisplayTrackEnded below.
-        // Best-effort: unsupported browsers or a denied request must never
-        // block capture.
         void this.acquireWakeLock();
       }
 
@@ -1035,8 +870,6 @@ export class RecorderEngine {
             audio: false,
           });
         } catch (err) {
-          // Stale/unplugged cameraDeviceId — retry with the default camera
-          // instead of failing the recording.
           if (this.opts.cameraDeviceId && isDeviceUnavailableError(err)) {
             try {
               this.cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -1072,8 +905,6 @@ export class RecorderEngine {
             requestedId,
           );
         } catch (err) {
-          // Same stale-device trigger as the camera, but do not jump straight
-          // to OS default: Continuity can make default point at an iPhone mic.
           if (this.opts.micDeviceId && isDeviceUnavailableError(err)) {
             const explicitFallback = await this.tryExplicitMicFallback(
               "mic-stale-device-fallback",
@@ -1102,19 +933,7 @@ export class RecorderEngine {
         }
       }
 
-      // If the display stream's video track ends (user hit "Stop sharing" in
-      // browser chrome) we want to end the recording gracefully.
-      //
-      // When `onDisplayTrackEnded` is provided the UI handles the stop flow
-      // (thumbnail capture, transcription flush, state updates, navigation).
-      // Without it we fall back to stopping the engine directly — but this
-      // bypasses all UI side-effects, so always provide the callback.
       if (this.displayStream) {
-        // The requested `displaySurface` is only a hint; report the surface the
-        // user actually picked so the UI can hide its live camera-bubble overlay
-        // only when the whole screen (this tab included) is captured. With
-        // `surfaceSwitching: include` the user can swap surfaces mid-recording
-        // without a re-prompt, so refresh on `configurationchange` too.
         const reportDisplaySurface = (track: MediaStreamTrack) => {
           const settings = track.getSettings() as MediaTrackSettings & {
             displaySurface?: DisplaySurface;
@@ -1128,9 +947,6 @@ export class RecorderEngine {
           );
           track.addEventListener("ended", () => {
             if (this.state === "recording" || this.state === "paused") {
-              // Paused, the user cannot have clicked "Stop sharing" — the
-              // display slept or locked. Same finalize, but say so instead of
-              // ending as if they had asked for it.
               if (this.state === "paused") {
                 this.emitWarning(
                   "Screen sharing ended while the recording was paused; saving what was captured so far.",
@@ -1154,18 +970,12 @@ export class RecorderEngine {
         }
       }
 
-      // Swap the raw camera for its blurred derivative, which both the preview
-      // bubble and the recording composite read ("what you see is what's
-      // recorded"). createBackgroundBlurStream never throws — it falls back to
-      // the raw stream on failure.
       if (this.opts.cameraBlur && this.cameraStream) {
         this.rawCameraStream = this.cameraStream;
         const handle = await createBackgroundBlurStream(this.cameraStream, {
           blurPx: this.opts.cameraBlurRadius,
         });
         if (this.cameraDisconnectNotified) {
-          // Webcam ended while the pipeline was loading: discard it and drop the
-          // dead camera rather than inheriting a frozen processed stream.
           handle.cleanup();
           this.cameraStream = null;
         } else {
@@ -1189,22 +999,12 @@ export class RecorderEngine {
         cameraStream: this.getCameraStream(),
       };
     } catch (err) {
-      // Release any tracks acquired before the failure so the browser's
-      // screen / camera / mic indicators don't linger after the caller's
-      // error handler. Without this, a screen-share that succeeded followed
-      // by a camera permission denial would leave the screen capture
-      // running until tab close.
       this.cleanupTracks();
       this.transition("error", { reason: errorMessage(err) });
       throw err instanceof Error ? err : this.friendlyError(err);
     }
   }
 
-  /**
-   * Attach the server-created upload target after media has been acquired.
-   * Acquisition intentionally happens first so permission prompts remain
-   * anchored to the user's click in Brave/Chromium.
-   */
   setUploadTarget(target: {
     recordingId: string;
     uploadUrl: string;
@@ -1224,10 +1024,6 @@ export class RecorderEngine {
     this.uploadAttemptId = null;
     this.uploadGenerationId = null;
   }
-
-  // -------------------------------------------------------------------------
-  // Recording lifecycle
-  // -------------------------------------------------------------------------
 
   async start(): Promise<void> {
     this.streamingRecoveryGeneration += 1;
@@ -1250,15 +1046,6 @@ export class RecorderEngine {
     this.stopPromise = null;
     this.recordedCameraVideo = false;
 
-    // `pickMimeType` returns "" when nothing in our candidate list is
-    // supported. Don't throw in that case — the browser's MediaRecorder
-    // default may still work. Construct with `mimeType: undefined` to
-    // let the browser pick, then read `recorder.mimeType` (always set
-    // once constructed) as the canonical type for chunk uploads. Only
-    // bail if even that is empty (genuinely no supported codec). On
-    // any failure here, release the media streams we already acquired
-    // so the browser's screen/camera indicator doesn't linger after
-    // the caller's error handler.
     try {
       if (typeof MediaRecorder === "undefined") {
         throw new Error(
@@ -1326,8 +1113,6 @@ export class RecorderEngine {
       this.mimeType,
     );
 
-    // recorder is guaranteed non-null here: if it were null after the codec
-    // loop, the throw above (line ~730) would have already exited.
     const recorder = this.recorder!;
     recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
@@ -1400,17 +1185,6 @@ export class RecorderEngine {
     this.transition("recording");
   }
 
-  /**
-   * Stop recording, flush the final chunk, and wait for all uploads
-   * (including the isFinal=1 chunk that triggers server-side finalize).
-   *
-   * State-machine guarantee: every reachable code path in this method ends
-   * with either `transition("complete")` (success) or `transition("error")`
-   * (any throw, including from `compressAndReupload`). The engine never
-   * gets stuck mid-state. The UI's spinner is wired off the engine state,
-   * so a stuck "compressing" state would hang the spinner forever — see
-   * `record.tsx`'s `onState` handler.
-   */
   stop(): Promise<RecorderFinalizeResult> {
     if (this.stopPromise) return this.stopPromise;
     const recorder = this.recorder;
@@ -1422,8 +1196,6 @@ export class RecorderEngine {
   private async stopOnce(
     recorder: MediaRecorder,
   ): Promise<RecorderFinalizeResult> {
-    // Resume first if paused — some browsers don't fire dataavailable
-    // from a paused MediaRecorder on stop().
     if (recorder.state === "paused") {
       try {
         recorder.resume();
@@ -1438,31 +1210,13 @@ export class RecorderEngine {
 
     let backupCaptureComplete = recorder.state === "inactive";
     if (recorder.state === "inactive") {
-      // The MediaRecorder may have auto-stopped if all its tracks ended
-      // (e.g. display-only mode with no mic). Different browsers dispatch
-      // `dataavailable` either before or after state transitions to
-      // `inactive`. Yielding one macrotask ensures any still-pending
-      // `dataavailable` event runs first and is mirrored into localChunks before
-      // the post-stop upload/compression path starts.
       this.transition("stopping");
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     } else {
       this.transition("stopping");
 
-      // Wait for the dataavailable event triggered by recorder.stop() to
-      // be picked up by the start()-time listener (which mirrors it into
-      // `localChunks`). We don't push or upload the
-      // final blob here — that listener is the single owner. Pushing
-      // again would duplicate the final ~2s slice in `localChunks`,
-      // inflating the assembled blob and corrupting the compressed
-      // re-encode.
       const finalDataAvailable = new Promise<boolean>((resolve) => {
         let resolved = false;
-        // Defer with a microtask so the start()-time listener's
-        // synchronous body (push + queue upload) runs first — both
-        // listeners fire on the same dataavailable event in registration
-        // order, and we want our pass-through to resolve only after the
-        // primary mirror has happened.
         const passthrough = () => {
           if (resolved) return;
           queueMicrotask(() => {
@@ -1474,9 +1228,6 @@ export class RecorderEngine {
         recorder.addEventListener("dataavailable", passthrough, {
           once: true,
         });
-        // Safety net: if dataavailable never fires (broken recorder),
-        // resolve after 10s so we don't hang forever. Normal path fires
-        // within milliseconds of recorder.stop().
         setTimeout(() => {
           if (resolved) return;
           resolved = true;
@@ -1488,8 +1239,6 @@ export class RecorderEngine {
       try {
         recorder.stop();
       } catch (err) {
-        // Hardware/recorder failure before we even started the post-stop
-        // pipeline — emit, transition, and bail.
         this.cleanupTracks();
         this.localChunks = [];
         this.emitError(err);
@@ -1514,11 +1263,6 @@ export class RecorderEngine {
       this.markRecordingBackupComplete(finalizeMeta);
     }
 
-    // Stop camera and mic hardware immediately — privacy-sensitive inputs no
-    // longer needed once the final chunk is flushed. The composite and display
-    // streams are intentionally left alive: the caller holds a compositeStream
-    // reference for an unawaited thumbnail capture in screen+camera mode.
-    // Full stream teardown happens in the finally block below.
     this.cameraLive = false;
     this.audioMixSources = [];
     this.audioMixCtx?.close().catch(() => {});
@@ -1544,12 +1288,7 @@ export class RecorderEngine {
         );
       }
       await this.streamingRecovery.drainForStop();
-      // Drain any legacy in-flight chunk uploads before we either compress or
-      // upload. New recordings upload after stop(), but keeping this guard makes
-      // retry paths resilient while a release rolls out.
       await this.chunkQueue;
-      // A queued upload can enter recovery while the queue drains. Finish that
-      // recovery before sending the final chunk.
       await this.streamingRecovery.drainForStop();
       await this.chunkQueue;
       if (this.uploadFailure) throw this.uploadFailure;
@@ -1558,8 +1297,6 @@ export class RecorderEngine {
         this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES &&
         this.uploadMode !== "streaming"
       ) {
-        // Compress before the first server upload so large recordings don't
-        // stage their uncompressed source in SQL.
         result = await this.compressAndReupload(finalizeMeta);
       } else if (this.uploadMode !== "streaming") {
         this.transition("uploading", { progress: 0 });
@@ -1571,11 +1308,6 @@ export class RecorderEngine {
           this.uploadAbort?.signal,
         );
       } else {
-        // Streaming path: all 256 KiB-aligned chunks were queued during
-        // recording. Whatever bytes remain become the
-        // final chunk. If the recording happened to end exactly
-        // on a boundary the remainder is empty, which the server treats as a
-        // close sentinel.
         this.transition("uploading", { progress: 100 });
         const remainder = new Blob(this.pendingStreamBlobs, {
           type: this.mimeType,
@@ -1600,11 +1332,6 @@ export class RecorderEngine {
       }
       this.transition("complete");
     } catch (err) {
-      // Reachable from compressAndReupload (compression failure, OOM,
-      // reset-chunks failure, hard-cap exceeded, abort) and from the
-      // isFinal sentinel upload. Ensure we never leave the engine stuck
-      // mid-state — the UI spinner is wired to engine state and would
-      // hang forever otherwise.
       const e = err instanceof Error ? err : new Error(errorMessage(err));
       if (e.name !== "AbortError") {
         this.rememberUploadFailure(e);
@@ -1612,7 +1339,6 @@ export class RecorderEngine {
       this.transition("error", { message: e.message });
       throw e;
     } finally {
-      // Always release hardware resources, even if the final upload failed.
       this.cleanupTracks();
       this.clearRecordingDataIfReady(result);
     }
@@ -1723,9 +1449,6 @@ export class RecorderEngine {
         signal,
       });
     } catch (err) {
-      // The user clicking Cancel mid-fetch makes the AbortController abort and
-      // `fetch` rejects with an AbortError. Preserve that identity so the UI
-      // treats it as cancellation, not as a failed upload.
       if ((err as { name?: string } | null)?.name === "AbortError") {
         throw err;
       }
@@ -1806,27 +1529,11 @@ export class RecorderEngine {
     return uploadMode;
   }
 
-  // -------------------------------------------------------------------------
-  // Compression path
-  // -------------------------------------------------------------------------
-
-  /**
-   * Re-encode the local chunk buffer at a lower bitrate via ffmpeg.wasm and
-   * upload the compressed result starting at index 0. Triggered when
-   * `totalRecordedBytes > COMPRESS_THRESHOLD_BYTES` because the assembled blob
-   * would otherwise blow past the server's SQL staging budget.
-   *
-   * Throws a clean user-facing error if the compressed blob is STILL larger
-   * than `MAX_UPLOAD_BYTES`, so the UI can suggest "shorter recording / lower
-   * resolution" rather than letting the upload fail with a 500.
-   */
   private async compressAndReupload(
     meta: RecordingFinalizeMeta,
   ): Promise<Record<string, unknown> | undefined> {
     this.transition("compressing");
 
-    // Owned for the lifetime of this single call so `cancel()` can abort
-    // both the ffmpeg.wasm pass and the subsequent chunk uploads.
     const abort = new AbortController();
     this.compressionAbort = abort;
 
@@ -1857,31 +1564,12 @@ export class RecorderEngine {
           },
         });
       } catch (err) {
-        // Two failure modes reach here:
-        //  1. External abort (user clicked Cancel mid-encode) — we want
-        //     this to propagate so the caller bails out cleanly instead of
-        //     trying to upload a stale assembly behind the user's back.
-        //  2. Genuinely unexpected throw, e.g. OOM building the assembled
-        //     blob. Surface as the user-facing error.
-        // (compressBlobIfTooLarge normally swallows ffmpeg-internal
-        // failures and returns `{ compressed: false }`, so this catch is
-        // for the abort path and the truly unexpected.)
         throw err instanceof Error ? err : new Error(errorMessage(err));
       }
 
       const finalBlob = compression.blob;
       const compressedBytes = finalBlob.size;
 
-      // Tell the server to wipe any chunks a previous/legacy attempt may have
-      // uploaded and stash compression metadata so finalize-recording can
-      // include it in any Sentry capture if the upload still fails downstream.
-      //
-      // A failure here is fatal — proceeding with the re-upload would
-      // mix compressed slices (indices 0..N) on top of the leftover
-      // un-compressed chunks at indices N+1..M, and finalize would
-      // concatenate them into a corrupted blob that decodes to a
-      // mid-clip glitch followed by garbage. Better a clean error than a
-      // silently-broken recording.
       const compressionPayload = compression.compressed
         ? {
             originalBytes,
@@ -1897,10 +1585,6 @@ export class RecorderEngine {
       );
 
       if (compressionError) {
-        // Compression itself failed — we still hold the original assembled
-        // blob and we'll attempt to upload it as-is. The hard-cap check
-        // below will reject if it's still over MAX_UPLOAD_BYTES; otherwise
-        // the user's recording is small enough to squeak through.
         console.warn(
           "[recorder] compression failed, falling back to original blob",
           compressionError,
@@ -1908,8 +1592,6 @@ export class RecorderEngine {
       }
 
       if (compressedBytes > MAX_UPLOAD_BYTES) {
-        // Stop before we attempt the upload. Builder.io would 500 anyway and
-        // leave the user with the same opaque error this PR is meant to fix.
         const detail = compression.compressed
           ? `${formatMb(compressedBytes)} after compression`
           : `${formatMb(compressedBytes)}`;
@@ -1935,26 +1617,18 @@ export class RecorderEngine {
             abort.signal,
           );
     } finally {
-      // Always release the controller reference even on throw — otherwise
-      // a subsequent cancel() would abort a freshly-started compression.
       if (this.compressionAbort === abort) {
         this.compressionAbort = null;
       }
     }
   }
 
-  /** Cancel: release tracks immediately, then abort server-side, reset state. */
   async cancel(failureCode = "unknown"): Promise<void> {
     this.streamingRecoveryGeneration += 1;
     this.streamingRecovery.reset();
     this.streamingUploadGeneration += 1;
     this.pendingStreamBlobs = [];
     this.pendingStreamBytes = 0;
-    // Release local hardware FIRST — synchronously, before any await. This
-    // lets callers fire-and-forget cancel() (e.g. when navigating away) and
-    // know the camera/screen capture is fully torn down by the time the
-    // current task yields. The server-side abort is best-effort and must
-    // not gate hardware cleanup.
     try {
       if (this.recorder && this.recorder.state !== "inactive") {
         this.recorder.stop();
@@ -1962,23 +1636,12 @@ export class RecorderEngine {
     } catch {
       // ignore
     }
-    // If a compression pass is mid-flight (ffmpeg.wasm encode + chunked
-    // re-upload), tear it down too. compressBlobIfTooLarge sees the abort,
-    // terminates the wasm worker, and re-throws — propagating up through
-    // stop() which transitions to "error". Without this, ffmpeg keeps
-    // encoding for minutes against a recording the user already discarded.
-    //
-    // The abort reason carries `name === "AbortError"` so any consumer
-    // downstream (compress.ts, the reset-chunks fetch, the chunked upload
-    // loop, record.tsx's doStop catch) can identify cancellation by name
-    // alone — no regex matching against the message string.
     if (this.compressionAbort) {
       const cancelErr = new Error("Recording cancelled");
       cancelErr.name = "AbortError";
       this.compressionAbort.abort(cancelErr);
       this.compressionAbort = null;
     }
-    // Abort streaming-chunk uploads + the non-compression finalize sentinel.
     if (this.uploadAbort) {
       const cancelErr = new Error("Recording cancelled");
       cancelErr.name = "AbortError";
@@ -2026,19 +1689,6 @@ export class RecorderEngine {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Internals
-  // -------------------------------------------------------------------------
-
-  /**
-   * Mix audio tracks from multiple streams into a single track via Web Audio
-   * API. A single mixed track avoids the Chromium behaviour where only the
-   * first audio track in a MediaStream is reliably encoded by MediaRecorder,
-   * while still capturing both mic and system audio when both are present.
-   *
-   * Returns null when no audio tracks exist. Returns the single raw track
-   * directly when only one exists (avoids unnecessary AudioContext overhead).
-   */
   private buildMixedAudioTrack(
     streams: (MediaStream | null | undefined)[],
   ): MediaStreamTrack | null {
@@ -2077,7 +1727,6 @@ export class RecorderEngine {
       return this.buildDisplayRecordingStream();
     }
 
-    // Camera-only: camera video + mic.
     if (this.opts.mode === "camera") {
       const combined = new MediaStream();
       const cameraTrack = this.liveVideoTrack(this.cameraStream);
@@ -2088,15 +1737,10 @@ export class RecorderEngine {
       return combined;
     }
 
-    // Camera dropped before start (disconnected during setup/countdown):
-    // record screen-only rather than compositing a dead stream.
     if (!this.cameraStream) {
       return this.buildDisplayRecordingStream();
     }
 
-    // Screen + camera: display capture does not reliably include our separate
-    // DOM bubble once the user records another app/window, so the saved
-    // recording must composite the camera feed before MediaRecorder sees it.
     this.cameraComposite?.cleanup();
     this.cameraComposite = createCameraCompositeStream({
       displayStream: this.displayStream!,
@@ -2140,12 +1784,6 @@ export class RecorderEngine {
     }
   }
 
-  /**
-   * Drain the streaming buffer in 256 KiB-aligned chunks.
-   * GCS rejects non-final resumable chunks that are not a multiple of 256 KiB,
-   * so we slice on STREAM_CHUNK_BYTES boundaries and carry the remainder. The
-   * leftover is uploaded as the final chunk on stop().
-   */
   private flushAlignedStreamChunks(): void {
     while (this.pendingStreamBytes >= STREAM_CHUNK_BYTES) {
       const combined = new Blob(this.pendingStreamBlobs, {
@@ -2193,7 +1831,6 @@ export class RecorderEngine {
       } catch (err) {
         const failure =
           err instanceof Error ? err : new Error(errorMessage(err));
-        // User-initiated cancel — cancel() already runs the abortUrl path.
         if (failure.name === "AbortError") return;
         if (this.streamingRecovery.isRecoverableFailure(failure)) {
           this.streamingRecovery.pause(failure);
@@ -2204,10 +1841,6 @@ export class RecorderEngine {
     });
   }
 
-  /**
-   * Continues from the server's confirmed position when its upload session survives.
-   * If that is not possible, starts a fenced upload generation and replays local media.
-   */
   private async recoverStreamingDelivery(
     restartRequired: boolean,
     recoveryGeneration = this.streamingRecoveryGeneration,
@@ -2225,7 +1858,6 @@ export class RecorderEngine {
       );
       this.assertCurrentStreamingRecovery(recoveryGeneration);
       if (uploadMode !== "streaming") {
-        // A mode flip is handled by the post-stop buffered upload path.
         return;
       }
     }
@@ -2276,10 +1908,6 @@ export class RecorderEngine {
     }
   }
 
-  /**
-   * Claims the server-side upload lease and asks where delivery safely resumes.
-   * The returned byte offset and chunk index avoid re-sending confirmed media.
-   */
   private async claimStreamingUploadResumePoint(
     recoveryGeneration = this.streamingRecoveryGeneration,
   ): Promise<{
@@ -2374,7 +2002,6 @@ export class RecorderEngine {
     };
   }
 
-  /** Stops recovery and moves the recorder to its normal terminal error state. */
   private failStreamingDelivery(error: Error): void {
     this.streamingRecovery.clear();
     this.rememberUploadFailure(error);
@@ -2420,12 +2047,8 @@ export class RecorderEngine {
   ): Promise<Record<string, unknown> | undefined> {
     void this.uploadThumbnailForBlob(blob, signal);
 
-    // Reset the upload index for post-stop blob uploads: MP4/QuickTime never
-    // streamed chunks, and the compression path has just cleared server chunks.
     this.chunkIndex = 0;
 
-    // Keep binary uploads comfortably under Netlify's effective function
-    // payload limit. This mirrors the local-file upload path in record.tsx.
     const PARALLELISM = 4;
     const totalSlices = Math.max(1, Math.ceil(blob.size / UPLOAD_SLICE_BYTES));
 
@@ -2638,9 +2261,6 @@ export class RecorderEngine {
         if (uploadErr.name !== "AbortError") {
           Object.assign(uploadErr, { transport: true });
         }
-        // The final chunk is safe to retry on a network error: finalize is
-        // idempotent server-side (a recording already 'ready' returns its
-        // existing result), so a lost response won't double-finalize.
         if (
           attempt >= CHUNK_UPLOAD_MAX_ATTEMPTS ||
           uploadErr.name === "AbortError"
@@ -2757,11 +2377,6 @@ export class RecorderEngine {
           extra.isFinal === true &&
           this.isFinalUploadRecoveryCandidate(res.status, err),
       });
-      // Capture rich context to Sentry BEFORE throwing — when this hits
-      // production we want enough breadcrumbs in the event to debug a
-      // "Builder.io upload failed (500)" without re-running the upload.
-      // Wrapped in try/catch so a Sentry failure can never mask the real
-      // upload error the caller is about to see.
       try {
         const builderHeaderNames = [
           "x-request-id",
@@ -2885,14 +2500,6 @@ export class RecorderEngine {
     );
   }
 
-  /**
-   * Mirror one raw chunk to IndexedDB so the library can retry this upload
-   * from this browser later, even after a reload. Fire-and-forget and never
-   * allowed to affect the recording/upload path — a mirror write failure (a
-   * private browsing tab, IndexedDB disabled, quota exceeded) is silently
-   * dropped, the same as a lost desktop local-file write would just mean no
-   * recovery option rather than a broken recording.
-   */
   private mirrorChunkToBackup(blob: Blob): void {
     const recordingId = this.opts.recordingId;
     if (!recordingId || recordingId === "__pending__") return;
@@ -2950,12 +2557,7 @@ export class RecorderEngine {
       .catch(() => {});
   }
 
-  /** Best-effort — unsupported browsers or a denied request must never block capture. */
   private async acquireWakeLock(): Promise<void> {
-    // The platform drops a screen wake lock the moment the document goes
-    // hidden and refuses to grant one while it is hidden, so a single
-    // acquisition only ever protects the foreground. Taking it again on the
-    // way back is the most the page can do.
     if (!this.wakeLockRetake && typeof document !== "undefined") {
       const doc = document;
       this.wakeLockRetake = () => {
@@ -2995,8 +2597,6 @@ export class RecorderEngine {
 
   private cleanupTracks(): void {
     this.streamingRecovery.clear();
-    // Clear before stopping tracks so the `ended` events our own stop() fires
-    // aren't mistaken for a disconnect.
     this.releaseWakeLock();
     this.cameraLive = false;
     this.audioMixSources = [];
@@ -3004,9 +2604,6 @@ export class RecorderEngine {
     this.audioMixCtx = null;
     this.cameraComposite?.cleanup();
     this.cameraComposite = null;
-    // Tear down the blur pipeline (segmenter, hidden video, processed capture)
-    // before stopping streams. `rawCameraStream` holds the real hardware tracks
-    // when blur is active; stop those so the camera indicator clears.
     this.cameraBlur?.cleanup();
     this.cameraBlur = null;
     for (const s of [
@@ -3045,11 +2642,6 @@ export class RecorderEngine {
     this.transition("error", { message: e.message });
   }
 
-  /**
-   * Surface a non-fatal notice to the UI without leaving the `recording`/
-   * `paused` state. Mirrors `emitError` but never transitions to `error`, so
-   * the MediaRecorder keeps running.
-   */
   private emitWarning(message: string) {
     console.warn("[recorder]", message);
     this.opts.onWarning?.(message);
@@ -3113,12 +2705,6 @@ export class RecorderEngine {
     }
   }
 
-  /**
-   * Screen + camera owns an independent display video track, so a webcam drop
-   * remains non-fatal. Camera-only has no replacement video source: before
-   * MediaRecorder starts it fails loudly, and after start it delegates to the
-   * same UI-owned finalize path used by native screen-share termination.
-   */
   private onCameraTrackEnded() {
     if (!this.cameraLive) return;
     if (this.hasLiveCameraVideo()) return;
@@ -3147,11 +2733,6 @@ export class RecorderEngine {
     this.emitError(new CameraCaptureEndedError());
   }
 
-  /**
-   * Microphone track ended mid-recording (input unplugged, Bluetooth dropped,
-   * permission revoked). Non-fatal: the recording keeps going, just without
-   * captured mic audio from this point on.
-   */
   private onMicTrackEnded() {
     if (this.state !== "recording" && this.state !== "paused") return;
     if (this.micDisconnectNotified) return;

@@ -1,12 +1,3 @@
-/**
- * BashCell — renders a bash tool call with a collapsible terminal-style output.
- *
- * Shows:
- *  - Header: `$ <command>` + exit-code badge + duration
- *  - Body:   monospace streaming output, stick-to-bottom while running,
- *            capped at MAX_VISIBLE_LINES by default (expandable)
- */
-
 import {
   IconChevronDown,
   IconCircleCheck,
@@ -30,12 +21,10 @@ export interface BashCellMeta {
 
 interface BashCellProps {
   meta: BashCellMeta;
-  /** Raw tool output string from the agent. */
   output?: string;
   isRunning: boolean;
 }
 
-/** Lines shown before "show all" is offered. */
 const MAX_VISIBLE_LINES = 500;
 
 function formatDuration(ms: number): string {
@@ -52,7 +41,6 @@ export function BashCell({ meta, output, isRunning }: BashCellProps) {
   const hasOutput = output && output.trim().length > 0;
   const canExpand = hasOutput;
 
-  // Stick to bottom while running
   useEffect(() => {
     if (isRunning && expanded && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
@@ -64,7 +52,6 @@ export function BashCell({ meta, output, isRunning }: BashCellProps) {
     exitCode === 0 || exitCode === null || exitCode === undefined;
   const failed = exitCode !== null && exitCode !== undefined && exitCode !== 0;
 
-  // Render output lines with optional cap
   const lines = output ? output.split("\n") : [];
   const visibleLines =
     showAll || lines.length <= MAX_VISIBLE_LINES

@@ -166,11 +166,9 @@ interface PromptPopoverProps {
   presentation?: "popover" | "inline";
   context?: ReturnType<typeof useSlidesComposerContext>;
   controllerRef?: React.Ref<PromptPopoverHandle>;
-  /** Forwarded to PromptComposer/TipTap for draft persistence in localStorage. */
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
-  /** Restore a model choice when a prompt is replayed after auth or setup recovery. */
   initialModelSelection?: PromptModelSelection;
   onBeforeUpload?: (
     prompt: string,
@@ -263,7 +261,6 @@ export default function PromptPopover({
     [],
   );
 
-  // Position the popover after render so we can measure its actual size
   useEffect(() => {
     if (inline || !open || !panelRef.current) return;
     const panel = panelRef.current;
@@ -299,7 +296,6 @@ export default function PromptPopover({
     panel.style.transform = "none";
   });
 
-  // Close on outside click / escape
   useEffect(() => {
     if (inline || !open) return;
     const handleClick = (e: MouseEvent) => {

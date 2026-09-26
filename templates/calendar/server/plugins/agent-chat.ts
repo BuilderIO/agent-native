@@ -17,9 +17,6 @@ import { z } from "zod";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { CALENDAR_CONNECTOR_CATALOG } from "../lib/calendar-connector-catalog.js";
 
-// ---------------------------------------------------------------------------
-// Register calendar event-bus events
-// ---------------------------------------------------------------------------
 registerEvent({
   name: "calendar.event.created",
   description: "A new calendar event was created.",
@@ -86,17 +83,9 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "calendar",
-  // A delegated (A2A) turn served from the foreground gets the 40s
-  // serverless wall, and "I ran out of time before finishing this step"
-  // was 39% of this fleet's failed inbound A2A tasks — clustered at
-  // 35-46s, the wall to the second. Opting in routes the task to the
-  // background worker, as content, slides and analytics already do.
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: { connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG] },
-  // Enable sandboxed JavaScript execution so Calendar agents can fetch,
-  // paginate, and reduce provider data through providerFetch() without us
-  // hardcoding one action per Google Calendar / CRM endpoint.
   codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
@@ -160,7 +149,6 @@ When the user says "show me", "go to", "open", or "switch to" a view or date, AL
         icon: "email",
         search: async (query: string) => {
           const db = getDb();
-          // bookings has no ownerEmail — scope via booking-links the caller can access
           const ownedLinks = await db
             .select({ slug: bookingLinks.slug })
             .from(bookingLinks)

@@ -1,6 +1,3 @@
-/**
- * Thin analytics re-export of the core delete-staged-dataset action.
- */
 import { createDeleteStagedDatasetAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { z } from "zod";
 

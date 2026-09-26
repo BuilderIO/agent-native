@@ -102,12 +102,6 @@ export function propertyTypeForRequiredBuilderField(
   return propertyTypeForSourceField(field.sourceFieldType, metadata);
 }
 
-/**
- * Builder's model schema is authoritative for provider-native value shape.
- * The projected source field type can be `select` because Content renders
- * references with a select editor, including on sources created before raw
- * reference metadata was available.
- */
 export function isBuilderReferenceModelField(
   field: BuilderCmsModelFieldSummary,
 ) {
@@ -183,10 +177,6 @@ export async function readBuilderReferenceSnapshot(args: {
         `Builder reference field ${args.field.label ?? args.field.name} has no target model. No fields were added.`,
       );
     }
-    // The raw reference read is authoritative for the Builder-native id, but
-    // its projected display value can be absent or reduced to `model:id`.
-    // Prefer the already-synced row label so the local select option and the
-    // source baseline normalize to the same id immediately after setup.
     const storedVisible = args.visibleValueBySourceRowId?.get(entry.id);
     const visible =
       typeof storedVisible === "string" && storedVisible.trim()
@@ -316,9 +306,6 @@ export default defineAction({
       fieldRows.map((field) => [field.sourceFieldKey, field]),
     );
     const referenceSnapshots = new Map<string, ReferenceSnapshot>();
-    // Reference snapshots also repair already-materialized mappings. Existing
-    // property values are canonical Builder ids and must never be overwritten;
-    // reruns only correct option labels and seed rows that still have no value.
     for (const metadata of requiredModelFields) {
       const field = fieldByKey.get(requiredFieldKey(metadata));
       if (!field || !isBuilderReferenceModelField(metadata)) continue;

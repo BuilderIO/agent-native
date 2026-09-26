@@ -14,12 +14,7 @@ const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 12 * 60_000;
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
-  // Local visual-edit tools are intentionally explicit: the connector
-  // catalog otherwise hides them from Claude Code/Codex hosts without a
-  // browser WebMCP surface.
   "open-visual-edit",
-  // Keep the durable handoff visible to Claude Code/Codex without requiring
-  // the user's Design tab or a page-local WebMCP host.
   "get-visual-edit-pending",
   "acknowledge-visual-edit-pending",
   "connect-localhost",
@@ -29,9 +24,6 @@ const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   "add-breakpoint",
   "remove-breakpoint",
   "view-screen",
-  // Pairs with view-screen: an external agent that can read the screen but
-  // cannot move it has to drive the browser to change screens, which is the
-  // UI automation the WebMCP contract exists to avoid.
   "navigate",
   "list-designs",
   "list-design-systems",
@@ -277,9 +269,6 @@ export default createAgentChatPlugin({
   },
   externalAgents: { writes: "allowlisted" },
   finalResponseGuard: designFinalResponseGuard,
-  // Enable sandboxed JavaScript execution so Design agents can fetch,
-  // paginate, and reduce provider data through providerFetch() without us
-  // hardcoding one action per GitHub endpoint.
   codeExecution: { production: "sandboxed" },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,

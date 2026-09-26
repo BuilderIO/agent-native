@@ -1,12 +1,3 @@
-/**
- * Pure brand-signal extraction from a website's HTML.
- *
- * Shared by the `analyze-brand-assets` action across templates. DB-agnostic and
- * framework-agnostic: it only fetches (through the SSRF-safe helper) and parses
- * HTML. The DB access (resolving an existing Brand Kit) stays in the template's
- * thin action wrapper.
- */
-
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import type { BrandWebsiteSignals } from "./types.js";
 
@@ -17,7 +8,6 @@ export interface BrandAnalysisResult {
   websiteAnalysis?: unknown;
 }
 
-/** Assemble brand-analysis data without performing template or network work. */
 export function buildBrandAnalysisResult(input: {
   companyName?: string;
   brandNotes?: string;
@@ -36,11 +26,6 @@ export function buildBrandAnalysisResult(input: {
   return result;
 }
 
-/**
- * Normalize a user-supplied brand website URL: add an `https://` scheme when
- * missing and reject anything that isn't http(s). Throws on empty input or an
- * unsupported scheme.
- */
 export function normalizeBrandWebsiteUrl(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) throw new Error("Website URL is required");
@@ -54,18 +39,12 @@ export function normalizeBrandWebsiteUrl(input: string): string {
   return parsed.href;
 }
 
-/**
- * Parse brand signals out of a page's HTML: meta theme-color, CSS custom
- * properties (capped), @font-face declarations (capped), title, and meta
- * description. Pure — no network. The provided `url` is echoed back.
- */
 export function extractBrandSignalsFromHtml(
   html: string,
   url: string,
 ): BrandWebsiteSignals {
   const extracted: BrandWebsiteSignals = { url };
 
-  // Extract meta theme-color
   const themeColorMatch = html.match(
     /<meta[^>]*name=["']theme-color["'][^>]*content=["']([^"']+)["']/i,
   );
@@ -73,19 +52,16 @@ export function extractBrandSignalsFromHtml(
     extracted.themeColor = themeColorMatch[1];
   }
 
-  // Extract CSS custom properties (--var-name: value)
   const cssVarMatches = html.matchAll(/--([\w-]+)\s*:\s*([^;}\n]+)/g);
   const cssVars: Record<string, string> = {};
   for (const match of cssVarMatches) {
     cssVars[`--${match[1]}`] = match[2].trim();
   }
   if (Object.keys(cssVars).length > 0) {
-    // Limit to first 50 to avoid overwhelming output
     const entries = Object.entries(cssVars).slice(0, 50);
     extracted.cssCustomProperties = Object.fromEntries(entries);
   }
 
-  // Extract @font-face declarations
   const fontFaceMatches = html.matchAll(/@font-face\s*\{([^}]+)\}/g);
   const fonts: { family?: string; src?: string }[] = [];
   for (const match of fontFaceMatches) {
@@ -101,13 +77,11 @@ export function extractBrandSignalsFromHtml(
     extracted.fontFaces = fonts.slice(0, 20);
   }
 
-  // Extract title
   const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
   if (titleMatch) {
     extracted.pageTitle = titleMatch[1].trim();
   }
 
-  // Extract meta description
   const descMatch = html.match(
     /<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i,
   );
@@ -118,11 +92,6 @@ export function extractBrandSignalsFromHtml(
   return extracted;
 }
 
-/**
- * Fetch a brand website (SSRF-safe) and extract its brand signals. Returns the
- * parsed signals, or an `{ url, error }` shape if the fetch/parse fails — the
- * caller decides how to surface that to the agent.
- */
 export async function fetchBrandWebsiteSignals(
   websiteUrl: string,
 ): Promise<BrandWebsiteSignals | { url: string; error: string }> {

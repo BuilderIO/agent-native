@@ -145,10 +145,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     version: 2,
     name: "better-auth-repair-user-columns",
     sql: {
-      // `CREATE TABLE IF NOT EXISTS` does not reconcile an older table that
-      // already has the Better Auth name but is missing newer columns. Keep
-      // this repair additive so existing user rows and legacy auth data stay
-      // intact while the adapter gets the columns it selects on signup.
       postgres: `
         ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "name" TEXT NOT NULL DEFAULT '';
         ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "email_verified" BOOLEAN NOT NULL DEFAULT FALSE;
@@ -163,9 +159,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     version: 3,
     name: "legacy-auth-sessions-table",
     sql: {
-      // `addSession()` is still used by the mobile/deep-link OAuth flow and
-      // the workspace callback. Provision its legacy table in the release
-      // runtime so those request paths only perform normal row writes.
       postgres: `
         CREATE TABLE IF NOT EXISTS sessions (
           token TEXT PRIMARY KEY,
@@ -201,10 +194,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
   {
     version: 6,
     name: "better-auth-enterprise-sso-scim-tables",
-    // These tables are provisioned even when the opt-in plugins are disabled.
-    // Plugin flags can be enabled after a deployment without requiring a
-    // second migration run, and CREATE IF NOT EXISTS is additive for existing
-    // installs.
     sql: {
       postgres: `
         CREATE TABLE IF NOT EXISTS sso_provider (

@@ -1,7 +1,3 @@
-// Owns: lazy react-markdown/shiki loaders, StreamingText, MarkdownText,
-// HighlightedCodeBlock wrapper, and the markdownComponents/markdownUrlTransform
-// used by every markdown render path in AssistantChat.
-
 import { useMessageRuntime, useMessagePartText } from "@assistant-ui/react";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import React, {
@@ -11,7 +7,6 @@ import React, {
   useMemo,
   useRef,
 } from "react";
-// react-markdown + remark-gfm type imports only — loaded lazily below.
 import type { default as ReactMarkdownType } from "react-markdown";
 import type { defaultUrlTransform as DefaultUrlTransformType } from "react-markdown";
 import type remarkGfmType from "remark-gfm";
@@ -40,12 +35,6 @@ import {
   wrapLegacyChartShorthandLines,
 } from "./legacy-chart-shorthand.js";
 
-// ─── Lazy markdown loader ────────────────────────────────────────────────────
-// react-markdown + remark-gfm are deferred so they stay off the critical path
-// of every page. The loader fires as soon as this module is evaluated (i.e.
-// when the lazy AssistantChat chunk lands — not at initial page parse).
-// This mirrors the existing shiki lazy-load pattern further below.
-
 type ReactMarkdownModule = {
   default: typeof ReactMarkdownType;
   defaultUrlTransform: typeof DefaultUrlTransformType;
@@ -59,12 +48,10 @@ let renderToStaticMarkupFn: RenderToStaticMarkupFn | null = null;
 const markdownListeners = new Set<() => void>();
 
 export function loadMarkdown(): void {
-  if (markdownModule !== null) return; // already loaded
+  if (markdownModule !== null) return;
   void Promise.all([
     import("react-markdown"),
     import("remark-gfm"),
-    // react-dom/server powers the synchronous markdown→HTML string used for
-    // rich clipboard copy; loaded alongside so readiness stays a single gate.
     import("react-dom/server"),
   ]).then(([md, gfm, server]) => {
     markdownModule = md as ReactMarkdownModule;
@@ -88,11 +75,6 @@ export function onMarkdownReady(fn: () => void): () => void {
 
 loadMarkdown();
 
-// ─── Lazy shiki highlighter ──────────────────────────────────────────────────
-// Using the fine-grained API so we only ship the languages and themes we
-// actually use (instead of shiki's full ~30 MB bundle of every grammar).
-// Required to keep the Cloudflare Pages Functions bundle under 25 MiB.
-
 type ShikiHighlighter = {
   codeToHtml: (
     code: string,
@@ -109,8 +91,6 @@ let highlighterLoader: Promise<ShikiHighlighter> | null = null;
 export function loadHighlighter(): Promise<ShikiHighlighter> {
   if (!highlighterLoader) {
     highlighterLoader = (async () => {
-      // Use the JavaScript regex engine instead of Oniguruma WASM (~608 KB saved).
-      // forgiving:true degrades unsupported patterns gracefully instead of throwing.
       const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] =
         await Promise.all([
           import("shiki/core"),
@@ -139,8 +119,6 @@ export function loadHighlighter(): Promise<ShikiHighlighter> {
         engine: createJavaScriptRegexEngine({ forgiving: true }),
       }) as unknown as Promise<ShikiHighlighter>;
     })().catch((error) => {
-      // Reset on failure so a future code block can retry instead of
-      // silently failing forever on a stale chunk / network blip.
       highlighterLoader = null;
       throw error;
     });
@@ -148,18 +126,9 @@ export function loadHighlighter(): Promise<ShikiHighlighter> {
   return highlighterLoader;
 }
 
-// ─── Streaming context ───────────────────────────────────────────────────────
-// Declared at module level so HighlightedCodeBlock (used in markdownComponents
-// below) can read the current streaming state without the components object
-// needing to be rebuilt on every render.
-
 export const TextStreamingContext = React.createContext(false);
 export const ExternalTextStreamingContext = React.createContext(false);
 
-// `undefined` means "no chat host is providing run state", which is different
-// from `false` ("a host is providing it and the run has ended"). Embedded and
-// test surfaces render markdown without an AssistantChat above them, and they
-// must not be told the run is over.
 export const AgentRunActiveContext = React.createContext<boolean | undefined>(
   undefined,
 );
@@ -236,10 +205,6 @@ export function messageMatchesActiveTextStream(
   );
 }
 
-// ─── HighlightedCodeBlock wrapper ────────────────────────────────────────────
-// Reads streaming state from context so markdownComponents (a static constant)
-// can opt into debounced highlighting without needing to rebuild on every render.
-
 export function HighlightedCodeBlock({
   code,
   lang,
@@ -258,8 +223,6 @@ export function HighlightedCodeBlock({
     />
   );
 }
-
-// ─── CTA helpers ─────────────────────────────────────────────────────────────
 
 const CTA_BUTTON_CLASSES =
   "agent-markdown-cta mt-1 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background no-underline shadow-sm transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background cursor-pointer";
@@ -297,19 +260,11 @@ function opensMarkdownLinkInNewTab(href: string | undefined): boolean {
   }
 }
 
-// react-markdown's defaultUrlTransform strips href values whose protocol
-// isn't on its safe list (https, mailto, etc.). Our in-app pseudo-href
-// `agent-native:new-chat` would be blanked out by that, so let it through
-// while delegating every other URL to the default transform for sanitization.
-// Falls back to the value unchanged when the react-markdown module hasn't
-// landed yet (conservative: no stripping beats an empty href).
 export function markdownUrlTransform(value: string): string {
   if (value === NEW_CHAT_ACTION_HREF) return value;
   if (!markdownModule) return value;
   return markdownModule.defaultUrlTransform(value);
 }
-
-// ─── Code text extraction ─────────────────────────────────────────────────────
 
 export function extractCodeText(child: React.ReactNode): string {
   if (typeof child === "string") return child;
@@ -320,8 +275,6 @@ export function extractCodeText(child: React.ReactNode): string {
   }
   return "";
 }
-
-// ─── Markdown components ──────────────────────────────────────────────────────
 
 export const markdownComponents = {
   a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
@@ -334,8 +287,6 @@ export const markdownComponents = {
       ...rest
     } = props;
     if (href === NEW_CHAT_ACTION_HREF) {
-      // In-app action: dispatch a CustomEvent that MultiTabAssistantChat
-      // listens for and opens a new chat tab. Not an external navigation.
       return (
         <button
           type="button"
@@ -424,12 +375,6 @@ export const markdownComponents = {
   },
 };
 
-// ─── Clipboard HTML rendering ─────────────────────────────────────────────────
-// A stripped component set for the `text/html` clipboard flavor: plain <a> and
-// <pre>/<code> with no in-app buttons, iframes, or syntax-highlight markup, so
-// pasted output is portable structure (bold, lists, links, code) rather than
-// app-specific chrome that receiving apps (Slack, Notion) discard anyway.
-
 const clipboardMarkdownComponents = {
   a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
     const { href, children } = props;
@@ -441,9 +386,6 @@ const clipboardMarkdownComponents = {
   },
 };
 
-// Renders joined message markdown to an HTML string for rich clipboard copy.
-// Returns null when the lazy markdown/react-dom-server modules haven't landed
-// yet; callers fall back to plain-text copy in that case.
 export function renderMarkdownToClipboardHtml(markdown: string): string | null {
   const ReactMarkdown = markdownModule?.default;
   const gfm = remarkGfmFn;
@@ -459,8 +401,6 @@ export function renderMarkdownToClipboardHtml(markdown: string): string | null {
     </ReactMarkdown>,
   );
 }
-
-// ─── Smooth streaming ─────────────────────────────────────────────────────────
 
 function usePrefersReducedMotion(): boolean {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
@@ -503,10 +443,6 @@ type SmoothStreamingTextCacheEntry = {
   visibleText: string;
 };
 
-// Grouped message parts are rebuilt as tool calls arrive. A text part can
-// therefore be unmounted and mounted again even though its identity did not
-// change. Keep the reveal state outside that subtree so a structural update
-// continues from the current position instead of replaying the opening sentence.
 const smoothStreamingTextCache = new Map<
   string,
   SmoothStreamingTextCacheEntry
@@ -539,7 +475,6 @@ function rememberStreamingText(
   if (oldestKey !== undefined) smoothStreamingTextCache.delete(oldestKey);
 }
 
-/** Stable placeholder so the grapheme ref stays `string[]` before it is seeded. */
 const EMPTY_GRAPHEMES: string[] = [];
 
 export function useSmoothStreamingText(
@@ -561,12 +496,6 @@ export function useSmoothStreamingText(
   });
   const visibleTextRef = useRef(visibleText);
   const targetTextRef = useRef(targetText);
-  // `useRef(expr)` evaluates `expr` on EVERY render and throws it away after
-  // mount. Segmenting here therefore ran a full Intl.Segmenter pass per commit
-  // — up to 60Hz per streaming message — and, because `visibleText` is a strict
-  // prefix of `targetText`, that pass could never hit the incremental path and
-  // evicted the shared segmenter cache for every other live stream too. Seed
-  // once; the streaming effect below keeps both refs authoritative after that.
   const visibleCountRef = useRef(-1);
   const targetGraphemesRef = useRef<string[]>(EMPTY_GRAPHEMES);
   if (visibleCountRef.current < 0) {
@@ -760,12 +689,6 @@ export function useSmoothStreamingText(
     rememberStreamingText(resetKey, targetText, visibleText);
   }, [prefersReducedMotion, resetKey, streaming, targetText, visibleText]);
 
-  // When the tab returns from background, rAF has been paused and the backlog
-  // may be tens of thousands of characters. Animating from where we left off
-  // would replay minutes of content at the normal rate — instead jump the
-  // cursor to near the tail so only the final ~200 graphemes animate in.
-  // Reduced-motion users already get instant reveals (handled above), so this
-  // guard only applies to the normal animation path.
   useEffect(() => {
     if (typeof document === "undefined") return;
     const onVisibilityChange = () => {
@@ -793,8 +716,6 @@ export function useSmoothStreamingText(
 
   return visibleText;
 }
-
-// ─── Markdown readiness hook ──────────────────────────────────────────────────
 
 export function useMarkdownReady(): boolean {
   const [ready, setReady] = useState(() => markdownModule !== null);
@@ -824,8 +745,6 @@ export const MemoizedMarkdownBlock = React.memo(function MemoizedMarkdownBlock({
   );
 });
 
-// ─── StreamingText ────────────────────────────────────────────────────────────
-
 export function StreamingText({
   text,
   streaming,
@@ -838,7 +757,6 @@ export function StreamingText({
   streaming: boolean;
   resetKey: string;
   statusType?: string;
-  /** Allow callers to opt out for static or deliberately chunk-native surfaces. */
   animateStreaming?: boolean;
   onRevealComplete?: () => void;
 }) {
@@ -847,20 +765,10 @@ export function StreamingText({
   const visibleText = useSmoothStreamingText(text, shouldAnimate, resetKey);
   const ReactMarkdown = markdownModule?.default;
   const gfm = remarkGfmFn;
-  // Split whether or not the turn is still streaming. Rendering the finished
-  // message as one whole-document ReactMarkdown instead swapped the element
-  // tree the instant `streaming` went false, so React unmounted every block and
-  // rebuilt it: code blocks re-highlighted, heights collapsed for a frame, and
-  // the scroll jumped — the "flash at the end" report. The split is faithful to
-  // a whole-document parse (see markdown-block-split.ts), so one tree serves
-  // both phases and nothing is rebuilt when streaming stops.
   const markdownBlocks = useMemo(
     () => splitMarkdownBlocks(visibleText),
     [visibleText],
   );
-  // The tail renders through the same component as completed blocks, so when it
-  // is promoted to a completed block React matches the same type at the same
-  // key and keeps its DOM instead of remounting that paragraph.
   const renderedBlocks = useMemo(
     () =>
       markdownBlocks.tail
@@ -894,8 +802,6 @@ export function StreamingText({
 /** @deprecated Use StreamingText for new AgentKit surfaces. */
 export const SmoothMarkdownText = StreamingText;
 
-// ─── MarkdownText ──────────────────────────────────────────────────────────────
-
 export function shouldAnimateMarkdownText({
   textStreaming,
   isLastAssistantMessage,
@@ -911,10 +817,6 @@ export function shouldAnimateMarkdownText({
   activeMessageStreaming?: boolean;
   runActive?: boolean;
 }): boolean {
-  // The active-turn identity is deliberately retained after a run ends so a
-  // late final chunk still animates. Without the `runActive` gate that makes
-  // the finished turn's last message permanently "streaming": it never enters
-  // the fast settle drain and keeps re-animating on remount.
   const identityStreaming =
     activeMessageStreaming === true && runActive !== false;
   return (

@@ -69,7 +69,6 @@ function parseBuildTimeRouteWarmupConfig(
   try {
     return JSON.parse(trimmed) as AgentNativeRouteWarmupConfigInput;
   } catch {
-    // Some test/build paths may inject a bare strategy string instead of JSON.
     return raw as AgentNativeRouteWarmupConfigInput;
   }
 }
@@ -211,9 +210,6 @@ function dataRouteUrlsForHref(href: string): string[] {
     routeDataUrls.push(routeDataUrl.href);
   };
 
-  // React Router's single-fetch navigation combines ordinary server loaders
-  // into one request, while routes with client loaders fetch their server
-  // loader independently. Keep those cache keys identical to navigation.
   if (serverLoaderRoutes.length > 0) {
     addRouteDataUrl(
       clientLoaderRoutes.length > 0
@@ -324,11 +320,6 @@ function assetUrlForManifestPath(assetPath: string): string | null {
   try {
     const url = new URL(assetPath, window.location.origin);
     if (url.origin !== window.location.origin) return null;
-    // The framework package is often consumed from prebuilt core dist, where
-    // Vite does not replace `import.meta.env` in this module. Use the React
-    // Router manifest itself to distinguish production client assets from dev
-    // source module ids. Production manifests point at immutable Vite chunks;
-    // dev manifests point at raw TS/TSX modules that should not be warmed.
     if (!/\/assets\/[^/?#]+\.m?js$/.test(url.pathname)) return null;
     return url.href;
   } catch {
@@ -467,16 +458,6 @@ function resetRouteWarmupCachesForTests() {
   warmedRouteAssets.clear();
 }
 
-/**
- * Warms React Router route data and matched route JS without using native link
- * prefetch. React Router's built-in `<Link prefetch>` does both pieces, but
- * its data side emits `<link rel="prefetch" as="fetch">`; Chrome sends
- * `Sec-Purpose: prefetch` for that request and Cloudflare Speed Brain can 503
- * dynamic `.data` routes before the CDN/origin can serve the cacheable result.
- *
- * Keep `.data` warmup as ordinary `fetch()` and JS warmup as `modulepreload`
- * unless production providers stop rejecting `Sec-Purpose: prefetch`.
- */
 export function AgentNativeRouteWarmup({
   config,
 }: AgentNativeRouteWarmupProps) {
@@ -490,16 +471,7 @@ export function AgentNativeRouteWarmup({
     ).connection;
     if (connection?.saveData) return;
 
-    // Legacy SPA builds still mount AppProviders but do not expose React
-    // Router framework `.data` endpoints or a route asset manifest. Only warm
-    // route data/modules when that manifest is present; otherwise this would
-    // generate noisy `/<path>.data` 404s for apps that cannot serve them.
     const hasManifestRoutes = hasReactRouterManifestRoutes();
-    // Vite dev manifests contain raw source module ids. Warming those with
-    // modulepreload can route through React Router's dev SSR loader and make
-    // local servers log false-positive internal errors. Keep route warmup to
-    // manifests that point at built JS assets, where SSR `.data` requests have
-    // the CDN cache headers this feature relies on.
     const hasRouteAssets = hasManifestRoutes && hasWarmableRouteAssets();
     const warmData = resolved.data && hasRouteAssets;
     const warmModules = resolved.modules && hasRouteAssets;
@@ -648,9 +620,6 @@ export function AgentNativeRouteWarmup({
 
     schedule();
     const observer = new MutationObserver(schedule);
-    // Route links are added by hydration/navigation and can opt into a mode
-    // after render. Avoid watching every attribute: scroll-driven style/class
-    // changes otherwise rescan the entire document while a page is settling.
     observer.observe(document.documentElement, {
       subtree: true,
       childList: true,

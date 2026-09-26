@@ -11,12 +11,6 @@ import {
   writeAppStateForCurrentTab,
 } from "./_tab-state.js";
 
-// The layout-fit skill tells the agent to make one bounded repair pass and
-// verify, never to loop. Nothing stopped it from ignoring that and thrashing
-// between get-layout-overflows and update-slide on the same deck until the
-// framework's generic identical-tool-call guard killed the whole turn many
-// calls later. Surface a directive after a few unresolved checks so the
-// agent stops and reports instead of grinding toward that guard.
 const REPEATED_CHECK_WARNING_THRESHOLD = 3;
 const REPEATED_CHECK_WINDOW_MS = 30 * 60_000;
 
@@ -26,8 +20,6 @@ interface LayoutOverflowCheckHistory {
   lastCheckAt: number;
 }
 
-// Keyed per deck (not one shared record) so checking deck A, then B, then A
-// again does not reset A's count on every deck switch within the same tab.
 function historyKeyForDeck(deckId: string): string {
   return `layout-overflow-check-history:${deckId}`;
 }

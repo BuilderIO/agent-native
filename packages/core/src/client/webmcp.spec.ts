@@ -613,8 +613,6 @@ describe("automatic server action WebMCP registration", () => {
 });
 
 describe("WebMCP registration readiness", () => {
-  // The status lives on the page's window, so a registration from an earlier
-  // test in this file would otherwise leak into these assertions.
   beforeEach(() => {
     delete (window as unknown as Record<string, unknown>)
       .__agentNativeWebMcpStatus;
@@ -631,9 +629,6 @@ describe("WebMCP registration readiness", () => {
   }
 
   it("reports a partial tool list as still registering, not as complete", async () => {
-    // Registration is concurrent: every registerTool call starts before any of
-    // them resolves, so gate each one manually and release them one at a time
-    // to see `registered` rise without ever reporting a partial list as ready.
     const gates = new Map<string, () => void>();
     const modelContext = {
       registerTool: vi.fn(
@@ -692,9 +687,6 @@ describe("WebMCP registration readiness", () => {
   });
 
   it("does not let one registration's stop() erase another's status", async () => {
-    // The status key is per-document. An unconditional delete on stop() would
-    // erase a second, still-live registration and make its finished tool list
-    // look like one that never started.
     const modelContext = {
       registerTool: vi.fn(async () => {}),
       getTools: vi.fn(async () => []),
@@ -714,8 +706,6 @@ describe("WebMCP registration readiness", () => {
     });
     await second.start();
 
-    // The status is aggregated per document, so stopping one registration
-    // must leave the other registration's readiness visible.
     first.stop();
     expect(getAgentNativeWebMcpStatus()).toEqual({
       state: "ready",
@@ -980,8 +970,6 @@ describe("WebMCP registration", () => {
 });
 
 describe("WebMCP page helper", () => {
-  // The helper publishes onto the page's window, so clear both keys between
-  // tests the way the readiness describe block above does for status alone.
   beforeEach(() => {
     delete (window as unknown as Record<string, unknown>)
       .__agentNativeWebMcpStatus;
@@ -1257,8 +1245,6 @@ describe("WebMCP page helper", () => {
       state: "unknown",
     });
 
-    // call() only bounds the outer wait; run() keeps executing in the
-    // background and reaches executeTool() a few microtask ticks later.
     await vi.waitFor(() => expect(executeTool).toHaveBeenCalled());
     resolveExecute('{"status":"shipped"}');
     await vi.waitFor(() => {
@@ -1501,7 +1487,6 @@ describe("WebMCP page helper", () => {
     });
 
     const firstCall = helper.tools();
-    // toolchange fires while the first (cacheable) listing is still pending.
     toolchangeListener?.(new Event("toolchange"));
     resolveFirstList([firstTool]);
     await firstCall;
@@ -1693,9 +1678,6 @@ describe("WebMCP page helper", () => {
 
   it("matches every tool for a global RegExp filter instead of alternating misses via shared lastIndex", async () => {
     readyStatus(3);
-    // Each description avoids repeating "deck" so a stale, carried-over
-    // lastIndex from a prior successful match has nothing later to fall
-    // back onto — the classic true/false/true alternation this guards.
     const tools = [
       {
         name: "get-deck",

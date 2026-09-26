@@ -1,27 +1,5 @@
 #!/usr/bin/env node
 import { execSync } from "node:child_process";
-/**
- * Fails CI on a PR if any publishable package's source code changed
- * without a corresponding changeset. The error message is structured so
- * `/babysit-pr` can parse the missing-package list and write the
- * `.changeset/*.md` file automatically.
- *
- * Algorithm:
- *   1. Diff against `origin/main` to get the list of files this PR
- *      changes.
- *   2. Map each changed file to a publishable package (anything under
- *      `packages/<name>/` where `packages/<name>/package.json` is NOT
- *      `private: true` and the package is NOT ignored by changesets). Ignore
- *      changes to `package.json` itself if it's just a version bump from a
- *      Version Packages PR.
- *   3. Read every `.changeset/*.md` (excluding `README.md` + `config.json`)
- *      and parse the YAML frontmatter for the `"@scope/pkg": bump` map.
- *   4. If any touched-but-uncovered package remains, print the structured
- *      error and exit 1.
- *
- * Run via: `node scripts/check-changeset.mjs`
- * Used by: `.github/workflows/changeset-check.yml`
- */
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -35,8 +13,6 @@ function sh(cmd) {
 }
 
 function getBaseSha() {
-  // GitHub Actions sets GITHUB_BASE_REF on PRs (e.g. "main"). For local
-  // runs, fall back to origin/main.
   if (process.env.GITHUB_BASE_REF) {
     sh(`git fetch origin ${process.env.GITHUB_BASE_REF} --depth=50`);
     return sh(`git rev-parse origin/${process.env.GITHUB_BASE_REF}`);
@@ -56,7 +32,7 @@ function listChangesetManagedPackages(ignoredPackages) {
     return { byDir: new Map(), names: new Set() };
   }
 
-  const map = new Map(); // packageDirName → packageName
+  const map = new Map();
   const names = new Set();
   for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -90,7 +66,6 @@ function listIgnoredPackages() {
 }
 
 function packageFromPath(file, publishables) {
-  // packages/<name>/...  → <name>
   const m = file.match(/^packages\/([^/]+)\//);
   if (!m) return null;
   const dirName = m[1];
@@ -98,9 +73,6 @@ function packageFromPath(file, publishables) {
 }
 
 function isVersionPackagesBumpOnly(file, baseSha) {
-  // The Version Packages PR bumps `version` + appends to CHANGELOG.md.
-  // If those are the ONLY files touched in a package, no changeset is
-  // needed (the bump itself is what consumes the changesets).
   if (/^packages\/[^/]+\/changelog\//.test(file)) return true;
   if (!file.endsWith("/package.json") && !file.endsWith("/CHANGELOG.md")) {
     return false;
@@ -108,7 +80,6 @@ function isVersionPackagesBumpOnly(file, baseSha) {
   try {
     const diff = sh(`git diff ${baseSha}...HEAD -- ${file}`);
     if (file.endsWith("CHANGELOG.md")) return true;
-    // For package.json — accept if the only changed line is `"version":`.
     const changedLines = diff
       .split("\n")
       .filter((l) => /^[+-][^+-]/.test(l))
@@ -240,7 +211,6 @@ function main() {
     process.exit(0);
   }
 
-  // Structured failure — babysit-pr parses this to know what to add.
   console.error("✗ Missing changeset for publishable package source changes.");
   console.error("");
   console.error(

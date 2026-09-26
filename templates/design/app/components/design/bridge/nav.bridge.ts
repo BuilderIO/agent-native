@@ -54,19 +54,8 @@
       if (!t || !t.closest) return;
       var a = t.closest("a[href], [data-screen]") as HTMLElement | null;
       if (!a) return;
-      // Cmd/Ctrl-click (new tab), Shift-click (new window), and middle-click
-      // are the browser's own "open this somewhere else, leave my tab alone"
-      // gestures. Forcing our same-tab screen-switch/postMessage path on top
-      // of one of these ignores that intent and mutates the live editor's
-      // mode/selection state on a click the user never meant to touch the
-      // current tab with. Step aside entirely and let the browser (or, for a
-      // `data-screen`-only element with no real destination, simply nothing)
-      // handle it instead.
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
       var ds = a.getAttribute && a.getAttribute("data-screen");
-      // In-page anchors ('#...') and empty hrefs must be handled in-document.
-      // A srcdoc document resolves '#'/'' against the PARENT app URL, so the
-      // browser's default action would navigate the iframe to the app itself.
       if (!ds) {
         var rawHref = a.getAttribute("href");
         if (rawHref != null) {
@@ -93,16 +82,11 @@
         : classify(a.getAttribute("href") || "");
       if (!info) return;
       if (info.external) {
-        // Open external links in a new tab from the iframe itself (the sandbox
-        // grants allow-popups), bound to this real user click. We deliberately
-        // do NOT round-trip through the parent: a parent window.open() driven
-        // by postMessage would let any script in here spawn popups without a
-        // gesture.
         try {
           a.setAttribute("target", "_blank");
           a.setAttribute("rel", "noopener noreferrer");
         } catch (_err) {}
-        return; // allow the native click to proceed
+        return;
       }
       e.preventDefault();
       try {

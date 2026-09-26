@@ -98,7 +98,6 @@ export function lexicalScore(
   );
 }
 
-/** Audience membership is the first database predicate for every index lane. */
 export async function hybridSearchArtifacts(input: {
   query: string;
   provider?: string;

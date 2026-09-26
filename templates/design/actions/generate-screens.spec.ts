@@ -99,7 +99,6 @@ describe("generate-screens", () => {
       screens: [{ title: "Settings" }],
     });
 
-    // Placed to the right of the existing 1440-wide screen, not stacked at 0.
     expect(result.targets[0]!.canvasFrame!.x).toBeGreaterThanOrEqual(1440);
   });
 
@@ -209,11 +208,6 @@ describe("generate-screens", () => {
     ]);
   });
 
-  // Without checking the design's already-saved files, a requested/slugged
-  // target could silently collide with an existing screen: generate-design's
-  // existing-file lookup is keyed by filename, so the later generate-design
-  // call for a "new" target that happens to match an existing filename would
-  // UPDATE (overwrite) that pre-existing file instead of creating a new one.
   it("avoids target filenames that already exist in the design", async () => {
     mocks.existingDesignFiles = [{ filename: "onboarding.html" }];
 
@@ -265,10 +259,6 @@ describe("generate-screens", () => {
     ).toBe(false);
   });
 
-  // B5-10: AI-generated desktop designs were being placed in mobile-width
-  // screens because every screen got the same fixed region regardless of
-  // content. deviceType (and explicit width/height) now flow end-to-end from
-  // the requested screen into the returned canvasFrame.
   describe("device-aware canvas region sizing (B5-10)", () => {
     it("defaults an untyped screen to a desktop-sized region", async () => {
       const result = await action.run({
@@ -339,7 +329,6 @@ describe("generate-screens", () => {
       expect(result.targets[1]!.canvasFrame).toMatchObject({ width: 1440 });
       expect(result.targets[2]!.canvasFrame).toMatchObject({ width: 768 });
 
-      // Non-overlapping: each screen still gets a distinct x/y placement.
       const positions = result.targets.map((target) => ({
         x: target.canvasFrame!.x,
         y: target.canvasFrame!.y,

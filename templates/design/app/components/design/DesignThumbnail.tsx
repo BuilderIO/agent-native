@@ -16,9 +16,6 @@ export function DesignThumbnail({ html }: { html: string | null }) {
   const [scale, setScale] = useState(0.25);
   const [loaded, setLoaded] = useState(false);
 
-  // Designs are generated for a desktop-ish viewport. Render at 1280×720 then
-  // shrink — close enough to 16:10 for the aspect-video card without leaving
-  // a sliver of letterbox at the bottom.
   const NATURAL_WIDTH = 1280;
   const NATURAL_HEIGHT = 720;
 

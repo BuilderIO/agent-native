@@ -7,10 +7,6 @@ import { cn } from "../utils.js";
 export interface IntegrationConnectionChoiceProps {
   name: string;
   logo?: ReactNode;
-  /**
-   * Set false when the provider refuses personal connections. Rendering a
-   * personal option the server rejects is worse than rendering no option.
-   */
   showPersonalOption?: boolean;
   showWorkspaceOption: boolean;
   workspaceOptionDisabled?: boolean;
@@ -23,7 +19,6 @@ export interface IntegrationConnectionChoiceProps {
   onWorkspace: () => void;
 }
 
-/** The one small decision before an integration's advanced setup surface. */
 export function IntegrationConnectionChoice({
   name,
   logo,

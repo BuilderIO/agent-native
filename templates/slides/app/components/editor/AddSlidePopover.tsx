@@ -99,11 +99,7 @@ export function AddSlidePopover({
   agentSubmit: (message: string, context: string) => Promise<boolean>;
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
-  /** "below" anchors under the trigger button; "right" sits beside a slide thumbnail. */
   placement?: "below" | "right";
-  /** Id of a blank slide already inserted — the agent fills it in instead of
-   *  inserting another one. Used when this popover follows a "New slide"
-   *  click that already created the placeholder. */
   targetSlideId?: string;
 }) {
   const t = useT();
@@ -113,8 +109,6 @@ export function AddSlidePopover({
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
-  // Estimate before the panel has painted so the first frame doesn't hang
-  // off the bottom of the viewport; corrected once the real height is known.
   const [panelHeight, setPanelHeight] = useState(320);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -142,10 +136,6 @@ export function AddSlidePopover({
     setPanelHeight(panelRef.current.getBoundingClientRect().height);
   }, [open]);
 
-  // Content can grow after the first paint (Google Doc hint, file chips,
-  // an auto-growing textarea) without necessarily triggering a React
-  // re-render. Watch the panel directly so it keeps clamping to the
-  // viewport as it resizes, not just on the frame it first opens.
   useEffect(() => {
     if (!open || !panelRef.current) return;
     const observer = new ResizeObserver(([entry]) => {

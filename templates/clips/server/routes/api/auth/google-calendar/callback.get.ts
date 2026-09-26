@@ -1,12 +1,3 @@
-/**
- * Backwards-compatible Google Calendar OAuth callback.
- *
- * New auth URLs use the framework-standard `/_agent-native/google/callback`
- * path so local Google OAuth credentials do not need a Clips-only `/api`
- * redirect URI. Keep this route for any in-flight or externally configured
- * legacy flows.
- */
-
 import {
   decodeOAuthState,
   getAppUrl,

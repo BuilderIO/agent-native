@@ -52,7 +52,6 @@ describe("ComposerRuntimeAdaptersProvider", () => {
     function Consumer() {
       const runtime = useComposerRuntimeAdapters();
       seen.push(runtime);
-      // Mirrors VoiceButton's voice-input-preference read.
       useEffect(() => {
         void runtime.voice!.readAppState!("voice-input-preference");
       }, [runtime]);

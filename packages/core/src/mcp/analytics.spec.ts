@@ -1,13 +1,3 @@
-/**
- * MCP analytics coverage.
- *
- * Drives the real `createMCPServerForRequest` over an in-memory transport
- * pair, so the assertions are about what an actual `tools/list` /
- * `tools/call` exchange emits — not about the helpers in isolation. A
- * property name here is a contract with every dashboard built on PostHog's
- * MCP vocabulary, so the tests pin the exact keys.
- */
-
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

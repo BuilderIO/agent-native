@@ -63,17 +63,14 @@ export default defineAction({
           .delete(schema.designReviewSnapshot)
           .where(eq(schema.designReviewSnapshot.designId, id));
 
-        // Delete associated files first
         await tx
           .delete(schema.designFiles)
           .where(eq(schema.designFiles.designId, id));
 
-        // Delete associated versions
         await tx
           .delete(schema.designVersions)
           .where(eq(schema.designVersions.designId, id));
 
-        // Delete the design itself
         await tx.delete(schema.designs).where(eq(schema.designs.id, id));
         return snapshots.map((snapshot) => snapshot.blobHandle);
       },

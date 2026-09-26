@@ -111,7 +111,6 @@ export interface FirstPartyAnalyticsHealth {
   };
   thresholds: typeof FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS;
   delivery: FirstPartyAnalyticsDeliveryHealth;
-  /** Kept for clients that still read the original BigQuery-only field. */
   bigQuery: FirstPartyAnalyticsBackendStatus;
 }
 
@@ -204,11 +203,6 @@ function shouldRecordPressure(event: QueryPressureEvent): boolean {
   );
 }
 
-/**
- * Persist only slow/failing query aggregates. This intentionally sits outside
- * the raw event stream so diagnosing database pressure cannot recursively add
- * more analytics events to the same database.
- */
 export async function recordFirstPartyAnalyticsQueryPressure(
   scope: AnalyticsScope,
   event: QueryPressureEvent,

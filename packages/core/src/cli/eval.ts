@@ -1,22 +1,5 @@
-/**
- * `agent-native eval [pattern] [--json] [--threshold N]`
- *
- * Discover the app's `*.eval.ts` / `evals/*.ts` files, actually run the agent
- * for each eval input, score the output with the eval's scorers, print a
- * readable scored table, and EXIT NON-ZERO if any eval scores below its
- * threshold. That non-zero exit makes the command a drop-in CI deploy gate:
- *
- *   - run: agent-native eval                 (block deploy on regressions)
- *   - or:  agent-native eval --json          (machine-readable for CI)
- *
- * The runner resolves a provider-agnostic engine/model from the existing
- * registry — no model is hardcoded — so the same suite runs against whatever
- * engine the app is configured for.
- */
-
 import process from "node:process";
 
-/** Parse `[pattern] [--json] [--threshold N]` from the eval argv. */
 function parseEvalArgs(argv: string[]): {
   pattern?: string;
   json: boolean;
@@ -84,8 +67,6 @@ Authoring (evals/example.eval.ts):
 export async function runEval(argv: string[]): Promise<void> {
   const { pattern, json, threshold } = parseEvalArgs(argv);
 
-  // Lazy import: the runner pulls in server-only deps (engine registry, action
-  // discovery) we don't want to load for `--help`.
   const { runEvalSuite, formatReport } = await import("../eval/index.js");
 
   let result: Awaited<ReturnType<typeof runEvalSuite>>;
@@ -117,7 +98,6 @@ export async function runEval(argv: string[]): Promise<void> {
     } else {
       console.log(`\n  ${hint}\n`);
     }
-    // Nothing to gate on — exit clean so an app without evals doesn't fail CI.
     process.exit(0);
   }
 
@@ -129,6 +109,5 @@ export async function runEval(argv: string[]): Promise<void> {
     console.log(formatReport(report));
   }
 
-  // The CI deploy gate: any eval below threshold => non-zero exit.
   process.exit(report.failed > 0 ? 1 : 0);
 }

@@ -26,9 +26,6 @@ export default defineAction({
     if (!name) throw new Error("name is required");
 
     const ctx = resolveScope();
-    // Recomputed on every retry attempt from the freshest dashboard config, so
-    // a concurrent panel edit (mutate-dashboard/update-dashboard) racing this
-    // rename is never silently overwritten by a stale config snapshot.
     const updated = await upsertDashboardWithRetry(args.id, ctx, (existing) => {
       return { kind: existing.kind, body: { ...existing.config, name } };
     });

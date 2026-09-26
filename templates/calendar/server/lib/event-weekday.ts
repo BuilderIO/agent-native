@@ -21,12 +21,6 @@ const WEEKDAY_ALIASES = new Map<string, WeekdayName>([
   ["weekend", "saturday"],
 ]);
 
-/**
- * Accepts the shapes a natural-language request arrives in — "Saturday",
- * "sat", "SUN", or an array/comma string mixing them — and rejects anything
- * else loudly. A silently dropped day name would delete a different set of
- * events than the user asked about.
- */
 export function normalizeWeekdays(
   input: string | readonly string[] | undefined,
 ): WeekdayName[] {
@@ -58,15 +52,6 @@ export function normalizeWeekdays(
   return WEEKDAY_NAMES.filter((day) => resolved.has(day));
 }
 
-/**
- * The weekday the user sees for an event, which is the weekday in the calendar
- * view's timezone — not UTC. A Sunday 5pm America/Los_Angeles meeting is Monday
- * in UTC, so filtering on the raw ISO string silently misses it and instead
- * deletes a Monday meeting the user never mentioned.
- *
- * All-day starts carry no instant, so their `YYYY-MM-DD` date IS the local day
- * and must not be re-projected through a timezone.
- */
 export function eventWeekday(start: string, timezone: string): WeekdayName {
   if (DATE_ONLY_RE.test(start)) {
     const [year, month, day] = start.split("-").map(Number);
@@ -96,12 +81,6 @@ export function matchesWeekdays(
   return weekdays.includes(eventWeekday(start, timezone));
 }
 
-/**
- * Validate a caller-supplied IANA timezone instead of falling back to UTC.
- * `normalizeTimezone` silently returns UTC for an unparseable zone, which on a
- * destructive weekday filter would quietly reclassify every event and delete a
- * different set of days than the caller named.
- */
 export function requireValidTimezone(timezone: string): string {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();

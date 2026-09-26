@@ -1,11 +1,3 @@
-/**
- * First-run onboarding page for agent-native apps.
- *
- * Shown when Better Auth is active and the user isn't signed in.
- * Provides a path to create or sign into an account from day one.
- *
- * After first account exists, this page acts as a normal login page.
- */
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
@@ -1096,19 +1088,10 @@ function isAgentNativeHostedHost(host: string | undefined): boolean {
 }
 
 export interface OnboardingHtmlOptions {
-  /**
-   * Hide email/password forms and show ONLY the Google sign-in button.
-   * Useful for templates (mail, calendar) where Google is required anyway.
-   * If Google OAuth env vars are not configured, an error message is shown.
-   */
   googleOnly?: boolean;
-  /** Additional provider scopes require the direct OAuth flow to persist tokens. */
   googleScopes?: string[];
-  /** Authentication surface to render. Defaults to the existing password flow. */
   authMode?: "magic-link" | "password";
-  /** Render the quiet, centered auth surface used when the app has an initial prompt. */
   initialPrompt?: boolean;
-  /** Product metadata used for the auth document title and social preview. */
   marketing?: {
     appName: string;
     tagline: string;
@@ -1116,10 +1099,6 @@ export interface OnboardingHtmlOptions {
     features?: string[];
     learnMoreUrl?: string;
   };
-  /**
-   * Request context used only to recover branded first-party marketing when a
-   * default auth guard serves before a template-specific auth plugin.
-   */
   requestHost?: string;
   /** @deprecated Browser SSO was removed. The fields are retained for patch compatibility. */
   identitySsoRequestHost?: string;
@@ -1127,17 +1106,7 @@ export interface OnboardingHtmlOptions {
   identitySsoRequestProtocol?: string;
   requestPath?: string;
   requestOrigin?: string;
-  /**
-   * Optional email signup legal copy. Builder-hosted `*.agent-native.com`
-   * deployments get the Agent-Native links automatically; self-hosted and
-   * custom-domain apps must opt in with their own URLs.
-   */
   signupLegalNotice?: SignupLegalNoticeOptions | false;
-  /**
-   * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
-   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. Builder web
-   * iframes use popup; Builder desktop preview/editor surfaces use redirect.
-   */
   googleAuthMode?: GoogleAuthMode;
 }
 
@@ -1261,10 +1230,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
       : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath),
   );
-  // Templates pass their short sign-in name ("Mail"); share cards label the
-  // link with og:title, so first-party apps use the full product name there.
-  // Catalog copy can also resolve from env app names on a custom host; only
-  // claim Agent-Native provenance when the host or the app's own config does.
   const isFirstPartySocial =
     isFirstPartyMarketing ||
     (marketingWasResolvedFromCatalog &&
@@ -2158,7 +2123,6 @@ const RESET_PASSWORD_STYLES = `
   .back:hover { color: #bbb; }
 `;
 
-/** React document for the password reset page linked from auth email. */
 export function getResetPasswordHtml(requestPath?: string): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =

@@ -96,7 +96,6 @@ const LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN =
   "agent-native-live-edit-registration-v1\0";
 export const DEFAULT_BRIDGE_URL = "http://127.0.0.1:7331";
 
-/** One-way compatibility derivation shared with the core design-connect CLI. */
 export function derivePreviewToken(bridgeToken: string): string {
   return crypto
     .createHash("sha256")
@@ -249,10 +248,6 @@ export default defineAction({
         : isNull(schema.designLocalhostConnections.orgId),
     );
 
-    // The id may already be taken by a DIFFERENT user (legacy ids were derived
-    // from devServerUrl + rootPath without user scoping, so two users on the
-    // same devcontainer image collide). Detect that up front and fail with a
-    // clear error instead of crashing on the primary-key insert below.
     let existing = await db
       .select({
         id: schema.designLocalhostConnections.id,
@@ -328,18 +323,12 @@ export default defineAction({
       );
     }
 
-    // The page-local visual-edit entry point does not need to make the user
-    // repeat the conventional bridge port. Preserve a custom existing port;
-    // new connections use the same default as `design connect`.
     const bridgeUrl =
       requestedBridgeUrl ??
       (existing[0]?.bridgeUrl
         ? normalizeBridgeUrl(existing[0].bridgeUrl)
         : DEFAULT_BRIDGE_URL);
 
-    // Token for a new row: explicit, else existing, else mint. The account or
-    // trusted local-CLI principal owning the row is what lets the bridge skip a
-    // separate browser sign-in without making the token ambient.
     const explicitToken = args.bridgeToken?.trim() || undefined;
     const nextBridgeToken =
       explicitToken ||
@@ -369,9 +358,6 @@ export default defineAction({
       updatedAt: now,
     };
 
-    // The conflict update can keep a concurrently inserted bridge token.
-    // Derive and persist its preview token under the same row lock so the pair
-    // is committed atomically, including for legacy rows with a stale preview.
     const {
       bridgeToken: effectiveBridgeToken,
       previewToken: effectivePreviewToken,
@@ -429,10 +415,7 @@ export default defineAction({
       capabilities,
       status: args.status,
       lastSeenAt: now,
-      // Safe for Design browser previews. It cannot authorize filesystem calls.
       previewToken: effectivePreviewToken,
-      // Returned so the caller can start the bridge with
-      // `design connect --bridge-token <this>`, matching this row.
       bridgeToken: effectiveBridgeToken,
     };
   },

@@ -9,12 +9,6 @@ import {
   type UniversalSearchResult,
 } from "../server/lib/search.js";
 
-/**
- * Per-result deep link. Knowledge and source records have focused Brain views;
- * captures have no detail route, so they deep-link into the Search view
- * (`view: "capture"` + `captureId`, resolved by the nav consumer to a search
- * focused on that capture).
- */
 function resultDeepLink(result: UniversalSearchResult): string | null {
   if (result.type === "knowledge") {
     return buildDeepLink({

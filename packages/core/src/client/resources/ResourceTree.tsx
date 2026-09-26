@@ -51,8 +51,6 @@ function StatusDot({
   );
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function getFileIcon(node: TreeNode): React.ReactNode {
   if (node.kind === "agent") {
     return (
@@ -93,11 +91,8 @@ function getFileIcon(node: TreeNode): React.ReactNode {
   return <IconFile className={iconClass} />;
 }
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export interface ResourceTreeProps {
   tree: TreeNode[];
-  /** Presentation mode for the resources: nested tree rows or a flat collection. */
   variant?: "tree" | "collection";
   selectedId: string | null;
   onSelect: (resource: ResourceMeta) => void;
@@ -106,23 +101,14 @@ export interface ResourceTreeProps {
   onDelete: (id: string) => void;
   onRename: (id: string, newPath: string) => void;
   onDrop: (files: FileList) => void;
-  /** Section title displayed as heading */
   title?: string;
-  /** Tooltip for the section heading */
   titleTooltip?: string;
-  /** Whether this section's tree is still loading */
   isLoading?: boolean;
-  /** Resource id currently being deleted (shows spinner + muted row) */
   deletingId?: string | null;
-  /** When true, hide create/delete/rename/upload affordances. Files stay readable. */
   readOnly?: boolean;
-  /** Optional hint shown next to the heading (e.g. "Read only") */
   headingHint?: React.ReactNode;
-  /** Scope-specific action shown beside the section heading. */
   sectionAction?: React.ReactNode;
-  /** Scope-specific action shown beneath an empty collection message. */
   emptyStateAction?: React.ReactNode;
-  /** Optional copy for collection empty states. */
   emptyStateTitle?: string;
   emptyStateDescription?: string;
 }
@@ -408,8 +394,6 @@ function CollectionResourceRow({
   );
 }
 
-// ─── TreeNodeRow ────────────────────────────────────────────────────────────
-
 function TreeNodeRow({
   node,
   depth,
@@ -576,8 +560,6 @@ function TreeNodeRow({
   );
 }
 
-// ─── InlineInput ────────────────────────────────────────────────────────────
-
 function InlineInput({
   depth,
   onConfirm,
@@ -625,8 +607,6 @@ function InlineInput({
   );
 }
 
-// ─── ResourceTree ───────────────────────────────────────────────────────────
-
 export function ResourceTree({
   tree,
   variant = "tree",
@@ -669,7 +649,6 @@ export function ResourceTree({
   const handleStartCreate = useCallback(
     (parentPath: string, type: "file" | "folder") => {
       setCreating({ parentPath, type });
-      // auto-expand the parent folder
       setExpanded((prev) => {
         const next = new Set(prev);
         next.add(parentPath);

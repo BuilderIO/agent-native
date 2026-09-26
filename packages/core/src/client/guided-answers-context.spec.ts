@@ -31,7 +31,6 @@ describe("formatGuidedAnswersForAgent", () => {
     expect(formatted).toBe(
       "Q: What time grain should the dashboard use?\nA: Weekly",
     );
-    // The opaque id must not be the only label the model gets.
     expect(formatted).not.toMatch(/^q1: /m);
   });
 
@@ -60,8 +59,6 @@ describe("formatGuidedAnswersForAgent", () => {
   });
 
   it("keeps meaningful ids as labels when no question is supplied", () => {
-    // App callers (Design, Slides) pass their own descriptive ids and no
-    // question list. That form still reads correctly and must not change.
     expect(
       formatGuidedAnswersForAgent({
         sections: ["overview", "risks"],

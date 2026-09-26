@@ -172,10 +172,6 @@ export function createDraftPrimitive({
         ? tool
         : "rectangle",
     geometry,
-    // Figma materializes a real, removable solid Fill layer on every newly
-    // drawn shape — frames stay transparent by default (matching
-    // shared/board-file.ts's own kind==="frame" split) so this must not
-    // apply to them.
     fill: isFrame ? toolProps?.fill : (toolProps?.fill ?? DEFAULT_SHAPE_FILL),
     stroke: toolProps?.stroke,
     strokeWidth: toolProps?.strokeWidth,
@@ -224,11 +220,6 @@ function createDraftId(tool: DraftCreationTool) {
     .slice(2, 8)}`;
 }
 
-/** Same id-generation contract as the host's uniqueLayerId (crypto.randomUUID,
- *  falling back to a timestamp+random string) — kept local to avoid a
- *  multi-screen/ -> pages/design-editor/ import for one generator. Never
- *  "draft-…"-prefixed: this is the id that ends up permanently in the saved
- *  document, not the ephemeral bookkeeping id createDraftId mints above. */
 function createStableInsertId(kind: string): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? `${kind}-${crypto.randomUUID()}`
@@ -253,12 +244,6 @@ export function draftPrimitiveToInsert(
     width: metadata?.width ?? frameGeometry.width,
     height: metadata?.height ?? frameGeometry.height,
   };
-  // A draw must serialize in the same viewport the content is laid out in.
-  // getScreenPreviewViewport is the source of truth: an inline screen renders at
-  // metadata dims and CSS-scales when the frame's aspect matches, but reflows to
-  // the frame when it differs (so the metadata 1280×2560 default no longer
-  // stretches shapes on a non-portrait frame). Fixed-viewport sources
-  // (localhost/fusion) always use their own metadata viewport.
   const isInline = !metadata || metadata.source === "inline";
   const previewViewport = getScreenPreviewViewport(metadataViewport, {
     width: frameGeometry.width,
@@ -306,12 +291,6 @@ export function draftPrimitiveToInsert(
       };
   return {
     kind: draft.kind,
-    // Never the draft's own bookkeeping id: createDraftPrimitive's id is
-    // "draft-<tool>-…" for the host's own in-flight tracking (the overlay's
-    // data-draft-id, selectedDraftIds, …) and was previously written
-    // straight into the committed document as its permanent
-    // data-agent-native-node-id — every drawn shape stayed "draft-" prefixed
-    // forever instead of getting a real stable id the moment it commits.
     nodeId: createStableInsertId(draft.kind),
     geometry: localGeometry,
     points: draft.points?.map(toLocalPoint),

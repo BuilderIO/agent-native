@@ -246,9 +246,6 @@ type DocumentListRow = Omit<
   "content" | "collabBodyRevision" | "createdBy" | "updatedBy"
 >;
 
-// Database grids render row metadata and properties. Fetching the document body
-// here would transfer it only for serializeDocument to replace it with an empty
-// string below; opened documents use their dedicated document read path instead.
 export const contentDatabaseListDocumentSelection = {
   id: schema.documents.id,
   spaceId: schema.documents.spaceId,
@@ -470,8 +467,6 @@ function serializeDocument(
     id: doc.id,
     parentId: doc.parentId,
     title: doc.title,
-    // List reads deliberately project no `documents.content`; opened documents
-    // use their dedicated read path.
     content: "",
     description: doc.description,
     icon: doc.icon,
@@ -628,9 +623,6 @@ export async function getContentDatabasePageResponse(
   if (!database || database.deletedAt) {
     throw new Error(`Database "${databaseId}" not found`);
   }
-  // PURE read: the primary "Content" Blocks field is seeded at create time and
-  // by the one-time startup repair — never here. Reading a database (including a
-  // shared one a viewer is opening) must not mutate schema.
 
   const { limit, offset } = normalizeContentDatabasePageOptions(options);
   const tableQuery = options.tableQuery;
@@ -1096,8 +1088,6 @@ export async function getContentDatabasePageResponse(
   }
   const propertiesByDocumentId = await listPropertiesForDatabaseDocuments(
     databaseId,
-    // Property serialization uses metadata only; this list projection carries
-    // every document field it consumes except the deliberately omitted body.
     documents as Array<typeof schema.documents.$inferSelect>,
   );
   const filesProjection = await filesSystemPropertyProjection({
@@ -1260,9 +1250,6 @@ export async function getContentDatabasePageResponse(
         ),
       )
     : sourceSnapshots;
-  // Keep the returned source overlay aligned to the visible item page.
-  // Secondary federation sources stay complete until their join-key lookup can
-  // be bounded independently; only matched rows overlay the returned items.
   const pagedSources =
     limit !== null
       ? sources.map((source) => {
@@ -1287,8 +1274,6 @@ export async function getContentDatabasePageResponse(
     items: serializedItems,
     sources: pagedSources,
   });
-  // Opt-in federated columns (a secondary field the user added via the picker)
-  // get their per-row values from the matched overlay at read time.
   const itemsWithOverlay = applyFederatedOverlayValues(
     federatedItems,
     pagedSources,
@@ -1621,8 +1606,6 @@ export async function deleteDatabaseDataForDocument(
         .where(
           inArray(schema.documentPropertyValues.propertyId, definitionIds),
         );
-      // Independent Blocks-field content is keyed by property id; drop it so
-      // deleting a database leaves no orphaned document_block_field_contents.
       await db
         .delete(schema.documentBlockFieldContents)
         .where(
@@ -1706,9 +1689,6 @@ export async function deleteDatabaseDataForDocument(
           eq(schema.documentPropertyValues.ownerEmail, ownerEmail),
         ),
       );
-    // A deleted row document's independent Blocks-field content is keyed by
-    // document id; drop it so no document_block_field_contents rows are
-    // orphaned when the row is removed.
     await db
       .delete(schema.documentBlockFieldContents)
       .where(eq(schema.documentBlockFieldContents.documentId, documentId));

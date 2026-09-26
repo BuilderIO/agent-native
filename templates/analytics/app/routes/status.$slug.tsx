@@ -98,8 +98,6 @@ export default function PublicStatusRoute() {
   const params = useParams();
   const slug = loaderData.slug || params.slug || "";
 
-  // SSR gives us the initial page; the client lightly polls the same public
-  // action to keep the banner/uptime fresh without a manual reload.
   const query = useActionQuery<PublicStatusPage>(
     "get-public-status-page",
     { slug },

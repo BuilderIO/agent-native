@@ -1,30 +1,12 @@
 import { z, type ZodType, type ZodTypeAny } from "zod";
 
-/**
- * Schema introspection for the auto-editor. Walks a block's zod `data` schema
- * and classifies each top-level field into a {@link FieldKind} the
- * `SchemaBlockEditor` knows how to render.
- *
- * zod v4 note: schemas expose `_def.type` (a string discriminator) rather than
- * v3's `typeName`. Object shape is `_def.shape`, array element is `_def.element`,
- * enum options are `.options`. `.describe()` does NOT propagate through
- * `.optional()`/`.default()`/`.nullable()` to the outer schema, so `unwrap`
- * inherits the innermost description while peeling wrapper layers.
- */
-
 const MD_TAG = "x-an-field:markdown";
 const RT_TAG = "x-an-field:richtext";
 
-/**
- * Tag a string schema so the auto-editor renders it with the shared inline
- * rich-markdown editor (Notion-style editing) instead of a plain textarea.
- * Survives `.optional()` because `unwrap` reads the inner description.
- */
 export function markdown(schema: ZodTypeAny = z.string()): ZodTypeAny {
   return schema.describe(MD_TAG);
 }
 
-/** Alias for {@link markdown} — tags a string field as rich text. */
 export function richtext(schema: ZodTypeAny = z.string()): ZodTypeAny {
   return schema.describe(RT_TAG);
 }
@@ -43,16 +25,12 @@ export type FieldKind =
 
 export interface FieldDescriptor {
   key: string;
-  /** Humanized key for the field label. */
   label: string;
   kind: FieldKind;
   optional: boolean;
   enumValues?: string[];
-  /** Element schema for arrays / inner schema for objects. */
   inner?: ZodTypeAny;
-  /** Element descriptors for object fields (one level of nesting). */
   fields?: FieldDescriptor[];
-  /** Description tag, when present (used to detect markdown/richtext). */
   description?: string;
 }
 
@@ -60,7 +38,6 @@ function defType(schema: ZodTypeAny): string | undefined {
   return (schema?._def as { type?: string } | undefined)?.type;
 }
 
-/** Peel optional/default/nullable/refine wrappers; keep the innermost description. */
 function unwrap(schema: ZodTypeAny): {
   schema: ZodTypeAny;
   optional: boolean;
@@ -69,7 +46,6 @@ function unwrap(schema: ZodTypeAny): {
   let current = schema;
   let optional = false;
   let description: string | undefined = current?.description;
-  // Bound the loop so a malformed schema can never spin forever.
   for (let i = 0; i < 12; i++) {
     const type = defType(current);
     const inner = (current._def as { innerType?: ZodTypeAny } | undefined)
@@ -101,7 +77,6 @@ function classify(schema: ZodTypeAny, description?: string): FieldKind {
   const type = defType(schema);
   switch (type) {
     case "string": {
-      // A long max length implies a textarea; otherwise a single-line input.
       const checks = (schema._def as { checks?: unknown[] } | undefined)
         ?.checks;
       const max = readMaxLength(checks);
@@ -132,7 +107,6 @@ function readMaxLength(checks: unknown[] | undefined): number | undefined {
     if (def?.check === "max_length" && typeof def.maximum === "number") {
       return def.maximum;
     }
-    // Fallback for shapes that expose the bound directly.
     const direct = check as { kind?: string; value?: number; maximum?: number };
     if (direct?.kind === "max" && typeof direct.value === "number") {
       return direct.value;
@@ -188,11 +162,6 @@ function describeField(key: string, raw: ZodTypeAny): FieldDescriptor {
   return descriptor;
 }
 
-/**
- * Introspect a block's `data` schema into a flat list of field descriptors. The
- * input is unwrapped to its object schema first (so an `.optional()`-wrapped or
- * `.refine()`-wrapped object still yields its fields).
- */
 export function introspect(schema: ZodType<unknown>): FieldDescriptor[] {
   const { schema: unwrapped } = unwrap(schema as ZodTypeAny);
   const shape = objectShape(unwrapped);

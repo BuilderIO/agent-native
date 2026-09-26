@@ -6,9 +6,6 @@ import { TAB_ID } from "../lib/tab-id";
 export interface NavigationState {
   view: string;
   path?: string;
-  /** Optional unique-per-write token. Used by the UI to dedup the same
-   * command being re-read when the fire-and-forget DELETE below loses its
-   * race against the next polling refetch. */
   _writeId?: string;
 }
 

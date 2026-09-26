@@ -957,10 +957,6 @@ describe("DesktopIdentityBroker", () => {
   });
 
   it("announces a status only when it actually changes", async () => {
-    // The renderer refreshes its workspace app list and environment lane on
-    // every status event, and the lane read calls back into refreshStatus().
-    // Re-announcing an unchanged status closed that into a feedback loop that
-    // hammered the dispatch origin at round-trip speed.
     const authority = authorityFixture();
     const onStatus = vi.fn();
     const broker = new DesktopIdentityBroker({
@@ -2561,8 +2557,6 @@ describe("DesktopIdentityBroker", () => {
   });
 
   it("verifies the authority once when a child session already matches", async () => {
-    // The already-signed-in path used to verify the authority, then verify it
-    // again inside the matching check, before the WebView was allowed to load.
     const authority = authorityFixture();
     const mail = appFixture();
     mail.cookieNames = [...mail.cookieNames, "an_embed_session"];
@@ -4405,8 +4399,6 @@ describe("DesktopIdentityBroker", () => {
     });
     broker.setStatusForSetting("signed-in");
 
-    // All four tabs mount together, the way they do at launch, and each
-    // independently asks the broker to ensure its own session.
     await expect(
       Promise.all(apps.map((app) => broker.ensureAppSession(app.id))),
     ).resolves.toEqual([true, true, true, true]);
@@ -4479,13 +4471,10 @@ describe("DesktopIdentityBroker", () => {
       broker.setStatusForSetting("signed-in");
 
       const result = broker.ensureAppSession(mail.id);
-      // Run every pending timer (the Retry-After wait and the exponential
-      // backoff between later attempts) until the retries are exhausted.
       await vi.runAllTimersAsync();
 
       await expect(result).resolves.toBe(false);
       expect(mail.session.fetch).toHaveBeenCalledTimes(3);
-      // A hosted Retry-After must not strand every app tab for minutes.
       expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
       expect(warn).toHaveBeenCalledWith(
         "[desktop identity] workspace app session mint rate limited",

@@ -776,7 +776,6 @@ const messages = {
       s062: "從範本開始，連線資料，開始建置儀表板。",
       s063: "閱讀檔案",
       s064: "檢視所有範本",
-      // V3 到達頁文案（2026-09-14）—— 以下為 hero 到最終 CTA。
       heroEyebrow: "Analytics",
       heroTitle: "問一個問題。取得圖表、查詢和上下文。",
       heroDescription:
@@ -837,7 +836,6 @@ const messages = {
     },
     calendar: {
       s001: "Calendar 範本螢幕截圖",
-      // V3 到達頁文案(2026年9月10日)—— 從 hero 到最終 CTA。
       heroEyebrow: "Calendar",
       heroTitle: "找到時間、預訂會議並與代理商一起調整您的一天",
       heroDescription:
@@ -1017,7 +1015,6 @@ const messages = {
     },
     clips: {
       s001: "Clips 範本螢幕截圖",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "讓 AI 代理看得懂、聽得懂的螢幕錄製",
       heroDescription:
@@ -1162,7 +1159,6 @@ const messages = {
     },
     content: {
       s001: "Content 範本螢幕截圖",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "和你的 AI 代理一起建立和整理工作",
       heroDescription:
@@ -1284,7 +1280,6 @@ const messages = {
     },
     design: {
       s001: "Design 範本螢幕截圖",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "用你的 AI 代理設計互動式原型",
       heroDescription:
@@ -1405,7 +1400,6 @@ const messages = {
     },
     dispatch: {
       s001: "Dispatch 範本螢幕截圖",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "在同一個地方協調你的 AI 代理",
       heroDescription:
@@ -1655,7 +1649,6 @@ const messages = {
           "可以。同事可以請求產生一份草稿，出現在你的審核佇列中。開啟它、編輯內容，準備好後再寄送。提出請求的人無法代替你寄送；由草稿的擁有者或組織管理員來控制寄送。",
       },
       s001: "Mail 範本螢幕截圖",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
       heroTitle: "用 Jev 掌控你的收件匣",
       heroDescription:
@@ -1819,7 +1812,6 @@ const messages = {
     },
     slides: {
       s001: "Slides 範本螢幕截圖",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "用你的 AI 代理建立簡報",
       heroDescription:
@@ -2031,7 +2023,6 @@ const messages = {
           "可以。用 CLI 建立一份副本，新增你的 actions、資料和介面，然後部署你的應用。為你的環境設定驗證和服務存取權限，並在與使用者分享之前測試你新增的工作流程。",
       },
       s001: "Chat 應用截圖",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "打造屬於你自己的 AI 聊天應用",
       heroDescription:

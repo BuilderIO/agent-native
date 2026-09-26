@@ -1,12 +1,3 @@
-/**
- * The label/value row shared by the record's object attributes and by a list
- * entry's own attributes. One shell, so a pipeline value and a record value
- * cannot drift into looking like two different products.
- *
- * Geometry: a 30%/1fr split, a 20px icon box with a 14px glyph at a 7px gap,
- * and a hairline under every row but the last.
- */
-
 import {
   IconActivity,
   IconAlignLeft,
@@ -51,9 +42,6 @@ const TYPE_ICONS: Record<CrmAttributeType, typeof IconAlignLeft> = {
   "personal-name": IconId,
 };
 
-/** Section headings sit at body size in the secondary content color — the same
- *  relationship the grid's column headers use. Small uppercase micro-labels are
- *  the tell we are moving away from. */
 export const PANEL_SECTION_HEADING =
   "text-sm font-medium text-content-secondary";
 
@@ -69,11 +57,6 @@ export function AttributeTypeIcon({ type }: { type: CrmAttributeType }) {
   );
 }
 
-/**
- * `min-h-9` rather than a fixed 36px: a long attribute name ("Desired Cadence
- * Days") in a 30% column has to go somewhere, and truncating it hides the one
- * piece of text the row exists to identify. The row grows; it never clips.
- */
 export function AttributeRowShell({
   type,
   label,

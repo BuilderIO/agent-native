@@ -10,18 +10,10 @@ import {
 } from "@agent-native/core/db";
 import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 
-// Side-effect import: ensures registerShareableResource runs on server
-// startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports (e.g. re-exported `eq`/`sql`) the same way db.spec.ts's
- * `isDrizzleTable` regression guard does: a real table carries a
- * Symbol-keyed drizzle metadata bag, plain exports don't.
- */
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&
@@ -153,9 +145,6 @@ export const runAnalyticsMigrations = runMigrations(
       version: 2,
       sql: `CREATE INDEX IF NOT EXISTS bigquery_cache_expires_at_idx ON bigquery_cache (expires_at)`,
     },
-    // --- v3+: framework sharing — dashboards + analyses migrated from settings-KV.
-    //   Lazy migration: existing settings keys are read as a fallback on first
-    //   access and copied into these tables. See server/lib/dashboards-store.ts.
     {
       version: 3,
       sql: `CREATE TABLE IF NOT EXISTS dashboards (
@@ -336,8 +325,6 @@ export const runAnalyticsMigrations = runMigrations(
       version: 34,
       sql: `CREATE INDEX IF NOT EXISTS analyses_hidden_at_idx ON analyses (hidden_at)`,
     },
-    // Composite indexes backing the scoped list queries: accessFilter filters on
-    // owner_email / org_id and both lists sort by updated_at (desc, in JS).
     {
       version: 35,
       sql: `CREATE INDEX IF NOT EXISTS dashboards_owner_org_updated_idx ON dashboards (owner_email, org_id, updated_at)`,
@@ -346,9 +333,6 @@ export const runAnalyticsMigrations = runMigrations(
       version: 36,
       sql: `CREATE INDEX IF NOT EXISTS analyses_owner_org_updated_idx ON analyses (owner_email, org_id, updated_at)`,
     },
-    // v37-38 were reserved by the old workspace_files table. Workspace file
-    // storage now uses the core Resources table, so new installs should not
-    // create a second file table. Keep no-op versions to avoid reusing them.
     {
       version: 37,
       sql: `SELECT 1`,
@@ -615,16 +599,6 @@ export const runAnalyticsMigrations = runMigrations(
         postgres: `UPDATE session_replay_chunks SET started_at = CASE WHEN started_at IS NOT NULL AND substr(started_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN LEAST(COALESCE(NULLIF(created_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ELSE started_at END, ended_at = CASE WHEN ended_at IS NOT NULL AND substr(ended_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN LEAST(COALESCE(NULLIF(created_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ELSE ended_at END WHERE (started_at IS NOT NULL AND substr(started_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD')) OR (ended_at IS NOT NULL AND substr(ended_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD'))`,
       },
     },
-    // v75-v83: a parallel branch shipped unrelated DDL under these SAME version
-    // numbers, so whichever branch deployed first "used up" v75-v83 in
-    // `analytics_migrations` and the other branch's DDL below was silently
-    // never applied on any database that had already advanced past v83 — the
-    // exact version-collision failure class `runMigrations` name-based
-    // tracking exists to fix (see packages/core/src/db/migrations.ts). v75-v80
-    // below now carry a `name:` so they apply by name on every database
-    // regardless of what its recorded MAX(version) already is. All SQL here
-    // is untouched (still the original IF NOT EXISTS / ADD COLUMN IF NOT
-    // EXISTS DDL) — only the `name:` field was added.
     {
       version: 75,
       name: "analytics-alert-rules-table",
@@ -729,9 +703,6 @@ export const runAnalyticsMigrations = runMigrations(
       name: "analytics-db-admin-connections-org-updated-idx",
       sql: `CREATE INDEX IF NOT EXISTS analytics_db_admin_connections_org_updated_idx ON analytics_db_admin_connections (org_id, updated_at)`,
     },
-    // --- v83+: error capture (Sentry-style exception tracking). Grouped
-    //   issues + individual occurrences linked to session replays. See
-    //   server/db/schema-errors.ts and server/lib/error-capture.ts.
     {
       version: 83,
       name: "error-issues-table",
@@ -840,8 +811,6 @@ export const runAnalyticsMigrations = runMigrations(
       name: "error-issue-shares-resource-idx",
       sql: `CREATE INDEX IF NOT EXISTS error_issue_shares_resource_idx ON error_issue_shares (resource_id)`,
     },
-    // --- v92+: uptime monitoring (synthetic HTTP checks + alerting). See
-    //   server/db/schema-monitoring.ts and server/lib/uptime-monitors.ts.
     {
       version: 92,
       name: "uptime-monitors-table",
@@ -962,9 +931,6 @@ export const runAnalyticsMigrations = runMigrations(
       name: "error-issues-org-fingerprint-unique-idx",
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS error_issues_org_fingerprint_unique_idx ON error_issues (owner_email, org_id, fingerprint) WHERE org_id IS NOT NULL`,
     },
-    // --- v103+: public status pages (owner-authored, publicly shareable uptime
-    //   status pages). See server/db/schema-monitoring.ts (`statusPages`) and
-    //   server/lib/status-pages.ts.
     {
       version: 103,
       name: "status-pages-table",
@@ -1130,13 +1096,6 @@ export const runAnalyticsMigrations = runMigrations(
         ALTER TABLE dashboard_report_subscriptions ADD COLUMN IF NOT EXISTS last_capture_error TEXT;
       `,
     },
-    // First-party dashboard panel result cache. Same shape/pattern as
-    // bigquery_cache above, short TTL (set in first-party-analytics-cache.ts)
-    // since this is the app's own live data, not an immutable warehouse
-    // result. See first-party-analytics-cache.ts for why this exists: panel
-    // queries had no cache at all, so every dashboard render and every daily
-    // report screenshot recomputed from scratch and stacked concurrent load
-    // on the same rows, which is what was blowing report/panel timeouts.
     {
       version: 124,
       name: "first-party-analytics-cache-table",
@@ -1582,8 +1541,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,

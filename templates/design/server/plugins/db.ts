@@ -6,12 +6,6 @@ import {
 
 import * as schema from "../db/schema.js";
 
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
- * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
- * exports don't.
- */
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&
@@ -109,9 +103,6 @@ const designMigrations: Parameters<typeof runMigrations>[0] = [
     created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
   )`,
   },
-  // v7-v9: fix a legacy boolean column on Postgres. The migration rewriter
-  // turned INTEGER into BIGINT, so migration v3 created is_default as
-  // bigint. The current schema uses native BOOLEAN values, so convert it.
   {
     version: 7,
     sql: {
@@ -134,13 +125,6 @@ const designMigrations: Parameters<typeof runMigrations>[0] = [
     version: 10,
     sql: `ALTER TABLE design_systems ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT ''`,
   },
-  // v11: performance indexes. The ownable tables had no indexes, so every
-  // accessFilter() scan (owner_email / org_id / visibility predicates plus
-  // correlated EXISTS against the shares table) and every list ORDER BY
-  // updated_at was a full table scan. Composite indexes match accessFilter's
-  // ownership predicate + the list sort, and the shares indexes cover the
-  // EXISTS subquery's resource_id / principal_type / principal_id lookup.
-  // Additive only; supported by hosted Postgres and local PGlite.
   {
     version: 11,
     sql: `CREATE INDEX IF NOT EXISTS designs_owner_org_updated_idx ON designs (owner_email, org_id, updated_at);
@@ -148,10 +132,6 @@ CREATE INDEX IF NOT EXISTS design_systems_owner_org_updated_idx ON design_system
 CREATE INDEX IF NOT EXISTS design_shares_resource_principal_idx ON design_shares (resource_id, principal_type, principal_id);
 CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design_system_shares (resource_id, principal_type, principal_id)`,
   },
-  // v12: component_index — real-app component metadata (name, file path,
-  // export name, parsed prop types, cva/tailwind-variants variants, Storybook
-  // stories, runtime selectors). Ownable; access-checked via accessFilter /
-  // assertAccess.
   {
     version: 12,
     sql: `CREATE TABLE IF NOT EXISTS component_index (
@@ -172,10 +152,6 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
   },
-  // v13: motion_timeline — CSS-first keyframe animation tracks scoped to one
-  // design + source + screen/file. tracks JSON is the editing representation;
-  // the compiled CSS block (managed <style data-agent-native-motion>) is the
-  // runtime truth. compiled_hash guards drift between the two. Ownable.
   {
     version: 13,
     sql: `CREATE TABLE IF NOT EXISTS motion_timeline (
@@ -194,9 +170,6 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
   },
-  // v14: design_state — design states (alternate x-data/DOM snapshots for
-  // Default / Loading / Empty / Error), static data fixtures, and live
-  // captures of running-app route + props + API data. Ownable.
   {
     version: 14,
     sql: `CREATE TABLE IF NOT EXISTS design_state (
@@ -217,9 +190,6 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
   },
-  // v15: design_review_snapshot — cached a11y audit results and visual diff
-  // data keyed by design + optional base/compare design_versions pair.
-  // status: 'pending' | 'ready' | 'error'. Ownable.
   {
     version: 15,
     sql: `CREATE TABLE IF NOT EXISTS design_review_snapshot (
@@ -238,10 +208,6 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
   },
-  // v16: localhost source connections and write-consent grants. The schema
-  // existed before this migration in source, but fresh/existing DBs still
-  // need the concrete tables and the bridge_token column used by localhost
-  // write-back.
   {
     version: 16,
     sql: `CREATE TABLE IF NOT EXISTS design_localhost_connections (
@@ -279,9 +245,6 @@ CREATE TABLE IF NOT EXISTS design_localhost_write_grants (
 CREATE INDEX IF NOT EXISTS design_localhost_connections_owner_idx ON design_localhost_connections (owner_email, org_id, updated_at);
 CREATE INDEX IF NOT EXISTS design_localhost_write_grants_lookup_idx ON design_localhost_write_grants (design_id, connection_id, owner_email)`,
   },
-  // v17: older PostgreSQL databases may already have motion_timeline from the
-  // pre-ownable prototype. Backfill the ownable columns additively so the
-  // first "Add track" insert can persist through the current Drizzle schema.
   {
     version: 17,
     sql: `ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
@@ -581,8 +544,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,

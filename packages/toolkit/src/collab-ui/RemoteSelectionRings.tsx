@@ -1,23 +1,3 @@
-/**
- * RemoteSelectionRings — renders colored outline rings + name tags over
- * elements selected by remote participants.
- *
- * Each participant's presence payload may contain a `selection` key with an
- * opaque descriptor (e.g. a CSS selector). The `resolveRect` callback maps
- * a descriptor to a DOMRect (or null when the element isn't found). Rings
- * are rendered as absolutely-positioned outlines anchored to the container.
- *
- * Usage:
- *   <div style={{ position: "relative" }}>
- *     {content}
- *     <RemoteSelectionRings
- *       others={others}
- *       resolveRect={(selector) => document.querySelector(selector)?.getBoundingClientRect() ?? null}
- *       containerRef={containerRef}
- *     />
- *   </div>
- */
-
 import {
   useState,
   useEffect,
@@ -29,32 +9,13 @@ import {
 
 import type { OtherPresence } from "./types.js";
 
-/**
- * Selection descriptors may be a plain string (treated as the resolver
- * input) or an object carrying a resolver input plus a human label
- * ("Editing hero section").
- */
 export type SelectionDescriptor = string | { selector: string; label?: string };
 
 export interface RemoteSelectionRingsProps {
-  /** Remote participants. */
   others: OtherPresence[];
-  /**
-   * Key inside presence payload that carries the selection descriptor.
-   * Default: "selection"
-   */
   selectionKey?: string;
-  /**
-   * Resolver: maps a selection descriptor to a DOMRect relative to the
-   * viewport. Return null when the element is not found.
-   */
   resolveRect: (descriptor: string) => DOMRect | null;
-  /**
-   * Container element ref. Rings are positioned relative to this element's
-   * bounding box.
-   */
   containerRef: RefObject<HTMLElement | null>;
-  /** Additional CSS class for the overlay div. */
   className?: string;
 }
 
@@ -134,7 +95,6 @@ export function RemoteSelectionRings({
   const overlayRef = useRef<HTMLDivElement>(null);
   const [rings, setRings] = useState<Ring[]>([]);
 
-  // Recompute rings whenever others change or on animation frame.
   const recompute = () => {
     const container = containerRef.current;
     if (!container) {
@@ -158,7 +118,6 @@ export function RemoteSelectionRings({
       const domRect = resolveRect(selector);
       if (!domRect) continue;
 
-      // Convert viewport-relative rect to container-relative.
       const top = domRect.top - containerRect.top;
       const left = domRect.left - containerRect.left;
       if (
@@ -167,7 +126,7 @@ export function RemoteSelectionRings({
         left > containerRect.width ||
         top > containerRect.height
       ) {
-        continue; // Out of container bounds — skip.
+        continue;
       }
 
       const baseName = other.isAgent
@@ -186,7 +145,6 @@ export function RemoteSelectionRings({
     setRings(next);
   };
 
-  // Recompute on scroll/resize of the container to keep rings in sync.
   useLayoutEffect(() => {
     recompute();
     // eslint-disable-next-line react-hooks/exhaustive-deps

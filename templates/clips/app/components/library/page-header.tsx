@@ -103,23 +103,11 @@ export interface PageBreadcrumbItem {
   to?: string;
 }
 
-/**
- * Collapses breadcrumb segments only as far as the available header width
- * actually requires. Segments closest to the root are hidden first, so the
- * current page and its immediate parent stay visible: a long path degrades
- * to "Root / … / Parent / Current" rather than hiding the nearest ancestor.
- * Re-measures on resize so widening the window (or collapsing the sidebar)
- * brings hidden segments back.
- */
 function useBreadcrumbOverflow(itemCount: number) {
   const listRef = useRef<HTMLOListElement>(null);
   const [hiddenCount, setHiddenCount] = useState(0);
-  // Middle segments are everything strictly between the root and the
-  // current page; the immediate parent is never hidden.
   const maxHidden = Math.max(0, itemCount - 2 - 1);
 
-  // The path changed — start fully expanded and let the measurement below
-  // re-collapse only what doesn't fit.
   useLayoutEffect(() => {
     setHiddenCount(0);
   }, [itemCount]);
@@ -155,8 +143,6 @@ export function PageBreadcrumb({
 
   const fullPath = items.map((item) => item.label).join(" / ");
   const collapsed = hiddenCount > 0;
-  // Keep the root as an anchor, drop the segments right after it, and keep the
-  // whole tail (parent + current) visible.
   const visibleItems = collapsed
     ? [items[0], ...items.slice(1 + hiddenCount)]
     : items;
@@ -166,8 +152,6 @@ export function PageBreadcrumb({
       <BreadcrumbList ref={listRef} className="flex-nowrap overflow-hidden">
         {visibleItems.map((item, index) => {
           const current = index === visibleItems.length - 1;
-          // Ellipsis sits just after the root, standing in for the hidden
-          // left-side ancestors.
           const showEllipsisBefore = collapsed && index === 1;
 
           return (
@@ -203,7 +187,6 @@ export function PageBreadcrumb({
     </Breadcrumb>
   );
 
-  // The tooltip only adds value once ancestors are actually hidden.
   return collapsed ? (
     <Tooltip>
       <TooltipTrigger asChild>{breadcrumb}</TooltipTrigger>

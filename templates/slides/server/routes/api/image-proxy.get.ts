@@ -9,19 +9,6 @@ import {
   type RemoteImageFailure,
 } from "../../lib/fetch-remote-image.js";
 
-/**
- * Re-serve a remote image from our own origin.
- *
- * PDF/PPTX export rasterizes the slide DOM through a canvas, and the browser
- * blanks out any image whose host does not send `Access-Control-Allow-Origin`.
- * No client-side flag can override that, so images on hosts without CORS have
- * to come back through us to be same-origin.
- *
- * This is an image-only, size-capped fetcher — not a general proxy. Editor
- * requests use the session; public shared presentations use their live share
- * token. See `fetch-remote-image.ts` for the address pinning that keeps it
- * from being turned into an SSRF primitive.
- */
 const FAILURE_STATUS: Record<RemoteImageFailure, number> = {
   "unsupported-url": 400,
   "blocked-address": 400,
@@ -510,8 +497,6 @@ export default defineEventHandler(async (event) => {
     "Cache-Control",
     publicShare ? "private, no-store" : "private, max-age=3600",
   );
-  // The canvas reads these pixels back, so the response must be explicitly
-  // usable cross-origin even though it is served from our own host.
   event.node?.res?.setHeader("Access-Control-Allow-Origin", "*");
   return result.body;
 });

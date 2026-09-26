@@ -77,7 +77,6 @@ async function openOverview(page: Page, designId: string) {
   await page.waitForTimeout(2500);
 }
 
-/** Drags a shape inside the first screen card, offset so repeat draws don't overlap. */
 async function drawShape(page: Page, offset: number) {
   const box = (await page.locator("[data-screen-card]").first().boundingBox())!;
   const x = Math.max(box.x, 0) + 60 + offset;
@@ -89,7 +88,6 @@ async function drawShape(page: Page, offset: number) {
   await page.waitForTimeout(2000);
 }
 
-/** Border radii of every drawn ellipse in the screen's live preview. */
 async function drawnEllipseRadii(page: Page) {
   return page.evaluate(() => {
     const frame = document.querySelector<HTMLIFrameElement>(
@@ -118,7 +116,6 @@ test("the shape button keeps drawing the shape it was last set to", async ({
     await page.getByRole("menuitem", { name: "Ellipse" }).click();
     await drawShape(page, 0);
 
-    // Drawing drops back to Move by design; the group button must not.
     const shapeButton = toolbar.getByRole("button", {
       name: "Ellipse",
       exact: true,

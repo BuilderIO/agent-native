@@ -19,22 +19,11 @@ import {
 import { usePollLoop } from "../use-poll-loop.js";
 
 interface NotificationsBellProps {
-  /** Poll interval in ms. Set to 0 to disable polling. Default: 10000. */
   pollMs?: number;
-  /** Optional className for the outer container. */
   className?: string;
-  /**
-   * When true, fires a system-level `new Notification(...)` popup for each
-   * new unread notification — handy when the tab is in the background.
-   * Renders an "Enable browser notifications" prompt in the dropdown until
-   * the user grants permission. Silently no-ops on denied or unsupported.
-   */
   browserNotifications?: boolean;
-  /** Empty-state title shown when there are no notifications. */
   emptyTitle?: string;
-  /** Optional empty-state detail text. */
   emptyDescription?: string;
-  /** Optional notification for parent shells that need to coordinate overlays. */
   onOpenChange?: (open: boolean) => void;
 }
 
@@ -42,13 +31,6 @@ const POLL_MS_DEFAULT = 10_000;
 const SUPPORTS_NOTIFICATION =
   typeof window !== "undefined" && "Notification" in window;
 
-/**
- * Header-bar bell that shows the unread-notification count and a dropdown of
- * recent entries. Polling keeps it in sync (the framework poll loop already
- * bumps a version counter so notifications ride on that signal, but we poll
- * the count endpoint directly so the bell updates even outside an app-state
- * change).
- */
 export function NotificationsBell({
   pollMs = POLL_MS_DEFAULT,
   className,
@@ -61,19 +43,12 @@ export function NotificationsBell({
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationDto[] | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  // Init to "default" unconditionally so server and client render the same
-  // HTML — reading Notification.permission at init would diverge between SSR
-  // ("denied", no API) and hydration ("default"/"granted"), causing a mismatch
-  // in templates that mount the bell outside a ClientOnly boundary. We sync
-  // to the real value in a useEffect below.
   const [permission, setPermission] =
     useState<NotificationPermission>("default");
 
   useEffect(() => {
     if (SUPPORTS_NOTIFICATION) setPermission(Notification.permission);
   }, []);
-  // Ids already popped as browser notifications. Seeded on first run so
-  // existing unread don't pop retroactively on page load.
   const seenIdsRef = useRef<Set<string> | null>(null);
 
   const loadItems = useCallback(async () => {
@@ -89,11 +64,6 @@ export function NotificationsBell({
     }
   }, []);
 
-  // One polling callback used by both paths. When browserNotifications is on
-  // we fetch the unread list (source of truth for both the badge count AND
-  // the popup loop — no second /count request), and pop Notification() for
-  // any new ids. When off, we fetch just /count. The unread-list branch also
-  // opts out of visibility pause so popups still fire for backgrounded tabs.
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
       if (browserNotifications) {
@@ -107,10 +77,6 @@ export function NotificationsBell({
           if (!res.ok) return;
           const rows = (await res.json()) as NotificationDto[];
           setUnreadCount(rows.length);
-          // First run: treat everything as already seen so we don't pop
-          // retroactively on page load. After that, rebuild from the current
-          // unread list so ids for read/archived rows drop out — keeps the
-          // set bounded to the unread fetch limit (~20).
           const prev = seenIdsRef.current;
           const seen = new Set<string>();
           for (const n of rows) {
@@ -162,9 +128,6 @@ export function NotificationsBell({
 
   const markRead = async (id: string) => {
     try {
-      // `keepalive: true` lets the request survive page navigation —
-      // without it, clicking a notification with a link aborts this
-      // request mid-flight and the row stays unread.
       await fetch(agentNativePath(`/_agent-native/notifications/${id}/read`), {
         method: "POST",
         keepalive: true,
@@ -182,10 +145,6 @@ export function NotificationsBell({
     }
   };
 
-  // Reject any URL that isn't http(s) or a same-origin relative path. Blocks
-  // `javascript:` execution, `data:` URIs, and absolute redirects to phishing
-  // sites. Relative paths starting with `/` are routed through `appPath()` so
-  // the link works in mounted deployments (e.g. /mail subdirectory).
   const safeNotificationLink = (link: string): string | null => {
     if (link.startsWith("/") && !link.startsWith("//")) {
       return appPath(link);
@@ -383,10 +342,6 @@ export function NotificationsBell({
   );
 }
 
-// Severity color pairs — use /20 opacity backdrops that work against both
-// light and dark theme backgrounds; text uses 700/300 so it stays readable
-// in each mode (the `dark:` prefix is one of the few places where explicit
-// variants are necessary since these are brand-color tokens, not semantic).
 function SeverityBadge({ severity }: { severity: NotificationSeverity }) {
   const color =
     severity === "critical"

@@ -789,16 +789,6 @@ describe("withBetterAuthActionSession", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildDatabaseConfig — hosted-runtime local database guard
-//
-// getDbExec() (client.ts's initClient) and createGetDb()'s Drizzle opener
-// already refused to fall back to PGlite on a hosted function invocation.
-// This adapter resolves the same runtime URL but skipped the refusal
-// entirely, so signup/login reaching it first silently opened the ephemeral
-// per-instance PGlite file instead of failing loudly. All three now share
-// assertHostedRuntimeDatabase().
-// ---------------------------------------------------------------------------
 describe("buildDatabaseConfig hosted-runtime local database guard", () => {
   afterEach(() => {
     vi.unstubAllEnvs();

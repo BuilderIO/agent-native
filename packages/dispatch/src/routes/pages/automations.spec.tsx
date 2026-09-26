@@ -35,9 +35,6 @@ const automationB: DispatchAutomationItem = {
   lastStatus: "success",
 };
 
-// Real @tanstack/react-query is not exercised here — the route reads its
-// list straight from useQuery, so the hook itself is stubbed with a fixed
-// two-item list rather than standing up a QueryClient + network mock.
 vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
     if (String(queryKey[0]).includes("automations")) {
@@ -165,9 +162,6 @@ describe("AutomationsRoute", () => {
     expect(
       container.querySelector('[data-testid="details-panel"]')?.textContent,
     ).toBe(automationA.name);
-    // Selecting a row must push the identity into the address bar — a plain
-    // local-state selection leaves the URL unchanged, which is exactly the
-    // bug this test guards against (no way to link/reload/Back to a row).
     expect(locationText()).toBe(
       `/automations?automationId=${encodeURIComponent(automationIdentity(automationA))}`,
     );
@@ -212,11 +206,6 @@ describe("AutomationsRoute", () => {
       `/automations?automationId=${encodeURIComponent(automationIdentity(automationB))}`,
     );
 
-    // A row click is an explicit user selection, not URL canonicalization —
-    // it must push a new history entry so Back steps back through the prior
-    // selection (A) instead of skipping past the whole page's history in one
-    // jump. Replacing on every click (the bug this guards against) collapses
-    // all selections into a single entry.
     await act(async () => {
       goBack?.click();
     });

@@ -34,11 +34,6 @@ interface LayoutProps {
 
 const SIDEBAR_COLLAPSE_KEY = "chat.sidebar.collapsed";
 
-/**
- * Routes whose page renders its own toolbar. Layout still wraps these with the
- * left Sidebar and agent surfaces but skips the global Header so they don't
- * double-stack chrome.
- */
 function routeOwnsToolbar(pathname: string): boolean {
   return (
     pathname === "/chat" ||

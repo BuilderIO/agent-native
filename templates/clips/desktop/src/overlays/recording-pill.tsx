@@ -44,21 +44,14 @@ import { AskSteps } from "./ask-steps";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
 
-/** Cap height as a fraction of font size, for the system faces this stack
- *  resolves to. Used to find a line of text's optical centre. */
 const CAP_HEIGHT_RATIO = 0.72;
 
-/** A cursor crossing the capsule should not open it. Matches the recorder. */
 const HOVER_INTENT_MS = 150;
 
-/** The capsule's one spacing step, matched in styles.css. */
 const TRANSPORT_GAP_PX = 8;
 
-/** Longer than any reveal transition. Past this the browser is not advancing
- *  the animation, so the reveal has to finish itself. */
 const TRANSITION_STALL_MS = 400;
 
-/** Matches `pill-ask-sheet-out` in styles.css. */
 const ASK_SHEET_EXIT_MS = 200;
 
 type PillMode = "meeting" | "clip";
@@ -67,28 +60,15 @@ interface PillContext {
   meetingId?: string | null;
   mode?: PillMode;
   title?: string | null;
-  /** On screen, but capture has not attached yet. Never claim "recording". */
   starting?: boolean;
 }
 
-/**
- * Granola-style recording indicator. A floating pill anchored by Rust:
- * center-right for meetings, bottom-center for ordinary recordings.
- *
- *   - Collapsed (default): logo + live waveform capsule, click to expand.
- *   - Expanded: header + scrolling live transcript + Pause / Stop + Ask bar.
- *
- * The hosting Tauri window is always-on-top, transparent, no decorations,
- * and capture-excluded — see `recording_indicator.rs`. We only deal with
- * sizing the window when the user toggles the chevron.
- */
 const pillDemoMode = import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
 export function MeetingPill() {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);
-  /** Demo harness only: the meter reads capture events in the real app. */
   const [demoLevel, setDemoLevel] = useState<number | null>(null);
   const demoLevelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -109,12 +89,6 @@ export function MeetingPill() {
     "unknown" | "configured" | "missing" | "unavailable"
   >(pillDemoMode ? "configured" : "unknown");
   const providerStatusAbortRef = useRef<AbortController | null>(null);
-  // Inline ask conversation (the Wispr interaction): a sheet rises from the
-  // composer with the running exchange — user questions as chat bubbles,
-  // streamed answers, and contextual suggestion chips. In Tauri the answers
-  // stream live from the agent chat (see `streamMeetingAsk`); the demo
-  // branch streams canned answers so the interaction stays designable in a
-  // plain browser tab.
   const [askMessages, setAskMessages] = useState<
     Array<{
       role: "user" | "assistant";
@@ -123,11 +97,8 @@ export function MeetingPill() {
       steps?: AgentStep[];
     }>
   >([]);
-  // The flex column the transcript and the answer sheet divide between them.
   const pillInnerRef = useRef<HTMLDivElement | null>(null);
   const [askSheetOpen, setAskSheetOpen] = useState(false);
-  /** Held open for the exit animation. A drawer that vanishes on close reads
-   *  as a bug even when the entrance is right. */
   const [askSheetClosing, setAskSheetClosing] = useState(false);
   const askSheetExitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [askSheetHeight, setAskSheetHeight] = useState(ASK_SHEET_DEFAULT);
@@ -189,9 +160,6 @@ export function MeetingPill() {
     return () => window.removeEventListener("focus", onFocus);
   }, [checkProviderStatus, ctx.meetingId, ctx.mode, providerStatus]);
 
-  /** The last ~2 minutes of transcript, capped, most recent last — inlined
-   * into the ask scaffold so simple questions need no tool round trip and
-   * chip generation sees what was just said. */
   const recentTranscriptText = () => {
     const lines = transcriptLinesRef.current;
     const latest = lines[lines.length - 1]?.startMs ?? null;
@@ -207,14 +175,8 @@ export function MeetingPill() {
     if (out.length > 2_400) out = out.slice(-2_400);
     return out;
   };
-  // Follow-up context for the live transport: prior scaffolded questions and
-  // final answers, sent as `history` with each ask (no threadId — see
-  // `streamMeetingAsk`). Reset with the session.
   const askHistoryRef = useRef<AskTurn[]>([]);
   const askSheetScrollRef = useRef<HTMLDivElement | null>(null);
-  /** Whether the reader is at the live edge of the answer, so growth should
-   *  follow it. Same rule the transcript uses: a token stream that hard-scrolls
-   *  on every delta makes scrolling up to re-read an earlier turn impossible. */
   const askPinnedRef = useRef(true);
   const scrollAskSheetIfPinned = useCallback(() => {
     const el = askSheetScrollRef.current;
@@ -224,29 +186,12 @@ export function MeetingPill() {
     startY: number;
     startHeight: number;
   } | null>(null);
-  /**
-   * Whether the last grip gesture travelled far enough to be a resize.
-   *
-   * `click` fires after `pointerup`, so the drag state is always already
-   * cleared by the time the click handler runs — testing it there let every
-   * resize, including one that grew the sheet, dismiss it on release.
-   */
   const sheetDragMovedRef = useRef(false);
   const activeMeetingIdRef = useRef<string | null>(null);
-  // Detached / "floating" mode — Wispr-style pill that auto-moves to the
-  // top-right when the main app loses focus, with a drag handle. Driven by
-  // the `clips:pill-detached` event from Rust (toggled by JS via
-  // `recording_pill_set_detached`).
   const [detached, setDetached] = useState(false);
-  // Driven by the Rust-side global cursor poll (`clips:pill-hover`). macOS only
-  // delivers hover events to the key window, so while another app is focused
-  // CSS `:hover` never fires on the pill — we mirror the polled state into a
-  // class and key the hover styling off that too.
   const [hovered, setHovered] = useState(false);
   const startedAtRef = useRef<number>(Date.now());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Mic and system audio share one calm activity meter, matching Granola's
-  // single indicator for the combined meeting capture.
   const stopFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragStartScreenPointRef = useRef<ScreenPoint | null>(null);
 
@@ -276,16 +221,6 @@ export function MeetingPill() {
         const next: PillContext = {
           meetingId,
           mode,
-          // Rust re-emits this event on every `recording_pill_show` without a
-          // `title` or a `starting` field, so within one session absent means
-          // "no opinion" and the previous value stands — coercing `starting`
-          // to false there would race the flag to a live-looking pill.
-          //
-          // Across a session it means the opposite. A meeting's first context
-          // carries no title (the fetch that finds it has not returned yet),
-          // so carrying the old one opened the new meeting under the previous
-          // meeting's name — and scaffolded any ask made in that window with
-          // it, which is a wrong answer rather than a wrong label.
           title:
             ev.payload?.title ?? (isSameSession ? prev.title : null) ?? null,
           starting:
@@ -295,29 +230,15 @@ export function MeetingPill() {
         };
         ctxRef.current = next;
         setCtx(next);
-        // The Rust side re-shows (and re-emits this event for) the same pill
-        // window whenever the tray icon re-triggers `recording_pill_show`
-        // (e.g. toggling the popover) while a meeting is already in progress.
-        // Only reset session state below when the meeting/mode actually
-        // changed — otherwise an in-progress meeting's timer, transcript, and
-        // transcript would wipe out on every tray click.
         if (isSameSession) return;
-        // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);
         setPaused(false);
-        // The Rust side reuses the pill window across recordings, so the
-        // component never unmounts. Reset stop state explicitly when a
-        // new recording session begins, otherwise the Stop button stays
-        // disabled and a stale fallback timer can fire mid-session.
         setStopping(false);
         setFinishedMeetingId(null);
         setError(null);
         setExpanded(false);
-        // Reset transcript state for the new session.
         setPreloadedLines([]);
-        // A new session is a new meeting: drop the old ask conversation and
-        // abort any in-flight answer so it can't stream into the wrong sheet.
         askAbortRef.current?.abort();
         askAbortRef.current = null;
         chipsAbortRef.current?.abort();
@@ -335,8 +256,6 @@ export function MeetingPill() {
         }
       }),
     );
-    // Capture emits levels continuously once it attaches, including through
-    // silence — the first one means the engine is live.
     trackListen(
       listen("voice:audio-level", () => {
         clearStartingRef.current();
@@ -347,9 +266,6 @@ export function MeetingPill() {
         "clips:recorder-state",
         (ev) => {
           clearStartingRef.current();
-          // Meeting capture has its own optimistic pause state. Ordinary clips
-          // follow the recorder's authoritative broadcast so this reused pill
-          // cannot drift or emit an inverted command.
           if (ctxRef.current.mode !== "clip") return;
           setPaused(!!ev.payload.paused);
           setElapsed(
@@ -369,8 +285,6 @@ export function MeetingPill() {
         "meetings:transcription-stopped",
         (ev) => {
           const reason = ev.payload?.reason;
-          // "replaced" hands straight over to the next session and "app-quit"
-          // is tearing the window down — neither has a user left to read this.
           if (reason === "replaced" || reason === "app-quit") return;
           if (ctxRef.current.mode !== "meeting") return;
           const meetingId = ev.payload?.meetingId ?? activeMeetingIdRef.current;
@@ -392,26 +306,13 @@ export function MeetingPill() {
     trackListen(
       listen<{ detached: boolean }>("clips:pill-detached", (ev) => {
         setDetached(!!ev.payload?.detached);
-        // Detached pill auto-collapses — there's not enough room for the
-        // expanded transcript view in the small floating footprint.
         if (ev.payload?.detached) setExpanded(false);
       }),
     );
-    // Signal that all listeners are registered. app.tsx listens for this and
-    // re-emits the pill context and transcript preload for a fresh window.
     emit("clips:pill-ready", {}).catch(() => {});
-    // Recovery: the context event is push-only, so a pill window that mounts
-    // after it fired (webview reload, popover restart) would strand in clip
-    // mode with no ask bar. Rust owns the active meeting id — ask it.
     invoke<string | null>("get_active_meeting_id")
       .then((meetingId) => {
         if (!meetingId || stopped) return;
-        // Recovery only covers "no context ever arrived". This lookup is
-        // asynchronous, so by the time it answers a real `clips:pill-context`
-        // may have landed — and that event is authoritative where this is a
-        // guess. Applying it anyway replaced the live context with one carrying
-        // `title: null` and no `starting` flag, which is how a starting pill
-        // lost its spinner and a titled meeting lost its name.
         if (ctxRef.current.meetingId !== null) return;
         const next: PillContext = { meetingId, mode: "meeting", title: null };
         ctxRef.current = next;
@@ -420,8 +321,6 @@ export function MeetingPill() {
       })
       .catch(() => {});
     if (pillDemoMode) {
-      // Open in the starting state the real pill now shows, so the spinner is
-      // reviewable in the harness rather than only during a live start.
       ctxRef.current = {
         mode: "meeting",
         meetingId: "demo",
@@ -487,10 +386,7 @@ export function MeetingPill() {
     };
   }, []);
 
-  // Elapsed timer.
   useEffect(() => {
-    // Clip recordings already broadcast their pause-aware elapsed time every
-    // 500ms. Keep the local wall clock only for meeting mode.
     if (paused || finished || ctx.mode === "clip") return;
     tickRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000));
@@ -536,10 +432,6 @@ export function MeetingPill() {
     emit("clips:pill-stop", { meetingId: ctx.meetingId ?? null }).catch(
       () => {},
     );
-    // Meetings keep the pill up and switch it to the finished banner right
-    // away. Teardown (final flush, finalize) runs for seconds afterwards, so
-    // waiting on `meetings:transcription-stopped` would leave the pill looking
-    // stuck; the banner is what the user acts on, not the save.
     if (ctxRef.current.mode === "meeting" && meetingId) {
       showFinished(meetingId);
       return;
@@ -550,18 +442,6 @@ export function MeetingPill() {
     }, 3_000);
   }
 
-  // Stable callback for LiveTranscript to push locked-in lines up. Stable
-  // identity matters — it's a dep of an effect inside LiveTranscript.
-  /**
-   * Leave the starting state on evidence, not only on being told.
-   *
-   * `clips:pill-context` with `starting: false` is the intended signal, but it
-   * is a single push event: one dropped emit and the pill claims it is still
-   * starting a session that is already recording. Audio arriving IS the
-   * session, so anything that could only happen after capture attached also
-   * clears it.
-   */
-  /** The capsule and the transport segment inside it, for measured growth. */
   const capsuleRef = useRef<HTMLDivElement | null>(null);
   const transportRef = useRef<HTMLDivElement | null>(null);
   const windowOpChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -575,11 +455,6 @@ export function MeetingPill() {
 
   clearStartingRef.current = clearStarting;
 
-  /**
-   * Serialize window ops. Two resizes in flight read each other's stale
-   * geometry and the capsule ends up the wrong size — the same queue the
-   * recorder pill runs its segment growth through.
-   */
   const queueWindowOp = (op: () => Promise<void>) => {
     windowOpChainRef.current = windowOpChainRef.current
       .then(op)
@@ -588,16 +463,9 @@ export function MeetingPill() {
       });
   };
 
-  /**
-   * Size the window around the capsule's own layout, keeping the top edge
-   * fixed so growth extends downward — away from the cursor that is sitting
-   * on the logo at the top.
-   */
   const syncCapsuleWindow = useCallback((extraLogicalHeight: number) => {
     const el = capsuleRef.current;
     if (!el || pillDemoMode) return;
-    // offsetHeight is a layout metric, immune to a transition in flight; a
-    // rect read mid-animation locks the window to a half-open size.
     const contentH = el.offsetHeight + extraLogicalHeight;
     const contentW = el.offsetWidth;
     queueWindowOp(async () => {
@@ -613,26 +481,14 @@ export function MeetingPill() {
     });
   }, []);
 
-  /**
-   * Grow the capsule to reveal pause and stop, then let the segment animate
-   * its own height open — window first so there is room to grow into, and on
-   * the way out the window shrinks only once the segment has closed.
-   */
   useEffect(() => {
     if (expanded || detached || ctx.mode !== "meeting" || finished) return;
     const seg = transportRef.current;
     if (!seg) return;
-    // Nothing to pause or end until capture has attached.
     const open = hovered && !ctx.starting;
 
     let release: (() => void) | null = null;
 
-    /**
-     * The segment's own content height. `scrollHeight` cannot be used: the
-     * transport buttons carry hit-target overlays that extend past their box,
-     * and scrollHeight counts that overflow — which showed up as dead space
-     * under the last control.
-     */
     const contentHeight = () => {
       const kids = Array.from(seg.children).filter(
         (kid): kid is HTMLElement =>
@@ -652,15 +508,8 @@ export function MeetingPill() {
       seg.style.height = `${target}px`;
       seg.style.marginTop = open ? `${TRANSPORT_GAP_PX}px` : "0px";
       seg.style.opacity = open ? "1" : "0";
-      // Grow the window first so the capsule has somewhere to open into. It
-      // is transparent below the capsule, so the extra frame is invisible
-      // until the segment fills it.
       if (open) syncCapsuleWindow(target + TRANSPORT_GAP_PX);
 
-      // This window is never the key window, and the browser can stop
-      // advancing animations in one — the transition then never progresses
-      // and the capsule stays at the size it started from. Wait for the real
-      // transition, and if it never arrives, drop it and snap to the end.
       let settled = false;
       const settle = () => {
         if (settled) return;
@@ -673,8 +522,6 @@ export function MeetingPill() {
         seg.style.height = `${target}px`;
         seg.style.marginTop = open ? `${TRANSPORT_GAP_PX}px` : "0px";
         seg.style.opacity = open ? "1" : "0";
-        // Read back so the snapped value commits before the transition is
-        // restored, or the restore just re-animates from the old value.
         void seg.offsetHeight;
         seg.style.transition = "";
         settle();
@@ -687,8 +534,6 @@ export function MeetingPill() {
       };
     };
 
-    // Opening waits out a cursor that is only passing over. Closing does not,
-    // so the capsule never lingers open under a cursor that has left.
     let intent: ReturnType<typeof setTimeout> | null = null;
     if (open && !seg.dataset.open) intent = setTimeout(apply, HOVER_INTENT_MS);
     else apply();
@@ -707,17 +552,6 @@ export function MeetingPill() {
     syncCapsuleWindow,
   ]);
 
-  /**
-   * Put the header's glyphs on the title's optical centre line.
-   *
-   * Flexbox centres boxes, and a text box is not centred on its own ink: the
-   * ink sits wherever the font's ascent, descent and half-leading put it.
-   * Chrome and this app's webview do not resolve `-apple-system` to the same
-   * metrics — measured in the shipped webview, the controls sat 3.68px below
-   * the title's cap centre while Chrome put them within 0.15px. So the row is
-   * aligned by measurement rather than by construction: the shift is computed
-   * from the real rendered text and applied to everything that is not text.
-   */
   useEffect(() => {
     if (!expanded || pillDemoMode) return;
     let frame = 0;
@@ -733,18 +567,12 @@ export function MeetingPill() {
       title.removeChild(marker);
       if (!baseline) return;
       const fontSize = parseFloat(window.getComputedStyle(title).fontSize);
-      // Cap centre: half a cap-height above the baseline. 0.72em is the cap
-      // ratio for the system faces this stack resolves to, and a few
-      // hundredths of an em either way is invisible at 13px.
       const capCentre = baseline - (fontSize * CAP_HEIGHT_RATIO) / 2;
       const rect = controls.getBoundingClientRect();
       const shift = capCentre - (rect.top + rect.bottom) / 2;
       const style = (header as HTMLElement).style;
       style.setProperty("--header-ink-shift", `${shift.toFixed(2)}px`);
 
-      // The meter is measured from its own bars rather than sharing the
-      // controls' shift: its band is what the eye lines up against the text,
-      // and its box does not necessarily sit where their boxes do.
       const bars = Array.from(
         header.querySelectorAll<HTMLElement>(".pill-wave-meter i"),
       );
@@ -760,7 +588,6 @@ export function MeetingPill() {
         );
       }
     };
-    // After layout, and again on the next frame so a late font swap lands.
     align();
     frame = requestAnimationFrame(align);
     const timer = setTimeout(align, 400);
@@ -794,7 +621,6 @@ export function MeetingPill() {
     }
   };
 
-  /** Canned step rows so the demo harness shows the real streaming shape. */
   const demoAskSteps = (progress: number, done: boolean): AgentStep[] => {
     const steps: AgentStep[] = [
       {
@@ -877,23 +703,17 @@ export function MeetingPill() {
       }, 55);
       return;
     }
-    // Live transport: stream the answer from the agent chat into the same
-    // askMessages the demo branch fills, instead of ejecting to the web app.
     askAbortRef.current?.abort();
     const controller = new AbortController();
     askAbortRef.current = controller;
     openAskSheet();
-    // Asking is a request to watch the answer, so follow the live edge again
-    // even if the reader had scrolled up through an earlier turn.
     askPinnedRef.current = true;
     setAskMessages((m) => [
-      // A superseded in-flight answer keeps its partial text; drop its caret.
       ...m.map((msg) => (msg.streaming ? { ...msg, streaming: false } : msg)),
       { role: "user", text: question },
       { role: "assistant", text: "", streaming: true },
     ]);
     const appendToAnswer = (delta: string) => {
-      // A late chunk racing the abort must not touch the next ask's bubble.
       if (controller.signal.aborted) return;
       setAskMessages((m) => {
         const last = m[m.length - 1];
@@ -901,8 +721,6 @@ export function MeetingPill() {
         return [...m.slice(0, -1), { ...last, text: last.text + delta }];
       });
     };
-    // Tool calls, their outcomes, and progress labels land on the answer
-    // bubble as they stream, so the wait reads as work rather than a hang.
     const updateSteps = (next: (steps: AgentStep[]) => AgentStep[]) => {
       if (controller.signal.aborted) return;
       setAskMessages((m) => {
@@ -939,8 +757,6 @@ export function MeetingPill() {
               recentTranscript,
             ),
           },
-          // The note rides along so a follow-up turn sees that this reply was
-          // cut off rather than treating the fragment as what it decided to say.
           {
             role: "assistant",
             content: incomplete
@@ -958,9 +774,6 @@ export function MeetingPill() {
             ...m.slice(0, -1),
             {
               ...last,
-              // A run cut at a timeout, a loop cap, or an approval gate leaves
-              // a fragment on screen. Say so on the bubble, or the fragment
-              // reads as the whole answer.
               text: incomplete
                 ? last.text
                   ? `${last.text}\n\n${incomplete.message}`
@@ -988,9 +801,6 @@ export function MeetingPill() {
               ...last,
               text: last.text ? `${last.text}\n${line}` : line,
               streaming: false,
-              // The run died mid-step, so whatever was in flight did not
-              // finish. Settling it as done would caption a failed ask with
-              // "Read" and "Searched".
               steps: last.steps
                 ? settleSteps(last.steps, { kind: "error", message: line })
                 : last.steps,
@@ -1011,10 +821,6 @@ export function MeetingPill() {
     submitAsk(question);
   };
 
-  /** Chips are proposed by the agent from the recent transcript (tools off,
-   * JSON only), so they track what was actually just said — a spoken "we
-   * should meet Wednesday at 7" should surface a booking chip. Static
-   * fallbacks cover failures and the first seconds of a meeting. */
   const refreshAskChips = () => {
     if (pillDemoMode || providerStatus !== "configured") return;
     const mid = activeMeetingIdRef.current;
@@ -1035,20 +841,9 @@ export function MeetingPill() {
       history: [],
       signal: controller.signal,
       onTextDelta: () => {},
-      // Nothing the user typed drives this turn — it fires on a timer and its
-      // only input is what people in the room said. "Do not use any tools" in
-      // the prompt is a request; plan mode is the server refusing at dispatch,
-      // so a transcript that talks the model into calling a connected action
-      // cannot get one executed. Chips are only ever suggestions; the write
-      // happens later, from a chip the user actually taps, which runs in "act".
       mode: "plan",
       promptOverride: [
         "Do not use any tools. Reply with ONLY a JSON array, no prose and no code fences.",
-        // Plan mode appends a system prompt telling the model to ask
-        // clarifying questions and present a written plan of what it would
-        // touch. That is right for a planning turn and wrong for this one,
-        // which has to come back as parseable JSON, so the conflict is settled
-        // here rather than left to chance.
         "You are in read-only mode. That is expected and correct for this request: it only writes suggestion labels, so there is nothing to plan or approve. Do not describe a plan, do not list tools or risks, and do not ask a clarifying question — if the transcript is too thin to suggest anything, reply with an empty array [].",
         "Based on the live-meeting transcript below, propose up to 3 quick assistant actions or questions the user is most likely to want right now. Prefer concrete actions grounded in what was said (booking something mentioned, drafting a follow-up, checking whether a topic was discussed in past meetings).",
         'Each array item: {"label": "chip text, 24 chars max", "ask": "the full request to run"}.',
@@ -1058,8 +853,6 @@ export function MeetingPill() {
     })
       .then(({ answer, incomplete }) => {
         if (controller.signal.aborted) return;
-        // A cut-off run's JSON array is very likely missing its tail. Chips are
-        // a garnish, so drop them rather than showing whichever ones survived.
         if (incomplete) return;
         const match = answer.match(/\[[\s\S]*\]/);
         if (!match) return;
@@ -1088,8 +881,6 @@ export function MeetingPill() {
       clearInterval(askStreamRef.current);
       askStreamRef.current = null;
     }
-    // Dismissing the sheet abandons the in-flight answer; keep the partial
-    // text (minus its caret) for when the sheet reopens.
     askAbortRef.current?.abort();
     askAbortRef.current = null;
     setAskMessages((m) =>
@@ -1104,17 +895,10 @@ export function MeetingPill() {
     }, ASK_SHEET_EXIT_MS);
   };
 
-  // Text deltas, step rows, and each new question all grow the sheet. Follow
-  // them from one place after the DOM has the new content, rather than
-  // scrolling imperatively inside the handlers, where the height being read is
-  // still the previous render's.
   useEffect(() => {
     scrollAskSheetIfPinned();
   }, [askMessages, askSheetOpen, scrollAskSheetIfPinned]);
 
-  // Losing height — the grip resize, the panel resize clamp — scrolls the
-  // newest text out of view with nothing to bring it back. Same treatment the
-  // transcript already gets, and only while the reader is at the live edge.
   useEffect(() => {
     const el = askSheetScrollRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -1123,9 +907,6 @@ export function MeetingPill() {
     return () => observer.disconnect();
   }, [askSheetOpen, scrollAskSheetIfPinned]);
 
-  // A split that leaves the transcript room on a tall window can starve it on a
-  // short one, so the ratio is re-clamped against the panel's real height
-  // whenever that height changes.
   useEffect(() => {
     const host = pillInnerRef.current;
     if (!host || !askSheetOpen || typeof ResizeObserver === "undefined") return;
@@ -1138,7 +919,6 @@ export function MeetingPill() {
     return () => observer.disconnect();
   }, [askSheetOpen]);
 
-  // The sheet's grab handle: drag to resize, pull down far enough to dismiss.
   const handleSheetHandlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -1163,14 +943,10 @@ export function MeetingPill() {
       closeAskSheet();
     }
   };
-  // A cancelled pointer never delivers `pointerup`. Without this the drag stays
-  // live and a later hover over the grip resizes the sheet with no button held.
   const handleSheetHandlePointerCancel = () => {
     sheetDragRef.current = null;
   };
 
-  // Persist the user's expanded-panel size while they drag the native edge
-  // grips (the window is resizable only while expanded).
   useEffect(() => {
     if (pillDemoMode || !expanded) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1195,7 +971,6 @@ export function MeetingPill() {
     };
   }, [expanded]);
 
-  // Escape closes the ask sheet before anything else.
   useEffect(() => {
     if (!askSheetOpen) return;
     const onKey = (e: KeyboardEvent) => {

@@ -7,8 +7,6 @@ import {
   YJS_UNDO_SELECTION_META_KEY,
 } from "@/pages/design-editor/history";
 
-/** Minimal stand-in for `Y.UndoManager` — only the `undoStack`/`meta` shape
- * `stampYjsUndoSelection`/`readYjsUndoSelection` actually touch. */
 function fakeUndoManager(stackSize: number) {
   return {
     undoStack: Array.from({ length: stackSize }, () => ({
@@ -25,8 +23,6 @@ describe("captureYjsUndoStackTop / stampYjsUndoSelection / readYjsUndoSelection"
       selectedElement: { selector: "#box-a" } as any,
       selectedLayerIds: ["box-a"],
     };
-    // A gesture's write pushes a fresh stack item, same as a real
-    // `Y.UndoManager` would after `writeCollabText`.
     um.undoStack.push({ meta: new Map() });
 
     stampYjsUndoSelection(um as any, before, snapshot);
@@ -39,8 +35,6 @@ describe("captureYjsUndoStackTop / stampYjsUndoSelection / readYjsUndoSelection"
     const um = fakeUndoManager(1);
     um.undoStack[0]!.meta.set(YJS_UNDO_SELECTION_META_KEY, "earlier-gesture");
     const before = captureYjsUndoStackTop(um as any);
-    // No new item pushed — coalesced (or a no-op write): top is still the
-    // SAME object reference as `before`.
 
     stampYjsUndoSelection(um as any, before, {
       selectedElement: null,

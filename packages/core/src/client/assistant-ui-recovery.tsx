@@ -44,7 +44,6 @@ export function isAssistantUiRecoverableRenderError(error: unknown): boolean {
 
 type AssistantUiStaleIndexErrorBoundaryProps = {
   resetKey: string;
-  /** Remount children when the recovery scope changes. */
   remountOnResetKey?: boolean;
   componentName?: string;
   fallback?: React.ReactNode;

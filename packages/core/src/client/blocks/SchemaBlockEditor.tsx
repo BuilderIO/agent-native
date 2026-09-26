@@ -7,20 +7,6 @@ import { ltrCodeBlockProps } from "./code-block-direction.js";
 import { introspect, type FieldDescriptor } from "./schema-form/introspect.js";
 import type { BlockRenderContext } from "./types.js";
 
-/**
- * Schema-driven auto-editor. When a {@link BlockSpec} omits `Edit`, the registry
- * renders this: it walks the block's zod `data` schema and renders one control
- * per field (string → input, longtext → textarea, number, boolean → toggle,
- * enum → native select, array → repeating rows, object → nested fieldset). A
- * `markdown()`-tagged string field defers to the app-provided inline rich
- * editor via `ctx.renderMarkdownEditor` so prose stays Notion-editable.
- *
- * It uses plain accessible native controls (not template shadcn primitives,
- * which core does not bundle) styled to match the shadcn look. Validation runs
- * the spec's own schema on every edit; the raw edit is kept in local state so a
- * transiently-invalid value (e.g. mid-typing) doesn't get rolled back, and only
- * valid data is committed upstream.
- */
 export function SchemaBlockEditor<T>({
   data,
   onChange,
@@ -42,8 +28,6 @@ export function SchemaBlockEditor<T>({
   const setField = (key: string, value: unknown) => {
     const next = { ...(data as Record<string, unknown>), [key]: value } as T;
     const parsed = schema.safeParse(next);
-    // Commit valid data; otherwise pass the raw edit through so the user can
-    // keep typing — the upstream owner re-validates before persisting.
     onChange((parsed.success ? parsed.data : next) as T);
   };
 
@@ -110,12 +94,9 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** A sensible empty value for a single field, used when adding array items. */
 function emptyForField(field: FieldDescriptor): unknown {
   switch (field.kind) {
     case "text":
-      // A field literally named `id` gets a fresh stable id so new rows are
-      // distinguishable without the user having to type one.
       return field.key === "id"
         ? `item-${Math.random().toString(36).slice(2, 10)}`
         : "";
@@ -133,13 +114,10 @@ function emptyForField(field: FieldDescriptor): unknown {
       return emptyObjectFromFields(field.fields);
     case "number":
     default:
-      // number → undefined (the input shows blank until the user types); any
-      // unsupported kind also defaults to undefined.
       return undefined;
   }
 }
 
-/** Build an empty object value from a descriptor's child fields. */
 function emptyObjectFromFields(
   fields: FieldDescriptor[] | undefined,
 ): Record<string, unknown> {
@@ -150,7 +128,6 @@ function emptyObjectFromFields(
   return result;
 }
 
-/** A scalar element kind classified from an array's inner element schema. */
 function scalarKindFromInner(
   inner: FieldDescriptor["inner"],
 ): "number" | "boolean" | "text" {
@@ -160,7 +137,6 @@ function scalarKindFromInner(
   return "text";
 }
 
-/** An empty value for a scalar array element of the given kind. */
 function emptyScalar(kind: "number" | "boolean" | "text"): unknown {
   if (kind === "boolean") return false;
   if (kind === "number") return undefined;
@@ -193,7 +169,6 @@ function FieldControl({
       <label className="flex flex-col gap-1.5">
         <FieldLabel>{field.label}</FieldLabel>
         {node ?? (
-          // Fallback when no app markdown editor is injected: a plain textarea.
           <textarea
             data-plan-interactive
             className={textareaClass}
@@ -438,9 +413,6 @@ function FieldControl({
     );
   }
 
-  // Unsupported / structured-without-fields: the auto-editor cannot infer a
-  // control. Blocks with these fields should ship a custom `Edit`. Surface a
-  // hint in dev so the gap is visible.
   return (
     <div
       className={cn(

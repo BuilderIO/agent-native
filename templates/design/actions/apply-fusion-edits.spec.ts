@@ -1,9 +1,3 @@
-/**
- * Tests for apply-fusion-edits batching: pending queued edits become one
- * numbered prompt for the app agent, and rows transition to sent/error based
- * on the dispatch result.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/sharing", () => ({

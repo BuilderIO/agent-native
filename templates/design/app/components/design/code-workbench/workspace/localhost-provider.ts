@@ -9,21 +9,8 @@ import {
   type WorkspaceWriteResult,
 } from "./types";
 
-/**
- * Workspace provider over a connected local app's real files, via the
- * localhost design bridge (list-local-files, read-local-file,
- * write-local-file actions -> packages/core design-connect bridge).
- *
- * Reads require only editor access + a valid bridge connection. Writes
- * additionally require a user-approved write-consent grant (verified
- * server-side by write-local-file / verifyWriteGrant); a missing or expired
- * grant surfaces here as LocalWriteConsentRequiredError so the UI can run the
- * existing LocalhostWriteConsentDialog flow and retry.
- */
-
 export class LocalWriteConsentRequiredError extends Error {
   connectionId: string;
-  /** The relative path the consent dialog should show/scope to, when known. */
   path?: string;
 
   constructor(connectionId: string, path?: string, message?: string) {
@@ -87,7 +74,6 @@ export async function withLocalReadTimeout<T>(
   }
 }
 
-/** Detect the write-local-file action's grant-related error messages. */
 function isWriteConsentError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return (
@@ -96,7 +82,6 @@ function isWriteConsentError(error: unknown): boolean {
   );
 }
 
-/** Detect the bridge's version-conflict error message (see design-connect.ts). */
 function isVersionConflictError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return /version conflict/i.test(error.message);
@@ -106,20 +91,7 @@ export interface CreateLocalhostProviderOptions {
   connectionId: string;
   label: string;
   rootPath?: string;
-  /**
-   * Whether the current user has editor access to the design. Local files are
-   * editable whenever this is true — the write-consent grant is enforced
-   * server-side at save time, and a missing grant surfaces as
-   * LocalWriteConsentRequiredError so the shell can run the consent dialog and
-   * retry the save.
-   */
   canEdit: boolean;
-  /**
-   * The owning design's id. write-local-file requires {designId,
-   * connectionId, relPath, content} — designId is not optional server-side
-   * (verifyWriteGrant looks up the grant by designId + connectionId +
-   * ownerEmail).
-   */
   designId: string;
 }
 
@@ -173,8 +145,6 @@ export function createLocalhostProvider(
     content: string,
     expectedVersionHash?: string,
   ): Promise<WorkspaceWriteResult> {
-    // write-local-file's schema uses relPath (not path) and a bare content
-    // field (not a {mode} wrapper) — see templates/design/actions/write-local-file.ts.
     try {
       const response = await callAction<WriteLocalFileResponse>(
         "write-local-file",

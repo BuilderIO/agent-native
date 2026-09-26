@@ -28,11 +28,6 @@ export function declaresFeatureFlagDelegation(token: string): boolean {
   }
 }
 
-/**
- * Narrow opt-in adapter for fleet flag control. It owns Bearer credentials only
- * for these two actions; malformed owned bearers reject rather than falling
- * back to a browser cookie.
- */
 export function createFeatureFlagA2AActionRouteAuth(
   actionName: keyof typeof FLAG_ACTION_SCOPES,
 ): ActionRouteAuthAdapter {

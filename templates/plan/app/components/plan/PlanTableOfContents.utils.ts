@@ -68,9 +68,6 @@ function findReadonlyHeadingElement(
 function findMainEditorProse(root: HTMLElement): HTMLElement | null {
   const editor = root.querySelector<HTMLElement>(".plan-document-editor");
   if (!editor) return null;
-  // Tiptap wraps the ProseMirror root in a div, so `.an-rich-md-prose` isn't a
-  // direct child — match at any depth. First in document order is the top-level
-  // prose (nested-block editors live deeper inside it).
   return editor.querySelector<HTMLElement>(".an-rich-md-prose");
 }
 
@@ -115,10 +112,6 @@ export function resolvePlanTocElements(
   root: HTMLElement,
   items: PlanTocItem[],
 ) {
-  // Map each TOC item to its rendered element WITHOUT mutating the DOM. Heading
-  // items resolve by their source block instead of a global heading counter, so
-  // markdown headings rendered inside callouts, custom blocks, or transient
-  // editor fallbacks cannot shift later TOC links onto the wrong element.
   const map = new Map<string, HTMLElement>();
 
   for (const item of items) {
@@ -176,16 +169,11 @@ export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
     ];
   });
 
-  // When heading-derived items are sparse (fewer than 3), synthesize semantic
-  // entries from block types so block-heavy documents get a useful TOC. Entries
-  // are merged with any real headings in document order, and each synthetic
-  // entry is only added once (first matching block wins).
   const headingCount = items.filter((item) => item.kind === "heading").length;
   if (items.length < 3) {
     const synthetic: PlanTocItem[] = [];
     const usedBlockIds = new Set(items.map((item) => item.blockId));
 
-    // Semantic label map: block type → TOC label.
     const SYNTH_LABELS: Partial<Record<PlanBlock["type"], string>> = {
       "file-tree": "Files changed",
       "data-model": "Schema",
@@ -195,10 +183,6 @@ export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
       "question-form": "Open questions",
     };
 
-    // Skip any label already used — seeded with real heading/title labels so a
-    // synthetic entry never duplicates a section the document already names
-    // (e.g. a "## Key changes" heading next to a diff block), then growing as
-    // synthetics are added so each label appears at most once.
     const usedLabels = new Set(
       items.map((item) => item.label.trim().toLowerCase()),
     );
@@ -219,11 +203,7 @@ export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
       });
     }
 
-    // Merge synthetic items with real heading items in document order. Real
-    // headings keep their positions; synthetic items are inserted in between
-    // based on block order.
     if (synthetic.length > 0) {
-      // Build a block-index lookup for ordering.
       const blockOrderMap = new Map(blocks.map((b, i) => [b.id, i]));
       const merged = [...items, ...synthetic].sort((a, b) => {
         const ia = blockOrderMap.get(a.blockId) ?? 9999;
@@ -234,7 +214,7 @@ export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
     }
   }
 
-  void headingCount; // referenced above for potential future threshold tuning
+  void headingCount;
   return items;
 }
 

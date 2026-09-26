@@ -306,8 +306,6 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
             })
             .catch(() => null),
         ]);
-        // Return the shape, not an &&-chain: a bare `false` does not say which
-        // of these five the dock got wrong.
         return {
           dockCount,
           launcherVisible,

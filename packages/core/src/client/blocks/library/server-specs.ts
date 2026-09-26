@@ -15,9 +15,6 @@ import {
   calloutMdx,
   type CalloutData,
 } from "./callout.config.js";
-// React-free schema + MDX config for the standard library. The matching React
-// `Read`/`Edit` live in the full client entry; the server path only ever touches
-// `spec.schema` / `spec.mdx`, so these configs register with a render-only stub.
 import {
   checklistSchema,
   checklistMdx,
@@ -82,23 +79,8 @@ import {
   type WireframeData,
 } from "./wireframe.config.js";
 
-/** Render-only stub for server / agent registries (never invoked off-browser). */
 const ServerReadStub = () => null;
 
-/**
- * Canonical React-free specs for the standard library, used by BOTH apps' server
- * / shared registries (`plan-block-registry.ts`, `nfm-registry.ts`). Each carries
- * only the parts the server path touches — `schema` + `mdx` + metadata for the
- * agent schema export — with a render-only `Read` stub. The full client specs
- * (with real React `Read`/`Edit`) live in `./specs.tsx`; both share the identical
- * `schema`/`mdx` config so inline source can never drift from what renders.
- *
- * `table` keeps the core default `type` here; content's server registry renames
- * it to `table-block` via {@link LibraryBlockConfigOverrides}. The descriptions
- * are the neutral agent-schema phrasing; an app that curates a longer
- * description for a block (e.g. plan's hand-drawn Mermaid, plan's detailed file
- * tree) passes an override rather than re-authoring the spec.
- */
 export const libraryBlockConfigs: BlockSpec<any>[] = [
   defineBlock<ChecklistData>({
     type: "checklist",
@@ -305,12 +287,6 @@ export const libraryBlockConfigs: BlockSpec<any>[] = [
   }),
 ];
 
-/**
- * Per-block overrides for {@link registerLibraryBlockConfigs}, keyed by canonical
- * `type`. Servers tweak only the agent-facing fields that legitimately differ:
- * content re-types `table` → `table-block`; plan curates a longer Mermaid and
- * file-tree description. The `schema` / `mdx` config always stays shared.
- */
 export type LibraryBlockConfigOverrides = Record<
   string,
   Partial<
@@ -318,13 +294,6 @@ export type LibraryBlockConfigOverrides = Record<
   >
 >;
 
-/**
- * Register the React-free standard-library config stubs into a server / shared
- * {@link BlockRegistry}. Both `plan-block-registry.ts` and `nfm-registry.ts` call
- * this, then register only their app-specific block configs (plan adds callout /
- * diagram / wireframe / question-form) on top — so the shared library lives in
- * exactly one place across browser AND server registries.
- */
 export function registerLibraryBlockConfigs(
   registry: BlockRegistry,
   options: { overrides?: LibraryBlockConfigOverrides } = {},

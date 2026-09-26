@@ -160,8 +160,6 @@ describe("ensureS3FileUploadProvider", () => {
     ).toHaveLength(1);
   });
 
-  // An app registers its own implementation under the conventional `s3` id,
-  // and every later bootstrap that reaches this helper has to leave it there.
   it("leaves an app's own provider in the slot", () => {
     const appProvider: FileUploadProvider = {
       id: "s3",

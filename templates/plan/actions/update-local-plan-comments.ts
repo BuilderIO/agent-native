@@ -78,8 +78,6 @@ export default defineAction({
       existing.map((comment) => [comment.id, comment]),
     );
 
-    // New comments (and replies) reuse the hosted row-builder for id minting,
-    // thread linkage, and metadata; existing ids fall through to the edit path.
     const inserts = args.comments.filter(
       (comment) => !comment.id || !existingById.has(comment.id),
     );
@@ -96,7 +94,6 @@ export default defineAction({
       now,
     });
     for (const row of insertedRows) {
-      // Local comments are always a one-way note to the agent.
       merged.set(row.id, {
         id: row.id,
         planId: row.planId,

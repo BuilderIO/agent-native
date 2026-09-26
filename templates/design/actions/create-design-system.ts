@@ -110,7 +110,6 @@ export default defineAction({
       throw new Error("title and data are required");
     }
 
-    // Validate that data is valid JSON and not an empty primitive.
     try {
       const parsed = JSON.parse(resolvedData);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -134,9 +133,6 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    // Check only this user's owned systems within the same org. Shared systems
-    // should not prevent the first system a user creates from becoming their
-    // default, and systems in other orgs must not suppress the default in this org.
     const existing = await db
       .select({ id: schema.designSystems.id })
       .from(schema.designSystems)

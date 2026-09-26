@@ -1,9 +1,3 @@
-// Integration tests for the grid's value payload. They run against a real
-// PGlite database with the real migrations, the real bitemporal writer, and the
-// real sharing registry — a mocked accessFilter would make the scoping
-// assertion vacuous, and a mocked writer would not produce the closed-out
-// history rows this action has to ignore.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -166,7 +160,6 @@ beforeAll(async () => {
         { provider: "hubspot", fieldName: "stage", confidence: 0.9 },
       ]),
     });
-    // A second write closes the first row: only the current one may surface.
     await writeCrmRecordField({
       target: { recordId: RECORD_ID },
       attribute: stage,

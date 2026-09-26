@@ -55,10 +55,6 @@ type ContentRecentQueryData = {
   entries: ContentRecentResult[];
 };
 
-/**
- * Reflect a pin change in cached Recent rows right away; the pin mutation's
- * own refresh reconciles the server value.
- */
 export function setCachedRecentPinnedState(
   queryClient: ReturnType<typeof useQueryClient>,
   documentId: string,
@@ -80,7 +76,6 @@ export function setCachedRecentPinnedState(
   );
 }
 
-/** Forget a Recent destination immediately, restoring it if the save fails. */
 export function useRemoveContentRecent() {
   const queryClient = useQueryClient();
   const t = useT();
@@ -93,8 +88,6 @@ export function useRemoveContentRecent() {
     (target: ContentRecentTarget) => {
       const queryKey = ["action", "get-content-recent"];
       const key = contentRecentTargetKey(target);
-      // Remember only the removed entry and its place in each cached list, so
-      // a failure restores it without undoing other visits or removals.
       const removed = new Map<
         string,
         { index: number; entry: ContentRecentQueryData["entries"][number] }

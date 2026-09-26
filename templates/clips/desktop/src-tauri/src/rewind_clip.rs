@@ -95,9 +95,6 @@ pub(crate) fn rewind_clip_status(
     })
 }
 
-/// Perform every potentially slow operation before the numeric countdown.
-/// The resulting secondary writer shares Rewind's physical producer but is
-/// still closed to samples until `rewind_clip_start` activates it at zero.
 #[tauri::command]
 pub(crate) fn rewind_clip_prepare(
     app: AppHandle,
@@ -119,10 +116,6 @@ pub(crate) fn rewind_clip_prepare(
     if state.0.lock().map_err(|error| error.to_string())?.is_some() {
         return Err("a Rewind-derived clip is already prepared or active".into());
     }
-    // The completion slot is take-once but never expires, and the recording
-    // pill drains it whenever a completion card opens. The native start path
-    // clears it per session; this one has to as well, or a Rewind take's card
-    // can consume the previous recording's result and show its URL.
     native_screen::reset_native_upload_completion_state();
     let temporary_audio = if include_mic || include_system_audio {
         screen_memory::acquire_temporary_audio_consumer(
@@ -231,8 +224,6 @@ pub(crate) fn rewind_clip_prepare(
     })
 }
 
-/// Countdown zero/Enter boundary. Preparation has already installed the Clip
-/// writer, so this path performs only in-memory graph and callback admission.
 #[tauri::command]
 pub(crate) fn rewind_clip_start(
     app: AppHandle,
@@ -674,9 +665,6 @@ fn select_audio(
     })
 }
 
-/// Materialize an explicit recent range as one exact local MP4. This powers
-/// “Save what just happened” without copying whole five-minute container
-/// segments (which could otherwise retain media from before the chosen range).
 pub(crate) fn materialize_recent_exact(
     app: &AppHandle,
     duration: std::time::Duration,
@@ -739,9 +727,6 @@ fn materialize_wall_clock_exact(
     match materialize() {
         Ok(artifact) => Ok(artifact),
         Err(initial_error) => {
-            // A request ending near “now” may overlap the still-open segment.
-            // Fence once and retry. Older retained ranges never depend on the
-            // current capture graph, so they survive app restarts and pauses.
             if Utc::now().signed_duration_since(ended).num_minutes() <= 6
                 && screen_memory::fence_active_for_clip(app).is_ok()
             {
@@ -1495,9 +1480,6 @@ pub(crate) fn rewind_clip_cancel(
     Ok(())
 }
 
-/// Called by Screen Memory whenever a segment becomes finalized. Keeping this
-/// hook in the consumer module prevents rotation/pruning from racing a clip
-/// whose materialization has not happened yet.
 pub(crate) fn pin_finalized_segment_if_active(
     app: &AppHandle,
     segment: &ScreenMemorySegmentMetadata,

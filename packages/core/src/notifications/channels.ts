@@ -52,8 +52,6 @@ export function registerBuiltinNotificationChannels(): void {
   registerNotificationChannel(
     createSlackWebhookChannel(process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL),
   );
-  // Email is always registered so per-notification `metadata.emailRecipients`
-  // work without a workspace-wide env flag (same pattern as webhook/slack).
   registerNotificationChannel(createEmailChannel());
 }
 
@@ -72,8 +70,6 @@ function createWebhookChannel(
         overrideUrlTemplate ??
         metadataString(input.metadata, "webhookUrl") ??
         envUrlTemplate?.trim();
-      // No-op when neither a per-notification nor workspace URL is set —
-      // mirrors email's empty-recipients behavior so notify-all stays quiet.
       if (!urlTemplate) return false;
       const { url, headers, assertUrlAllowed } = await resolveWebhookRequest(
         urlTemplate,
@@ -108,13 +104,6 @@ function createWebhookChannel(
   };
 }
 
-/**
- * Whether the workspace-wide Slack default is set, so a health check can
- * surface "nobody will hear about the next outage" instead of staying quiet.
- * Same resolution `createSlackWebhookChannel` uses for its env fallback —
- * a per-notification `metadata.slackWebhookUrl` override doesn't exist yet at
- * health-check time, so it can't be part of this answer.
- */
 export function isSlackWebhookConfigured(): boolean {
   // config-ok: must match the sibling NOTIFICATIONS_* reads in
   // registerBuiltinNotificationChannels above; moving that env family into
@@ -237,20 +226,6 @@ async function resolveWebhookRequest(
   headers: Record<string, string>;
   assertUrlAllowed: (url: string) => void;
 }> {
-  // Resolve `${keys.NAME}` references through the same request-scope
-  // cascade already used by extension fetches (extensions/routes.ts) and
-  // automation connector headers (automation/index.ts): user scope first
-  // (a personal override always wins), then the active org scope — where
-  // the Dispatch vault syncs workspace secrets — then workspace scope.
-  // Org/workspace vault rows are write-gated (org-admin + Dispatch vault
-  // UI), so reading them here is safe by default; this is unrelated to the
-  // opt-in-only user→workspace fallback in resolveKeyReferences (audit 05
-  // H2 in secrets/substitution.ts), which stays off. In headless contexts
-  // (e.g. a scheduled monitor check) getRequestOrgId() may be unset, in
-  // which case the cascade checks user + solo-workspace scopes only — a
-  // strict superset of the previous user-scope-only behavior.
-  // Missing keys throw — the error surfaces in logs and the channel is marked
-  // un-delivered, but other channels still run.
   const urlResult = await resolveKeyReferencesWithRequestScopes(
     urlTemplate,
     owner,
@@ -400,11 +375,6 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * Read up to ~1 KB from the body for error context. Streams chunks so a
- * misbehaving endpoint returning a large error page doesn't pin that whole
- * payload in memory per failed webhook.
- */
 async function readErrorSnippet(res: Response): Promise<string> {
   const reader = res.body?.getReader();
   if (!reader) return "";

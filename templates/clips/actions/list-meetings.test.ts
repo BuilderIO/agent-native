@@ -3,9 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
   calendarAccounts: [] as Array<Record<string, unknown>>,
-  // The action now issues two `.where()` calls per run — the meetings query
-  // and, when persisted rows come back, a second batched participants fetch —
-  // so both must be captured rather than one overwriting the other.
   whereCalls: [] as unknown[],
   limit: null as number | null,
   offset: null as number | null,
@@ -102,11 +99,6 @@ vi.mock("../server/db/index.js", () => {
         state.offset = value;
         return state.rows;
       });
-      // The participants batch fetch is `await db.select()...where(...)` with
-      // no further chaining, so `builder` itself must be thenable — it
-      // resolves to no participants here since these tests don't exercise
-      // that path; `.offset()` above (a real async function) still governs
-      // the meetings query's own resolution.
       builder.then = (resolve: (value: unknown[]) => void) =>
         resolve(
           selectedTable === schema.calendarAccounts
@@ -231,12 +223,6 @@ describe("list-meetings history", () => {
     );
   });
 
-  // Regression: an earlier fix kept "Load older" reachable past 500 rows by
-  // growing the fetch-from-zero window (`offset + limit + 1`), which still
-  // hard-caps at 500 total rows no matter how large `offset` gets — offset
-  // 500 would ask for the same first-500-row window and always come back
-  // empty. Real per-page DB offset has no such ceiling: the LIMIT stays
-  // bounded to this page's size regardless of how deep `offset` reaches.
   it("paginates for real in SQL, so history is reachable arbitrarily far past 500 rows", async () => {
     const parsed = action.schema.parse({
       view: "past",

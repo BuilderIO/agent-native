@@ -4,84 +4,52 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-// Guard: all templates/<name>/app/components/ui/*.tsx files that share the
-// same primitive name must be byte-identical, OR must be listed in the
-// ALLOW_LIST below with a documented reason.
-//
-// If you update a primitive, update it in EVERY template that holds it (or
-// use the canonical template as the source and copy with:
-//
-//   cp templates/analytics/app/components/ui/<file>.tsx \
-//      templates/<other>/app/components/ui/<file>.tsx
-//
-// If a template genuinely needs a behaviorally different variant, add it here
-// with a comment explaining why the deviation is intentional.
-
-// Each entry: [primitive filename, template name, reason for deviation]
 const ALLOW_LIST: Array<[string, string, string]> = [
-  // toolkit-provider.tsx — Chat uses the narrow provider entrypoint so the
-  // AgentKit bootstrap does not pull the entire Toolkit root into its client
-  // graph.
   [
     "toolkit-provider.tsx",
     "chat",
     "AgentKit bootstrap uses the narrow Toolkit provider entrypoint",
   ],
 
-  // popover.tsx — forms keeps a wider collision boundary so form-editor
-  // controls remain within the viewport on narrow screens.
   [
     "popover.tsx",
     "forms",
     "viewport-safe collision padding for form-editor controls",
   ],
 
-  // dropdown-menu.tsx — brain uses the newer shadcn data-slot implementation.
   [
     "dropdown-menu.tsx",
     "brain",
     "newer shadcn data-slot dropdown implementation",
   ],
 
-  // input.tsx — mail uses h-9 instead of h-10 for intentional compact sizing
-  // in its dense UI.
   ["input.tsx", "mail", "intentional compact sizing: h-9 vs canonical h-10"],
   ["input.tsx", "factory", "app-specific input sizing and layout behavior"],
 
-  // scroll-area.tsx — content keeps the local horizontal scrollbar and
-  // viewport block override needed by editor/database surfaces.
   [
     "scroll-area.tsx",
     "content",
     "content editor needs horizontal scrollbar and viewport block override",
   ],
 
-  // sonner.tsx — mail has heavily custom-styled toasts (bg-card, rounded-lg,
-  // text-13px, custom action/cancel button styles).
   [
     "sonner.tsx",
     "mail",
     "heavily custom-styled toasts (bg-card, 13px, custom action styles)",
   ],
 
-  // tabs.tsx — plan adds border border-transparent to TabsTrigger for layout
-  // stability.
   [
     "tabs.tsx",
     "plan",
     "border border-transparent on trigger for layout stability",
   ],
 
-  // tabs.tsx — Clips uses the shadcn line variant so viewer and library tabs
-  // communicate the active surface with an underline instead of a filled
-  // button treatment.
   [
     "tabs.tsx",
     "clips",
     "line-variant tabs with underline active state for Clips surfaces",
   ],
 
-  // textarea.tsx — assets adds autoGrow behavior for asset prompt/editing forms.
   ["textarea.tsx", "assets", "autoGrow behavior for asset forms"],
   [
     "textarea.tsx",
@@ -90,12 +58,6 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   ],
 ];
 
-// Local implementations are exceptional. Most app-level UI files should be
-// stable adapters that re-export the Toolkit primitive so ToolkitProvider can
-// route framework-owned surfaces through the app's design system. Keep this
-// list limited to primitives with app-specific behavior or intentionally
-// distinct visuals; copied shadcn implementations pending migration belong in
-// the test failure output, not here.
 const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
   [template: string, primitive: string, reason: string]
 > = [
@@ -395,7 +357,6 @@ describe("ui-primitives sync guard", () => {
   it("keeps shared ui primitives byte-identical across templates, except documented allow-list", () => {
     const templates = getTemplates();
 
-    // Build map: primitive → (hash → [templates])
     const hashes = new Map<string, Map<string, string[]>>();
 
     for (const template of templates) {
@@ -410,15 +371,13 @@ describe("ui-primitives sync guard", () => {
       }
     }
 
-    // Build allow-list set for fast lookup: "primitive:template"
     const allowed = new Set(ALLOW_LIST.map(([p, t]) => `${p}:${t}`));
 
     const violations: string[] = [];
 
     for (const [primitive, byHash] of hashes) {
-      if (byHash.size <= 1) continue; // all identical — fine
+      if (byHash.size <= 1) continue;
 
-      // Determine the canonical hash: the one held by the most templates.
       let canonicalHash = "";
       let canonicalCount = 0;
       for (const [h, templates] of byHash) {
@@ -489,7 +448,6 @@ describe("ui-primitives sync guard", () => {
   it("every allow-listed template actually diverges from canonical (no stale allow-list entries)", () => {
     const templates = getTemplates();
 
-    // Compute hashes for all primitives
     const hashes = new Map<string, Map<string, string[]>>();
     for (const template of templates) {
       for (const primitive of getPrimitives(template)) {
@@ -505,9 +463,8 @@ describe("ui-primitives sync guard", () => {
     const stale: string[] = [];
     for (const [primitive, template] of ALLOW_LIST) {
       const byHash = hashes.get(primitive);
-      if (!byHash) continue; // file doesn't exist, caught by other test
+      if (!byHash) continue;
 
-      // Find canonical hash (most templates)
       let canonicalHash = "";
       let canonicalCount = 0;
       for (const [h, ts] of byHash) {
@@ -517,7 +474,6 @@ describe("ui-primitives sync guard", () => {
         }
       }
 
-      // Find this template's hash
       let templateHash = "";
       for (const [h, ts] of byHash) {
         if (ts.includes(template)) {

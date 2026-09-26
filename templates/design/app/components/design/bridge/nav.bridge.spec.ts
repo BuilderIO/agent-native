@@ -4,26 +4,13 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { navBridgeScript } from "../../../../.generated/bridge/nav.generated";
 
-/**
- * Interact mode omits the editor-chrome bridge entirely (see
- * DesignCanvas.tsx) so this always-on nav bridge is the ONLY click-handling
- * script active there. A reported crash — Cmd+Click on a screen-link block in
- * Interact mode threw "Cannot read properties of undefined (reading
- * 'width')" during a host re-render — traced back to this handler treating
- * every click identically regardless of modifier keys, forcing a same-tab
- * screen switch on a Cmd/Ctrl/Shift/middle-click that should have been left
- * to the browser's own new-tab/new-window gesture (or been a no-op).
- */
 describe("nav bridge modifier clicks", () => {
   let posted: Record<string, unknown>[] = [];
 
-  // Installed once: the bridge binds to `document`, so re-running it per test
-  // would stack listeners and post each payload several times.
   beforeAll(() => {
     vi.stubGlobal("parent", {
       postMessage: (message: Record<string, unknown>) => posted.push(message),
     });
-    // The generated module is an IIFE string meant for an iframe's <script>.
     new Function(navBridgeScript)();
   });
 

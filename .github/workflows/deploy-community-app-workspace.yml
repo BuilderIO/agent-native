@@ -14,9 +14,6 @@ on:
       - "pnpm-workspace.yaml"
       - "tsconfig*.json"
   schedule:
-    # Run at both UTC hours that can be noon in America/Los_Angeles. The job
-    # keeps only the local-noon invocation, so daylight-saving changes do not
-    # move the weekday release.
     - cron: "0 19,20 * * 1-5"
   workflow_dispatch:
     inputs:

@@ -88,8 +88,6 @@ describe("export-audit-events", () => {
     expect(lines[0]).toBe(
       "id,created_at,action,caller,actor_kind,actor_email,org_id,thread_id,turn_id,target_type,target_id,status,summary,error_code,owner_email,visibility",
     );
-    // The escaped summary field embeds a real newline inside its quotes, so
-    // it spans two lines of the joined CSV string.
     expect(result.content).toContain(
       '"has ""quotes"", a comma, and\na newline"',
     );
@@ -110,7 +108,6 @@ describe("export-audit-events", () => {
     expect(lines).toHaveLength(2);
     const parsed = lines.map((line) => JSON.parse(line));
     expect(parsed.map((e) => e.id).sort()).toEqual(["n1", "n2"]);
-    // Newest first, same ordering as list-audit-events.
     expect(parsed[0].id).toBe("n2");
   });
 

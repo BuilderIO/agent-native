@@ -313,8 +313,6 @@ describe("resyncAllVaultSecretsToCredentialStore", () => {
     });
   }
 
-  /** In-memory stand-in for the shared credential store, keyed the same way
-   * the real app_secrets table is: scope + scopeId + key. */
   function fakeCredentialStore() {
     const store = new Map<string, string>();
     mocks.writeAppSecret.mockImplementation(async (args: any) => {
@@ -412,7 +410,6 @@ describe("resyncAllVaultSecretsToCredentialStore", () => {
     // The failed org's key never landed in the credential store.
     expect(store.get("org:org_broken:BROKEN_KEY")).toBeUndefined();
 
-    // The other tenant's group still synced successfully.
     const soloScope = credentialStoreScopeForVaultCtx({
       ownerEmail: "owner@example.test",
       orgId: null,
@@ -421,7 +418,6 @@ describe("resyncAllVaultSecretsToCredentialStore", () => {
       readAppSecret({ key: "PERSONAL_API_KEY", ...soloScope }),
     ).resolves.toMatchObject({ value: "sk-personal-key" });
 
-    // Exactly one warning, naming the key but never the plaintext value.
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const [warnMessage] = warnSpy.mock.calls[0]!;
     expect(String(warnMessage)).toContain("BROKEN_KEY");
@@ -432,7 +428,6 @@ describe("resyncAllVaultSecretsToCredentialStore", () => {
 });
 
 describe("syncGrantsToApp", () => {
-  /** In-memory stand-in for app_secrets, keyed scope + scopeId + key. */
   function fakeCredentialStore() {
     const store = new Map<string, string>();
     mocks.writeAppSecret.mockImplementation(async (args: any) => {
@@ -442,11 +437,6 @@ describe("syncGrantsToApp", () => {
     return store;
   }
 
-  /**
-   * `all-apps` vault access, one discovered app, and a caller whose active org
-   * is deliberately NOT the org that owns the secrets. The app URL is remote so
-   * the best-effort env-var push is skipped and no network call is attempted.
-   */
   function mockWorkspace(
     caller: { ownerEmail: string; orgId: string | null },
     secretRows: Array<Record<string, unknown>>,
@@ -507,7 +497,6 @@ describe("syncGrantsToApp", () => {
       store.get("workspace:solo:owner@example.test:PERSONAL_API_KEY"),
     ).toBe("sk-test-personal");
 
-    // Nothing may be written under the caller's org.
     const callerScoped = [...store.keys()].filter((key) =>
       key.startsWith("org:org_caller:"),
     );

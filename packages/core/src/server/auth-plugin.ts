@@ -21,12 +21,6 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
     const app = getH3App(nitroApp);
     const sessionPath = "/_agent-native/auth/session";
 
-    // The built-in auth session check is safe to serve while unrelated
-    // default plugins are still booting. ClientOnly app shells need this
-    // read before they can leave their hydration fallback, and holding it
-    // behind the full bootstrap turns an otherwise healthy local login into
-    // an indefinite loading state. The normal auth mount below remains the
-    // canonical route once initialization has completed.
     if (!isByoa) {
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [sessionPath]);
       app.use(sessionPath, async (event: any) => {
@@ -40,13 +34,7 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
       });
     }
     const initPromise = (async () => {
-      // A BYOA provider owns its session lookup and login HTML. Mount it
-      // immediately so a transient database outage in Better Auth or another
-      // default plugin cannot make the custom sign-in document unavailable.
       if (isByoa) {
-        // The guard is mounted synchronously by the BYOA branch above. Only
-        // after that synchronous registration is it safe to let these paths
-        // skip unrelated bootstrap work.
         const mountPromise = autoMountAuth(app, options);
         markFrameworkRoutesReadyBeforeBootstrap(
           nitroApp,
@@ -75,13 +63,6 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
       );
       await mountPromise;
     })();
-    // Marking these paths early only skips the UNRELATED default-plugin
-    // bootstrap wait above — it does not skip waiting for auth's own mount.
-    // `trackPluginInit` registers `initPromise` scoped to these same paths,
-    // so `awaitPluginsReady` still holds any request to them until this
-    // promise resolves (which only happens after the handler above is
-    // actually registered). Do not split "mark early" from this call, or a
-    // request could fall through before Better Auth is mounted.
     trackPluginInit(nitroApp, initPromise, {
       paths: [...FRAMEWORK_AUTH_EARLY_PATHS],
       ...(isByoa ? {} : { excludedPaths: [sessionPath] }),
@@ -89,11 +70,6 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
   };
 }
 
-/**
- * Default auth plugin — email/password auth with optional Google OAuth.
- * Google sign-in button appears automatically on the login page when
- * GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET env vars are set.
- */
 export const defaultAuthPlugin: NitroPluginDef = async (nitroApp: any) => {
   return createAuthPlugin()(nitroApp);
 };

@@ -41,12 +41,6 @@ describe("definiteAuthoredOffset", () => {
 
 describe("deriveConstraintsValue", () => {
   it("reads a plain, never-repositioned element as anchored left/top, not left-right/top-bottom", () => {
-    // No inlineStyles at all (the common case for an ordinary element that
-    // was never explicitly given left/right/top/bottom) — authoredStyleValue
-    // falls back to computedStyles, and getComputedStyle reports "auto" for
-    // an unpositioned element's left/right/top/bottom. Before the
-    // definiteAuthoredOffset guard, "auto" && "auto" read as truthy and this
-    // rendered as pinned to both edges on every ordinary element.
     const value = deriveConstraintsValue(
       element({
         computedStyles: {

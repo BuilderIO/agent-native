@@ -4,7 +4,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   extractManagedMotionCss,
   hashCss,
@@ -31,11 +31,6 @@ interface TimelineResult {
   filePath: string | null;
   tracks: unknown;
   durationMs: number;
-  /**
-   * Timeline playback mode: from the tracks JSON stamp for stored rows,
-   * recovered from animation-iteration-count/direction for CSS-recovered
-   * timelines, "once" for timelines that predate the field.
-   */
   playbackMode: MotionPlaybackMode;
   defaultEase: string;
   compiledHash: string | null;
@@ -83,12 +78,6 @@ async function readManagedCssForSource(args: {
 
   if (!file) return null;
 
-  // Read the managed block from the SQL content, NOT a live collab snapshot:
-  // apply-motion-edit persists the managed <style> block to SQL only, so a
-  // live collab session's text lags the freshest motion CSS. Comparing the
-  // stored compiledHash against stale collab CSS would flag phantom
-  // "stored-css-drift" right after every save and replace fresh tracks with
-  // stale CSS-parsed ones. SQL is the motion block's source of truth.
   const content = file.content ?? "";
   const css = extractManagedMotionCss(content);
   if (!css) return null;
@@ -104,8 +93,6 @@ async function readManagedCssForSource(args: {
     css,
     hash: hashCss(css),
     tracks,
-    // Timeline span (max delay + duration) is robust when tracks carry
-    // per-track offsets/durations; fall back to the first duration.
     durationMs: parseTimelineSpanMs(css) ?? parseFirstAnimationDurationMs(css),
     playbackMode: parsePlaybackMode(css),
   };
@@ -206,8 +193,6 @@ export default defineAction({
           sourceRef: sourceRef ?? null,
           filePath: null,
           tracks: managedCss.tracks,
-          // Recover the compiled animation-duration instead of inventing a
-          // default the next save would silently persist.
           durationMs: managedCss.durationMs ?? 1000,
           playbackMode: managedCss.playbackMode ?? MOTION_DEFAULT_PLAYBACK_MODE,
           defaultEase: "ease",
@@ -221,8 +206,6 @@ export default defineAction({
         timelines[0] = {
           ...first,
           tracks: managedCss.tracks,
-          // In the drift case the CSS is the runtime truth — surface its
-          // compiled duration alongside its recovered tracks.
           durationMs: managedCss.durationMs ?? first.durationMs,
           playbackMode: managedCss.playbackMode ?? first.playbackMode,
           cssHash: managedCss.hash,

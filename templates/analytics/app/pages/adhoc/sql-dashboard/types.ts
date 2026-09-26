@@ -64,12 +64,6 @@ export interface PivotConfig {
   valueKey: string;
 }
 
-/**
- * Declares how a query's time coverage relates to the dashboard filter.
- * `dashboard` is the default for ordinary event metrics; the other values are
- * explicit exceptions that make intentional history scans visible to agents
- * and reviewers.
- */
 export type DashboardTimeScope =
   | "dashboard"
   | "fixed-window"
@@ -77,7 +71,6 @@ export type DashboardTimeScope =
   | "all-time";
 
 export interface SqlPanelConfig {
-  /** Time coverage contract for first-party SQL panels. */
   timeScope?: DashboardTimeScope;
   xKey?: string;
   yKey?: string;
@@ -85,45 +78,19 @@ export interface SqlPanelConfig {
   color?: string;
   colors?: string[];
   yFormatter?: "number" | "currency" | "percent";
-  /**
-   * Series names (a subset of the plotted `yKeys`) to plot against a second,
-   * right-hand y-axis. Line, area, and bar panels render dual axes only when
-   * at least one series stays on the left axis.
-   */
   rightYKeys?: string[];
-  /** Value formatter for the right axis. Falls back to `yFormatter`. */
   rightYFormatter?: "number" | "currency" | "percent";
-  /** Optional display labels for exact series keys, e.g. {"evt_signup_completed_v2":"Signups"}. */
   seriesLabels?: Record<string, string>;
   description?: string;
   pivot?: PivotConfig;
-  /** Stack bar/area series on top of each other instead of side-by-side / overlapping. */
   stacked?: boolean;
-  /** Fixed bar width in pixels for bar charts. Values are clamped by the renderer. */
-  /** Show the chart legend. Defaults to true for chart renderers. */
   legend?: boolean;
-  /** Optional display labels for exact metric values, e.g. {"0":"normal"}. */
   valueLabels?: Record<string, string>;
   sortable?: boolean;
   columns?: TableColumnConfig[];
   limit?: number;
-  /**
-   * Extension panels only (`chartType: "extension"`): id of the extension to
-   * render inline as a sandboxed iframe instead of running the SQL pipeline.
-   * This is the default for author-selected dashboard content because the
-   * selection is shared with the dashboard and available to report captures.
-   */
   extensionId?: string;
-  /**
-   * Extension panels only: an opt-in named extension-point slot. Each viewer's
-   * personal installs render in the box and receive dashboard context.
-   */
   extensionSlotId?: string;
-  /**
-   * Provenance for a deliberately one-off Custom Block. New agent-authored
-   * blocks set this so the UI and telemetry can distinguish a runtime patch
-   * from legacy extension-backed panels without exposing prompt text.
-   */
   customBlock?: {
     authoredBy: "agent" | "user";
     intent: "one-off";
@@ -142,27 +109,9 @@ export interface SqlPanel {
   sql: string;
   source: DataSourceType;
   chartType: ChartType;
-  /**
-   * Legacy layout field retained for existing dashboards and action payloads.
-   * The renderer now auto-fits rows from panel order: one card in a row spans
-   * the row, two cards split it, and so on up to the section column count.
-   */
   width: number;
-  /**
-   * Section panels only: number of columns the panels following this section
-   * (until the next section) should be laid out in. Falls back to the
-   * dashboard-level `columns`, then to 2.
-   */
   columns?: number;
   config?: SqlPanelConfig;
-  /**
-   * Optional tab assignment. When any panel in a dashboard declares a `tab`,
-   * the dashboard renders a tab strip and shows only panels matching the
-   * selected tab. Tabs are derived from the distinct `tab` values across
-   * panels in declaration order. Use "Group / Tab" to render grouped primary
-   * and secondary tabs without changing the storage model. Section panels can
-   * also carry a tab to group their header under the right tab.
-   */
   tab?: string;
 }
 
@@ -177,12 +126,6 @@ export interface SqlDashboardConfig {
   name: string;
   description?: string;
   certification?: DashboardCertification;
-  /**
-   * Optional id of another dashboard this one nests under. When set, the
-   * sidebar renders this dashboard indented beneath its parent instead of at
-   * the top level. Orphans (parent missing/inaccessible) fall back to the top
-   * level. Self-references and cycles are ignored by the renderer.
-   */
   parentId?: string;
   catalog?: {
     templateId?: string;
@@ -196,21 +139,10 @@ export interface SqlDashboardConfig {
   };
   filters?: DashboardFilter[];
   variables?: Record<string, string>;
-  /**
-   * Default column count for panels that appear before any section. Sections
-   * can override this via their own `columns`. Always 1 column when the
-   * available content width is below the `md` threshold (the grid uses a
-   * container query, so it stacks when the agent sidebar narrows the pane —
-   * not only at narrow viewports). Defaults to 2.
-   */
   columns?: number;
   panels: SqlPanel[];
 }
 
-/**
- * Lower / upper bounds for the per-section column count. Keep in sync with
- * the validators in `actions/update-dashboard.ts`.
- */
 export const MIN_DASHBOARD_COLUMNS = 1;
 export const MAX_DASHBOARD_COLUMNS = 6;
 export const DEFAULT_DASHBOARD_COLUMNS = 2;

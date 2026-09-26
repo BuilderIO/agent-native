@@ -16,10 +16,6 @@ import {
 
 const FALLBACK_URI = "https://app.example.com/_agent-native/google/callback";
 
-/** Sign an arbitrary base64url data segment the same way encodeOAuthState
- *  does, without requiring the payload to be well-formed JSON — the only way
- *  to reach the "malformed-payload" branch, since a tampered payload fails
- *  signature verification first. */
 function signRawState(data: string): string {
   const sig = crypto
     .createHmac("sha256", getOAuthStateSigningKey())
@@ -84,8 +80,6 @@ describe("decodeOAuthState", () => {
     });
     const dotIdx = signed.lastIndexOf(".");
     const data = signed.slice(0, dotIdx);
-    // Same payload, wrong signature — simulates a forged/tampered state or a
-    // state signed under a rotated OAUTH_STATE_SECRET / BETTER_AUTH_SECRET.
     const tampered = `${data}.${"0".repeat(43)}`;
 
     const result = decodeOAuthState(tampered, FALLBACK_URI);
@@ -130,7 +124,6 @@ describe("decodeOAuthState", () => {
   });
 
   it("rejects corrupted base64 that decodes to invalid JSON", () => {
-    // Not valid base64url padding/alphabet-safe JSON once decoded.
     const result = decodeOAuthState(
       signRawState("%%%not-base64%%%"),
       FALLBACK_URI,
@@ -173,9 +166,6 @@ describe("decodeOAuthState", () => {
 
     for (const result of failures) {
       expect(result.ok).toBe(false);
-      // A caller destructuring `owner`/`desktop`/`orgId` off a failed decode
-      // must get `undefined`, never a value smuggled through as if this were
-      // a legitimate plain sign-in.
       expect((result as Record<string, unknown>).owner).toBeUndefined();
       expect((result as Record<string, unknown>).desktop).toBeUndefined();
       expect((result as Record<string, unknown>).orgId).toBeUndefined();

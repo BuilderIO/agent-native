@@ -78,10 +78,6 @@ import {
 } from "./multi-screen/vector-edit-geometry";
 import { isApplePlatform } from "./MultiScreenCanvas";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 type ScreenStub = {
   id: string;
   filename: string;
@@ -146,8 +142,6 @@ function primEntry(
   };
 }
 
-/** Mirror the djb2-variant hash used by parsePrimitivesFromScreen.
- *  Keep in sync with the `hashString` helper in MultiScreenCanvas.tsx. */
 function hashString(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) {
@@ -157,8 +151,6 @@ function hashString(s: string): string {
   return h.toString(16);
 }
 
-/** Inject pre-built primitives into the module cache so tests don't need
- *  DOMParser (unavailable in jsdom-less vitest). */
 function seedCache(screen: ScreenStub, prims: ParsedScreenPrimitive[]) {
   const source =
     screen.codeLayerSource ??
@@ -171,9 +163,6 @@ function seedCache(screen: ScreenStub, prims: ParsedScreenPrimitive[]) {
   primitiveParseCache.set(key, prims);
 }
 
-// ---------------------------------------------------------------------------
-// Setup: clear the module-level cache before every test so tests are isolated
-// ---------------------------------------------------------------------------
 beforeEach(() => {
   __clearPrimitiveParseCachesForTests();
 });
@@ -232,8 +221,6 @@ describe("board surface pointer capture", () => {
     });
     expect(geometry.width).toBeLessThanOrEqual(BOARD_SURFACE_RENDER_MAX_SIZE);
     expect(geometry.height).toBeLessThanOrEqual(BOARD_SURFACE_RENDER_MAX_SIZE);
-    // The iframe-local coordinate round-trip lands at the exact persisted
-    // negative board coordinate; no fixed +/-65536 projection is involved.
     const iframeLocalX = negativeBounds.x - geometry.x;
     const iframeLocalY = negativeBounds.y - geometry.y;
     expect(geometry.x + iframeLocalX).toBe(negativeBounds.x);
@@ -258,10 +245,6 @@ describe("board surface pointer capture", () => {
 
   it("keeps a low-zoom viewport browser-bounded while following its center", () => {
     const logical = makeGeom(-65536, -65536, 131072, 131072);
-    // At the canvas minimum zoom (2%), a 1440x900 viewport spans 72,000 x
-    // 45,000 board pixels. One iframe intentionally remains capped below
-    // that span; it follows the live viewport center instead of regressing to
-    // the origin or allocating the old 131,072px document.
     const lowZoomViewport = makeGeom(18_000, -12_000, 72_000, 45_000);
     const geometry = getBoardSurfaceRenderGeometry({
       logicalGeometry: logical,
@@ -327,13 +310,10 @@ describe("board surface pointer capture", () => {
     expect(content).not.toMatch(/<script|onload=|<iframe|<object|<embed/i);
     expect(content).not.toMatch(/<audio|<video|autoplay|http-equiv="refresh"/i);
     expect(content).not.toMatch(/<link|<meta|<base|@import/i);
-    // data: and blob: url() are still stripped; https:// passes through for images
     expect(content).not.toMatch(/url\(\s*["']?data:/i);
     expect(content).not.toMatch(/url\(\s*["']?blob:/i);
-    // https:// CSS background-image urls survive (CDN images need to render)
     expect(content).toContain("url(https://example.test/bg.png)");
     expect(content).toContain("url(https://example.test/inline.png)");
-    // src/href attributes on media elements are still stripped
     expect(content).not.toMatch(/\ssrc="https:\/\/example\.test/);
     expect(content).not.toMatch(/\shref="https:\/\/example\.test/);
     expect(content).toContain("animation:none!important");
@@ -389,10 +369,6 @@ describe("board surface pointer capture", () => {
   });
 
   it("keeps the opaque board replica off when the board has nothing on it", () => {
-    // A board file can be a full HTML document with an empty <body> — truthy as
-    // a string, nothing to show. The replica paints itself in the board colour,
-    // so rendering it there covers the canvas in a full-board slab at low zoom.
-
     const active = makeGeom(-12288, -12288, 24576, 24576);
     const viewport = makeGeom(-36000, -22500, 72000, 45000);
 
@@ -404,7 +380,6 @@ describe("board surface pointer capture", () => {
         renderGeometry: active,
       }),
     ).toBe(false);
-    // Also below the pre-measurement zoom fallback.
     expect(
       shouldRenderBoardSurfaceStaticPreview({
         zoom: 2,
@@ -619,12 +594,8 @@ describe("global canvas pan gestures", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// primitiveLocalToBoardRect
-// ---------------------------------------------------------------------------
 describe("primitiveLocalToBoardRect", () => {
   it("correctly converts screen-local coords to board coords at 4× scale", () => {
-    // Board frame: 320×640 at (100,200). Metadata: 1280×2560 (4× larger).
     const result = primitiveLocalToBoardRect(
       640,
       1280,
@@ -683,8 +654,6 @@ describe("primitiveLocalToBoardRect", () => {
       { width: 100, height: 200 },
     );
 
-    // Local center (10,20), rotated 90deg around frame center (50,100),
-    // lands at board center (130,60).
     expect(result.x).toBeCloseTo(120);
     expect(result.y).toBeCloseTo(40);
     expect(result.width).toBe(20);
@@ -698,8 +667,6 @@ describe("draftPrimitiveToInsert", () => {
     const draft: DraftPrimitive = {
       id: "draft",
       kind: "rectangle",
-      // This box is the board-space result of local (0,0,20,40) inside the
-      // 90deg frame below. Its own global rotation is zero.
       geometry: { x: 120, y: 40, width: 20, height: 40 },
     };
 
@@ -718,9 +685,6 @@ describe("draftPrimitiveToInsert", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// frameStyleLeftTop (PERF9)
-// ---------------------------------------------------------------------------
 describe("frameStyleLeftTop", () => {
   it("matches Screen's inline style formula: SURFACE_PADDING + x / y - labelHeight", () => {
     const result = frameStyleLeftTop({ x: 100, y: 200 }, 28);
@@ -769,9 +733,6 @@ describe("layer marquee bounds", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// getCrossScreenDropGuideForHitTest
-// ---------------------------------------------------------------------------
 describe("getCrossScreenDropGuideForHitTest", () => {
   it("converts target iframe hit-test rects to board-space drop guides", () => {
     const result = getCrossScreenDropGuideForHitTest({
@@ -825,10 +786,6 @@ describe("getCrossScreenDropGuideForHitTest", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// parsePrimitivesFromScreen cache key: regression for equal-length edits
-// ---------------------------------------------------------------------------
-/** Mirror parsePrimitivesFromScreen's cache key formula exactly. */
 function makeCacheKey(screen: { id: string; content: string }): string {
   return `${screen.id}:${screen.content.length}:${hashString(screen.content)}`;
 }
@@ -836,7 +793,6 @@ function makeCacheKey(screen: { id: string; content: string }): string {
 describe("parsePrimitivesFromScreen cache key", () => {
   it("uses a different cache key when content changes with equal length, prefix differs", () => {
     const screenId = "cache-test";
-    // Two different contents of the same length whose first 48 chars differ
     const contentA = "A".repeat(80);
     const contentB = "B".repeat(80);
 
@@ -851,21 +807,16 @@ describe("parsePrimitivesFromScreen cache key", () => {
       content: contentB,
     };
 
-    // Content lengths are equal
     expect(contentA.length).toBe(contentB.length);
 
-    // But the cache keys must differ (prefix differs)
     expect(makeCacheKey(screenA)).not.toBe(makeCacheKey(screenB));
   });
 
   it("regression: different key when content differs only after position 48 (same prefix, same length)", () => {
-    // This is the collision the old prefix-only key failed to catch:
-    // same screenId, same length, same first 48 chars, but different body content.
-    // Real scenario: agent replaces a node-id at position 50 in the HTML.
     const screenId = "cache-test";
-    const sharedPrefix = "X".repeat(48); // exactly 48 chars — prefix identical
-    const contentA = sharedPrefix + "A".repeat(52); // 100 chars total
-    const contentB = sharedPrefix + "B".repeat(52); // 100 chars total
+    const sharedPrefix = "X".repeat(48);
+    const contentA = sharedPrefix + "A".repeat(52);
+    const contentB = sharedPrefix + "B".repeat(52);
 
     const screenA: ScreenStub = {
       id: screenId,
@@ -879,9 +830,8 @@ describe("parsePrimitivesFromScreen cache key", () => {
     };
 
     expect(contentA.length).toBe(contentB.length);
-    expect(contentA.slice(0, 48)).toBe(contentB.slice(0, 48)); // confirms old formula collides
+    expect(contentA.slice(0, 48)).toBe(contentB.slice(0, 48));
 
-    // New formula (prefix48 + suffix48) must produce different keys
     expect(makeCacheKey(screenA)).not.toBe(makeCacheKey(screenB));
   });
 
@@ -895,15 +845,12 @@ describe("parsePrimitivesFromScreen cache key", () => {
   });
 
   it("regression: different key when edit is deep in the middle of a large HTML file", () => {
-    // The old prefix48+suffix48 formula collided when changes were in the middle
-    // zone [48..len-49].  Real case: an agent rewrites a node-id at character 200
-    // of a 2000-char HTML file.  The new hash-based key must differentiate these.
     const screenId = "long-screen";
     const prefix = "P".repeat(48);
     const suffix = "S".repeat(48);
-    const middleA = "M".repeat(200); // change only in this middle zone
+    const middleA = "M".repeat(200);
     const middleB = "N".repeat(200);
-    const contentA = prefix + middleA + suffix; // 296 chars
+    const contentA = prefix + middleA + suffix;
     const contentB = prefix + middleB + suffix;
 
     const screenA: ScreenStub = {
@@ -917,22 +864,14 @@ describe("parsePrimitivesFromScreen cache key", () => {
       content: contentB,
     };
 
-    // Confirm this is the scenario the old formula failed on:
     expect(contentA.length).toBe(contentB.length);
     expect(contentA.slice(0, 48)).toBe(contentB.slice(0, 48));
     expect(contentA.slice(-48)).toBe(contentB.slice(-48));
 
-    // New hash-based formula must produce different keys:
     expect(makeCacheKey(screenA)).not.toBe(makeCacheKey(screenB));
   });
 });
 
-// ---------------------------------------------------------------------------
-// parsePrimitivesFromScreen identity-first cache (PF17): repeated calls with
-// the *same* content reference (the common case for a drag/marquee mousemove
-// handler re-reading the active screen every frame) should skip re-hashing
-// the full content string and return the memoized result directly.
-// ---------------------------------------------------------------------------
 describe("parsePrimitivesFromScreen identity cache", () => {
   it("treats a plain canvas frame as a child-drop container before Auto layout", () => {
     expect(
@@ -967,10 +906,6 @@ describe("parsePrimitivesFromScreen identity cache", () => {
       filename: "f.html",
       content: "<div data-agent-native-node-id='a'></div>",
     };
-    // Seed the hash-keyed cache directly (DOMParser isn't available in this
-    // jsdom-less vitest env — see the seedCache helper above) so the first
-    // call resolves through the normal cache-hit path and populates the
-    // identity cache, mirroring what a real parse would do.
     const seeded = [
       primEntry("a", "identity-screen", {
         left: 0,
@@ -984,8 +919,6 @@ describe("parsePrimitivesFromScreen identity cache", () => {
     const first = parsePrimitivesFromScreen(screen as never);
     const second = parsePrimitivesFromScreen(screen as never);
 
-    // Same object reference in, same result reference out — the identity
-    // fast path returned the memoized array without re-parsing/re-hashing.
     expect(first).toBe(seeded);
     expect(second).toBe(first);
   });
@@ -1013,8 +946,6 @@ describe("parsePrimitivesFromScreen identity cache", () => {
 
     const first = parsePrimitivesFromScreen(screenV1 as never);
     const second = parsePrimitivesFromScreen(screenV2 as never);
-    // Calling again with the original (now stale) content reference must not
-    // incorrectly reuse screenV2's cached result.
     const third = parsePrimitivesFromScreen(screenV1 as never);
 
     expect(first).toBe(seededV1);
@@ -1040,9 +971,6 @@ describe("parsePrimitivesFromScreen identity cache", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// getPrimitiveDropTargetForPoint
-// ---------------------------------------------------------------------------
 describe("getPrimitiveDropTargetForPoint", () => {
   const screenA: ScreenStub = { id: "sA", filename: "a.html", content: "" };
   const screenB: ScreenStub = { id: "sB", filename: "b.html", content: "" };
@@ -1157,7 +1085,6 @@ describe("getPrimitiveDropTargetForPoint", () => {
       }),
     ]);
 
-    // Equal z: later DOM sibling paints above the earlier one.
     expect(
       getPrimitiveDropTargetForPoint(
         { x: 100, y: 100 },
@@ -1168,7 +1095,6 @@ describe("getPrimitiveDropTargetForPoint", () => {
       )?.nodeId,
     ).toBe("container-b");
 
-    // The selected/active foreground boost wins even when it is earlier.
     expect(
       getPrimitiveDropTargetForPoint(
         { x: 100, y: 100 },
@@ -1237,8 +1163,6 @@ describe("getPrimitiveDropTargetForPoint", () => {
       sB: makeGeom(400, 0, 320, 640),
     };
 
-    // The primitive's rotated board center is (130,60), outside the frame's
-    // unrotated x range but inside what is visibly painted after rotation.
     const result = getPrimitiveDropTargetForPoint(
       { x: 130, y: 60 },
       null,
@@ -1255,7 +1179,6 @@ describe("getPrimitiveDropTargetForPoint", () => {
     seedCache(screenA, [
       primEntry("outer", "sA", { left: 0, top: 0, width: 320, height: 640 }),
     ]);
-    // screenB has its own container at board (400,0,320,640)
     seedCache(screenB, [
       primEntry("other-screen-container", "sB", {
         left: 0,
@@ -1265,7 +1188,6 @@ describe("getPrimitiveDropTargetForPoint", () => {
       }),
     ]);
 
-    // Dragging 'outer' (on screenA); point at (500, 100) is inside screenB's container
     const result = getPrimitiveDropTargetForPoint(
       { x: 500, y: 100 },
       "outer",
@@ -1298,8 +1220,6 @@ describe("getPrimitiveDropTargetForPoint", () => {
       }),
     ]);
 
-    // The target is geometrically enclosed by the dragged node's old board
-    // rect, but it belongs to a different screen and cannot be its descendant.
     const result = getPrimitiveDropTargetForPoint(
       { x: 150, y: 150 },
       "dragged-outer",
@@ -1311,8 +1231,6 @@ describe("getPrimitiveDropTargetForPoint", () => {
   });
 
   it("regression: excludes geometric descendants of the dragged node", () => {
-    // BUG was: dragging 'outer' (0,0,320,640) let 'inner' (100,100,120,120)
-    // be highlighted as a drop target, creating a circular parent→child move.
     seedCache(screenA, [
       primEntry("outer", "sA", { left: 0, top: 0, width: 320, height: 640 }),
       primEntry("inner", "sA", {
@@ -1331,21 +1249,17 @@ describe("getPrimitiveDropTargetForPoint", () => {
       frames,
       getMeta,
     );
-    // 'inner' is fully enclosed by 'outer' → should be excluded
-    // Nothing else at this point → null
     expect(result).toBeNull();
   });
 
   it("does not exclude a sibling that overlaps but is not enclosed by the dragged node", () => {
     seedCache(screenA, [
-      // dragged: occupies left half of screen
       primEntry("left-half", "sA", {
         left: 0,
         top: 0,
         width: 160,
         height: 640,
       }),
-      // sibling: occupies right half (not enclosed by left-half)
       primEntry("right-half", "sA", {
         left: 160,
         top: 0,
@@ -1404,9 +1318,6 @@ describe("getPrimitiveDropTargetForPoint", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveNodeScreenId
-// ---------------------------------------------------------------------------
 describe("resolveNodeScreenId", () => {
   const s1: ScreenStub = { id: "s1", filename: "a.html", content: "" };
   const s2: ScreenStub = { id: "s2", filename: "b.html", content: "" };
@@ -1442,32 +1353,18 @@ describe("resolveNodeScreenId", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Cross-screen coord translation: board coords from iframe coords. Verify the
-// shared mapping matches primitive rect conversion and remains invertible when
-// a screen frame is rotated.
-// ---------------------------------------------------------------------------
 describe("cross-screen coord translation (iframeX → boardX consistency)", () => {
   it("board coords from iframe coords match primitiveLocalToBoardRect inversion", () => {
-    // Frame placed at (100, 200) on the board, 320×640 px.
-    // Logical design dimensions (metadata): 390×844 (iPhone-like).
     const frameGeom = makeGeom(100, 200, 320, 640);
     const meta = { width: 390, height: 844 };
 
-    // Suppose a primitive lives at local (localLeft=78, localTop=168) in the
-    // design's logical space.  Its board rect from primitiveLocalToBoardRect:
     const boardRect = primitiveLocalToBoardRect(78, 168, 1, 1, frameGeom, meta);
 
-    // The cross-screen drag receiver computes:
-    //   scaleX = frame.width / metadata.width
-    //   boardX = frame.x + iframeX * scaleX
-    // If the pointer is at iframeX=78, iframeY=168 (same as the local coords):
     const scaleX = frameGeom.width / Math.max(1, meta.width);
     const scaleY = frameGeom.height / Math.max(1, meta.height);
     const receiverBoardX = frameGeom.x + 78 * scaleX;
     const receiverBoardY = frameGeom.y + 168 * scaleY;
 
-    // Both should land at the same board coordinates:
     expect(receiverBoardX).toBeCloseTo(boardRect.x, 5);
     expect(receiverBoardY).toBeCloseTo(boardRect.y, 5);
   });
@@ -1499,31 +1396,19 @@ describe("cross-screen coord translation (iframeX → boardX consistency)", () =
   });
 });
 
-// ---------------------------------------------------------------------------
-// findTopFrameEntryAtPoint: cross-screen drop release resolution
-// (drag-reparent-1)
-// ---------------------------------------------------------------------------
 describe("findTopFrameEntryAtPoint at a cross-screen drop release point", () => {
   it("picks the source screen over an overlapping destination when foregroundId favors the source", () => {
-    // A dragged element still lives in the source document until commit, so
-    // the source screen's measured (content-fit) geometry can grow mid-drag
-    // to overlap the destination screen it is being dropped into. Both
-    // frames now genuinely contain the release point.
     const entries = [
       { id: "source", geometry: makeGeom(0, 0, 900, 1400) },
       { id: "dest", geometry: makeGeom(0, 1024, 900, 900) },
     ];
     const releasePoint = { x: 260, y: 1330 };
 
-    // Unfiltered: the foregroundId tie-break (the active/source screen)
-    // wins the overlap, silently discarding the real cross-screen drop.
     const naive = findTopFrameEntryAtPoint(entries, releasePoint, {
       foregroundId: "source",
     });
     expect(naive?.id).toBe("source");
 
-    // The fix: exclude the source screen from the candidate set before
-    // hit-testing, so an overlap can never resolve back to it.
     const excludingSource = findTopFrameEntryAtPoint(
       entries.filter((entry) => entry.id !== "source"),
       releasePoint,
@@ -1533,9 +1418,6 @@ describe("findTopFrameEntryAtPoint at a cross-screen drop release point", () => 
   });
 });
 
-// ---------------------------------------------------------------------------
-// getDraftPreviewGeometryForTool: shift/alt shape-draw modifiers (CV15)
-// ---------------------------------------------------------------------------
 describe("getDraftPreviewGeometryForTool shape-draw modifiers", () => {
   it("draws a plain rect with no modifiers", () => {
     const geometry = getDraftPreviewGeometryForTool(
@@ -1583,11 +1465,6 @@ describe("getDraftPreviewGeometryForTool shape-draw modifiers", () => {
   });
 
   it("does not apply square/fromCenter to a line's bounding box, but does constrain its angle", () => {
-    // A line's preview geometry is a path bounding box; shift constrains the
-    // line's own angle (via the same 45deg pen-tool helper), not squareness.
-    // (100,15) is ~8.5deg from horizontal — closest to the 0deg increment —
-    // so shift should snap it flat, collapsing the bounding box height down
-    // to the tool's minimum hit-box size instead of the unconstrained ~15.
     const unconstrained = getDraftPreviewGeometryForTool(
       "line",
       { x: 0, y: 0 },
@@ -1605,9 +1482,6 @@ describe("getDraftPreviewGeometryForTool shape-draw modifiers", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Breakpoint sub-frame iframe id resolution (B15)
-// ---------------------------------------------------------------------------
 describe("breakpoint sub-frame iframe id resolution", () => {
   it("primary iframe id is the bare screen id", () => {
     expect(getPrimaryIframeId("screen-1")).toBe("screen-1");
@@ -1643,9 +1517,6 @@ describe("breakpoint sub-frame iframe id resolution", () => {
   });
 
   it("falls back to the primary iframe when activeBreakpointWidth is stale (not in breakpointWidths)", () => {
-    // Defends against a screen whose activeBreakpointWidth points at a
-    // breakpoint that was since removed — should not resolve to a
-    // [data-screen-iframe-id] that no longer exists in the DOM.
     expect(
       getActiveScreenIframeId({
         id: "screen-1",
@@ -1660,17 +1531,8 @@ describe("breakpoint sub-frame iframe id resolution", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Breakpoint sub-frame geometry (BP-DEEP item 3a): undistorted, uniform scale
-// ---------------------------------------------------------------------------
 describe("getBreakpointFrameGeometry (BP-DEEP item 3a — no non-uniform scale)", () => {
   it("scales the iframe uniformly — never a different factor per axis", () => {
-    // The original bug forced frameHeight to the PRIMARY frame's height
-    // regardless of the breakpoint's own natural aspect, producing a
-    // transform: scale(x, y) with x !== y (visible stretch/squish). The
-    // fixed geometry always derives frameHeight from the breakpoint's OWN
-    // naturalHeight, uniformly scaled — so the effective scale factor is
-    // identical whichever axis you divide by.
     const geometry = getBreakpointFrameGeometry({
       widthPx: 768,
       naturalAspect: 900 / 1440, // e.g. a 1440x900 base document
@@ -1683,11 +1545,7 @@ describe("getBreakpointFrameGeometry (BP-DEEP item 3a — no non-uniform scale)"
   });
 
   it("does not force the breakpoint frame's height to equal the primary's height", () => {
-    // A narrower breakpoint with the SAME aspect ratio as the primary is
-    // naturally shorter in absolute px than the primary frame (768 wide vs.
-    // 1440 wide) — the fix must not silently re-inflate it back up to the
-    // primary's own on-canvas height.
-    const primaryGeometryHeight = 900; // primary frame's own on-canvas height
+    const primaryGeometryHeight = 900;
     const geometry = getBreakpointFrameGeometry({
       widthPx: 768,
       naturalAspect: 900 / 1440,
@@ -1727,9 +1585,6 @@ describe("getBreakpointFrameGeometry (BP-DEEP item 3a — no non-uniform scale)"
   });
 });
 
-// ---------------------------------------------------------------------------
-// Breakpoint selection target (BP-DEEP v2 item 3): one selected frame at a time
-// ---------------------------------------------------------------------------
 describe("isBreakpointSelectionTarget (BP-DEEP v2 item 3)", () => {
   it("true when the active breakpoint width exists in the set", () => {
     expect(
@@ -1799,9 +1654,6 @@ describe("shouldSuppressFrameSelectionBox (overview element selection)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// STEVE TEST BATCH 3 item 8b — overview breakpoint frame "…" menu gate
-// ---------------------------------------------------------------------------
 describe("shouldShowBreakpointMenuAffordance (item 8b)", () => {
   it("false when the viewer cannot edit, even if active", () => {
     expect(
@@ -1859,19 +1711,6 @@ describe("shouldShowBreakpointMenuAffordance (item 8b)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Vector edit mode (P-VE1): coordinate mapping + hit-test priority
-//
-// MultiScreenCanvas isn't render-testable in this vitest environment (no
-// jsdom `environment`, no @testing-library/react in this package — see the
-// harness-limitation note in the smoke test below), so these tests cover the
-// pure coordinate/hit-test logic that backs the interactive overlay:
-// local<->canvas point mapping (vectorEditLocalToCanvasPoint /
-// vectorEditCanvasToLocalPoint), the screen-px->canvas-px hit-radius
-// conversion (screenPxToCanvasPx), and — via the already-tested pen-path.ts
-// primitives — the "handles take priority over anchors when overlapping"
-// hit-test ordering the overlay's mousedown handler relies on.
-// ---------------------------------------------------------------------------
 describe("vector edit: local/canvas coordinate mapping", () => {
   it("maps a local point to canvas space by adding the origin", () => {
     expect(
@@ -1905,8 +1744,6 @@ describe("vector edit: screenPxToCanvasPx zoom conversion", () => {
   });
 
   it("grows the canvas-space radius when zoomed out (matches a constant screen size)", () => {
-    // At 50% zoom, one canvas px covers half a screen px, so hitting the
-    // same *screen*-sized radius requires a larger canvas-space radius.
     expect(screenPxToCanvasPx(8, 50)).toBe(16);
   });
 
@@ -1921,11 +1758,6 @@ describe("vector edit: screenPxToCanvasPx zoom conversion", () => {
 });
 
 describe("vector edit: hit-test priority (handles over anchors when overlapping)", () => {
-  // A node whose handleOut coincides exactly with the anchor point (e.g. a
-  // freshly-converted "smooth" node whose handle hasn't been dragged out
-  // yet) — both hitTestPenAnchor and hitTestPenHandle should match the same
-  // point, and the overlay's mousedown handler must check handles first so
-  // the handle wins.
   const overlappingPath: PenPath = {
     nodes: [
       {
@@ -1949,9 +1781,6 @@ describe("vector edit: hit-test priority (handles over anchors when overlapping)
 
   it("checking hitTestPenHandle before hitTestPenAnchor resolves the handle as the winner", () => {
     const point = { x: 50, y: 50 };
-    // This mirrors MultiScreenCanvas's handleMouseDown vectorEdit branch:
-    // hitTestPenHandle is checked first, and only falls through to
-    // hitTestPenAnchor when no handle is in range.
     const handleHit = hitTestPenHandle(overlappingPath, point, 8);
     const winner = handleHit
       ? { kind: "handle" as const, ...handleHit }
@@ -1974,27 +1803,6 @@ describe("vector edit: hit-test priority (handles over anchors when overlapping)
   });
 });
 
-// ---------------------------------------------------------------------------
-// Smoke-test harness note (P-VE1):
-//
-// The task asked for a smoke test asserting the vector-edit overlay renders
-// the correct anchor/handle counts for a given path, if the harness supports
-// component rendering. It does not: this package's vitest.config has no
-// `test.environment` (defaults to "node", no DOM) and has no
-// @testing-library/react (or any React renderer) dependency — confirmed by
-// grepping every *.test.ts(x) file under app/components/design, none of
-// which render a component; MotionDock.test.tsx and friends all test pure
-// exported functions the same way this file does. Adding a DOM/render
-// environment is a package-wide harness change out of scope for this
-// overlay, so overlay rendering is instead covered indirectly: the anchor
-// count always equals path.nodes.length and the handle count always equals
-// the number of present handleIn/handleOut across all nodes (see
-// VectorEditOverlay's canvasPath.nodes.map / .flatMap in MultiScreenCanvas.tsx),
-// which is exactly what getPenPathGeometry/serializePenPath (already
-// exercised elsewhere) are computed over, so a positive assertion here would
-// only restate that mapping rather than exercise any DOM output.
-// ---------------------------------------------------------------------------
-
 describe("computeAltHoverMeasurement (Figma-parity alt-hover distance lines)", () => {
   function bounds(x: number, y: number, w: number, h: number): FrameBounds {
     const b = getFrameGroupBounds([
@@ -2016,9 +1824,6 @@ describe("computeAltHoverMeasurement (Figma-parity alt-hover distance lines)", (
     expect(horizontal?.start).toBe(100);
     expect(horizontal?.end).toBe(150);
     expect(horizontal?.overlaps).toBe(false);
-    // Boxes overlap vertically (0-100 vs 20-70), so the cross position is
-    // centered on that overlap range (20 to 70), not the naive
-    // center-to-center average.
     expect(horizontal?.crossPosition).toBe(45);
     expect(vertical).toBeNull();
   });
@@ -2045,8 +1850,6 @@ describe("computeAltHoverMeasurement (Figma-parity alt-hover distance lines)", (
     expect(vertical?.gap).toBe(100);
     expect(vertical?.start).toBe(100);
     expect(vertical?.end).toBe(200);
-    // Boxes overlap horizontally (0-100 vs 20-70) so cross position centers
-    // on that overlap range (20 to 70).
     expect(vertical?.crossPosition).toBe(45);
   });
 
@@ -2071,8 +1874,6 @@ describe("computeAltHoverMeasurement (Figma-parity alt-hover distance lines)", (
     expect(horizontal?.gap).toBe(100);
     expect(vertical).not.toBeNull();
     expect(vertical?.gap).toBe(200);
-    // No overlap on either axis: cross position falls back to the average of
-    // the two boxes' centers on that axis.
     expect(horizontal?.crossPosition).toBe((50 + 325) / 2);
     expect(vertical?.crossPosition).toBe((50 + 225) / 2);
   });
@@ -2097,16 +1898,6 @@ describe("computeAltHoverMeasurement (Figma-parity alt-hover distance lines)", (
   });
 });
 
-// ---------------------------------------------------------------------------
-// getOutsideFrameDraftFallback
-//
-// Backs getTargetFrameForDraft's fallback branch: where a drawn primitive
-// lands once its center is confirmed outside every screen frame. A board
-// handler should always win regardless of screen count — the previous bug
-// absorbed the draft into the lone screen whenever there was exactly one,
-// shoving shapes drawn on empty canvas space into that screen instead of
-// placing them on the board.
-// ---------------------------------------------------------------------------
 describe("getOutsideFrameDraftFallback", () => {
   it("routes to the board (returns undefined) with a single screen when a board handler exists", () => {
     const entries = [{ id: "sA" }];
@@ -2186,9 +1977,6 @@ describe("board surface preview paints no colour of its own", () => {
     });
 
   it("stays transparent so the host layer's canvas colour shows through", () => {
-    // A colour baked into this document is a second canvas colour: it cannot
-    // read the host's CSS var, so it goes stale the moment the theme or the
-    // design's stored colour changes.
     const content = preview();
     expect(content).toContain("html,body{background:transparent!important");
     expect(content).not.toContain("hsl(0, 0%, 10%)");

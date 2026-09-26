@@ -3,10 +3,6 @@ import { createContext, useContext } from "react";
 const AGENT_CHAT_PATH = "/_agent-native/agent-chat";
 const FRAMEWORK_PREFIX = "/_agent-native/";
 
-// Surface tabs keep every opened app mounted and merely hide the inactive ones,
-// so several chat shells run at once. A single process-wide base would let the
-// last shell to mount steer another shell's agent turns and action calls into
-// its own app server, under that app's session.
 const relayBaseByAppId = new Map<string, string>();
 const activeRelayAppIds = new Set<string>();
 
@@ -73,15 +69,9 @@ function relayRequest(
     typeof Request !== "undefined" && input instanceof Request
       ? new Request(relayUrl, input)
       : relayUrl;
-  // The relayed URL still starts with /_agent-native/, so the patched global
-  // fetch would prefix it a second time.
   return (originalFetch ?? window.fetch)(relayInput, init);
 }
 
-/**
- * Fetch bound to one app's relay base. Requests already carry their app, so
- * they stay correct no matter how many shells are mounted.
- */
 export function createDesktopChatRelayFetch(appId: string): typeof fetch {
   return (input, init) => {
     const requestUrl = resolveRequestUrl(input);
@@ -98,13 +88,6 @@ export function createDesktopChatRelayFetch(appId: string): typeof fetch {
   };
 }
 
-/**
- * Thrown when a framework-prefixed request has no relay base to reach —
- * no desktop app chat shell has resolved its `apiUrl` yet. Distinct from a
- * network failure so callers (and tests) can tell "nothing to talk to" apart
- * from "the request failed", instead of the renderer's file:// origin
- * silently eating the request as an indistinguishable ERR_FILE_NOT_FOUND.
- */
 export class DesktopChatRelayUnavailableError extends Error {
   constructor(pathname: string) {
     super(
@@ -114,14 +97,8 @@ export class DesktopChatRelayUnavailableError extends Error {
   }
 }
 
-// Growing delay before rejecting a request with no relay base, so any caller
-// that retries immediately on rejection is throttled by the wait instead of
-// free-running — this is what used to fire ~350 req/s against file:// with
-// no backoff. Resets once a base resolves (setDesktopChatRelayBase above).
 const NO_BASE_BACKOFF_BASE_MS = 250;
 const NO_BASE_BACKOFF_MAX_MS = 10_000;
-// Per pathname, so one endpoint that retries in a tight loop cannot push a
-// different endpoint's first attempt out to the 10s ceiling.
 const noBaseBackoffAttempts = new Map<string, number>();
 
 function rejectUnavailable(
@@ -173,11 +150,6 @@ export function installDesktopChatFetchRelay(): void {
       return originalFetch!(input, init);
     }
     if (relayBaseByAppId.size === 0) {
-      // No app has resolved a relay base yet. The renderer itself is served
-      // from file://, so handing this to the real fetch can never succeed —
-      // it would just resolve the relative path against file:// and reject
-      // with an opaque ERR_FILE_NOT_FOUND indistinguishable from any other
-      // failure. Fail closed with a typed, backed-off rejection instead.
       return rejectUnavailable(requestUrl.pathname, init?.signal);
     }
 

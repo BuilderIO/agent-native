@@ -113,10 +113,6 @@ type BuilderRefreshResult = {
   rejectedTokenCount?: number;
 };
 
-/**
- * Builder's status string lags the real index state, so polling only stops on
- * a positive document count or on a status that reports outright failure.
- */
 function isSettledBuilderRefresh(result: BuilderRefreshResult): boolean {
   if (typeof result.docCount === "number" && result.docCount > 0) return true;
   return (
@@ -261,7 +257,6 @@ export default function DesignSystems() {
 
   const handleSetDefault = useCallback(
     (id: string, isDefault: boolean) => {
-      // Optimistic update
       queryClient.setQueryData(
         ["action", "list-design-systems", undefined],
         (old: any) => {
@@ -1142,9 +1137,6 @@ function DesignSystemPreviewLink({
     data.builderUrl && isTrustedBuilderPreviewUrl(data.builderUrl)
       ? data.builderUrl
       : undefined;
-  // The stored URL is the project/branch link for every source that returns a
-  // branch from indexing, so it renders straight away; the resolve only
-  // upgrades a `.fig` import whose branch was cut after the row was written.
   const trustedBuilderUrl =
     (resolvedBuilderUrl && isTrustedBuilderPreviewUrl(resolvedBuilderUrl)
       ? resolvedBuilderUrl
@@ -1402,9 +1394,6 @@ function getDetailTokens(
     ...objectPreviewItems(t("designSystems.tokenPreview.spacing"), spacing),
     ...objectPreviewItems(t("designSystems.tokenPreview.borders"), borders),
     ...objectPreviewItems(t("designSystems.tokenPreview.defaults"), defaults),
-    // The seven color roles are a summary of an import, not its extent. Without
-    // this the panel renders a 200-token system identically to a 7-token one,
-    // which reads as "it only captured a few colors".
     namedTokenCount > 0
       ? {
           label: t("designSystems.tokenPreview.namedTokens"),

@@ -39,8 +39,6 @@ describe("structuralReferenceDirectives", () => {
     expect(text).toContain("read the real colors, spacing, typography");
     expect(text).toContain("literal values");
     expect(text).toContain("ignore this reference framing");
-    // Never states outright that the selection IS a reference — that would
-    // hijack an ordinary "make this bigger" edit request into a rebuild.
     expect(text).not.toMatch(/is a reference|tagged as a reference/i);
   });
 });
@@ -86,8 +84,6 @@ describe("DESIGN_MUTATION_REQUIRED_DIRECTIVE", () => {
     ]) {
       expect(directives).toContain(DESIGN_MUTATION_REQUIRED_DIRECTIVE);
     }
-    // The intake turn is told to show questions and stop, so carrying the
-    // directive would make the response guard reject its own flow.
     expect(designIntakeQuestionDirectives("design-1")).not.toContain(
       DESIGN_MUTATION_REQUIRED_DIRECTIVE,
     );

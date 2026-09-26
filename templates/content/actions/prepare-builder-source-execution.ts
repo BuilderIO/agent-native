@@ -143,8 +143,6 @@ export default defineAction({
           }
         });
       } catch (error) {
-        // A concurrent prepare may win the unique (source, key) race after our
-        // initial SELECT. Reuse that durable gate; rethrow unrelated failures.
         const [winner] = await db
           .select({ id: schema.contentDatabaseSourceExecutions.id })
           .from(schema.contentDatabaseSourceExecutions)

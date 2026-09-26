@@ -75,8 +75,6 @@ async function sendOne(
     const updated = await markQueuedDraftSent(id, ctx, claimId, sentMessageId);
     return { outcome: "sent", id, sentMessageId, draft: updated };
   } catch (err) {
-    // Release the claim so the draft goes back to a sendable state instead
-    // of being stuck as "sending" forever after a failed send attempt.
     await releaseQueuedDraftClaim(id, ctx, claimId, priorStatus);
     return {
       outcome: "failed",

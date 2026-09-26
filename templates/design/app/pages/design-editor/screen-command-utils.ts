@@ -47,9 +47,6 @@ export function designEditorCommandFromSearchParams(
   const rawZoom = searchParams.get("zoom");
   const zoom = rawZoom !== null ? Number(rawZoom) : NaN;
   const tool = normalizeDesignTool(searchParams.get("tool"));
-  // `single` is the URL spelling for the responsive Interact surface. There
-  // is no focused editing view, so even an older URL without mode=interact
-  // must enter Interact directly instead of reviving the removed Full view.
   const mode =
     editorView === "single"
       ? (normalizeDesignMode(searchParams.get("mode")) ?? "interact")
@@ -112,7 +109,6 @@ export function applyInlineStylesToHtml(
     const element = queryUniqueSelector(doc, selector) as HTMLElement | null;
     if (!element) return null;
     Object.entries(styles).forEach(([property, value]) => {
-      // Custom properties are only reachable through setProperty.
       if (property.startsWith("--")) {
         if (value) element.style.setProperty(property, value);
         else element.style.removeProperty(property);

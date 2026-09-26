@@ -59,7 +59,7 @@ describe("runReflector", () => {
             },
           ];
         }
-        return []; // no prior reflections
+        return [];
       },
     );
     const runInternal = vi.fn(
@@ -81,7 +81,6 @@ describe("runReflector", () => {
     expect(insertArg.tier).toBe("reflection");
     expect(insertArg.text).toContain("ship feature");
     expect(insertArg.ownerEmail).toBe("alice@example.com");
-    // Spans the folded observation range.
     expect(insertArg.sourceStartIndex).toBe(0);
     expect(insertArg.sourceEndIndex).toBe(19);
     expect(insertArg.sourceMessageCount).toBe(2);

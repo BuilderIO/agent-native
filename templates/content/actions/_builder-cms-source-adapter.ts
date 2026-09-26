@@ -243,12 +243,6 @@ function pickStringField(
   return null;
 }
 
-// Builder reference values look like
-// `{ "@type": "@builder.io/core:Reference", id, model, value? }`. When the read
-// is enriched, the referenced entry is inlined on `value` (with its own `name`
-// and `data`) — prefer a human field from it (so e.g. a blog-article's author
-// shows the author's name). Without enrichment, fall back to a readable
-// `model:shortId` token instead of raw JSON.
 function builderReferenceLabel(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const ref = value as Record<string, unknown>;

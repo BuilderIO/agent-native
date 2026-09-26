@@ -228,11 +228,6 @@ describe("scaffoldAgentNativeTarget", () => {
     });
     run = await approveMigrationRun(run);
 
-    // A route path containing a backtick and a template-literal `${...}`
-    // interpolation sequence, and one containing JSX-significant characters.
-    // generatedRoute() must JSON.stringify() these before interpolating them
-    // into JSX-expression braces so they can't break out of the generated
-    // file's outer template literal or produce invalid/unsafe TS.
     const weirdPath = "/weird/`${evil}`";
     const jsxSpecialPath = "/a&b<c>d{e}";
 
@@ -280,9 +275,6 @@ describe("scaffoldAgentNativeTarget", () => {
     const result = await scaffoldAgentNativeTarget(context);
     expect(result.ok).toBe(true);
 
-    // File names mirror the same routeToFile() transformation covered by
-    // the route-naming test above: strip the leading slash, turn `:`/`*`
-    // into `$`, and turn `/` into `.`.
     const weirdRouteFile = path.join(
       outputRoot,
       "app/routes/weird.`${evil}`.tsx",
@@ -294,11 +286,7 @@ describe("scaffoldAgentNativeTarget", () => {
 
     const weirdContent = await fs.readFile(weirdRouteFile, "utf-8");
     expect(weirdContent).toContain("export default function MigratedRoute");
-    // The route path must appear as its JSON.stringify()'d form...
     expect(weirdContent).toContain(JSON.stringify(weirdPath));
-    // ...never as a raw, unquoted interpolation, which is exactly the
-    // pattern that would prematurely terminate the outer template literal
-    // or otherwise corrupt the generated file.
     expect(weirdContent.includes(`{${weirdPath}}`)).toBe(false);
 
     const jsxSpecialContent = await fs.readFile(jsxSpecialRouteFile, "utf-8");

@@ -5,12 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { collectLiveSizeHints } from "./frame-selection";
 
-/**
- * A duplicated Screen can carry a not-yet-remapped (or colliding)
- * data-agent-native-node-id while it settles — collectLiveSizeHints must
- * only ever read the ACTIVE file's own iframe, never fall through to the
- * first preview iframe on the canvas that happens to contain a matching id.
- */
 const FIXTURE = `<body>
   <div data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha"></div>
 </body>`;
@@ -92,10 +86,6 @@ describe("collectLiveSizeHints", () => {
   });
 
   it("reads the active file's own iframe, ignoring a duplicate screen's colliding node id", () => {
-    // "other.html" stands in for a just-duplicated screen whose ids haven't
-    // been remapped yet — same data-agent-native-node-id, different (wrong)
-    // rendered size. If it were queried before "active.html" (DOM order),
-    // taking the "first match" would silently read the wrong screen.
     mountScreenIframe("other.html", { width: 999, height: 999 });
     mountScreenIframe("active.html", { width: 120, height: 40 });
 

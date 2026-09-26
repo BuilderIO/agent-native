@@ -17,10 +17,6 @@ import type { H3Event } from "h3";
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// --- In-memory stand-in for the framework credential vault -------------------
-// Keyed by `<scope>::<KEY>` where scope is `u:<email>` (per-user) or
-// `o:<orgId>` (per-org). This mirrors the real settings-store key shape so a
-// regression to a shared/"local" scope would be observable in `storedKeys`.
 type Stored = { scope: string; key: string; value: string };
 const store = new Map<string, Stored>();
 
@@ -62,8 +58,6 @@ const APOLLO_KEY = "apollo-secret-key-abc123";
 const HUBSPOT_KEY = "pat-na1-hubspot-secret-xyz789";
 const USER_EMAIL = "steve@example.com";
 
-// A fake h3 event — the integration helpers only pass it to getSession /
-// getOrgContext, both mocked, so the object itself is opaque here.
 const fakeEvent = {} as H3Event;
 
 function storeKey(ctx: { userEmail: string }, key: string): string {
@@ -74,11 +68,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   store.clear();
 
-  // Authenticated session for steve@example.com, no active org.
   getSessionMock.mockResolvedValue({ email: USER_EMAIL, orgId: null });
   getOrgContextMock.mockResolvedValue({ orgId: null });
 
-  // Wire the mocked vault to the in-memory store, enforcing per-user scoping.
   saveCredentialMock.mockImplementation(
     async (key: string, value: string, ctx: { userEmail: string }) => {
       const scope = scopeOf(ctx);
@@ -108,15 +100,12 @@ describe("integration-credentials per-user vault", () => {
   it("stores the key under a per-user scope, never a shared/'local' scope", async () => {
     await saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY);
 
-    // saveCredential was called with the per-user CredentialContext and the
-    // canonical <PROVIDER>_API_KEY vault key — not appStateGet/"local".
     expect(saveCredentialMock).toHaveBeenCalledWith(
       "APOLLO_API_KEY",
       APOLLO_KEY,
       expect.objectContaining({ userEmail: USER_EMAIL }),
     );
 
-    // The only entry in the store is under the per-user scope.
     const entries = [...store.values()];
     expect(entries).toHaveLength(1);
     expect(entries[0].scope).toBe(`u:${USER_EMAIL}`);
@@ -126,7 +115,6 @@ describe("integration-credentials per-user vault", () => {
       store.has(storeKey({ userEmail: USER_EMAIL }, "APOLLO_API_KEY")),
     ).toBe(true);
 
-    // No write was made under any shared "local"/"session_id" scope.
     for (const k of store.keys()) {
       expect(k).not.toMatch(/local/i);
       expect(k).not.toMatch(/session_id/i);
@@ -134,10 +122,8 @@ describe("integration-credentials per-user vault", () => {
   });
 
   it("does NOT leak one user's key to a different user (scope isolation)", async () => {
-    // steve saves a key
     await saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY);
 
-    // A different authenticated user must not resolve steve's key.
     getSessionMock.mockResolvedValue({
       email: "other@example.com",
       orgId: null,
@@ -198,8 +184,6 @@ describe("integration-credentials per-user vault", () => {
 });
 
 describe("status read path never exposes the raw key", () => {
-  // The status handlers are plain h3 handlers; invoking them directly runs the
-  // real handler body (the same code the mounted route runs).
   async function invoke(handler: typeof apolloStatus) {
     return (handler as unknown as (e: H3Event) => Promise<unknown>)(fakeEvent);
   }
@@ -209,11 +193,9 @@ describe("status read path never exposes the raw key", () => {
 
     const res = await invoke(apolloStatus);
 
-    // Shape is exactly { connected: boolean } — no key field.
     expect(res).toEqual({ connected: true });
     expect(Object.keys(res as object)).toEqual(["connected"]);
 
-    // The raw key must not appear anywhere in the serialized response.
     expect(JSON.stringify(res)).not.toContain(APOLLO_KEY);
   });
 

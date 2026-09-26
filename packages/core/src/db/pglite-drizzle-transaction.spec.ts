@@ -54,12 +54,6 @@ describe("Drizzle-opened PGlite transactions register with the shared exec", () 
     const { getDbExec } = await import("./client.js");
     const { createGetDb } = await import("./create-get-db.js");
     const getDb = createGetDb({});
-    // Resolve the concrete Drizzle instance once up front: `expect().rejects`
-    // probes `typeof x.then === "function"` before awaiting, and getDb()'s own
-    // lazy chain-recording proxy re-runs its whole recorded chain — including
-    // the side-effecting transaction() call — on every `.then` property read,
-    // so calling `.transaction()` straight off the still-lazy `getDb()` here
-    // would open two transactions instead of one.
     const db = await getDb();
 
     await getDbExec().execute(

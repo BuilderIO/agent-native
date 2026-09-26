@@ -15,27 +15,12 @@ function isMonitoringView(value: string | null): value is MonitoringView {
   return value === "uptime" || value === "errors";
 }
 
-/**
- * Monitoring tab shell. Hosts two independently-owned panels:
- *  - Uptime  (URL/status/text checks + alerting)
- *  - Errors  (Sentry-style exception capture linked to session replays)
- *
- * The active panel is reflected in the `?view=` query param so links are
- * shareable and the agent can deep-link a specific view via the navigate
- * action. This shell is intentionally thin — panel content lives in the
- * feature-owned UptimePanel / ErrorsPanel modules.
- */
 export default function MonitoringPage() {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const rawView = searchParams.get("view");
   const view: MonitoringView = isMonitoringView(rawView) ? rawView : "uptime";
 
-  // A panel is in a sub-view (full-page form / detail / status-page config) when
-  // it has drilled in via its own query param. The section-switcher tabs only
-  // belong at the list level; inside a sub-view the panel's own "Back" header is
-  // the way out. Param names mirror UptimePanel (`monitor`, `statuspage`) and
-  // ErrorsPanel (`issue`); `monitor=new` / `statuspage=list` count as sub-views.
   const inSubView =
     (view === "uptime" &&
       (searchParams.get("monitor") !== null ||

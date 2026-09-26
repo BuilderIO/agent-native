@@ -62,8 +62,6 @@ export async function createAssetFromBuffer(input: {
 }): Promise<typeof schema.assets.$inferSelect> {
   const id = input.id ?? nanoid();
   const mediaType = input.mediaType ?? mediaTypeFromMime(input.mimeType);
-  // allSettled keeps the pLimit slot held until both jobs finish, so the
-  // concurrency cap is never violated even when one job fails early.
   const [infoResult, thumbResult] = await Promise.allSettled([
     mediaType === "image"
       ? imageInfo(input.buffer)
@@ -86,14 +84,6 @@ export async function createAssetFromBuffer(input: {
   const thumbnailFilename = thumb
     ? `libraries/${input.libraryId}/assets/${id}/thumb.webp`
     : null;
-  // putObject returns the *opaque* storage key — a URL when a provider
-  // accepted the upload, or `local:<path>` when the dev-only local-fs
-  // fallback ran. Preset references can also pass a stable public asset path.
-  // Persist the returned/provided key (not the filename hint) so getObject can
-  // dispatch on the real storage shape on read-back.
-  // Storing the bare filename here is what caused thumb.webp 500s when
-  // BUILDER_PRIVATE_KEY was set — bytes lived at the provider URL but the
-  // DB still pointed at a non-existent local file.
   const [originalObject, thumbnailObject, colors] = await Promise.all([
     input.objectKey
       ? Promise.resolve({ key: input.objectKey })

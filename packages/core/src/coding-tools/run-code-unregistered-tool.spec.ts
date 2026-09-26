@@ -25,9 +25,6 @@ describe("run-code bridge unregistered tools", () => {
 
     const result = await entry.run({ code, timeoutMs: 30_000 });
 
-    // Unknown tool must report "not registered" (404), not the misleading
-    // "not an agent-exposed read-only action" access error (403) that an
-    // undefined entry used to fall into.
     expect(result).toContain(
       'caught: Tool "does-not-exist" is not registered.',
     );

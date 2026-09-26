@@ -2,16 +2,11 @@ import { useEffect, useRef, useState } from "react";
 
 import { readOceanColors } from "./brand-colors.js";
 import { HERO_BOTTOM_FADE_START_PERCENT } from "./hero-layout.js";
-// Type-only, so this stays off the static graph. A value import here (or from
-// brand-colors/tuning/ocean-colors) would pull the renderer into auth's entry
-// chunk -- see hero-layout.ts.
 import type { OceanRenderer } from "./renderer.js";
 
-/** Keep the wave's first frame from appearing as a hard visual pop. */
 const FADE_IN_MS = 700;
 
 export interface HeroOceanBackgroundProps {
-  /** Called on any GPU failure so the caller can swap in the fallback. */
   onError: (error: unknown) => void;
   frameRate?: number;
   className?: string;
@@ -19,9 +14,6 @@ export interface HeroOceanBackgroundProps {
 
 type PointerTarget = readonly [number, number, number];
 
-// Same box as HeroShaderBackground so the two are swappable without a layout
-// shift: absolutely filling the hero's `position: relative` PageSection, behind
-// the page-grid column dividers.
 export function HeroOceanBackground({
   onError,
   frameRate = 30,
@@ -91,9 +83,6 @@ export function HeroOceanBackground({
       window.removeEventListener("blur", fadePointer);
     });
 
-    // Imported here rather than at module scope: the homepage is prerendered,
-    // and the vgpu runtime is ~100x the size of this component. Nothing
-    // downloads it until a browser has proven it can run it.
     void import("./renderer")
       .then(({ createRenderer }) => {
         if (cancelled) return;
@@ -105,10 +94,6 @@ export function HeroOceanBackground({
         });
         renderer.setPointer(pointerTarget);
 
-        // firstFrame, not ready: `ready` only means initialize() returned, so
-        // the loop is registered but has not drawn yet, and it also fulfils
-        // after a failed init. Fading on it shows an empty -- or dead --
-        // canvas. It rejects on failure, which onError already handles.
         void renderer.firstFrame
           .then(() => {
             if (!cancelled) setReady(true);
@@ -124,9 +109,6 @@ export function HeroOceanBackground({
         });
         cleanups.push(() => themeObserver.disconnect());
 
-        // The hero scrolls out of view within one screen. An unpaused ocean
-        // would keep a 512x512 IFFT and half a million particles running for
-        // the whole rest of the page.
         const visibility = new IntersectionObserver(
           ([entry]) => renderer?.setPaused(!(entry?.isIntersecting ?? true)),
           { threshold: 0 },
@@ -145,9 +127,6 @@ export function HeroOceanBackground({
     };
   }, [frameRate]);
 
-  // Inline because the stop position is a tuning value, and no Tailwind mask
-  // utility takes an arbitrary percentage from a runtime constant. 100 means
-  // the preset wants the canvas to reach the section edge unmasked.
   const bottomFadeStartPercent = HERO_BOTTOM_FADE_START_PERCENT;
   const mask =
     bottomFadeStartPercent >= 100

@@ -17,7 +17,6 @@ export function freezeMedia(): () => void {
     }
   });
 
-  // Pause SVG SMIL animations
   const svgElements = document.querySelectorAll("svg");
   const pausedSVGs: SVGSVGElement[] = [];
   svgElements.forEach((svg) => {

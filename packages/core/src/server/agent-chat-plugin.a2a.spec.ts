@@ -225,19 +225,12 @@ describe("delegated A2A final response guards", () => {
     expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
       "Do not bounce the work back",
     );
-    // Callees were exploring instead of routing to an action they already had,
-    // which is what made cross-app calls take minutes. Two sentences carry it:
-    // prefer your own registered actions, and stop rather than keep searching.
     expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
       "Reach for your own registered actions first",
     );
     expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
       "never use a shell, filesystem, or code-execution tool",
     );
-    // The callee must be told the wall clock it actually gets. Production
-    // iterations average ~34s against a 40s foreground wall, so a callee that
-    // does not know the budget plans work it cannot finish — "I ran out of
-    // time before finishing this step" was 39% of failed inbound A2A tasks.
     expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
       "This step is cut off after about 12 seconds",
     );
@@ -461,9 +454,6 @@ describe("delegated A2A tool surface", () => {
       "starter",
       "tool-search",
     ]);
-    // `runAgentLoop` uses this full list to load a matched schema after the
-    // initial `tool-search` call, rather than forcing the whole registry into
-    // the first model request.
     expect(surface.availableTools.map((entry) => entry.name)).toEqual([
       "starter",
       "tool-search",
@@ -547,16 +537,6 @@ describe("delegated A2A tool surface", () => {
     expect(surface.availableTools).toBe(availableTools);
   });
 
-  // agent-chat-plugin.ts's MCP `ask_app` inner loop (the `askAgent` closure
-  // passed to `mountMCP`) reuses this exact helper with the same
-  // `effectiveInitialToolNames` the interactive chat path uses, instead of
-  // handing `actionsToEngineTools(mcpActions)` straight to the engine
-  // unfiltered. Before that fix, every external host calling `ask_app` over
-  // MCP triggered a near-full-catalog first request, undermining the compact
-  // MCP catalog this surface exists to keep external callers on. This test
-  // locks in the same compaction guarantee for a registry shaped like the
-  // MCP loop's (template action + a much larger set of framework additions —
-  // resource/docs/chat/fetch/web-search/workspace-files/tool/MCP entries).
   it("compacts the MCP ask_app inner loop's first request the same way as A2A", () => {
     const availableTools = [
       tool("template-app-action"),
@@ -574,11 +554,6 @@ describe("delegated A2A tool surface", () => {
       "template-app-action",
       "tool-search",
     ]);
-    // The full registry is preserved separately so `runAgentLoop`'s mid-run
-    // tool-search expansion (`expandActiveTools` in production-agent.ts,
-    // exercised end-to-end in production-agent.spec.ts's "expands the
-    // provider tool list after tool-search returns matches") can still load
-    // any of these once the model searches for them.
     expect(surface.availableTools).toBe(availableTools);
   });
 });

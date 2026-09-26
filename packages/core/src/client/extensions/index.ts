@@ -61,12 +61,6 @@ export {
   type CreateHttpAgentNativeExtensionStorageOptions,
 } from "./portable-extension.js";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Legacy aliases — these names predate the Tools → Extensions rename. Keep
-// exporting them so deployed templates that haven't been updated still
-// resolve. Use the canonical `Extension*` names in new code.
-// ─────────────────────────────────────────────────────────────────────────────
-
 export { ExtensionsSidebarSection as ToolsSidebarSection } from "./ExtensionsSidebarSection.js";
 export {
   ExtensionViewer as ToolViewer,

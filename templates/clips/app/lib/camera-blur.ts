@@ -1,33 +1,15 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import type { ImageSegmenter } from "@mediapipe/tasks-vision";
 
-/**
- * A processed camera stream whose background is blurred while the person stays
- * sharp (Zoom / Loom style). Produced once in the recorder engine and shared by
- * both the live preview bubble and the baked-in recording composite, so "what
- * you see is what's recorded".
- */
 export interface CameraBlurHandle {
-  /** The processed stream, or the original `source` stream when `active` is false. */
   stream: MediaStream;
-  /** False when segmentation was unavailable and we transparently fell back to raw. */
   readonly active: boolean;
-  /**
-   * Update the background blur radius (px) live, without rebuilding the
-   * segmenter. No-op on the passthrough fallback handle.
-   */
   setBlurPx(px: number): void;
   cleanup(): void;
 }
 
 export interface CameraBlurOptions {
-  /** CSS blur radius applied to the background, in px. Default 12. */
   blurPx?: number;
-  /**
-   * How often segmentation runs, in frames per second. Kept below the 30fps
-   * capture rate to bound CPU/GPU cost — the small bubble does not need a fresh
-   * mask every captured frame. Default 20.
-   */
   segmentationFps?: number;
 }
 
@@ -36,13 +18,6 @@ export const MIN_BLUR_PX = 2;
 export const MAX_BLUR_PX = 30;
 const DEFAULT_SEGMENTATION_FPS = 20;
 const CAPTURE_FPS = 30;
-/**
- * Max dimension (px) of the frame we feed the segmenter. The model resizes to
- * its own 256² input internally and upsamples the mask back to this size, so
- * keeping the input small bounds the per-frame mask readback + alpha loop cost
- * regardless of the camera's native resolution. The soft mask is scaled back up
- * to the camera resolution with bilinear filtering when compositing.
- */
 const SEG_MAX_DIM = 256;
 
 const MODEL_PATH = "/mediapipe/selfie_segmenter.tflite";
@@ -66,7 +41,6 @@ function sourceDimensions(
   };
 }
 
-/** Hidden, off-screen `<video>` that plays the source stream for canvas reads. */
 function attachHiddenVideo(stream: MediaStream): {
   video: HTMLVideoElement;
   cleanup(): void;
@@ -104,8 +78,6 @@ function attachHiddenVideo(stream: MediaStream): {
 }
 
 async function createSegmenter(): Promise<ImageSegmenter> {
-  // Lazy-loaded so the ~11MB Wasm runtime and its loader never enter the main
-  // bundle or run during SSR — only when a recording actually requests blur.
   const vision = await import("@mediapipe/tasks-vision");
   const base = appBasePath();
   const fileset = await vision.FilesetResolver.forVisionTasks(
@@ -124,7 +96,6 @@ async function createSegmenter(): Promise<ImageSegmenter> {
   try {
     return await build("GPU");
   } catch {
-    // Older GPUs / blocked WebGL contexts: fall back to the CPU delegate.
     return await build("CPU");
   }
 }
@@ -136,13 +107,6 @@ const fallback = (source: MediaStream): CameraBlurHandle => ({
   cleanup() {},
 });
 
-/**
- * Build a background-blurred derivative of `source`. Never throws: if MediaPipe,
- * the Wasm fileset, the model, or canvas capture are unavailable, it resolves to
- * a passthrough handle wrapping the raw `source` (`active === false`) so the
- * recording always proceeds. Callers own `source`'s tracks; `cleanup()` here
- * tears down only the processing pipeline, never the source.
- */
 export async function createBackgroundBlurStream(
   source: MediaStream,
   opts: CameraBlurOptions = {},
@@ -177,10 +141,8 @@ export async function createBackgroundBlurStream(
   out.width = w0;
   out.height = h0;
 
-  // Foreground compositing scratch: sharp person punched out by the mask alpha.
   const fg = document.createElement("canvas");
   const fgCtx = fg.getContext("2d");
-  // Downscaled frame we actually segment, plus the soft alpha mask it produces.
   const segInput = document.createElement("canvas");
   const segCtx = segInput.getContext("2d");
   const maskCanvas = document.createElement("canvas");
@@ -196,8 +158,6 @@ export async function createBackgroundBlurStream(
   let haveMask = false;
   const segIntervalMs = 1000 / segFps;
 
-  // Re-segment into maskCanvas. Runs at segFps; on failure the previous mask is
-  // kept rather than dropping to an un-blurred frame.
   const updateMask = (video: HTMLVideoElement) => {
     const scale = SEG_MAX_DIM / Math.max(video.videoWidth, video.videoHeight);
     const segW = Math.max(1, Math.round(video.videoWidth * scale));
@@ -232,7 +192,6 @@ export async function createBackgroundBlurStream(
     }
   };
 
-  // Composite blurred background + sharp foreground (or raw until a first mask).
   const composite = (video: HTMLVideoElement, outW: number, outH: number) => {
     if (!haveMask) {
       outCtx.drawImage(video, 0, 0, outW, outH);
@@ -254,8 +213,6 @@ export async function createBackgroundBlurStream(
     outCtx.drawImage(fg, 0, 0);
   };
 
-  // Composite every tick (capture rate) for smooth motion; re-segment only at
-  // segFps, reusing the last mask in between.
   const drawFrame = () => {
     const video = hidden.video;
     if (!positive(video.videoWidth) || !positive(video.videoHeight)) return;
@@ -273,9 +230,6 @@ export async function createBackgroundBlurStream(
   const stream = out.captureStream(CAPTURE_FPS);
   const minFrameMs = 1000 / CAPTURE_FPS;
 
-  // Worker-driven timer so the loop keeps running at full rate in background
-  // tabs (rAF is throttled to ~1fps when hidden). Falls back to rAF when blob:
-  // workers are blocked by CSP — mirrors camera-composite.ts.
   let worker: Worker | null = null;
   let raf: number | null = null;
 

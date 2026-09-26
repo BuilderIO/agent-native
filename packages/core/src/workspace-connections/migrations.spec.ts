@@ -63,11 +63,6 @@ function pgliteExec(
 
 describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
   it("creates every table the runtime ensure path only creates outside production", () => {
-    // `schemaEnsureDisabled()` short-circuits every probe to "present" on a
-    // production serverless runtime, so an `ensureTableExists` call issues no
-    // DDL there. A table that lives only in the ensure path is therefore absent
-    // in production forever — `workspace_user_groups` shipped that way and
-    // started throwing `relation ... does not exist` the next day.
     const ensured = [
       ...read("./store.ts").matchAll(/ensureTableExists\(\s*"([a-z_]+)"/g),
       ...read("./groups.ts").matchAll(/ensureTableExists\(\s*"([a-z_]+)"/g),
@@ -94,7 +89,6 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
   });
 
   it("stores epoch-millisecond columns as BIGINT on Postgres", () => {
-    // int4 overflows on a millisecond timestamp.
     for (const entry of WORKSPACE_CONNECTIONS_MIGRATIONS) {
       if (typeof entry.sql === "string") continue;
       const pg = entry.sql.postgres ?? "";

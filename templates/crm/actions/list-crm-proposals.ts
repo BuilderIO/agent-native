@@ -41,8 +41,6 @@ export default defineAction({
         const link = proposal.recordId
           ? links.get(proposal.recordId)
           : undefined;
-        // A missing link is reported, never blanked: the review surface has to
-        // say why it cannot hand off rather than show a dead button.
         return {
           ...proposal,
           recordUrl: link?.available ? link.url : null,

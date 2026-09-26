@@ -43,7 +43,6 @@ type PgVectorOptions =
   | {
       namespace?: string;
       postgres?: boolean;
-      /** The caller has already provisioned this namespace and dimension. */
       indexInitialized?: boolean;
     };
 
@@ -360,8 +359,6 @@ export async function queryPostgresFts(
       score: Number(row.score),
     }));
   } catch (error) {
-    // A read can race the first write for a tenant-specific namespace. Writers
-    // provision it; an absent lane simply contributes no candidates.
     if (isMissingPostgresRelation(error)) return [];
     throw error;
   }

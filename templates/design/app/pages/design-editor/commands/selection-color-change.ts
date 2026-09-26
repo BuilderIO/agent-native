@@ -331,8 +331,6 @@ export function runSelectionColorChange(
     scopeIdentity,
   } of plannedUpdates) {
     if (nextContent === content) {
-      // A picker commit can repeat its final preview value. Still route that
-      // value through the normal save/history path after the preview skipped it.
       if (!previewOnly) {
         args.applyFileContentUpdate(fileId, content, {
           forcePreviewFullDocument: fileId === args.activeFileId,

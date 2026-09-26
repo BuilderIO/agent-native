@@ -4,18 +4,6 @@ import { originFor, productionHostFor, selectedSites } from "../lib/fleet";
 import { mustRespond, parseJson } from "../lib/http";
 import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
 
-/**
- * Findings worth surfacing that should not block a promotion.
- *
- * These are real, reproducible misconfigurations, but none of them stops a user
- * from signing in or getting an agent turn — so gating a prod push on them
- * would train people to ignore a red run. The workflow runs this lane
- * separately and does not fail the job on it.
- *
- * If something here starts blocking users, move it into the gating lane rather
- * than loosening the assertion.
- */
-
 const sites = selectedSites();
 
 test.beforeEach(async ({ page }) => {
@@ -29,9 +17,6 @@ for (const site of sites) {
 
   test.describe(`${site.id} advisory`, () => {
     test("keeps beta out of search results", async () => {
-      // Beta serves the same permissive robots.txt as production, so beta URLs
-      // can be indexed and compete with the production host for the same
-      // queries.
       const headers = await mustRespond(`${origin}/`, { redirect: "manual" });
       const robots = await mustRespond(`${origin}/robots.txt`, {
         redirect: "follow",
@@ -39,8 +24,6 @@ for (const site of sites) {
       const headerBlocks = /noindex/i.test(
         headers.headers["x-robots-tag"] ?? "",
       );
-      // A 404 on robots.txt means "no restrictions", which is the opposite of
-      // blocked — only an actual `Disallow: /` counts.
       const robotsBlocks =
         robots.status === 200 && /Disallow:\s*\/\s*$/m.test(robots.body);
 
@@ -53,9 +36,6 @@ for (const site of sites) {
     test("does not run third-party pixels that reject this host", async ({
       page,
     }) => {
-      // Marketing pixels registered only for the production domain throw
-      // uncaught errors on beta. Harmless to the app, noisy in every console
-      // and in any error-reporting tool pointed at beta.
       const rejected: string[] = [];
       page.on("pageerror", (error) => {
         if (/domain not allowed|not allowed/i.test(error.message)) {
@@ -82,11 +62,6 @@ for (const site of sites) {
     });
 
     test("does not report ok while its database is unreachable", async () => {
-      // A host can report {"ok":true,"ready":false,"db":false,
-      // "dbTimedOut":true}. A caller that trusts `ok` — a monitor, a load
-      // balancer, a status page — reads a host with no database as healthy.
-      // The suite's own gating check therefore ignores `ok` and asserts `db`,
-      // but the contradiction is worth fixing at the source.
       for (let attempt = 1; attempt <= 4; attempt += 1) {
         const outcome = await mustRespond(`${origin}/_agent-native/health`, {
           attempts: 3,

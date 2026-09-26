@@ -7,7 +7,6 @@ export default async function (_args: string[]) {
   const store = new FileStore();
   const pins = await store.list();
 
-  // Group by page URL
   const sessions = new Map<string, { count: number; latest: string }>();
   for (const pin of pins) {
     const existing = sessions.get(pin.pageUrl);

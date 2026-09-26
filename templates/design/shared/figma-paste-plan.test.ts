@@ -6,7 +6,6 @@ import {
   type FigmaPasteLayer,
 } from "./figma-paste-plan";
 
-// Expectations below are Figma's own results for the same pastes.
 const inner = { width: 600, height: 400, visible: null };
 
 describe("placeInFigmaPasteContainer", () => {

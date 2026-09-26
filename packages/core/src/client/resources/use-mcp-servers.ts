@@ -1,13 +1,3 @@
-/**
- * React-query hooks for remote MCP servers surfaced inside the Workspace
- * tab as a virtual `mcp-servers/` folder.
- *
- * MCP servers live in the settings store (user- and org-scope), not the
- * resources table. These hooks wrap the existing `/_agent-native/mcp/servers`
- * endpoints so the Workspace UI can list, create, and delete them with the
- * same keys/invalidations the old Settings panel used.
- */
-
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
@@ -176,12 +166,6 @@ const defaultMcpServersApi: McpServersApi = {
 };
 
 export interface UseMcpServersOptions {
-  /**
-   * Defer the first list read until after the first paint. Only for surfaces
-   * that are mounted during startup but not visible then (agent rail, settings
-   * panel) — navigable tabs, pages, and dialogs must stay eager so a direct
-   * render never inherits the deferral window.
-   */
   defer?: boolean;
 }
 
@@ -199,26 +183,12 @@ export function isMcpServersPending(query: McpServersQuery): boolean {
 
 export function useMcpServers(options: UseMcpServersOptions = {}) {
   const api = useMcpServersApi();
-  // The list is never visible during first paint, but only surfaces that are
-  // mounted while invisible (agent rail, settings) may wait out the paint
-  // window; everything else fetches eagerly so a direct render shows a real
-  // pending state.
   const defer = options.defer === true;
   const afterPaint = useAfterPaint();
   const qc = useQueryClient();
-  // An OAuth authorization finishes by redirecting the popup, so nothing in
-  // this window ever learns the connection landed. Revalidate when the user
-  // comes back, but only inside the bounded pending window — the house
-  // QueryClient turns refetchOnWindowFocus off on purpose.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const revalidate = () => {
-      // Deliberately no "did it land?" heuristic. Nothing the client can see
-      // distinguishes "the authorization landed" from an ordinary first read,
-      // a reconnect that replaces credentials in place, or a second flow
-      // running concurrently, so every such guess can clear the marker while a
-      // real return is still outstanding — which is the stale "Connect" this
-      // hook exists to prevent. The TTL is the bound instead.
       if (!hasPendingMcpConnection()) return;
       void qc.invalidateQueries({ queryKey: LIST_KEY });
     };
@@ -407,11 +377,6 @@ export async function testMcpServerUrl(
     : body;
 }
 
-/**
- * Virtual tree-node id used when a server is surfaced in the Workspace tree.
- * Shape: `mcp:<scope>:<serverId>`. Not a real resource row; purely a handle
- * the panel uses to route clicks/delete back to the MCP endpoints.
- */
 export function mcpVirtualId(scope: McpServerScope, serverId: string): string {
   return `mcp:${scope}:${serverId}`;
 }

@@ -1,17 +1,3 @@
-/**
- * Retry a web-originated recording upload that failed or stalled, using the
- * chunks this browser mirrored to IndexedDB while recording (see
- * `recording-backup.ts`). This talks to the same `reset-chunks` / `chunk`
- * upload routes the live recorder uses (`recorder-engine.ts`) and the
- * desktop app's own local-backup retry uses — there is no separate retry
- * action, this is the one retry path apps replay the saved chunks through.
- *
- * Retry only works in the browser that made the recording: the raw video
- * bytes never reach the server until the upload finishes, so a browser that
- * never captured them has nothing to replay. Callers must check
- * `hasRecordingBackup()` first and tell the user plainly when it's false
- * rather than showing a retry button that can't succeed.
- */
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { chunkUploadUrl, UPLOAD_SLICE_BYTES } from "@shared/recording-core";
 
@@ -175,11 +161,6 @@ export async function retryRecordingUploadFromBackup(
   const videoUrl =
     typeof result?.videoUrl === "string" ? result.videoUrl : null;
 
-  // Only drop the local copy once the clip is fully verified and ready.
-  // "processing" means finalize hasn't confirmed the media yet, so keep the
-  // backup around the same way the desktop retry keeps its local file until
-  // verification lands — otherwise a failed verification has nothing left
-  // to retry from.
   if (status === "ready") {
     await deleteRecordingBackup(recordingId).catch(() => {});
   }

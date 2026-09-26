@@ -15,16 +15,9 @@ interface SlideThumbnailContextMenuProps {
   onSelect: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
-  /** Optional extra items for the owning editor to add later. */
   childrenAfterActions?: ReactNode;
 }
 
-/**
- * Keep slide actions discoverable without removing the compact hover buttons.
- * The trigger stays the thumbnail itself, so a right-click works anywhere on
- * the preview and the menu remains usable with a keyboard once the thumbnail
- * has focus.
- */
 export function SlideThumbnailContextMenu({
   children,
   canDelete = true,

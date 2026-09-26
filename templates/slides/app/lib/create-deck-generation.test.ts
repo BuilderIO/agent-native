@@ -277,7 +277,6 @@ describe("startDeckGeneration", () => {
     ).resolves.toBe("started");
 
     expect(deck.slides).toEqual([]);
-    // Read as a reference before the run, never imported into the deck.
     expect(mockCallAction).toHaveBeenCalledWith(
       "import-file",
       expect.objectContaining({
@@ -444,9 +443,6 @@ describe("startDeckGeneration", () => {
   });
 
   it("hydrates reference-import documents that were not imported into the deck", async () => {
-    // The import controls accept several files but import only one. The rest
-    // are in referenceFilePaths yet represented nowhere, so they still need
-    // reading — excluding the whole list silently dropped them.
     mockCallAction.mockReset();
     mockCallAction.mockImplementation(async (name: string) =>
       name === "import-file"
@@ -507,7 +503,6 @@ describe("startDeckGeneration", () => {
       }),
     ).resolves.toBe("started");
 
-    // The imported PPTX is already represented by the reference deck.
     expect(mockCallAction).not.toHaveBeenCalledWith(
       "import-file",
       expect.objectContaining({ filePath: "/uploads/reference.pptx" }),
@@ -747,8 +742,6 @@ describe("startDeckGeneration", () => {
     expect(context).toContain("56pt GT Super bold #f7f5ef");
     expect(context).toContain("#0b1020");
     expect(context).toContain("Follow its measured visual language");
-    // The exact instructions that made a referenced deck come out identical to
-    // an unreferenced one.
     expect(context).not.toContain("use a light warm-neutral canvas");
     expect(context).not.toContain("Before generating a bare or on-brand deck");
     expect(context).not.toContain(
@@ -757,9 +750,6 @@ describe("startDeckGeneration", () => {
   });
 
   it("keeps the styling fallback for a reference that carries no design", async () => {
-    // A DOCX is readable content, not a visual language. Suppressing the
-    // workspace default and the fallback for it would leave the deck with no
-    // styling guidance at all.
     mockCallAction.mockReset();
     mockCallAction.mockImplementation(async (name: string) =>
       name === "import-file"
@@ -899,8 +889,6 @@ describe("startDeckGeneration", () => {
       }),
     ).resolves.toBe("failed");
 
-    // The reported failure: the run started anyway and the dropped reference
-    // was mentioned in prose after an unrelated deck had been generated.
     expect(agentSubmit).not.toHaveBeenCalled();
     expect(deleteDeck).toHaveBeenCalledWith(deck.id);
     const failure = onSetupFailure.mock.calls[0]?.[2] as Error;

@@ -443,7 +443,6 @@ const databaseMessages = {
   pick: "& Pick",
   addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
     "Add a status, select, multi-select, or checkbox property to group.",
-  // Row-union multi-source (slices 6a–6c).
   addARowTo: "Add a row to…",
   addASource: "Add a source",
   localNoCollection: "Local (no collection)",
@@ -1778,8 +1777,6 @@ export interface ContentLocaleBundle {
   history: Partial<Messages["editor"]>;
 }
 
-// es-ES raw literals are the fallback layer mergeMessagesForLocale applies
-// under every non-English locale, so they stay in the eager module.
 const esESRawLiteralOverrides: PartialMessages = {
   root: {
     metaTitle:
@@ -2211,9 +2208,6 @@ function mergeMessagesForLocale(
   };
 }
 
-// Only en-US is bundled eagerly. Locale modules call buildMessagesForLocale on
-// load and register their merged messages here, so synchronous readers fall
-// back to en-US until a locale chunk has loaded.
 export const messagesByLocale: Partial<Record<LocaleCode, Messages>> & {
   "en-US": Messages;
 } = {

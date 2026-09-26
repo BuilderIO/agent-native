@@ -13,21 +13,6 @@ import {
 import type { WireframeData } from "./wireframe.config.js";
 import { WireframeBlock } from "./wireframe.js";
 
-/**
- * Rendering contract for the AUTO-HEIGHT wireframe frame.
- *
- * The frame is content-driven: it keeps each surface's WIDTH/footprint and all
- * chrome, but its HEIGHT fits the content instead of being padded to a fixed
- * per-surface aspect (which left a big empty vertical band below short content
- * in published recaps). So the inner artboard must NOT carry a hard pixel
- * `height` — only a `min-height` floor that content can grow past or settle
- * toward.
- *
- * These assertions run against the effect-free static markup (no layout
- * measurement), which exercises exactly the SSR / first-paint fallback: the
- * floor-height box, never a fixed aspect.
- */
-
 const ctx = {} as unknown as BlockRenderContext;
 
 function render(data: WireframeData, renderCtx = ctx): string {
@@ -40,13 +25,11 @@ function render(data: WireframeData, renderCtx = ctx): string {
   );
 }
 
-/** Pull the inline `style` attribute of the `.plan-kit-artboard` element. */
 function artboardStyle(html: string): string {
   const match = html.match(
     /class="plan-kit-artboard[^"]*"[^>]*style="([^"]*)"/,
   );
   if (!match) {
-    // The class/style attribute order can vary; fall back to scanning the tag.
     const tag = html.match(/<div[^>]*plan-kit-artboard[^>]*>/)?.[0] ?? "";
     return tag.match(/style="([^"]*)"/)?.[1] ?? "";
   }
@@ -61,7 +44,6 @@ function classStyle(html: string, className: string): string {
   return tag.match(/\sstyle="([^"]*)"/)?.[1] ?? "";
 }
 
-/** Pull the inline `style` attribute of the scale-reservation wrapper. */
 function fitWrapperStyle(html: string): string {
   const outerTag =
     html.match(/<div[^>]*class="plan-kit-wireframe"[^>]*>/)?.[0] ?? "";
@@ -271,8 +253,6 @@ describe("wireframe auto-height frame", () => {
     const style = artboardStyle(html);
 
     expect(style).toMatch(/min-height/);
-    // No fixed `height:` declaration on the artboard — that is what used to pad
-    // short content to a tall fixed aspect.
     expect(style).not.toMatch(/(^|;)\s*height\s*:/);
   });
 
@@ -294,7 +274,6 @@ describe("wireframe auto-height frame", () => {
     });
     const style = artboardStyle(html);
 
-    // browser preset width is 900 — the footprint is preserved.
     expect(style).toMatch(/width\s*:\s*900px/);
   });
 

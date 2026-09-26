@@ -328,10 +328,6 @@ describe("calendar unusable OAuth token records", () => {
   });
 
   it("reports disconnected without deleting the row when a record parses to an empty object", async () => {
-    // A stored row that fails to decrypt (key rotation / wrong key) parses to
-    // `{}` in core's parseStoredTokens. The account must read as disconnected
-    // — but the row must NOT be deleted, because this process may simply hold
-    // the wrong key while the row is still decryptable elsewhere.
     getOAuthAccountsMock.mockResolvedValue([
       { accountId: "steve@example.com", tokens: {} },
     ]);
@@ -1547,15 +1543,11 @@ describe("Google account time zone lookup", () => {
 
     const inFlight = getGoogleAccountTimezone("racing-peer@example.com");
 
-    // Disconnect races ahead of the in-flight lookup finishing.
     await disconnect("racing-peer@example.com");
 
     resolveCalendar!({ timeZone: "America/Chicago" });
     await expect(inFlight).resolves.toBe("America/Chicago");
 
-    // The in-flight lookup's result (reflecting pre-disconnect state) must
-    // not have been written to the cache after the disconnect invalidated
-    // it - the next lookup should re-resolve from scratch.
     listOAuthAccountsByOwnerMock.mockResolvedValue([]);
     calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
     await expect(
@@ -1590,9 +1582,6 @@ describe("Google account time zone lookup", () => {
     runWithRequestContextMock.mockImplementation(
       (_context: unknown, callback: () => unknown) => callback(),
     );
-    // Connecting a secondary Google account (a different email than the
-    // app-owner) on someone else's behalf - `owner` is who the timezone
-    // cache is actually keyed by.
     await exchangeCode(
       "oauth-code",
       undefined,
@@ -1631,9 +1620,6 @@ describe("Google account time zone lookup", () => {
       getGoogleAccountTimezone("owner-disconnect@example.com"),
     ).resolves.toBe("America/Chicago");
 
-    // disconnect() is called with the connected account's own email, not
-    // the app-owner the cache is keyed by - the fix must resolve the owner
-    // from the account row before it's deleted.
     listOAuthAccountsMock.mockResolvedValueOnce([
       {
         accountId: "personal-disconnect@example.com",
@@ -2826,9 +2812,6 @@ describe("connection status reads a broken managed connection as disconnected", 
     ]);
   });
 
-  // getAuthStatus backs useGoogleAuthStatus(), which Calendar home, Settings,
-  // the Sidebar, and Booking Links all call unconditionally - the same shape
-  // of bug as list-events, on a different action.
   it("getAuthStatus reports disconnected instead of throwing", async () => {
     resolveOAuthAccessTokenMock.mockRejectedValue(
       new Error("no workspace token available"),
@@ -2840,13 +2823,6 @@ describe("connection status reads a broken managed connection as disconnected", 
     });
   });
 
-  // listEvents reads its clients through getClientsForAccountsWithErrors,
-  // which had the same unguarded resolveManagedCalendarClient() call as
-  // isConnected. list-events.ts only reaches this once isConnected() has
-  // already reported `true`, but the function must be safe on its own too -
-  // and, unlike the plain boolean checks, it must keep the failure visible in
-  // `errors` rather than reporting a successful empty read (list-events.ts
-  // uses this to distinguish an empty calendar from a read failure).
   it("listEvents surfaces the failure instead of throwing or going silent", async () => {
     resolveOAuthAccessTokenMock.mockRejectedValue(
       new Error("no workspace token available"),

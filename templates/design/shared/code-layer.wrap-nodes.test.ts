@@ -2,12 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { applyVisualEdit, buildCodeLayerProjection } from "./code-layer";
 
-/**
- * Three siblings stacked in DOM order back->front: red (bottom), green
- * (middle), blue (top) — later source position paints on top for plain
- * siblings with no z-index. Matches e2e/parity-group-frame.spec.ts's
- * "non-adjacent selection" fixture.
- */
 const THREE_SIBLINGS = `<body>
   <div data-agent-native-node-id="red" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
   <div data-agent-native-node-id="green" style="position:absolute;left:60px;top:60px;width:100px;height:80px"></div>
@@ -56,9 +50,6 @@ describe("applyWrapNodes (Cmd+G group)", () => {
   });
 
   it("places the group at the TOPMOST selected child's z-position, not the bottommost, for a non-adjacent selection", () => {
-    // Select red (bottom) + blue (top), skipping green (middle). Figma
-    // places the resulting group at blue's stacking position, so green
-    // ends up BELOW the group, not above it.
     const patch = applyVisualEdit(THREE_SIBLINGS, {
       kind: "wrapNodes",
       targetIds: ["red", "blue"],
@@ -376,9 +367,6 @@ describe("applyWrapNodes (Shift+A selection background promotion)", () => {
 });
 
 describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {
-  // A named leaf so the fixture's own fallback layer-naming (a plain,
-  // childless <div> defaults to "Frame") can't coincidentally satisfy this
-  // assertion regardless of what the wrap itself names its wrapper.
   const NAMED_LEAF = `<body>
   <div data-agent-native-node-id="label" data-agent-native-layer-name="Label" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
 </body>`;
@@ -407,12 +395,6 @@ describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {
 });
 
 describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () => {
-  // A Text-tool-created node has position/left/top but no explicit
-  // width/height (it's sized by its content, not an authored box) — the
-  // real shape that made computeAbsoluteUnionBounds return null and left the
-  // Frame with no geometry at all (a zero-area position:static div that
-  // doesn't enclose its own content, and whose selection chrome then can't
-  // be dragged — see the item-2 cross-screen investigation).
   const AUTO_SIZED_TEXT = `<body>
   <div data-agent-native-node-id="label" style="position:absolute;left:20px;top:40px;color:#fff">Save</div>
 </body>`;
@@ -432,7 +414,6 @@ describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () =>
       0,
       patch.content.indexOf(`data-agent-native-node-id="${wrapperId}"`) + 1,
     );
-    // No style attribute at all — the degenerate case this fix targets.
     expect(wrapperOpenTag).not.toContain("position: absolute");
   });
 

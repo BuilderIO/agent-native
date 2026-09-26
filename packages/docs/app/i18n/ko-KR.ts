@@ -798,7 +798,6 @@ const koKR = {
       s062: "템플릿에서 시작하고, 데이터를 연결하고, 대시보드 구축을 시작하세요.",
       s063: "문서 읽기",
       s064: "모든 템플릿 보기",
-      // V3 랜딩 페이지 카피 (2026-09-14) — 아래는 hero부터 최종 CTA까지.
       heroEyebrow: "Analytics",
       heroTitle: "질문하세요. 차트, 쿼리, 컨텍스트를 가져옵니다.",
       heroDescription:
@@ -860,7 +859,6 @@ const koKR = {
     },
     calendar: {
       s001: "Calendar 템플릿 스크린샷",
-      // V3 랜딩 페이지 카피 (2026년 9월 10일) — 히어로부터 최종 CTA까지.
       heroEyebrow: "Calendar",
       heroTitle:
         "상담원과 함께 시간을 찾고, 회의를 예약하고, 하루를 조정하세요.",
@@ -1042,7 +1040,6 @@ const koKR = {
     },
     clips: {
       s001: "Clips 템플릿 스크린샷",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "AI 에이전트가 보고 들을 수 있는 화면 녹화",
       heroDescription:
@@ -1188,7 +1185,6 @@ const koKR = {
     },
     content: {
       s001: "Content 템플릿 스크린샷",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "AI 에이전트와 함께 작업을 만들고 정리하세요",
       heroDescription:
@@ -1312,7 +1308,6 @@ const koKR = {
     },
     design: {
       s001: "Design 템플릿 스크린샷",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "AI 에이전트로 인터랙티브 프로토타입 디자인하기",
       heroDescription:
@@ -1435,7 +1430,6 @@ const koKR = {
     },
     dispatch: {
       s001: "Dispatch 템플릿 스크린샷",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "AI 에이전트를 한곳에서 조율하세요",
       heroDescription:
@@ -1685,7 +1679,6 @@ const koKR = {
           "네. 팀원이 초안을 요청하면 사용자의 검토 대기열에 표시됩니다. 이를 열어 메시지를 수정하고 준비되면 발송하면 됩니다. 요청한 사람이 사용자를 대신해 발송할 수는 없으며, 초안 소유자나 조직 관리자가 발송을 관리합니다.",
       },
       s001: "Mail 템플릿 스크린샷",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
       heroTitle: "Jev로 받은편지함을 원하는 대로 관리하세요",
       heroDescription:
@@ -1852,7 +1845,6 @@ const koKR = {
     },
     slides: {
       s001: "Slides 템플릿 스크린샷",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "AI 에이전트로 프레젠테이션 만들기",
       heroDescription:
@@ -2066,7 +2058,6 @@ const koKR = {
           "네. CLI로 복사본을 만들고 actions, 데이터, 인터페이스를 추가한 뒤 애플리케이션을 배포하세요. 환경에 맞게 인증과 provider 접근을 설정하고, 사용자와 공유하기 전에 추가한 워크플로를 테스트하세요.",
       },
       s001: "Chat 앱 스크린샷",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "나만의 AI 채팅 앱 만들기",
       heroDescription:

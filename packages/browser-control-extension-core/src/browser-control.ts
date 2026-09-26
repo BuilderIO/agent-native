@@ -1,4 +1,3 @@
-// This service is shared by browser-extension hosts; transports stay outside it.
 import {
   attachDebugger,
   createBackgroundTab,
@@ -1323,9 +1322,6 @@ export class BrowserControlService {
   ): Promise<Error | undefined> {
     let releaseError: Error | undefined;
     await this.drainPendingInputOperations(tabId);
-    // Complete the owned cleanup before detach so it cannot outlive teardown
-    // and remove a later owner's cursor after this tab is reused. The page
-    // marker still owns a hard removal timer if the renderer is unavailable.
     await this.hideCursor(tabId, taskId);
     const pressedKeys = this.pressedKeys.get(tabId)?.values() ?? [];
     try {

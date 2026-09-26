@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Minimal in-memory emulation of the agent_team_run_queue table, matching the
-// exact statements the queue module issues. Whitespace-normalized so it's
-// robust to formatting.
 let rows: Record<string, any>[] = [];
 
 function affected(n: number) {
@@ -34,7 +31,6 @@ const mockDb = {
       });
       return affected(1);
     }
-    // claim CAS
     if (s.includes("SET status = 'running', attempts = attempts + 1")) {
       const [updatedAt, taskId, stuckCutoff] = args;
       const r = rows.find((x) => x.task_id === taskId);
@@ -50,7 +46,6 @@ const mockDb = {
       }
       return affected(0);
     }
-    // bump continuation (with or without attempts fencing)
     if (s.includes("continuation_count = continuation_count + 1")) {
       const [updatedAt, taskId, claimedAttempts] = args;
       const r = rows.find(
@@ -67,7 +62,6 @@ const mockDb = {
       }
       return affected(0);
     }
-    // complete (with or without attempts fencing)
     if (s.includes("SET status = ?, updated_at = ?")) {
       const [status, updatedAt, taskId, claimedAttempts] = args;
       const r = rows.find(
@@ -82,7 +76,6 @@ const mockDb = {
       }
       return affected(0);
     }
-    // touch (with or without attempts fencing)
     if (
       s.includes("SET updated_at = ? WHERE task_id = ? AND status = 'running'")
     ) {
@@ -164,7 +157,6 @@ describe("agent_team_run_queue", () => {
     expect(first?.status).toBe("running");
     expect(first?.attempts).toBe(1);
 
-    // A concurrent / duplicate self-fire must NOT re-run the sub-agent.
     const second = await queue.claimAgentTeamRun("t1");
     expect(second).toBeNull();
   });
@@ -175,29 +167,25 @@ describe("agent_team_run_queue", () => {
 
   it("re-queues + counts a continuation, then re-claims it", async () => {
     await enqueue("t2");
-    await queue.claimAgentTeamRun("t2"); // running
+    await queue.claimAgentTeamRun("t2");
     const count = await queue.bumpAgentTeamContinuation("t2");
     expect(count).toBe(1);
 
-    // bumped back to queued → the next self-fire claims it cleanly.
     const reclaimed = await queue.claimAgentTeamRun("t2");
     expect(reclaimed).not.toBeNull();
     expect(reclaimed?.continuationCount).toBe(1);
 
-    // and again, idempotent.
     expect(await queue.claimAgentTeamRun("t2")).toBeNull();
   });
 
   it("does not re-claim a fresh running row, but re-claims a stale one", async () => {
     await enqueue("t3");
-    await queue.claimAgentTeamRun("t3"); // running, fresh
+    await queue.claimAgentTeamRun("t3");
 
-    // Fresh → a dropped-dispatch refire must not double-run it.
     expect(
       await queue.claimAgentTeamRun("t3", { stuckAfterMs: 15_000 }),
     ).toBeNull();
 
-    // Age the row past the stuck cutoff → now re-claimable.
     const r = rows.find((x) => x.task_id === "t3")!;
     r.updated_at = Date.now() - 60_000;
     const reclaimed = await queue.claimAgentTeamRun("t3", {
@@ -213,7 +201,6 @@ describe("agent_team_run_queue", () => {
     await queue.completeAgentTeamRun("t4", "done");
     const state = await queue.getAgentTeamRunDispatchState("t4");
     expect(state?.status).toBe("done");
-    // A late duplicate dispatch finds nothing to claim.
     expect(await queue.claimAgentTeamRun("t4")).toBeNull();
   });
 
@@ -226,7 +213,7 @@ describe("agent_team_run_queue", () => {
     const ids =
       await queue.listActiveAgentTeamTaskIdsForOwner("me@example.com");
     expect(ids).toContain("a");
-    expect(ids).not.toContain("b"); // terminal
-    expect(ids).not.toContain("c"); // different owner
+    expect(ids).not.toContain("b");
+    expect(ids).not.toContain("c");
   });
 });

@@ -21,7 +21,6 @@ interface GoogleDocsStatus {
 }
 
 interface GoogleDriveConnectionCtaProps {
-  /** Only query and render for a detected pasted-link intent. */
   active?: boolean;
 }
 

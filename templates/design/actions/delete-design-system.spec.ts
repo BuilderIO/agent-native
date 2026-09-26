@@ -156,9 +156,6 @@ describe("delete-design-system", () => {
     });
   });
 
-  // The Design Systems page renders its Delete menu item and bulk-delete
-  // checkbox from the `canManage` flag list-design-systems reports. Enforcing
-  // a stricter role here hands every shared admin a button that 403s.
   it("enforces exactly the role the UI reports as manageable", async () => {
     await action.run({ id: "ds_shared" });
 
@@ -178,7 +175,6 @@ describe("delete-design-system", () => {
   });
 
   it("lets a non-owner admin delete a shared design system", async () => {
-    // Mirrors assertAccess's own rank comparison against the caller's role.
     mocks.assertAccess.mockImplementation(
       async (type: string, id: string, minRole: "owner" | "admin") => {
         const callerRole = "admin";
@@ -228,9 +224,6 @@ describe("delete-design-system", () => {
     );
   });
 
-  // A shared admin's write access to the design system does not extend to
-  // every design that happens to reference it — those belong to whoever
-  // owns them. Only designs the caller can actually edit get unlinked.
   it("unlinks designs the caller can edit and skips the rest", async () => {
     mocks.state.linkedDesignRows = [{ id: "design-1" }, { id: "design-2" }];
     mocks.state.resolvedAccess.set("design:design-1", { role: "editor" });

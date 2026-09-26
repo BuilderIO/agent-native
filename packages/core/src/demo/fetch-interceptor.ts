@@ -31,15 +31,7 @@ import { redactDemoData } from "./redact.js";
 const SKIP_SUBSTRINGS = [
   "/_agent-native/poll",
   "/_agent-native/events",
-  // Never touch agent transport. The agent receives real tool results; faking
-  // its own transcript adds no demo value and must stay clear of the
-  // tool_use/tool_result protocol. Covers
-  // "/_agent-native/agent" (stream) and "/_agent-native/agent-chat"
-  // (thread history) and any sub-paths.
   "/_agent-native/agent",
-  // Run-manager state read by the reconnect/recovery loop. Faking numeric
-  // run state here would make recovery think it's not progressing and
-  // exhaust its retries ("agent connection kept failing").
   "/_agent-native/runs",
 ];
 
@@ -71,7 +63,6 @@ export function shouldSkipDemoResponseRedaction(url: string): boolean {
 
 let installed = false;
 
-/** Reject after `ms` so a misclassified streaming body can never hang. */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
     p,
@@ -101,11 +92,6 @@ function methodOf(input: RequestInfo | URL, init?: RequestInit): string {
   return m.toUpperCase();
 }
 
-/**
- * Install the browser-local demo-mode fetch interceptor.
- * Idempotent and browser-only — safe to call from any hook that runs in
- * every template root (we call it from `useDbSync`).
- */
 export function ensureDemoModeFetchInterceptor(): void {
   if (typeof window === "undefined") return;
   if (installed) return;
@@ -119,10 +105,6 @@ export function ensureDemoModeFetchInterceptor(): void {
   ): Promise<Response> {
     const res = await base(input, init);
 
-    // Fast path: anything that isn't a browser-local-demo, plain GET returns the
-    // ORIGINAL response with zero body work and zero extra awaits — when
-    // demo mode is off this wrapper is byte-for-byte native fetch, so it
-    // cannot influence agent/run/stream transport.
     if (!getBrowserDemoModeEnabled()) return res;
     if (methodOf(input, init) !== "GET") return res;
     if (!res.ok) return res;
@@ -131,11 +113,6 @@ export function ensureDemoModeFetchInterceptor(): void {
       const url = urlOf(input);
       if (shouldSkipDemoResponseRedaction(url)) return res;
 
-      // Only buffered, finite JSON. SSE / streaming / chunked-forever bodies
-      // never reach `redactDemoData`: streaming content-types are excluded,
-      // and the JSON read is hard-timeout-bounded so a misclassified stream
-      // degrades to "return the original response" instead of hanging the
-      // request (which is what tripped the reconnect/recovery loop).
       const contentType = res.headers.get("content-type") ?? "";
       if (!contentType.includes("application/json")) return res;
       if (
@@ -148,16 +125,12 @@ export function ensureDemoModeFetchInterceptor(): void {
       if (res.bodyUsed) return res;
 
       const data = await withTimeout(res.clone().json(), 3_000);
-      // Frontend reads only need identity privacy. Dashboard charts apply
-      // their purpose-built demo trend transform at render time, so mutating
-      // every numeric field in every JSON response is unnecessary work.
       const redacted = redactDemoData(data, {
         redactNumbers: false,
         redactProtectedEmails: true,
       });
 
       const headers = new Headers(res.headers);
-      // Body is re-serialized — these would be wrong now.
       headers.delete("content-length");
       headers.delete("content-encoding");
 
@@ -167,8 +140,6 @@ export function ensureDemoModeFetchInterceptor(): void {
         headers,
       });
     } catch {
-      // Never let redaction break a request — fall back to the real
-      // response (its body stream is untouched; we only ever read a clone).
       return res;
     }
   };

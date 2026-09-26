@@ -11,15 +11,9 @@ interface EnvKeyStatus {
 }
 
 interface ApiKeySettingsProps {
-  /** Path to the settings page (used for linking). Default: "/settings" */
   settingsPath?: string;
 }
 
-/**
- * Reusable component that shows the status of configured API keys
- * and lets users enter missing ones. Fetches from /_agent-native/env-status
- * and saves via POST /_agent-native/env-vars.
- */
 export function ApiKeySettings({
   settingsPath: _settingsPath = "/settings",
 }: ApiKeySettingsProps) {
@@ -89,7 +83,6 @@ export function ApiKeySettings({
         message: `Saved ${data.saved?.length ?? 0} key(s)`,
       });
       setValues({});
-      // Refresh status
       await fetchStatus();
     } catch (err) {
       setSaveResult({

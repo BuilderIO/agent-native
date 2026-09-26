@@ -132,9 +132,6 @@ export default defineAction({
 
     const now = new Date().toISOString();
 
-    // Blocks fields store rich-text content, not a property-values row. The
-    // primary "Content" field writes to the document body; additional Blocks
-    // fields write to their own independent store.
     if (isBlocksPropertyType(type)) {
       await assertAccess("document", documentId, "editor");
       const normalized = normalizePropertyValue(type, value);

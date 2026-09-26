@@ -300,8 +300,6 @@ describe("get-design", () => {
   });
 
   it("returns files in a stable order so a design lays itself out the same way twice", async () => {
-    // Heap order is not stable across writes, and this array feeds the overview
-    // screen stack plus each screen's index within its layout group.
     await action.run({ id: "design_123" });
 
     expect(mocks.selectChain.orderBy).toHaveBeenCalledWith(
@@ -356,7 +354,6 @@ describe("get-design", () => {
     const views = mocks.track.mock.calls.filter(
       ([name]) => name === "design_viewed",
     );
-    // viewer-a once, viewer-b once, and each anonymous read.
     expect(views).toHaveLength(4);
   });
 

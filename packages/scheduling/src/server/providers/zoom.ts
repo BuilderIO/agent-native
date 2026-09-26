@@ -1,16 +1,3 @@
-/**
- * Zoom provider — OAuth-based; creates a Zoom meeting per booking.
- *
- * Tokens are stored via the consumer's callback (typically core's
- * oauth_tokens), keyed by credentialId. Consumers wire up
- * `getAccessToken` + `updateTokens` against their token store.
- *
- * OAuth:
- *   - Auth URL:   https://zoom.us/oauth/authorize?response_type=code&...
- *   - Token URL:  https://zoom.us/oauth/token (basic-auth client_id:secret)
- *   - Scopes:     meeting:write meeting:read (so we can create + delete)
- *   - User info:  GET https://api.zoom.us/v2/users/me (returns account_id + email)
- */
 import type { VideoProvider } from "./types.js";
 
 export class ZoomProviderError extends Error {
@@ -27,11 +14,6 @@ export interface ZoomProviderConfig {
   clientId: string;
   clientSecret: string;
   getAccessToken: (credentialId: string) => Promise<string>;
-  /**
-   * Persist tokens after `completeOAuth` (and any later refresh). Optional —
-   * if omitted, the consumer is responsible for doing the write inside their
-   * own callback handler.
-   */
   updateTokens?: (
     credentialId: string,
     tokens: {
@@ -41,11 +23,9 @@ export interface ZoomProviderConfig {
       rawResponse?: Record<string, unknown>;
     },
   ) => Promise<void>;
-  /** Called when the API returns 401/403; mark credential invalid in UI. */
   markInvalid?: (credentialId: string) => Promise<void>;
 }
 
-// Minimum scope needed to create + read meetings on the user's behalf.
 const SCOPES = ["meeting:write", "meeting:read", "user:read"];
 
 export function createZoomProvider(config: ZoomProviderConfig): VideoProvider {
@@ -103,7 +83,6 @@ export function createZoomProvider(config: ZoomProviderConfig): VideoProvider {
         rawResponse: tokens as unknown as Record<string, unknown>,
       });
 
-      // Pull user info to label the credential.
       const userRes = await fetch("https://api.zoom.us/v2/users/me", {
         headers: { authorization: `Bearer ${tokens.access_token}` },
       });

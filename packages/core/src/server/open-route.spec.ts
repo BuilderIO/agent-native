@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// h3 stub: defineEventHandler returns the handler as-is, getMethod reads a
-// field we set on the fake event. Mirrors poll-handler.spec's h3 stub.
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getHeader: (event: any, name: string) =>
@@ -19,10 +17,6 @@ const getConfiguredLoginHtml = vi.hoisted(() => vi.fn());
 vi.mock("./auth.js", () => ({
   getSession: (...a: any[]) => getSession(...a),
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtml(...a),
-  // Real (unmocked) behavior: mirrors auth.ts's redirectWithStagedCookies so
-  // tests can prove the open route forwards a cookie `getSession()` staged on
-  // `event.res.headers` (e.g. `promoteQuerySession` promoting a `_session`
-  // query token) instead of dropping it, which a bare 302 Response would.
   redirectWithStagedCookies: (event: any, location: string, status = 302) => {
     const headers = new Headers({ Location: location });
     const staged = event.res?.headers?.getSetCookie?.() ?? [];
@@ -54,7 +48,6 @@ import {
 } from "../shared/embed-auth.js";
 import { createOpenRouteHandler } from "./open-route.js";
 
-/** Build a fake H3 event the open route understands. */
 function fakeEvent(
   url: string,
   method = "GET",
@@ -182,9 +175,6 @@ describe("createOpenRouteHandler", () => {
   });
 
   it("a forged/unknown `_session` value grants nothing: still unauthenticated with no app-state write", async () => {
-    // Mirrors what a remote, non-loopback caller sees if it guesses/replays a
-    // `_session` query value that `getSessionEmail` (auth.ts) doesn't
-    // recognize: `getSession()` resolves null same as no token at all.
     getSession.mockResolvedValue(null);
     getConfiguredLoginHtml.mockReturnValue("<html>login</html>");
     const handler = createOpenRouteHandler();
@@ -295,7 +285,6 @@ describe("createOpenRouteHandler", () => {
     getSession.mockResolvedValue({ email: "user@example.com" });
     const handler = createOpenRouteHandler();
 
-    // %01 is a control character (Start of Heading).
     const res: Response = await handler(
       fakeEvent("/_agent-native/open?to=%2Ffoo%01bar"),
     );
@@ -333,11 +322,8 @@ describe("createOpenRouteHandler", () => {
     expect(sp.get("f_range")).toBe("30d");
     expect(sp.get("f_team")).toBe("growth");
     expect(sp.get("agentSidebar")).toBe("closed");
-    // Non-filter record ids are NOT forwarded onto the URL (they ride the
-    // navigate app-state command instead).
     expect(sp.has("dashboardId")).toBe(false);
 
-    // The navigate payload still carries every non-reserved param.
     const [, , payload] = appStatePut.mock.calls[0];
     expect(payload).toMatchObject({
       view: "dashboard",

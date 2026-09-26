@@ -46,22 +46,15 @@ const PRIVACY_URL = "https://www.agent-native.com/privacy";
 interface DesktopIdentityGateProps {
   appName: string;
   status: DesktopIdentityStatus | "checking";
-  /** Opens Google in the system browser and completes the desktop exchange. */
   onSignIn: () => boolean | Promise<boolean>;
-  /** Performs the trusted inline password sign-in in the main process. */
   onAuthenticate: (
     request: DesktopIdentityAuthRequest,
   ) => Promise<DesktopIdentityAuthResult>;
-  /** Requests a magic link; verification is completed in the system browser. */
   onMagicLink: (
     request: DesktopIdentityMagicLinkRequest,
   ) => Promise<DesktopIdentityMagicLinkResult>;
 }
 
-/**
- * The parent identity surface is native to the Electron shell. Child app
- * WebViews stay covered until the broker has copied their app-scoped sessions.
- */
 export default function DesktopIdentityGate({
   appName,
   status,

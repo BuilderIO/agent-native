@@ -171,7 +171,6 @@ export default defineEventHandler(async (event) => {
   headers.delete("content-length");
   if (discovery.privateResponse) {
     headers.set("Referrer-Policy", "no-referrer");
-    // Tokenized HTML contains a bearer URL; key the shared cache by the full query.
     headers.set("netlify-vary", "query");
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
     setResponseHeader(event, "netlify-vary", "query");

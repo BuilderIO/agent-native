@@ -118,17 +118,7 @@ export async function runDeleteFiles(
   }: DeleteFilesArgs,
   filesToDelete: DesignFile[],
   options?: {
-    // U12 fix: undoFileCreation pushes the just-undone create onto the
-    // file-creation REDO stack, then calls this function to soft-delete
-    // the same file it just pushed for. Without this flag the filename-
-    // keyed prune below (which exists to drop a redo entry when its file
-    // is hard-deleted directly, NOT via undo) would immediately remove
-    // the entry undoFileCreation just pushed, leaving redo permanently
-    // empty after every screen-create/duplicate undo.
     skipFileCreationRedoPrune?: boolean;
-    // A screen deletion is a normal editor operation, not
-    // an irreversible special case. Capture the complete rows + frame
-    // geometry and add one grouped undo entry after every delete succeeds.
     recordDeletionHistory?: boolean;
     preserveHistory?: boolean;
     onMutationSettled?: (
@@ -204,10 +194,6 @@ export async function runDeleteFiles(
       removedGeometryRedoEntries,
     );
 
-    // Selection-restore stacks are index-aligned with their matching
-    // content stack (see contentUndoSelectionStackRef's doc comment) —
-    // iterate with the index so a dropped entry (remainingChanges.length
-    // === 0) drops its selection snapshot too, keeping both arrays in sync.
     const nextContentUndoStack: ContentHistoryEntry[] = [];
     const nextContentUndoSelectionStack: (
       | GeometryHistorySelection
@@ -275,10 +261,6 @@ export async function runDeleteFiles(
       (change) => !deletedFileIds.has(change.fileId),
     );
 
-    // U12: a file-created entry is resolved by filename at undo/redo time
-    // (it doesn't carry an id, since the id isn't known until the create
-    // mutation resolves), so prune it here by filename when the file it
-    // refers to is being hard-deleted directly.
     const deletedFilenames = new Set(filesToPrune.map((file) => file.filename));
     const prunedFileCreationUndo = pruneFileCreationHistoryStack(
       fileCreationUndoStackRef.current,
@@ -290,14 +272,6 @@ export async function runDeleteFiles(
       "file-created",
       prunedFileCreationUndo.removed,
     );
-    // U12 fix: undoFileCreation calls performDeleteFiles to soft-delete the
-    // file it is undoing AFTER pushing that same entry onto the redo stack
-    // (so redo can recreate it). Pruning the redo stack by filename here
-    // would immediately drop the entry undoFileCreation just pushed —
-    // redo would never survive an undo. skipFileCreationRedoPrune lets
-    // that caller opt out; every other caller (direct hard-delete from the
-    // overview/panel) still gets the filename-keyed prune so a redo entry
-    // pointing at a since-hard-deleted file cannot resurrect it.
     const prunedFileCreationRedo = pruneFileCreationHistoryStack(
       fileCreationRedoStackRef.current,
       deletedFilenames,
@@ -429,8 +403,6 @@ export async function runDeleteFiles(
           : t("common.genericError"),
       );
     }
-    // A partial/failed batch is not a safe boundary for a queued undo/redo.
-    // The surviving user intent must be reissued explicitly after refresh.
     if (recordDeletionHistory) clearPendingHistory?.();
   }
 
@@ -446,9 +418,5 @@ export async function runDeleteFiles(
   );
   syncUndoRedoState();
 
-  // File-backed screen deletion is not a geometry-only edit. The screen rows
-  // are hard-deleted, so suppress MultiScreenCanvas' local frame-history
-  // entry; otherwise undo would restore geometry for files that no longer
-  // exist.
   syncUndoRedoState();
 }

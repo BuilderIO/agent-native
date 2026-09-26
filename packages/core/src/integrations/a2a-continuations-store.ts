@@ -14,7 +14,6 @@ const TERMINAL_HISTORY_FINALIZATION_LEASE_MS = 60 * 1000;
 const MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS = 16_000;
 const MAX_TERMINAL_HISTORY_PAYLOAD_CHARS = 64_000;
 
-// Build the CREATE SQL lazily so "BIGINT" is resolved at runtime.
 function buildCreateSql(): string {
   return `
   CREATE TABLE IF NOT EXISTS integration_a2a_continuations (
@@ -117,7 +116,6 @@ export async function ensureTable(): Promise<void> {
         `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
       );
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -222,10 +220,6 @@ export interface A2AContinuation {
 const MAX_PROGRESS_REF_KIND_CHARS = 128;
 const MAX_PROGRESS_REF_STREAM_TS_CHARS = 256;
 
-/**
- * Keep only the tiny, adapter-owned continuation reference. Invalid rows are
- * treated as unavailable rather than throwing during a retry sweep.
- */
 function parseProgressRef(value: unknown): PlatformRunProgressRef | null {
   if (typeof value !== "string" || value.length === 0) return null;
   try {
@@ -395,11 +389,6 @@ export async function insertA2AContinuation(input: {
       input.a2aTaskId,
     );
     if (existing) {
-      // A retry can reach this row after the original invocation created it
-      // without a resumable progress surface (or with one that has gone
-      // stale). Keep the most recent valid adapter reference for active work,
-      // but never resurrect short-lived delivery state after a terminal row
-      // has deliberately scrubbed it.
       if (
         progressRef &&
         existing.status !== "completed" &&
@@ -432,12 +421,6 @@ export async function insertA2AContinuation(input: {
   return (await getA2AContinuation(id))!;
 }
 
-/**
- * A native platform stream has one terminal completion. Claim it for a single
- * downstream continuation, and retain the ownership marker after terminal
- * cleanup scrubs the short-lived stream reference. The partial unique index
- * makes concurrent downstream inserts safe across processes.
- */
 async function claimA2AContinuationProgressRef(
   id: string,
   progressRef: string,
@@ -450,8 +433,6 @@ async function claimA2AContinuationProgressRef(
       args: [progressRef, id],
     });
   } catch (err) {
-    // A sibling continuation already owns this stream and will finalize it.
-    // This continuation still delivers through the normal response path.
     if (isDuplicateContinuationError(err)) return;
     throw err;
   }
@@ -667,13 +648,6 @@ export async function claimDueA2AContinuations(
   return claimed;
 }
 
-/**
- * Makes stale leases eligible again and returns a bounded set of due ids.
- *
- * This intentionally does not claim anything. Durable schedulers use it only
- * to wake the normal processor, whose atomic claim remains the sole progress
- * and delivery owner under overlapping scheduler/self-dispatch executions.
- */
 export async function recoverDueA2AContinuationIds(
   limit = 5,
   integrationTaskIds?: string[],
@@ -692,10 +666,6 @@ export async function recoverDueA2AContinuationIds(
   const receiptFilter = confirmedDeliveryOnly
     ? " AND terminal_delivery_confirmed_at IS NOT NULL"
     : "";
-  // The two lease resets below and the due SELECT all only ever touch rows in
-  // these three statuses, so one probe short-circuits all three. Without it the
-  // 60s retry job pays two blind UPDATE round trips per app forever on a queue
-  // that has been empty since boot.
   const live = await client.execute({
     sql: `SELECT id FROM integration_a2a_continuations
           WHERE status IN ('pending', 'processing', 'delivering')${taskFilter}${receiptFilter}
@@ -703,9 +673,6 @@ export async function recoverDueA2AContinuationIds(
     args: [...taskArgs],
   });
   if ((live.rows?.length ?? 0) === 0) return [];
-  // If a processor dies after a provider receipt, retry history-only custody
-  // as soon as its short follow-up deadline passes. A pre-receipt delivery
-  // claim retains the longer stale cutoff before an at-least-once resend.
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, next_check_at = ?, updated_at = ?
@@ -754,10 +721,6 @@ export interface RecoverableA2AIntegrationTask {
   hasPendingConfirmedDelivery: boolean;
 }
 
-/**
- * Read due continuation owners and their rollout scope in one query. Recovery
- * can filter the canary in memory without an N+1 pending-task lookup loop.
- */
 export async function listRecoverableA2AIntegrationTasks(
   limit = 50,
 ): Promise<RecoverableA2AIntegrationTask[]> {

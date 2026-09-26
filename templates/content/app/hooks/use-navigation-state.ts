@@ -4,21 +4,9 @@ import { useAgentRouteState } from "@agent-native/core/client/navigation";
 interface NavigationState {
   view: string;
   documentId?: string;
-  /** Explicit path override from the `navigate` action. */
   path?: string;
 }
 
-/**
- * Syncs navigation state bidirectionally:
- * 1. Writes the current route to application state so the agent can read it
- * 2. Polls for navigate commands from the agent and applies them
- *
- * Two command shapes arrive here:
- *  - `{ path }` — the `navigate` action's explicit path form.
- *  - `{ view, documentId }` — the deep-link / `/_agent-native/open` form
- *    (the open route writes the non-reserved params + view, never a `path`).
- * `view: "editor"` + `documentId` maps to `/page/<id>`, `view: "list"` to `/home`.
- */
 export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: getBrowserTabId(),
@@ -26,7 +14,6 @@ export function useNavigationState() {
       if (pathname === "/home" || pathname === "") return { view: "list" };
       if (pathname.startsWith("/local-files")) return { view: "local-files" };
 
-      // Document editor: /:id or /page/:id
       const pageMatch = pathname.match(/^\/page\/(.+)/);
       const directMatch = pathname.match(/^\/([a-f0-9]+)$/);
       if (pageMatch) return { view: "editor", documentId: pageMatch[1] };

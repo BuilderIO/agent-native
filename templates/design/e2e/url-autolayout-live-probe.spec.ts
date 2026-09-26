@@ -72,8 +72,6 @@ test.describe("URL-backed live auto-layout probe", () => {
     fs.writeFileSync(path.join(rootPath, "index.html"), source);
     devServer = http.createServer((_req, res) => {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      // Serve the file on every request so the post-Apply reload exercises the
-      // persisted bridge write rather than a frozen fixture string.
       res.end(fs.readFileSync(path.join(rootPath, "index.html"), "utf8"));
     });
     const devPort = await listen(devServer);
@@ -428,8 +426,6 @@ test.describe("URL-backed live auto-layout probe", () => {
     expect(unloadGuarded).toBe(true);
     console.log("URL probe pending unload guard", unloadGuarded);
 
-    // Start the supported source handoff. This arms the editor's guarded
-    // source-version and runtime verification loop before the bridge write.
     const applyUpdates = page.getByRole("button", {
       name: "Apply design updates",
       exact: true,
@@ -479,11 +475,6 @@ test.describe("URL-backed live auto-layout probe", () => {
               ? payload.data.context
               : undefined,
         };
-        // The standalone signed-out visual-edit route has no mounted agent
-        // chat to acknowledge the local handoff. Acknowledge the exact
-        // submitted turn here so the product verifier can enter
-        // `awaiting-source`; the actual source write and HMR verification
-        // below still run through the public WebMCP bridge.
         window.dispatchEvent(
           new CustomEvent("agentNative.chatSubmitResult", {
             detail: { submitMessageId, delivered: true },

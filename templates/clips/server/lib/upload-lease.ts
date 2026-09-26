@@ -1,16 +1,3 @@
-/**
- * The upload lease.
- *
- * One authoritative expiry, `recordings.upload_lease_expires_at`, renewed by
- * the client's own chunk POSTs. Liveness is a fact the writer asserts, not
- * something a GC infers by joining `recordings` against `application_state`
- * and comparing timestamps stored in two different encodings.
- *
- * Everything below reads from `recordings`, so the reaper sees every
- * in-progress upload — including buffered uploads that never opened a
- * resumable session, which the old session-keyed sweep could not select.
- */
-
 import { getDbExec } from "@agent-native/core/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
@@ -51,13 +38,6 @@ export type UploadLeaseResult =
       durationMs: number | null;
     };
 
-/**
- * Take or renew the lease for one recording.
- *
- * This is a compare-and-set: `WHERE status IN (...)` is what makes racing a
- * concurrent abort or finalize structurally impossible. A terminal row updates
- * zero rows, so a caller never needs to re-check after each write.
- */
 export async function renewUploadLease(
   recordingId: string,
   options: {
@@ -73,7 +53,6 @@ export async function renewUploadLease(
     .set({
       uploadLeaseExpiresAt: uploadLeaseExpiry(now),
       updatedAt: new Date(now).toISOString(),
-      // Chunks can land out of order, so progress only ever moves forward.
       ...(options.uploadProgress === undefined
         ? {}
         : {
@@ -211,16 +190,6 @@ async function readResumableSessionState(
   };
 }
 
-/**
- * Terminate uploads whose lease expired, then reclaim chunk scratch that no
- * live upload claims.
- *
- * The only liveness input is the lease the writer last wrote, and the only
- * thing protecting scratch is the existence of an in-progress `recordings`
- * row. There is no "the recording row was not visible to this probe" branch:
- * in-progress rows are selected from `recordings` itself, and the scratch
- * anti-join runs inside the database rather than across two round trips.
- */
 export async function reapExpiredUploads(
   options: { now?: number; limit?: number; dryRun?: boolean } = {},
 ): Promise<ReapResult> {
@@ -275,10 +244,6 @@ export async function reapExpiredUploads(
       args: [UPLOAD_LEASE_EXPIRED_REASON, nowIso, nowIso, ...ids],
     });
 
-    // The probe is a snapshot. A lease renewed between it and this
-    // compare-and-set keeps its row, so only what the UPDATE actually claimed
-    // may be reported or have its session state swept — reading the probe
-    // list here would tear down a live streaming upload's session.
     const terminatedRows =
       (result.rows as Array<Record<string, unknown>>) ?? [];
     const terminated = new Set(terminatedRows.map((row) => String(row.id)));
@@ -349,12 +314,6 @@ export async function reapExpiredUploads(
   };
 }
 
-/**
- * Chunk scratch is claimed by exactly one thing: an in-progress `recordings`
- * row. Anything else — finalized, failed, or hard-deleted recordings — is
- * reclaimable, with no age grace needed, because a stuck upload can only leave
- * the in-progress set through the reaper above.
- */
 async function selectUnclaimedChunkKeys(limit: number): Promise<string[]> {
   // guard:allow-unscoped — system scratch GC, owner-agnostic by design.
   const { rows } = await getDbExec().execute({

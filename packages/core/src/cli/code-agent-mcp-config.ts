@@ -17,12 +17,6 @@ function parseServerAllowlist(raw: string | undefined): Set<string> | null {
   );
 }
 
-/**
- * Keep a desktop coding run on the app registry's MCP servers. The normal
- * server-side manager merges persisted MCP settings for web requests, but a
- * local shell must not inherit arbitrary user MCP servers when the desktop
- * host has supplied an explicit workspace allowlist.
- */
 export function restrictCodeAgentMcpConfig(
   config: McpConfig | null,
   environment: NodeJS.ProcessEnv = process.env,
@@ -108,11 +102,6 @@ function findDesktopChildComputerMcpServer(
   return match ? { id: match[0], config: match[1] } : null;
 }
 
-/**
- * Add host-provided app/plugin servers to the normal merged config. The
- * filesystem and environment layers have different precedence rules, so the
- * child process combines them explicitly instead of silently dropping one.
- */
 export function mergeCodeAgentMcpConfig(
   config: McpConfig | null,
   environment: NodeJS.ProcessEnv = process.env,
@@ -139,12 +128,6 @@ export function mergeCodeAgentMcpConfig(
   };
 }
 
-/**
- * Convert the host-scoped HTTP MCP config into Codex CLI's `-c` overrides.
- * The caller adds `--ignore-user-config` in the `exec` segment so a local
- * coding session receives the workspace apps, not the user's global MCP
- * catalog.
- */
 export function codexMcpConfigArgs(
   config: McpConfig | null = null,
   environment: NodeJS.ProcessEnv = process.env,

@@ -8,27 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { enterDirectMode, gotoEditor } from "./helpers";
 
-/**
- * Regression coverage for a field report (W3 torture campaign): an
- * effects-heavy screen (absolutely-positioned elements, rotation,
- * backdrop-filter, mix-blend-mode, deep nesting, object-fit) allegedly
- * rendered severely degraded in the live single-screen canvas — absolutely
- * positioned elements collapsing into stacked flow layout — reproduced
- * identically in the export pipeline, which pointed at a shared
- * canvas/embedded-frame rendering path rather than export-specific code.
- *
- * The original repro fixture lived on a throwaway dev DB and was not
- * recoverable. This spec rebuilds an equivalent effects-heavy fixture and
- * asserts, node by node, that the SAME persisted HTML renders with identical
- * geometry (position, size, rotation, backdrop-filter, mix-blend-mode)
- * whether it's:
- *   (a) embedded live in the single-screen design canvas, or
- *   (b) rendered completely standalone (a bare page with no app chrome).
- * A future regression in the canvas/embedded-frame document construction
- * (missing wrapper style, a CSS reset difference, a stripped script) would
- * show up here as a geometry mismatch between (a) and (b).
- */
-
 const EFFECTS_FIXTURE_HTML = `<!doctype html>
 <html data-agent-native-node-id="an-root">
 <head><meta charset="utf-8"/><title>Effects Torture TW</title>
@@ -57,8 +36,6 @@ const EFFECTS_FIXTURE_HTML = `<!doctype html>
 </body>
 </html>`;
 
-// Nodes checked for geometry parity. Includes top-level, rotated, blended,
-// and deeply-nested absolutely-positioned elements.
 const CHECKED_NODE_IDS = [
   "an-hero",
   "an-hero-overlay",
@@ -85,7 +62,6 @@ interface NodeGeometry {
   mixBlendMode: string;
 }
 
-/** Reads geometry/computed-style for every checked node inside `doc`. */
 const READ_GEOMETRY_SCRIPT = (nodeIds: readonly string[]) => {
   const out: Record<string, NodeGeometry | null> = {};
   for (const id of nodeIds) {
@@ -175,11 +151,8 @@ test("effects-heavy screen renders identical geometry in the single-screen canva
   await expect(
     canvasFrameLocator.locator('[data-agent-native-node-id="an-card-1"]'),
   ).toBeVisible({ timeout: 15_000 });
-  // Let webfont/Tailwind-CDN styling settle before measuring.
   await page.waitForTimeout(500);
 
-  // FrameLocator has no `.evaluate` (only Locator/Frame do) — resolve the
-  // underlying element handle to get a real Frame to evaluate script in.
   const canvasIframeHandle = await canvasIframe.elementHandle();
   const canvasFrame = await canvasIframeHandle?.contentFrame();
   if (!canvasFrame)
@@ -189,8 +162,6 @@ test("effects-heavy screen renders identical geometry in the single-screen canva
     CHECKED_NODE_IDS,
   )) as Record<string, NodeGeometry | null>;
 
-  // Render the exact same persisted HTML with zero app chrome, in a fresh
-  // browser context so there is no shared state with the editor at all.
   const standaloneContext = await browser.newContext();
   const standalonePage = await standaloneContext.newPage();
   try {
@@ -213,9 +184,6 @@ test("effects-heavy screen renders identical geometry in the single-screen canva
       ).not.toBeNull();
       if (!canvasNode || !standaloneNode) continue;
 
-      // The canvas wraps content in its own document at a possibly different
-      // zoom/scale, but this fixture is always measured at 100% (see
-      // enterDirectMode), so absolute geometry should match closely.
       expect(canvasNode.position, `${id} position`).toBe(
         standaloneNode.position,
       );
@@ -244,11 +212,6 @@ test("effects-heavy screen renders identical geometry in the single-screen canva
       // absolute — the canvas iframe may be offset within the app chrome.
     }
 
-    // Relative geometry check: every checked node's position/size RELATIVE
-    // to the hero root must match between canvas and standalone, which is
-    // robust to any outer iframe offset while still catching a layout
-    // collapse (a flow-layout regression changes relative deltas, not just
-    // absolute viewport coordinates).
     const rootIdCanvas = canvasGeometry["an-hero"];
     const rootIdStandalone = standaloneGeometry["an-hero"];
     expect(rootIdCanvas).not.toBeNull();

@@ -27,8 +27,6 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
  * transitions need a real layout/paint engine, not happy-dom's stub.
  */
 function hydratedEditorChromeBridgeScript(zoomFactor: number): string {
-  // chromeScaleY() = 1 / editorChromeScaleY, so a placeholder of 1/3.1858
-  // reproduces the reported chrome scale (a canvas zoomed to ~31%).
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
     .replace("__TEXT_EDITING_ENABLED__", "false")
@@ -42,9 +40,6 @@ function hydratedEditorChromeBridgeScript(zoomFactor: number): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-// A large frame plus a short single-line text primitive sized like the
-// reported wordmark (~19px tall), at the reported chrome scale (canvas
-// zoomed to ~31%, chromeScaleY ~3.19).
 const FIXTURE = `<!doctype html><html><body style="margin:0">
   <div data-agent-native-node-id="screen" style="position:absolute;left:10px;top:10px;width:800px;height:600px;background:#333"></div>
   <div data-agent-native-node-id="wordmark" style="position:absolute;left:900px;top:100px;width:70px;height:19.1875px;background:#111827"></div>
@@ -66,9 +61,6 @@ describe("selection handle hit geometry", () => {
         content: hydratedEditorChromeBridgeScript(ZOOM_FACTOR),
       });
 
-      // Select a large element first, exactly like a screen frame already
-      // being selected (or simply having settled handle geometry from an
-      // earlier interaction) before the short wordmark is selected.
       const screenBox = (await page
         .locator('[data-agent-native-node-id="screen"]')
         .boundingBox())!;
@@ -78,9 +70,6 @@ describe("selection handle hit geometry", () => {
       );
       await page.waitForTimeout(300);
 
-      // Now select the short wordmark and immediately probe its own center
-      // — no settle time, matching a real select-then-drag gesture where
-      // the drag's mousedown can land within a frame or two of the select.
       const box = (await page
         .locator('[data-agent-native-node-id="wordmark"]')
         .boundingBox())!;
@@ -124,10 +113,6 @@ describe("selection handle hit geometry", () => {
       );
       await page.waitForTimeout(300);
 
-      // A runtime insert can be selected at its source size and settle into a
-      // shorter destination layout before ResizeObserver gets a chance to
-      // repaint the singleton selection handles. Keep the old geometry stale
-      // on purpose, then drag from the node's center.
       await el.evaluate((node) => {
         (node as HTMLElement).style.height = "28px";
       });
@@ -201,19 +186,6 @@ describe("selection handle hit geometry", () => {
   });
 });
 
-/**
- * Figma parity §3: the edge/corner resize band straddles the selection edge
- * — grabbing it a couple of px INSIDE the box resizes, it does not move. The
- * band's inward half is deliberate and already bounded by
- * clampHandleInwardReach (mirrored in multi-screen/handle-hit-zones.ts),
- * which guarantees the central 50% of each axis stays body-grabbable.
- *
- * A rotated element makes the point unmissable: the overlay (and its
- * handles) rotate with the element, so every edge handle sits strictly
- * inside the element's own axis-aligned getBoundingClientRect(). Any
- * mousedown rule phrased as "inside the element's rect is never a resize"
- * therefore disables edge resize for rotated elements entirely.
- */
 const ROTATED_FIXTURE = `<!doctype html><html><body style="margin:0">
   <div data-agent-native-node-id="tilted" style="position:absolute;left:300px;top:200px;width:240px;height:160px;background:#2563eb;transform:rotate(45deg)"></div>
 </body></html>`;

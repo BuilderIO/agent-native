@@ -118,12 +118,6 @@ export async function failLoomImport(
   return { status: "failed", failureReason };
 }
 
-/**
- * Downloads a Loom video and re-uploads it to Clips storage, off the request
- * that created the "processing" row. Loom's CDN plus a reupload can outlast a
- * synchronous serverless function's execution ceiling; running it here keeps
- * import-loom-recording's own request fast regardless of Loom video length.
- */
 export async function runLoomImportJob({
   recordingId,
   ownerEmail,
@@ -180,7 +174,6 @@ export async function runLoomImportJob({
       mimeType: media.mimeType,
     });
   } catch (err) {
-    // Loom's public player can work even when the viewer's role cannot export MP4.
     if (err instanceof LoomVideoUnavailableError) {
       console.warn(
         "[loom-import] MP4 unavailable or could not be verified; keeping Loom embed",

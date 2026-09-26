@@ -148,13 +148,6 @@ export function runLayerMoveToScreen(
   if (!destContent) return;
 
   if (isStandaloneHttpUrl(destContent)) {
-    // A localhost screen row represents the live iframe's body, while its
-    // stored content remains the route URL. Layers-panel drops from the
-    // board therefore use the same runtime insert lifecycle as canvas
-    // drops: serialize the complete subtree, insert optimistically in the
-    // iframe, and let the bridge echo create the pending source handoff.
-    // Keep the board copy until Apply for the same undo/data-loss reason
-    // documented in handleCrossScreenElementDrop.
     if (intent.draggedIds.length !== 1) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
         duration: 4000,
@@ -338,14 +331,6 @@ export function runLayerMoveToScreen(
       continue;
     }
     if (draggedOwner.runtimeOnly) {
-      // A runtime-only node (an Alpine x-for clone, script-appended DOM, …)
-      // has no counterpart in this screen's saved sourceHtml, so the
-      // moveNodeBetweenDocuments/applyVisualEdit calls below can never
-      // resolve its id there — they'd fail with a raw "Node with
-      // data-agent-native-node-id=... not found in sourceHtml" error text
-      // instead of moving anything. Refuse with the same plain-language,
-      // already-localized copy every other move failure in this function
-      // uses, rather than let that technical message reach the user.
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
         duration: 4000,
       });
@@ -361,17 +346,6 @@ export function runLayerMoveToScreen(
         });
         continue;
       }
-      // Already in this screen — move to the end of <body> (topmost
-      // paint / top of the panel's top-level list) via moveNode with no
-      // anchor needed: reuse moveNodeBetweenDocuments's own-document
-      // append behavior by routing it through itself (source === dest)
-      // isn't safe (it would duplicate the node), so instead resolve the
-      // body element directly via applyVisualEdit's moveNode against the
-      // document's own root container element by falling back to the
-      // existing tree ordering: append after the current last top-level
-      // sibling in this screen. When there's no other top-level sibling
-      // to anchor on, the node is already effectively at the root and
-      // there's nothing to do.
       const source = draggedOwner.sourceProjection.source;
       const projection = buildCodeLayerProjection(nextDestContent, { source });
       const tree = buildCodeLayerTree(projection);
@@ -408,8 +382,6 @@ export function runLayerMoveToScreen(
       continue;
     }
 
-    // Cross-file: append into the target screen's body (no anchor ==
-    // moveNodeBetweenDocuments's own default append-to-body behavior).
     const sourceFileId = draggedOwner.fileId;
     const srcFile = files.find((f) => f.id === sourceFileId);
     if (!srcFile) continue;

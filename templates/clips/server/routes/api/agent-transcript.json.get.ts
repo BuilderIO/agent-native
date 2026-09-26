@@ -1,10 +1,3 @@
-/**
- * GET /api/agent-transcript.json?id=<recordingId>[&password=<pw>|&t=<token>]
- *   [&startMs=<ms>&endMs=<ms>&maxSegments=<count>]
- *
- * Timestamped transcript for a public clip, optimized for external agents.
- */
-
 import {
   defineEventHandler,
   getQuery,

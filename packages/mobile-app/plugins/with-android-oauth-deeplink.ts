@@ -9,8 +9,6 @@ import {
 const OAUTH_SCHEME = "agentnative";
 const OAUTH_HOST = "oauth-complete";
 
-// Declares agentnative://oauth-complete as an explicit deep link on MainActivity
-// so the Google OAuth redirect is reliably delivered to the app.
 const withOAuthIntentFilter: ConfigPlugin = (config) =>
   withAndroidManifest(config, (cfg) => {
     const application = AndroidConfig.Manifest.getMainApplicationOrThrow(
@@ -48,10 +46,6 @@ const withOAuthIntentFilter: ConfigPlugin = (config) =>
     return cfg;
   });
 
-// MainActivity uses launchMode=singleTask, so a deep link arrives via
-// onNewIntent rather than a fresh onCreate. Without updating the activity's
-// intent, React Native's Linking.getInitialURL() reads the stale launch intent
-// and returns null, so the OAuth redirect URL never reaches JS.
 const withOnNewIntent: ConfigPlugin = (config) =>
   withMainActivity(config, (cfg) => {
     if (cfg.modResults.language !== "kt") {
@@ -60,11 +54,6 @@ const withOnNewIntent: ConfigPlugin = (config) =>
       );
     }
     let contents = cfg.modResults.contents;
-    // Skip only when an existing override already forwards the intent. If
-    // onNewIntent is present but never calls setIntent, the singleTask launch
-    // intent stays stale and getInitialURL() returns null — fail loud rather
-    // than silently omit the fix, since blindly appending a second override
-    // would not compile.
     if (contents.includes("setIntent(intent)")) return cfg;
     if (/\boverride\s+fun\s+onNewIntent\b/.test(contents)) {
       throw new Error(

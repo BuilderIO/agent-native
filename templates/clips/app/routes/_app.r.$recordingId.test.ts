@@ -331,12 +331,6 @@ describe("direct recording route shell cue", () => {
     const effectEnd = route.indexOf("return;", effectStart);
     const effect = route.slice(effectStart, effectEnd);
 
-    // recording is undefined on the render before get-recording-player-data
-    // resolves. Gating on `recording?.enableComments` alone reads that as
-    // falsy and drops the jump-to-comment link into "transcript" before the
-    // data ever loads. Only the loaded-and-disabled case should fall back.
-    // oxfmt may wrap the setPanel(...) call across lines, so match on the
-    // normalized (whitespace-collapsed) source instead of an exact literal.
     const normalizedEffect = effect.replace(/\s+/g, " ");
     expect(normalizedEffect).not.toContain(
       'setPanel(recording?.enableComments ? "comments" : "transcript")',
@@ -356,9 +350,6 @@ describe("direct recording route shell cue", () => {
       route.indexOf("const renderSidePanel", commentsSectionStart),
     );
 
-    // The compact (mobile) section sits inside a fixed h-[min(420px,55dvh)]
-    // RecordingSidePanel. Without overflow-hidden here, comments past that
-    // height were clipped instead of scrolling into view.
     expect(commentsSection).toContain(
       '"flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-5 pt-4"',
     );
@@ -398,8 +389,6 @@ describe("direct recording route shell cue", () => {
     expect(debugTab).toContain('variant="secondary"');
     expect(debugTab).toContain('t("browserDiagnostics.unviewedCount"');
     expect(debugTab).toContain("{unviewedDebugEventCount}");
-    // The old always-on failure dot must be gone: it never cleared and fired
-    // on console warnings, which are present on nearly every recording.
     expect(route).not.toContain("hasBrowserDiagnosticFailures");
     expect(route).not.toContain("browserDiagnostics.failuresPresent");
   });

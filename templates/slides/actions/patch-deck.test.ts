@@ -17,17 +17,11 @@ import {
 } from "./patch-deck";
 import patchDeckAction from "./patch-deck";
 
-// ---------------------------------------------------------------------------
-// normalizeSlidePadding is a pass-through in tests
-// ---------------------------------------------------------------------------
 vi.mock("../app/lib/normalize-slide-padding.js", () => ({
   normalizeSlidePadding: (html: string) => html,
   normalizeSlidePaddingForWrite: (_previous: string, html: string) => html,
 }));
 
-// ---------------------------------------------------------------------------
-// run() integration mocks — DB, access, and notify.
-// ---------------------------------------------------------------------------
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 
@@ -51,7 +45,6 @@ const mockValidateGenerationCreativeContext = vi.fn(
   }),
 );
 
-// Minimal Drizzle query-builder stub — same surface update-slide.test.ts uses.
 const mockDb = {
   select: () => ({
     from: () => ({
@@ -126,10 +119,6 @@ vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
 
-// ---------------------------------------------------------------------------
-// applyOperation unit tests (pure merge logic, no DB)
-// ---------------------------------------------------------------------------
-
 describe("applyOperation — patch-slide", () => {
   it("updates only the specified fields of a slide", () => {
     const deck = {
@@ -145,8 +134,8 @@ describe("applyOperation — patch-slide", () => {
     };
     applyOperation(deck, op);
     expect(deck.slides[0].content).toBe("<p>New</p>");
-    expect(deck.slides[0].notes).toBe("note"); // unchanged
-    expect(deck.slides[1].content).toBe("<p>Two</p>"); // unchanged
+    expect(deck.slides[0].notes).toBe("note");
+    expect(deck.slides[1].content).toBe("<p>Two</p>");
   });
 
   it("refuses content that adds editor-rendered markup", () => {
@@ -211,7 +200,6 @@ describe("applyOperation — patch-slide", () => {
       fields: { content: restored },
     });
     expect(deck.slides[1].content).toBe(restored);
-    // A duplicate is an exact copy of a stored slide, whatever it carries.
     applyOperation(deck, {
       op: "add-slide",
       slideId: "s4",
@@ -594,7 +582,6 @@ describe("applyOperation — patch-slide", () => {
       slideId: "s1",
       fields: { content: "<p>New</p>" },
     };
-    // Must not throw
     applyOperation(deck, op);
     expect(deck.slides).toHaveLength(1);
   });
@@ -616,7 +603,6 @@ describe("applyOperation — patch-slide", () => {
       slideId: "s2",
       fields: { content: "<p>Updated2</p>" },
     };
-    // Simulate two independent writes applied sequentially (as the lock serialises them)
     applyOperation(deck, op1);
     applyOperation(deck, op2);
     expect(deck.slides[0].content).toBe("<p>Updated1</p>");
@@ -783,10 +769,6 @@ describe("applyOperation — reorder-slides", () => {
   });
 
   it("reorder during concurrent add does not drop the new slide", () => {
-    // Simulate: writer A reorders [s2, s1], writer B concurrently added s3.
-    // The lock means they execute sequentially. Writer A's reorder runs first,
-    // then writer B's add-slide. But even if the reorder ran on the state
-    // BEFORE s3 existed, the "append unknowns" rule saves s3.
     const deckAfterAdd = {
       slides: [
         { id: "s1", content: "1" },
@@ -794,7 +776,6 @@ describe("applyOperation — reorder-slides", () => {
         { id: "s3", content: "3" }, // added by writer B
       ],
     };
-    // Writer A's reorder only knew about s1 and s2
     applyOperation(deckAfterAdd, {
       op: "reorder-slides",
       orderedIds: ["s2", "s1"],
@@ -897,7 +878,7 @@ describe("applyOperation — add-slide", () => {
       }),
     ).toBe(false);
     expect(deck.slides).toHaveLength(2);
-    expect(deck.slides[1].content).toBe("existing"); // not overwritten
+    expect(deck.slides[1].content).toBe("existing");
   });
 
   it("keeps source provenance for idempotent structural operations", () => {
@@ -943,7 +924,7 @@ describe("applyOperation — patch-deck-fields", () => {
       fields: { title: "New" },
     });
     expect(deck.title).toBe("New");
-    expect(deck.designSystemId).toBe("ds1"); // unchanged
+    expect(deck.designSystemId).toBe("ds1");
   });
 
   it("allows clearing designSystemId to null", () => {
@@ -1496,8 +1477,6 @@ describe("patch-deck agent schema", () => {
     ).toBe(false);
   });
 
-  // An untyped `animations` array sends callers probing a live deck to learn
-  // the shape, and hides that the field is a whole-list replacement.
   it("spells out the animation entry shape and its replace semantics", () => {
     const parameters = patchDeckAction.tool.parameters as any;
     const slidePatch = parameters.properties.operations.items.anyOf.find(
@@ -1517,11 +1496,6 @@ describe("patch-deck agent schema", () => {
     expect(animations.items.properties).toHaveProperty("elementPath");
   });
 
-  // Pins the compatibility boundary rather than endorsing it. The editor
-  // re-sends a slide's whole stored array on every animation edit, and
-  // `normalizeSlideAnimation` in shared/api.ts still reads entries that this
-  // schema rejects, so a deck holding one can no longer be saved from the
-  // panel. If that gap is ever closed, this expectation is what changes.
   it("rejects stored entries that predate the required id/elementIndex/type", () => {
     const pathOnlyEntry = OperationSchema.safeParse({
       op: "patch-slide",
@@ -1542,10 +1516,6 @@ describe("patch-deck agent schema", () => {
     expect(fullyFormedEntry.success).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// withDeckLock serialisation test
-// ---------------------------------------------------------------------------
 
 describe("withDeckLock", () => {
   beforeEach(() => {
@@ -1591,7 +1561,7 @@ describe("withDeckLock", () => {
       order.push("b-start");
     });
 
-    await b; // deck-b finishes immediately while deck-a is still waiting
+    await b;
     expect(order).toContain("b-start");
     expect(order).not.toContain("a-end");
 
@@ -1600,10 +1570,6 @@ describe("withDeckLock", () => {
     expect(order).toContain("a-end");
   });
 });
-
-// ---------------------------------------------------------------------------
-// resolveDeckColumnUpdates — SQL columns must match the deck JSON
-// ---------------------------------------------------------------------------
 
 describe("resolveDeckColumnUpdates", () => {
   const current = { title: "Old", designSystemId: null };
@@ -1614,8 +1580,6 @@ describe("resolveDeckColumnUpdates", () => {
   });
 
   it("takes the last title in a debounced rename burst", () => {
-    // One keystroke per op — the column must land on the final value, or the
-    // deck list shows a truncated name once the JSON and column disagree.
     const burst = ["N", "Ne", "New", "New ", "New Name"].map(renameOp);
     expect(resolveDeckColumnUpdates(current, burst).title).toBe("New Name");
   });
@@ -1661,9 +1625,6 @@ describe("resolveDeckColumnUpdates", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// run() — asynchronous layout fit metadata after a patch-deck write.
-// ---------------------------------------------------------------------------
 describe("run() — asynchronous layout fit metadata", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -2458,12 +2419,6 @@ describe("run() — asynchronous layout fit metadata", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// run() — deck-wide restyle ("beautify this") must not report unchanged slides
-// as edited. A batch where only some slides really change used to pass the
-// deck-wide meaningfulChange test and then echo every requested slideId back
-// as updated, which is what the agent narrates to the user.
-// ---------------------------------------------------------------------------
 describe("run() — partial no-op deck restyle", () => {
   const beautifyDeck = () => ({
     title: "Deck",
@@ -2499,8 +2454,6 @@ describe("run() — partial no-op deck restyle", () => {
             fields: { content: "<div>One restyled</div>" },
             baseContentHash: hashSlideContent("<div>One</div>"),
           },
-          // Byte-identical to what is already persisted: a no-op the agent
-          // still believes it "beautified".
           {
             op: "patch-slide",
             slideId: "slide-2",

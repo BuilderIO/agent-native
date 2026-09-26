@@ -75,8 +75,6 @@ import {
   type Experiment,
 } from "./useObservability.js";
 
-// ─── Helpers ────────────────────────────────────────────────────────────
-
 function formatCost(centsX100: number): string {
   const cents = centsX100 / 100;
   if (cents < 1) return `${cents.toFixed(3)}¢`;
@@ -258,8 +256,6 @@ const RANGES = [
   { value: 90, label: "90d" },
 ] as const;
 
-// ─── Shared components ──────────────────────────────────────────────────
-
 function RangeSelector({
   value,
   onChange,
@@ -350,8 +346,6 @@ function LoadingState() {
   );
 }
 
-// ─── Tab: Overview ──────────────────────────────────────────────────────
-
 function OverviewTab({ days }: { days: number }) {
   const t = useT();
   const { data, isLoading } = useObservabilityOverview(days);
@@ -394,8 +388,6 @@ function OverviewTab({ days }: { days: number }) {
     </div>
   );
 }
-
-// ─── Tab: Conversations ─────────────────────────────────────────────────
 
 function ConversationsTab({ days }: { days: number }) {
   const t = useT();
@@ -720,8 +712,6 @@ function TraceDetailView({
   );
 }
 
-// ─── Tab: Evals ─────────────────────────────────────────────────────────
-
 function EvalsTab({ days }: { days: number }) {
   const t = useT();
   const { data, isLoading } = useEvalStats(days);
@@ -777,8 +767,6 @@ function EvalsTab({ days }: { days: number }) {
     </div>
   );
 }
-
-// ─── Tab: Experiments ───────────────────────────────────────────────────
 
 function ExperimentsTab() {
   const t = useT();
@@ -990,8 +978,6 @@ function ExperimentDetailView({
     </div>
   );
 }
-
-// ─── Tab: Human review ─────────────────────────────────────────────────
 
 function ReviewTab({
   days,
@@ -2435,8 +2421,6 @@ function ReviewTab({
   );
 }
 
-// ─── Tab: Feedback ──────────────────────────────────────────────────────
-
 function FeedbackTab({ days }: { days: number }) {
   const t = useT();
   const {
@@ -2569,8 +2553,6 @@ function FeedbackTab({ days }: { days: number }) {
     </div>
   );
 }
-
-// ─── Main Dashboard ─────────────────────────────────────────────────────
 
 const TABS = [
   {

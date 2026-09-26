@@ -8,22 +8,6 @@ import {
 import { computeProtectedSegmentIds } from "../context-xray/segments.js";
 import type { EngineMessage } from "./types.js";
 
-/**
- * Context X-Ray transform for one `runAgentLoop` iteration: loads any
- * directives for the thread (evict/pin/restore), applies them to the raw
- * message history, and best-effort persists a manifest describing what was
- * sent to the model.
- *
- * Returns the transformed messages, or the original `messages` array
- * unchanged (by reference) if the transform throws — the transform is a
- * hardening/observability layer, never a gate, so a failure here must not
- * break the turn. The manifest write is fire-and-forget (not awaited) so it
- * never adds latency to the model-call path.
- *
- * Moved verbatim out of `runAgentLoop`'s per-iteration setup — behavior
- * unchanged. Caller is still responsible for gating this on `threadId` being
- * present and for the separate Observational Memory pass that runs after it.
- */
 export async function applyContextXrayTransformForIteration(opts: {
   threadId: string;
   ownerEmail?: string | null;

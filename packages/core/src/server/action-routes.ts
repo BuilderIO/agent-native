@@ -89,12 +89,6 @@ function currentBuildId(): string {
   return configured?.trim() || "unknown";
 }
 
-/**
- * Auto-mount actions as HTTP endpoints under /_agent-native/actions/:name.
- *
- * Actions are exposed as POST by default. Use `http: { method: "GET" }` in
- * defineAction to expose as GET. Use `http: false` to mark as agent-only.
- */
 import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
@@ -168,8 +162,6 @@ function appendActionParam(
   value: any,
 ) {
   const isArrayKey = rawKey.endsWith("[]");
-  // The core client serializes arrays as `key[]=value` so even a single
-  // value can validate against z.array() action schemas.
   const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
   const current = params[key];
   if (current === undefined) {
@@ -181,11 +173,6 @@ function appendActionParam(
   }
 }
 
-/**
- * Read the caller's IANA timezone from the `x-user-timezone` header. The core
- * client sends this on every action request so server-side "today" fallbacks
- * can honor the user's local day.
- */
 function readTimezoneHeader(event: any): string | undefined {
   try {
     const raw = getHeader(event, "x-user-timezone");
@@ -197,13 +184,6 @@ function readTimezoneHeader(event: any): string | undefined {
   }
 }
 
-/**
- * True when the request originated from the browser action client
- * (`useActionQuery` / `useActionMutation` / `callAction`), which tags every
- * call with `X-Agent-Native-Frontend: 1`. Used to set `ctx.caller` to
- * `"frontend"` vs a bare programmatic `"http"` POST. The header carries no
- * auth weight — it only narrows the caller tag for tracking/branching.
- */
 function isFrontendActionRequest(event: any): boolean {
   try {
     return getHeader(event, "x-agent-native-frontend") === "1";
@@ -273,14 +253,6 @@ function handleOptionsRequest(event: any): string {
   return "";
 }
 
-/**
- * Declarative auth adapter for the HTTP action route. Its `resolveCaller` runs
- * BEFORE the framework's `getOwnerFromEvent` / `getSession` chain, letting an
- * app accept caller identities `getSession` doesn't understand (e.g. an A2A
- * JWT) without reaching into request context from a Nitro `request` hook.
- *
- * Scoped to `/_agent-native/actions/*` only — it does not affect other routes.
- */
 export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
   /**
    * Org to scope the request to, verified from the same credential as the
@@ -294,7 +266,6 @@ export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
    * context.
    */
   orgId?: string | null;
-  /** Verified A2A correlation and issuer metadata for the audit row. */
   delegationJti?: string;
   delegationIssuer?: string;
 };
@@ -324,35 +295,23 @@ export interface ActionRouteAuthAdapter {
 }
 
 export interface MountActionRoutesOptions {
-  /** Resolve owner email from the H3 event (for data scoping). */
   getOwnerFromEvent?: (event: any) => string | Promise<string>;
-  /** Resolve a canonical id directly from the validated Better Auth session. */
   getAuthUserIdFromEvent?: (
     event: any,
   ) => string | undefined | Promise<string | undefined>;
-  /** Hosting app/template id used for app-owned action resources. */
   appId?: string;
-  /** Resolve display name from the H3 event, when available. */
   getUserNameFromEvent?: (
     event: any,
   ) => string | undefined | Promise<string | undefined>;
-  /** Resolve org ID from the H3 event (for org scoping). */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
-  /**
-   * Optional caller resolver that runs before the `getOwnerFromEvent` /
-   * `getSession` chain. Lets apps accept A2A JWTs (or other bearer schemes) on
-   * the action route declaratively. See {@link ActionRouteAuthAdapter}.
-   */
   actionRouteAuth?: ActionRouteAuthAdapter;
 }
 
-/** Public HTTP discovery metadata for agents that do not run a browser. */
 export interface WebMcpManifestOptions {
   name: string;
   description: string;
   title?: string;
   instructions?: string;
-  /** Key tools to name in the instructions; see `MCPConfig.keyToolNames`. */
   keyToolNames?: readonly string[];
   version?: string;
   websiteUrl?: string;
@@ -365,9 +324,7 @@ export interface WebMcpManifestOptions {
 }
 
 export interface MountWebMcpActionRoutesOptions extends MountActionRoutesOptions {
-  /** Optional branding included in `/.well-known/mcp.json`. */
   manifest?: WebMcpManifestOptions;
-  /** Resolve the owner context so anonymous template identities stay scoped. */
   getOwnerContextFromEvent?: (
     event: any,
   ) => AgentRunOwnerContext | Promise<AgentRunOwnerContext>;
@@ -395,16 +352,6 @@ function isFirstBootMissingOrgTableError(error: unknown): boolean {
   );
 }
 
-/**
- * The user's stored active org, for a request whose own org resolution came
- * back empty. An empty `orgId` is not "this user has no org": it silently
- * narrows every scoped read to rows with a null `org_id`, so a session minted
- * before org selection — or one whose membership read failed — stops seeing
- * the user's own org-scoped dashboards, credentials, and resources. This
- * honors an explicit Personal selection by returning undefined, so it can
- * never promote a user into an org they left. A transient database failure is
- * not an answer and propagates.
- */
 async function storedActiveOrgId(email: string): Promise<string | undefined> {
   try {
     return normalizeOrgId(await resolveOrgIdForEmail(email));
@@ -493,12 +440,6 @@ async function resolveRequestAuthCapability(
   }
 }
 
-/**
- * Mount discovered actions as HTTP endpoints.
- *
- * Only actions from `autoDiscoverActions` (template actions) are mounted.
- * Built-in actions (resource-*, chat-*, shell, etc.) are NOT passed here.
- */
 function mountActionRoutesInternal(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
@@ -508,7 +449,6 @@ function mountActionRoutesInternal(
   const app = getH3App(nitroApp);
 
   for (const [name, entry] of Object.entries(actions)) {
-    // Skip agent-only actions
     if (entry.http === false && !options?.includeAgentOnly) continue;
 
     const http = entry.http || undefined;
@@ -525,11 +465,6 @@ function mountActionRoutesInternal(
       nitroApp,
     );
 
-    // Capability-scoped actions authenticate inside this handler so a signed
-    // embed token can authorize the exact action without becoming a session.
-    // Let those routes reach that verifier. Anonymous actions keep their
-    // existing contract for non-WebMCP routes; unrelated actions stay behind
-    // the normal auth guard.
     if (
       (entry.requiresAuth === false && !options?.caller) ||
       (Array.isArray(entry.capabilityScopes) && entry.capabilityScopes.length)
@@ -537,10 +472,6 @@ function mountActionRoutesInternal(
       registerAuthPublicPaths([routePath], app);
     }
 
-    // These two actions authenticate with a scoped A2A bearer rather than a
-    // browser session. Let that verifier see the request before the cookie
-    // auth guard rejects it; the action route still fails closed on invalid
-    // or missing credentials.
     if (
       !options?.caller &&
       (name === "list-feature-flags" || name === "set-feature-flag")
@@ -567,9 +498,6 @@ function mountActionRoutesInternal(
           "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After",
         );
 
-        // Browser action calls are RPCs over the framework transport. The
-        // action's HTTP method remains authoritative for direct HTTP callers,
-        // but frontend callers must not have to duplicate it in every hook.
         const isFrontendMutation =
           isFrontendActionRequest(event) &&
           FRONTEND_MUTATION_METHODS.has(method) &&
@@ -604,18 +532,6 @@ function mountActionRoutesInternal(
           }
         }
 
-        // (audit H5) Per-action `toolCallable` opt-out for the tools-iframe
-        // bridge. The bridge tags every outbound action call with
-        // X-Agent-Native-Tool-Bridge: 1. When that header is present and the
-        // action declares `toolCallable: false`, we 403 — used by the
-        // framework's share-resource / unshare-resource /
-        // set-resource-visibility for defense-in-depth on auth-adjacent
-        // operations. Undefined defaults to allow: tools are intra-org and
-        // typically authored by trusted teammates, so the default is to
-        // trust the org-level access controls.
-        // The header is set by the parent (the React host), not by the
-        // iframe's user-authored content; sanitizeToolRequestOptions strips
-        // iframe attempts to spoof it.
         const fromToolBridge =
           getHeader(event, "x-agent-native-tool-bridge") === "1";
         if (fromToolBridge && entry.toolCallable === false) {
@@ -625,7 +541,6 @@ function mountActionRoutesInternal(
           };
         }
 
-        // Resolve auth context for per-request scoping
         let userEmail: string | undefined;
         let userName: string | undefined;
         let authUserId: string | undefined;
@@ -825,13 +740,9 @@ function mountActionRoutesInternal(
             requestOrigin: getForwardedRequestOrigin(event),
             federationMembershipValidated:
               isFederationMembershipValidatedForEvent(event, userEmail, orgId),
-            // Captured here because this is the last layer that still holds
-            // the h3 event; everything below reads it off the request store.
             isLoopbackRequest: isLoopbackRequest(event),
           },
           async () => {
-            // Reject oversize bodies from Content-Length before parsing, so a
-            // public no-auth POST can't force parse work on a huge request.
             if (typeof entry.maxBodyBytes === "number" && method !== "GET") {
               const clRaw = getHeader(event, "content-length");
               if (clRaw) {
@@ -844,15 +755,10 @@ function mountActionRoutesInternal(
                 }
               }
             }
-            // Parse params based on method. On web-standard runtimes (Netlify
-            // Functions, CF Workers), event.req IS the web Request — use .json()
-            // directly. H3's readBody fails on those runtimes because it expects
-            // a Node.js stream on event.node.req.
             let params: Record<string, any>;
             let paramsError: string | undefined;
             try {
               if (method === "GET") {
-                // H3 v2: prefer web Request URL, fallback to getQuery
                 const webReq = (event as any).req;
                 if (webReq?.url) {
                   const url = new URL(webReq.url);
@@ -865,10 +771,8 @@ function mountActionRoutesInternal(
               } else {
                 const webReq = (event as any).req;
                 if (webReq && typeof webReq.json === "function") {
-                  // H3 v2: event.req is the web Request — use .json() directly
                   params = await webReq.json();
                 } else {
-                  // Fallback: H3's readBody (Node.js dev)
                   params = (await readH3Body(event)) as Record<string, any>;
                 }
                 if (
@@ -884,11 +788,6 @@ function mountActionRoutesInternal(
               paramsError = "Request body must be a valid JSON object.";
             }
 
-            // Run the action. Tag the caller: browser calls (useActionQuery /
-            // useActionMutation / callAction) send X-Agent-Native-Frontend: 1,
-            // so they become "frontend"; bare programmatic POSTs are "http".
-            // userEmail / orgId mirror the request context resolved above (do
-            // NOT inject a dev identity — leave undefined when unauthenticated).
             try {
               if (paramsError) {
                 throw new ActionContractError(paramsError, {
@@ -913,11 +812,6 @@ function mountActionRoutesInternal(
                   : isFrontendActionRequest(event)
                     ? "frontend"
                     : "http");
-              // Built once and reused for both the needsApproval check below
-              // and entry.run() at the bottom: validateActionArgs marks this
-              // exact object as "already validated for this schema" (see
-              // `preValidatedForContext` in action.ts), which only works if
-              // run() receives the SAME context object that was marked.
               const runContext: ActionRunContext = {
                 userEmail,
                 orgId: orgId ?? null,
@@ -933,28 +827,7 @@ function mountActionRoutesInternal(
                     }
                   : {}),
               };
-              // WebMCP/HTTP-MCP tool calls skip the agent loop entirely, so
-              // `needsApproval` is never evaluated for them upstream — the
-              // action stays registered (see `mountWebMcpActionRoutes`) but
-              // this is the only place its gate still runs for this caller.
-              // Fail closed on a throw, same contract as the agent loop's
-              // approval check, and refuse with guidance instead of a bare
-              // rejection: a WebMCP caller has no approval UI of its own, so
-              // the message tells it to get the human's confirmation in chat.
               if (caller === "webmcp" && entry.needsApproval !== undefined) {
-                // Decide against the same normalized value `run()` will
-                // actually execute with, not the raw wire JSON: a default
-                // (e.g. `dryRun` defaulting to true) or a coercion (string
-                // "false" → `false`) only exists after schema validation, so
-                // a predicate reading raw `params` can approve a call it
-                // would have gated had it seen what `run()` sees. When a
-                // schema is declared, validate once here against `runContext`
-                // (see above) so `run()` below skips re-parsing — a
-                // non-idempotent transform can't hand `run()` a different
-                // value than the one just approved, even one that validates
-                // down to a primitive. An invalid call throws
-                // `validateActionArgs`'s own "Invalid action parameters"
-                // error, which the catch block below already renders as 400.
                 if (
                   entry.schema &&
                   typeof entry.schema === "object" &&
@@ -992,17 +865,6 @@ function mountActionRoutesInternal(
               }
               const result = await entry.run(params, runContext);
 
-              // Auto-refresh the UI after a successful mutating action. GET
-              // actions and actions explicitly flagged readOnly are skipped.
-              // Other tabs' useDbSync will see source:"action" and invalidate
-              // their action queries. The calling tab already refetches via
-              // useActionMutation's onSuccess, so this is mainly cross-tab
-              // sync (and parity with the agent's tool-call path).
-              // A per-call Plan-mode effect wins over entry.readOnly, which
-              // wins (true OR false) over the method heuristic. defineAction
-              // already auto-infers GET → readOnly=true, so for actions
-              // registered through that path entry.readOnly is always set and
-              // the fallback just guards legacy wrap paths.
               const isReadOnly = actionCallIsReadOnly(
                 entry,
                 params,
@@ -1027,10 +889,6 @@ function mountActionRoutesInternal(
                 }
               }
 
-              // If the action returned a string, try to parse as JSON for a
-              // clean response. Plain strings still need to go over the HTTP
-              // action transport as JSON, otherwise H3 sends text/plain and the
-              // browser action client rejects the successful 2xx response.
               if (typeof result === "string") {
                 try {
                   return JSON.parse(result);
@@ -1050,8 +908,6 @@ function mountActionRoutesInternal(
                 typeof err?.statusCode === "number"
                   ? err.statusCode
                   : undefined;
-              // Return 400 for validation errors, the explicit statusCode if
-              // set, otherwise 500.
               const status = isValidationError ? 400 : (explicitStatus ?? 500);
               setResponseStatus(event, status);
 
@@ -1140,7 +996,7 @@ function mountActionRoutesInternal(
               return { error: "Internal server error" };
             }
           },
-        ); // end runWithRequestContext
+        );
       }),
     );
 
@@ -1187,9 +1043,6 @@ function buildWebMcpCompatibilityManifest(
     };
   });
 
-  // Only name tools this manifest actually lists: `options.keyToolNames`
-  // carries the app's full initialToolNames default, which can include
-  // actions this (possibly filtered) `actions` map doesn't serve.
   const servedKeyToolNames = options?.keyToolNames?.filter(
     (name) => name in actions,
   );
@@ -1226,11 +1079,6 @@ export function mountWebMcpActionRoutes(
   actions: Record<string, ActionEntry>,
   options?: MountWebMcpActionRoutesOptions,
 ) {
-  // `needsApproval` no longer excludes an action from discovery: the gate
-  // moved to per-call enforcement in `mountActionRoutesInternal` (evaluated
-  // against this call's actual args, caller === "webmcp"), so a plain call
-  // that never trips the predicate stays callable and a call that does gets
-  // a clear "ask the user to confirm" refusal instead of silently running.
   const eligible = Object.fromEntries(
     Object.entries(actions).filter(
       ([name, entry]) =>
@@ -1256,9 +1104,6 @@ export function mountWebMcpActionRoutes(
       (name) => `${routePrefix}/${encodeURIComponent(name)}`,
     ),
   );
-  // These routes own their auth decision: the compatibility manifest is public
-  // metadata, while the page-local manifest returns only explicitly public
-  // read-only actions when no browser session is present.
   registerAuthPublicPaths(
     ["/_agent-native/webmcp/manifest", ...actionRoutePaths],
     app,

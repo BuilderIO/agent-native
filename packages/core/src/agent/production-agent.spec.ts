@@ -162,12 +162,6 @@ describe("resolveOwnerEngineApiKey", () => {
   });
 });
 
-/**
- * Chat events minus the `model_stream` bracket. The bracket exists for the run
- * manager's no-progress backstop, renders nothing, and would otherwise have to
- * be re-spelled inside every exact-sequence assertion below; the bracket's own
- * pairing and placement are asserted directly in its dedicated tests.
- */
 function visibleEvents(events: AgentChatEvent[]): AgentChatEvent[] {
   return events.filter((event) => event.type !== "model_stream");
 }
@@ -227,10 +221,6 @@ describe("toolCallCacheKey", () => {
 
 describe("resolveAgentRequestReasoningEffort", () => {
   it("narrates a retry the user waited through, and stays silent on a blip", async () => {
-    // Three silent 90s retries wiped the visible output at 92s/182s/272s and
-    // left a blank screen for 4.5 minutes — reported as "the chat froze". The
-    // `clear` must be explained once the silence is long enough to notice,
-    // and must stay silent for a fast provider blip.
     const src = readFileSync(
       new URL("./production-agent.ts", import.meta.url),
       "utf8",
@@ -238,9 +228,7 @@ describe("resolveAgentRequestReasoningEffort", () => {
     const idx = src.indexOf("const stalledMs = Date.now() - attemptStartedAt;");
     expect(idx).toBeGreaterThan(0);
     const block = src.slice(idx, idx + 600);
-    // Gated on elapsed time, not fired on every retry.
     expect(block).toContain("VISIBLE_RETRY_THRESHOLD_MS");
-    // And the explanation must precede the wipe, not follow it.
     expect(block.indexOf("Model did not respond")).toBeLessThan(
       block.indexOf('send({ type: "clear" })'),
     );
@@ -682,10 +670,6 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
-  // Binary attachments were never capped, so a large screenshot or PDF went out
-  // as unbounded inline base64. OpenAI rejects the whole request over 1,048,576
-  // chars in one file_url ("string too long", measured at 4,149,128) and the
-  // turn dies -- 64 events in 7 days, all on the gateway path.
   it("does not inline an oversized image, and points at the uploaded URL instead", () => {
     const att: any = {
       type: "image",
@@ -704,10 +688,6 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("per-image limit");
   });
 
-  // The file_url cap is an OpenAI limit on a different field. Applying it to
-  // images made an ordinary phone photo unreadable: the user was told the
-  // image was too large AND that storage had to be connected, neither of which
-  // was actionable. A photo this size is vision input and needs no storage.
   it("inlines a multi-megabyte photo with no upload URL and no storage configured", () => {
     const att: any = {
       type: "image",
@@ -726,8 +706,6 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).not.toMatch(/smaller/i);
   });
 
-  // Over the real image ceiling the model must get the number, or it invents
-  // one and then contradicts itself when the user asks what the limit is.
   it("quotes the actual image limit and rules out storage as the cause", () => {
     const att: any = {
       type: "image",
@@ -761,8 +739,6 @@ describe("buildUserContentWithAttachments", () => {
     expect(parts.some((p: any) => p.type === "image")).toBe(true);
   });
 
-  // Without a URL the bytes are unreachable, so say so rather than dropping the
-  // attachment and leaving the model to answer as if nothing was sent.
   it("says an oversized file is unavailable when there is no upload URL", () => {
     const att: any = {
       type: "file",
@@ -801,13 +777,6 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
-  // Reported against Forms and Brain within two hours of each other: a batch of
-  // ordinary files (photo, screenshots, a logo, a statement) ended the turn with
-  // `code: invalid_request` and a bare gateway error ID. Measured against the
-  // live gateway, one block whose bytes do not decode as its declared
-  // `media_type` rejects the ENTIRE request, so every sibling attachment and the
-  // user's own prompt die with it. These cases pin that blast radius to one
-  // attachment.
   it("relabels an image whose bytes disagree with its browser-supplied type", () => {
     const parts = buildUserContentWithAttachments({
       text: "Describe this",
@@ -1063,7 +1032,6 @@ describe("buildUserContentWithAttachments", () => {
         },
       ],
     });
-    // Should be a single text part that contains both the placeholder and the user prompt
     expect(result).toHaveLength(1);
     expect(result[0].type).toBe("text");
     const text = (result[0] as { type: "text"; text: string }).text;
@@ -1141,10 +1109,6 @@ describe("buildUserContentWithAttachments", () => {
   });
 
   it("preserves orphan tool-results as text so history is not lost before backfill", () => {
-    // No assistant tool-call ever exists for `t1`. Emitting a synthetic
-    // `tool-result` would be stripped later anyway; converting to text keeps
-    // the payload visible and lets `backfillEngineMessagesToolResults` run on
-    // the full engine message list consistently.
     expect(
       structuredHistoryToEngineMessages([
         {
@@ -1930,7 +1894,6 @@ describe("resolvePresendWithCap", () => {
       await expect(result).resolves.toBe("");
       expect(timedOut).toBe(true);
 
-      // A late successful settlement cannot undo the required setup failure.
       release("late prompt");
       await Promise.resolve();
       expect(timedOut).toBe(true);
@@ -3322,7 +3285,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // OpenRouter default was raised from 1024 to 8192 to avoid truncation.
     expect(seenMaxOutputTokens).toBe(8192);
   });
 
@@ -3474,16 +3436,6 @@ describe("runAgentLoop", () => {
   });
 
   it("does NOT checkpoint when a tool input goes quiet — that is a big argument, not a stall", async () => {
-    // THE REGRESSION THIS FILE USED TO ASSERT THE OPPOSITE OF.
-    //
-    // Only a tool declared for eager input streaming emits `input_json_delta`
-    // while its arguments are generated. Everything else produces
-    // `tool-input-start` and then NOTHING until the whole argument blob is
-    // ready — for a large file or a long structured result that is minutes of
-    // legitimate silence. The retired action-preparation watchdog read the
-    // stalled byte counter as a dead stream and cut the turn off at 90s; on the
-    // Anthropic transport it could not have known better, because the SDK drops
-    // the provider pings that would have proved liveness.
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
     const engine: AgentEngine = {
@@ -3504,7 +3456,6 @@ describe("runAgentLoop", () => {
           id: "tool-edit",
           name: "edit-design",
         };
-        // Five minutes composing the argument, not one byte forwarded.
         now += 5 * 60_000;
         yield { type: "gateway-heartbeat" };
         yield { type: "text-delta", text: "the turn continues" };
@@ -3529,24 +3480,18 @@ describe("runAgentLoop", () => {
       dateNow.mockRestore();
     }
 
-    // The preparation activity still reaches the UI — the user sees progress.
     expect(events).toContainEqual({
       type: "activity",
       label: "Preparing edit-design action",
       tool: "edit-design",
       id: "tool-edit",
     });
-    // Nothing cut the turn off DURING the quiet stretch, and the text that
-    // followed it still reached the client.
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "auto_continue", reason: "no_progress" }),
     );
     expect(events).toContainEqual(
       expect.objectContaining({ type: "text", text: "the turn continues" }),
     );
-    // The stream still ends with an undelivered tool input, which is a real
-    // truncation and keeps its own boundary — that guard reads the STREAM
-    // ENDING, not a clock, so it cannot fire on slow work.
     expect(events.at(-1)).toEqual({
       type: "auto_continue",
       reason: "stream_ended",
@@ -3790,11 +3735,6 @@ describe("runAgentLoop", () => {
   });
 
   it("does NOT checkpoint a zero-byte tool input that stays quiet", async () => {
-    // The zero-byte restart tripwire is gone with the rest of the
-    // action-preparation machinery. A tool input announced with no bytes yet is
-    // the ORDINARY opening of a non-eagerly-streamed tool call, not evidence of
-    // a wedge — and on this transport nothing distinguishes the two, because
-    // the provider's pings never reach us.
     vi.useFakeTimers({ now: 1_000_000 });
     const engine = abortableHangingEngine([
       {
@@ -3886,22 +3826,6 @@ describe("runAgentLoop", () => {
     });
   });
 
-  // ─── FIX 2: foreground first-model-event no-progress cap ───────────────────
-  // A hung FIRST engine-stream event previously rode the full 90s
-  // MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS watchdog before auto_continue could
-  // fire — but the clamped ~40s HOSTED foreground runtime is killed before
-  // that watchdog ever gets a chance, so the run died as a silent platform
-  // kill instead of a recoverable checkpoint.
-  // FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS (25s) closes that gap — gated on
-  // `isHostedRuntime() && !isInBackgroundFunctionRuntime()`, so local dev /
-  // self-hosted runtimes (no soft-timeout regime, no platform wall) and
-  // proven background-function workers keep the full 90s window. See
-  // production-agent.ts for the ordering invariant.
-
-  // Every env var the two runtime predicates read (`isHostedRuntime` in
-  // run-manager.ts; `isInBackgroundFunctionRuntime` in durable-background.ts).
-  // Snapshot + clear them all so each test pins BOTH predicates explicitly,
-  // regardless of the machine/CI environment the suite happens to run on.
   function snapshotAndClearRuntimePredicateEnv(): () => void {
     // Keep each deployment flag explicit. Dynamic process.env indexing is
     // forbidden in credential-adjacent agent code, including tests, because it
@@ -3932,23 +3856,10 @@ describe("runAgentLoop", () => {
       parallelToolCalls: true,
     },
     async *stream(): AsyncIterable<EngineEvent> {
-      // Zero tokens, ever — mirrors the incident's hung first model call.
       await new Promise(() => {});
     },
   });
 
-  /**
-   * Hangs like `hangingFirstEventEngine`, but RETURNS when the caller aborts.
-   *
-   * Tests that assert "no bound fires" cannot let the run promise stay pending:
-   * with nothing left to settle it, the vitest worker is torn down with the
-   * fork still live and the whole FILE fails with "Worker exited unexpectedly"
-   * even though every test passed. An engine that ignores `abortSignal` is also
-   * simply not a realistic one.
-   *
-   * `prelude` events are yielded first, for the cases that need the stream to
-   * have produced something before it goes quiet.
-   */
   const abortableHangingEngine = (
     prelude: EngineEvent[] = [],
   ): AgentEngine => ({
@@ -3977,10 +3888,6 @@ describe("runAgentLoop", () => {
   const modelStreamBracket = (events: AgentChatEvent[]) =>
     events.filter((event) => event.type === "model_stream");
 
-  // The bracket the run manager's no-progress backstop reads
-  // (`inFlightWorkDelta` in run-manager.ts). It must be balanced on every exit
-  // path: a leaked `start` suspends that backstop for the rest of the run,
-  // which is worse than the stall it exists to catch.
   it("brackets each engine call with a model_stream start/end pair", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -4014,7 +3921,6 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(1);
-    // Opened before anything the stream produces, closed before the turn ends.
     expect(events[0]).toEqual({ type: "model_stream", status: "start" });
     expect(modelStreamBracket(events)).toEqual([
       { type: "model_stream", status: "start" },
@@ -4071,9 +3977,6 @@ describe("runAgentLoop", () => {
 
   it("FIX 2: a hung FIRST model event triggers auto_continue at 25s on the HOSTED foreground runtime", async () => {
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
-    // Hosted (non-background Lambda name, e.g. the regular `server` function)
-    // + not a background-function runtime: the exact clamped runtime from the
-    // incident.
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
     vi.useFakeTimers({ now: 1_000_000 });
     const events: AgentChatEvent[] = [];
@@ -4090,9 +3993,6 @@ describe("runAgentLoop", () => {
         signal: new AbortController().signal,
       });
 
-      // Just past the 25s foreground cap, comfortably under the normal 90s
-      // watchdog — only the tightened first-event deadline explains a fire
-      // this early.
       await vi.advanceTimersByTimeAsync(26_000);
       await run;
     } finally {
@@ -4107,9 +4007,6 @@ describe("runAgentLoop", () => {
   });
 
   it("a hung FIRST model event has NO in-loop bound on a NON-HOSTED runtime (local dev / self-hosted)", async () => {
-    // All hosted markers cleared — no soft-timeout regime, no platform wall.
-    // The in-loop watchdogs are gone entirely; a hung stream is the engine's
-    // own `FIRST_STREAM_EVENT_TIMEOUT_MS` to catch, not this loop's.
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     vi.useFakeTimers({ now: 1_000_000 });
     const events: AgentChatEvent[] = [];
@@ -4128,7 +4025,6 @@ describe("runAgentLoop", () => {
       });
       void run.catch(() => undefined);
 
-      // Well past both retired 90s watchdogs: nothing may checkpoint here.
       await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(events).toEqual([{ type: "model_stream", status: "start" }]);
       controller.abort();
@@ -4141,8 +4037,6 @@ describe("runAgentLoop", () => {
 
   it("a hung FIRST model event has NO in-loop bound inside a background function", async () => {
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
-    // Hosted AND proven background-function runtime (`-background` Lambda
-    // name) — the 15-min budget applies, so no in-loop cap may arm.
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server-agent-background";
     vi.useFakeTimers({ now: 1_000_000 });
     const events: AgentChatEvent[] = [];
@@ -4172,17 +4066,9 @@ describe("runAgentLoop", () => {
   });
 
   it("a gap AFTER the first event is NEVER bounded in-loop, even on hosted foreground", async () => {
-    // THE CASE THE RETIRED WATCHDOGS GOT WRONG. Once a model call has produced
-    // anything, a silent stretch is normal work — extended thinking, or a tool
-    // whose input is not eagerly streamed and so emits nothing at all while the
-    // provider composes its arguments. The Anthropic SDK swallows the pings
-    // that would prove liveness, so this loop cannot tell slow from wedged and
-    // must not try: it is the run budget's job to bound cost, not this one's.
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
     vi.useFakeTimers({ now: 1_000_000 });
-    // A real first event arrives promptly, releasing the only remaining
-    // in-loop cap, then a long content-silent stretch which must survive.
     const engine = abortableHangingEngine([
       { type: "text-delta", text: "thinking" },
     ]);
@@ -4202,8 +4088,6 @@ describe("runAgentLoop", () => {
       });
       void run.catch(() => undefined);
 
-      // Ten minutes of content silence: a large tool input is exactly this
-      // shape, and nothing here may cut it off.
       await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(events).not.toContainEqual(
         expect.objectContaining({ type: "auto_continue" }),
@@ -4233,9 +4117,6 @@ describe("runAgentLoop", () => {
         parallelToolCalls: true,
       },
       async *stream(): AsyncIterable<EngineEvent> {
-        // The gateway keeps the socket warm while the model produces nothing
-        // — the prod trace: keepalive just under the cap, then every 10s,
-        // zero tokens ever. A keepalive is not a first model event.
         for (;;) {
           await new Promise((resolve) => setTimeout(resolve, 10_000));
           yield { type: "gateway-heartbeat" };
@@ -4310,8 +4191,6 @@ describe("runAgentLoop", () => {
       vi.unstubAllEnvs();
     }
 
-    // Retryable, but 2s+ of backoff plus the minimum continuation budget does
-    // not fit in a 1s run budget — burning it here leaves nothing to resume with.
     expect(streamCalls).toBe(1);
   });
 
@@ -4360,13 +4239,9 @@ describe("runAgentLoop", () => {
         signal: new AbortController().signal,
       });
 
-      // The fixed exponential backoff for attempt 0 (~2.2s incl. jitter) is
-      // well under the classified 5s Retry-After — the retry must not have
-      // fired yet at 2.5s.
       await vi.advanceTimersByTimeAsync(2_500);
       expect(streamCalls).toBe(1);
 
-      // Past the 5s Retry-After, the retry fires.
       await vi.advanceTimersByTimeAsync(2_600);
       await run;
     } finally {
@@ -4397,9 +4272,6 @@ describe("runAgentLoop", () => {
         throw new EngineError("Too many requests", {
           errorCode: "http_429",
           statusCode: 429,
-          // The fixed backoff alone (~2.2s) would fit a 15s budget; only the
-          // 12s Retry-After pushes the estimate past what's left, and the
-          // wait must not be silently truncated to fit.
           retryAfterMs: 12_000,
         });
       },
@@ -4468,11 +4340,9 @@ describe("runAgentLoop", () => {
         signal: new AbortController().signal,
       });
 
-      // Below the ~1.8s-2.2s backoff window (2s base ± 10% jitter): no retry yet.
       await vi.advanceTimersByTimeAsync(1_700);
       expect(streamCalls).toBe(1);
 
-      // Comfortably past the max of that window.
       await vi.advanceTimersByTimeAsync(1_000);
       await run;
     } finally {
@@ -4483,10 +4353,6 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(events)).toContain("recovered");
   });
 
-  // End-to-end shape of the Analytics outage: the gateway answered 200, emitted
-  // its unhandled-500 envelope in-stream, and the turn ended on the first
-  // attempt — 14 turns, every one at exactly 1.00 runs/turn. The envelope now
-  // carries a code and a retry verdict, so the same turn finishes.
   it("recovers a turn from the Builder gateway internal-error envelope", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -4532,7 +4398,6 @@ describe("runAgentLoop", () => {
 
     expect(streamCalls).toBe(2);
     expect(JSON.stringify(events)).toContain("recovered");
-    // The turn must not end on the envelope: no terminal error reaches the user.
     expect(events.filter((event) => event.type === "error")).toEqual([]);
   });
 
@@ -4566,8 +4431,6 @@ describe("runAgentLoop", () => {
     };
     const events: AgentChatEvent[] = [];
 
-    // No `resumeResumableErrorsInProcess`: the foreground turn used to rethrow
-    // here, and in production nothing else ever resumed it.
     await runAgentLoopWithMainChatInternalContinuations({
       engine,
       model: "test-model",
@@ -5268,10 +5131,6 @@ describe("runAgentLoop", () => {
       },
       async *stream(): AsyncIterable<EngineEvent> {
         streamCalls += 1;
-        // The model keeps asking for the exact same read-only context on
-        // every iteration — the result stays visible in `contextMessages`
-        // the whole time (no threadId is passed, so contextMessages ===
-        // messages), so every repeat past the first should strike-count.
         yield {
           type: "assistant-content",
           parts: [
@@ -5305,9 +5164,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // Iteration 1 executes for real; iterations 2-4 are duplicates (repeats
-    // 1, 2, 3) and the 3rd repeat triggers the stop — the engine must not be
-    // called a 5th time.
     expect(readAction).toHaveBeenCalledTimes(1);
     expect(streamCalls).toBe(4);
     expect(events).toContainEqual({
@@ -5573,10 +5429,6 @@ describe("runAgentLoop", () => {
           yield { type: "stop", reason: "tool_use" };
           return;
         }
-        // Pad the transcript with unrelated read-only calls so the ORIGINAL
-        // get-document tool-result (message index 2) falls outside
-        // trimOldToolResults' protected tail window and gets stubbed out the
-        // next time a context-length-exceeded recovery runs.
         if (streamCalls <= 1 + PADDING_ITERATIONS) {
           yield {
             type: "assistant-content",
@@ -5593,15 +5445,9 @@ describe("runAgentLoop", () => {
           return;
         }
         if (streamCalls === 2 + PADDING_ITERATIONS) {
-          // Simulate the provider rejecting this attempt as too-long — the
-          // one-shot recovery in runAgentLoop trims old tool results from
-          // contextMessages and retries.
           throw new Error("context_length_exceeded: too many tokens");
         }
         if (streamCalls === 3 + PADDING_ITERATIONS) {
-          // Retry after trim: the model asks for the exact same read-only
-          // context again. Its earlier result is no longer visible in
-          // contextMessages (it was stubbed by the trim above).
           yield {
             type: "assistant-content",
             parts: [
@@ -5643,10 +5489,7 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The tool ran fresh exactly once — the later repeat was re-served from
-    // cache, not re-executed.
     expect(readAction).toHaveBeenCalledTimes(1);
-    // No kill: the repeat wasn't visible in context, so it isn't a strike.
     expect(JSON.stringify(events)).not.toContain(
       "I stopped because the agent kept asking",
     );
@@ -6398,7 +6241,6 @@ describe("runAgentLoop", () => {
       systemPrompt: "system",
       tools: [],
       messages: [
-        // Turn 1: real user prompt, a read, and a final answer.
         {
           role: "user",
           content: [{ type: "text", text: "read the doc" }],
@@ -6430,8 +6272,6 @@ describe("runAgentLoop", () => {
           role: "assistant",
           content: [{ type: "text", text: "Here it is." }],
         },
-        // Turn 2: a NEW real user prompt (not a continuation of turn 1),
-        // followed by an internal-continue prompt for this request.
         {
           role: "user",
           content: [{ type: "text", text: "read it again" }],
@@ -6451,8 +6291,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The prior turn's read must not seed the duplicate-skip cache for a
-    // request that starts a new turn — the tool must run fresh.
     expect(readAction).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
     expect(events).toContainEqual(
@@ -6581,8 +6419,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The successful write between the seeded read and the continuation
-    // invalidates the seeded cache, so the repeat read must run fresh.
     expect(readAction).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
     expect(events).toContainEqual(
@@ -6596,9 +6432,6 @@ describe("runAgentLoop", () => {
 
   it("stops a turn that keeps issuing the same successful tool call with identical arguments", async () => {
     let streamCalls = 0;
-    // Succeeds every time — a spiral is not always an error spiral. Prod turns
-    // issued 39 identical run-code webFetches and 43 identical docs-search
-    // calls, none of which failed.
     const run = vi.fn(async () => "same answer every time");
     const engine: AgentEngine = {
       name: "test",
@@ -6646,10 +6479,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // Bounded far below the 400-iteration ceiling: repetition is what stops
-    // this turn, not the volume cap. Which guard fires first (the pre-existing
-    // duplicate-read guard or MAX_IDENTICAL_TOOL_CALLS) is an implementation
-    // detail — that it stops quickly is the contract.
     expect(streamCalls).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
     expect(run.mock.calls.length).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
     expect(events).toContainEqual(expect.objectContaining({ type: "error" }));
@@ -6657,14 +6486,6 @@ describe("runAgentLoop", () => {
 
   it("stops a turn whose tool keeps failing the same way under different arguments", async () => {
     let streamCalls = 0;
-    // The shape a lost model actually makes: it never repeats itself, it keeps
-    // guessing. Every call carries new arguments, so the identical-arguments
-    // breaker never counts past one and cannot stop this on its own.
-    // NOT a thrown constant: the real shape is SCHEMA REJECTION, whose message
-    // embeds `Received: {…the arguments…}`. That echo is what made the error
-    // text differ on every attempt and defeated the breaker's key. A test that
-    // throws a fixed string never exercises this and passes either way — the
-    // first version of this test did exactly that.
     const run = vi.fn(async () => "should never execute");
     const engine: AgentEngine = {
       name: "test",
@@ -6687,7 +6508,6 @@ describe("runAgentLoop", () => {
               type: "tool-call" as const,
               id: `guess-${streamCalls}`,
               name: "query-analytics",
-              // Different every attempt — that is the whole point.
               input: { attempt: streamCalls, guess: `variant-${streamCalls}` },
             },
           ],
@@ -6703,8 +6523,6 @@ describe("runAgentLoop", () => {
       systemPrompt: "system",
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      // Required `action` property the model never supplies, so every call is
-      // rejected by the schema before `run` is reached.
       actions: {
         "query-analytics": {
           ...actionEntry({ actions: ["only-valid-choice"] }),
@@ -6715,12 +6533,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // Must stop on the same-error floor, nowhere near the iteration ceiling.
-    // Without it this turn runs until it exhausts a budget — which is how a
-    // delegated call spent five minutes on a question the same app answers
-    // directly in twenty-seven seconds.
-    // The schema rejects before `run`, so the model turns are the count that
-    // matters. Without an argument-independent breaker this ran 61 turns.
     expect(run).not.toHaveBeenCalled();
     expect(streamCalls).toBe(3);
   });
@@ -6742,7 +6554,6 @@ describe("runAgentLoop", () => {
       },
       async *stream(): AsyncIterable<EngineEvent> {
         streamCalls += 1;
-        // 20 distinct calls, then finish — well past MAX_IDENTICAL_TOOL_CALLS.
         if (streamCalls > 20) {
           yield {
             type: "assistant-content",
@@ -6975,9 +6786,6 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("Stopped after 3 identical errors"),
       }),
     );
-    // The raw provider error rides in `details`, never in `error`: the client
-    // and the resume loop both sniff `error` for transport words and would
-    // auto-continue the very spiral this stop ends.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -7050,8 +6858,6 @@ describe("runAgentLoop", () => {
   });
 
   it("classifies permanent preconditions and leaves recoverable failures alone", () => {
-    // Verbatim production strings that were retried until a breaker or the
-    // iteration cap fired.
     for (const permanent of [
       "Error running add-slide: Requires editor role on deck ZJshjrXhjx (have viewer)",
       "Error running generate-slides-ai: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
@@ -7060,18 +6866,12 @@ describe("runAgentLoop", () => {
       "Plan mode blocked `update-extension`. Switch to Act mode after the user approves the plan, then retry the action.",
       "no authenticated user",
       "Error running call-agent: Error: The Analytics agent call failed. (SSRF blocked: refusing to fetch private/internal address (http://localhost:8088/a2a))",
-      // A nested A2A/ask_app delegation embedding the callee's OWN
-      // `formatA2ATerminalError` text verbatim (2026-08-26 Slides incident).
       "Error running generate-image-api: Assets could not generate this image (failed): I stopped because generate-image-batch needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. Retrying would not have changed it, and anything completed before this is saved.\ncode: permanent_precondition",
-      // `fail(message, { errorCode: "permanent_precondition" })`, rendered by
-      // this module's own non-AgentActionStopError catch branch.
       "Error running stage-dataset: Staged dataset byte cap exceeded (errorCode: permanent_precondition)",
     ]) {
       expect(permanentPreconditionRemedy(permanent)).not.toBeNull();
     }
 
-    // Every one of these the model can act on. A false positive here kills a
-    // turn that would have succeeded, so they matter more than the list above.
     for (const recoverable of [
       "Error running query-agent-native-analytics: canceling statement due to statement timeout",
       "Error running update-slide: Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
@@ -7081,24 +6881,12 @@ describe("runAgentLoop", () => {
       "Error running bigquery: Not found: Dataset builder-3b0a2 was not found in location US",
       'Error running run-sql: syntax error at or near "slect"',
       "Error running run-sql: column deals.stage does not exist",
-      // Network failures. The canonical retryable error must never read as a
-      // "connect X first" setup instruction.
       "Error running warehouse-query: failed to connect to the warehouse before the deadline",
       "Error running warehouse-query: could not connect to host db-1 before timeout",
       "Error running warehouse-query: Connect timed out, retry first",
-      // Retention windows, fixed by narrowing the range and asking again.
       "Error running list-session-recordings: Data is only available from the last 90 days",
       "Error running gong-calls: transcripts are only available in the last 12 months",
-      // The precondition SENTENCE with no marker line: a closest-match tool
-      // echoing another candidate's content (an extension or slide whose own
-      // text happens to contain this exact sentence) must not be misread as
-      // this framework's own stop. Only the `code: permanent_precondition` /
-      // `errorCode: permanent_precondition` marker is diagnostic; every real
-      // emitter of the sentence also sends that marker.
       'Error running find-closest-match: closest candidate: "...needs a setup step outside this turn before it can run..." (no code line, not this run\'s own stop)',
-      // The marker text itself, but on an INDENTED echoed candidate line, not
-      // this framework's own column-0 framing — a retryable patch miss from
-      // an edit tool, not a stop.
       "Error running find-closest-match: Closest matches in the current extension:\n  line 12: code: permanent_precondition",
     ]) {
       expect(permanentPreconditionRemedy(recoverable)).toBeNull();
@@ -7114,42 +6902,28 @@ describe("runAgentLoop", () => {
     ).toBe(
       "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
     );
-    // The nested-AgentActionStopError shape has no "Error running <tool>:"
-    // wrapper — just "<tool>: <message>" — and must be stripped the same way.
     expect(
       permanentPreconditionReason(
         "connect-google-calendar",
         "connect-google-calendar: Connect Google Calendar in settings first.",
       ),
     ).toBe("Connect Google Calendar in settings first");
-    // The ordinary contract-error shape carries its own code suffix; that is
-    // the marker, not a nested stop narrative, so the reason survives.
     expect(
       permanentPreconditionReason(
         "mutate-dashboard",
         "Error running mutate-dashboard: Requires editor role on dashboard d1 (have viewer) (errorCode: permanent_precondition)",
       ),
     ).toBe("Requires editor role on dashboard d1 (have viewer)");
-    // Capped at ~240 chars so a verbose nested-stop message doesn't blow up
-    // the headline.
     const long = "x".repeat(300);
     expect(
       permanentPreconditionReason("t", `Error running t: ${long}`)?.length,
-    ).toBeLessThanOrEqual(241); // 240 chars + the truncation ellipsis
-    // Nothing left after stripping the prefix: no usable reason text, so the
-    // caller must fall back to the generic sentence instead of an empty or
-    // meaningless headline.
+    ).toBeLessThanOrEqual(241);
     expect(
       permanentPreconditionReason(
         "mutate-dashboard",
         "Error running mutate-dashboard:   ",
       ),
     ).toBeNull();
-    // A nested A2A/Assets delegation's error text is itself a terminal stop
-    // narrative (its own "I stopped because …" headline plus the
-    // `permanent_precondition` marker). Embedding that whole payload as "the
-    // concrete reason" would double the narrative, so this must fall back to
-    // null (the generic headline) instead of surfacing it verbatim.
     expect(
       permanentPreconditionReason(
         "generate-image-api",
@@ -7163,11 +6937,6 @@ describe("runAgentLoop", () => {
     ).toBeNull();
   });
 
-  // Echoed candidate/ambiguous-match text an edit tool quotes back from the
-  // user's own content is fenced with `<<<diagnostic-snippet` /
-  // `>>>end-diagnostic-snippet` (diagnostic-snippet.ts) precisely so it can
-  // never be read as this framework's own signal, no matter what phrases it
-  // happens to contain.
   it("never classifies precondition markers quoted inside a diagnostic-snippet fence, but still classifies them outside it", () => {
     const fenced =
       "Error running find-closest-match: Closest matches:\n" +
@@ -7177,16 +6946,11 @@ describe("runAgentLoop", () => {
       ">>>end-diagnostic-snippet";
     expect(permanentPreconditionRemedy(fenced)).toBeNull();
 
-    // Same markers, outside the fence: still classify.
     const unfenced =
       "Error running find-closest-match: no authenticated user\ncode: permanent_precondition";
     expect(permanentPreconditionRemedy(unfenced)).not.toBeNull();
   });
 
-  // The identical-error breaker keys on this normalized text (see
-  // `normalizeToolErrorForBreaker`'s own doc comment). A fenced candidate
-  // snippet that varies attempt to attempt must not defeat it, the same way
-  // a varying argument echo must not.
   it("normalizes two tool errors that differ only in fenced candidate text to the same breaker key", () => {
     const a =
       "No exact match for the requested text.\n<<<diagnostic-snippet\n    candidate A text here\n>>>end-diagnostic-snippet";
@@ -7225,9 +6989,6 @@ describe("runAgentLoop", () => {
               type: "tool-call" as const,
               id: `gen-${streamCalls}`,
               name: "generate-slides-ai",
-              // New arguments every attempt: the argument-keyed breaker never
-              // counts past one, which is why only content classification can
-              // stop this.
               input: { prompt: `attempt ${streamCalls}` },
             },
           ],
@@ -7256,13 +7017,9 @@ describe("runAgentLoop", () => {
       errorCode: "permanent_precondition",
       recoverable: false,
     });
-    // Raw tool error in `details`, remedy in `message` — the shape every other
-    // terminal stop uses, and the one `TerminalActionStop` documents.
     expect((stop as { details: string }).details).toContain(
       "Save GEMINI_API_KEY in settings",
     );
-    // The headline now leads with the concrete reason instead of a generic
-    // "needs a setup step" sentence, so it names the actual missing key.
     expect((stop as { error: string }).error).toContain(
       "generate-slides-ai can't run yet: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
     );
@@ -7271,10 +7028,6 @@ describe("runAgentLoop", () => {
     );
   });
 
-  // Prod report: a user asked the agent to fix a dashboard panel and the
-  // headline read as a generic "needs a setup step" with the real reason
-  // (missing editor role) buried in `details`. The headline must lead with
-  // the concrete reason so the user doesn't have to dig for it.
   it("leads the headline with the concrete reason when the tool error has one", async () => {
     const run = vi.fn(async () => {
       throw new Error(
@@ -7335,10 +7088,6 @@ describe("runAgentLoop", () => {
     );
   });
 
-  // An action that stops itself (AgentActionStopError) with a permanent
-  // precondition must get the same reason-led headline as a thrown error:
-  // the catch used to seed the raw message first, so the classifier's
-  // headline lost the `??=`.
   it("leads the headline with the concrete reason when the action stops itself", async () => {
     const run = vi.fn(async () => {
       throw new AgentActionStopError(
@@ -7399,13 +7148,10 @@ describe("runAgentLoop", () => {
     );
   });
 
-  // The explicit code is the classification; the message need not match
-  // the text heuristics to get the reason-led headline.
   it("honors an explicit permanent_precondition code on a direct action stop", async () => {
     const run = vi.fn(async () => {
       throw new AgentActionStopError("mutate-dashboard: Dashboard is locked.", {
         errorCode: "permanent_precondition",
-        // Model-facing payload: must reach the tool result, never the headline.
         toolResult: '{"status":"locked","dashboardId":"d1"}',
       });
     });
@@ -7466,13 +7212,6 @@ describe("runAgentLoop", () => {
     );
   });
 
-  // 2026-08-26 Slides incident: an A2A/ask_app delegation (Assets) already
-  // classified its own failure as a permanent precondition and stopped, but
-  // its terminal-stop text only reaches the caller as a plain Error message
-  // once wrapped (`Assets could not generate this image (failed): …`). The
-  // outer run must recognize the callee's embedded marker on the FIRST
-  // failure rather than retrying an error the callee already proved
-  // unrecoverable.
   it("stops on the FIRST failure when a tool error embeds a nested permanent-precondition marker", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
@@ -7527,16 +7266,12 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // Not 3: the identical-error breaker never gets a chance to count this.
     expect(run).toHaveBeenCalledTimes(1);
     const stop = events.find((e) => e.type === "error");
     expect(stop).toMatchObject({
       errorCode: "permanent_precondition",
       recoverable: false,
     });
-    // Generic fallback headline: the nested delegation's own "I stopped
-    // because …" narrative is a stop message, not a usable "concrete reason",
-    // so it must not be embedded (doubled) into this outer headline.
     expect((stop as { error: string }).error).toBe(
       "I stopped because generate-image-api needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. " +
         "Retrying would not have changed it, and anything completed before this is saved.",
@@ -7544,16 +7279,11 @@ describe("runAgentLoop", () => {
     expect((stop as { error: string }).error).not.toContain(
       "Assets could not generate",
     );
-    // Not the scarier, less specific repeated-failure message the incident
-    // actually produced.
     expect((stop as { error: string }).error).not.toContain(
       "failed 3 times in a row",
     );
   });
 
-  // A model iterating ids that each genuinely 404 is not repeating a failure —
-  // it is making progress. Normalizing digits out of the breaker key merged
-  // them into one and ended the sweep at item six.
   it("counts per-item not-found errors as distinct failures", async () => {
     const ITEMS = 7;
     let streamCalls = 0;
@@ -7639,8 +7369,6 @@ describe("runAgentLoop", () => {
               type: "tool-call" as const,
               id: `sweep-${streamCalls}`,
               name: "gong-calls",
-              // A fresh account every time: `noteRepeatedToolCall` mints a new
-              // key per call, so nothing but an error breaker can end this.
               input: { company: `Account ${streamCalls}` },
             },
           ],
@@ -7661,9 +7389,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The threshold's worth of real calls exhausts the convergence budget; the
-    // declines that follow are bounded by the existing error breaker instead of
-    // running to maxIterations.
     expect(streamCalls).toBeLessThan(
       resolveSourceSweepToolCallThreshold() + 13,
     );
@@ -8185,7 +7910,6 @@ describe("runAgentLoop", () => {
     };
     const events: any[] = [];
 
-    // Simulate a continuation turn where save-data was interrupted twice.
     await runAgentLoop({
       engine,
       model: "test-model",
@@ -8262,9 +7986,7 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The write action must NOT run again — the guard should have blocked it.
     expect(writeAction).not.toHaveBeenCalled();
-    // A tool_done event with an interruption error should be emitted.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -8272,7 +7994,6 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("interrupted 2 time(s)"),
       }),
     );
-    // The agent should stop with a helpful message.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -8374,15 +8095,10 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // With only 1 prior interruption (below the threshold of 2), the action runs.
     expect(writeAction).toHaveBeenCalledOnce();
   });
 
   it("passes the turn's attachments into each tool action's run context", async () => {
-    // The by-reference fix: an action (e.g. create-extension's
-    // contentFromAttachment) reads the pasted/attached file from
-    // ctx.attachments instead of forcing the model to re-emit it as a tool
-    // argument.
     let receivedAttachments: unknown;
     const writeAction = vi.fn(async (_args: unknown, ctx: any) => {
       receivedAttachments = ctx?.attachments;
@@ -8462,8 +8178,6 @@ describe("runAgentLoop", () => {
   });
 
   it("forwards the run abort signal into each tool action's run context", async () => {
-    // P1: ActionRunContext.signal must be populated so well-behaved actions can
-    // cancel in-flight work when the run is soft-timed out or user-cancelled.
     let receivedSignal: unknown;
     const writeAction = vi.fn(async (_args: unknown, ctx: any) => {
       receivedSignal = ctx?.signal;
@@ -8525,7 +8239,6 @@ describe("runAgentLoop", () => {
     });
 
     expect(writeAction).toHaveBeenCalledOnce();
-    // The signal passed to the action must be the same AbortSignal given to runAgentLoop
     expect(receivedSignal).toBe(runAbort.signal);
     expect(receivedSignal).toBeInstanceOf(AbortSignal);
   });
@@ -8764,7 +8477,6 @@ describe("runAgentLoop", () => {
       return done && "result" in done ? (done.result as string) : undefined;
     }
 
-    // Additive: an action that never warns must produce the exact same bytes.
     it("leaves a warning-free tool result byte-identical", async () => {
       expect(await toolResultFor(async () => "moved 21 members")).toBe(
         "moved 21 members",
@@ -8792,8 +8504,6 @@ describe("runAgentLoop", () => {
       );
     });
 
-    // Drained outside the success branch: an action that warns and then fails is
-    // the case most likely to have broken something.
     it("keeps the warning when the action throws after raising it", async () => {
       const result = await toolResultFor(async () => {
         warnAgent({
@@ -8987,17 +8697,12 @@ describe("runAgentLoop", () => {
       maxIterations: 2,
     });
 
-    // The budget is a real cap: the loop stops instead of nudging itself and
-    // resetting the counter to 1 (which made maxIterations unenforceable and
-    // meant `loop_limit` was never emitted for the handlers that expect it).
     expect(streamCalls).toBe(2);
     expect(events).toContainEqual({ type: "loop_limit", maxIterations: 2 });
     expect(JSON.stringify(seenMessages.at(-1))).not.toContain(
       "Continue from where you left off",
     );
     expect(events).not.toContainEqual({ type: "text", text: "finished" });
-    // run-manager stashes `loop_limit` and `done` in the same terminal-event
-    // slot, so a trailing `done` would erase the continuation boundary.
     expect(events.at(-1)).toEqual({ type: "loop_limit", maxIterations: 2 });
     expect(outcomes).toEqual([
       {
@@ -9064,15 +8769,10 @@ describe("runAgentLoop", () => {
       priorTurnInputTokens: 70_000,
     });
 
-    // 70k carried in + one 40k iteration crosses 100k, so the second iteration
-    // never runs. Without `priorTurnInputTokens` each chained chunk would get a
-    // fresh 100k allowance.
     expect(streamCalls).toBe(1);
     expect(events).toContainEqual(
       expect.objectContaining({ type: "tripwire" }),
     );
-    // Terminal for the turn, NOT a chunk boundary — a `loop_limit` here would
-    // chain a successor that inherits the same exhausted total.
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "loop_limit" }),
     );
@@ -9096,7 +8796,7 @@ describe("runAgentLoop", () => {
     // regardless of task size. Before the fix this test's loop tripped after
     // 11 iterations (11 * 70_000 = 770_000 > 750_000); it must now run all 12
     // ordinary iterations to a normal `end_turn` instead.
-    const PER_STEP_BASELINE_TOKENS = 70_000; // measured tool-schema baseline order of magnitude
+    const PER_STEP_BASELINE_TOKENS = 70_000;
     const ORDINARY_ITERATIONS = 12;
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -9115,8 +8815,6 @@ describe("runAgentLoop", () => {
         streamCalls += 1;
         const isLastIteration = streamCalls >= ORDINARY_ITERATIONS;
         if (!isLastIteration) {
-          // Distinct input per call — identical repeated tool calls trip a
-          // separate repetition guard this test isn't exercising.
           yield {
             type: "tool-call",
             id: `tool-${streamCalls}`,
@@ -9140,9 +8838,6 @@ describe("runAgentLoop", () => {
             parts: [{ type: "text", text: "Here are the results." }],
           };
         }
-        // Most of this call's "whole prompt" is cache reads (the resent
-        // baseline), matching the documented `inputTokens` convention:
-        // WHOLE prompt including cache reads, not just the fresh delta.
         yield {
           type: "usage",
           inputTokens: PER_STEP_BASELINE_TOKENS,
@@ -9236,8 +8931,6 @@ describe("runAgentLoop", () => {
         actions: {
           slow: {
             ...actionEntry({ readOnly: true }),
-            // 12x the whole chunk budget — unclamped this timeout can never
-            // fire, so the chunk boundary always kills the run first.
             timeoutMs: 12 * 60_000,
             run: () => new Promise<string>(() => {}),
           },
@@ -9500,8 +9193,6 @@ describe("runAgentLoop", () => {
       (event) =>
         event.type === "tool_done" && event.tool === "update-extension",
     );
-    // Without the allowed values in the error, the model re-sends the same
-    // rejected enum until the identical-error breaker ends the turn.
     expect(toolDone?.result).toContain(
       'operation*: "edit"|"replace"|"metadata"',
     );
@@ -9630,9 +9321,6 @@ describe("runAgentLoop", () => {
         streamCalls += 1;
         seenMaxOutputTokens.push(opts.maxOutputTokens);
         if (streamCalls === 1) {
-          // What a truncated call looks like on the wire: a tool-call part is
-          // present (so the `toolCallParts.length === 0` truncation branch
-          // never sees it) and the arguments stop mid-object.
           yield {
             type: "tool-call-error",
             id: "cut-off",
@@ -9676,8 +9364,6 @@ describe("runAgentLoop", () => {
     );
     expect(toolDone?.result).toContain("output-token cap");
     expect(toolDone?.result).toContain("truncated, not wrong");
-    // Telling the model to match the schema is what made it re-send the same
-    // oversized payload until the identical-error breaker fired.
     expect(toolDone?.result).not.toContain(
       "retry with arguments that match the tool schema",
     );
@@ -9705,9 +9391,6 @@ describe("runAgentLoop", () => {
       async *stream(opts): AsyncIterable<EngineEvent> {
         streamCalls += 1;
         seenMaxOutputTokens.push(opts.maxOutputTokens);
-        // Three consecutive truncated tool calls: one more than the retry
-        // limit. Distinct payloads so the identical-error breaker is not what
-        // ends the run.
         if (streamCalls <= 3) {
           yield {
             type: "tool-call-error",
@@ -9746,8 +9429,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // Raised for the two allowed retries, then back to the engine's own
-    // ceiling — the elevated cap belonged to those retries, not to the run.
     expect(seenMaxOutputTokens.slice(0, 4)).toEqual([
       8192, 128_000, 128_000, 8192,
     ]);
@@ -9871,9 +9552,6 @@ describe("runAgentLoop", () => {
             name: "update-source",
             input: {
               id: "src-1",
-              // The model JSON-encoded the object instead of sending it
-              // directly — the real failure signature seen repeatedly in
-              // prod (brain's update-source, 11 identical retries/turn).
               config: '{"host":"db.example.com","port":5432}',
             },
             error: "input/config must be object",
@@ -10236,9 +9914,6 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(seenMessages[1])).toContain(
       "This answer needs a real data-source query",
     );
-    // The corrective instruction rides in on a user-role message. Without the
-    // framework label an aligned model reads it as an injected user turn and
-    // refuses it out loud to the real user.
     expect(JSON.stringify(seenMessages[1])).toContain(
       AGENT_INTERNAL_GUARD_PROMPT,
     );
@@ -10569,9 +10244,6 @@ describe("runAgentLoop", () => {
         parallelToolCalls: false,
       },
       async *stream(): AsyncIterable<EngineEvent> {
-        // Streamed live as UI feedback, but the structured assistant-content
-        // carries only a thinking part — the draft the guard/exhaustion path
-        // actually evaluates is empty, so there is nothing to prefix.
         yield { type: "text-delta", text: "still fake" };
         yield {
           type: "assistant-content",
@@ -10667,10 +10339,6 @@ describe("runAgentLoop", () => {
   });
 
   it("continues once when the engine ends with no text or tool calls", async () => {
-    // Mirrors OpenAI Responses gpt-5+ producing reasoning-only content with
-    // zero `output_text` items: the engine still emits a clean `end_turn`
-    // stop, but parts contains only thinking. Retry once so a transient
-    // reasoning-budget miss does not surface as a manual retry prompt.
     let streamCalls = 0;
     const seenMessages: any[] = [];
     const engine: AgentEngine = {
@@ -11066,23 +10734,16 @@ describe("runAgentLoop", () => {
       reasoningEffort: "high",
     });
 
-    // Initial attempt + 2 retries: EMPTY_FINAL_RESPONSE_RETRY_LIMIT is 2 now
-    // that each retry actually adapts instead of repeating the same request.
     expect(seenOpts).toHaveLength(3);
 
-    // First attempt uses exactly what the caller asked for.
     expect(seenOpts[0].maxOutputTokens).toBe(8_000);
     expect(seenOpts[0].reasoningEffort).toBe("high");
 
-    // First retry: tokens raised well above the first attempt, effort down
-    // one tier (high -> medium).
     expect(seenOpts[1].maxOutputTokens).toBeGreaterThan(
       seenOpts[0].maxOutputTokens!,
     );
     expect(seenOpts[1].reasoningEffort).toBe("medium");
 
-    // Second retry: effort steps down again (medium -> low); tokens stay at
-    // the raised ceiling rather than climbing indefinitely.
     expect(seenOpts[2].reasoningEffort).toBe("low");
     expect(seenOpts[2].maxOutputTokens).toBe(seenOpts[1].maxOutputTokens);
 
@@ -11468,11 +11129,6 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual({ type: "text", text: "Recovered" });
   });
 
-  // ─── Human-in-the-loop approval gate (opt-in needsApproval) ──────────────
-  //
-  // Builds an engine that emits a single tool call to `send-email` on the
-  // first stream, then a plain text completion on every subsequent stream.
-  // The post-tool stream lets an *approved* re-run finish cleanly.
   const approvalEngine = (
     toolInput: Record<string, unknown> = { to: "a@b.com" },
   ): { engine: AgentEngine; streamCalls: () => number } => {
@@ -11572,10 +11228,7 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The side effect must NOT have happened.
     expect(run).not.toHaveBeenCalled();
-    // The model was never asked to continue after the pause (only the first
-    // tool-emitting stream ran).
     expect(streamCalls()).toBe(1);
 
     const approvalEvent = events.find(
@@ -11584,13 +11237,11 @@ describe("runAgentLoop", () => {
     expect(approvalEvent).toBeDefined();
     expect(approvalEvent.tool).toBe("send-email");
     expect(approvalEvent.input).toEqual({ to: "a@b.com" });
-    // A stable, non-empty key that the client echoes back to approve.
     expect(typeof approvalEvent.approvalKey).toBe("string");
     expect(approvalEvent.approvalKey.length).toBeGreaterThan(0);
     expect(approvalEvent.approvalKey).toContain("send-email");
     expect(approvalEvent.toolCallId).toBe("approval-call-1");
 
-    // A paused tool_done is emitted explaining the action did NOT execute.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -11598,8 +11249,6 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("did NOT execute"),
       }),
     );
-    // The turn stops with the approval-waiting message (how the loop surfaces a
-    // requestedActionStop with errorCode "needs-approval").
     expect(events).toContainEqual({
       type: "text",
       text: "Waiting for your approval to run send-email.",
@@ -11614,10 +11263,6 @@ describe("runAgentLoop", () => {
     ]);
   });
 
-  // The paused tool result tells the model "the turn is paused". That has to be
-  // true for the REST of the same assistant message too: a second call emitted
-  // alongside the gated one previously still executed while the human was
-  // looking at the approval card.
   it("does not run later tool calls in the same message while approval is pending", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -11686,7 +11331,6 @@ describe("runAgentLoop", () => {
     });
 
     expect(sendEmail).not.toHaveBeenCalled();
-    // The whole point: the un-gated sibling must not fire either.
     expect(deleteRecords).not.toHaveBeenCalled();
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -11697,10 +11341,6 @@ describe("runAgentLoop", () => {
     );
   });
 
-  // Same guarantee, but through the parallel path. A batch is dispatched with
-  // `Promise.all`, so if a gated call were batchable its siblings would already
-  // be running by the time the gate is reached — including a mutating
-  // `parallelSafe` one.
   it("does not run parallelSafe siblings batched alongside a gated call", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -11753,8 +11393,6 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        // Declares BOTH parallelSafe and needsApproval — without serializing
-        // gated calls this lands in a write batch with its sibling.
         "send-email": {
           ...actionEntry({ readOnly: false }),
           parallelSafe: true,
@@ -11843,7 +11481,6 @@ describe("runAgentLoop", () => {
   });
 
   it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
-    // Phase 1: capture the approvalKey from the pause.
     const phase1 = approvalEngine();
     const run = vi.fn(async () => "delivered");
     const events1: any[] = [];
@@ -11872,7 +11509,6 @@ describe("runAgentLoop", () => {
     expect(approvalKey).toBeTruthy();
     expect(run).not.toHaveBeenCalled();
 
-    // Phase 2: re-issue the turn approving that specific call.
     const phase2 = approvalEngine();
     const events2: any[] = [];
 
@@ -12107,7 +11743,6 @@ describe("runAgentLoop", () => {
   });
 
   it("predicate needsApproval gates only matching args (non-matching runs normally)", async () => {
-    // Non-matching args run normally.
     const safe = approvalEngine({ x: "safe" });
     const safeRun = vi.fn(async () => "ran-safe");
     const safeEvents: any[] = [];
@@ -12135,7 +11770,6 @@ describe("runAgentLoop", () => {
       false,
     );
 
-    // Matching args pause for approval and never run.
     const danger = approvalEngine({ x: "danger" });
     const dangerRun = vi.fn(async () => "ran-danger");
     const dangerEvents: any[] = [];
@@ -12163,8 +11797,6 @@ describe("runAgentLoop", () => {
     ).toBe(true);
   });
 });
-
-// ─── Model fallback on sustained rate limit ──────────────────────────────────
 
 describe("runAgentLoop model fallback", () => {
   it("switches to the fallback model once retries are exhausted, with an activity event", async () => {
@@ -12213,12 +11845,9 @@ describe("runAgentLoop model fallback", () => {
         signal: new AbortController().signal,
       });
 
-      // MAX_RETRIES (3) exponential-backoff retries on the primary model
-      // before the fallback swap fires.
       await vi.advanceTimersByTimeAsync(60_000);
       const usage = await run;
 
-      // 1 initial + 3 retries on the primary, then 1 on the fallback.
       expect(modelsUsed).toEqual([
         "claude-haiku-4-5",
         "claude-haiku-4-5",
@@ -12226,8 +11855,6 @@ describe("runAgentLoop model fallback", () => {
         "claude-haiku-4-5",
         "claude-sonnet-5",
       ]);
-      // The throttled primary attempts' partial usage is discarded at the
-      // switch, so the aggregate is attributed to the model that answered.
       expect(usage.model).toBe("claude-sonnet-5");
       expect(
         events.some(
@@ -12284,9 +11911,6 @@ describe("runAgentLoop model fallback", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
 
-      // Switches to the fallback exactly once — it then gets its own normal
-      // retry budget (1 + MAX_RETRIES), but never swaps back or to a third
-      // model.
       expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(4);
       expect(modelsUsed.filter((m) => m === "claude-haiku-4-5").length).toBe(4);
     } finally {
@@ -12333,7 +11957,6 @@ describe("runAgentLoop model fallback", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
 
-      // 1 initial + MAX_RETRIES (3), no fallback swap for an unmapped model.
       expect(streamCalls).toBe(4);
     } finally {
       vi.useRealTimers();
@@ -12341,11 +11964,6 @@ describe("runAgentLoop model fallback", () => {
   });
 
   it("does not switch to a fallback the engine's supportedModels excludes, even when resolveFallbackModel maps one", async () => {
-    // "claude-haiku-4-5" DOES have a mapped fallback (claude-sonnet-5), but a
-    // direct-Anthropic engine can advertise a supportedModels list that omits
-    // the Builder-catalog fallback id (e.g. it only knows dated snapshot ids
-    // like "claude-haiku-4-5-20251001"). Switching anyway would send the next
-    // request to a model this engine cannot actually serve.
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;
     const modelsUsed: string[] = [];
@@ -12386,8 +12004,6 @@ describe("runAgentLoop model fallback", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
 
-      // 1 initial + MAX_RETRIES (3), no fallback swap and no unsupported
-      // model ever reaches the engine.
       expect(streamCalls).toBe(4);
       expect(modelsUsed.every((m) => m === "claude-haiku-4-5")).toBe(true);
     } finally {
@@ -12396,15 +12012,7 @@ describe("runAgentLoop model fallback", () => {
   });
 });
 
-// ─── endsTurn (actions that hand control back to the user) ───────────────────
-
 describe("runAgentLoop endsTurn", () => {
-  /**
-   * Emits `ask-question` plus a second tool call in ONE assistant message, then
-   * a plain text completion on every later stream. The extra call reproduces the
-   * reported "it keeps asking questions": a second `ask-question` overwrites the
-   * first card before anyone can answer it.
-   */
   const yieldEngine = (): {
     engine: AgentEngine;
     streamCalls: () => number;
@@ -12480,7 +12088,6 @@ describe("runAgentLoop endsTurn", () => {
       signal: new AbortController().signal,
     });
 
-    // The first question ran; the second never did.
     expect(run).toHaveBeenCalledOnce();
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -12489,7 +12096,6 @@ describe("runAgentLoop endsTurn", () => {
         result: expect.stringContaining("Not executed"),
       }),
     );
-    // The model was never asked for another step.
     expect(streamCalls()).toBe(1);
     expect(events.some((event) => event.type === "done")).toBe(false);
     expect(events.some((event) => event.text === "kept working")).toBe(false);
@@ -12527,8 +12133,6 @@ describe("runAgentLoop endsTurn", () => {
       signal: new AbortController().signal,
     });
 
-    // No card was rendered, so the run must not park on a nonexistent
-    // question — the model gets the error back and another step to fix it.
     expect(streamCalls()).toBe(2);
     expect(outcomes).toEqual([{ state: "completed" }]);
   });
@@ -12557,8 +12161,6 @@ describe("runAgentLoop endsTurn", () => {
     expect(outcomes).toEqual([{ state: "completed" }]);
   });
 });
-
-// ─── isContextTooLongError ────────────────────────────────────────────────────
 
 describe("isContextTooLongError", () => {
   it("returns false for non-Error values", () => {
@@ -12600,8 +12202,6 @@ describe("isContextTooLongError", () => {
     expect(isContextTooLongError(new Error("overloaded"))).toBe(false);
   });
 });
-
-// ─── rate-limit classification ──────────────────────────────────────────────
 
 describe("continuationReasonForResumableError", () => {
   it("labels http_429 as rate_limited, not network_interrupted", () => {
@@ -12715,8 +12315,6 @@ describe("isTransientProviderRateLimitError", () => {
   });
 });
 
-// ─── isRetryableError ────────────────────────────────────────────────────────
-
 describe("isRetryableError", () => {
   it("returns false for non-Error values", () => {
     expect(isRetryableError("string")).toBe(false);
@@ -12736,8 +12334,6 @@ describe("isRetryableError", () => {
   });
 
   it("retries on a bare '429 status code (no body)' message with no structured status", () => {
-    // The Anthropic/AI-SDK empty-body rate-limit format historically slipped
-    // past retries because the keyword list matched "529"/"502" but not 429.
     expect(isRetryableError(new Error("429 status code (no body)"))).toBe(true);
   });
 
@@ -12768,11 +12364,6 @@ describe("isRetryableError", () => {
     expect(isRetryableError(err)).toBe(false);
   });
 
-  // On a Builder-credits site the gateway's message is replaced by one
-  // visitor-facing line before it ever reaches here, so the org concurrency
-  // throttle has no retryable keyword left in it. The structured fields
-  // builder-engine attaches are the whole retry decision; the first assertion
-  // is what fails if anyone re-couples this to wording.
   it("retries the gateway concurrency throttle from structure alone, not wording", () => {
     const visitorLine = "AI features aren't available on this site right now.";
     expect(
@@ -12802,9 +12393,6 @@ describe("isRetryableError", () => {
   });
 
   it("retries on Anthropic bare 'Connection error.' transport failures", () => {
-    // Anthropic SDK APIConnectionError defaults to this exact message with no
-    // HTTP status. Slides prod was dying in ~3s on this and storming client
-    // POSTs because neither in-run retry nor run-level resume recognized it.
     expect(isRetryableError(new Error("Connection error."))).toBe(true);
     expect(
       isRetryableError(
@@ -12883,8 +12471,6 @@ describe("isRetryableError", () => {
   });
 });
 
-// ─── trimOldToolResults ───────────────────────────────────────────────────────
-
 describe("trimOldToolResults", () => {
   type Msg = Parameters<typeof trimOldToolResults>[0][number];
 
@@ -12896,7 +12482,6 @@ describe("trimOldToolResults", () => {
     return { role: "assistant", content: [{ type: "text", text }] };
   }
 
-  /** Build a user message carrying a single tool-result part (real EngineToolResultPart shape). */
   function toolResultMsg(toolCallId: string, result: string): Msg {
     return {
       role: "user",
@@ -12930,7 +12515,6 @@ describe("trimOldToolResults", () => {
       toolCallMsg("tc1", "read_file"),
       toolResultMsg("tc1", "file content"),
     ];
-    // keepTail=10 protects all 3 messages
     expect(trimOldToolResults(messages, 10)).toBeNull();
   });
 
@@ -12945,7 +12529,6 @@ describe("trimOldToolResults", () => {
     const result = trimOldToolResults(messages, 3);
     expect(result).not.toBeNull();
 
-    // Old tool result (index 1, outside protected tail of 3) must be stubbed
     const oldResultMsg = result![1];
     expect(oldResultMsg.role).toBe("user");
     const oldPart = oldResultMsg.content[0] as {
@@ -12955,7 +12538,6 @@ describe("trimOldToolResults", () => {
     expect(oldPart.type).toBe("tool-result");
     expect(oldPart.content).toContain("trimmed");
 
-    // Recent tool result (index 4, inside tail) must be preserved
     const newResultMsg = result![4];
     const newPart = newResultMsg.content[0] as {
       type: string;
@@ -12977,11 +12559,9 @@ describe("trimOldToolResults", () => {
     const result = trimOldToolResults(messages, 2);
     expect(result).not.toBeNull();
 
-    // User text message at index 0 must be preserved
     const firstPart = result![0].content[0] as { type: string; text: string };
     expect(firstPart.text).toBe("original user question");
 
-    // Assistant text at index 3 must be preserved
     const thirdPart = result![3].content[0] as { type: string; text: string };
     expect(thirdPart.text).toBe("assistant reply");
   });
@@ -13301,7 +12881,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(true);
   });
 
-  // ── Rate-limit chain cap ──────────────────────────────────────────────────
   function makeRateLimitedRun(errorCode = "http_429"): ActiveRun {
     return makeRun([
       {
@@ -13384,10 +12963,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(false);
   });
 
-  // ── Foreground self-chain (AGENT_CHAT_FOREGROUND_SELF_CHAIN) ─────────────
-  // The boolean passed to shouldChainBackgroundContinuation is the already
-  // resolved gate (hosted + A2A_SECRET + not explicitly opted out).
-
   it("does NOT chain a foreground run when the resolved self-chain gate is false", () => {
     expect(
       shouldChainBackgroundContinuation({
@@ -13411,8 +12986,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 
   it("does NOT foreground-self-chain a run that was dispatched to the durable background worker", () => {
-    // A background-dispatched run's recovery is owned by the circuit-breaker
-    // + isBackgroundWorker chain — the foreground flag must never double up.
     expect(
       shouldChainBackgroundContinuation({
         isBackgroundWorker: false,
@@ -13460,15 +13033,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(false);
   });
 
-  // `providerRetryable` is the engine's "another attempt may succeed", carried
-  // on the error event because a Builder-credits deployment replaces the message
-  // the client keyword-matched. It must NOT be read as a continuation boundary
-  // here: a provider throttle would self-chain up to
-  // MAX_BACKGROUND_RUN_CONTINUATIONS background invocations into the very limit
-  // that just rejected the call, on every lane. `recoverable` — the server's own
-  // boundary signal — still chains, which is the distinction. The gateway's
-  // `rate_limited` code is the one throttle that chains, because it is now
-  // bounded by the one-hop rate-limit cap (`rateLimitChainCapTripped`).
   it("does NOT chain on the engine's retry verdict alone", () => {
     for (const errorCode of [
       "too_many_concurrent_requests",
@@ -13707,7 +13271,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS,
       }),
     ).toBe(false);
-    // One below the cap still chains.
     expect(
       shouldChainBackgroundContinuation({
         isBackgroundWorker: true,
@@ -13717,11 +13280,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(true);
   });
 
-  // ── No-progress circuit breaker ──────────────────────────────────────────
-  // The measured incident: one message, 27 background runs, 15 minutes. Every
-  // chunk failed with the same gateway 500 after the engine's own 3 internal
-  // retries, and a recoverable error is also a continuation boundary, so the
-  // two recovery layers multiplied instead of stopping each other.
   const gatewayFailure = (): AgentChatEvent => ({
     type: "error",
     error:
@@ -13774,8 +13332,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 
   it("keeps chaining the same error after real forward progress", () => {
-    // A truncated stream that produced partial text or ran a tool IS advancing;
-    // cutting that off is what would weaken the recovery this path exists for.
     for (const progress of [
       { type: "text", text: "Rewriting the migration…" } as AgentChatEvent,
       {
@@ -13847,9 +13403,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 
   it("leaves a soft-timeout boundary to the run-manager's own backstop", () => {
-    // No error code to repeat — an empty auto_continue chunk is not this
-    // breaker's business, and treating it as one would cap legitimate long
-    // turns at two chunks.
     expect(
       resolveBackgroundNoProgressRepeat({
         run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
@@ -14208,8 +13761,6 @@ describe("claimBackgroundWorkerRunEarly", () => {
 });
 
 describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
-  // Deterministic clock so the grace loop terminates without real time: each
-  // now() call advances 10ms; with graceMs=25 the loop polls ~3 times.
   function makeClock() {
     let t = 0;
     return () => (t += 10);
@@ -14220,8 +13771,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     pollIntervalMs: 5,
     sleep: async () => {},
   };
-  // diag_stage is persisted as JSON ({stage, detail?, at}) by recordRunDiagnostic,
-  // so model that here — exercises the parser the circuit-breaker relies on.
   const diag = (stage: string) => JSON.stringify({ stage, at: 1 });
 
   it("202 + worker claims within grace -> stream, no inline claim", async () => {
@@ -14297,9 +13846,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
   });
 
   it("alive worker still in setup past the base grace -> extend, then stream when it claims", async () => {
-    // auth_passed proves the worker is alive and grinding through setup. Without
-    // the extension the base grace (25) elapses (~iter3) and recovers inline;
-    // the reaper-anchored extension keeps polling so the late claim is honored.
     const claim = vi.fn();
     const alive = {
       dispatchMode: "background",
@@ -14360,8 +13906,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
   });
 
   it("dead handoff (never recorded auth_passed) is NOT extended -> inline at the base grace", async () => {
-    // No diag stage = the generated wrapper never reached the route, so the
-    // extension must not apply and it recovers inline at the base grace.
     const readClaim = vi.fn().mockResolvedValue({
       dispatchMode: "background",
       status: "running",
@@ -14406,7 +13950,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
       action: "inline",
       reason: "worker-never-claimed",
     });
-    // Broke on the FIRST poll via the death check — did not wait out the grace.
     expect(readClaim).toHaveBeenCalledTimes(1);
   });
 
@@ -14435,11 +13978,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
   });
 
   it("alive worker that never claims recovers inline BEFORE the reaper, anchored to row liveness", async () => {
-    // The worker stays alive in setup (auth_passed) but never claims. The
-    // extension is bounded by the reaper window measured from the row's OWN
-    // liveness (lastLivenessAt), NOT poll-start — so the foreground claims inline
-    // just before reapUnclaimedBackgroundRun would fire. With reaperGraceMs=60
-    // and margin=10 the cap is liveness+50; the stepping clock hits 50 at iter4.
     const readClaim = vi.fn().mockResolvedValue({
       dispatchMode: "background",
       status: "running",
@@ -14461,7 +13999,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
       action: "inline",
       reason: "worker-never-claimed",
     });
-    // Bounded by the reaper-anchored cap (liveness+50 → iter4), not unbounded.
     expect(readClaim).toHaveBeenCalledTimes(4);
   });
 });
@@ -14559,30 +14096,22 @@ describe("runAgentLoop tool-result images", () => {
       .filter((p: any) => p.type === "tool-result");
     expect(toolResults).toHaveLength(2);
     const toolResult = toolResults[0];
-    // Valid image rides the part; the oversize one was dropped.
     expect(toolResult.images).toEqual([
       { url: "https://cdn.example.com/shot.png", label: "before" },
       { data: imageData, mediaType: "image/jpeg", label: "data" },
     ]);
-    // The field is stripped from the JSON the model reads…
     expect(toolResult.content).not.toContain("_agentImages");
     expect(toolResult.content).toContain('"page": "dashboard"');
-    // …the url note and the oversize drop note are appended as text…
     expect(toolResult.content).toContain("https://cdn.example.com/shot.png");
     expect(toolResult.content).toContain("exceeds");
-    // …and the base64 payload never reaches the text.
     expect(toolResult.content).not.toContain("A".repeat(100));
 
-    // A duplicate read returns the cached vision payload as well as its text
-    // pointer, so context eviction cannot silently remove the visual input.
     expect(screenshotAction).toHaveBeenCalledOnce();
     expect(toolResults[1].content).toContain(
       "Skipped duplicate read-only call",
     );
     expect(toolResults[1].images).toEqual(toolResult.images);
 
-    // The persisted tool_done event carries only the string result (with the
-    // notes), never an images array.
     const toolDone = events.find((e) => e.type === "tool_done") as any;
     expect(toolDone).toBeDefined();
     expect(toolDone.result).toContain("https://cdn.example.com/shot.png");

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock the store module
 const mockGetSetting = vi.fn();
 const mockGetSettings = vi.fn();
 const mockMutateSetting = vi.fn();
@@ -100,8 +99,6 @@ describe("user-settings", () => {
       );
 
       expect(mockGetSettings).toHaveBeenCalledTimes(2);
-      // Only Bob is re-read: Alice's normalized key already hit, and an
-      // already-lowercase email has no distinct legacy key to fall back to.
       expect(mockGetSettings).toHaveBeenNthCalledWith(2, [
         "u:Bob@Test.com:pref",
       ]);

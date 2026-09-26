@@ -1,15 +1,3 @@
-/**
- * List pending clips AI requests for the current user.
- *
- * Collapses the per-recording `clips-ai-request-<id>` polling done by the
- * auto-title bridge into a single call. Application state is already
- * session-scoped, and we additionally filter the referenced recordings through
- * `accessFilter` so we never return a request for a recording the user can't
- * access. Only requests for `status = "ready"` recordings are returned — the
- * bridge ignores non-ready recordings, so excluding them avoids sending large
- * transcript blobs for recordings the hook will skip this tick.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { listAppState } from "@agent-native/core/application-state";
 import { accessFilter } from "@agent-native/core/sharing";

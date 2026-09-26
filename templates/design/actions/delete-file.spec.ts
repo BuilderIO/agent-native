@@ -468,8 +468,6 @@ describe("delete-file", () => {
     await authorizationLockReached;
     expect(mocks.tx.delete).not.toHaveBeenCalled();
 
-    // A concurrent share revoke takes the same row lock and cannot pass this
-    // point until the delete commits.
     releaseAuthorizationLock();
     await expect(deletion).resolves.toMatchObject({
       id: "file-b",
@@ -500,8 +498,6 @@ describe("delete-file", () => {
   });
 
   it("deletes a locked screen when the caller says the user asked for it", async () => {
-    // Every template-backed screen carries locked layers, so without the
-    // opt-in a user could not remove one they created from a template.
     mocks.fileSelectChain.limit.mockResolvedValue([
       {
         id: "file-b",

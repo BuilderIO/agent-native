@@ -29,8 +29,6 @@ describe("Dispatch layout scrolling", () => {
 
 describe("Dispatch workspace app chat rail", () => {
   it("routes the open-app rail through the shared app-chat component", () => {
-    // Both app surfaces must share one rail: a second inlined AgentSidebar is
-    // how one of them silently keeps talking to Dispatch's own agent.
     expect(layoutSource).toContain("<WorkspaceAppChatRail");
     expect(layoutSource).toContain("data-dispatch-workspace-app-frame");
     expect(layoutSource).toContain('new Event("agent-panel:toggle")');

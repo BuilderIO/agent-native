@@ -1,37 +1,3 @@
-/**
- * Stitch multiple recordings together into a new recording.
- *
- * Implementation choice — CLIENT-SIDE FFMPEG CONCAT:
- *
- * We chose to produce a **real** combined video rather than a virtual playlist
- * that derives from editsJson. The combined video is easier to play back in
- * share links, embeds, and downstream consumers (no special player needed).
- *
- * Expected flow:
- *   1. The UI ("Stitch" dialog in `stitch-manager.tsx`) collects the source
- *      recordings in order.
- *   2. It fetches each source video via `/api/video/:id`, concatenates them
- *      using ffmpeg.wasm (see `app/lib/ffmpeg-export.ts` for the wasm init).
- *   3. For S3-backed uploads, it reserves a destination `recordingId` and
- *      uploads the resulting blob as `<recordingId>.mp4` through the configured
- *      file-upload provider. Other providers may continue to omit the ID and
- *      let this action generate it server-side.
- *   4. It calls THIS action to create the new recording row, passing that
- *      `recordingId`, `sourceRecordingIds` for provenance, the uploaded
- *      `videoUrl`, and the new `durationMs`.
- *
- * If the caller omits `videoUrl`/`durationMs` we create a row in `processing`
- * state — the UI can then upload and finalize via `/api/uploads/:id/complete`.
- *
- * Usage (from the UI after the concat completes; `recordingId` is required for
- * S3-backed uploads so the object can be bound to the destination recording):
- *   pnpm action stitch-recordings \
- *     --recordingId="550e8400-e29b-41d4-a716-446655440000" \
- *     --title="Combined walkthrough" \
- *     --sourceRecordingIds='["rec_a","rec_b"]' \
- *     --videoUrl="/api/video/..." --durationMs=124000
- */
-
 import { randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core/action";
@@ -110,10 +76,6 @@ export default defineAction({
       throw new Error("stitch-recordings needs at least 2 sourceRecordingIds");
     }
 
-    // Stitch creates a brand-new recording owned by the caller, so every
-    // source must be OWNED by the caller (not
-    // just editor-shared) — otherwise a user with editor access to a
-    // private/org clip could reshare it as a new recording they own.
     const sources = await db
       .select()
       .from(schema.recordings)
@@ -144,18 +106,11 @@ export default defineAction({
       args.durationMs ??
       ordered.reduce((sum, r) => sum + (r.durationMs || 0), 0);
 
-    // Use the largest dimensions across sources as a sensible default.
     const width =
       args.width ?? Math.max(...ordered.map((r) => r.width || 0), 0);
     const height =
       args.height ?? Math.max(...ordered.map((r) => r.height || 0), 0);
 
-    // Preserve the established action contract for callers using Builder.io or
-    // another external upload provider: they may omit recordingId and receive
-    // a server-generated destination ID. S3 callers must pre-reserve the ID so
-    // the uploaded key can be proven to belong to this recording; an unbound
-    // S3 object is still rejected below rather than reintroducing cross-recording
-    // object aliasing.
     const id = args.recordingId ?? randomUUID();
     if (videoUrl) {
       const isBound = await isS3ObjectUrlBoundToRecording(videoUrl, id);
@@ -167,7 +122,6 @@ export default defineAction({
     }
     const now = new Date().toISOString();
 
-    // Seed editsJson with provenance so the editor/player can link back.
     const edits = parseEdits("{}");
     edits.stitchedFrom = ids;
     edits.mediaStorageLayout = "external";
@@ -192,7 +146,6 @@ export default defineAction({
       visibility: args.visibility ?? defaultVisibility,
       createdAt: now,
       updatedAt: now,
-      // Reuse the first source's thumbnail so the new row has something to show immediately.
       thumbnailUrl: ordered[0].thumbnailUrl ?? null,
     } as any);
 
@@ -206,7 +159,6 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     if (!videoUrl) {
-      // Tell the UI it needs to upload the stitched video.
       await writeAppState(`recording-upload-${id}`, {
         recordingId: id,
         status: "pending-stitch-upload",

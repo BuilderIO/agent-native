@@ -7,11 +7,6 @@ import {
 
 type DesignQueryData = { data?: string } & Record<string, unknown>;
 
-/**
- * Patch get-design query cache + the live designDataJsonRef so breakpoint
- * add/remove paints in the same click frame. Returns a rollback that restores
- * both on mutation failure.
- */
 export function beginOptimisticBreakpointSetPatch(args: {
   designId: string;
   queryClient: QueryClient;

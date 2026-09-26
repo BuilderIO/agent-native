@@ -1,11 +1,6 @@
 import DOMPurify from "dompurify";
 import { useEffect, useRef, useState } from "react";
 
-// `mermaid` pulls in d3 and its layout engine, which is a heavy chunk that
-// every deck view would otherwise ship even when no slide has a diagram.
-// Load it lazily and only once, the first time a mermaid slide actually
-// renders — mirrors the shiki lazy-load pattern in
-// packages/core/src/client/blocks/library/HighlightedCode.tsx.
 type MermaidModule = typeof import("mermaid");
 
 let mermaidLoader: Promise<MermaidModule["default"]> | null = null;
@@ -70,10 +65,6 @@ export function MermaidRenderer({
       .then((mermaid) => mermaid.render(id, definition.trim()))
       .then(({ svg: renderedSvg }) => {
         if (cancelled) return;
-        // Mermaid 11.x runs DOMPurify internally with `securityLevel:"strict"`,
-        // but we re-sanitize the SVG before injecting via dangerouslySetInnerHTML
-        // so a future config drift or library regression cannot reintroduce
-        // SVG-borne XSS (foreignObject scripts, javascript: hrefs, etc.).
         const sanitized = DOMPurify.sanitize(renderedSvg, {
           USE_PROFILES: { svg: true, svgFilters: true },
           ADD_TAGS: ["foreignObject", "text", "tspan", "textPath"],
@@ -112,11 +103,6 @@ export function MermaidRenderer({
   }
 
   if (!svg) {
-    // Mermaid's import + render is async, so this placeholder is the only
-    // thing in the DOM until it resolves. Without it, an edit to another
-    // element on the same slide made while the diagram is still loading
-    // would see zero `[data-mermaid-index]` nodes when serializing the
-    // slide, and silently drop the diagram from the saved content.
     return (
       <div
         data-mermaid-index={index}

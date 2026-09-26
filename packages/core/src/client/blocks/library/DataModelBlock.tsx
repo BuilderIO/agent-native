@@ -23,21 +23,6 @@ import type {
 import { DATA_MODEL_CHANGES } from "./data-model.config.js";
 import { DevInput, DevSelect } from "./dev-doc-ui.js";
 
-/**
- * Read + Edit renderers for a `data-model` block — a dbdiagram / Prisma-style
- * entity-relationship diagram. Lives in core so any app can register the dev-doc
- * block (no shadcn import).
- */
-
-/* ── Theme-aware change tokens (shared vocabulary with `file-tree`) ─────────── */
-
-/**
- * Change-chip palette — the SAME tinted-bg + saturated-text scheme the
- * `file-tree` block uses, in BOTH the `.dark` plan theme and light mode (never a
- * dark-only palette). Keeps data-model diff chips visually consistent with the
- * file-tree change badges so a reviewer reads one vocabulary across dev-doc
- * blocks.
- */
 const CHANGE_BADGE: Record<DataModelChange, string> = {
   added:
     "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -47,7 +32,6 @@ const CHANGE_BADGE: Record<DataModelChange, string> = {
     "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
 };
 
-/** Human-readable chip label, matching the file-tree change labels. */
 const CHANGE_LABEL: Record<DataModelChange, string> = {
   added: "Added",
   modified: "Modified",
@@ -55,7 +39,6 @@ const CHANGE_LABEL: Record<DataModelChange, string> = {
   renamed: "Renamed",
 };
 
-/** Accent ink for a changed field/entity name, echoing its change color. */
 const CHANGE_NAME_INK: Record<DataModelChange, string> = {
   added: "text-emerald-700 dark:text-emerald-300",
   modified: "text-blue-700 dark:text-blue-300",
@@ -63,7 +46,6 @@ const CHANGE_NAME_INK: Record<DataModelChange, string> = {
   renamed: "text-violet-700 dark:text-violet-300",
 };
 
-/** Subtle left accent rule on a changed field row (added = green, removed = red). */
 const CHANGE_ROW_ACCENT: Record<DataModelChange, string> = {
   added: "border-l-2 border-l-emerald-400 dark:border-l-emerald-500/60",
   modified: "border-l-2 border-l-blue-400 dark:border-l-blue-500/60",
@@ -71,7 +53,6 @@ const CHANGE_ROW_ACCENT: Record<DataModelChange, string> = {
   renamed: "border-l-2 border-l-violet-400 dark:border-l-violet-500/60",
 };
 
-/** A small theme-aware change chip ("Added" / "Modified" / …). */
 function ChangeChip({
   change,
   className,
@@ -94,9 +75,6 @@ function ChangeChip({
   );
 }
 
-/* ── Resolution helpers (shared by Read + relation inference) ──────────────── */
-
-/** Split a `fk` string like `"User.id"` into `{ entity: "User", field: "id" }`. */
 function parseFk(fk: string): { entity: string; field?: string } {
   const trimmed = fk.trim();
   const dot = trimmed.indexOf(".");
@@ -107,11 +85,6 @@ function parseFk(fk: string): { entity: string; field?: string } {
   };
 }
 
-/**
- * Resolve an entity reference (used by `fk` targets and `relation.from`/`to`)
- * against the entity list by `id` first, then by case-insensitive `name`. Returns
- * the matched entity or `undefined`.
- */
 function resolveEntity(
   entities: DataModelEntity[],
   ref: string,
@@ -125,24 +98,16 @@ function resolveEntity(
   );
 }
 
-/** A short, readable label for an entity reference (its name, or the raw ref). */
 function entityLabel(entities: DataModelEntity[], ref: string): string {
   return resolveEntity(entities, ref)?.name ?? ref;
 }
 
-/** The cardinality glyph shown in the relations list (1:1 / 1:n / n:n). */
 function relationGlyph(kind?: DataModelRelationKind): string {
   if (kind === "1-1") return "1:1";
   if (kind === "n-n") return "n:n";
   return "1:n";
 }
 
-/**
- * Relations to render: explicit `relations` when present, otherwise inferred —
- * every `fk` field becomes a `1-n` relation from the referenced (parent) entity
- * to the entity holding the foreign key, so the connectors list is never empty
- * when the schema clearly implies them.
- */
 function effectiveRelations(data: DataModelData): DataModelRelation[] {
   if (data.relations && data.relations.length > 0) return data.relations;
   const inferred: DataModelRelation[] = [];
@@ -162,23 +127,6 @@ function effectiveRelations(data: DataModelData): DataModelRelation[] {
   return inferred;
 }
 
-/* ── Read (interactive ERD) ────────────────────────────────────────────────── */
-
-/**
- * Read-only renderer for a `data-model` block — a dbdiagram / Prisma-style
- * entity-relationship diagram. Each entity is a collapsible card: the header
- * shows the entity name + field count, and expanding it reveals a compact field
- * table (Field · Type · flags) with PK / FK / nullable indicators.
- *
- * INTERACTIVITY (the reason this is a custom block, not a plain table): hovering
- * or clicking a foreign-key field highlights the referenced entity card — it
- * scrolls into view, expands, and gets a temporary accent ring — so a reader can
- * trace a relationship across the whole model. Explicit `relations` (or relations
- * inferred from `fk` fields) render as a labeled connector list below the cards.
- *
- * Every color is theme-aware via Tailwind `dark:` variants or plan CSS vars, so
- * the diagram reads correctly in both the `.dark` plan theme and light mode.
- */
 export function DataModelRead({
   data,
   blockId,
@@ -188,8 +136,6 @@ export function DataModelRead({
   const entities = data.entities ?? [];
   const relations = useMemo(() => effectiveRelations(data), [data]);
 
-  // Per-entity collapse state. Default: the first entity expanded (or all of them
-  // when the model is small) so the block is useful at a glance without a click.
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     const expandAll = entities.length <= 2;
@@ -199,7 +145,6 @@ export function DataModelRead({
     return initial;
   });
 
-  // Which entity is being hovered/clicked-to via an FK — drives the accent ring.
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -207,8 +152,6 @@ export function DataModelRead({
     setExpanded((current) => ({ ...current, [id]: !current[id] }));
   }, []);
 
-  // Highlight + reveal a referenced entity: expand it, ring it, and scroll it
-  // into view. Used on FK hover (transient) and click (scroll).
   const focusEntity = useCallback(
     (targetId: string | undefined, scroll: boolean) => {
       if (!targetId) {
@@ -307,8 +250,6 @@ export function DataModelRead({
                               field.fk && "cursor-pointer hover:bg-blue-500/5",
                               field.change && CHANGE_ROW_ACCENT[field.change],
                             )}
-                            // FK interactivity: hovering rings the referenced
-                            // entity card; clicking also scrolls it into view.
                             onMouseEnter={
                               fkTarget
                                 ? () => focusEntity(fkTarget.id, false)
@@ -494,23 +435,12 @@ export function DataModelRead({
   );
 }
 
-/* ── Edit (panel form) ─────────────────────────────────────────────────────── */
-
 let entitySeq = 0;
-/** Stable-enough new entity id for a freshly-added entity in the editor. */
 function newEntityId(): string {
   entitySeq += 1;
   return `e_${Date.now().toString(36)}_${entitySeq}`;
 }
 
-/**
- * Panel editor for a `data-model` block. A structured form: a list of entities
- * (add/remove), each with a name Input, an optional note, and repeatable field
- * rows (add/remove) carrying name / type / PK checkbox / FK input / nullable
- * checkbox. Relations are derived from `fk` in v1, so the form focuses on the
- * entities + fields. Renders BARE content (no `<section>`); the registry's panel
- * surface supplies the popover chrome.
- */
 export function DataModelEdit({
   data,
   onChange,
@@ -716,7 +646,6 @@ export function DataModelEdit({
                           value === "none"
                             ? undefined
                             : (value as DataModelChange),
-                        // Drop a stale `was` when leaving the modified state.
                         ...(value === "modified" ? {} : { was: undefined }),
                       })
                     }

@@ -139,11 +139,6 @@ export interface GitHubIssueCommentObservation {
   htmlUrl: string;
 }
 
-/**
- * `truncated` is a cannot-confirm marker, not a hint. A capped page proves
- * nothing about a body it did not return, so a caller asking "have we already
- * posted this?" must refuse rather than read a short list as "no".
- */
 export interface GitHubIssueCommentPage {
   comments: readonly GitHubIssueCommentObservation[];
   truncated: boolean;
@@ -184,14 +179,6 @@ export interface GitHubPullRequestEvidence {
   checksCoverage: TriageCoverage;
 }
 
-/**
- * One page of an open-item listing. `hasMore` reflects the raw provider page,
- * not the parsed items: `listOpenIssues` drops pull requests from the issues
- * endpoint, so a full provider page can yield fewer issues and still have a
- * next page behind it. `unparsed` counts those dropped entries so a caller can
- * tell "the repository has no issues" from "this page held only pull
- * requests"; without it an empty `items` reads the same either way.
- */
 export interface GitHubOpenItemPage<T> {
   items: T[];
   unparsed: number;
@@ -927,9 +914,6 @@ export function createGitHubClient(options: GitHubClientOptions) {
 
         checksCoverage = "partial";
 
-        // Fine-grained PATs expose Actions read but not Checks in GitHub's
-        // permission editor. Use workflow runs for GitHub Actions CI as
-        // partial evidence only; required non-Actions checks remain unknown.
         const workflowBody = record(
           await request<unknown>(
             `${root}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=${page}`,

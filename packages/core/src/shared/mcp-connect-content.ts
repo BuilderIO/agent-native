@@ -1,10 +1,3 @@
-/**
- * Shared copy and templates for connecting external MCP clients.
- *
- * Keep this module free of React and server-only imports so the server-rendered
- * connect page and the client Agent MCP tab use the same instructions.
- */
-
 import type { LocaleCode } from "../localization/shared.js";
 
 export type McpConnectGuideId =
@@ -266,9 +259,6 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     Partial<Record<McpConnectGuideId, McpConnectGuideTranslation>>
   >
 > = {
-  // The English guide above is the source copy and fallback. Keep translated
-  // body copy here so the client tab and server-rendered connect page stay in
-  // sync without duplicating either guide's structure or templates.
   "es-ES": {
     claude: {
       steps: [

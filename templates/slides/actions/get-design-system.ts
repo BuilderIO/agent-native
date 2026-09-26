@@ -33,7 +33,6 @@ interface BuilderGenerationContext {
     tokenValues?: Record<string, string>;
   }>;
   tokenValues: Record<string, string>;
-  /** null when Builder could not be read at all; 0 means still indexing. */
   docCount: number | null;
   warning?: string;
 }
@@ -108,12 +107,6 @@ function formatTokenValues(
   ];
 }
 
-/**
- * A locally-stored kit has no flat token record like Builder's `tokenValues`
- * — it's grouped one level deep (colors.primary, typography.headingFont).
- * Flatten it to the same `name: value` shape so the compact summary can
- * reuse `formatTokenValues` instead of dumping the whole JSON blob.
- */
 function flattenLocalTokenValues(data: unknown): Record<string, string> {
   const flat: Record<string, string> = {};
   if (!data || typeof data !== "object") return flat;
@@ -216,11 +209,6 @@ function buildDesignSystemAgentContext({
   return truncate(lines.filter(Boolean).join("\n"), MAX_AGENT_CONTEXT_CHARS);
 }
 
-/**
- * Bounded, network-free summary for the reads that fire on every chat turn
- * (view-screen, get-deck). No Builder docs fetch and no data/assets blobs —
- * just enough to keep going until the caller needs the full context.
- */
 function buildCompactDesignSystemAgentContext({
   id,
   title,

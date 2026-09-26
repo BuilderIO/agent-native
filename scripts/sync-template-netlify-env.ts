@@ -85,8 +85,6 @@ const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
   ["GTM_CONTAINER_ID", "GTM-N3WSTXZ"],
-  // Hosted harnesses are tools-only; app config still controls which
-  // deployments expose the runtime picker.
   ["AGENT_NATIVE_HOSTED_HARNESS", "true"],
   [
     "VITE_AGENT_NATIVE_FEEDBACK_URL",
@@ -114,10 +112,6 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "GA4_PROPERTY_ID",
   "GA_MEASUREMENT_ID",
   "GTM_CONTAINER_ID",
-  // Google OAuth credentials are deliberately NOT synced. A template's local
-  // .env holds a developer's dev-tier client, while hosted sites run the shared
-  // production client; syncing overwrote live secrets with dev ones and took
-  // beta sign-in down fleet-wide. Manage these in Netlify only.
   "GOOGLE_PICKER_API_KEY",
   "GOOGLE_PICKER_APP_ID",
   "LAUNCHDARKLY_SDK_KEY",
@@ -192,8 +186,6 @@ const PUBLIC_KEY_EXACT = new Set([
   "GOOGLE_PICKER_APP_ID",
   "NEON_AUTH_BASE_URL",
   "NITRO_PRESET",
-  // The org/project slugs identify a Sentry project, not a credential -
-  // SENTRY_AUTH_TOKEN is the actual secret and stays out of this set.
   "SENTRY_ORG",
   "SENTRY_PROJECT",
   "SUPABASE_URL",
@@ -534,8 +526,6 @@ export function normalizeProductionUrlEntry(
     return { value, normalized: false };
   }
 
-  // This syncs first-party Netlify sites. A local workspace URL must never
-  // become a hosted auth origin because Google validates the exact URI.
   return { value: targetUrl, normalized: true };
 }
 
@@ -544,9 +534,6 @@ function isBetaContext(context: string): boolean {
 }
 
 export function resolveNetlifyApiContext(context: string): string {
-  // The dedicated beta projects promote their beta branch as the project's
-  // production branch. Their beta runtime therefore reads production-scoped
-  // values, not generic branch-deploy values.
   return isBetaContext(context) ? "production" : context;
 }
 

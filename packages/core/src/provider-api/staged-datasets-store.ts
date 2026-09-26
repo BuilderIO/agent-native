@@ -1,29 +1,8 @@
-/**
- * Scratch storage for staged provider-API datasets.
- *
- * Rows are stored as JSON text. Aggregation is done in TypeScript server-side
- * rather than via JSON SQL fragments. See `staged-datasets-aggregate.ts`.
- *
- * Storage caps:
- *   - MAX_ROWS_PER_APP: 200 000 rows
- *   - MAX_BYTES_PER_APP: 50 MB (approximate, measured as raw JSON text length)
- *
- * Scoping: datasets are owned by (app_id, owner_email) so different apps or
- * different users never share or cross-read each other's scratch data.
- */
-
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 
-// ---------------------------------------------------------------------------
-// Caps
-// ---------------------------------------------------------------------------
 export const MAX_ROWS_PER_APP = 200_000;
-export const MAX_BYTES_PER_APP = 50 * 1024 * 1024; // 50 MB
-
-// ---------------------------------------------------------------------------
-// Table initialisation
-// ---------------------------------------------------------------------------
+export const MAX_BYTES_PER_APP = 50 * 1024 * 1024;
 
 let _initPromise: Promise<void> | undefined;
 
@@ -92,10 +71,6 @@ async function widenPostgresIntegerColumns(db: DbExec): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export interface StagedDatasetMeta {
   id: string;
   appId: string;
@@ -113,22 +88,15 @@ export interface UpsertDatasetOptions {
   appId: string;
   ownerEmail: string;
   name: string;
-  /** All rows to store; replaces any existing rows. */
   rows: Record<string, unknown>[];
   columns: string[];
-  /** When true, append rows instead of replacing. */
   append?: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function generateId(): string {
   return `ds_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Derive column names from a set of rows (first 20 rows surveyed). */
 export function deriveColumns(rows: Record<string, unknown>[]): string[] {
   const seen = new Set<string>();
   for (const row of rows.slice(0, 20)) {
@@ -136,10 +104,6 @@ export function deriveColumns(rows: Record<string, unknown>[]): string[] {
   }
   return Array.from(seen);
 }
-
-// ---------------------------------------------------------------------------
-// Scope check
-// ---------------------------------------------------------------------------
 
 async function getAppRowCount(appId: string): Promise<number> {
   const db = getDbExec();
@@ -159,14 +123,6 @@ async function getAppByteSize(appId: string): Promise<number> {
   return Number(rows[0]?.total ?? 0);
 }
 
-// ---------------------------------------------------------------------------
-// Write
-// ---------------------------------------------------------------------------
-
-/**
- * Create or replace a staged dataset.  Returns metadata including the
- * resolved dataset ID (generated when not supplied in options).
- */
 export async function upsertStagedDataset(
   options: UpsertDatasetOptions,
 ): Promise<StagedDatasetMeta> {
@@ -175,7 +131,6 @@ export async function upsertStagedDataset(
   const now = Date.now();
   const id = options.id || generateId();
 
-  // If appending, load existing rows first.
   let existingRows: Record<string, unknown>[] = [];
   if (options.append) {
     existingRows = await getStagedDatasetRows({
@@ -189,7 +144,6 @@ export async function upsertStagedDataset(
     ? [...existingRows, ...options.rows]
     : options.rows;
 
-  // Check caps (net new count after this write).
   const currentAppRows = await getAppRowCount(options.appId);
   const currentDatasetRows = options.append
     ? existingRows.length
@@ -208,7 +162,6 @@ export async function upsertStagedDataset(
     );
   }
 
-  // Serialize rows and measure byte size.
   const serialized = allRows.map((row) => JSON.stringify(row));
   const byteSize = serialized.reduce((sum, s) => sum + s.length, 0);
 
@@ -237,8 +190,6 @@ export async function upsertStagedDataset(
   const columnsJson = JSON.stringify(columns);
 
   await withDbTransaction(db, async (tx) => {
-    // Delete old rows and insert the replacement row set atomically with the
-    // metadata update so a failed batch cannot leave an empty or partial dataset.
     await tx.execute({
       sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
       args: [id],
@@ -284,13 +235,6 @@ export async function upsertStagedDataset(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Read
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch all rows for a dataset, asserting scope (appId + ownerEmail).
- */
 export async function getStagedDatasetRows(options: {
   id: string;
   appId: string;
@@ -298,7 +242,6 @@ export async function getStagedDatasetRows(options: {
 }): Promise<Record<string, unknown>[]> {
   await ensureTables();
   const db = getDbExec();
-  // Scope check
   const { rows: meta } = await db.execute({
     sql: `SELECT id FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
     args: [options.id, options.appId, options.ownerEmail],
@@ -314,9 +257,6 @@ export async function getStagedDatasetRows(options: {
   );
 }
 
-/**
- * Get dataset metadata (no rows), asserting scope.
- */
 export async function getStagedDatasetMeta(options: {
   id: string;
   appId: string;
@@ -332,9 +272,6 @@ export async function getStagedDatasetMeta(options: {
   return rowToMeta(rows[0]);
 }
 
-/**
- * List all datasets scoped to (appId, ownerEmail), newest first.
- */
 export async function listStagedDatasets(options: {
   appId: string;
   ownerEmail: string;
@@ -348,10 +285,6 @@ export async function listStagedDatasets(options: {
   return rows.map(rowToMeta);
 }
 
-// ---------------------------------------------------------------------------
-// Delete
-// ---------------------------------------------------------------------------
-
 export async function deleteStagedDataset(options: {
   id: string;
   appId: string;
@@ -359,7 +292,6 @@ export async function deleteStagedDataset(options: {
 }): Promise<boolean> {
   await ensureTables();
   const db = getDbExec();
-  // Scope check
   const { rows: meta } = await db.execute({
     sql: `SELECT id FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
     args: [options.id, options.appId, options.ownerEmail],
@@ -378,10 +310,6 @@ export async function deleteStagedDataset(options: {
   });
   return result.rowsAffected > 0;
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 function rowToMeta(row: Record<string, unknown>): StagedDatasetMeta {
   return {
@@ -414,7 +342,6 @@ async function withDbTransaction<T>(
   }
 }
 
-/** Reset the init promise (only used in tests). */
 export function _resetInitPromiseForTests(): void {
   _initPromise = undefined;
 }

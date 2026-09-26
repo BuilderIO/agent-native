@@ -23,34 +23,23 @@ export type AgentNativeEjectCatalog =
   (typeof AGENT_NATIVE_EJECT_CATALOGS)[number];
 
 export interface AgentNativeEjectStyle {
-  /** Package export key, such as `./chat-history.css`. */
   entrypoint: string;
   source: string;
 }
 
 export interface AgentNativeEjectUnit {
-  /** Globally stable id, such as `toolkit/chat-history`. */
   id: string;
   label: string;
   catalog: AgentNativeEjectCatalog;
-  /** Every first-party catalog item this definition owns. */
   catalogItems: string[];
-  /** Package export keys. The engine expands these to consumer specifiers. */
   entrypoints: string[];
-  /** Explicit ownership transfer or protected runtime contract. */
   strategy: "source-copy" | "package-eject" | "protected-seam";
-  /** Package-relative source files or directories that seed the copied closure. */
   sourceEntries?: string[];
-  /** App-relative directory that owns the copied source after ejection. */
   targetRoot?: string;
-  /** Required for protected units; remains a package import after ejection. */
   seam?: string;
   styles?: AgentNativeEjectStyle[];
-  /** Dependencies the app must retain after imports move to app-owned source. */
   dependencies?: string[];
-  /** Runtime contracts that must continue to import from their package. */
   protectedImports?: string[];
-  /** Read-only commands printed after an eject plan; never package scripts. */
   verification?: string[];
 }
 
@@ -58,7 +47,6 @@ export interface AgentNativeEjectManifest {
   manifestVersion: typeof AGENT_NATIVE_EJECT_MANIFEST_VERSION;
   package: string;
   units: AgentNativeEjectUnit[];
-  /** Catalogs this manifest covers. Repeated on units so coverage is auditable. */
   catalogs: AgentNativeEjectCatalog[];
 }
 

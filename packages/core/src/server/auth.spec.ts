@@ -23,10 +23,6 @@ import {
   PASSWORD_MIN_LENGTH_MESSAGE,
 } from "../shared/password-policy.js";
 
-// The explicit login page is CDN-cached on the same long-fresh / long-SWR
-// policy as the rest of the server shell. Its HTML contains deployment-wide
-// auth configuration but no per-user/session state, so it remains a public
-// shell. Disabling caching here (private, no-store) is wrong.
 function expectLoginHtmlCacheHeaders(response: Response) {
   expect(response.headers.get("Cache-Control")).toBe(DEFAULT_SSR_CACHE_CONTROL);
   expect(response.headers.get("CDN-Cache-Control")).toBe(
@@ -664,29 +660,6 @@ describe("server/auth", () => {
     });
 
     it("produces callback URLs Better Auth's own origin-check actually accepts (regression: CBRE + UTM INVALID_CALLBACK_URL reports)", async () => {
-      // Reproduces the exact flow from Slack C0ATH3CCZT4 (2026-08-11): a CBRE
-      // signup retried after a prior "?error=INVALID_TOKEN" redirect, and a
-      // UTM-tagged signup link clicked fresh, both landed on
-      // {"message":"Invalid callbackURL","code":"INVALID_CALLBACK_URL"}.
-      //
-      // Better Auth's magic-link plugin embeds our callbackURL /
-      // newUserCallbackURL as query values via `url.searchParams.set()` (one
-      // encode pass) when it builds the emailed verify link. Its own
-      // `originCheck` middleware then runs an EXTRA `decodeURIComponent` on
-      // top of the automatic single decode a browser/HTTP layer already did —
-      // so a *relative* callback path that itself carries a `?query` (a stale
-      // `error=` param, raw UTM params) comes back out with an unescaped
-      // second `?` that fails Better Auth's strict relative-path regex.
-      // `betterAuthCallbackURL` sidesteps this by always promoting these to an
-      // absolute, same-origin URL, which Better Auth validates by origin only.
-      //
-      // The other tests in this file only assert the *shape* of the
-      // constructed URLs. This one replays Better Auth's actual encode/decode
-      // passes and validates the result with Better Auth's real
-      // `matchesOriginPattern` (imported straight from the installed
-      // `better-auth` package, not reimplemented), so a future change that
-      // silently drops the absolute-URL promotion is caught here even if it
-      // still "looks" like a valid URL.
       const { createRequire } = await import("node:module");
       const path = await import("node:path");
       const req = createRequire(import.meta.url);
@@ -737,13 +710,6 @@ describe("server/auth", () => {
 
       const origin = "https://clips.agent-native.com";
 
-      // Step 1: Better Auth's own `url.searchParams.set(name, value)` when it
-      // builds the emailed verify link (one encode pass).
-      // Step 2: the automatic single decode a browser/HTTP layer performs
-      // reading that query value back out.
-      // Step 3: Better Auth's own EXTRA `decodeURIComponent` inside its
-      // `originCheck` middleware (see node_modules better-auth
-      // dist/api/middlewares/origin-check.mjs).
       function betterAuthRoundTrip(value: string): string {
         const outer = new URL("https://example.test/verify");
         outer.searchParams.set("v", value);
@@ -1161,8 +1127,6 @@ describe("server/auth", () => {
         (call: any[]) => call[0] === callbackPath || call[0] === magicLinkPath,
       )?.[1];
       expect(handler).toBeTypeOf("function");
-      // Older h3/Nitro runtimes match app.use() paths as prefixes, so the
-      // first matching handler must be the specific callback route.
       const callbackRouteIndex = app.use.mock.calls.findIndex(
         (call: any[]) => call[0] === callbackPath,
       );
@@ -1555,10 +1519,7 @@ describe("server/auth", () => {
       const app = createMockApp();
       const result = await autoMountAuth(app);
 
-      // Returns true even if Better Auth init fails — auth guard is still
-      // registered as a fallback to block unauthenticated access.
       expect(result).toBe(true);
-      // Either Better Auth initialized successfully, or the fallback guard was registered
       const allLogs = logSpy.mock.calls.map((c) => c[0]).join(" ");
       expect(
         allLogs.includes("Better Auth") ||
@@ -1747,14 +1708,10 @@ describe("server/auth", () => {
 
       expect(sessionCookies.at(-1)).toContain(`${COOKIE_NAME}=fresh-token`);
       expect(sessionCookies.at(-1)).toContain("Partitioned");
-      // And the clear does not emit the same header twice.
       expect(new Set(sessionCookies).size).toBe(sessionCookies.length);
     });
 
     it("keeps logout cookie clears unpartitioned over plain HTTP", async () => {
-      // `Partitioned` requires `Secure`; emitting it on a plain-HTTP dev
-      // origin would make the serializer throw and take the whole logout
-      // response down.
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.COOKIE_DOMAIN;
       delete process.env.ACCESS_TOKEN;
@@ -3059,8 +3016,6 @@ describe("server/auth", () => {
         .find((arg: unknown) => typeof arg === "function");
       expect(guard).toBeTypeOf("function");
 
-      // A second SSR bundle can evaluate the same package independently. The
-      // route registration must still reach the already-mounted guard.
       vi.resetModules();
       const secondCore = await import("./auth.js");
       secondCore.registerAuthPublicPaths(
@@ -3690,11 +3645,6 @@ describe("server/auth", () => {
     });
 
     it("lets the durable _process-run processor routes bypass the global auth guard", async () => {
-      // Both the agent-teams sub-agent processor AND the durable-background
-      // agent-chat processor are self-fired with ONLY an HMAC Bearer token (no
-      // session cookie). Without this bypass the blanket 401-for-/_agent-native/*
-      // gate blocks the worker before it can HMAC-verify + claim the run — which
-      // is exactly the silent background-worker death this guards against.
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       const { autoMountAuth } = await import("./auth.js");
@@ -3860,7 +3810,6 @@ describe("server/auth", () => {
         .find((arg: unknown) => typeof arg === "function");
       expect(guard).toBeTypeOf("function");
 
-      // Ordinary requests remain protected while direct web SSO is unset.
       for (const path of [
         "/_agent-native/identity/login",
         "/_agent-native/identity/callback",
@@ -4063,9 +4012,6 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      // With the app home at "/", the root is the authenticated app shell, not
-      // a public sign-in entrypoint. Serving the login document there would
-      // bounce a signed-in visitor back to "/" forever.
       defineAppConfig({ app: { homePath: "/" } });
       const { autoMountAuth } = await import("./auth.js");
 
@@ -4083,7 +4029,6 @@ describe("server/auth", () => {
 
       const result = await guard(createMockEvent({ path: "/" }));
 
-      // The app-shell path returns undefined so the SSR handler renders "/".
       expect(result).not.toBeInstanceOf(Response);
     });
 
@@ -6316,13 +6261,6 @@ describe("server/auth", () => {
       expect(getRequestContext()).toBeUndefined();
     });
 
-    // Regression for a Builder Code cloud dev container: the app runs behind
-    // an https proxy with no APP_URL/BETTER_AUTH_URL configured, so
-    // `getAppProductionUrl()` falls back to `http://localhost:3000` at
-    // `betterAuth()` construction and Better Auth ships its session cookie as
-    // plain `SameSite=Lax`. Rendered inside Builder's cross-site editor
-    // iframe, the browser drops that cookie, and the freshly-signed-up user
-    // bounces straight back to sign-in.
     it("upgrades Better Auth's signup Set-Cookie to SameSite=None/Secure/Partitioned behind a forwarded https proxy", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -6563,10 +6501,6 @@ describe("server/auth", () => {
     });
 
     it("logs the real Better Auth code/message and reports to Sentry before sanitizing an error body", async () => {
-      // Regression for the 2026-08-29 INVALID_ORIGIN outage: magic-link
-      // signup 403'd for a full day and the sanitized public body was the
-      // only thing any log or Sentry surface ever showed — nobody could see
-      // *why* it was failing.
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -6622,8 +6556,6 @@ describe("server/auth", () => {
         }),
       );
 
-      // Public response is exactly what the sanitizer would have produced
-      // before this change — unaffected by the added logging/reporting.
       expect(response).toBeInstanceOf(Response);
       expect((response as Response).status).toBe(403);
       const body = await (response as Response).json();
@@ -7394,14 +7326,6 @@ describe("server/auth", () => {
     });
 
     it("reports (never silently swallows) a failure repairing the verified-email row", async () => {
-      // Regression for Slack C0ATH3CCZT4 (Urvi Naik, 2026-07-31 / repeated
-      // 2026-08-05): "clicking the verify link works, but logging in still
-      // says the email is not verified." The best-effort UPDATE above is the
-      // one place that would show whether the emailVerified write ever landed
-      // — a bare `catch {}` here means a genuine DB failure on this repair
-      // path is indistinguishable from "nothing needed repairing," which is
-      // exactly this bug's symptom. This test proves the failure is reported,
-      // not swallowed.
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -7493,14 +7417,11 @@ describe("server/auth", () => {
         path: "/verify-email",
       };
 
-      // The repair failing must never break the redirect the user actually
-      // needs — best-effort stays best-effort.
       const response = await baHandler(event);
       expect(response.headers.get("location")).toBe(
         "/_agent-native/sign-in?verified=1#done",
       );
 
-      // But the failure itself must be reported, not swallowed.
       expect(captureAuthError).toHaveBeenCalledWith(
         repairError,
         expect.objectContaining({
@@ -8063,7 +7984,6 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
       delete process.env.A2A_SECRET;
 
-      // No legacy session / revoke rows — every table lookup returns empty.
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
@@ -8174,8 +8094,6 @@ describe("server/auth", () => {
         await import("../mcp/oauth-token.js");
       const { MCP_CONNECT_OAUTH_CLIENT_ID } =
         await import("../mcp/connect-store.js");
-      // Audience points at a DIFFERENT app's MCP resource — the request host is
-      // localhost, so the audience check must fail and grant no session.
       const token = await signMcpOAuthAccessToken({
         ownerEmail: "attacker@evil.test",
         orgId: "org-evil",
@@ -8270,8 +8188,6 @@ describe("server/auth", () => {
         .map(([query]) => {
           if (typeof query === "string") return undefined;
           const sql = String(query?.sql ?? "");
-          // Only count the legacy `sessions` token lookups; the org-backfill
-          // queries (`org_members`, `settings`) are noise for this assertion.
           if (!/FROM\s+sessions\b/i.test(sql)) return undefined;
           return query.args?.[0];
         })
@@ -8435,8 +8351,6 @@ describe("server/auth", () => {
         query: { _session: "desktop-token-abc" },
         headers: { "x-forwarded-proto": "https" },
       });
-      // Netlify/H3 exposes headers through the web Request/H3 accessors, but
-      // not always through the legacy Node request object.
       delete event.node.req.headers["x-forwarded-proto"];
 
       expect(await getSession(event)).toEqual({
@@ -8620,8 +8534,6 @@ describe("server/auth", () => {
 
     it("blocks backslash-bypass that WHATWG normalises to //", async () => {
       const safeReturnPath = await load();
-      // WHATWG URL parser converts `\` to `/` for HTTP scheme — a naive
-      // `startsWith("//")` check would miss this.
       expect(safeReturnPath("/\\evil.com/path")).toBe("/");
       expect(safeReturnPath("\\\\evil.com/path")).toBe("/");
     });
@@ -8644,24 +8556,16 @@ describe("server/auth", () => {
 
     it("rejects scheme-changing absolute URLs even on same hostname", async () => {
       const safeReturnPath = await load();
-      // Different scheme is a different origin — must reject.
       expect(safeReturnPath("https://safe-base.invalid/foo")).toBe("/");
     });
 
     it("strips host parts and returns just path/search/hash", async () => {
       const safeReturnPath = await load();
-      // Even a same-origin absolute URL should normalise to just the path.
-      // (We can't construct one easily without knowing the sentinel base,
-      // so the test below covers the network-path resolve case which uses
-      // the parsed segments.)
       expect(safeReturnPath("/foo?bar=1#baz")).toBe("/foo?bar=1#baz");
     });
 
     it("collapses a return that points back at the sign-in page (loop guard)", async () => {
       const safeReturnPath = await load();
-      // A `return` resolving to the sign-in entry point would re-enter the
-      // redirect loop — collapse to "/". Covers root and base-path mounts,
-      // and a nested already-encoded loop URL.
       expect(safeReturnPath("/_agent-native/sign-in")).toBe("/");
       expect(safeReturnPath("/_agent-native/sign-in?return=%2Finbox")).toBe(
         "/",
@@ -8672,7 +8576,6 @@ describe("server/auth", () => {
           "/mail/_agent-native/sign-in?return=%252Fmail%252F_agent-native%252Fsign-in",
         ),
       ).toBe("/");
-      // A normal app path that merely contains the words is unaffected.
       expect(safeReturnPath("/mail/inbox?label=important")).toBe(
         "/mail/inbox?label=important",
       );
@@ -8836,13 +8739,11 @@ describe("server/auth", () => {
         undefined,
         "/safe",
       );
-      // Flip a byte in the data half.
       const dotIdx = state.lastIndexOf(".");
       const data = state.slice(0, dotIdx);
       const sig = state.slice(dotIdx + 1);
       const tampered = data.slice(0, -1) + "X" + "." + sig;
       const decoded = decodeOAuthState(tampered, "http://x/fallback");
-      // Bad signature → falls back to default; return is dropped.
       expect(decoded.redirectUri).toBe("http://x/fallback");
       expect(decoded.returnUrl).toBeUndefined();
     });
@@ -8850,10 +8751,6 @@ describe("server/auth", () => {
     it("decodes returnUrl as raw string — same-origin validation runs at the consumer", async () => {
       const { encodeOAuthState, decodeOAuthState } =
         await import("./google-oauth.js");
-      // If a malicious actor with a leaked signing key encoded a cross-
-      // origin URL, decode would surface it — but the consumer
-      // (oauthCallbackResponse) runs safeReturnPath, so the redirect still
-      // lands on "/". This test documents the layered defence.
       const state = encodeOAuthState(
         "http://x/cb",
         undefined,
@@ -8864,7 +8761,6 @@ describe("server/auth", () => {
       );
       const decoded = decodeOAuthState(state, "http://x/cb");
       expect(decoded.returnUrl).toBe("//evil.com/path");
-      // But safeReturnPath would catch this:
       const { safeReturnPath } = await import("./auth.js");
       expect(safeReturnPath(decoded.returnUrl)).toBe("/");
     });
@@ -9502,8 +9398,6 @@ describe("server/auth", () => {
       const response = await Promise.resolve(
         oauthCallbackResponse(
           createMockEvent({
-            // Generic Electron UA without the AgentNativeDesktop marker —
-            // matches Builder.io's Fusion webview, Slack desktop, etc.
             headers: {
               "user-agent":
                 "Mozilla/5.0 ... Chrome/138.0 Electron/41.2.2 Safari/537.36",
@@ -9550,10 +9444,6 @@ describe("server/auth", () => {
 
     it("falls through to the web 302 when desktop=true but UA isn't AgentNativeDesktop (no flowId)", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
-      // Reproduces the Builder.io Fusion webview hitting the no-flowId
-      // desktop login path with `desktop=true` in OAuth state but a generic
-      // Electron UA. Pre-fix this rendered the dead-end "Open Agent-Native"
-      // deep-link page; now the server should fall through to a 302 redirect.
       const event = createMockEvent({
         headers: {
           "user-agent":
@@ -9632,7 +9522,6 @@ describe("server/auth", () => {
     it("carries the session cookie staged on the event into the 302 redirect", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       const event = createMockEvent();
-      // Simulate the framework session cookie staged earlier in the callback.
       event.res.headers.append(
         "set-cookie",
         "an_session=session-token; Path=/; HttpOnly; SameSite=Lax",
@@ -9675,12 +9564,8 @@ describe("server/auth", () => {
 
       expect(response).toBeInstanceOf(Response);
       const html = await (response as Response).text();
-      // Native app: the deep link still fires so the RN shell can capture the
-      // session and re-open the WebView.
       expect(html).toContain("agentnative://oauth-complete");
       expect(html).toContain("token=token-1");
-      // Mobile web: the deep link no-ops, so the fallback must return to the
-      // original page the visitor opened — never the bare app root.
       expect(html).toContain('window.location.href="/recaps/recap-abc"');
       expect(html).not.toContain('window.location.href="/"');
       const setCookie = (response as Response).headers.getSetCookie?.() ?? [
@@ -10408,22 +10293,13 @@ describe("server/auth", () => {
     });
   });
 
-  // Regression guard: better-auth 1.6.0 validates emails with Zod v4's
-  // `z.email()`. The original auto dev-account email `dev@local` has no
-  // TLD and is rejected as INVALID_EMAIL, which silently broke the
-  // zero-setup auto-sign-in on every fresh local dev DB. The fix moves
-  // the constant to `dev@local.test` (RFC 6761 reserved, never resolves)
-  // while keeping `dev@local` recognized as the legacy dev account.
   describe("auto dev account email format", () => {
-    // Must mirror AUTO_DEV_ACCOUNT_EMAIL / LEGACY_AUTO_DEV_ACCOUNT_EMAIL
-    // in auth.ts (module-private constants).
     const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
     const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
 
     it("uses an address that passes better-auth's z.email() validator", async () => {
       const z = await import("zod");
       expect(z.email().safeParse(AUTO_DEV_ACCOUNT_EMAIL).success).toBe(true);
-      // The pre-fix address is exactly the one that failed validation.
       expect(z.email().safeParse(LEGACY_AUTO_DEV_ACCOUNT_EMAIL).success).toBe(
         false,
       );
@@ -10470,8 +10346,6 @@ describe("server/auth", () => {
   });
 });
 
-// --- Mock helpers ---
-
 function createMockApp(): any {
   return {
     use: vi.fn(),
@@ -10493,8 +10367,6 @@ function createMockEvent(opts?: {
   const url = qs ? `${pathname}?${qs}` : pathname;
   const requestHeaders = new Headers({ host: "localhost", ...headers });
   return {
-    // h3 v2 shape: event.req is the web Request, event.url is a parsed URL,
-    // event.res holds the response headers map.
     req: {
       method: "GET",
       url: `http://localhost${url}`,
@@ -10505,7 +10377,6 @@ function createMockEvent(opts?: {
       headers: new Headers(),
       status: 200,
     },
-    // Legacy v1 shape kept for any code paths still using event.node.req
     node: {
       req: {
         headers: { host: "localhost", ...headers },

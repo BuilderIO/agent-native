@@ -7,12 +7,6 @@ import {
   type OpenApiSpecData,
 } from "./openapi-spec.config.js";
 
-/**
- * Minimal `BlockAttrReader` over a plain attribute bag, mirroring the runtime
- * `createAttrReader` value-domain narrowing. Lets the test assert the `toAttrs` →
- * `fromAttrs` round-trip without spinning up the full MDX serialize/parse
- * pipeline (the server registry specs cover the full path).
- */
 function reader(attrs: Record<string, unknown>): BlockAttrReader {
   const read = (name: string) => attrs[name];
   return {
@@ -32,14 +26,12 @@ function reader(attrs: Record<string, unknown>): BlockAttrReader {
   };
 }
 
-/** Drop keys whose value is `undefined`, mirroring the `prop()` encoder. */
 function compactAttrs(attrs: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(attrs).filter(([, value]) => value !== undefined),
   );
 }
 
-/** Re-decode data from the attribute bag `toAttrs` produced. */
 function roundTrip(data: OpenApiSpecData): OpenApiSpecData {
   const attrs = compactAttrs(
     openApiSpecMdx.toAttrs(data) as Record<string, unknown>,
@@ -108,7 +100,6 @@ describe("openapi-spec block — mdx round-trip", () => {
 
   it("round-trips a spec-only block (no title attribute)", () => {
     const data: OpenApiSpecData = { spec: sampleSpec };
-    // No `title` attribute is emitted, so the decode yields `title: undefined`.
     expect(roundTrip(data)).toEqual({ spec: sampleSpec, title: undefined });
   });
 

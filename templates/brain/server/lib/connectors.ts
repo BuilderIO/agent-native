@@ -809,10 +809,6 @@ export interface SlackThreadCapture {
   metadata: Record<string, unknown>;
 }
 
-/**
- * Builds the only Slack representation Brain persists. It deliberately omits
- * Slack user ids, display names, and the raw Events/Web API payload.
- */
 export function normalizeSlackThreadCapture(input: {
   channel: SlackChannel;
   messages: SlackMessage[];
@@ -863,8 +859,6 @@ export function normalizeSlackThreadCapture(input: {
       ),
       sourceUrl: input.permalink ?? null,
       permalink: input.permalink ?? null,
-      // These offsets are against `content`, the safe persisted capture, never
-      // against a provider payload.
       safeSegments,
     },
   };

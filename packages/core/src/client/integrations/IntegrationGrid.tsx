@@ -11,21 +11,13 @@ export interface IntegrationGridItem {
   logo: ReactNode;
   status?: string;
   statusClassName?: string;
-  /** Small pill shown right after the name (e.g. "Recommended"). `variant="rows"` only. */
   badge?: string;
   actionLabel: string;
   actionAriaLabel?: string;
-  /** `variant="rows"` only: which icon the default action button shows. Defaults to "connect". */
   actionKind?: "connect" | "manage";
   disabled?: boolean;
   onAction?: () => void;
-  /** Custom action node (e.g. a popover-triggered button) replacing the default action button. */
   action?: ReactNode;
-  /**
-   * `variant="rows"` only: span both grid columns. Use for rows with a wide
-   * custom `action` (a labeled button rather than a single icon) that would
-   * otherwise crowd the name out of a half-width column.
-   */
   fullWidth?: boolean;
 }
 
@@ -33,20 +25,9 @@ export interface IntegrationGridProps {
   items: IntegrationGridItem[];
   emptyLabel?: string;
   className?: string;
-  /**
-   * "cards" (default) is the legacy bordered-button layout that the
-   * McpIntegrationDialog catalog browser and FirstRunOnboarding still rely
-   * on. "rows" is the compact two-column plugin-page layout used by
-   * IntegrationsPanel: a 40px logo, name/description, and a single icon
-   * action at the far right — no card chrome.
-   */
   variant?: "cards" | "rows";
 }
 
-/**
- * The shared integration list surface. Keep provider rows intentionally
- * boring: identity, one-line context, and one clear next action.
- */
 export function IntegrationGrid({
   items,
   emptyLabel = "No integrations found.",

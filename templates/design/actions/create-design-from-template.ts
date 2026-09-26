@@ -307,10 +307,6 @@ export default defineAction({
       );
       if (existing) return existing;
     }
-    // Filling the design the New Design button already created, rather than
-    // stranding it and navigating to a second one. Guarded twice: the caller
-    // must be able to edit it, and it must still be empty, so a template can
-    // never land on top of existing screens.
     let targetExistingData: Record<string, unknown> = {};
     if (targetDesignId) {
       await assertAccess("design", targetDesignId, "editor");
@@ -321,11 +317,6 @@ export default defineAction({
       redactTemplateDesignData(templateData),
       fileIdMap,
     );
-    // The copied screens are edited in place, so the design's own files stop
-    // being evidence of what the template looked like after the first
-    // refinement. Capturing the small facts here — which template file backs
-    // each screen, its exact frame, and the declared fonts — is what lets
-    // every later turn restate them without re-reading the template.
     data.templateSource = {
       templateId,
       title: templateTitle,
@@ -359,8 +350,6 @@ export default defineAction({
 
     const persist = async (tx: DesignTransaction) => {
       if (targetDesignId) {
-        // The editor creates the board row on mount, so a design with nothing
-        // drawn in it already has one file. Screens are what count as content.
         const [existingDesign] = await tx
           .select({ data: schema.designs.data })
           .from(schema.designs)
@@ -401,9 +390,6 @@ export default defineAction({
           .set({
             title: title ?? templateTitle,
             description: templateDescription,
-            // Merge, never replace: the row already carries editor state the
-            // template knows nothing about — `boardFileId` above all, whose
-            // loss makes the editor mint a second board on next open.
             data: JSON.stringify({ ...targetExistingData, ...data }),
             designSystemId: linkedDesignSystemId,
             updatedAt: now,

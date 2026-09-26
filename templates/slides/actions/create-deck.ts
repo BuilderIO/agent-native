@@ -95,7 +95,6 @@ const SlideSchema = z.object({
     .describe("Exact context item versions that influenced this slide"),
 });
 
-// Accept either a parsed array (HTTP/agent) or a JSON string (CLI)
 const SlidesSchema = z.preprocess(
   (v) => (v === undefined ? [] : typeof v === "string" ? JSON.parse(v) : v),
   z.array(SlideSchema),
@@ -391,8 +390,6 @@ export default defineAction({
       const resolvedTitle =
         repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
 
-      // Resolve the title form before the branches split so replacing a deck
-      // honors it the same way creating one does.
       const designSystemId =
         explicitDesignSystemId ??
         (designSystem
@@ -403,7 +400,6 @@ export default defineAction({
         if (designSystemId) {
           await assertAccess("design-system", designSystemId, "viewer");
         }
-        // Update existing deck — requires editor access.
         let existingDeck = browserOwnedDeck;
         if (!existingDeck) {
           await assertAccess("deck", deckId, "editor");
@@ -424,7 +420,6 @@ export default defineAction({
             existingDeck.title,
           ) ?? resolvedTitle;
         assertHumanReadableDeckTitle(existingDeckTitle);
-        // A replacement keeps a stored slide's own markers, as other writes do.
         assertNoDeckRenderArtifacts(existingDeck.data, { slides: rawSlides });
         const writeNow = nextDeckRevision(existingDeck.updatedAt);
         const prevData = JSON.parse(existingDeck.data);
@@ -486,8 +481,6 @@ export default defineAction({
             ...creativeContextProvenance,
             ...(elementProvenance.length ? { elementProvenance } : {}),
           });
-          // Broadcast to open editors (in-process SSE) + application-state
-          // refresh signal (cross-process polling fallback for serverless).
           await notifyClients(deckId);
           await writeAppStateForCurrentTab(
             "navigate",

@@ -14,7 +14,6 @@ import {
 } from "../server/lib/crm-query.js";
 import { requireCrmScope, toJson } from "./_crm-action-utils.js";
 
-/** A save that lost a race — surfaces as HTTP 409 instead of clobbering. */
 class CrmSavedViewConflictError extends Error {
   readonly statusCode = 409;
   readonly code = "crm-saved-view-conflict";
@@ -47,7 +46,6 @@ export default defineAction({
     id: z.string().min(1).max(128).optional(),
     name: z.string().trim().min(1).max(120),
     description: z.string().trim().max(500).optional(),
-    /** Record kind (account/person/opportunity) — not the table/board kind. */
     kind: z.enum(["account", "person", "opportunity"]).optional(),
     viewKind: z.enum(["table", "board"]).optional(),
     targetKind: z.enum(["object", "list"]).optional(),
@@ -60,7 +58,6 @@ export default defineAction({
       .optional()
       .describe("Board views only; must reference a status attribute."),
     filter: crmFilterSchema.optional(),
-    /** Legacy `{query, fieldEquals}` blob; normalized into `filter`. */
     filters: z.record(z.string().max(120), z.unknown()).optional(),
     columns: columnsSchema.optional(),
     sort: crmSortSchema.optional(),
@@ -112,8 +109,6 @@ export default defineAction({
     if (args.id && !existing) throw new Error("CRM saved view was not found.");
 
     const viewKind = args.viewKind ?? existing?.viewKind ?? "table";
-    // Switching a board back to a table drops its grouping instead of
-    // inheriting it — otherwise the switch would fail the board-only check.
     const groupByAttributeId =
       args.groupByAttributeId !== undefined
         ? args.groupByAttributeId
@@ -193,9 +188,6 @@ export default defineAction({
       const saved = await readView(args.id);
       if (!saved) throw new Error("CRM saved view was not found.");
       if (args.expectedUpdatedAt !== undefined && saved.updatedAt !== now) {
-        // The guarded UPDATE matched nothing: another writer landed between the
-        // read above and the write. Report it rather than returning the row we
-        // did not write as if the save succeeded.
         throw new CrmSavedViewConflictError(
           args.id,
           args.expectedUpdatedAt,

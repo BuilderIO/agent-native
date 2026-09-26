@@ -31,11 +31,6 @@ import {
   MAX_ROWS_PER_APP,
 } from "./staged-datasets-store.js";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/** Auto-detect or explicit path to the items array in a JSON response. */
 export type ItemsPath =
   | "auto"
   | "data"
@@ -46,37 +41,13 @@ export type ItemsPath =
   | string;
 
 export interface PaginationConfig {
-  /**
-   * Dot-path in the response JSON for the next cursor/token value.
-   * e.g. "next_cursor", "meta.next", "pagination.cursor"
-   */
   nextCursorPath?: string;
-  /**
-   * Query parameter name to use for the cursor in the next request.
-   * Use this for APIs that page with query params.
-   */
   cursorParam?: string;
-  /**
-   * Dot-path in the JSON request body to set to the cursor value in the next
-   * request. Use this for APIs that page via POST body fields.
-   */
   cursorBodyPath?: string;
-  /**
-   * Use page-number mode: send `pageParam=N` for each subsequent page.
-   */
   pageParam?: string;
-  /** Starting page number (default 1). */
   startPage?: number;
-  /**
-   * Use offset mode: send `offsetParam=N` for each subsequent request.
-   */
   offsetParam?: string;
-  /**
-   * Hint at expected page size for offset increments. Defaults to the
-   * actual item count of the first page.
-   */
   pageSize?: number;
-  /** Maximum pages to fetch (default 50, max 200). */
   maxPages?: number;
 }
 
@@ -109,11 +80,6 @@ export interface StagingResult {
   guidance: string;
 }
 
-// ---------------------------------------------------------------------------
-// Resolve runtime context for scope (appId + ownerEmail)
-// ---------------------------------------------------------------------------
-
-/** Minimal callable interface accepted by stagingExecuteRequest. */
 export type ProviderApiExecutor = (
   args: ProviderApiRequestArgs,
 ) => Promise<unknown>;
@@ -122,10 +88,6 @@ export interface StagingRuntimeContext {
   appId: string;
   ownerEmail: string;
 }
-
-// ---------------------------------------------------------------------------
-// JSON path resolution helper
-// ---------------------------------------------------------------------------
 
 function getAtPath(obj: unknown, path: string): unknown {
   if (!path || obj === undefined || obj === null) return obj;
@@ -138,10 +100,6 @@ function getAtPath(obj: unknown, path: string): unknown {
   }
   return cur;
 }
-
-// ---------------------------------------------------------------------------
-// Auto-detect items array
-// ---------------------------------------------------------------------------
 
 export function extractItemsArray(
   body: unknown,
@@ -156,21 +114,16 @@ export function extractItemsArray(
     return Array.isArray(val) ? (val as unknown[]) : [];
   }
 
-  // Auto-detect: common shapes
   const obj = body as Record<string, unknown>;
   for (const key of ["data", "results", "items", "records", "rows"]) {
     if (Array.isArray(obj[key])) return obj[key] as unknown[];
   }
 
-  // Many provider APIs return `{ providerSpecificName: [...], metadata: ... }`.
-  // If exactly one top-level field is an array, treat that as the item list
-  // without hardcoding provider vocabulary.
   const arrayFields = Object.values(obj).filter(Array.isArray);
   if (arrayFields.length === 1) {
     return arrayFields[0] as unknown[];
   }
 
-  // If the object itself looks like a flat row, wrap it
   return [];
 }
 
@@ -203,10 +156,6 @@ function setAtPath(base: unknown, path: string, value: unknown): unknown {
   return root;
 }
 
-// ---------------------------------------------------------------------------
-// 429 / Retry-After handling
-// ---------------------------------------------------------------------------
-
 async function sleepMs(ms: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
@@ -223,7 +172,6 @@ function getRetryAfterMs(
       if (!isNaN(secs)) return secs * 1000;
     }
   }
-  // Exponential back-off: 1s, 2s, 4s, 8s, cap 30s
   return Math.min(1000 * Math.pow(2, attempt), 30_000);
 }
 
@@ -237,18 +185,6 @@ function isProviderQuotaCooldown(response: Record<string, unknown>): boolean {
   return json?.error === "provider_quota_exhausted";
 }
 
-// ---------------------------------------------------------------------------
-// Core staging executor
-// ---------------------------------------------------------------------------
-
-/**
- * Execute a provider API request and stage the result into scratch storage.
- * Returns a compact summary instead of the raw body.
- *
- * @param args  — request args including stageAs / itemsPath / pagination
- * @param execute — callable provider executor (e.g. `runtime.executeRequest.bind(runtime)`)
- * @param ctx   — (appId, ownerEmail) for dataset ownership scoping
- */
 export async function stagingExecuteRequest(
   args: StagingRequestArgs,
   execute: ProviderApiExecutor,
@@ -268,7 +204,6 @@ export async function stagingExecuteRequest(
     );
   }
 
-  // Strip staging fields from the underlying request args
   const baseArgs: ProviderApiRequestArgs = {
     provider: args.provider,
     method: args.method,
@@ -290,21 +225,15 @@ export async function stagingExecuteRequest(
   let providerMeta: unknown;
   let requestMeta: unknown;
 
-  // Generate a stable dataset id for this name+owner combination so re-staging
-  // the same dataset replaces it rather than accumulating duplicates.
   const datasetId = `ds_${ctx.appId}_${ctx.ownerEmail}_${datasetName}`
     .replace(/[^a-zA-Z0-9_-]/g, "_")
     .slice(0, 80);
 
-  // -------------------------------------------------------------------------
-  // Page loop
-  // -------------------------------------------------------------------------
   let currentArgs = { ...baseArgs };
   let pageNum = pagination?.startPage ?? 1;
   let offset = 0;
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
-    // Inject pagination params for pages 2+
     if (pageIndex > 0 && pagination) {
       const extraQuery: Record<string, unknown> =
         typeof baseArgs.query === "object" && baseArgs.query !== null
@@ -329,15 +258,11 @@ export async function stagingExecuteRequest(
       } else if (pagination.offsetParam && !hasCursorMode) {
         extraQuery[pagination.offsetParam] = offset;
       } else if (!hasCursorMode) {
-        // No pagination config for next page — stop
         break;
       }
       currentArgs = { ...baseArgs, query: extraQuery, body: nextBody };
     }
 
-    // -----------------------------------------------------------------------
-    // Execute with retry on 429
-    // -----------------------------------------------------------------------
     let result: Record<string, unknown>;
     let attempt = 0;
     for (;;) {
@@ -378,7 +303,6 @@ export async function stagingExecuteRequest(
 
     const response = result.response as Record<string, unknown> | undefined;
     if (!response?.ok) {
-      // Non-200 on first page is a hard error; on subsequent pages, stop early
       if (pageIndex === 0) {
         throw new Error(
           `Provider API returned status ${response?.status}: ${JSON.stringify(response?.json ?? response?.text).slice(0, 200)}`,
@@ -394,7 +318,6 @@ export async function stagingExecuteRequest(
     const pageRows = extractItemsArray(body, itemsPath);
 
     if (pageRows.length === 0) {
-      // Empty page — end of data
       break;
     }
 
@@ -405,23 +328,20 @@ export async function stagingExecuteRequest(
     );
     allRows = allRows.concat(typedRows);
 
-    // Cap check — stop before exceeding limit
     if (allRows.length >= MAX_ROWS_PER_APP) {
       truncated = true;
       allRows = allRows.slice(0, MAX_ROWS_PER_APP);
       break;
     }
 
-    // If no pagination config or single-page mode, stop after first page
     if (!pagination || pageIndex === maxPages - 1) {
       if (pageIndex === maxPages - 1 && pagination) truncated = true;
       break;
     }
 
-    // Derive next cursor / offset / page
     if (pagination.nextCursorPath) {
       const next = extractNextCursor(body, pagination.nextCursorPath);
-      if (!next) break; // No more pages
+      if (!next) break;
       lastCursor = next;
     } else if (pagination.pageParam) {
       pageNum++;
@@ -433,9 +353,6 @@ export async function stagingExecuteRequest(
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Persist to staging store
-  // -------------------------------------------------------------------------
   const columns = deriveColumns(allRows);
   const meta = await upsertStagedDataset({
     id: datasetId,
@@ -469,10 +386,6 @@ export async function stagingExecuteRequest(
       "Staging avoids sending raw response bodies through the context window.",
   };
 }
-
-// ---------------------------------------------------------------------------
-// Utility
-// ---------------------------------------------------------------------------
 
 function tryParseJson(text: string): unknown | null {
   try {

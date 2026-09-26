@@ -37,7 +37,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 
-/** Frames the adapter yields, set per test before a run is triggered. */
 let streamFrames: Part[][] = [];
 
 const scriptedAdapter: ChatModelAdapter = {
@@ -90,16 +89,9 @@ const PENDING_TOOL: Part = {
   args: {},
 };
 const DONE_TOOL: Part = { ...PENDING_TOOL, result: "ok" };
-// The activity placeholder's reader-local id is rewritten to the server-scoped
-// id mid-stream, which is the other thing that moves the structure digest.
 const RENAMED_TOOL: Part = { ...DONE_TOOL, toolCallId: "run1:tc_1" };
 const MORE_TEXT: Part = { type: "text", text: "Here is the answer." };
 
-/**
- * Reads the part through assistant-ui's own hook. The stale-index errors come
- * from its per-part tap-resource lookups, so a probe that does not read parts
- * would never exercise the code path this test exists to stress.
- */
 function ProbeText() {
   const part = useMessagePartText();
   return <span data-part="text">{part.text}</span>;
@@ -192,13 +184,12 @@ describe("assistant-ui part churn without a structural remount key", () => {
       });
     };
 
-    // The exact sequence a normal turn produces, each step moving the digest.
-    await importRepo([TEXT]); // text streaming
-    await importRepo([TEXT, PENDING_TOOL]); // a tool starts  → append
-    await importRepo([TEXT, DONE_TOOL]); // tool completes → mutate
-    await importRepo([TEXT, RENAMED_TOOL]); // id rewritten  → rename
-    await importRepo([TEXT, RENAMED_TOOL, MORE_TEXT]); // final text → append
-    await importRepo([TEXT, MORE_TEXT]); // coalescing splices the tool out
+    await importRepo([TEXT]);
+    await importRepo([TEXT, PENDING_TOOL]);
+    await importRepo([TEXT, DONE_TOOL]);
+    await importRepo([TEXT, RENAMED_TOOL]);
+    await importRepo([TEXT, RENAMED_TOOL, MORE_TEXT]);
+    await importRepo([TEXT, MORE_TEXT]);
 
     const recoverable = errors
       .map((error) => assistantUiRecoverableRenderErrorKind(error))
@@ -211,17 +202,12 @@ describe("assistant-ui part churn without a structural remount key", () => {
     expect(container.querySelectorAll('[data-role="assistant"]').length).toBe(
       1,
     );
-    // Proves the probe actually walked the parts — otherwise a clean run would
-    // mean nothing.
     expect(
       container.querySelectorAll('[data-part="text"]').length,
     ).toBeGreaterThan(1);
   });
 
   it("survives the same part churn arriving through the streaming adapter", async () => {
-    // `import()` is not how parts change during a live turn — the adapter
-    // yields growing content frames. This drives that path, which is the one
-    // the transcript key is actually protecting during a run.
     streamFrames = [
       [TEXT],
       [TEXT, PENDING_TOOL],

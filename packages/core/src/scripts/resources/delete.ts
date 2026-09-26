@@ -1,12 +1,3 @@
-/**
- * Core script: resource-delete
- *
- * Delete a resource from the SQL store.
- *
- * Usage:
- *   pnpm action resource-delete --path <path> [--scope personal|shared]
- */
-
 import { getOrgRoleForEmail } from "../../mcp/actions/service-token-access.js";
 import { canManageOrg } from "../../org/permissions.js";
 import {

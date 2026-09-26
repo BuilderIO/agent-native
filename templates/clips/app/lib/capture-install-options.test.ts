@@ -28,7 +28,6 @@ describe("capture install options", () => {
     expect(hasDownloadedDesktopApp()).toBe(false);
     markDesktopAppDownloaded();
     expect(hasDownloadedDesktopApp()).toBe(true);
-    // Downloading also hides the promo.
     expect(hasDismissedDesktopPromo()).toBe(true);
   });
 
@@ -43,8 +42,6 @@ describe("capture install options", () => {
 
     markDesktopPromoDismissed();
     expect(hasDismissedDesktopPromo()).toBe(true);
-    // Legacy fallback: dismissed key is treated as downloaded so existing users
-    // see "Open desktop app" without needing to click through again.
     expect(hasDownloadedDesktopApp()).toBe(true);
     expect(values.get("clips.desktop-app.downloaded")).toBeUndefined();
   });
@@ -75,7 +72,6 @@ describe("capture install options", () => {
     expect(hasDownloadedDesktopApp()).toBe(true);
 
     attemptOpenDesktopApp();
-    // The tab never lost focus, so the desktop app never took over.
     vi.runAllTimers();
 
     expect(hasDownloadedDesktopApp()).toBe(false);

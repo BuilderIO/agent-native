@@ -1,31 +1,5 @@
 import { registerRequiredSecret } from "@agent-native/core/secrets";
 
-// ── File upload provider + onboarding step ────────────────────────────
-// Registered in server/plugins/onboarding.ts (not here) because Nitro
-// plugins share the same module context as the framework's onboarding
-// and file-upload route handlers. Side-effect imports from agent-chat.ts
-// run in a separate Vite SSR module graph and write to a different Map.
-
-// ── Transcription secrets (optional) ──────────────────────────────────
-// Native web/macOS speech is the primary recording transcript source. Builder
-// is the only cloud fallback for a saved recording. Gemini/Groq BYOK remain
-// available for desktop voice dictation and other provider-specific tools.
-//
-// We support two BYOK providers:
-//   1. Gemini — BYOK fallback for fast text cleanup in the desktop tray.
-//   2. Groq — optional voice-dictation provider, not a recording transcript
-//      fallback.
-//
-// Neither is strictly required — videos still upload and play back without
-// cloud transcription.
-//
-// This file lives OUTSIDE `server/plugins/` on purpose: Nitro's plugin
-// auto-discovery expects a defineNitroPlugin-shaped default export and
-// silently skips files that don't match. Keeping the registration as a
-// side-effect module that's imported at the top of `server/plugins/agent-chat.ts`
-// matches the mail template's `import "../onboarding.js"` pattern and
-// guarantees the registerRequiredSecret() call runs at boot.
-
 registerRequiredSecret({
   key: "GEMINI_API_KEY",
   label: "Gemini API Key (recommended)",
@@ -140,16 +114,6 @@ registerRequiredSecret({
   },
 });
 
-// ── Google Calendar OAuth (for the Meetings feature) ──────────────────
-// These are deploy-level OAuth client credentials (one client id/secret per
-// deployment, not per user). Per-user access/refresh tokens land in
-// `app_secrets` after the OAuth dance via the framework OAuth pattern;
-// `calendar_accounts` only stores pointer keys to those secrets.
-//
-// Scope is `workspace` so they appear once per deploy in the settings UI
-// (matches how the Calls / Recall / Calendar templates register Google OAuth
-// app credentials).
-
 registerRequiredSecret({
   key: "GOOGLE_CLIENT_ID",
   label: "Google Calendar Client ID",
@@ -171,10 +135,6 @@ registerRequiredSecret({
   kind: "api-key",
   required: false,
 });
-
-// ── Slack unfurl app credentials ─────────────────────────────────────
-// Slack Events API requests are signed with one deploy-level Slack app.
-// These optional workspace secrets surface the required values in Settings.
 
 registerRequiredSecret({
   key: "SLACK_SIGNING_SECRET",
@@ -261,11 +221,6 @@ registerRequiredSecret({
       : { ok: false, error: "Token looks too short." };
   },
 });
-
-// ── Dark-launched media worker plumbing ──────────────────────────────
-// These are optional until the ai-services worker is deployed. When enabled,
-// Clips enqueues background video compression jobs there instead of using
-// Builder's existing compress-media endpoint.
 
 registerRequiredSecret({
   key: "CLIPS_DISABLE_BUILDER_COMPRESSION",

@@ -899,22 +899,12 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       dispatchMouse(window, "mouseup", 180, 180);
     });
 
-    // Figma parity: one drag = one selection-history entry. The two
-    // unchanged in-drag ticks dedupe to a single report, but the host must
-    // still be told the gesture actually ENDED (`final: true`) — otherwise
-    // it can never record that one entry (coalesceMarqueeSelectionHistory) —
-    // so mouseup always sends one more report even when nothing changed.
     expect(onLayerMarqueeSelectionChange).toHaveBeenCalledTimes(2);
-    // Call 1 is the mousedown-time "clear whatever was selected" report;
-    // every later in-drag tick reporting the same empty set dedupes away.
     expect(onLayerMarqueeSelectionChange).toHaveBeenNthCalledWith(
       1,
       [],
       expect.objectContaining({ source: "marquee" }),
     );
-    // Call 2 is the mouseup-forced final report — required even though the
-    // set never changed, or the gesture would never close out its history
-    // entry (coalesceMarqueeSelectionHistory).
     expect(onLayerMarqueeSelectionChange).toHaveBeenNthCalledWith(
       2,
       [],
@@ -1515,9 +1505,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(dragSurface).not.toBeNull();
     const before = { left: frame.style.left, top: frame.style.top };
 
-    // Regression for beginFrameDrag's old `if (e.shiftKey) return;` bail,
-    // which silently dropped shift+drag instead of arming a move. dx (80)
-    // dominates dy (10), so the constrained move must land purely on X.
     await act(async () => {
       dispatchMouseShift(dragSurface!, "mousedown", 320, 740);
       dispatchMouseShift(window, "mousemove", 400, 750);
@@ -1542,9 +1529,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       container.querySelector("[data-frame-selection-box]"),
     ).not.toBeNull();
 
-    // Regression: this overlay owns the mousedown for an already-selected
-    // frame and stops it from ever reaching handleFrameClick underneath, so
-    // a no-move Shift release must replicate its toggle-out itself.
     await act(async () => {
       dispatchMouseShift(dragSurface!, "mousedown", 320, 740);
       dispatchMouseShift(window, "mouseup", 320, 740);
@@ -1655,8 +1639,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       root.render(rendered([]));
     });
     let event = await act(async () => pressDuplicate());
-    // The shared hotkey hook drops anything already defaultPrevented, so
-    // claiming the event here would silently swallow layer duplication.
     expect(event.defaultPrevented).toBe(false);
     expect(onDuplicate).not.toHaveBeenCalled();
 
@@ -1896,10 +1878,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(badge?.textContent).toContain(
       "designEditor.nodeRewrite.reviewCandidate",
     );
-    // Counter-scaled to stay a constant screen size at 25% zoom. The live
-    // value comes from the --an-chrome-scale custom property that
-    // applyViewToDom writes every gesture frame; React still renders the same
-    // number as the var's fallback, which is what this asserts.
     expect(
       badge?.closest<HTMLElement>("[data-frame-label]")?.style.transform,
     ).toContain("scale(var(--an-chrome-scale, 4))");
@@ -2021,11 +1999,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       boxHeight: selectionBox!.style.height,
     };
 
-    // PERF9: beginDraftResize now writes the live geometry straight to the
-    // draft's own DOM node + selection box via updateDraftPrimitivesRefOnly
-    // (mirroring beginResize's frame path), instead of committing full React
-    // state (setDraftPrimitives) on every native mousemove. Confirm those DOM
-    // writes actually happen mid-gesture (not just at the eventual commit).
     await act(async () => {
       dispatchMouse(resizeHandle!, "mousedown", 400, 400);
       dispatchMouse(window, "mousemove", 450, 450);
@@ -2036,9 +2009,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(selectionBox!.style.width).not.toBe(before.boxWidth);
     expect(selectionBox!.style.height).not.toBe(before.boxHeight);
 
-    // Escape must roll back every DOM node the live resize mutated
-    // imperatively, not just the (already-reverted) React draft state —
-    // otherwise the shape stays visually stuck at its last dragged size.
     await act(async () => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -2128,11 +2098,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       container.querySelector("[data-frame-selection-box]"),
     ).not.toBeNull();
 
-    // MultiScreenCanvas auto-fits a lone screen into the mocked 800x600
-    // surface on mount (see the "lineup fit" effect keyed on screens.length),
-    // so pan/zoom aren't simply {0,0}/100 here. Read the actual world-layer
-    // transform it committed instead of assuming a 1:1 mapping, so this test
-    // targets the frame's real screen-space edge regardless of that fit math.
     const worldLayer = surface!.firstElementChild as HTMLElement;
     const transformMatch = worldLayer.style.transform.match(
       /translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([\d.]+)\)/,
@@ -2142,21 +2107,11 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     const panX = Number.parseFloat(panXStr);
     const panY = Number.parseFloat(panYStr);
     const scale = Number.parseFloat(scaleStr);
-    // Mirrors getCanvasPoint/screenToCanvasPoint's inverse: clientX = surface
-    // rect.left (mocked to 0) + panX + (SURFACE_PADDING + canvasX) * scale.
     const clientPointForCanvas = (canvasX: number, canvasY: number) => ({
       clientX: panX + (SURFACE_PADDING + canvasX) * scale,
       clientY: panY + (SURFACE_PADDING + canvasY) * scale,
     });
 
-    // The frame spans canvas x:[0,320]. Start a shift+mousedown just to the
-    // right of it (on empty canvas, so beginMarquee fires, not the frame's
-    // own drag), then jitter 2 canvas px left — comfortably below
-    // DRAG_THRESHOLD (3 CLIENT px, and even smaller once scaled down here) —
-    // which crosses back over the frame's right edge. Before the fix, every
-    // mousemove (even sub-threshold ones) ran xorMarqueeSelection against the
-    // live rect, so this exact jitter toggled the already-selected frame OUT
-    // of the selection.
     const origin = clientPointForCanvas(321, 300);
     const jittered = clientPointForCanvas(319, 300);
 
@@ -2177,10 +2132,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
   });
 
   it("requires full enclosure to marquee-select a top-level screen, unlike a shape's intersect rule", async () => {
-    // screen-a spans canvas x:[0,320] y:[0,640] (renderSelectedFrame's
-    // default geometry). Ground truth: a top-level frame only joins the
-    // marquee selection once the box fully contains it — mere intersection
-    // (Figma's rule for shapes/board objects) must not select it.
     await renderSelectedFrame(320, false);
     const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
     expect(surface).not.toBeNull();
@@ -2200,8 +2151,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       clientY: panY + (SURFACE_PADDING + canvasY) * scale,
     });
 
-    // A marquee box that only clips the frame's right edge (well above the
-    // frame's top so the mousedown starts on empty canvas, not the label).
     const partialOrigin = clientPointForCanvas(340, -100);
     const partialEnd = clientPointForCanvas(300, 40);
     await act(async () => {
@@ -2224,7 +2173,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       "a marquee that only clips the screen's edge must not select it",
     ).toBeNull();
 
-    // Now fully enclose the frame.
     const fullOrigin = clientPointForCanvas(-40, -100);
     const fullEnd = clientPointForCanvas(360, 700);
     await act(async () => {
@@ -2311,12 +2259,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       boxTransform: selectionBox!.style.transform,
     };
 
-    // PERF9: rotate now writes the live transform straight to the frame
-    // shell + selection box via updateFrameGeometryRefOnly (mirroring
-    // beginFrameDrag), instead of committing full React state on every
-    // native mousemove. A rotate gesture starts at the handle's own
-    // position (outside the frame, near its corner) and needs to move past
-    // the drag threshold from there.
     await act(async () => {
       dispatchMouse(rotateHandle!, "mousedown", 500, 100);
       dispatchMouse(window, "mousemove", 560, 100);
@@ -2325,8 +2267,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(frame.style.transform).not.toBe(before.frameTransform);
     expect(selectionBox!.style.transform).not.toBe(before.boxTransform);
 
-    // Escape must roll back the imperatively-mutated transform on both
-    // nodes, not just the (already-reverted) React geometry state.
     await act(async () => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -2466,10 +2406,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       boxHeight: selectionBox!.style.height,
     };
 
-    // Resize commits through the shared geometry state during the gesture, so
-    // the frame, screen card, and selection box all stay on the same geometry
-    // boundary. Confirm those surfaces update during the live gesture rather
-    // than only when the gesture ends.
     await act(async () => {
       dispatchMouse(resizeHandle!, "mousedown", 400, 400);
       dispatchMouse(window, "mousemove", 450, 450);
@@ -2481,8 +2417,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(selectionBox!.style.width).not.toBe(before.boxWidth);
     expect(selectionBox!.style.height).not.toBe(before.boxHeight);
 
-    // Escape must roll back the shared geometry state, otherwise the frame
-    // stays visually stuck at its last dragged size.
     await act(async () => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -2596,14 +2530,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
   it("moves the alt-drag duplicate ghost imperatively on every tick and unmounts it on release", async () => {
     const { label } = await renderSelectedFrame();
 
-    // PERF9: beginDuplicateGesture now writes the ghost's left/top straight
-    // to its own DOM node (data-duplicate-preview-ghost) every native
-    // mousemove tick, instead of calling setDuplicatePreview (a full
-    // re-render) unconditionally each time — see duplicatePreviewElRef.
-    // canDuplicate/moved never flip in this harness (no onDuplicate prop is
-    // passed), which is exactly the steady-state case the fix targets: the
-    // ghost must still track the pointer on every tick even though nothing
-    // conditional ever changes.
     await act(async () => {
       dispatchMouseAlt(label, "mousedown", 320, 100);
     });
@@ -2885,9 +2811,6 @@ describe("canvas iframe identity", () => {
       expect(iframe!.srcdoc).toContain(
         "body > [data-agent-native-node-id]{translate:4096px 4096px;}",
       );
-      // The board colour is painted on the layer, not baked into the srcdoc:
-      // inside the document it would be part of the iframe's identity, so every
-      // colour-picker tick would rebuild the frame and drop in-iframe state.
       expect(boardLayer!.style.background).toBe(
         "var(--design-editor-canvas-bg)",
       );
@@ -3070,12 +2993,6 @@ describe("canvas iframe identity", () => {
         "postMessage",
       );
 
-      // The mount-time board-fit effect centers the lone board content in
-      // the viewport, so pan is not {0,0} here — derive the click point from
-      // the transform it actually committed rather than assuming a fixed
-      // pan. right-edge sits at canvas (35000, 100) (see the fixture above):
-      // visible near the viewport's right edge but outside the centered
-      // 24,576-world-pixel live iframe.
       const worldLayer = container.querySelector<HTMLElement>(
         "[data-multi-screen-canvas-world]",
       );
@@ -3180,7 +3097,6 @@ describe("canvas iframe identity", () => {
 
       await act(async () => {
         dispatchMouse(surface, "mousedown", 706, 8);
-        // Invalidate the pending handoff before its live-bridge frame runs.
         root.render(
           <MultiScreenCanvas
             {...boardProps}

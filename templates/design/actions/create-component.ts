@@ -1,32 +1,3 @@
-/**
- * create-component — convert a selected element into a reusable component.
- *
- * Stamps the deterministic component-instance annotations on the selected node
- * so the rest of the Design Studio (component-model detection, the canvas
- * component outline, and the contextual Component inspector section) recognises
- * it as a component instance:
- *
- * - `data-agent-native-component="<Name>"` marks the node as a component root.
- * - `data-agent-native-prop-<name>="<value>"` is stamped for any obvious
- *   variant-like attributes already on the node (e.g. `data-variant`,
- *   `data-size`, `data-state`, `aria-pressed`) so the Component section shows
- *   prop controls immediately.
- *
- * Writes go through the same deterministic raw-HTML attribute-splice path used
- * by `apply-component-prop-edit` (the `replace-document-content` + Yjs/collab
- * seam shared by every HTML write), so the change persists into SQL and the
- * collab document together.
- *
- * **Tier A (Alpine / inline):**  always available — the design HTML is the
- * source of truth.
- *
- * **Tier B (real-app, localhost):** a single authored JSX opening tag can be
- * promoted through the consented local-file CAS path. Transformed, repeated,
- * shared, or fusion sources still return `ctaRequired: true`.
- *
- * See DESIGN-STUDIO-PLAN.md §6.1 (component model) and §7 (action surface).
- */
-
 import { randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core/action";
@@ -40,7 +11,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
@@ -76,11 +47,6 @@ import { designSourceTypeFromData } from "../shared/source-mode.js";
 import readLocalFileAction from "./read-local-file.js";
 import writeLocalFileAction from "./write-local-file.js";
 
-// ─── Pure helpers ─────────────────────────────────────────────────────────────
-
-/**
- * A single attribute to stamp onto the component root.
- */
 export interface ComponentAttributeStamp {
   name: string;
   value: string;
@@ -105,7 +71,6 @@ interface LocalComponentSource extends LocalJsxSourceAnchor {
   propStamps?: ComponentAttributeStamp[];
 }
 
-/** A linked component owns its descendants; they cannot become nested mains. */
 export function isLinkedComponentDescendant(
   node: CodeLayerNode,
   projection: CodeLayerProjection,
@@ -114,7 +79,6 @@ export function isLinkedComponentDescendant(
   return Boolean(root && root.id !== node.id);
 }
 
-/** Compare the editor's planned source with the live source before a stamp. */
 export function createComponentSourceMatches(
   live: { content: string; versionHash: string },
   expected?: CreateComponentSourceExpectation,
@@ -126,7 +90,6 @@ export function createComponentSourceMatches(
   );
 }
 
-/** Attributes that commonly carry variant-like meaning on an element. */
 const VARIANT_LIKE_DATA_ATTRS = [
   "data-variant",
   "data-size",
@@ -136,7 +99,6 @@ const VARIANT_LIKE_DATA_ATTRS = [
   "data-intent",
 ] as const;
 
-/** ARIA attributes that map cleanly to a boolean/value prop. */
 const VARIANT_LIKE_ARIA_ATTRS = [
   "aria-pressed",
   "aria-selected",
@@ -144,7 +106,6 @@ const VARIANT_LIKE_ARIA_ATTRS = [
   "aria-disabled",
 ] as const;
 
-/** Normalize a component name into a safe PascalCase-ish identifier. */
 export function normalizeComponentName(raw: string): string {
   const cleaned = raw
     .replace(/[^A-Za-z0-9]+/g, " ")
@@ -156,19 +117,10 @@ export function normalizeComponentName(raw: string): string {
   return cleaned || "Component";
 }
 
-/** Convert a kebab-case attribute suffix to a camelCase prop name. */
 function attrSuffixToPropName(suffix: string): string {
   return suffix.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());
 }
 
-/**
- * Derive the `data-agent-native-prop-*` stamps to apply when promoting a node
- * to a component, based on obvious variant-like attributes already present on
- * the node.  Pure — operates on a `CodeLayerNode`'s attribute maps.
- *
- * Returns one stamp per recognised variant-like attribute; never includes the
- * component-name attribute itself or any pre-existing prop attribute.
- */
 export function deriveComponentPropStamps(
   node: Pick<CodeLayerNode, "dataAttributes" | "attributes">,
 ): ComponentAttributeStamp[] {
@@ -185,7 +137,6 @@ export function deriveComponentPropStamps(
     });
   };
 
-  // data-variant / data-size / data-state / ... → prop name without "data-".
   for (const attr of VARIANT_LIKE_DATA_ATTRS) {
     const value = node.dataAttributes[attr];
     if (typeof value === "string" && value.trim()) {
@@ -193,7 +144,6 @@ export function deriveComponentPropStamps(
     }
   }
 
-  // aria-pressed / aria-selected / ... → prop name without "aria-".
   for (const attr of VARIANT_LIKE_ARIA_ATTRS) {
     const raw = node.attributes[attr];
     const value = raw === true ? "true" : raw;
@@ -205,7 +155,6 @@ export function deriveComponentPropStamps(
   return stamps;
 }
 
-/** Escape a raw attribute value for safe insertion inside double quotes. */
 function escapeAttrValue(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -214,11 +163,6 @@ function escapeAttrValue(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-/**
- * Splice a `name="value"` attribute into an opening tag string, replacing the
- * attribute if it already exists.  Pure string helper mirroring the technique
- * used by `apply-component-prop-edit`.
- */
 export function setAttributeOnOpenTag(
   openTag: string,
   name: string,
@@ -238,11 +182,6 @@ export function setAttributeOnOpenTag(
   return `${openTag.slice(0, insertOffset)} ${name}="${escaped}"${openTag.slice(insertOffset)}`;
 }
 
-/**
- * Stamp the component-name attribute plus prop stamps onto the node's opening
- * tag within `html`, returning the patched HTML.  Returns the original HTML
- * unchanged when the node has no resolvable source span.
- */
 export function applyComponentAnnotations(
   html: string,
   node: Pick<CodeLayerNode, "source">,
@@ -270,8 +209,6 @@ export function applyComponentAnnotations(
     changed: true,
   };
 }
-
-// ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description:
@@ -366,19 +303,14 @@ export default defineAction({
 
     const db = getDb();
 
-    // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
 
-    // ── Source type + capability gate ────────────────────────────────────────
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
     const caps = resolveSourceCapabilities(sourceType);
     const localSource = source?.local as LocalComponentSource | undefined;
 
-    // Real-app sources gate on `applyEdit` (bridge write hardening). A
-    // localhost source with an authored JSX anchor can use the existing
-    // consented local-file CAS path for literal component annotations.
     if (
       sourceType !== "inline" &&
       !(sourceType === "localhost" && localSource) &&
@@ -500,7 +432,6 @@ export default defineAction({
       };
     }
 
-    // ── Fetch file ───────────────────────────────────────────────────────────
     const conditions = [
       accessFilter(schema.designs, schema.designShares),
       eq(schema.designFiles.designId, designId),
@@ -526,15 +457,6 @@ export default defineAction({
 
     if (!file) throw new Error("Design HTML file not found.");
 
-    // Read the LIVE base (collab text when present, else the SQL row) right
-    // before transforming, and carry its versionHash through to the write
-    // below. writeInlineSourceFile re-reads the live text immediately before
-    // its own applyText/DB write and rejects if it no longer matches this
-    // hash — closing the race window where a concurrent editor/agent write
-    // lands between this read and the persist (the same stale-diff-base bug
-    // fixed for insert-design-native-asset.ts and insert-asset.ts: a diff/patch
-    // computed from a stale base, unconditionally persisted, corrupts or
-    // drops the other writer's change).
     const workspaceFile: SourceWorkspaceFile = {
       id: file.id,
       designId: file.designId,
@@ -559,7 +481,6 @@ export default defineAction({
       };
     }
 
-    // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
       kind: "design-file",
       designId: file.designId,
@@ -567,10 +488,6 @@ export default defineAction({
       filename: file.filename,
     };
 
-    // The shared resolver, not a local `.find()`: it refuses an ambiguous match
-    // instead of annotating whichever repeated instance came first, and names
-    // the count. The old "Element not found" read the same whether the target
-    // was absent, ambiguous, or never supplied.
     const { projection, resolution } = resolveCodeLayerTarget(
       originalHtml,
       { nodeId, selector },
@@ -596,9 +513,6 @@ export default defineAction({
       );
     }
 
-    // A linked component maps every descendant through durable source IDs.
-    // Reuse the canonical source-identity pass instead of inventing a local
-    // child-ID scheme for this action.
     const identityEdits: Array<{
       start: number;
       end: number;
@@ -629,7 +543,6 @@ export default defineAction({
       );
     }
 
-    // ── Build annotations ─────────────────────────────────────────────────────
     const componentName = normalizeComponentName(name);
     const propStamps = deriveComponentPropStamps(node);
     const componentId =
@@ -643,7 +556,6 @@ export default defineAction({
     );
     const contentChanged = changed || ensured.changed;
 
-    // ── Persist ──────────────────────────────────────────────────────────────
     let persistedReceipt: {
       versionHash: string;
       changed: boolean;

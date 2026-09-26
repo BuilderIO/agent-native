@@ -15,26 +15,22 @@ describe("getScreenContentPointFromClient", () => {
   });
 
   it("undoes a zoomed-out outer transform (rect smaller than content size)", () => {
-    // A 50% zoom wrapper renders the iframe's rect at half its content size.
     const point = getScreenContentPointFromClient(
       100 + 200, // 200px into the rendered (zoomed) rect
       50 + 150,
       { left: 100, top: 50, width: 400, height: 300 },
       { width: 800, height: 600 },
     );
-    // 200 rendered px at 50% scale = 400 content px.
     expect(point).toEqual({ x: 400, y: 300 });
   });
 
   it("undoes a zoomed-in outer transform (rect larger than content size)", () => {
-    // A 200% zoom wrapper renders the iframe's rect at double its content size.
     const point = getScreenContentPointFromClient(
       10 + 100,
       20 + 60,
       { left: 10, top: 20, width: 1600, height: 1200 },
       { width: 800, height: 600 },
     );
-    // 100 rendered px at 200% scale = 50 content px.
     expect(point).toEqual({ x: 50, y: 30 });
   });
 
@@ -59,10 +55,6 @@ describe("getScreenContentPointFromClient", () => {
   });
 
   it("lands a shape at the correct content position on a scrolled screen (unscaled)", () => {
-    // A click 25px into an unzoomed iframe, with the embedded screen
-    // scrolled 600px down internally, must resolve to content y = 620 —
-    // matching where that click actually landed in the full document, not
-    // just the currently-visible viewport slice.
     const point = getScreenContentPointFromClient(
       325,
       420,
@@ -74,11 +66,6 @@ describe("getScreenContentPointFromClient", () => {
   });
 
   it("adds a scrolled screen's scroll offset unscaled, not divided by the outer zoom", () => {
-    // 50% host zoom (rect half the content size). A click at the iframe's
-    // top edge on a screen scrolled 600px down must map to content y = 600:
-    // the (clientY - rect.top) term is 0 here, so the entire result comes
-    // from the scroll offset, proving it is added as-is rather than being
-    // divided by scale (which would wrongly give 1200).
     const point = getScreenContentPointFromClient(
       100,
       50,

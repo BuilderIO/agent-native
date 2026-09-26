@@ -35,7 +35,6 @@ afterEach(async () => {
   }
 });
 
-/** Serves RFC 9728 + RFC 8414 metadata with no `registration_endpoint`. */
 async function startAuthorizationServer(
   extraMetadata: Record<string, unknown>,
 ): Promise<string> {
@@ -71,9 +70,6 @@ async function startAuthorizationServer(
 }
 
 describe("MCP SDK registration contract", () => {
-  // The framework refuses a CIMD-advertising server that publishes no
-  // registration endpoint. That is only right because the SDK gates its
-  // registration-free path on a client metadata URL this provider never has.
   it("cannot reach authorization via CIMD without a client metadata URL", async () => {
     const origin = await startAuthorizationServer({
       client_id_metadata_document_supported: true,

@@ -172,8 +172,6 @@ describe("save-browser-transcript", () => {
   it("keeps a truncated capture out of 'ready' so the cloud fallback still runs", async () => {
     const values = vi.fn();
     mocks.insert.mockReturnValue({ values });
-    // Recording already has a title and summary: only the truncation itself
-    // should still dispatch the transcript job that runs the cloud fallback.
     mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
     vi.mocked(dispatchPostFinalizeJob).mockResolvedValue(undefined);
 
@@ -195,15 +193,6 @@ describe("save-browser-transcript", () => {
     expect(result).toMatchObject({ status: "failed", truncated: true });
   });
 
-  // macos-native and web-speech are mic-only engines (see
-  // transcription-engine.ts), so a fullText-only save from either can only be
-  // the mic. Without a source the UI defaults the whole transcript to "Them".
-  //
-  // This covers the action's own contract, not the desktop meeting flush:
-  // `transcriptSegments` now always sends at least one segment per line, so
-  // the desktop no longer reaches this branch. The reachable callers are the
-  // web recorder, the Chrome extension, and agent/CLI `save-browser-transcript`
-  // calls, whose `segments` argument is optional.
   it.each([
     ["macos-native", "mic"],
     ["web-speech", "mic"],
@@ -230,9 +219,6 @@ describe("save-browser-transcript", () => {
     },
   );
 
-  // `speaker` was not declared on the segment schema, so zod stripped it before
-  // the array was serialized: a provider's diarized labels vanished on save and
-  // the transcript could no longer tell its speakers apart on reload.
   it("round-trips a caller-supplied diarized speaker into segmentsJson", async () => {
     const values = vi.fn();
     mocks.insert.mockReturnValue({ values });

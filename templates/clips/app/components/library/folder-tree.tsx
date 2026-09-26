@@ -78,10 +78,8 @@ interface FolderTreeProps {
   folders: FolderNode[];
   organizationId?: string;
   spaceId?: string | null;
-  /** Build the URL for a folder — allows library or space-scoped trees. */
   buildPath: (folderId: string) => string;
   activeFolderId?: string | null;
-  /** Use the single-indent spacing expected by a sidebar submenu. */
   compact?: boolean;
 }
 

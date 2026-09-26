@@ -6,7 +6,6 @@ import { requireOrgMember } from "../actions.js";
 
 const resourceLevel = z.enum(["viewer", "editor", "admin", "owner"]);
 
-/** Explain one effective action decision without weakening the server guard. */
 export default defineAction({
   description:
     "Explain why a member can or cannot perform an app permission or resource action.",

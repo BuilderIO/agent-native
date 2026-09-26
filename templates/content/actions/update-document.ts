@@ -68,14 +68,9 @@ import { serializeDocumentSource } from "./_document-source.js";
 import { settlePreviewDocumentDraft } from "./_preview-document-draft-settlement.js";
 import { mutateContentUserSettingTransaction } from "./_user-setting-transaction.js";
 
-// Not (yet) part of the shared API surface — kept local to avoid touching
-// shared/api.ts, which another workstream owns concurrently. Structural
-// shape only; consumers should narrow on `conflict: true` rather than import
-// this type across a package boundary.
 export interface DocumentUpdateConflictResponse {
   conflict: true;
   id: string;
-  /** Current server document as of the failed compare-and-swap. */
   document: DocumentUpdateResponse;
 }
 
@@ -310,12 +305,6 @@ export function shouldRejectStaleEmptyBodySave(args: {
   );
 }
 
-/**
- * Best-effort quote of the first changed span between two document bodies, used
- * as the `{ kind: "text", quote }` descriptor so the recent-edit highlight lands
- * on (or near) the region the agent actually rewrote rather than the doc top.
- * Returns a short slice of the new content around the first divergence.
- */
 export function firstChangedQuote(
   previous: string,
   next: string,
@@ -326,7 +315,6 @@ export function firstChangedQuote(
   let start = 0;
   const min = Math.min(previous.length, next.length);
   while (start < min && previous[start] === next[start]) start++;
-  // Skip leading whitespace so the quote begins on visible text.
   while (start < next.length && /\s/.test(next[start])) start++;
   return next.slice(start, start + maxLen).trim() || next.slice(0, maxLen);
 }
@@ -394,14 +382,6 @@ export default defineAction({
       .boolean()
       .optional()
       .describe("Whether the client-loaded content snapshot was empty"),
-    // Optional optimistic-concurrency guard for content saves: the
-    // `updatedAt` of the document snapshot the caller last loaded/reconciled.
-    // When provided alongside `content`, the write is a compare-and-swap on
-    // `updatedAt` instead of a blind overwrite — this is how the browser
-    // editor's autosave avoids clobbering a document that a concurrent
-    // process (e.g. the Notion auto-pull) updated after the editor's last
-    // snapshot but before this save landed. External body edits are rejected
-    // below and must use edit-document's revision and receipt protocol.
     baseUpdatedAt: z
       .string()
       .optional()
@@ -468,17 +448,12 @@ export default defineAction({
       .describe("Exact item versions that influenced this agent update."),
   }),
   audit: {
-    // Document bodies and personal favorite preferences are both sensitive.
-    // Keep actor/target/outcome attribution without copying mutation payloads
-    // into an owner-visible audit row.
     recordInputs: false,
     target: (args, result) => {
       const favoriteOnly = isFavoriteOnlyUpdate(args);
       return {
         type: "document",
         id: args.id,
-        // Favorites are a private preference owned by the actor, even when
-        // the underlying document belongs to somebody else.
         ownerEmail: favoriteOnly
           ? undefined
           : (result as DocumentAuditScopedResult | null)?.[documentAuditOwner],
@@ -550,10 +525,6 @@ export default defineAction({
       );
     }
 
-    // Only surface AI presence for genuine agent invocations (in-app tool loop,
-    // sub-agents/A2A → "tool"; external MCP agents → "mcp"). The browser editor
-    // autosaves through this same action as "frontend"; those must NOT light the
-    // agent flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
@@ -578,7 +549,6 @@ export default defineAction({
       ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
       : parseDocumentFavorite(existing.isFavorite);
 
-    // Strip leading H1 that duplicates the title
     let content = args.content;
     if (content !== undefined && !args.preserveLeadingTitleHeading) {
       const titleToCheck = args.title || existing.title;
@@ -642,9 +612,6 @@ export default defineAction({
       }
     }
 
-    // Detect actual changes — a no-op call (e.g. the editor echoing back the
-    // same content after a Notion pull) must NOT bump updated_at, otherwise
-    // the next sync sees a phantom local change and reports a conflict.
     const titleChanged =
       args.title !== undefined && args.title !== existing.title;
     const contentChanged =
@@ -668,13 +635,6 @@ export default defineAction({
       | Awaited<ReturnType<typeof documentMutationCreativeContext>>
       | undefined;
 
-    // Content saves optionally carry the `updatedAt` of the snapshot the
-    // caller last reconciled. Guard the write with a compare-and-swap in that
-    // case so a concurrent update (e.g. the Notion auto-pull applying a newer
-    // remote edit) between the caller's snapshot and this save landing isn't
-    // silently overwritten. A recovery may carry unchanged content alongside
-    // a stale title, so supplying content still guards the whole write.
-    // Title/icon/favorite-only requests without content remain unaffected.
     const useBodyRevisionCas =
       args.content !== undefined && args.baseRevision !== undefined;
     const useDocumentCas =
@@ -917,11 +877,6 @@ export default defineAction({
       }
 
       if (contentCasConflict) {
-        // Someone else's write landed after the caller's snapshot. Don't
-        // apply this save at all (title/icon/favorite included — a partial
-        // apply would desync the fields from what the caller believes it
-        // just sent) and hand back the current server row instead so the
-        // caller can reconcile.
         const [current] = await db
           .select()
           .from(schema.documents)
@@ -971,11 +926,6 @@ export default defineAction({
         );
       }
 
-      // Make an agent full-content rewrite visible as a live collaborator. This
-      // path replaces the whole body (not a find/replace), so it can't route
-      // through `searchAndReplace`; it keeps the SQL + reconcile delivery and
-      // publishes agent presence + a lingering recent-edit highlight near the
-      // first changed span. Best-effort — never fail the save on presence.
       if (isAgentCaller && committedContentChanged) {
         try {
           agentTouchDocument(id, {

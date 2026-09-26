@@ -1,11 +1,3 @@
-/**
- * Trigger dispatcher — bridges the event bus to the automation system.
- *
- * On startup, loads all event-triggered jobs from the resources store,
- * subscribes to their events, and dispatches them (condition eval → agent
- * loop) when matching events fire.
- */
-
 import { getOwnerActiveApiKey } from "../agent/production-agent.js";
 import {
   automationMatchesEventOwner,
@@ -58,15 +50,7 @@ export function buildTriggerContent(
   return buildJobResourceContent(meta, body);
 }
 
-// ─── Dispatcher deps (same pattern as SchedulerDeps) ────────────────────────
-
 export interface TriggerDispatcherDeps extends BackgroundAutomationDeps {
-  /**
-   * Tool names to expose on the FIRST engine request for a trigger run. See
-   * `SchedulerDeps.getInitialToolNames` (`jobs/scheduler.ts`) — same
-   * semantics. Omit to keep the full `getActions()` set visible up front
-   * (current behavior).
-   */
   getInitialToolNames?: (
     automation?: BackgroundAutomationContext,
   ) => string[] | undefined;
@@ -74,44 +58,14 @@ export interface TriggerDispatcherDeps extends BackgroundAutomationDeps {
 
 export type AutomationWebhookTaskResult = "completed" | "retry";
 
-// Track active subscriptions (eventName -> subscription id) to avoid
-// double-subscribing AND so subscriptions for events that no longer have any
-// enabled trigger can be torn down — otherwise deleted/disabled triggers leave
-// phantom bus listeners that fire handleEvent forever.
 const _eventSubscriptions = new Map<string, string>();
-// In-flight agentic dispatches keyed by `${owner}:${path}`. Guards against the
-// check-then-write TOCTOU window in handleEvent: two near-simultaneous fires of
-// the same event both pass the `lastStatus !== "running"` check (which has
-// several awaits before the DB is marked running) and would otherwise launch
-// two concurrent agent runs for one trigger. Sufficient for single-process
-// deployments; multi-instance would need a conditional DB update.
 const _dispatchingTriggers = new Set<string>();
-// Matches the cap `condition-evaluator.ts` puts on the same payload. An
-// unbounded external event should not be able to push the automation's own
-// instructions out of the model's attention.
 const MAX_TRIGGER_PAYLOAD_PROMPT_CHARS = 4_000;
-/** Cap for event-derived header fields, which sit outside the payload fence. */
 const MAX_TRIGGER_META_CHARS = 200;
 let _deps: TriggerDispatcherDeps | null = null;
 
-/**
- * Assemble the prompt for an agentic trigger run.
- *
- * The payload is whatever an external system sent us and the agent it reaches
- * has the full tool surface, so the payload is capped, fenced, and preceded by
- * an explicit untrusted-data instruction — the same defense
- * `condition-evaluator.ts` already applies to this data on its way to a
- * tool-less classifier. Anything in the body that could read as the fence tag is
- * broken — in any spacing, not just the exact bytes — so the payload cannot
- * close its own fence and continue as instructions. Event-derived header fields
- * are collapsed to one bounded line, since they sit above the untrusted-data
- * warning where extra lines would read as trusted framing. The automation's own
- * body goes last so the trusted instruction, not attacker text, occupies the
- * recency slot.
- */
 export function buildAutomationTriggerPrompt(input: {
   triggerName: string;
-  /** Optional on the running record; rendered as unknown rather than blank. */
   event?: string | undefined;
   eventId?: string | undefined;
   firedAt?: string | undefined;
@@ -120,9 +74,6 @@ export function buildAutomationTriggerPrompt(input: {
 }): string {
   let payloadStr: string;
   try {
-    // JSON.stringify returns undefined (it does not throw) for undefined, a
-    // function, or a symbol at the top level, and an event can legitimately
-    // carry no payload. Normalize before anything reads it as a string.
     payloadStr = JSON.stringify(input.payload, null, 2) ?? "(no payload)";
   } catch {
     payloadStr = String(input.payload);
@@ -130,16 +81,10 @@ export function buildAutomationTriggerPrompt(input: {
   if (payloadStr.length > MAX_TRIGGER_PAYLOAD_PROMPT_CHARS) {
     payloadStr = `${payloadStr.slice(0, MAX_TRIGGER_PAYLOAD_PROMPT_CHARS)}\n... (truncated)`;
   }
-  // Neutralize the `<` of anything that could read as the fence tag, in any
-  // spacing the model would still parse — `</event_payload >` and `< /
-  // event_payload>` close the fence just as convincingly as the exact bytes.
   const fencedPayload = payloadStr.replace(
     /<(?=\s*\/?\s*event_payload\b)/gi,
     "&lt;",
   );
-  // The header sits above the untrusted-data warning, so anything event-derived
-  // that reaches it must not be able to add lines there and read as trusted
-  // framing. One line, bounded.
   const known = (value: string | undefined): string => {
     const line = (value ?? "").replace(/\s+/g, " ").trim();
     if (!line) return "(unknown)";
@@ -166,12 +111,6 @@ Execute the following automation instructions, and only these:
 ${input.body}`;
 }
 
-/**
- * Record that a tick evaluated this trigger and declined to dispatch it.
- * `lastRun` stays untouched — nothing ran — and an unchanged outcome is not
- * re-persisted, so a permanently blocked trigger neither reports phantom runs
- * nor rewrites its resource on every matching event.
- */
 async function recordTriggerSkip(
   resource: Resource,
   status: "skipped" | "error",
@@ -211,8 +150,6 @@ async function recordTriggerExecutionOutcome(
     current.meta.lastError === outcome.lastError &&
     (outcome.lastRun === undefined || current.meta.lastRun === outcome.lastRun);
   if (unchanged && outcome.lastCheck !== undefined) {
-    // Keep the old check timestamp when the same blocked state is observed
-    // again. This avoids turning a repeated failure into apparent activity.
     return true;
   }
 
@@ -233,10 +170,6 @@ async function recordTriggerExecutionOutcome(
   return true;
 }
 
-/**
- * Initialize the trigger dispatcher. Call once at server startup.
- * Loads all event-triggered jobs and subscribes to their events.
- */
 export async function initTriggerDispatcher(
   deps: TriggerDispatcherDeps,
 ): Promise<void> {
@@ -244,10 +177,6 @@ export async function initTriggerDispatcher(
   await refreshEventSubscriptions();
 }
 
-/**
- * Refresh event subscriptions from the resource store.
- * Call after creating/updating triggers.
- */
 export async function refreshEventSubscriptions(): Promise<void> {
   try {
     const jobResources = await resourceListAllOwners("jobs/");
@@ -262,7 +191,6 @@ export async function refreshEventSubscriptions(): Promise<void> {
       }
     }
 
-    // Tear down subscriptions whose event no longer has any enabled trigger.
     for (const [eventName, subId] of [..._eventSubscriptions]) {
       if (!eventNames.has(eventName)) {
         unsubscribe(subId);
@@ -311,8 +239,6 @@ async function handleEvent(
 
       let identity: AutomationExecutionIdentity;
       if (resource.owner === "__shared__") {
-        // Compatibility for old workspace-wide event resources. New personal
-        // and organization automations always require an event owner.
         const userEmail = meta.createdBy || resource.owner;
         identity = {
           userEmail,
@@ -344,7 +270,6 @@ async function handleEvent(
         identity = resolved.identity;
       }
 
-      // Resolve API key for condition evaluation
       const owner = identity.userEmail;
       const userApiKey = await getOwnerActiveApiKey(owner);
       const apiKey = userApiKey || deps.apiKey;
@@ -358,8 +283,6 @@ async function handleEvent(
         continue;
       }
 
-      // Evaluate condition. Unevaluable (network/HTTP) is not a non-match —
-      // record error and leave the trigger eligible for a later event.
       let matches: boolean;
       try {
         matches = await evaluateCondition(meta.condition, payload, apiKey);
@@ -375,9 +298,6 @@ async function handleEvent(
         continue;
       }
 
-      // Dispatch. Guard against concurrent duplicate dispatch of the same
-      // trigger (TOCTOU on lastStatus) with an in-process lock keyed on the
-      // trigger's identity.
       const dispatchKey = `${resource.owner}:${resource.path}`;
       if (_dispatchingTriggers.has(dispatchKey)) continue;
       if (meta.mode === "agentic") {
@@ -398,11 +318,6 @@ async function handleEvent(
   }
 }
 
-/**
- * Process a webhook task after the public route has persisted it. The queue
- * worker supplies the target resource identity; the request body never gets
- * to choose which automation runs.
- */
 export async function dispatchAutomationWebhookTask(
   task: AutomationWebhookTaskPayload,
 ): Promise<AutomationWebhookTaskResult> {
@@ -437,7 +352,6 @@ export async function dispatchAutomationWebhookTask(
   if (isBackgroundAutomationRunActive(meta)) {
     return "retry";
   }
-  // Unevaluable conditions must fail and retry through the task queue without resetting attempts.
   let matches: boolean;
   try {
     matches = await evaluateCondition(meta.condition, task.payload, apiKey);

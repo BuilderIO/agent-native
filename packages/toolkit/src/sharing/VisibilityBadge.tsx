@@ -6,10 +6,6 @@ export interface VisibilityBadgeProps {
   className?: string;
 }
 
-/**
- * Tiny visibility chip for list views. Renders a small icon + label so users
- * can spot shared/public resources at a glance.
- */
 export function VisibilityBadge({
   visibility,
   size = 12,

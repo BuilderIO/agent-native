@@ -1,10 +1,6 @@
 name: Deploy Agent-Native production sites from GitHub
 run-name: Deploy Agent-Native production sites `${{ inputs.sites }}`
 
-# Manual production cutover lane. It builds the same repository projects from
-# an exact main commit, uploads their prebuilt output to Netlify, publishes it,
-# and smoke-tests the live host. The existing production manager remains
-# available for rollback and for the workspace site without a local source map.
 on:
   workflow_dispatch:
     inputs:
@@ -33,9 +29,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep fleet runs in their own queue. Per-site child-job concurrency below
-  # coordinates each cutover without letting a manager or promotion run evict
-  # a pending fleet run from GitHub's single pending slot.
   group: agent-native-production-fleet-${{ inputs.sites }}
   cancel-in-progress: false
 
@@ -143,8 +136,6 @@ jobs:
           console.log(`Discovered ${buildable.length} buildable production sites.`);
           NODE
 
-  # Opt-in pre-flight. Skipped entirely unless the dispatch asks for it, and a
-  # skipped job does not hold up the deploy below.
   beta-e2e:
     name: Beta E2E pre-flight
     if: ${{ inputs.beta_e2e }}
@@ -159,18 +150,12 @@ jobs:
     permissions:
       contents: read
     needs: [resolve-source, discover-sites, beta-e2e]
-    # Spelled out per dependency rather than with `needs.*.result`: the two
-    # source jobs must still have succeeded exactly as before, while the
-    # pre-flight only has to have not failed — which is the state it is in when
-    # it was skipped for not being requested.
     if: >-
       ${{ !cancelled()
       && needs.resolve-source.result == 'success'
       && needs.discover-sites.result == 'success'
       && needs.beta-e2e.result != 'failure' }}
     concurrency:
-      # The reusable child owns the canonical site queue. Keep this caller
-      # queue distinct so the caller can wait for the child without deadlocking.
       group: agent-native-production-fleet-child-${{ matrix.site }}
       cancel-in-progress: false
     strategy:

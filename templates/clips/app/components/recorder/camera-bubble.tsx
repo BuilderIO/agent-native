@@ -44,10 +44,6 @@ export function CameraBubble({
   const [dragging, setDragging] = useState(false);
   const dragOffsetRef = useRef({ dx: 0, dy: 0 });
 
-  // useLayoutEffect so srcObject is assigned before the first paint. Using
-  // a regular useEffect leaves the element in its "no srcObject" state for
-  // one paint, which Chrome sometimes latches as a blank frame that doesn't
-  // recover when the real stream arrives next tick.
   useLayoutEffect(() => {
     const el = videoRef.current;
     if (!el) return;
@@ -55,8 +51,6 @@ export function CameraBubble({
       if (el.srcObject !== stream) {
         el.srcObject = stream;
       }
-      // play() may be rejected if the element isn't ready yet; retry once on
-      // loadedmetadata which fires when the stream's first frame is decoded.
       const tryPlay = () => {
         el.play().catch(() => undefined);
       };
@@ -71,7 +65,6 @@ export function CameraBubble({
     }
   }, [stream]);
 
-  // Re-snap when size or window changes.
   useEffect(() => {
     function handleResize() {
       setPos((p) =>
@@ -128,11 +121,6 @@ export function CameraBubble({
     onSizeChange(order[(idx + 1) % order.length]);
   }
 
-  // Note: we deliberately don't `return null` when hidden — unmounting the
-  // <video> drops its `srcObject` assignment, and remounting it after the
-  // countdown races against Chrome's first-paint + play() pipeline. The
-  // result is a bubble that stays black even though the stream has frames.
-  // Hide via CSS visibility instead so the video element keeps playing.
   return (
     <div
       ref={bubbleRef}

@@ -1,11 +1,3 @@
-/**
- * Unit tests for the burst-coalescing behaviour added to
- * createPlanVersionSnapshot in plan-versions.ts.
- *
- * Tests run against an in-process PostgreSQL PostgreSQL database so the real Drizzle
- * query layer is exercised; vi.setSystemTime controls wall-clock timing.
- */
-
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -28,10 +20,6 @@ import {
 } from "vitest";
 
 import * as planSchema from "../db/schema.js";
-
-// ---------------------------------------------------------------------------
-// DB wiring — injected via vi.mock so createPlanVersionSnapshot picks it up
-// ---------------------------------------------------------------------------
 
 type SqlStatement = string | { sql: string; args?: unknown[] };
 
@@ -62,10 +50,6 @@ vi.mock("../db/index.js", () => ({
   getDb: () => db,
   schema: planSchema,
 }));
-
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 
 const OWNER = "coalesce-test@example.com";
 const PLAN_ID = "plan_coalesce_test";
@@ -159,10 +143,6 @@ async function countVersionRows(): Promise<number> {
   return rows.length;
 }
 
-// ---------------------------------------------------------------------------
-// DB bootstrap
-// ---------------------------------------------------------------------------
-
 beforeAll(async () => {
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-coalesce-"));
   client = await PGlite.create(dbDir);
@@ -248,7 +228,6 @@ afterAll(async () => {
   if (dbDir) fs.rmSync(dbDir, { recursive: true, force: true });
 });
 
-// Use fake timers so we control the clock precisely.
 beforeEach(async () => {
   await resetTables();
   vi.useFakeTimers();
@@ -258,10 +237,6 @@ beforeEach(async () => {
 afterEach(() => {
   vi.useRealTimers();
 });
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("createPlanVersionSnapshot — burst coalescing", () => {
   it("creates a snapshot on first forced call", async () => {
@@ -281,7 +256,6 @@ describe("createPlanVersionSnapshot — burst coalescing", () => {
     const { createPlanVersionSnapshot } = await import("./plan-versions.js");
     await seedPlan();
 
-    // First burst: creates snapshot of pre-edit state
     const first = await createPlanVersionSnapshot(PLAN_ID, {
       force: true,
       label: "Edited markdown block blk_abc",
@@ -289,10 +263,8 @@ describe("createPlanVersionSnapshot — burst coalescing", () => {
     });
     expect(first.created).toBe(true);
 
-    // Simulate plan content changing (the actual edit happened)
     await setPlanContent(UPDATED_CONTENT_1);
 
-    // 30 seconds later — still within the 90 s window
     vi.advanceTimersByTime(30_000);
 
     const second = await createPlanVersionSnapshot(PLAN_ID, {
@@ -312,10 +284,8 @@ describe("createPlanVersionSnapshot — burst coalescing", () => {
     const LABEL = "Edited markdown block blk_abc";
 
     for (let tick = 0; tick < 10; tick++) {
-      // Use markdown (stored verbatim in the snapshot) so each tick produces
-      // a distinct snapshotJson that bypasses the identical-content duplicate guard.
       await setPlanMarkdown(`# Test plan — edit ${tick}`);
-      vi.advanceTimersByTime(5_000); // 5 s between saves
+      vi.advanceTimersByTime(5_000);
       const result = await createPlanVersionSnapshot(PLAN_ID, {
         force: true,
         label: LABEL,
@@ -329,7 +299,6 @@ describe("createPlanVersionSnapshot — burst coalescing", () => {
       }
     }
 
-    // Total elapsed: 50 s → still within 90 s window → exactly 1 row
     expect(await countVersionRows()).toBe(1);
   });
 
@@ -348,7 +317,6 @@ describe("createPlanVersionSnapshot — burst coalescing", () => {
 
     await setPlanMarkdown("# Test plan — edit after first snapshot");
 
-    // Advance past the 90 s coalescing window
     vi.advanceTimersByTime(91_000);
 
     const second = await createPlanVersionSnapshot(PLAN_ID, {
@@ -374,7 +342,6 @@ describe("createPlanVersionSnapshot — burst coalescing", () => {
 
     await setPlanMarkdown("# Test plan — edited blk_abc");
 
-    // Only 5 s later — well within window — but with a different label
     vi.advanceTimersByTime(5_000);
 
     const second = await createPlanVersionSnapshot(PLAN_ID, {
@@ -391,7 +358,6 @@ describe("createPlanVersionSnapshot — burst coalescing", () => {
     const { createPlanVersionSnapshot } = await import("./plan-versions.js");
     await seedPlan();
 
-    // Simulate a prior inline-edit snapshot with the same pre-restore content
     const first = await createPlanVersionSnapshot(PLAN_ID, {
       force: true,
       label: "Before restore",
@@ -401,8 +367,6 @@ describe("createPlanVersionSnapshot — burst coalescing", () => {
 
     await setPlanContent(UPDATED_CONTENT_1);
 
-    // 5 s later — within window — but safety snapshots must preserve the
-    // immediate pre-restore state when content has changed.
     vi.advanceTimersByTime(5_000);
 
     const second = await createPlanVersionSnapshot(PLAN_ID, {
@@ -448,7 +412,6 @@ describe("createPlanVersionSnapshot — burst coalescing", () => {
     });
     expect(first.created).toBe(true);
 
-    // Advance past the coalescing window — but do NOT change the plan content
     vi.advanceTimersByTime(120_000);
 
     const second = await createPlanVersionSnapshot(PLAN_ID, {
@@ -465,7 +428,6 @@ describe("createPlanVersionSnapshot — burst coalescing", () => {
     const { createPlanVersionSnapshot } = await import("./plan-versions.js");
     await seedPlan();
 
-    // First snapshot without force
     const first = await createPlanVersionSnapshot(PLAN_ID, {
       force: false,
       label: "Edited markdown block blk_abc",
@@ -476,7 +438,6 @@ describe("createPlanVersionSnapshot — burst coalescing", () => {
     await setPlanContent(UPDATED_CONTENT_1);
     vi.advanceTimersByTime(30_000);
 
-    // Within 5-min SNAPSHOT_INTERVAL_MS → interval guard fires, not coalesce
     const second = await createPlanVersionSnapshot(PLAN_ID, {
       force: false,
       label: "Edited markdown block blk_abc",

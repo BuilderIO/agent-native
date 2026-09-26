@@ -38,10 +38,6 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-// ---------------------------------------------------------------------------
-// Types (mirroring the action shape)
-// ---------------------------------------------------------------------------
-
 interface DesignToken {
   name: string;
   cssVar: string;
@@ -75,31 +71,14 @@ interface TokenImportFile {
   content: string;
 }
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 export interface TokensPanelProps {
   designId: string;
-  /**
-   * Called after a token edit is persisted so the parent can push the
-   * resolved CSS var map into the iframe via the tweak-values postMessage.
-   */
   onTokensApplied?: (resolvedCssVars: Record<string, string>) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** True when the value looks like an opaque colour we can render as a swatch. */
 export function isColorValue(value: string): boolean {
   const v = value.trim();
   return (
-    // Valid CSS hex-color lengths are exactly 3, 4, 6, or 8 digits (#rgb,
-    // #rgba, #rrggbb, #rrggbbaa) — a bare `{3,8}` range also matched
-    // malformed 5- and 7-digit strings, which render as a blank swatch
-    // instead of falling back to the neutral type icon.
     /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v) ||
     /^rgba?\(/.test(v) ||
     /^hsla?\(/.test(v) ||
@@ -108,19 +87,11 @@ export function isColorValue(value: string): boolean {
   );
 }
 
-/**
- * Normalizes user-typed CSS custom-property input for the manual "Add one
- * token" flow: trims surrounding whitespace first, then ensures a `--`
- * prefix. Trimming before the prefix check matters — a leading space (e.g.
- * pasted input) would otherwise fail `startsWith("--")` and produce a
- * doubled-up, server-rejected name like `-- --foo`.
- */
 export function normalizeCssVarName(raw: string): string {
   const trimmed = raw.trim();
   return trimmed.startsWith("--") ? trimmed : `--${trimmed}`;
 }
 
-/** Type label + icon for a section header. */
 function typeLabel(type: DesignToken["type"]): {
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
@@ -140,10 +111,6 @@ function typeLabel(type: DesignToken["type"]): {
       return { label: "Other", Icon: IconBrush };
   }
 }
-
-// ---------------------------------------------------------------------------
-// Individual token row
-// ---------------------------------------------------------------------------
 
 interface TokenRowProps {
   token: DesignToken;
@@ -260,10 +227,6 @@ function TokenRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Token group section
-// ---------------------------------------------------------------------------
-
 interface TokenGroupSectionProps {
   group: TokenGroup;
   editingKey: string | null;
@@ -327,10 +290,6 @@ function TokenGroupSection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// New Token popover
-// ---------------------------------------------------------------------------
-
 type TokenCreateMode = "menu" | "add" | "text";
 
 interface NewTokenPopoverProps {
@@ -391,9 +350,6 @@ function NewTokenPopover({
   const closeOrReset = (nextOpen: boolean) => {
     setOpen(nextOpen);
     if (!nextOpen) {
-      // Reset every draft field, not just mode/status, so reopening the
-      // popover after a dismissed (uncommitted) edit always starts fresh
-      // instead of silently resurrecting a stale cssVar/value/text draft.
       setMode("menu");
       setStatus(null);
       setCssVar("--my-token");
@@ -597,10 +553,6 @@ function TokenCreateOption({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Import helpers
-// ---------------------------------------------------------------------------
-
 const TOKEN_IMPORT_ACCEPT = [
   ".css",
   ".scss",
@@ -630,21 +582,9 @@ async function readImportFiles(fileList: FileList): Promise<TokenImportFile[]> {
   return files.filter((file) => file.content.trim().length > 0);
 }
 
-// ---------------------------------------------------------------------------
-// Main panel
-// ---------------------------------------------------------------------------
-
-/**
- * Tokens inspector panel — displays design tokens grouped by type, supports
- * inline editing that persists through the Tweaks loop, and provides a "New
- * token" action. Matches the tokens artboard in §6.2 of DESIGN-STUDIO-PLAN.md.
- */
 export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   const t = useT();
 
-  // ------------------------------------------------------------------
-  // Data
-  // ------------------------------------------------------------------
   const { data, isLoading, refetch } = useActionQuery<IndexDesignTokensResult>(
     "index-design-tokens",
     { designId },
@@ -653,18 +593,9 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   const applyMutation = useActionMutation("apply-design-token-edit");
   const importMutation = useActionMutation("import-design-tokens");
 
-  // This panel is reused across designs (the editor route swaps `designId`
-  // in place rather than remounting), so an apply/import mutation kicked off
-  // for one design can resolve after the user has already switched to
-  // another. Track the latest `designId` in a ref so a stale response can
-  // detect that and skip pushing its (now wrong-design) resolved CSS vars
-  // into the currently active design via `onTokensApplied`.
   const designIdRef = useRef(designId);
   designIdRef.current = designId;
 
-  // ------------------------------------------------------------------
-  // Local edit state
-  // ------------------------------------------------------------------
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
 
@@ -678,7 +609,6 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     setEditDraft("");
   };
 
-  /** Shared apply path for both inline row edits and "Add one token". */
   const applyTokenEdit = (cssVar: string, value: string) => {
     const requestDesignId = designId;
     applyMutation.mutate(
@@ -752,9 +682,6 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     return handleImportSuccess(result, requestDesignId);
   };
 
-  // ------------------------------------------------------------------
-  // Render
-  // ------------------------------------------------------------------
   const groups = data?.groups ?? [];
   const tokenCount = data?.tokenCount ?? 0;
 

@@ -33,20 +33,6 @@ import {
 } from "./dev-doc-ui.js";
 import { JsonExplorerSurface } from "./JsonExplorerBlock.js";
 
-/**
- * Read + Edit renderers for an `api-endpoint` block — a Swagger / Stripe-style
- * API reference. Lives in core so any app can register the dev-doc block (no
- * shadcn import).
- */
-
-/* ── Theme-aware color tokens ──────────────────────────────────────────────── */
-
-/**
- * Method-pill palette. Tinted background + saturated text in BOTH modes (the
- * reference HTML hardcoded a dark-only palette — we deliberately avoid that).
- * Each entry keeps legible contrast against the plan surface under `.dark` and
- * light via Tailwind `dark:` variants.
- */
 const METHOD_PILL: Record<ApiEndpointMethod, string> = {
   GET: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
   POST: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
@@ -59,7 +45,6 @@ const METHOD_PILL: Record<ApiEndpointMethod, string> = {
     "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300",
 };
 
-/** Location-badge palette for the params table `in` column. */
 const PARAM_IN_BADGE: Record<ApiParamLocation, string> = {
   path: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
   query: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
@@ -68,7 +53,6 @@ const PARAM_IN_BADGE: Record<ApiParamLocation, string> = {
   body: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
 };
 
-/** Status-pill palette keyed by the leading status digit (2xx/3xx/4xx/5xx). */
 function statusPillClass(status: string): string {
   const lead = status.trim().charAt(0);
   if (lead === "2")
@@ -77,18 +61,9 @@ function statusPillClass(status: string): string {
     return "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300";
   if (lead === "5")
     return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300";
-  // 3xx and everything else → neutral slate.
   return "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300";
 }
 
-/* ── Theme-aware change tokens (shared vocabulary with file-tree/data-model) ── */
-
-/**
- * Change-chip palette — IDENTICAL to `FileTreeBlock`'s `CHANGE_BADGE` so a route /
- * param / response chip reads the same as a file or field change chip elsewhere
- * in the recap. Tinted background + saturated text in BOTH the `.dark` plan theme
- * and light mode via Tailwind `dark:` variants (never a dark-only palette).
- */
 const CHANGE_BADGE: Record<ApiEndpointChange, string> = {
   added:
     "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -98,7 +73,6 @@ const CHANGE_BADGE: Record<ApiEndpointChange, string> = {
     "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
 };
 
-/** Single-letter glyph shown in the compact chip (VS Code gutter convention). */
 const CHANGE_GLYPH: Record<ApiEndpointChange, string> = {
   added: "A",
   modified: "M",
@@ -106,7 +80,6 @@ const CHANGE_GLYPH: Record<ApiEndpointChange, string> = {
   renamed: "R",
 };
 
-/** Human label for the chip text + its `title` / `aria-label`. */
 const CHANGE_LABEL: Record<ApiEndpointChange, string> = {
   added: "Added",
   modified: "Modified",
@@ -114,7 +87,6 @@ const CHANGE_LABEL: Record<ApiEndpointChange, string> = {
   renamed: "Renamed",
 };
 
-/** Accent ink echoing a change color, for the name/path it applies to. */
 const CHANGE_INK: Record<ApiEndpointChange, string> = {
   added: "text-emerald-700 dark:text-emerald-300",
   modified: "text-blue-700 dark:text-blue-300",
@@ -122,11 +94,6 @@ const CHANGE_INK: Record<ApiEndpointChange, string> = {
   renamed: "text-violet-700 dark:text-violet-300",
 };
 
-/**
- * A change chip: compact single-glyph badge (A/M/D/R) by default, or a labeled
- * pill (`variant="label"`) for the endpoint header where there is room. Matches
- * the file-tree change badge so the recap reads consistently.
- */
 function ChangeChip({
   change,
   label = CHANGE_LABEL[change],
@@ -167,11 +134,6 @@ function ChangeChip({
   );
 }
 
-/**
- * Before → after for a modified param: the prior `was` value struck through, a
- * narrow arrow, then the current value (e.g. `optional → required`, or the old
- * type → the new type). When `was` is absent we just show the current value.
- */
 function WasArrowCurrent({
   was,
   current,
@@ -189,18 +151,11 @@ function WasArrowCurrent({
   );
 }
 
-/**
- * A param carries a single `was` (prior value) for a `modified` change, but that
- * value may describe either the required flag or the type. Decide which column
- * the before→after belongs to: a `was` of `required`/`optional` is a required
- * flag flip; anything else is treated as the prior type.
- */
 function wasIsRequiredFlag(was: string): boolean {
   const v = was.trim().toLowerCase();
   return v === "required" || v === "optional";
 }
 
-/** Guess a fence language from a content type so examples highlight nicely. */
 function fenceLangForContentType(contentType?: string): string {
   const ct = (contentType ?? "").toLowerCase();
   if (ct.includes("xml") || ct.includes("html")) return "html";
@@ -208,13 +163,6 @@ function fenceLangForContentType(contentType?: string): string {
   return "json";
 }
 
-/**
- * Strip JSONC niceties so an otherwise-valid-but-commented example still parses
- * as JSON and earns the collapsible JsonExplorer (instead of falling back to a
- * plain code block). Removes `//` line comments and `/* … *​/` block comments,
- * then trailing commas before `}`/`]`. String contents are preserved: `//`
- * inside a quoted string (e.g. a URL) is NOT treated as a comment.
- */
 function stripJsonComments(source: string): string {
   let out = "";
   let inString = false;
@@ -245,8 +193,6 @@ function stripJsonComments(source: string): string {
     if (inString) {
       out += char;
       if (char === "\\") {
-        // Copy the escaped char verbatim so an escaped quote can't end the
-        // string early.
         if (next !== undefined) {
           out += next;
           i += 1;
@@ -276,12 +222,6 @@ function stripJsonComments(source: string): string {
       continue;
     }
 
-    // Drop a trailing comma before a closing bracket so the result is strict
-    // JSON. Done here (not via a post-pass regex) so it stays string-aware: we
-    // only reach this branch outside strings/comments, and the structural comma
-    // is the last non-whitespace char already emitted. A comma inside a string
-    // value like `"hello,}"` is followed by its closing quote, not the bracket,
-    // so it is never stripped.
     if (char === "}" || char === "]") {
       out = out.replace(/,\s*$/, "");
     }
@@ -291,27 +231,11 @@ function stripJsonComments(source: string): string {
   return out;
 }
 
-/**
- * Decide whether an example should render with the collapsible JsonExplorer.
- * Returns the strict-JSON text to feed the explorer (comment-stripped when the
- * raw example was JSONC), or `null` when the example is not parseable as JSON
- * (free-form / XML / YAML text) and should fall back to the styled code surface.
- *
- * Parseability — NOT the declared `contentType` — is the gate, so the REQUEST
- * body example earns the same interactive explorer as the RESPONSE examples
- * whenever it is valid JSON. A request often carries a `contentType` that is not
- * literally `application/json` (e.g. a WebSocket-upgrade body) yet still holds a
- * JSON payload; keying off the content type would wrongly drop those into the
- * static code block. `contentType` now only labels the non-JSON code fallback
- * (via `fenceLangForContentType`), it never suppresses the explorer.
- */
 function jsonExplorerSource(example: string): string | null {
   try {
     JSON.parse(example);
     return example;
   } catch {
-    // Tolerate JSONC: a commented-but-otherwise-valid body still gets the nice
-    // explorer. Feed the explorer the stripped (strict-JSON) text so it parses.
     const stripped = stripJsonComments(example);
     try {
       JSON.parse(stripped);
@@ -388,16 +312,6 @@ function ApiExample({
   );
 }
 
-/* ── Read (collapsed-by-default swagger row) ───────────────────────────────── */
-
-/**
- * Read-only renderer for an `api-endpoint` block. Collapsed by default: a single
- * row with a colored method pill, monospace path, muted summary, and a chevron.
- * Clicking the row expands the full reference (description, params table,
- * request body, responses) — the Swagger / Stripe house style. Every colored
- * element is theme-aware (`dark:` variants), so it reads correctly in both the
- * `.dark` plan theme and light mode.
- */
 export function ApiEndpointRead({
   data,
   blockId,
@@ -427,12 +341,6 @@ export function ApiEndpointRead({
     Boolean(data.auth);
 
   return (
-    // `data-block-type` lets the document flow detect a RUN of consecutive
-    // api-endpoint blocks and collapse the divider + gap between them (see
-    // `.plan-document-flow` rules in the plan template's global.css), so a list
-    // of endpoints reads as one tight scannable group instead of separate
-    // full-width cards. `an-api-endpoint-card` is the flush-able card surface
-    // those rules round/merge at the run's edges.
     <section
       {...ltrCodeBlockProps}
       className="plan-block"
@@ -469,9 +377,6 @@ export function ApiEndpointRead({
           <span
             className={cn(
               "min-w-0 truncate font-mono text-sm font-semibold",
-              // `change` ink composes with `deprecated`: a deprecated route
-              // still mutes/strikes its path; a changed route tints it (a
-              // removed route also strikes via CHANGE_INK).
               data.change ? CHANGE_INK[data.change] : "text-plan-text",
               data.deprecated && "text-plan-muted line-through",
             )}
@@ -549,8 +454,6 @@ export function ApiEndpointRead({
                     <tbody>
                       {params.map((param, index) => {
                         const change = param.change;
-                        // A `modified` `was` describes either the required flag
-                        // or the prior type; route it to the right column.
                         const wasForRequired =
                           change === "modified" &&
                           param.was &&
@@ -721,14 +624,8 @@ export function ApiEndpointRead({
   );
 }
 
-/* ── Edit (panel form) ─────────────────────────────────────────────────────── */
-
 const fieldLabelClass = "text-xs font-medium text-muted-foreground";
 
-/**
- * Options for a change `DevSelect` — a leading "No change" entry (decodes to
- * `undefined`) plus the four diff states, mirroring the file-tree editor.
- */
 const CHANGE_SELECT_OPTIONS = [
   { value: "none", label: "No change" },
   ...API_ENDPOINT_CHANGES.map((change) => ({
@@ -737,13 +634,6 @@ const CHANGE_SELECT_OPTIONS = [
   })),
 ];
 
-/**
- * Panel editor for an `api-endpoint` block. A property form: method (Select),
- * path/summary/auth (Input), description (Textarea), deprecated (Switch), plus
- * repeatable rows for params and responses (add/remove) and a request-body
- * textarea. Renders BARE content (no `<section>`); the registry's panel surface
- * supplies the popover chrome.
- */
 export function ApiEndpointEdit({
   data,
   onChange,

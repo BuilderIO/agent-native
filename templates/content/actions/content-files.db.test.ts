@@ -46,8 +46,6 @@ beforeAll(async () => {
   getDocumentAction = (await import("./get-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
-  // The db plugin schedules post-boot maintenance fire-and-forget; joining the
-  // memoized run here keeps this file's unseeded-Files fixtures deterministic.
   const { scheduleStartupMaintenance } =
     await import("../server/lib/startup-maintenance.js");
   await scheduleStartupMaintenance();
@@ -1633,8 +1631,6 @@ describe("sidebar Duplicate", () => {
         parentId: parent.id,
       } as any),
     );
-    // Pinning adds a second (Favorites) membership; duplicating by Page id
-    // must still use the Page's Files membership.
     await asOwner(() =>
       updateDocument.run({ id: child.id, isFavorite: true } as any),
     );

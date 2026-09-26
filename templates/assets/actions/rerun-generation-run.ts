@@ -44,8 +44,6 @@ export default defineAction({
       .where(eq(schema.assetGenerationRuns.id, runId))
       .limit(1);
     if (!run) throw new Error("Generation run not found.");
-    // A rerun reuses the source run's prompt, settings, and session, so a
-    // below-editor caller may only rerun their own.
     const draftAccess = await assertCanDraftAuthoredBy(
       run.libraryId,
       run.ownerEmail,
@@ -87,12 +85,6 @@ export default defineAction({
     let presetReferenceFills:
       | Array<{ referenceId: string; assetIds: string[] }>
       | undefined;
-    // Reruns treat the CURRENT preset as authoritative by design: saved
-    // boardAssignments replay only onto entries that still exist and are
-    // still variable. Entries the designer has since removed, renamed, or
-    // converted to fixed re-resolve from today's preset instead of
-    // resurrecting the original run's images — a rerun must never bypass
-    // the designer's current board definition.
     const boardAssignments = metadata.settingsUsed?.boardAssignments;
     if (run.presetId && boardAssignments) {
       const preset = (await resolveTemplateAccess(run.presetId, "viewer"))

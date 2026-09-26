@@ -23,7 +23,6 @@ export type OffboardMemberResult = {
 
 const quote = (identifier: string) => `"${identifier.replaceAll('"', '""')}"`;
 
-/** Remove a member and transfer owned rows atomically within one app database. */
 export async function offboardMember(
   db: DbExec,
   email: string,
@@ -36,9 +35,6 @@ export async function offboardMember(
       "A different successor is required before offboarding a member",
     );
 
-  // Ensure the append-only audit table exists before starting the transaction.
-  // The insert itself uses the transaction executor below, so the event commits
-  // or rolls back with the membership and ownership changes.
   await ensureAuditTables();
 
   const run = async (tx: DbExec): Promise<OffboardMemberResult> => {
@@ -59,9 +55,6 @@ export async function offboardMember(
           : "Transfer target does not exist",
       );
 
-    // Validate the complete identity surface before any destructive query.
-    // Reusing the rekey guard keeps offboarding from silently skipping a new
-    // identity-bearing column and leaving a partial transfer behind.
     const schema = await tx.execute({
       sql: `SELECT table_name, column_name FROM information_schema.columns
             WHERE table_schema = 'public'
@@ -78,10 +71,6 @@ export async function offboardMember(
       tableColumns.set(table, columns);
     }
 
-    // Grants are revocations, not ownership that should follow the successor.
-    // They must be removed before the owner_email transfer below; otherwise a
-    // grant owned by the departing member but created by somebody else would
-    // be rewritten to the successor and escape the old-owner predicate.
     await tx.execute({
       sql: `DELETE FROM workspace_connection_grants
             WHERE (LOWER(owner_email) = ? OR LOWER(granted_by_email) = ?)${
@@ -90,9 +79,6 @@ export async function offboardMember(
       args: orgId ? [oldEmail, oldEmail, orgId] : [oldEmail, oldEmail],
     });
 
-    // The registry is shared with identity rekey. The information_schema
-    // sweep retains the extension escape hatch used by rekey for app-owned
-    // owner_email tables.
     const ownerEntries = new Map<string, IdentityColumn>();
     for (const entry of IDENTITY_REKEY_COLUMNS) {
       if (entry.column === "owner_email") ownerEntries.set(entry.table, entry);
@@ -114,9 +100,6 @@ export async function offboardMember(
       const columns = tableColumns.get(table) ?? new Set<string>();
       if (!columns.has(entry.column)) continue;
       const hasOrgId = columns.has("org_id");
-      // A member removal scoped to one organization must not transfer
-      // account-owned rows from another organization (or personal mode).
-      // Tables without an org_id have no safe predicate for this operation.
       if (orgId && !hasOrgId) continue;
       const where =
         hasOrgId && orgId
@@ -193,8 +176,6 @@ export async function offboardMember(
       )
         continue;
       const hasOrgId = columns.has("org_id");
-      // A workspace-scoped removal must not mutate account-wide rows that may
-      // still be needed by the member in another organization.
       if (orgId && !hasOrgId) continue;
       const scoped = hasOrgId && orgId ? ` AND "org_id" = ?` : "";
       const scopeArgs = hasOrgId && orgId ? [orgId] : [];
@@ -305,9 +286,6 @@ export async function offboardMember(
           args: [oldEmail],
         })
       : { rowsAffected: 0 };
-    // Delete the membership after all scoped ownership, role, and session
-    // cleanup has succeeded. This keeps a retryable membership marker until
-    // the last destructive step in the transaction.
     const memberships = await tx.execute({
       sql: `DELETE FROM org_members WHERE LOWER(email) = ?${
         orgId ? " AND org_id = ?" : ""

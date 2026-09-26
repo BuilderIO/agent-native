@@ -48,10 +48,6 @@ declare global {
   var __AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__: boolean | undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type MonitorMethod =
   | "GET"
   | "HEAD"
@@ -63,7 +59,6 @@ export type MonitorMethod =
 
 export type MonitorSeverity = "warning" | "critical";
 
-/** Runtime status of a monitor / a single check. */
 export type MonitorStatus =
   | "up"
   | "down"
@@ -82,7 +77,6 @@ export type AssertionType =
 export interface Assertion {
   type: AssertionType;
   value: string | number;
-  /** Header name for header_* assertions. */
   header?: string;
 }
 
@@ -225,7 +219,6 @@ export interface MonitorIncident {
   createdAt: string;
 }
 
-/** Result of a single probe (before persistence). */
 export interface CheckOutcome {
   checkedAt: string;
   status: MonitorStatus;
@@ -247,11 +240,7 @@ export interface AccessCtx {
   orgId: string | null;
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const MAX_RESPONSE_BODY_BYTES = 512 * 1024; // 512 KB read cap for text assertions
+const MAX_RESPONSE_BODY_BYTES = 512 * 1024;
 const MAX_REDIRECT_HOPS = 5;
 const MONITOR_RUNNING_STALE_MS = 5 * 60 * 1000;
 const DEFAULT_RESULT_RETENTION_DAYS = 30;
@@ -279,10 +268,6 @@ const ASSERTION_TYPES: AssertionType[] = [
   "header_equals",
   "max_latency_ms",
 ];
-
-// ---------------------------------------------------------------------------
-// Small helpers
-// ---------------------------------------------------------------------------
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -459,7 +444,6 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).length;
 }
 
-/** Opt-in escape hatch for monitoring internal/private hosts (dev, self-host). */
 export function monitorAllowPrivateHosts(): boolean {
   return boolEnv("UPTIME_MONITOR_ALLOW_PRIVATE_HOSTS");
 }
@@ -497,10 +481,6 @@ export function hostFromUrl(url: string): string {
     return url;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Normalization / validation
-// ---------------------------------------------------------------------------
 
 function badRequest(message: string): Error {
   return Object.assign(new Error(message), { statusCode: 400 });
@@ -587,7 +567,6 @@ export function normalizeStatusMatcher(input: unknown): StatusMatcher {
     const max = clampInt(raw.max, 100, 599, 299);
     return { mode: "range", min: Math.min(min, max), max: Math.max(min, max) };
   }
-  // Default / mode === "class"
   const classes = Array.isArray(raw.classes)
     ? raw.classes
         .map((c) => String(c).toLowerCase())
@@ -614,9 +593,6 @@ export function normalizeAssertions(input: unknown): Assertion[] {
     ) as AssertionType;
     if (!ASSERTION_TYPES.includes(type)) continue;
     if (type === "max_latency_ms") {
-      // A latency budget of 0 (or negative/NaN) is meaningless — drop it
-      // rather than clamping up to the floor, which would silently create a
-      // "1ms" assertion the user never asked for.
       const raw = Math.floor(Number(entry.value));
       if (!Number.isFinite(raw) || raw <= 0) continue;
       out.push({ type, value: Math.min(raw, 600_000) });
@@ -732,10 +708,6 @@ function monitorNotifyDeliveryMetadata(
   return Object.keys(delivery).length > 0 ? delivery : undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Pure evaluation core (unit-tested)
-// ---------------------------------------------------------------------------
-
 export function matchesStatus(
   statusCode: number | null,
   matcher: StatusMatcher,
@@ -838,19 +810,10 @@ export interface EvaluateCheckParams {
   headers: Record<string, string>;
   matcher: StatusMatcher;
   assertions: Assertion[];
-  /** Non-null when the request could not complete. */
   fetchError?: string | null;
-  /** "config" → misconfiguration (status "error"); "network" → down. */
   errorKind?: "config" | "network" | null;
 }
 
-/**
- * Pure classifier. Turns a probe's raw signals into a status + failure list:
- *  - fetchError present   → "error" (config) or "down" (network/timeout)
- *  - status mismatch OR a body/header assertion fails → "down"
- *  - only a latency assertion fails → "degraded"
- *  - otherwise → "up"
- */
 export function evaluateCheck(params: EvaluateCheckParams): {
   status: MonitorStatus;
   ok: boolean;
@@ -892,18 +855,6 @@ export function evaluateCheck(params: EvaluateCheckParams): {
   return { status, ok: status === "up", failedAssertions: messages };
 }
 
-// ---------------------------------------------------------------------------
-// SSRF-safe fetch + probe
-// ---------------------------------------------------------------------------
-
-// A single SSRF-safe dispatcher (undici Agent) is reused across every probe.
-// Building a fresh Agent per check disabled HTTP keep-alive — each check paid a
-// cold DNS + TCP + TLS handshake, inflating the recorded latency well above the
-// site's real response time (and occasionally spiking near the timeout) — and
-// leaked Agents, which are never closed. The connect-time private-IP guard runs
-// on every new socket, so reuse keeps the exact same SSRF protection.
-// `undefined` = not built yet; the resolved value may be `null` on runtimes
-// without undici / node:dns, in which case callers fall back to plain `fetch`.
 let sharedSsrfDispatcherPromise: Promise<unknown> | undefined;
 
 function getSharedSsrfDispatcher(): Promise<unknown> {
@@ -937,9 +888,7 @@ async function safeMonitorFetch(
     followRedirects: boolean;
     maxRedirects: number;
     allowPrivateHosts: boolean;
-    /** Prebuilt outside the abort window so SSRF setup is not billed as site latency. */
     dispatcher?: unknown;
-    /** When true, the caller already DNS-checked `url` before starting the timer. */
     initialDnsChecked?: boolean;
   },
 ): Promise<Response> {
@@ -1082,16 +1031,6 @@ function needsResponseBody(assertions: Assertion[]): boolean {
   );
 }
 
-/**
- * Execute one probe for `monitor`. Performs an SSRF-safe fetch with an
- * AbortController timeout, measures latency, caps the response body, and
- * classifies the result. Never throws — failures are captured in the outcome.
- *
- * The abort budget covers only the HTTP fetch (headers / redirect chain), not
- * SSRF dispatcher/DNS setup or optional body reads. Billing setup time against
- * `timeoutMs` produced false "Timed out after Nms" alerts when the site itself
- * was fine.
- */
 export async function runMonitorCheck(
   monitor: Pick<
     Monitor,
@@ -1139,7 +1078,6 @@ export async function runMonitorCheck(
     return { ...outcome, diagnostics };
   };
 
-  // Fast, deterministic pre-flight guard (scheme + literal private hosts).
   if (!allowPrivateHosts && isBlockedExtensionUrl(monitor.url)) {
     diagnostics.error = {
       kind: "config",
@@ -1236,8 +1174,6 @@ export async function runMonitorCheck(
     });
     diagnostics.timings.requestMs = Date.now() - requestStart;
 
-    // Stop the abort timer as soon as headers arrive so a slow/optional body
-    // read cannot be mislabeled as a request timeout with a null status code.
     clearTimeout(timer);
 
     const latencyMs = diagnostics.timings.requestMs;
@@ -1300,8 +1236,6 @@ export async function runMonitorCheck(
           ? err
           : (JSON.stringify(err) ?? "check failed");
     const isConfig = message.startsWith("SSRF blocked");
-    // Only our timer sets `timedOut`. Prefer the real SSRF/config message when
-    // both happened (e.g. abort fired while a redirect DNS check was in flight).
     const isTimeout = timedOut && !isConfig;
     const errorText = isTimeout
       ? `Timed out after ${timeoutMs}ms`
@@ -1335,10 +1269,6 @@ export async function runMonitorCheck(
     clearTimeout(timer);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Row mapping + scoping
-// ---------------------------------------------------------------------------
 
 function rowToMonitor(row: any): Monitor {
   return {
@@ -1441,10 +1371,6 @@ function incidentsOwnerWhere(ctx: AccessCtx) {
     ctx.orgId ? eq(table.orgId, ctx.orgId) : isNull(table.orgId),
   );
 }
-
-// ---------------------------------------------------------------------------
-// CRUD
-// ---------------------------------------------------------------------------
 
 export async function listMonitors(ctx: AccessCtx): Promise<MonitorSummary[]> {
   const db = getDb() as any;
@@ -1706,10 +1632,6 @@ export async function deleteMonitor(id: string, ctx: AccessCtx): Promise<void> {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Sweep helpers: claim / due selection
-// ---------------------------------------------------------------------------
-
 function monitorNotRunningWhere(now: Date) {
   const table = schema.monitors;
   const staleBefore = new Date(
@@ -1730,7 +1652,6 @@ function monitorPreviousCheckWhere(monitor: Monitor) {
     : isNull(table.lastCheckedAt);
 }
 
-/** True when enough time has elapsed since the last check to run again. */
 export function isMonitorDue(
   monitor: Monitor,
   now: Date = new Date(),
@@ -1778,10 +1699,6 @@ export async function listDueMonitors(options: {
     .slice(0, limit);
 }
 
-/**
- * Atomically claim a monitor for this sweep so concurrent sweeps don't
- * double-run it. Mirrors claimAnalyticsAlertRuleEvaluation.
- */
 export async function claimMonitorRun(
   monitor: Monitor,
   now: Date = new Date(),
@@ -1803,10 +1720,6 @@ export async function claimMonitorRun(
     .returning({ id: table.id });
   return rows.length > 0;
 }
-
-// ---------------------------------------------------------------------------
-// Persist result + status
-// ---------------------------------------------------------------------------
 
 export async function recordMonitorResult(
   monitor: Monitor,
@@ -1832,8 +1745,6 @@ export async function recordMonitorResult(
   const consecutiveFailures = outcome.ok
     ? 0
     : (monitor.consecutiveFailures ?? 0) + 1;
-  // Note: no updatedAt bump — status writes must not churn the config
-  // timestamp (mirrors analytics-alerts markRuleStatus).
   await db
     .update(schema.monitors)
     .set({
@@ -1847,8 +1758,6 @@ export async function recordMonitorResult(
     })
     .where(eq(schema.monitors.id, monitor.id));
 
-  // Emit a change so open UIs invalidate via useDbSync() after each probe —
-  // this is the only sync signal for background-sweep results.
   recordChange({
     source: "monitors",
     type: "change",
@@ -1857,10 +1766,6 @@ export async function recordMonitorResult(
     orgId: monitor.orgId ?? undefined,
   });
 }
-
-// ---------------------------------------------------------------------------
-// Incident management + notifications
-// ---------------------------------------------------------------------------
 
 function describeCause(outcome: CheckOutcome): string {
   if (outcome.error) return outcome.error.slice(0, 300);
@@ -2056,12 +1961,6 @@ export interface EvaluateMonitorResult {
   recovered?: boolean;
 }
 
-/**
- * Open / update / resolve incidents based on the latest outcome and send
- * notifications. On a transition into confirmed failure it opens an incident
- * and notifies (respecting an anti-flap cooldown); on recovery it resolves the
- * open incident and sends a recovery notice.
- */
 export async function evaluateAndNotifyMonitor(
   monitor: Monitor,
   outcome: CheckOutcome,
@@ -2138,7 +2037,6 @@ export async function evaluateAndNotifyMonitor(
     };
   }
 
-  // Recovery.
   if (open) {
     await db
       .update(schema.monitorIncidents)
@@ -2161,27 +2059,17 @@ export async function evaluateAndNotifyMonitor(
   return { status: "up", notified: false };
 }
 
-/**
- * Run one monitor end-to-end: probe, persist the result + status, then
- * open/resolve incidents and notify. Used by the sweep job and the on-demand
- * run-monitor-check action.
- */
 export async function runAndProcessMonitor(
   monitor: Monitor,
   ctx: AccessCtx,
   opts: { allowPrivateHosts?: boolean; source?: MonitorCheckSource } = {},
 ): Promise<CheckOutcome> {
   const outcome = await runMonitorCheck(monitor, opts);
-  // recordMonitorResult() emits the "monitors" change for the UI.
   await recordMonitorResult(monitor, outcome);
   await evaluateAndNotifyMonitor(monitor, outcome, ctx);
   return outcome;
 }
 
-/**
- * Run one check now for a specific monitor id (on-demand). Returns the outcome
- * and the refreshed monitor detail.
- */
 export async function runMonitorNow(
   id: string,
   ctx: AccessCtx,
@@ -2203,15 +2091,6 @@ export async function runMonitorNow(
   return runAndProcessMonitor(monitor, ctx, { source: "manual" });
 }
 
-// ---------------------------------------------------------------------------
-// Retention
-// ---------------------------------------------------------------------------
-
-/**
- * Delete check results older than the retention window so the table can't grow
- * unbounded. This is a global maintenance prune by age (not a per-user read),
- * so it intentionally isn't owner-scoped.
- */
 export async function pruneOldCheckResults(
   now: Date = new Date(),
 ): Promise<number> {

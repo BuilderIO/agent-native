@@ -48,7 +48,6 @@ import {
 } from "../server/triage/slack-client.js";
 import { dispatchSkipStatusWrite } from "../server/triage/slack-review-window.js";
 
-/** Slack notifies only with `<@USERID>`. Plaintext @handles do not ping anyone. */
 const REPLY_INSTRUCTION =
   "please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the full thread and linked evidence, and fix the owning boundary. Please send a PR when ready, then have the @agent-native bot post a concise Fixed, In progress, or Clarification needed disposition in this same thread; a reaction or this handoff alone is not completion.";
 const plaintextBuilderReplyPrefix =
@@ -110,11 +109,6 @@ export function isStartedTriageRunStatus(status: string): boolean {
   return startedTriageRunStatuses.has(status);
 }
 
-/**
- * The repository a GitHub dispatch would post to. A GitHub issue carries its
- * own repository and that wins, because the number in its external id is only
- * meaningful there.
- */
 export function dispatchRepositoryForItem(
   item: {
     source: string;
@@ -131,11 +125,6 @@ export function dispatchRepositoryForItem(
   return authorizedRepository;
 }
 
-/**
- * Tagging @builderio-bot is an irreversible write, so an item pointing outside
- * the factory's authorized repository is a stop rather than a preference.
- * Without this the item's own repository silently won over the factory's.
- */
 export function dispatchRepositoryConflictReason(
   repositoryRef: string,
   authorizedRepository: string,
@@ -513,12 +502,6 @@ export default defineAction({
     });
     const blocked =
       alreadyClaimed || guardResults.some((guard) => !guard.passed);
-    // Persist the classification immediately, ahead of any Slack/GitHub I/O
-    // below, for this item and every related item in the same cluster. A
-    // provider failure after this point must not leave an item's
-    // risk/confidence at their prior (usually "unknown") values when the
-    // model already classified it and, on the dispatch path, external side
-    // effects may already be underway.
     await db
       .update(triageItems)
       .set({ risk, confidence, updatedAt: new Date().toISOString() })

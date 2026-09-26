@@ -14,21 +14,6 @@ import {
   siteById,
 } from "../../lib/fleet";
 
-/**
- * "My things are gone."
- *
- * Reported across apps in the same week: decks missing from Mine, a Content
- * page vanishing from personal pages, custom apps absent from Dispatch. They
- * share one cause shape — a list that scopes rows by the requesting user's
- * identity renders empty when that identity does not resolve, and an empty
- * list looks exactly like "you have nothing".
- *
- * These specs read only. They assert the signed-in surface renders its own
- * data rather than the signed-out or empty state, without creating fixtures:
- * most beta apps share a database with production, so a test that writes
- * leaves residue in real users' data.
- */
-
 skipUnlessAuthed();
 
 const selected = new Set(selectedSites().map((site) => site.id));
@@ -68,9 +53,6 @@ test.describe("slides deck list", () => {
         "beta.slides threw uncaught errors from its own code on the deck list",
       ).toEqual([]);
 
-      // "Mine" is the filter that broke: it compares each row's owner against
-      // the request identity, so it empties out when identity resolution
-      // fails even though the decks are still there.
       const mine = page.locator('[aria-label="Show decks created by me"]');
       test.skip(
         (await mine.count()) === 0,
@@ -83,14 +65,9 @@ test.describe("slides deck list", () => {
         page,
         'beta.slides deck list with "Mine" applied',
       );
-      // The unfiltered empty state must be matched on its own wording. The
-      // looser /no decks/i also matches "No decks created by you yet.", so the
-      // skip below would fire in exactly the case this test exists to catch —
-      // decks present, "Mine" empty — and the assertion would never run.
       const allDecksEmpty = /no decks (?:yet|found)/i.test(body);
       const mineEmpty = /No decks created by you yet\./i.test(afterFilter);
 
-      // Only meaningful when the account owns decks at all.
       test.skip(
         allDecksEmpty,
         "this account owns no decks on beta.slides, so Mine has nothing to show",
@@ -187,11 +164,6 @@ test.describe("clips recorder", () => {
         "beta.clips showed a signed-out surface to a signed-in session",
       ).not.toMatch(/sign in with google|create an account or sign in/i);
 
-      // The recurring Clips reports are all state-machine failures: the
-      // recorder opens already preparing, shows a camera bubble that never
-      // resolves, or keeps an old recording active. A direct idle visit is a
-      // cheap way to prove the capture route starts in the idle state before
-      // adding hardware-dependent media permissions to this fleet gate.
       await page.goto(`${origin}/record`, {
         waitUntil: "domcontentloaded",
         timeout: 90_000,
@@ -238,14 +210,11 @@ test.describe("dispatch workspace", () => {
         body,
         "beta.dispatch /apps rendered an application error",
       ).not.toMatch(/application error|something went wrong/i);
-      // Positive signal, not the word "apps" — that appears in the nav of every
-      // page and would make this assertion meaningless.
       expect(
         body,
         'beta.dispatch /apps did not render the "Your apps" section',
       ).toMatch(/your apps/i);
 
-      // Clicking Instructions under settings was reported to crash the app.
       for (const path of [
         "/settings/general",
         "/settings/agent/resources/instructions",
@@ -291,10 +260,6 @@ test.describe("dispatch workspace", () => {
         "this account has no ready workspace app with an Open app action",
       );
 
-      // The primary action intentionally enters Dispatch's /apps/:id host;
-      // the host then establishes the app session and embeds the published
-      // app. A wrong app id or a stale /dispatch/apps link shows up as the
-      // app-not-found pane here instead of as a successful navigation.
       await openApp.click();
       await expect(
         page.locator("[data-dispatch-workspace-app-host]"),
@@ -322,13 +287,6 @@ test.describe("dispatch workspace", () => {
   });
 });
 
-/**
- * A user reported opening a chat in app 1, switching to app 2, then returning
- * to app 1 and seeing app 2's newer conversation. The default `/threads`
- * response is the app-local history surface; connected and other-app chats
- * are opt-in. Legacy unsourced threads are valid, but a sourced thread must
- * belong to the app whose host answered the request.
- */
 test.describe("app-local chat history", () => {
   for (const site of chatSites()) {
     test(`${site.id} does not return another app's local threads`, async ({

@@ -17,9 +17,6 @@ function createMockEvent(): H3Event & {
 }
 
 describe("cdnSafeOriginStatus", () => {
-  // Cloudflare replaces an origin 502/504 body with its own "Bad gateway"
-  // page, so the popup's message and its BroadcastChannel handoff never reach
-  // the user. Reported as a Cloudflare 502 on "Create and activate".
   it("rewrites gateway statuses a CDN would swallow", () => {
     expect(cdnSafeOriginStatus(502)).toBe(503);
     expect(cdnSafeOriginStatus(504)).toBe(503);
@@ -58,9 +55,6 @@ describe("sendBuilderPopupErrorPage", () => {
 });
 
 describe("builder connect route statuses", () => {
-  // The first version of this scan only matched `setResponseStatus(event, 502)`
-  // and missed `fail(502, ...)`, where the status reaches the response through
-  // a local responder. Match the literal itself rather than one call shape.
   it("never answers a Builder route with a gateway status", () => {
     const source = readFileSync(
       fileURLToPath(new URL("./core-routes-plugin.ts", import.meta.url)),

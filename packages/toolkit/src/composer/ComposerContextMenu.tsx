@@ -165,7 +165,6 @@ function ContextSubmenu({
         data-agent-native-composer-popover="true"
         onFocusOutside={(event) => {
           const target = event.target;
-          // Radix focuses ancestor menus/triggers while a resumed chain mounts.
           if (
             target instanceof HTMLElement &&
             target.closest('[data-agent-native-composer-popover="true"]') &&

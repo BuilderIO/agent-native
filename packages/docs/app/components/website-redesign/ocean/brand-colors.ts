@@ -1,10 +1,5 @@
 import { DEFAULT_OCEAN_COLORS, type OceanColors } from "./ocean-colors";
 
-/**
- * `--b-bg-page` and `--b-text-secondary` are authored as hex in tokens.css and
- * both flip value under `.light .builder-brand-tokens`, so reading them off the
- * mounted element is what keeps the shader theme-correct.
- */
 const FG_TOKEN = "--b-text-secondary";
 const BG_TOKEN = "--b-bg-page";
 
@@ -26,8 +21,6 @@ export function hexToLinearRgb(
   ];
 }
 
-// The present pass encodes to sRGB on the way out, so the token has to enter
-// the shader linear or every mix lands too dark.
 function srgbToLinear(channel: number): number {
   return channel <= 0.04045
     ? channel / 12.92

@@ -1,4 +1,3 @@
-/* Self-hosted via @fontsource-variable/inter — no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
@@ -209,16 +208,6 @@
   background: hsl(var(--muted-foreground) / 0.34);
 }
 
-/*
- * The editor toolbar's scrolling strip of controls.
- *
- * macOS draws overlay scrollbars, which appear only while something is already
- * scrolling — no use at all as the sign that a bar scrolls in the first place,
- * which is how the Export button came to be off the edge of a MacBook screen
- * with nothing to say so. `-webkit-appearance: none` opts this one element back
- * into a real scrollbar that is always drawn, faint while the pointer is
- * elsewhere and plain as soon as it is over the strip.
- */
 .clips-toolbar-strip {
   scrollbar-width: thin;
   scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;

@@ -44,8 +44,6 @@ describe("parseCardsFromMarkdown", () => {
 });
 
 describe("CardsBlock", () => {
-  // A card href goes straight to the router and never passes through the
-  // Markdown renderer, so the host has to hand the block its own rewrite.
   it("canonicalizes a card href through the render context", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>

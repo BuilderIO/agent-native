@@ -2,13 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NotificationChannel } from "./types.js";
 
-// Each test imports channels.js fresh (vi.resetModules) so the module-level
-// `_registered` guard re-runs and the channel closure captures the current
-// NOTIFICATIONS_WEBHOOK_URL / _AUTH env. We capture the registered channel,
-// then drive its deliver() directly to exercise the real webhook logic: key-
-// reference resolution, URL allowlist enforcement, auth header, POST body, and
-// non-ok handling.
-
 const resolveKeyReferencesWithRequestScopes = vi.fn();
 const validateUrlAllowlist = vi.fn();
 const getKeyAllowlist = vi.fn();
@@ -165,15 +158,10 @@ describe("webhook notification channel", () => {
       owner: "alice@example.com",
     });
     expect(typeof payload.emittedAt).toBe("string");
-    // No Authorization header when NOTIFICATIONS_WEBHOOK_AUTH is unset.
     expect(init.headers.Authorization).toBeUndefined();
   });
 
   it("resolves ${keys.NAME} through the request-scope cascade, scoped to the owner", async () => {
-    // Locks in the switch from resolveKeyReferences(text, "user", owner) to
-    // resolveKeyReferencesWithRequestScopes(text, owner) — the cascade
-    // resolver that also backs extension fetches and automation headers, so
-    // a key synced into the org/workspace Dispatch vault resolves here too.
     const channel = (await loadWebhookChannel())!;
     await channel.deliver(
       { severity: "info", title: "x" },
@@ -224,9 +212,7 @@ describe("webhook notification channel", () => {
       ),
     ).rejects.toThrow(/not in the allowlist/i);
 
-    // Critically, the disallowed request must never be sent.
     expect(fetchMock).not.toHaveBeenCalled();
-    // The allowlist was looked up for the referenced key, scoped to the owner.
     expect(getKeyAllowlist).toHaveBeenCalledWith(
       "HOOK_URL",
       "user",
@@ -413,7 +399,6 @@ describe("webhook notification channel", () => {
         { owner: "alice@example.com" },
       ),
     ).rejects.toThrow(/401: upstream rejected: bad token/);
-    // The reader is drained then released rather than left open.
     expect(cancelled).toBe(true);
   });
 });

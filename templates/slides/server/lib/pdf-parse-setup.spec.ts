@@ -20,15 +20,12 @@ describe("setupPdfParse", () => {
     const DOMMatrixCtor = (globalThis as { DOMMatrix?: any }).DOMMatrix;
     expect(DOMMatrixCtor).toBeDefined();
 
-    // translate(10, 20) followed by scale(2, 3) must compose like the real
-    // DOMMatrix 2D affine API (verified against known matrix arithmetic).
     const m = new DOMMatrixCtor().translate(10, 20).scale(2, 3);
     expect(m.a).toBe(2);
     expect(m.d).toBe(3);
     expect(m.e).toBe(10);
     expect(m.f).toBe(20);
 
-    // inverse() must actually invert: m * m^-1 === identity.
     const identity = m.multiply(m.inverse());
     expect(identity.a).toBeCloseTo(1);
     expect(identity.b).toBeCloseTo(0);
@@ -62,8 +59,6 @@ describe("setupPdfParse", () => {
 
     expect(result.canvasFactory).toBeUndefined();
     expect(result.PDFParse).toBeDefined();
-    // The DOMMatrix polyfill must still be installed even though the canvas
-    // worker setup failed — this is the actual fix for the prod crash.
     expect((globalThis as { DOMMatrix?: unknown }).DOMMatrix).toBeDefined();
   });
 });

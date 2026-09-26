@@ -89,7 +89,6 @@ describe("pending text capture", () => {
     beginTextEditForOwner("board", "text-b", { afterPointerGesture: true });
     type("Bee");
 
-    // A's late exhaustion cleanup must not disarm the live creation B.
     a.cancel();
     expect(isPendingTextCaptureBound("board", "text-b")).toBe(true);
 
@@ -113,7 +112,6 @@ describe("pending text capture", () => {
       cancelable: true,
     });
     window.dispatchEvent(undo);
-    // The chord itself must still reach the host's undo handler.
     expect(undo.defaultPrevented).toBe(false);
 
     const shortcut = new KeyboardEvent("keydown", {
@@ -143,8 +141,6 @@ describe("pending text capture", () => {
     const cancelA = vi.fn();
     const a = armPendingTextCapture({ owner: "board" });
     a.bind("text-a");
-    // The owning canvas's delayed activation and the editor's retry ladder
-    // both hang off the creation that started them.
     onPendingTextCaptureCancel("board", "text-a", cancelA);
     onPendingTextCaptureCancel("board", "other-node", () => {
       throw new Error("a foreign identity must never be torn down");
@@ -168,11 +164,8 @@ describe("pending text capture", () => {
     type("Hi");
     expect(takePendingTextCapture("screen", "text-6")).toBe("Hi");
     onPendingTextCaptureCancel("screen", "text-6", cancel);
-    // The canvas captures from here, so the host buffer is no longer the one
-    // holding keys for an unstarted session...
     expect(isPendingTextCaptureBound("screen", "text-6")).toBe(false);
 
-    // ...but the request it started is still the thing pointer-away cancels.
     window.dispatchEvent(new PointerEvent("pointerdown"));
     expect(cancel).toHaveBeenCalledOnce();
   });
@@ -182,8 +175,6 @@ describe("pending text capture", () => {
     const capture = armPendingTextCapture({ owner: "board" });
     capture.bind("text-7");
 
-    // A board canvas can take seconds to mount; the old 3s stand-down dropped
-    // exactly the keys typed while it was mounting.
     vi.advanceTimersByTime(3_500);
     type("Late");
     expect(isPendingTextCaptureBound("board", "text-7")).toBe(true);
@@ -191,8 +182,6 @@ describe("pending text capture", () => {
 
     const expired = armPendingTextCapture({ owner: "board" });
     expired.bind("text-8");
-    // The ladder's deadline is not the cap: a board still mounting keeps its
-    // interception.
     vi.advanceTimersByTime(PENDING_TEXT_EDIT_TIMEOUT_MS + 1);
     expect(isPendingTextCaptureBound("board", "text-8")).toBe(true);
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
@@ -211,15 +200,11 @@ describe("pending text capture", () => {
       new KeyboardEvent("keydown", { key: "Escape", cancelable: true }),
     );
 
-    // Escape promised the text to the node and the frame has not acknowledged
-    // the commit; this record holds the only copy, so the deadline firing here
-    // would delete exactly what the user typed.
     vi.advanceTimersByTime(PENDING_TEXT_EDIT_TIMEOUT_MS + 1);
     expect(peekPendingTextCapture("board", "text-15")).toBe("Sta");
     expect(isPendingTextRequestLive("board", "text-15")).toBe(true);
     expect(teardown).not.toHaveBeenCalled();
 
-    // Abandonment still stands the delivery down — only the clock is disarmed.
     window.dispatchEvent(new PointerEvent("pointerdown"));
     expect(isPendingTextRequestLive("board", "text-15")).toBe(false);
     expect(teardown).toHaveBeenCalledOnce();
@@ -232,24 +217,18 @@ describe("pending text capture", () => {
     beginTextEditForOwner("board", "text-owed", { afterPointerGesture: true });
     type("Standalone");
 
-    // The board is still mounting when the cap passes. Interception ends; the
-    // obligation to deliver what was typed does not.
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
     const late = new KeyboardEvent("keydown", { key: "x", cancelable: true });
     window.dispatchEvent(late);
     expect(late.defaultPrevented).toBe(false);
     expect(peekPendingTextCapture("board", "text-owed")).toBe("Standalone");
 
-    // The owner finally mounts: the session opens holding the text, and stays
-    // open for more typing.
     const begun = vi.fn(() => true);
     register("board", begun);
     expect(begun).toHaveBeenCalledExactlyOnceWith("text-owed", {
       deliverOwed: true,
     });
 
-    // The begin command already carried the text, so this session is sent no
-    // second copy — and the request ends only when the frame says it landed.
     expect(beginPendingTextDelivery("board", "text-owed", "")).toEqual({
       text: "",
       alreadyPosted: true,
@@ -268,9 +247,6 @@ describe("pending text capture", () => {
     );
     type("Standalone");
 
-    // The canvas that owned the creation is gone (the user switched screens)
-    // and nothing replaced it in that commit. Holding keys for it swallowed
-    // everything typed until the cap.
     unregister();
     await Promise.resolve();
     const next = new KeyboardEvent("keydown", { key: "r", cancelable: true });
@@ -297,7 +273,6 @@ describe("pending text capture", () => {
     const capture = armPendingTextCapture({ owner: "board" });
     capture.bind("text-race");
     type("Standalone");
-    // The frame is handed the delivery and has NOT acknowledged it.
     register(
       "board",
       vi.fn(() => true),
@@ -309,9 +284,6 @@ describe("pending text capture", () => {
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
 
-    // The revoke has to reach the frame BEFORE the source is written, or the
-    // frame inserts the same characters afterwards and the node ends up with
-    // two copies.
     expect(order).toEqual(["revoke-frame-copy", "host-commit"]);
   });
 
@@ -327,7 +299,6 @@ describe("pending text capture", () => {
 
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
     expect(commit).not.toHaveBeenCalled();
-    // A full save-and-mount window after interception ended, still no owner.
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
     expect(commit).toHaveBeenCalledExactlyOnceWith(
       "board",
@@ -335,7 +306,6 @@ describe("pending text capture", () => {
       "Standalone",
     );
     expect(isPendingTextRequestLive("board", "text-orphan")).toBe(false);
-    // What the creation started for an owner that never came goes with it.
     expect(teardown).toHaveBeenCalledOnce();
   });
 
@@ -354,8 +324,6 @@ describe("pending text capture", () => {
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
     expect(commit).toHaveBeenCalledTimes(1);
 
-    // The refusal left the text owed rather than discarded, so the next attempt
-    // carries the same characters — and only one of them lands.
     vi.advanceTimersByTime(HOST_COMMIT_RETRY_DELAYS_MS[0]);
     expect(commit.mock.calls).toEqual([
       ["board", "text-retry", "Standalone"],
@@ -382,7 +350,6 @@ describe("pending text capture", () => {
 
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
-    // A throw is not a discard: the payload is still owed, and still retried.
     expect(commit).toHaveBeenCalledTimes(1);
     for (const delay of HOST_COMMIT_RETRY_DELAYS_MS) {
       vi.advanceTimersByTime(delay);
@@ -391,8 +358,6 @@ describe("pending text capture", () => {
       HOST_COMMIT_RETRY_DELAYS_MS.length + 1,
     );
 
-    // The node is the recoverable place, so this path never deletes it — and
-    // the report names the layer without ever carrying the characters.
     expect(removeNode).not.toHaveBeenCalled();
     expect(error).toHaveBeenCalledOnce();
     const reported = error.mock.calls[0]?.[1] as Record<string, unknown>;
@@ -405,9 +370,6 @@ describe("pending text capture", () => {
     vi.useFakeTimers();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    // Two owed writes queued at the same time, each bound to its OWN
-    // registration — the only shape in which "settle mine" and "settle
-    // everything" differ.
     const writerA = vi.fn(() => false);
     const unregisterA = registerPendingTextHostCommit(writerA);
     const a = armPendingTextCapture({ owner: "board-a" });
@@ -424,15 +386,11 @@ describe("pending text capture", () => {
     failPendingTextCapture("board-b");
     expect(writerB).toHaveBeenCalledTimes(1);
 
-    // A's editor goes away mid-backoff. B's write is a different editor's and
-    // is still owed.
     unregisterA();
     vi.advanceTimersByTime(HOST_COMMIT_RETRY_DELAYS_MS[0]);
 
     expect(writerB).toHaveBeenCalledTimes(2);
     expect(writerA).toHaveBeenCalledTimes(1);
-    // Each writer only ever sees its own editor's screen, node and text —
-    // crossing them would write one design's text through another's writer.
     expect(writerA.mock.calls).toEqual([["board-a", "text-a", "Alpha"]]);
     expect(writerB.mock.calls).toEqual([
       ["board-b", "text-b", "Beta"],
@@ -445,8 +403,6 @@ describe("pending text capture", () => {
     vi.useFakeTimers();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const secret = "Standalone";
-    // A code is as free-form as a message: anything that reaches the log can
-    // carry the payload, so nothing free-form may reach it.
     const commit = vi.fn(() => {
       const thrown = new Error("write failed");
       (thrown as { code?: string }).code = `E_WRITE_${secret}`;
@@ -488,23 +444,16 @@ describe("pending text capture", () => {
   it("still reports an owed write after the record detaches out of `active`", () => {
     vi.useFakeTimers();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    // Refuses, so the record stays queued and mid-backoff for this whole test.
     const commit = vi.fn(() => false);
     unregisterAll.push(registerPendingTextHostCommit(commit));
     const capture = armPendingTextCapture({ owner: "board" });
     capture.bind("text-detached");
     type("Standalone");
 
-    // The rolled-back save hands the payload to the writer: `active` is empty
-    // from here, but the node is still owed its text.
     expect(failPendingTextCapture("board")).toBe("write-queued");
     expect(isPendingTextRequestLive("board", "text-detached")).toBe(false);
     expect(isPendingTextWriteInFlight("board", "text-detached")).toBe(true);
 
-    // Asked AGAIN — exactly what the node-missing path does — the answer has
-    // to stay "owed". Reading `active` alone answered "nothing-owed" here, and
-    // the creation deleted the node out from under the retrying write. This
-    // pins that guard ON ITS OWN, where the cleanup-side guard cannot mask it.
     expect(failPendingTextCapture("board", "text-detached")).toBe(
       "write-queued",
     );
@@ -515,9 +464,6 @@ describe("pending text capture", () => {
     vi.useFakeTimers();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const secret = "Standalone";
-    // A writer that quotes the value it failed on — the ordinary shape of a
-    // validation or parse error, and the way the characters we refuse to log
-    // come back in through the error object.
     const commit = vi.fn(() => {
       const thrown = new RangeError(`could not write ${secret} to source`);
       (thrown as { payload?: string }).payload = secret;
@@ -535,7 +481,6 @@ describe("pending text capture", () => {
     }
 
     expect(error).toHaveBeenCalledOnce();
-    // Across EVERY argument, not just the payload object.
     const logged = error.mock.calls[0]!.map((argument) => {
       try {
         return typeof argument === "string"
@@ -568,8 +513,6 @@ describe("pending text capture", () => {
     type("Standalone");
 
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS * 2 + 1);
-    // Still retrying: a refused write is not yet a lost one, so nothing is
-    // reported while the text is still owed.
     expect(error).not.toHaveBeenCalled();
     for (const delay of HOST_COMMIT_RETRY_DELAYS_MS) {
       vi.advanceTimersByTime(delay);
@@ -588,8 +531,6 @@ describe("pending text capture", () => {
     const capture = armPendingTextCapture({ owner: "board" });
     capture.bind("text-9");
     expect(isPendingTextRequestLive("board", "text-9")).toBe(true);
-    // Still live once the owning canvas has the buffer — the request is open
-    // until it activates or stands down, not until the handoff.
     expect(takePendingTextCapture("board", "text-9")).toBe("");
     expect(isPendingTextRequestLive("board", "text-9")).toBe(true);
 
@@ -603,13 +544,11 @@ describe("pending text capture", () => {
     type("Un");
     expect(takePendingTextCapture("board", "text-10")).toBe("Un");
 
-    // The canvas unmounted holding the only copy of the gesture's keystrokes.
     returnPendingTextCapture("board", "text-10", "Un");
     type("mount");
     const remounted = vi.fn(() => true);
     register("board", remounted);
     expect(takePendingTextCapture("board", "text-10")).toBe("Unmount");
-    // A canvas that already lost the request cannot resurrect it.
     returnPendingTextCapture("board", "text-stale", "Ghost");
     expect(takePendingTextCapture("board", "text-stale")).toBeNull();
   });
@@ -619,8 +558,6 @@ describe("pending text capture", () => {
     capture.bind("text-11");
     expect(takePendingTextCapture("board", "text-11")).toBe("");
 
-    // Unmounted before the user typed anything: with the capture still marked
-    // handed off, nothing anywhere buffers the keys they type next.
     returnPendingTextCapture("board", "text-11", "");
     expect(isPendingTextCaptureBound("board", "text-11")).toBe(true);
     type("First");
@@ -634,8 +571,6 @@ describe("pending text capture", () => {
     capture.bind("text-12");
     beginTextEditForOwner("board", "text-12", { afterPointerGesture: true });
 
-    // A canvas can register before its iframe is attached. Consuming the intent
-    // there left the creation with nothing to open it.
     const notReady = vi.fn(() => false);
     const unregisterNotReady = register("board", notReady);
     expect(notReady).toHaveBeenCalledOnce();
@@ -647,7 +582,6 @@ describe("pending text capture", () => {
       afterPointerGesture: true,
     });
 
-    // Delivered exactly once: a third registration gets nothing.
     const later = vi.fn(() => true);
     register("board", later);
     expect(later).not.toHaveBeenCalled();
@@ -657,20 +591,17 @@ describe("pending text capture", () => {
     const capture = armPendingTextCapture({ owner: "board" });
     capture.bind("text-13");
     type("Sta");
-    // Escape hands the text to the owner to commit and ends interception.
     window.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", cancelable: true }),
     );
     expect(peekPendingTextCapture("board", "text-13")).toBe("Sta");
 
-    // The owning canvas unmounted before the commit landed.
     returnPendingTextCapture("board", "text-13", "");
     const after = new KeyboardEvent("keydown", { key: "M", cancelable: true });
     window.dispatchEvent(after);
     expect(after.defaultPrevented).toBe(false);
     expect(takePendingTextCapture("board", "text-13")).toBeNull();
 
-    // The next owner is asked to commit exactly what was escaped.
     const begun = vi.fn(() => true);
     register("board", begun);
     expect(begun).toHaveBeenCalledExactlyOnceWith("text-13", {
@@ -689,8 +620,6 @@ describe("pending text capture", () => {
 
     releasePendingTextCapture("board", "text-14");
     expect(isPendingTextRequestLive("board", "text-14")).toBe(false);
-    // A completed request is not an abandoned one: nothing gets torn down and
-    // no cleanup is scheduled against a node that now has content.
     expect(teardown).not.toHaveBeenCalled();
   });
 
@@ -709,14 +638,10 @@ describe("pending text capture", () => {
 });
 
 it("only DesignCanvas's primary frame registers as a text-edit owner", () => {
-  // A breakpoint preview renders the same screen under the same screenId and
-  // would collide with the primary frame on that key, stealing its activation.
   const source = readFileSync("app/components/design/DesignCanvas.tsx", "utf8");
   expect(source).toMatch(
     /if \(previewFrameId\) return;\s+const owner = screenId;[\s\S]{0,400}?registerTextEditOwner\(\s*owner,/,
   );
-  // ...and the same exclusion for every other identity check, which read the
-  // bare screenId a preview also carries.
   expect(source).toContain(
     "capturedOwnerRef.current = previewFrameId ? null : (screenId ?? null);",
   );

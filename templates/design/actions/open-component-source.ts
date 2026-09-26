@@ -1,29 +1,3 @@
-/**
- * open-component-source — navigate / deep-link action.
- *
- * For a selected component instance, resolves the source file path (via
- * `resolveNodeToFile` bridge op when the capability is available) and writes
- * a navigation command to application state so the editor opens the correct
- * file and highlights the component.
- *
- * **Inline / Alpine tier:**  the "source file" is the design HTML file itself.
- * The action navigates the editor to the file and selects the component node —
- * there is no external source file to open.  The response includes a
- * `ctaRequired` flag pointing to the real-app CTA for full jump-to-source.
- *
- * **Real-app tier (localhost / fusion):**  uses the persisted `component_index`
- * row's `filePath` / `exportName` as the target (populated by `index-components`
- * after a bridge handshake or AST parse).  The `resolveNodeToFile` capability
- * gate is checked and the response includes the external file path for the IDE
- * to open.
- *
- * Navigation is written via `writeAppStateForCurrentTab("navigate", ...)` —
- * the same mechanism as the `navigate` action. Because this writes transient
- * application state, the action uses the default POST mutation transport.
- *
- * See DESIGN-STUDIO-PLAN.md §6.1 (jump-to-source) and §7 (action surface).
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
@@ -31,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
@@ -42,8 +16,6 @@ import {
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function liveContent(
   fileId: string,
@@ -61,8 +33,6 @@ async function liveContent(
     })
   ).content;
 }
-
-// ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description:
@@ -85,17 +55,14 @@ export default defineAction({
   run: async ({ designId, nodeId, fileId }) => {
     const db = getDb();
 
-    // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
 
-    // ── Source type + capabilities ───────────────────────────────────────────
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
     const caps = resolveSourceCapabilities(sourceType);
     const canResolveToFile = hasCapability(caps, "resolveNodeToFile");
 
-    // ── Fetch design file ────────────────────────────────────────────────────
     const conditions = [
       accessFilter(schema.designs, schema.designShares),
       eq(schema.designFiles.designId, designId),
@@ -123,7 +90,6 @@ export default defineAction({
 
     const html = await liveContent(file.id, file.content ?? "");
 
-    // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
       kind: "design-file",
       designId: file.designId,
@@ -151,7 +117,6 @@ export default defineAction({
       );
     }
 
-    // ── Lookup persisted component_index for real-app source location ────────
     const [indexRow] = await db
       .select({
         id: schema.componentIndex.id,
@@ -167,9 +132,6 @@ export default defineAction({
       )
       .limit(1);
 
-    // ── Build source location ─────────────────────────────────────────────────
-    // For inline designs: the design file is the "source".
-    // For real-app designs: the external file path from component_index.
     const isRealApp = sourceType !== "inline";
     const externalFilePath =
       isRealApp && canResolveToFile ? (indexRow?.filePath ?? null) : null;
@@ -177,21 +139,14 @@ export default defineAction({
       isRealApp && canResolveToFile ? (indexRow?.exportName ?? null) : null;
 
     const sourceLocation = {
-      /** The design file that contains this component instance. */
       designFileId: file.id,
       designFilename: file.filename,
-      /** Node id within the design file. */
       nodeId,
-      /** CSS selector for the component root in the rendered HTML. */
       selector: node.selector,
-      /** External source file for real-app components (null on inline). */
       externalFilePath,
       exportName,
     };
 
-    // ── Emit navigation command ──────────────────────────────────────────────
-    // Use the same application state key as the `navigate` action so the UI
-    // client picks it up and selects the element in the editor.
     await writeAppStateForCurrentTab("navigate", {
       view: "editor",
       designId,

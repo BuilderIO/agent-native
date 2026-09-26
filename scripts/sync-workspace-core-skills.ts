@@ -62,17 +62,12 @@ const headlessTemplateSkillsDir = join(
 
 const workspaceSkillIncludes = [...DEFAULT_WORKSPACE_SKILLS];
 
-// These are shared framework/best-practice skills that generated/default apps
-// and first-party templates often copy locally. Keep them byte-for-byte
-// canonical so generated apps, workspaces, and this repo do not learn different
-// architectural rules.
 const templateSharedSkillIncludes = [...DEFAULT_WORKSPACE_SKILLS];
 
 const requiredTemplateSharedSkills: Record<string, string[]> = {
   chat: ["agent-native-docs"],
 };
 
-/** Copied into every first-party template that uses shared skills. */
 const requiredAllTemplateSharedSkills = [...DEFAULT_WORKSPACE_SKILLS];
 
 const requiredDefaultTemplateSharedSkills = [...DEFAULT_WORKSPACE_SKILLS];
@@ -215,15 +210,6 @@ const requiredRegistryConventionSkills = [
   "customizing-agent-native",
 ];
 
-// Skills outside workspaceSkillIncludes are opt-in. Repo-maintenance workflows
-// are useful in this repository, but generated workspaces should not inherit
-// branch/PR shipping behavior from our monorepo.
-//
-// The trailing entries are symlinks under `.agents/skills/`, not real
-// directories: five point into `skills/` (shipped through the plugin
-// marketplace in `.claude-plugin/`) and `content-product-development` points
-// into the Content template. Copying them here would fork a second, silently
-// drifting copy of a skill another channel already owns.
 const workspaceSkillExcludes = [
   "babysit-pr",
   "chat-first-workbench",
@@ -250,9 +236,6 @@ const staleTemplateSharedSkills = FRAMEWORK_TEMPLATE_SHARED_SKILLS.filter(
   (skill) => !templateSharedSkillIncludes.includes(skill),
 );
 
-// `Dirent.isDirectory()` reflects the entry's own type and returns false for
-// a symlink-to-directory (several root skills — visual-recap, visual-edit,
-// etc. — are symlinks). Follow the link with `statSync` before deciding.
 function isDirEntry(dir, entry) {
   if (entry.isDirectory()) return true;
   if (!entry.isSymbolicLink()) return false;
@@ -399,7 +382,6 @@ function listTemplateDirs() {
       if (entry.name.startsWith(".") || entry.name === "node_modules") {
         return false;
       }
-      // Skip retired host compatibility packages; they are not live templates.
       return (
         existsSync(join(templatesDir, entry.name, "package.json")) &&
         !isRetiredCompatibilityTemplate(entry.name)

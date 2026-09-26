@@ -13,11 +13,6 @@ import {
   DefaultBuilderConnectCardView,
 } from "./setup-connections/BuilderConnectCard.js";
 
-/**
- * Inline storage setup shown when an attachment cannot be made durable.
- * Builder connect and the custom-key path intentionally share the same
- * surface so the user does not have to understand provider internals first.
- */
 export function FileStorageSetupCard() {
   const t = useT();
   const [builderReauthorizationRequired, setBuilderReauthorizationRequired] =

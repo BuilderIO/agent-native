@@ -301,8 +301,6 @@ describe("resolveCleanupSegmentsJson", () => {
   });
 
   it("does not stretch a sparse transcript across the whole recording", () => {
-    // A 31-word transcript of a 2-minute clip used to be re-timed into cues
-    // ~4.3s apart, which looked like minute-long gaps of dropped speech.
     const sparse = JSON.stringify([
       { startMs: 0, endMs: 900, text: "I'm in the Builder desktop app," },
       { startMs: 900, endMs: 1_800, text: "and I zipped a PNG file and" },

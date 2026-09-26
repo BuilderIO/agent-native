@@ -1,8 +1,5 @@
 import { bigint, table, text, integer } from "@agent-native/core/db/schema";
 
-// Workspace app ownership/sharing lives in core so every mounted app can
-// enforce the same access record. Re-exporting these tables keeps Dispatch's
-// Drizzle accessor aware of them for the generic share actions.
 export { workspaceApps, workspaceAppShares } from "@agent-native/core/org";
 
 export const dispatchDestinations = table("dispatch_destinations", {
@@ -122,8 +119,6 @@ export const dispatchDreamProposals = table("dispatch_dream_proposals", {
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
-// ─── Vault: workspace-wide secret management ───────────────────────
-
 export const vaultSecrets = table("vault_secrets", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),
@@ -178,8 +173,6 @@ export const vaultAuditLog = table("vault_audit_log", {
   metadata: text("metadata"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
-
-// ─── Workspace Resources: shared skills, instructions, agents, knowledge, MCP ─
 
 export const workspaceResources = table("workspace_resources", {
   id: text("id").primaryKey(),

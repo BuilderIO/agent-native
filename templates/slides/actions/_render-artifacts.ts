@@ -1,7 +1,3 @@
-/**
- * Server half of the slide save boundary. Underscore-prefixed so action
- * discovery skips it — this module is not itself an action.
- */
 import { fail } from "@agent-native/core/action";
 
 import {
@@ -9,12 +5,6 @@ import {
   SCOPED_STYLE_SELECTOR_MARKER,
 } from "../app/lib/slide-source-map.js";
 
-/**
- * Refuses a content write that adds markers only the editor's rendered DOM
- * carries. Such a write stored rendered markup (scoped `<style>` selectors,
- * source stamps, editor attributes) in place of the slide, which is how whole
- * slides were flattened. Content that already has them still saves.
- */
 export function assertNoRenderArtifacts(
   previousContent: string,
   nextContent: string,
@@ -58,11 +48,6 @@ export function assertNoRenderArtifactsInNewSlide(
   );
 }
 
-/**
- * The full-payload write's half of the save boundary: a stored slide is checked
- * against its stored predecessor, a slide new to the deck (or a new deck's) as
- * a new slide.
- */
 export function assertNoDeckRenderArtifacts(
   previousData: string | null | undefined,
   nextDeck: { slides?: unknown },

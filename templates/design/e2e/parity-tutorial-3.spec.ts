@@ -3,38 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers, gotoEditor } from "./helpers";
 
-/**
- * Parity spec for Figma Learn Tutorial 3: FD4B "Create the navigation bar
- * and footer".
- * https://help.figma.com/hc/en-us/articles/31002534003991
- * Condensed steps: figma-interaction-spec.md Part 2 §3.
- *
- *  1. Frame/Screen tool, create 1440x80 frame "Navigation"        [overview, outside any screen]
- *  2. Add wordmark text, drag to left edge (smart guides)         [in-screen]
- *  3. Add "Link" text on the right
- *  4. Alt/Option-drag to duplicate "Link" twice, then Cmd+D once  [in-screen]
- *  5. Shift-select the Link texts, "Shift+A" (align, then auto layout), gap 24, rename "Links"
- *     -- Design has no auto-layout primitive; closest equivalent is Cmd+G group.
- *  6. Drag a Button instance from Assets, group with Links as "Extra content"
- *     -- Design has no Components/Assets panel; closest equivalent is duplicating
- *        an existing shape into the frame.
- *  7. Select wordmark + Extra content, group, rename "Content"
- *  8. Select Navigation frame, set fixed height/padding/alignment  [codex: layout/inspector]
- *  9. Content fill-container width, alignment center               [codex: layout]
- * 10. Cmd+D the whole Navigation frame -> rename "Footer"; delete the button
- *     instance, ungroup "Extra content", rename remaining group "Contact"
- *     [overview, outside any screen; also exercises moving an element across
- *      the screen boundary by relocating a Link text from Navigation into Footer]
- * 11. Edit text content, hide unused layers via eye toggle          [codex: keyboard/visibility]
- * 12. Convert Navigation and Footer to components, move to Components page
- *     -- Design has no components/variants system; no equivalent, skipped.
- */
-
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
-/** Minimal placeholder "Home" screen so the design starts with one screen
- * and the board around it is empty -- Navigation is drawn fresh on that
- * empty board with the Screen tool, matching step 1 exactly. */
 const HOME_HTML = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Home</title></head>
@@ -97,15 +67,6 @@ async function fileContentByName(
   );
 }
 
-/**
- * The design-record file id for a given filename. `data-screen-iframe-id`
- * on a screen's iframe is stamped with this same file/screen id (see
- * MultiScreenCanvas.tsx:597 "primary = screen id"), so this is the only
- * reliable way to find a specific screen's iframe -- screens are NOT
- * guaranteed to render in creation order or file-list order (a newly drawn
- * screen can render to the LEFT of an existing one and come first in the
- * DOM), so `.first()`/`.last()` on the iframe list is not safe.
- */
 async function fileIdByName(
   page: Page,
   id: string,
@@ -136,11 +97,6 @@ function layerRow(page: Page, name: string) {
     .first();
 }
 
-/** Mirrors app/lib/screen-names.ts prettyScreenName -- the default display
- * name a screen shows before it is ever renamed. Needed because new screens
- * are NOT appended last in the layers tree/screens list (they can be
- * inserted before existing screens), so picking a row by tree position is
- * unreliable; picking by its known default name is not. */
 function prettyScreenName(filename: string): string {
   const dot = filename.lastIndexOf(".");
   let stem = dot > 0 ? filename.slice(0, dot) : filename;
@@ -151,8 +107,6 @@ function prettyScreenName(filename: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-/** The screen ROOT row in the layers tree (level 1 treeitem), matched by its
- * current display name -- never by tree position. */
 function screenRootRow(page: Page, displayName: string) {
   return layersTree(page)
     .locator('[role="treeitem"][aria-level="1"]')
@@ -172,7 +126,6 @@ async function openEditorAndExpandLayers(
   await expandAllLayers(page);
 }
 
-/** Frame/Screen options dropdown -- the trigger's label follows the active mode. */
 async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
   await page
     .locator(
@@ -185,8 +138,6 @@ async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
   await page.waitForTimeout(600);
 }
 
-/** Scans for a point that hit-tests to the empty canvas surface, not a screen
- * card or the inspector panel. */
 async function emptyBoardPoint(page: Page) {
   const point = await page.evaluate(() => {
     const world = document.querySelector("[data-multi-screen-canvas-world]");
@@ -232,9 +183,6 @@ async function drawFrameTool(
   await page.mouse.up();
 }
 
-/** A specific screen's own iframe, found by its file id (stamped onto
- * `data-screen-iframe-id`) -- never by DOM position, which is NOT creation
- * order (a newly drawn screen can render left of an existing one). */
 function screenFrameById(page: Page, fileId: string) {
   return page
     .locator(
@@ -289,8 +237,6 @@ async function addTextInScreen(
   await page.waitForTimeout(300);
   await page.keyboard.press("Escape");
   await page.waitForTimeout(900);
-  // Return to Move so a later click selects rather than re-entering text
-  // edit / redrafting a new text box.
   await page.keyboard.press("v");
   await page.waitForTimeout(250);
 }
@@ -348,7 +294,6 @@ function styleNum(style: string, prop: string): number {
   return m ? Number(m[1]) : NaN;
 }
 
-/** DOM order across the whole document (index of the opening tag). */
 function domOrderIndex(html: string, id: string): number {
   return html.indexOf(`data-agent-native-node-id="${id}"`);
 }
@@ -361,13 +306,6 @@ test.beforeEach(async ({ page }, testInfo) => {
     process.env.E2E_BASE_URL ??
     e2eBaseURL();
 });
-
-// Deliberately NOT `mode: "serial"`: these tests share one design and must
-// run in file order (guaranteed by playwright.config.ts's single worker),
-// but a serial block ABORTS every later test the moment one fails -- and
-// this tutorial is a step sequence, so a real product bug at step 2 would
-// silently swallow every later step's coverage too. Default mode preserves
-// order on one worker while still attempting every remaining test.
 
 test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
   let navFilename = "";
@@ -386,11 +324,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     const before = await designFiles(page, designId);
 
     const empty = await emptyBoardPoint(page);
-    // A screen card at 1:1 with 1440x80 would be huge on a 1600x1000
-    // viewport, so this drags a modest rect and then relies on the fixed
-    // aspect the tool commits at that zoom -- the assertion below checks the
-    // FILE was created (that's what step 1 actually cares about at this
-    // stage), not exact pixel geometry.
     await drawFrameTool(page, "Screen", empty, {
       x: empty.x + 360,
       y: empty.y + 20,
@@ -421,10 +354,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       "the new screen file must be identifiable",
     ).toBeTruthy();
 
-    // Figma default for a freshly drawn top-level frame: white fill, clips
-    // content. Assert the new screen's own root paints white (per
-    // figma-ground-truth.md: Frame tool -> FRAME with white fill and
-    // clipsContent=true).
     const navHtml = await fileContentByName(page, designId, navFilename);
     expect(
       navHtml,
@@ -441,10 +370,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     await openEditorAndExpandLayers(page, designId);
     const designFilesBefore = await designFiles(page, designId);
 
-    // Select the new screen's root row -- identified by its CURRENT default
-    // display name, not tree position (new screens are not guaranteed to
-    // sort last) -- and rename it via the layers panel, exactly like
-    // renaming a top-level frame in Figma (double-click the name).
     const defaultName = prettyScreenName(navFilename);
     const rootRow = screenRootRow(page, defaultName);
     await expect(
@@ -492,8 +417,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     ).toBeTruthy();
     if (renamedFile) navFilename = renamedFile;
 
-    // Overview screen label (the frame-title chrome above the card) should
-    // now display "Navigation".
     await expect(
       page.locator("[data-frame-title]").filter({ hasText: "Navigation" }),
       'the overview screen label must read "Navigation" after the rename',
@@ -525,12 +448,8 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       .toBeGreaterThan(0);
     const wordmarkId = ids[0]!;
 
-    // Escape after typing leaves "Text" as the active tool -- switch to
-    // Move before dragging, or the pointer draws a new text box instead of
-    // moving the one just committed.
     await useTool(page, "Move");
 
-    // Drag it left, toward the frame's left edge, using real pointer moves.
     const box = await screenFrameById(page, navFileId)
       .locator(`[data-agent-native-node-id="${wordmarkId}"]`)
       .first()
@@ -540,16 +459,10 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     const before = await fileContentByName(page, designId, navFilename);
     const leftBefore = styleNum(styleOf(before, wordmarkId), "left");
 
-    // Select it first (a separate click), THEN drag -- a single
-    // mousedown-move-up on an unselected element only selects it, per the
-    // helpers.ts `dragCanvasByText` pattern.
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForTimeout(200);
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    // Stop just inside the iframe's left edge. Crossing the iframe boundary
-    // hands the pointer to the overview canvas, which is a different gesture
-    // path; Figma's smart-guide result is the edge-aligned in-frame position.
     await page.mouse.move(screenBox.x + 12, box.y + box.height / 2, {
       steps: 24,
     });
@@ -610,9 +523,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       await page.waitForTimeout(500);
     }
 
-    // Alt-drag duplicate #1. Poll instead of a single read after altDrag's
-    // fixed settle delay -- the duplicate's save is debounced, and a slower
-    // CI host can read the file before it lands (matches the Cmd+D poll below).
     await altDrag(originalId, 0, 40);
     await expect
       .poll(
@@ -640,7 +550,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
         "DOM order) the source it was copied from",
     ).toBeGreaterThan(domOrderIndex(html, originalId));
 
-    // Alt-drag duplicate #2, off the first copy.
     await altDrag(copy1, 0, 40);
     await expect
       .poll(
@@ -657,7 +566,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       .toBe(3);
     const copy2 = ids.find((i) => i !== originalId && i !== copy1)!;
 
-    // Cmd+D once more on the selection (copy2 is selected after its drag).
     await page.keyboard.press(`${MOD}+d`);
     await expect
       .poll(
@@ -700,9 +608,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       "precondition: 4 Link texts from the prior step",
     ).toBe(4);
 
-    // Shift-select 3 of the 4 (matches the tutorial's later group size) via
-    // the canvas, then Cmd+G -- the closest Design equivalent to
-    // Shift+A "wrap in auto layout".
     for (const id of linkIds.slice(0, 3)) {
       const box = await screenFrameById(page, navFileId)
         .locator(`[data-agent-native-node-id="${id}"]`)
@@ -729,7 +634,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
         ).slice(0, 400)}`,
     ).toBe(true);
 
-    // Rename the group to "Links" via the layers panel, per the tutorial.
     const groupRow = layerRow(page, "Group");
     await expect(groupRow).toHaveCount(1);
     await groupRow.dblclick({ force: true });
@@ -754,8 +658,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     await openEditorAndExpandLayers(page, designId);
     const before = await designFiles(page, designId);
 
-    // Select the Navigation screen at the overview level (click its frame
-    // label chrome, not an element inside it), then duplicate it whole.
     const navCard = page
       .locator("[data-frame-title]")
       .filter({ hasText: "Navigation" })
@@ -797,8 +699,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       "the duplicated screen must start with the same content as Navigation",
     ).toBe(textPrimitiveNodeIds(navHtmlBefore, "Link").length);
 
-    // Rename the duplicated screen's root to "Footer" -- located by its
-    // current default display name, never by tree position (see step 1b).
     const footerDefaultName = prettyScreenName(footerFilename);
     const footerRow = screenRootRow(page, footerDefaultName);
     await expect(footerRow).toHaveCount(1);
@@ -825,19 +725,11 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       .toBe(true);
     footerFilename = "Footer.html";
 
-    // Cross-screen move: drag one Link text OUT of Navigation and INTO the
-    // new Footer screen (the tutorial's "delete the button instance, keep
-    // editing both frames independently" implies the two screens' content
-    // diverges after this point -- we exercise the underlying "element
-    // crosses a screen boundary" gesture directly).
     const movingId = await authoredTextNodeId(page, footerHtmlBefore, "Link");
     if (!movingId) {
       throw new Error("the duplicated Footer must contain a top-level Link");
     }
 
-    // Fit every screen before dragging so the tiny tutorial text layers have a
-    // real hit area. Hide the inspector through the global UI shortcut after
-    // the fit; a selected screen keeps the minimal-UI inspector mounted.
     await page.keyboard.press("Escape");
     await page.waitForTimeout(250);
     await page.keyboard.press("Shift+1");
@@ -845,8 +737,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     await page.keyboard.press(`${MOD}+\\`);
     await page.waitForTimeout(300);
 
-    // Locate the Footer screen's own iframe by scanning all screen iframes
-    // for the one whose content actually contains the moving node id.
     const iframes = page.locator(
       "iframe[data-design-preview-iframe][data-screen-iframe-id]",
     );
@@ -875,8 +765,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       .first()
       .boundingBox();
 
-    // Drop target: resolve the seeded Home iframe by its file id. Content
-    // heuristics are ambiguous once Navigation and Footer share the same text.
     const homeFileId = await fileIdByName(page, designId, "index.html");
     const homeIframeIndex = await iframes.evaluateAll(
       (elements, wantedId) =>
@@ -900,8 +788,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       elBox.y + elBox.height / 2,
     );
     await page.mouse.down();
-    // Arm the iframe move gesture before crossing into the host canvas. A
-    // single down-plus-boundary jump is treated as selection by the bridge.
     await page.mouse.move(
       elBox.x + elBox.width / 2 + 20,
       elBox.y + elBox.height / 2,
@@ -945,10 +831,6 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
   });
 
   test("step 12 [no equivalent]: converting a frame to a component has no Design equivalent", async () => {
-    // Recorded as a finding only -- Design has no components/variants system
-    // (see figma-interaction-spec.md tutorial 1/5 notes and arch-map). No
-    // gesture to attempt; the closest equivalent already exercised above is
-    // plain duplication (Cmd+D), which step 10 covers.
     expect(true).toBe(true);
   });
 });

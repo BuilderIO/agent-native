@@ -104,9 +104,6 @@ export default defineAction({
       ).id;
     const objectType = kindToObjectType[args.kind];
     const remoteId = crypto.randomUUID();
-    // accounts and opportunities already carry a `name` attribute, so only
-    // people (which have no `name` field) need a separate stored `displayName`
-    // attribute. Minting both would leave two attributes for one value.
     const fields =
       args.kind === "person"
         ? {

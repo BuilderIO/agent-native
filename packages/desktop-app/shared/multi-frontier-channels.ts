@@ -59,7 +59,6 @@ export interface MultiFrontierSubscriptionEnvelope {
   event: MultiFrontierIpcEvent;
 }
 
-/** A sanitized, main-process owned subscription update for open settings cards. */
 export interface MultiFrontierProviderStatusEvent {
   providerId: MultiFrontierProviderId;
   status: SubscriptionStatus;

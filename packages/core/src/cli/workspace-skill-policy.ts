@@ -1,10 +1,3 @@
-/**
- * Skills every generated workspace app can use without an app-local copy.
- *
- * Keep this list deliberately small. Skills outside this list remain available
- * in the framework source and can be opted into by adding them to the
- * workspace core or to the app that actually needs them.
- */
 export const DEFAULT_WORKSPACE_SKILLS = [
   "actions",
   "adding-a-feature",
@@ -28,12 +21,6 @@ export const DEFAULT_WORKSPACE_SKILLS = [
   "workspace-conventions",
 ] as const;
 
-/**
- * Framework skills that templates may carry before they are transformed into
- * workspace apps. Workspacify removes these copies because the workspace core
- * owns the inherited skill surface. App-specific skill names are intentionally
- * not listed here and remain local.
- */
 export const FRAMEWORK_TEMPLATE_SHARED_SKILLS = [
   "actions",
   "agent-native-docs",

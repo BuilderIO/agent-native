@@ -41,8 +41,6 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-// Side effect: register Plan's native chat renderers so visual answers render
-// their diagram/wireframe/api-spec blocks inline in the agent chat.
 import "@/lib/register-chat-renderers";
 import { APP_TITLE } from "@/lib/app-config";
 import { shouldCapturePlanContent } from "@/lib/plan-tracking";
@@ -52,8 +50,6 @@ import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
-// Keep standard pageviews, explicit analytics, and Sentry on local-plan routes,
-// but disable DOM/session capture so rendered plan contents stay on-device.
 configureTracking({
   contentCaptureForPath: shouldCapturePlanContent,
   getDefaultProps: (_name, properties) => ({
@@ -235,9 +231,6 @@ export default function Root() {
     pathname.startsWith("/local-plans/");
   const localPlanPrivacyRoute = !shouldCapturePlanContent(location.pathname);
   return (
-    // Pass the plan-specific styled Toaster via `toaster` so only one sonner
-    // instance renders (avoids the duplicate that would appear if AppProviders'
-    // built-in Toaster AND a children-rendered Toaster both mounted).
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}

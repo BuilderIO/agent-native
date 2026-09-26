@@ -34,7 +34,6 @@ import { readFileSafe, relPosix, walk } from "./scan-utils.js";
 import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
 
 export interface DbToolScopingOptions extends GuardScanOptions {
-  /** Table name -> reviewer-readable reason. Default `{}`. */
   denylist?: Record<string, string>;
 }
 

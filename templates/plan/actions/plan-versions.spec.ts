@@ -470,7 +470,6 @@ describe("plan version actions", () => {
   });
 
   it("restore preserves comment sectionId for sections that survive, nulls it only for sections absent from the snapshot", async () => {
-    // Seed a plan with TWO sections.
     await db.insert(planSchema.plans).values({
       id: PLAN_ID,
       title: "Two-section plan",
@@ -518,7 +517,6 @@ describe("plan version actions", () => {
       },
     ]);
 
-    // Snapshot with both sections present.
     const snapshot = await createPlanVersionSnapshot(PLAN_ID, {
       force: true,
       label: "Both sections",
@@ -526,9 +524,6 @@ describe("plan version actions", () => {
     });
     expect(snapshot.created).toBe(true);
 
-    // Add comments anchored to both sections in the snapshot. Restore deletes
-    // and re-inserts all sections internally, so both anchors must survive that
-    // FK-sensitive replacement.
     await db.insert(planSchema.planComments).values([
       {
         id: "comment_on_a",
@@ -582,22 +577,15 @@ describe("plan version actions", () => {
       .where(eq(planSchema.planComments.planId, PLAN_ID))
       .then((rows) => rows.sort((a, b) => a.id.localeCompare(b.id)));
 
-    // sec_a is in the snapshot → comment_on_a must keep its anchor.
     const commentOnA = comments.find((c) => c.id === "comment_on_a");
     expect(commentOnA?.sectionId).toBe("sec_a");
 
-    // sec_b is also in the snapshot (restore re-inserts it) →
-    // comment_on_b must also keep its anchor.
     const commentOnB = comments.find((c) => c.id === "comment_on_b");
     expect(commentOnB?.sectionId).toBe("sec_b");
   });
 
   it("restore nulls sectionId only for comments anchored to sections absent from the snapshot", async () => {
-    // sec_saved is in the snapshot; sec_gone is NOT — comment on sec_gone must
-    // be detached, comment on sec_saved must keep its anchor.
-    await seedPlan(); // seeds sec_saved
-    // Add sec_gone to the live plan (not captured in the snapshot we're about
-    // to take, because we snapshot BEFORE adding it).
+    await seedPlan();
     const snapshot = await createPlanVersionSnapshot(PLAN_ID, {
       force: true,
       label: "Only sec_saved",
@@ -605,7 +593,6 @@ describe("plan version actions", () => {
     });
     expect(snapshot.created).toBe(true);
 
-    // Now add sec_gone and comments on both sections.
     await db.insert(planSchema.planSections).values({
       id: "sec_gone",
       planId: PLAN_ID,
@@ -673,9 +660,7 @@ describe("plan version actions", () => {
     const surviving = comments.find((c) => c.id === "comment_surviving");
     const orphaned = comments.find((c) => c.id === "comment_orphaned");
 
-    // Comment on sec_saved: section is in the snapshot, must keep its anchor.
     expect(surviving?.sectionId).toBe("sec_saved");
-    // Comment on sec_gone: section NOT in snapshot, must be detached.
     expect(orphaned?.sectionId).toBeNull();
   });
 });

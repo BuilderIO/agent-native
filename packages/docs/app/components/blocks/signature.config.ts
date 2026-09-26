@@ -1,19 +1,15 @@
 import type { BlockMdxConfig } from "@agent-native/core/blocks";
 import { z } from "zod";
 
-/** One parameter, return type, or nested object field in a signature. */
 export interface SignatureField {
   name: string;
-  /** Type shown in code style, e.g. "string" or "AskUserQuestionOption[]". */
   type: string;
   optional?: boolean;
-  /** Default value shown as code, e.g. "true" or '"guided-questions"'. */
   default?: string;
   description: string;
 }
 
 export interface SignatureParam extends SignatureField {
-  /** Breaks an object-shaped param (e.g. an options bag) into its own fields. */
   fields?: SignatureField[];
 }
 
@@ -23,7 +19,6 @@ export interface SignatureReturns {
 }
 
 export interface SignatureData {
-  /** The function/hook name, e.g. "askUserQuestion". */
   name: string;
   params: SignatureParam[];
   returns?: SignatureReturns;
@@ -57,11 +52,6 @@ export const signatureSchema = z.object({
     .optional(),
 }) as unknown as z.ZodType<SignatureData>;
 
-/**
- * MDX config: `<Signature name params={[...]} returns={{...}} />` self-closing,
- * matching the `FileTree`/`AnnotatedCode` JSON-attribute style rather than
- * markdown children, since a signature is structured data, not prose.
- */
 export const signatureMdx: BlockMdxConfig<SignatureData> = {
   tag: "Signature",
   toAttrs: (data) => ({

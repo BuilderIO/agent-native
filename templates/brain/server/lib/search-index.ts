@@ -186,7 +186,6 @@ function parseArtifact(value: string): BrainSearchArtifact | null {
   }
 }
 
-/** Narrow, bounded extraction. Indexing still succeeds deterministically if no model is configured. */
 export async function extractSearchArtifact(input: {
   title: string;
   content: string;
@@ -652,10 +651,6 @@ async function retireExternalSearchLanesForArtifacts(
   }
 }
 
-/**
- * Writes only allowed captures with an explicit audience assignment. Callers own
- * enqueueing; this helper deliberately refuses pending/quarantined material.
- */
 export async function indexCaptureForSearch(input: {
   capture: SearchIndexCapture;
   audience: SearchIndexAudience;
@@ -845,7 +840,6 @@ export async function indexCaptureForSearch(input: {
   return { indexed: true };
 }
 
-/** Queue-worker entrypoint. A capture without an active audience is deliberately not searchable. */
 export async function indexBrainCapture(captureId: string): Promise<{
   indexed: number;
   reason?: string;

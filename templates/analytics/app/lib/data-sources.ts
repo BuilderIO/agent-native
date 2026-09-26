@@ -41,7 +41,6 @@ export interface WalkthroughStep {
   inputPlaceholder?: string;
   inputType?: "text" | "password" | "textarea";
   optional?: boolean;
-  /** Allow file upload for this input (e.g. ".json") */
   inputAcceptFile?: string;
 }
 
@@ -80,7 +79,6 @@ export const categoryOrder: DataSourceCategory[] = [
 ];
 
 export const dataSources: DataSource[] = [
-  // --- Analytics & Product ---
   {
     id: "google-analytics",
     name: "Google Analytics",
@@ -344,7 +342,6 @@ export const dataSources: DataSource[] = [
     ],
   },
 
-  // --- IconDatabase ---
   {
     id: "postgresql",
     name: "PostgreSQL",
@@ -373,7 +370,6 @@ export const dataSources: DataSource[] = [
     ],
   },
 
-  // --- Payments ---
   {
     id: "stripe",
     name: "Stripe",
@@ -402,7 +398,6 @@ export const dataSources: DataSource[] = [
     ],
   },
 
-  // --- CRM & Sales ---
   {
     id: "hubspot",
     name: "HubSpot",
@@ -538,7 +533,6 @@ export const dataSources: DataSource[] = [
     ],
   },
 
-  // --- Engineering ---
   {
     id: "github",
     name: "GitHub",
@@ -772,7 +766,6 @@ export const dataSources: DataSource[] = [
     ],
   },
 
-  // --- Communication ---
   {
     id: "slack",
     name: "Slack",
@@ -869,7 +862,6 @@ export const dataSources: DataSource[] = [
     ],
   },
 
-  // --- Support ---
   {
     id: "pylon",
     name: "Pylon",
@@ -918,7 +910,6 @@ export const dataSources: DataSource[] = [
     ],
   },
 
-  // --- SEO ---
   {
     id: "dataforseo",
     name: "DataForSEO",

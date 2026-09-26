@@ -1,26 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
 
-/*
- * AREA: Canvas interactions + wireframe visuals (the spatial board).
- *
- * Deep + adversarial coverage of CanvasArea / Wireframe:
- *  - pan (drag) and wheel/+- zoom; the zoom % readout tracks the real transform
- *  - artboard labels + section headers scale WITH the board (no inverse-zoom),
- *    so a label's footprint stays glued to its frame at every zoom level
- *  - annotation text never overlaps any frame (bounding-box overlap == 0)
- *  - annotation arrows point AT the target frame with a small gap (tip near the
- *    measured frame edge, not touching, not pointing away) — checked
- *    geometrically against the frame box
- *  - every frame has a visible border in all three registers: sketchy (rough.js
- *    SVG outline), clean (CSS frame), skeleton (neutral CSS frame)
- *  - edge cases: a popover artboard stays ~square; many annotations crowd one
- *    gutter without overlapping; light + dark themes both render borders
- *
- * These are ASSERTIONS OF CORRECT behavior. A failing assertion IS the bug.
- * Fixtures are created fresh through the authed create-visual-plan action so the
- * board shape is fully controlled and never depends on existing plans.
- */
-
 type Box = {
   left: number;
   top: number;
@@ -35,7 +14,6 @@ const VIEWPORT = ".plan-canvas-viewport";
 const ZOOM_PCT = ".plan-canvas-zoom span";
 const FRAME = (id: string) => `[data-canvas-frame='${id}']`;
 
-/** Create a plan via the authed action surface; return its id. */
 async function createPlan(
   page: Page,
   content: unknown,
@@ -58,7 +36,6 @@ async function createPlan(
   return id as string;
 }
 
-/** Open a plan and wait for the canvas + its frames to be measured/painted. */
 async function openCanvas(
   page: Page,
   planId: string,
@@ -71,7 +48,6 @@ async function openCanvas(
   for (const id of frameIds) {
     await expect(page.locator(FRAME(id))).toBeVisible({ timeout: 15_000 });
   }
-  // Let ResizeObserver report frame heights + the annotation flex layout settle.
   await page.waitForFunction(
     () => document.querySelectorAll("[data-canvas-frame]").length > 0,
   );
@@ -85,12 +61,6 @@ async function openCanvas(
   await page.waitForTimeout(900);
 }
 
-/**
- * Find a screen point inside the canvas viewport that is bare grid — not over a
- * frame, an annotation, the zoom controls, or any [data-plan-interactive] chrome
- * — so a pointer-down there starts a pan. Scans a coarse grid and returns the
- * first clear point, or null if the board is fully covered.
- */
 async function findEmptyCanvasPoint(
   page: Page,
   drag?: { dx: number; dy: number },
@@ -146,19 +116,12 @@ function rectsOverlap(a: Box, b: Box): boolean {
   );
 }
 
-/** Overlap area in px^2 (0 when disjoint). */
 function overlapArea(a: Box, b: Box): number {
   const w = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
   const h = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
   return w * h;
 }
 
-/**
- * Wait for the canvas world to be present + painted before a geometry read.
- * The shared dev server can HMR-reload mid-test (other agents edit the app),
- * which briefly tears down the canvas back to a "Loading plan" state; this
- * re-establishes it so a measurement never races a transient reload.
- */
 async function ensureCanvasReady(page: Page) {
   await expect(page.locator(".plan-canvas")).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(WORLD)).toBeVisible({ timeout: 20_000 });
@@ -197,7 +160,6 @@ async function boxOf(page: Page, selector: string): Promise<Box | null> {
   return list[0] ?? null;
 }
 
-/** Read the current world transform matrix (a == d == scale, e/f == translate). */
 async function worldTransform(page: Page) {
   await ensureCanvasReady(page);
   return page.evaluate((sel) => {
@@ -216,7 +178,6 @@ function centerOf(box: Box) {
   };
 }
 
-/** A board with two wide frames, one narrow popover, a section, annotations. */
 function richBoard(title: string) {
   return {
     version: 2,
@@ -295,10 +256,6 @@ function richBoard(title: string) {
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Pan + zoom                                                                 */
-/* -------------------------------------------------------------------------- */
-
 test("pan drag moves the world; zoom % readout tracks the transform scale", async ({
   page,
 }) => {
@@ -309,21 +266,15 @@ test("pan drag moves the world; zoom % readout tracks the transform scale", asyn
   );
   await openCanvas(page, planId, ["ab-dash", "ab-detail", "ab-pop"]);
 
-  // --- PAN: drag the empty canvas and assert the world translate moved by the
-  // drag delta (pan is 1:1 in screen px, independent of zoom). ---
   const before = await worldTransform(page);
   expect(before).not.toBeNull();
   const vp = await boxOf(page, VIEWPORT);
   expect(vp).not.toBeNull();
-  // Drag from a dynamically-found bare-grid point (clear of frames, notes, and
-  // the zoom controls/toolbar, which carry data-plan-interactive and block
-  // panning). Pan is screen-px 1:1, independent of zoom.
   const start = await findEmptyCanvasPoint(page);
   expect(
     start,
     "could not find an empty grid point to start a pan",
   ).not.toBeNull();
-  // Drag toward the viewport center so the move stays in-bounds.
   const towardCenterX = start!.x > vp!.left + vp!.width / 2 ? -150 : 150;
   const dx = towardCenterX;
   const dy = 90;
@@ -342,10 +293,8 @@ test("pan drag moves the world; zoom % readout tracks the transform scale", asyn
     Math.abs(afterPan!.ty - before!.ty),
     "vertical pan should move world translateY by ~drag delta",
   ).toBeGreaterThan(40);
-  // Zoom must NOT change from a pure pan.
   expect(Math.abs(afterPan!.scale - before!.scale)).toBeLessThan(0.001);
 
-  // --- ZOOM via + / - controls: % readout is monotonic and matches scale. ---
   const pctText = async () => {
     const t = (await page.locator(ZOOM_PCT).textContent())
       ?.replace("%", "")
@@ -360,7 +309,6 @@ test("pan drag moves the world; zoom % readout tracks the transform scale", asyn
   const afterIn = await pctText();
   expect(afterIn, "zoom-in should increase the %").toBeGreaterThan(startPct);
   const tIn = await worldTransform(page);
-  // The readout (rounded %) must equal round(scale*100).
   expect(Math.round(tIn!.scale * 100)).toBe(afterIn);
 
   await page.locator(".plan-canvas-zoom button[aria-label='Zoom out']").click();
@@ -596,8 +544,6 @@ test("unmodified wheel pans to the canvas edge without changing zoom", async ({
   const cy = vp!.top + vp!.height / 2;
   await page.mouse.move(cx, cy);
 
-  // A large, axis-aligned integer delta is a valid trackpad/mouse pan tick.
-  // It used to be misclassified as a notched-wheel zoom.
   await page.mouse.wheel(0, 120);
   await page.waitForTimeout(150);
   const afterPan = await worldTransform(page);
@@ -610,8 +556,6 @@ test("unmodified wheel pans to the canvas edge without changing zoom", async ({
     "unmodified wheel pan must preserve zoom",
   ).toBeLessThan(0.001);
 
-  // Push well beyond the finite pan range, then keep pushing at the clamp.
-  // Edge pressure must never be reinterpreted as zoom.
   await page.mouse.wheel(0, 20_000);
   await page.waitForTimeout(150);
   const atEdge = await worldTransform(page);
@@ -632,7 +576,6 @@ test("unmodified wheel pans to the canvas edge without changing zoom", async ({
   ).toBeLessThan(1);
   await expect(page.locator(ZOOM_PCT)).toHaveText(zoomTextBefore ?? "");
 
-  // The page itself must not have scrolled (wheel is captured by the canvas).
   const scrollY = await page.evaluate(() => window.scrollY);
   expect(scrollY, "wheel over the canvas must not scroll the page").toBe(0);
 });
@@ -660,10 +603,6 @@ test("modifier wheel zooms at the cursor", async ({ page }) => {
   );
 });
 
-/* -------------------------------------------------------------------------- */
-/* Labels + section headers scale WITH the board (no inverse counter-scale)   */
-/* -------------------------------------------------------------------------- */
-
 test("artboard labels and section headers scale WITH the board on zoom", async ({
   page,
 }) => {
@@ -686,7 +625,6 @@ test("artboard labels and section headers scale WITH the board on zoom", async (
   const headerBefore = await sectionHeader.boundingBox();
   const scaleBefore = (await worldTransform(page))!.scale;
 
-  // Zoom in three notches.
   for (let i = 0; i < 3; i++) {
     await page
       .locator(".plan-canvas-zoom button[aria-label='Zoom in']")
@@ -700,9 +638,6 @@ test("artboard labels and section headers scale WITH the board on zoom", async (
   const zoomRatio = scaleAfter / scaleBefore;
   expect(zoomRatio, "zoom-in should have increased scale").toBeGreaterThan(1.1);
 
-  // The label footprint must grow in lockstep with the board scale — i.e. it
-  // does NOT pixel-lock (which would be a counter-scaled label). Tolerance for
-  // sub-pixel text metrics.
   const labelRatio = labelAfter!.width / labelBefore!.width;
   expect(
     labelRatio,
@@ -717,10 +652,6 @@ test("artboard labels and section headers scale WITH the board on zoom", async (
   ).toBeGreaterThan(zoomRatio * 0.85);
   expect(headerRatio).toBeLessThan(zoomRatio * 1.15);
 });
-
-/* -------------------------------------------------------------------------- */
-/* Annotations never overlap frames                                          */
-/* -------------------------------------------------------------------------- */
 
 test("annotation text does not overlap any artboard frame", async ({
   page,
@@ -873,14 +804,12 @@ test("EDGE: many annotations crowding one frame's gutter never overlap each othe
   expect(notes.length, "all six crowded notes should render").toBe(6);
   const frame = (await boxesOf(page, "[data-canvas-frame]"))[0];
 
-  // No note overlaps the frame.
   for (const [i, note] of notes.entries()) {
     expect(
       overlapArea(note, frame),
       `crowded note ${i} must not overlap the frame`,
     ).toBeLessThanOrEqual(4);
   }
-  // No two notes overlap each other (flex column stacking with a gap).
   for (let i = 0; i < notes.length; i++) {
     for (let j = i + 1; j < notes.length; j++) {
       expect(
@@ -890,10 +819,6 @@ test("EDGE: many annotations crowding one frame's gutter never overlap each othe
     }
   }
 });
-
-/* -------------------------------------------------------------------------- */
-/* Arrows point AT their target frame with a small gap                       */
-/* -------------------------------------------------------------------------- */
 
 test("annotation arrows point at the target frame edge with a small gap (not touching, not away)", async ({
   page,
@@ -909,9 +834,6 @@ test("annotation arrows point at the target frame edge with a small gap (not tou
   await expect(page.locator(".plan-canvas-world > svg").first()).toBeVisible({
     timeout: 15_000,
   });
-  // Geometric arrow check in board (world) coordinates so zoom/pan cancel out.
-  // We rebuild the same anchor math the renderer uses: the resolved note box
-  // edge -> the frame perimeter point pulled OUT by the small ARROW_FRAME_GAP.
   const report = await page.evaluate(() => {
     const world = document.querySelector(".plan-canvas-world") as HTMLElement;
     const t = getComputedStyle(world).transform;
@@ -920,9 +842,8 @@ test("annotation arrows point at the target frame edge with a small gap (not tou
     const tx = m.e;
     const ty = m.f;
     const worldRect = world.getBoundingClientRect();
-    // Convert a screen rect to board (pre-transform) coordinates.
     const toBoard = (r: DOMRect) => {
-      const left = (r.left - worldRect.left - 0) / scale; // worldRect already at translate
+      const left = (r.left - worldRect.left - 0) / scale;
       return {
         left,
         top: (r.top - worldRect.top) / scale,
@@ -943,9 +864,6 @@ test("annotation arrows point at the target frame edge with a small gap (not tou
       frames.set(id, toBoard(f.getBoundingClientRect()));
     });
 
-    // Each annotation arrow svg encloses both endpoints. We can't read the path
-    // d easily in board space, but we can check that the arrow svg's bounding
-    // box REACHES the target frame edge region and stops just short of it.
     const arrowSvgs = Array.from(
       document.querySelectorAll(".plan-canvas-world > svg"),
     ).map((s) => toBoard((s as SVGElement).getBoundingClientRect()));
@@ -956,16 +874,11 @@ test("annotation arrows point at the target frame edge with a small gap (not tou
     };
   });
 
-  // There must be drawn arrow/connector SVGs.
   expect(
     report.arrowSvgs.length,
     "the board should draw arrow/connector SVGs",
   ).toBeGreaterThan(0);
 
-  // For each frame that has a targeting annotation, at least one arrow svg must
-  // come within a small gap band of that frame's perimeter — i.e. its bounding
-  // box reaches the frame but the arrow does not plunge deep inside it. We use
-  // the arrow svg's nearest edge distance to the frame rectangle.
   const distToRect = (
     p: { x: number; y: number },
     r: { left: number; top: number; right: number; bottom: number },
@@ -978,10 +891,8 @@ test("annotation arrows point at the target frame edge with a small gap (not tou
   for (const fid of ["ab-dash", "ab-detail"]) {
     const frame = report.frames.find((f) => f.id === fid)!;
     expect(frame, `frame ${fid} present`).toBeTruthy();
-    // The arrow svg whose box is closest to this frame.
     let best = Infinity;
     for (const svg of report.arrowSvgs) {
-      // distance of each of the svg-box corners to the frame rect; take min.
       const corners = [
         { x: svg.left, y: svg.top },
         { x: svg.right, y: svg.top },
@@ -990,9 +901,6 @@ test("annotation arrows point at the target frame edge with a small gap (not tou
       ];
       for (const c of corners) best = Math.min(best, distToRect(c, frame));
     }
-    // An arrow that points AT this frame must have a corner essentially on the
-    // frame perimeter (within the small visual gap + a generous tolerance for
-    // the svg padding). If no arrow reaches the frame, the arrow points away.
     expect(
       best,
       `an annotation arrow should reach frame ${fid}'s edge (nearest svg corner ${best.toFixed(1)}px from the frame box)`,
@@ -1009,16 +917,11 @@ test("connector between two frames is drawn and spans both", async ({
     "connector",
   );
   await openCanvas(page, planId, ["ab-dash", "ab-detail"]);
-  // The flow connector carries a label; assert it renders as svg text.
   const connectorLabel = page
     .locator(".plan-canvas-world svg text")
     .filter({ hasText: "open detail" });
   await expect(connectorLabel).toHaveCount(1);
 });
-
-/* -------------------------------------------------------------------------- */
-/* Frame borders are visible in every render register                        */
-/* -------------------------------------------------------------------------- */
 
 test("sketchy frames draw a visible rough.js border", async ({
   page,
@@ -1037,8 +940,6 @@ test("sketchy frames draw a visible rough.js border", async ({
   await openCanvas(page, planId, ["ab-dash"]);
   await ensureCanvasReady(page);
   await expect(page.locator(".plan-kit-artboard").first()).toBeVisible();
-  // rough overlay finishes after fonts.ready + a 0ms timer; wait for the
-  // sketched paths to actually appear rather than a blind sleep.
   await expect
     .poll(
       () =>
@@ -1156,8 +1057,6 @@ test("skeleton frames still draw a neutral frame border", async ({ page }) => {
       roughPaths: a.querySelectorAll(".plan-rough-overlay path").length,
     };
   });
-  // Skeleton drops the sketch overlay but keeps a neutral CSS frame so the
-  // loader still reads as a frame.
   expect(info.roughPaths, "skeleton must not draw rough").toBe(0);
   expect(
     info.borderWidthPx,
@@ -1166,15 +1065,9 @@ test("skeleton frames still draw a neutral frame border", async ({ page }) => {
   expect(info.borderStyle).toBe("solid");
 });
 
-/* -------------------------------------------------------------------------- */
-/* Surface footprint + theme edge cases                                      */
-/* -------------------------------------------------------------------------- */
-
 test("EDGE: a popover artboard stays ~square regardless of model width/height", async ({
   page,
 }) => {
-  // Adversarial: try to force the popover wide via x/y/width/height. The
-  // renderer must IGNORE model geometry and keep the surface preset (square).
   const content = {
     version: 2,
     title: `popover-${Date.now()}`,
@@ -1241,7 +1134,6 @@ test("dark theme renders frame borders and annotations without overlap", async (
   );
   expect(dark, "dark theme should be applied").toBe(true);
 
-  // Border still visible in dark mode.
   const borderWidth = await page.evaluate(() => {
     const a = document.querySelector(".plan-kit-artboard") as HTMLElement;
     const overlay = Array.from(a.querySelectorAll(":scope > div")).find((d) => {
@@ -1255,7 +1147,6 @@ test("dark theme renders frame borders and annotations without overlap", async (
     "dark-mode frame must keep a visible border",
   ).toBeGreaterThanOrEqual(1);
 
-  // Overlap invariant holds in dark mode too.
   const frames = await boxesOf(page, "[data-canvas-frame]");
   const notes = await boxesOf(page, ".plan-canvas-annotation");
   for (const note of notes) {

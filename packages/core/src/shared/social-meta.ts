@@ -8,15 +8,8 @@ export type SocialMetaDescriptor =
 
 export const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE =
   "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9ff332b274a147229544c2bf5877a10d";
-// The static default asset above is stored as a JPEG on the Builder CDN; the
-// dynamically rendered /_agent-native/og-image.png is always a PNG. Keep the
-// two types distinct rather than assuming every social image is a PNG.
 export const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE = "image/jpeg";
 export const AGENT_NATIVE_SOCIAL_IMAGE_PATH = "/_agent-native/og-image.png";
-// Social networks cache previews by image URL for days, so the URL must change
-// whenever the rendered image does. Bump the prefix for renderer/layout
-// changes; the suffix follows the sign-in copy and status badges the image
-// draws, so editing that copy refreshes every first-party card automatically.
 const AGENT_NATIVE_SOCIAL_IMAGE_DESIGN_VERSION = "signin-brand-v2";
 
 function fnv1a(value: string): string {
@@ -79,7 +72,6 @@ export function defaultSocialImageMeta(
   ];
 }
 
-/** Use on public routes only: the rendered image URL carries its title and summary. */
 export function buildResourceSocialMeta({
   title,
   description,

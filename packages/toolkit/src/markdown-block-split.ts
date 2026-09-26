@@ -1,4 +1,3 @@
-/** Stable top-level Markdown blocks plus the in-progress streaming tail. */
 export interface MarkdownBlockSplit {
   completedBlocks: string[];
   tail: string;
@@ -9,11 +8,6 @@ const continuationIndent = /^\s{2,}\S/;
 const referenceDefinition = /^ {0,3}\[[^\]]+\]:\s*\S/;
 const indentedCode = /^(?: {4}|\t)/;
 
-/**
- * Splits streamed Markdown only at rendering-safe boundaries. Lists, indented
- * code, fences, and document-wide references remain intact so the streamed
- * and final trees have the same semantics.
- */
 export function splitMarkdownBlocks(text: string): MarkdownBlockSplit {
   if (!text) return { completedBlocks: [], tail: "" };
 

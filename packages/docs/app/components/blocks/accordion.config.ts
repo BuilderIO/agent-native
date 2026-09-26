@@ -27,13 +27,6 @@ export function serializeAccordionToMarkdown(items: AccordionItem[]): string {
   return items.map((s) => `### ${s.title}\n\n${s.body}`).join("\n\n");
 }
 
-/**
- * MDX config: identical authoring shape to `Steps`/`Cards` — a `### Title`
- * heading per item followed by its markdown body — but rendered as
- * collapsed-by-default `<details>` items instead of an always-expanded list.
- * Good for FAQ-style content and reference material where most readers only
- * need one or two entries, not the whole section read top to bottom.
- */
 export const accordionMdx: BlockMdxConfig<AccordionData> = {
   tag: "Accordion",
   childrenField: "items" as never,

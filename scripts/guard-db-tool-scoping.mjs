@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-/**
- * guard-db-tool-scoping.mjs
- *
- * The agent's raw DB tools (`db-query`, `db-exec`, `db-patch`) can only safely
- * expose tables with an explicit tenant scope (`owner_email` and/or `org_id`)
- * or a known framework-specific scoping rule. The runtime DB layer now fails
- * closed by shadowing unknown-scope tables with empty temp views, but this
- * guard keeps template schema drift visible in CI.
- *
- * If a new template table should be usable through raw DB tools, add
- * `owner_email`/`org_id` plus an additive migration. If it is a join table,
- * public-token table, cache, or implementation detail that should remain
- * hidden from raw DB tools, add it to INTENTIONAL_RAW_DB_DENYLIST below with
- * a short reviewer-readable reason.
- */
 
 import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -210,11 +195,6 @@ function hasRawDbScope(tableBody) {
   );
 }
 
-/**
- * Resolve an `export * from "@agent-native/<pkg>/schema[/<sub>]"` (or relative)
- * specifier in the given source file to one or more on-disk schema files.
- * Returns an empty array when the import doesn't point at an in-repo package.
- */
 async function resolveSchemaReExports(sourceFile) {
   const contents = readFileSync(sourceFile, "utf8");
   const re = /export\s+\*\s+from\s+["']([^"']+)["']/g;
@@ -227,8 +207,6 @@ async function resolveSchemaReExports(sourceFile) {
       const pkg = pkgMatch[1];
       const sub = pkgMatch[2] ?? "schema";
       const pkgRoot = path.join(REPO_ROOT, "packages", pkg, "src", sub);
-      // sub may be "schema" (a directory with index.ts + siblings) or
-      // "schema/<file>"; both resolve to in-repo TS sources.
       try {
         const stat = await readdir(pkgRoot, { withFileTypes: true });
         for (const e of stat) {
@@ -257,10 +235,6 @@ for await (const file of walk(path.join(REPO_ROOT, "templates"))) {
   const template = templateNameFromSchemaPath(file);
   if (!template) continue;
 
-  // Scan the template's own schema.ts plus any package schemas it
-  // re-exports. Without the re-export resolution, templates like
-  // scheduling that ship their tables from @agent-native/scheduling/schema
-  // bypass the guard entirely (the file looks empty of `table(...)` calls).
   const filesToScan = [file, ...(await resolveSchemaReExports(file))];
   for (const scanFile of filesToScan) {
     let contents;

@@ -1,6 +1,3 @@
-/**
- * Thin Brain re-export of staged dataset listing, pre-bound to appId="brain".
- */
 import { createListStagedDatasetsAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { z } from "zod";
 

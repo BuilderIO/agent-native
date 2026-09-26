@@ -7,7 +7,6 @@ const PREFS_PATH = "/_agent-native/content/user-prefs";
 export interface ContentPrefsState {
   prefs: ContentUserPrefs;
   loading: boolean;
-  /** Applies the patch optimistically and rolls back if the write fails. */
   save: (patch: ContentUserPrefs) => Promise<void>;
 }
 

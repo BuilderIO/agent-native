@@ -26,10 +26,6 @@ function textNodes(root: Node): Text[] {
   return texts;
 }
 
-/**
- * happy-dom has no Selection.modify; this moves one character across text
- * nodes inside the editing host, which is what Chrome does for Backspace.
- */
 beforeAll(() => {
   const proto = Object.getPrototypeOf(window.getSelection()!) as Selection;
   proto.modify = function modify(
@@ -113,7 +109,6 @@ function beforeInput(target: Element, inputType: string, init: object = {}) {
   return event;
 }
 
-/** Types like a browser: the controller may take the input, or let it through. */
 function type(target: Element, text: string) {
   for (const data of text) {
     const event = beforeInput(target, "insertText", { data });
@@ -210,7 +205,6 @@ describe("in-place text session: entering and ending", () => {
     session = startInPlaceTextSession(el);
     caret(original, 1);
     type(el, "x");
-    // While editing too, or the live text is drawn unlike the saved text.
     const typed = el.firstChild as Text;
     expect(typed).not.toBe(original);
     const range = window.getSelection()!.getRangeAt(0);
@@ -224,7 +218,6 @@ describe("in-place text session: entering and ending", () => {
   });
 
   it("restores the start bytes when typing and deleting only lost indentation", () => {
-    // happy-dom's innerText keeps collapsed whitespace; a browser's does not.
     vi.spyOn(HTMLElement.prototype, "innerText", "get").mockImplementation(
       function (this: HTMLElement) {
         return (this.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -498,7 +491,6 @@ describe("in-place text session: Enter", () => {
   });
 
   it("opens a new line at the end of a flex item with text after it", () => {
-    // Flex items are blockified: the next item's text is not on this line.
     const el = mount(
       '<div id="t" style="display: flex"><span style="display: block">x</span><span style="display: block">Points</span></div>',
     );
@@ -1063,7 +1055,6 @@ describe("in-place text session: clipboard and drag", () => {
     session = startInPlaceTextSession(el);
     const text = el.firstChild as Text;
     select(text, 6, text, 11);
-    // Inside one text node Chrome's own delete runs (it drops a doubled space).
     expect(beforeInput(el, "deleteByDrag").defaultPrevented).toBe(false);
     text.deleteData(6, 5);
     caret(text, 11);

@@ -32,12 +32,6 @@ import {
 } from "./task-store.js";
 import type { A2AConfig, AgentSkill } from "./types.js";
 
-/**
- * One-time warning when A2A is running unauthenticated in development. We
- * don't refuse the request (local templates need to work out of the box),
- * but we log a single noisy line so operators notice if they accidentally
- * deploy with no auth configured.
- */
 let _warnedUnauthA2A = false;
 function warnA2AUnauthOnce(): void {
   if (_warnedUnauthA2A) return;
@@ -60,7 +54,6 @@ export interface A2ATokenPayload {
   email: string | null;
   orgDomain: string | null;
   orgId?: string;
-  /** Verified claims are returned only to callers that explicitly request them. */
   claims?: jose.JWTPayload;
 }
 
@@ -101,9 +94,6 @@ function expectedJwtAudience(
       options,
     );
   }
-  // Best-effort: derive from the inbound request host. This is forgeable
-  // (Host-header attack), but only useful as a hint when env-derived URL
-  // is unset; the rest of the JWT verification still uses the secret.
   try {
     const proto = getRequestHeader(event, "x-forwarded-proto") || "https";
     const host = getRequestHeader(event, "host");
@@ -281,16 +271,6 @@ export async function verifyA2AToken(
   return { email: null, orgDomain: null };
 }
 
-/**
- * Mount A2A protocol endpoints on an H3/Nitro app.
- *
- * - GET /.well-known/agent-card.json — public agent card (no auth)
- * - POST /_agent-native/a2a — JSON-RPC endpoint (with optional auth)
- *
- * When A2A_SECRET is set, inbound Bearer tokens are verified as JWTs
- * and the caller's email is extracted from the `sub` claim. This provides
- * cryptographic identity verification for cross-app A2A calls.
- */
 export function mountA2A(
   nitroApp: any,
   config: A2AConfig,
@@ -318,11 +298,6 @@ export function mountA2A(
       const host = getRequestHeader(event, "host") ?? "localhost";
       const baseUrl = `${protocol}://${host}`;
 
-      // The anonymous card may only advertise actions safe to disclose
-      // publicly (`requiresAuth !== true`). A verified caller instead sees the
-      // authenticated surface: schemas for direct read invocation plus concise
-      // message-only capabilities for writes owned by the receiving agent.
-      // Anonymous fetches keep the public list unchanged.
       let skills = filterPublicAgentCardSkills(config);
       if (config.authenticatedSkills?.length) {
         const bearer = extractBearerToken(
@@ -331,9 +306,6 @@ export function mountA2A(
         if (bearer) {
           const payload = await verifyA2AToken(bearer, event, {
             routePrefix,
-            // Capability discovery may begin from either the app URL or an
-            // already-advertised endpoint URL. Both identify this receiver;
-            // direct POST invocation below remains endpoint-bound.
             allowBaseAudience: true,
           });
           if (payload.email) {
@@ -530,7 +502,6 @@ export function mountA2A(
     }),
   );
 
-  // JSON-RPC A2A endpoint (with optional auth)
   getH3App(nitroApp).use(
     `${routePrefix}/a2a`,
     defineEventHandler(async (event) => {
@@ -539,11 +510,6 @@ export function mountA2A(
         return { error: "Method not allowed" };
       }
 
-      // h3 prefix-matches mounts, so a request to `/a2a/_process-task`
-      // reaches this handler too. The dedicated mount above runs first and
-      // takes the request, but if that returns `undefined` (or h3 ever
-      // changes ordering semantics) defensively bail here. event.path is
-      // stripped to the remainder after the mount prefix.
       const sub = (event.path || "/").split("?")[0].replace(/^\//, "");
       if (sub.startsWith("_process-task")) return;
 
@@ -563,7 +529,6 @@ export function mountA2A(
       const hasA2ASecret = hasConfiguredA2ASecret();
       const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
 
-      // Try JWT verification first (org-level or global A2A_SECRET-based identity)
       if (bearerToken) {
         const tokenPayload = await verifyA2AToken(bearerToken, event, {
           routePrefix,
@@ -576,7 +541,6 @@ export function mountA2A(
         bearerTokenRejectedByJwt = !verifiedCallerEmail;
       }
 
-      // Fall back to legacy API key check (exact string match)
       if (!verifiedCallerEmail && config.apiKeyEnv) {
         const expectedKey = process.env[config.apiKeyEnv];
         if (expectedKey) {
@@ -644,8 +608,6 @@ export function mountA2A(
         }
       }
 
-      // Store verified caller identity on the event context so the handler
-      // can set request context from a trusted source instead of metadata
       if (verifiedCallerEmail) {
         event.context.__a2aVerifiedEmail = verifiedCallerEmail;
       }

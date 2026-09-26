@@ -54,9 +54,6 @@ describe("agent packs", () => {
   });
 
   it("rejects a pack with no profile file as a clean validation error, not a crash", () => {
-    // Reproduces the reported bug: selecting a folder containing only a CSV
-    // (e.g. "Course Enrollment Form-2026-05-07.csv") and clicking "Import
-    // agent pack" must surface an actionable message, not an unhandled 500.
     let caught: unknown;
     try {
       normalizeAgentPack([

@@ -22,7 +22,6 @@ export interface AuthFormProps {
   messageClassName?: string;
 }
 
-/** Server-renderable form markup for the built-in sign-in and signup flows. */
 export function AuthForm({
   id,
   fields,

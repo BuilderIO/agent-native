@@ -17,20 +17,6 @@ import {
 } from "../lib/chat";
 import { authenticatedEntryPath, chatSites, originFor } from "../lib/fleet";
 
-/**
- * One real agent turn per chat-bearing app, on luna.
- *
- * Agent chat failing is the second-most-reported beta problem and the one no
- * unauthenticated check can see: the endpoint answers 401 to everyone, so the
- * only way to know a turn completes is to take one.
- *
- * The prompt is deliberately trivial and read-only. This suite runs against
- * hosts that share a database with production for most apps, so a turn that
- * creates or edits anything would leave real residue in real data. What is
- * being proven is that the pipeline works end to end — auth, provider key,
- * model, stream, render — not that the model is clever.
- */
-
 skipUnlessAuthed();
 
 /**
@@ -87,8 +73,6 @@ for (const site of sites) {
         const page = await context.newPage();
         const chat = watchChatRequests(page);
 
-        // The sidebar is collapsed by default on some entry paths; asking for
-        // it explicitly is what guarantees a composer to type into.
         await page.goto(
           `${origin}${authenticatedEntryPath(site)}?agentSidebar=open`,
           {
@@ -102,12 +86,9 @@ for (const site of sites) {
 
           await sendPromptAndAwaitTurn(page, PROMPT);
 
-          // Order matters: prove what was billed before judging the output, so a
-          // turn that succeeded on the wrong model still fails the run.
           chat.assertOnlyLuna();
           await assertNoChatFailure(page, `${site.host} (chat turn)`);
 
-          // The product's own signal that a turn ended with nothing to show.
           await expect(
             page.locator(MISSING_FINAL_RESPONSE),
             `${site.host} ended the turn without a final assistant message`,
@@ -123,18 +104,10 @@ for (const site of sites) {
             `${site.host} shows ${echoes} occurrence(s) of ${NONCE}. One is the user's own message; a second is the only evidence the assistant actually replied.`,
           ).toBeGreaterThanOrEqual(2);
 
-          // Reported repeatedly: the turn completes, but returning to the app
-          // loses the active thread or leaves the transcript blank. Reload the
-          // real page so localStorage restoration and the server read path both
-          // have to recover the thread that just completed.
           await page.reload({
             waitUntil: "domcontentloaded",
             timeout: 45_000,
           });
-          // The first mount consumes `agentSidebar=open` with replaceState, and
-          // the sidebar is intentionally closed by default on a plain reload.
-          // Reopen it through the supported URL contract before testing thread
-          // restoration; otherwise this assertion only tests a hidden panel.
           const restoreUrl = new URL(page.url());
           restoreUrl.searchParams.set("agentSidebar", "open");
           await page.goto(restoreUrl.toString(), {
@@ -181,9 +154,6 @@ for (const site of sites) {
     });
 
     test("clears the stop button when a turn ends", async ({ browser }) => {
-      // Reported repeatedly: the agent says it stopped, but the UI stays in
-      // "Thinking" with the stop button active, so the next message cannot be
-      // sent without manually stopping first.
       const context = await signedInContext(browser, site);
       try {
         const page = await context.newPage();
@@ -200,9 +170,6 @@ for (const site of sites) {
 
           await sendPromptAndAwaitTurn(page, PROMPT);
 
-          // `toBeHidden()` also passes for an element that never existed, so a
-          // turn that never started would satisfy the assertion below without
-          // exercising anything. Prove a turn actually left the browser first.
           chat.assertOnlyLuna();
 
           await expect(
@@ -222,9 +189,6 @@ for (const site of sites) {
     test("keeps the environment badge clear of the send button", async ({
       browser,
     }) => {
-      // Reported directly: "The Beta/Prod button in the lower right covers
-      // over the send chat button." Both are fixed to the bottom-right, so
-      // this is a geometry question with a definite answer.
       const context = await signedInContext(browser, site);
       try {
         const page = await context.newPage();

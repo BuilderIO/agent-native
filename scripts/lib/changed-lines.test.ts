@@ -19,9 +19,6 @@ describe("parseUnifiedDiff", () => {
     expect(result?.get(`${CWD}/src/a.ts`)).toEqual(new Set([3]));
   });
 
-  // A single NUL byte makes git call a .ts file binary. Git then emits no
-  // +++/@@/+ lines for it, so every diff-scoped guard would inspect nothing and
-  // report a pass over a file it never read.
   it("refuses to scope when a source file diffs as binary", () => {
     const diff = "Binary files a/src/a.ts and b/src/a.ts differ";
     expect(parseUnifiedDiff(diff, CWD)).toBeNull();

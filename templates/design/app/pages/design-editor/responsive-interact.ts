@@ -1,13 +1,3 @@
-/**
- * Pure data/logic for the responsive Interact mode's device chrome bar
- * (ResponsiveInteractBar). Modeled on builder-internal's
- * ResponsiveEditingMode/responsive-device-presets, adapted to this app's
- * shadcn chrome. Kept separate from DEVICE_FRAME_VIEWPORTS in
- * components/design/types.ts — that record is a fixed 3-category decorative
- * frame (desktop/tablet/mobile chrome border) used elsewhere in the editor,
- * not a device-simulation preset list with named devices and exact W×H.
- */
-
 export type InteractDeviceCategory = "phone" | "tablet" | "desktop" | "custom";
 
 export interface InteractDevicePreset {
@@ -17,11 +7,8 @@ export interface InteractDevicePreset {
   category: InteractDeviceCategory;
 }
 
-/** Preset name used whenever the user types a width/height directly. */
 export const INTERACT_CUSTOM_DEVICE_NAME = "Custom";
 
-/** Must track ResponsiveInteractBar's `h-12`; the zoom-to-fit math subtracts
- * it from the viewport to size the device box. */
 export const RESPONSIVE_INTERACT_BAR_HEIGHT = 48;
 
 export const INTERACT_DEVICE_PRESETS: InteractDevicePreset[] = [
@@ -96,13 +83,6 @@ export function formatInteractZoom(zoom: number): string {
   return Number.isFinite(zoom) ? zoom.toFixed(1) : "100.0";
 }
 
-/**
- * Auto-fit zoom for the responsive device box, ported from
- * builder-internal's ResponsiveEditingMode effect (~lines 155-174): only
- * zooms DOWN so the device fits the available chrome area, never zooms in
- * past 100% just because there's extra room. Steps to the nearest 5 and
- * clamps to [minZoom, 100] so the result always lands on a clean number.
- */
 export function computeInteractZoomToFit(params: {
   availableWidth: number;
   availableHeight: number;

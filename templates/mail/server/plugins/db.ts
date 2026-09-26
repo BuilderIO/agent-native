@@ -6,12 +6,6 @@ import {
 
 import * as schema from "../db/schema.js";
 
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
- * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
- * exports don't.
- */
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&
@@ -146,13 +140,6 @@ export const runMailMigrations = runMigrations(
       sql: `CREATE INDEX IF NOT EXISTS idx_queued_email_drafts_requester ON queued_email_drafts(org_id, requester_email, created_at)`,
     },
     {
-      // Cover the hot list/read paths that previously had no supporting index:
-      // - scheduled_jobs is filtered by status on the inbox snooze-filter path
-      //   (listPendingJobs) and the due-job cron (status + run_at).
-      // - contact_frequency is filtered by owner_email on the contacts
-      //   autocomplete path (getContactFrequencyMap).
-      // - automation_rules is filtered by owner_email on the automations list
-      //   and the per-account automation engine load.
       version: 14,
       sql: `CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_run_at ON scheduled_jobs(status, run_at);
 CREATE INDEX IF NOT EXISTS idx_contact_frequency_owner ON contact_frequency(owner_email);
@@ -172,11 +159,6 @@ CREATE INDEX IF NOT EXISTS idx_automation_rules_owner ON automation_rules(owner_
 CREATE INDEX IF NOT EXISTS idx_snippets_owner_name ON snippets(owner_email, name)`,
     },
     {
-      // listPendingJobs (jobs.ts) scopes its WHERE clause to
-      // (status, owner_email) on every inbox/unread list load. The v14 index
-      // only covers (status, run_at), which doesn't serve the owner-scoped
-      // lookup, so add the composite index so that read stays indexed as the
-      // scheduled_jobs table grows across all users.
       version: 16,
       name: "scheduled-jobs-owner-status-run-at-idx",
       sql: `CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_owner_status_run_at ON scheduled_jobs(owner_email, status, run_at)`,
@@ -377,8 +359,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,

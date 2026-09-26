@@ -66,8 +66,6 @@ describe("useOrganizationState", () => {
     container = document.createElement("div");
     root = createRoot(container);
     queryClient = new QueryClient({
-      // Match the house staleTime so a hook enabling after data arrives reads
-      // the cache instead of refetching.
       defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
     });
   });
@@ -85,9 +83,6 @@ describe("useOrganizationState", () => {
         </QueryClientProvider>,
       );
     });
-    // The explicit-org case settles in two steps (active org, then the
-    // requested one); isFetching() reads 0 between them, so flush a fixed
-    // number of ticks instead of stopping at the first idle moment.
     for (let tick = 0; tick < 10; tick++) {
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0));

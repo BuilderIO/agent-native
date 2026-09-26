@@ -127,7 +127,6 @@ describe("createInlineProvider", () => {
       provider.writeFile("index.html", "<p>new</p>", "v1"),
     ).rejects.toThrow("Source file changed since it was read.");
 
-    // Only the preview call happened each time — apply was never reached.
     expect(mockCallAction).toHaveBeenCalledTimes(2);
     expect(mockCallAction).toHaveBeenCalledWith(
       "preview-source-edit",
@@ -149,8 +148,8 @@ describe("createInlineProvider", () => {
 
   it("creates files via create-file and caches the returned fileId", async () => {
     mockCallAction
-      .mockResolvedValueOnce({ id: "file_9" }) // create-file
-      .mockResolvedValueOnce({ id: "ignored", updated: true }); // update-file (rename)
+      .mockResolvedValueOnce({ id: "file_9" })
+      .mockResolvedValueOnce({ id: "ignored", updated: true });
     const provider = createInlineProvider({
       designId: "design_1",
       canEdit: true,
@@ -175,8 +174,8 @@ describe("createInlineProvider", () => {
     mockCallAction
       .mockResolvedValueOnce({
         files: [{ path: "styles.css", fileId: "file_5" }],
-      }) // listFiles refresh inside resolveFileId
-      .mockResolvedValueOnce({ id: "file_5", deleted: true }); // delete-file
+      })
+      .mockResolvedValueOnce({ id: "file_5", deleted: true });
     const provider = createInlineProvider({
       designId: "design_1",
       canEdit: true,

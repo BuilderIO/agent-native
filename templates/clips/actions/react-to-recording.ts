@@ -1,10 +1,3 @@
-/**
- * Add an emoji reaction to a recording at a specific video timestamp.
- *
- * Usage:
- *   pnpm action react-to-recording --recordingId=<id> --emoji="🔥" --videoTimestampMs=12000
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -30,9 +23,6 @@ export default defineAction({
     viewerName: z.string().optional(),
   }),
   run: async (args) => {
-    // Reacting is open to any signed-in viewer with access to the
-    // recording, not just an explicitly-granted "commenter" role — the
-    // `viewerEmail` check below is what actually requires an account.
     await assertAccess("recording", args.recordingId, "viewer");
 
     const viewerEmail = getRequestUserEmail();

@@ -1,13 +1,3 @@
-/**
- * Registers the "Connect a calendar" onboarding step for the Meetings tab.
- *
- * Lives in its own plugin file so the main `onboarding.ts` plugin (which
- * mounts the framework's onboarding routes) is not touched by parallel
- * agents. Both plugins share the same in-memory `registerOnboardingStep`
- * registry so order between them does not matter — the framework's plugin
- * runs first because of file-name sort.
- */
-
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
 
 export default async (): Promise<void> => {
@@ -18,11 +8,6 @@ export default async (): Promise<void> => {
     title: "Connect a calendar",
     description:
       "Optional — you can still record ad-hoc meetings without it. Connecting unlocks: an upcoming-meetings list, one-click record before a meeting starts, and automatic meeting creation from calendar events. Read-only access to Google Calendar; tokens are stored encrypted and scoped per-user.",
-    // `required: false` (above) means this step is dismissable — the framework
-    // onboarding sidebar lets the user skip non-required steps. The "Open
-    // Meetings" deep-link is the secondary path: the connect button lives
-    // inline on the Meetings empty-state card, so we surface that route as a
-    // method too.
     methods: [
       {
         id: "google",
@@ -73,8 +58,6 @@ export default async (): Promise<void> => {
       const userEmail = ctx?.userEmail;
       if (!userEmail) return false;
       try {
-        // Lazy import to avoid pulling DB into module init / breaking SSR
-        // before migrations have run.
         const { db, schema } = await import("../db/index.js" as string).catch(
           () => ({ db: null as any, schema: null as any }),
         );

@@ -48,9 +48,6 @@ export default defineAction({
       access.resource,
       databaseId,
       {
-        // The page share authorizes this page's definitions and values. The
-        // supplied database is checked only as this page's exact membership;
-        // its backing document remains private for container operations.
         requireDatabaseAccess: databaseAccess !== null,
       },
     );

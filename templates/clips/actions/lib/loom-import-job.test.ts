@@ -140,7 +140,7 @@ describe("runLoomImportJob", () => {
       id: "asset_1",
     });
     mockFetchLoomTranscript.mockResolvedValue(null);
-    mockSelectRows.queue.push([]); // no existing transcript row
+    mockSelectRows.queue.push([]);
 
     const result = await runLoomImportJob({
       recordingId: "rec_1",

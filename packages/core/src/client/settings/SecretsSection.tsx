@@ -1,9 +1,3 @@
-/**
- * <SecretsSection /> — renders the registered secrets from the framework
- * secrets registry. Configured keys stay compact; adding or editing one
- * progressively discloses its controls.
- */
-
 import { Picker, TextField } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
@@ -52,7 +46,6 @@ const Button = React.forwardRef<
 ));
 Button.displayName = "SecretsPrimitiveButton";
 
-/** Where a stored value's effective source is, as reported by the server. */
 type SecretSource = "personal" | "workspace" | "vault";
 
 const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
@@ -71,21 +64,9 @@ interface SecretStatus {
   scope: "user" | "workspace" | "org";
   kind: "api-key" | "oauth";
   required: boolean;
-  /**
-   * "set" = a value is in effect; "unset" = not configured; "invalid" = the
-   * validator rejected the stored value; "unknown" = the credential store
-   * could not be read.
-   */
   status: "set" | "unset" | "invalid" | "unknown";
-  /** Where the effective value comes from — only present when status === "set". */
   source?: SecretSource;
-  /**
-   * True when the effective value is the row this UI writes for the
-   * registered scope, so Rotate/Remove apply. False when a Vault or
-   * workspace value is in use instead.
-   */
   managedHere?: boolean;
-  /** A shared value this row overrides; removing the row falls back to it. */
   overrides?: "vault" | "workspace";
   last4?: string;
   updatedAt?: number;
@@ -106,7 +87,6 @@ function notifySecretsChanged() {
 }
 
 export interface SecretsSectionProps {
-  /** Optional hash fragment to focus a specific secret (e.g. "secrets:OPENAI_API_KEY"). */
   focusKey?: string;
 }
 
@@ -188,8 +168,6 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
   const availableSecrets = secrets.filter(
     (secret) => secret.status === "unset" && secret.key !== openSecretKey,
   );
-  // Vault keys count as "set", but until someone adds their own key the
-  // quick-add tiles are the useful view.
   const hasOwnKey = visibleSecrets.some(
     (secret) => secret.status === "set" && secret.managedHere !== false,
   );
@@ -277,8 +255,6 @@ function KeysEmptyState({
   onPick: (key: string) => void;
 }) {
   const t = useT();
-  // OAuth client pairs are app setup, not "your own account"; keep them
-  // behind New so the tiles stay the keys people actually paste.
   const tiles = availableSecrets
     .filter(
       (secret) =>
@@ -348,7 +324,6 @@ function KeysHeader({
 interface SecretCardProps {
   secret: SecretStatus;
   onChanged: () => void;
-  /** Dispatch Vault page, when running inside a workspace. */
   vaultHref: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -535,8 +510,6 @@ function SecretCard({
   ]);
 
   const isOAuth = secret.kind === "oauth";
-  // Vault/workspace-shadowed rows only show the value form once the user
-  // opts into a personal override.
   const showRotationForm =
     (secret.status !== "set" && secret.status !== "unknown") || isRotating;
 
@@ -838,8 +811,6 @@ function SecretCard({
     </div>
   );
 }
-
-// ─── Ad-hoc Keys Section ──────────────────────────────────────────────────
 
 interface AdHocKey {
   name: string;

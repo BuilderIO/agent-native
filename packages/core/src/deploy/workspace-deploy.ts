@@ -1,19 +1,3 @@
-/**
- * `agent-native deploy` — build and deploy every app in a workspace to a
- * single origin. Each app is served from `/<app-name>/*`, so:
- *
- *   https://your-agents.com/mail/*       → apps/mail
- *   https://your-agents.com/calendar/*   → apps/calendar
- *
- * Benefits of same-origin deploy:
- *   - Shared auth cookie → log in once, every app is signed in
- *   - Cross-app A2A is a same-origin fetch (no CORS, no JWT for siblings)
- *   - One DNS record, one TLS cert, one CDN cache
- *
- * Per-app independent deploy is still supported — just cd into the app and
- * run `agent-native build` as before. This orchestrator is for teams that
- * want the whole workspace behind one domain.
- */
 import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -75,12 +59,6 @@ import {
   IMMUTABLE_ASSET_CACHE_HEADERS,
 } from "./immutable-assets.js";
 
-/**
- * The public framework route prefix the workspace gateway routes on. A
- * workspace deploy has no single `agent-native.config.ts`, so the value comes
- * from the deployment alias every app build in this process also reads; the
- * gateway and each app therefore agree by construction.
- */
 function workspaceFrameworkRoutePrefixEnv(): string {
   return (
     process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || ""
@@ -163,11 +141,8 @@ interface WorkspaceAppManifestOverride {
 
 export interface WorkspaceDeployOptions {
   args?: string[];
-  /** Override the workspace root (defaults to walking up from cwd). */
   workspaceRoot?: string;
-  /** Only build — don't invoke the deploy platform CLI. */
   buildOnly?: boolean;
-  /** Target preset. Defaults to `netlify`. */
   preset?: WorkspaceDeployPreset;
   /** @internal Override process execution in tests. */
   execFile?: typeof execFileSync;
@@ -422,8 +397,6 @@ function moveAppBuildIntoWorkspaceOutput(
     return;
   }
 
-  // Resolve the per-app build output: prefer dist/ (standard), fall back to
-  // .output/ (Nitro's default).
   const candidates = ["dist", ".output"];
   const src = candidates
     .map((c) => path.join(appDir, c))
@@ -439,9 +412,6 @@ function moveAppBuildIntoWorkspaceOutput(
     const target = path.join(distDir, NETLIFY_WORKSPACE_STATIC_DIR, app);
     fs.mkdirSync(target, { recursive: true });
     copyDir(staticSrc, target);
-    // Nitro/Vite mounted builds can contain a nested copy of public assets at
-    // dist/<app>/<app>/...; the workspace root already supplies the outer
-    // mount path, so keeping it would publish duplicate /<app>/<app> URLs.
     fs.rmSync(path.join(target, app), { recursive: true, force: true });
     copyNetlifyFunctionIntoWorkspace(
       workspaceRoot,
@@ -473,11 +443,6 @@ function copyVercelAppBuildIntoWorkspace(
   const staticDest = path.join(vercelOutputDir, "static");
   if (fs.existsSync(staticSrc)) {
     copyDir(staticSrc, staticDest);
-    // Nitro's Vercel preset already nests assets under baseURL. The shared
-    // deploy build also mirrors client assets under baseURL for other Nitro
-    // presets, so mounted apps can contain a duplicate /<app>/<app> copy.
-    // An app named "assets" collides with Vite's real default assets
-    // directory, so that path cannot be distinguished from the duplicate.
     if (app !== "assets") {
       fs.rmSync(path.join(staticDest, app, app), {
         recursive: true,
@@ -807,8 +772,6 @@ function copyNetlifyFunctionIntoWorkspace(
     workspaceAuthMode,
   );
 
-  // Durable background agent runs. Additive ONLY: when explicitly opted out
-  // this emits nothing and the single-function deploy is unchanged.
   const integrationDurableDispatch =
     app === "dispatch" && isIntegrationDurableDispatchConfigured();
   const durableChat = isDurableBackgroundWorkspaceDeployEnabled();
@@ -836,15 +799,6 @@ function copyNetlifyFunctionIntoWorkspace(
   }
 }
 
-/**
- * Emit the per-app Netlify Scheduled Function that hands one recurring-job
- * sweep to that app's durable background worker. The worker owns the actual
- * scan so scheduled-function timeouts cannot strand the automation runner.
- *
- * The entry imports `node:crypto`, so `includedFiles: ["**"]` must stay: the
- * deploy packager only accepts an omitted `includedFiles` for scheduled
- * functions whose entry file has no import/require edge at all.
- */
 function emitNetlifyRecurringJobsFunction(
   workspaceRoot: string,
   app: string,
@@ -920,52 +874,10 @@ export const config = {
   );
 }
 
-/**
- * Deploy-time gate for emitting the per-app `-background` Netlify function.
- *
- * DELIBERATELY WIDER THAN THE SINGLE-TEMPLATE GATE, and it must stay exactly as
- * wide as the WORKSPACE half of the runtime gate: a workspace app opts in
- * through its agent-chat plugin (`durableBackgroundRuns`), which
- * `isAgentChatDurableBackgroundEnabled({ appOptIn: true })` honors unless the
- * env flag is EXPLICITLY falsy. So the emit condition is "not explicitly
- * disabled" — narrowing it to the env-only opt-in would leave plugin-opted-in
- * apps dispatching at a function that was never deployed. The predicates come
- * from durable-background.ts so the deploy and runtime parses cannot drift
- * (they had: this file's former local copy claimed to match a default-off gate
- * while implementing a default-on one).
- */
 export function isDurableBackgroundWorkspaceDeployEnabled(): boolean {
   return !isDurableBackgroundFlagExplicitlyDisabled();
 }
 
-/**
- * Emit a SECOND Netlify function for `app` whose name ends in `-background`,
- * re-exporting the SAME `main.mjs` handler bundle. Netlify invokes any function
- * with `config.background: true` asynchronously (202 immediately, up to 15-min
- * budget), which is exactly what the durable-background chat dispatch
- * (`fireInternalDispatch` → the function's default url) needs.
- *
- * DOC-CORRECT DEFAULT-URL APPROACH (mirrors the single-template emit in
- * deploy/build.ts): the function declares NO custom `config.path`, so it keeps
- * its DEFAULT url `/.netlify/functions/<app>-agent-background`. The `<app>-server`
- * function's catch-all already excludes `/.netlify/*`, so that default-url
- * namespace is NEVER shadowed by the synchronous function — no overlapping
- * `config.path` and no catch-all patch are needed. The foreground dispatches to
- * that default url (`resolveAgentChatProcessRunDispatchPath` resolves the per-app
- * name from `AGENT_NATIVE_WORKSPACE_APP_ID`); `fireInternalDispatch` strips the
- * app base path for `/.netlify/*` targets so the request reaches the host-root
- * function url. The entry then REWRITES the incoming pathname to the
- * base-path-prefixed `_process-run` route before delegating to the Nitro router.
- *
- * It shares the same bundle (`includedFiles: ["**"]`) so `A2A_SECRET`, the DB
- * URL, and the rest of the env/bundle are present. A prior attempt gave the
- * function a custom `config.path` (the framework route) that overlapped the
- * synchronous `<app>-server` catch-all; that path was not honored as a route in
- * prod (probe → 404). The default url is the doc-correct fix.
- *
- * Safety net: if the dispatch fast-fails the foreground degrades to an inline
- * 40s synchronous run (see production-agent.ts).
- */
 function emitNetlifyBackgroundFunction(
   workspaceRoot: string,
   app: string,
@@ -973,9 +885,6 @@ function emitNetlifyBackgroundFunction(
   workspaceApps: WorkspaceAppManifestEntry[],
   workspaceAuthMode: "shared" | "isolated",
 ): void {
-  // Name MUST end in `-background` (Netlify async convention + the runtime guard
-  // reads the -background Lambda-name suffix as a fallback). It is reached at its
-  // DEFAULT url /.netlify/functions/<app>-agent-background.
   const backgroundName = `${app}-agent-background`;
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), backgroundName);
   fs.rmSync(dest, { recursive: true, force: true });
@@ -987,9 +896,6 @@ function emitNetlifyBackgroundFunction(
     workspaceApps,
     app,
   );
-  // The Nitro router for this app expects the base-path-prefixed framework route.
-  // The function is reached at its default url, so the entry rewrites the
-  // incoming pathname to `/<app>/_agent-native/agent-chat/_process-run`.
   const processRunPath = `${basePath}${AGENT_CHAT_PROCESS_RUN_PATH}`;
   const a2aProcessTaskPath = `${basePath}/_agent-native/a2a/_process-task`;
   const integrationProcessTaskPath = `${basePath}/_agent-native/integrations/process-task`;
@@ -1104,14 +1010,9 @@ export const config = {
   preferStatic: false,
 };
 `;
-  // Remove the original Nitro entry (server.mjs) so only our background entry
-  // is the function entrypoint, mirroring patchNetlifyFunctionEntry.
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
   fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), server);
   {
-    // The clone rewrites url.pathname unconditionally, so it can never
-    // route to the SSR page/asset handlers it inherited. Netlify zips and
-    // uploads every function separately, so that island is paid for twice.
     const freed = pruneSsrIslandFromRewritingClone(dest, server);
     if (freed > 0) {
       console.log(
@@ -1231,9 +1132,6 @@ export const config = {
 `;
   fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
   {
-    // The clone rewrites url.pathname unconditionally, so it can never route to
-    // the SSR page/asset handlers it inherited. Netlify zips and uploads every
-    // function separately, so that island is paid for on every deploy.
     const freed = pruneSsrIslandFromRewritingClone(dest, entry);
     if (freed > 0) {
       console.log(
@@ -1691,11 +1589,6 @@ async function readWorkspaceAppManifest(
       explicit?.audience ??
       DEFAULT_WORKSPACE_APP_AUDIENCE;
     const packageRouteAccess = workspaceAppRouteAccessFromPackageJson(pkg);
-    // Prefer the package.json value whenever the field was set — including
-    // an explicit empty array, which is how a per-app package.json signals
-    // "clear any previously-published manifest override." Falling back on
-    // length > 0 would silently keep the explicit override even after the
-    // app owner blanked their list.
     const publicPaths =
       packageRouteAccess.publicPaths ?? explicit?.publicPaths ?? [];
     const protectedPaths =
@@ -1851,11 +1744,6 @@ function isLoopbackOrigin(origin: string | undefined): boolean {
 function workspaceOAuthOrigin(
   workspaceGatewayUrl: string | null,
 ): string | undefined {
-  // Explicit overrides (env vars set by the operator) win even if they happen
-  // to be loopback — that's a deliberate dev-against-prod choice.
-  // The gateway-URL fallback, however, is auto-resolved and would silently
-  // send users to localhost if the configured gateway is loopback in a
-  // production deploy. Strip loopback there so OAuth fails loudly instead.
   const gatewayFallback = normalizeOrigin(workspaceGatewayUrl);
   return (
     normalizeOrigin(process.env.VITE_WORKSPACE_OAUTH_ORIGIN) ||

@@ -672,8 +672,6 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    // "aliases" has no group (defaults to "app", same as General) but sits
-    // between two "integrations" tabs, breaking simple adjacency.
     expect(
       container.querySelectorAll('[data-settings-tab-group="app"]'),
     ).toHaveLength(1);
@@ -872,7 +870,6 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    // The controlled value wins over the (empty) hash.
     expect(container.textContent).toContain("Team members");
     expect(container.textContent).not.toContain("General content");
 
@@ -883,8 +880,6 @@ describe("SettingsTabsPage", () => {
       whatsNewTab!.click();
     });
 
-    // Parent owns the state: it is notified, but the component neither switches
-    // on its own nor writes the hash.
     expect(onValueChange).toHaveBeenCalledWith("whats-new");
     expect(window.location.hash).toBe("");
     expect(container.textContent).toContain("Team members");

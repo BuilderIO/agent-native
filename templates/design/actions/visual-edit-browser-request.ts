@@ -7,11 +7,6 @@ import {
   type LocalhostBridgeRelay,
 } from "../shared/visual-edit-bridge-relay.js";
 
-/**
- * Anonymous visual-edit mutations must start from the Design page transport.
- * The marker alone is forgeable, so require the browser's same-origin metadata
- * too; CLI/MCP callers use the authenticated/local fallback instead.
- */
 export function isSameOriginVisualEditBrowserRequest(
   ctx?: Pick<ActionRunContext, "caller" | "requestHeaders">,
 ): boolean {
@@ -33,12 +28,6 @@ export function isSameOriginVisualEditBrowserRequest(
   return !fetchSite || fetchSite === "same-origin" || fetchSite === "none";
 }
 
-/**
- * The browser relay is only a transport handoff. Keep every access, scope,
- * consent, and path check in the action before returning this marker. A
- * same-origin GET may omit Origin, so the optional browser metadata is
- * checked without making that normal fetch shape unusable.
- */
 export function isLocalhostBridgeRelayRequest(
   ctx?: Pick<ActionRunContext, "caller" | "requestHeaders">,
 ): boolean {
@@ -66,10 +55,6 @@ export function isLocalhostBridgeRelayRequest(
 export function createLocalhostBridgeRelay(
   relay: Omit<LocalhostBridgeRelay, "__agentNativeLocalhostBridge">,
 ): never {
-  // The marker is consumed by the browser fetch transport before an action
-  // result reaches application callers. Keep it out of the inferred public
-  // result type so existing server-side action composition remains typed as
-  // the normal read/write receipt.
   return {
     __agentNativeLocalhostBridge: LOCALHOST_BRIDGE_RELAY_MARKER,
     ...relay,

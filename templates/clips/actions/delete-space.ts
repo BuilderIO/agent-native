@@ -1,13 +1,3 @@
-/**
- * Delete a space.
- *
- * Clears spaceIds from all recordings that referenced it, removes space_members
- * rows for the space, then deletes the space itself.
- *
- * Usage:
- *   pnpm action delete-space --id=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq, sql } from "drizzle-orm";
@@ -35,7 +25,6 @@ export default defineAction({
     if (!existing) throw new Error(`Space not found: ${args.id}`);
     await requireOrganizationAccess(existing.organizationId, ["admin"]);
 
-    // Clean recordings.spaceIds — use LIKE to find rows that reference the id.
     const needle = `%"${args.id.replace(/%/g, "")}"%`;
     const affected = await db
       .select()

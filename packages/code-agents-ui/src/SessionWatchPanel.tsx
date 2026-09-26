@@ -23,12 +23,6 @@ export function mergeSessionWatchTranscriptEvents(
   );
 }
 
-/**
- * A deliberately small second-session surface. It watches a run through the
- * same transcript subscription as the main chat and sends follow-ups through
- * the host's existing run-manager boundary, so watching never grants direct
- * access to another session's files or process.
- */
 export function SessionWatchPanel({
   host,
   run,
@@ -85,8 +79,6 @@ export function SessionWatchPanel({
     setError(null);
     setLoading(true);
 
-    // Subscribe before reading the snapshot. The merge below keeps events that
-    // arrive in the gap between those two operations.
     const unsubscribe = host.subscribeTranscript?.(
       { goalId: run.goalId, runId: run.id },
       (batch) => {

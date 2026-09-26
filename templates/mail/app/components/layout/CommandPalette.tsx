@@ -47,7 +47,6 @@ interface CommandPaletteProps {
   onSendLater?: () => void;
   onSendAndMarkDone?: () => void;
   isComposeContext?: boolean;
-  /** Whether there is a focused/selected email for contextual actions */
   hasEmail?: boolean;
 }
 

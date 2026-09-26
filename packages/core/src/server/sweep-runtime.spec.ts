@@ -28,8 +28,6 @@ describe("shouldDisableInProcessSweeps", () => {
   });
 
   it("does not treat an arbitrary value as opt-in", () => {
-    // "0"/"false" must not disable sweeps — a deployment that sets the variable
-    // to an off-value is asking for the default, not for silent breakage.
     for (const value of ["0", "false", "off", "no", "maybe"]) {
       expect(
         shouldDisableInProcessSweeps({

@@ -23,7 +23,6 @@ interface ScreenMemorySegment {
 
 export interface ScreenMemoryChapter {
   id: string;
-  /** In v2, chapter identity survives later semantic refinements. */
   revision: number;
   aliases: string[];
   startedAt: string;
@@ -89,7 +88,6 @@ interface ScreenMemoryConfig {
 export interface RunScreenMemoryMCPStdioOptions {
   storeDir?: string;
   env?: NodeJS.ProcessEnv;
-  /** Test seam; production uses the local ffmpeg executable. */
   decodeFrame?: ScreenMemoryFrameDecoder;
 }
 
@@ -377,7 +375,6 @@ function parseChapter(value: unknown): ScreenMemoryChapter | null {
   };
 }
 
-/** Reads only the native, retention-bound chapter manifest; malformed rows never escape. */
 export function readScreenMemoryChapters(
   storeDir: string,
 ): ScreenMemoryChaptersDocument | null {
@@ -526,7 +523,6 @@ export function searchScreenMemoryChapters(
             terms.length +
           (exactStrong || exactEvidence ? 2 : 0)
         : 0;
-      // A hint may only settle an otherwise close semantic result; it cannot make a non-match win.
       const hintScore =
         semanticScore > 0 &&
         hint &&
@@ -746,8 +742,6 @@ export function selectContactSheetTimestamps(
         ),
     ),
   ];
-  // Reserve one slot for temporal coverage whenever possible: a contact sheet
-  // should not become a cluster of favorite frames with no sense of the span.
   const preferred = representatives.slice(0, Math.max(0, count - 1));
   const even = Array.from({ length: count }, (_, index) =>
     new Date(started + (duration * (index + 0.5)) / count).toISOString(),
@@ -891,11 +885,6 @@ type EgressEvidenceReference = {
   capturedAt: string | null;
 };
 
-/**
- * Records that bounded evidence was returned without preserving its text.
- * The originating Screen Memory interval remains the only durable home for
- * transcripts and chapter summaries.
- */
 function appendEgressReceipt(
   storeDir: string,
   requestId: string,
@@ -1249,21 +1238,18 @@ export async function runScreenMemoryMCPStdio(
             "recent-context",
             packet.evidence,
           );
-          return textResult(
-            // Keep the old MCP envelope available while adding the typed contract.
-            {
-              events: sanitizedItems,
-              ...result,
-              items: sanitizedItems,
-              evidence: sanitizedEvidence,
-              contextFiles: [],
-              egress: {
-                requestId,
-                packet,
-                note: "A content-free local activity receipt was recorded before this bounded text packet was returned.",
-              },
+          return textResult({
+            events: sanitizedItems,
+            ...result,
+            items: sanitizedItems,
+            evidence: sanitizedEvidence,
+            contextFiles: [],
+            egress: {
+              requestId,
+              packet,
+              note: "A content-free local activity receipt was recorded before this bounded text packet was returned.",
             },
-          );
+          });
         }
         if (name === "screen_memory_recent_segments") {
           const minutes = typeof args.minutes === "number" ? args.minutes : 30;

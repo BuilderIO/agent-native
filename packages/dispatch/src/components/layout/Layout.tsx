@@ -149,26 +149,18 @@ export type DispatchNavIcon = ComponentType<{
 }>;
 
 export interface DispatchNavItem {
-  /** Stable id used for keys and navigation.view. Avoid built-in ids. */
   id: string;
-  /** React Router path for the tab, usually backed by an app/routes/*.tsx file. */
   to: string;
   label: string;
   icon?: DispatchNavIcon;
-  /** Defaults to "operations", which renders under the Admin control plane. */
   section?: DispatchNavSection;
-  /** Override active matching for nested or multi-route tools. */
   match?: (pathname: string) => boolean;
-  /** Canonical path inside the Admin shell for management tabs. */
   adminTo?: string;
 }
 
 export interface DispatchExtensionConfig {
-  /** Opt into the Codex/T3-like chat-first shell for chat routes. */
   chatFirst?: boolean;
-  /** Extra sidebar tabs supplied by the generated workspace. */
   navItems?: readonly DispatchNavItem[];
-  /** Extra React Query keys to invalidate when Dispatch receives DB sync events. */
   queryKeys?: readonly string[];
 }
 
@@ -222,9 +214,7 @@ const EMPTY_NAV_ITEMS: readonly DispatchNavItem[] = [];
 const DISPATCH_SIDEBAR_LABEL = "Dispatch";
 
 export interface DispatchSidebarBrandProps {
-  /** Label shown beside the workspace mark and in collapsed-sidebar affordances. */
   brandName?: ReactNode;
-  /** Optional workspace mark. Defaults to the Agent-Native mark. */
   brandIcon?: ReactNode;
 }
 
@@ -257,10 +247,6 @@ export interface DispatchLayoutProps extends DispatchSidebarBrandProps {
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
-// Below 768px, ChatFirstSurfacePanel becomes a max-[767px]:z-10 full-screen
-// overlay (surface-panel.tsx). This toggle is the only way to dismiss it, so
-// its z-index must stay above that overlay in every stacking context or the
-// panel becomes undismissable on mobile.
 export const CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME =
   "absolute right-3 top-2 z-20";
 
@@ -301,8 +287,6 @@ export function useDispatchExtensions(): DispatchExtensionConfig | undefined {
   return useContext(DispatchExtensionsContext);
 }
 
-// Routes whose page renders its own toolbar. Layout skips its sticky chat
-// control so there's no duplicate page chrome.
 function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
@@ -380,12 +364,6 @@ function dispatchNavLinkTarget(path: string): string {
   if (typeof window === "undefined") return path;
   const basePath = appBasePath();
   if (!basePath) return path;
-  // Mirror the basename calculation entry.client.tsx uses to configure the
-  // router (basePath iff the current URL is under that mount, "" otherwise).
-  // Reading the live URL directly avoids races with the previous check on
-  // `__reactRouterContext.basename`, which could read undefined before the
-  // entry script set it — that race produced /dispatch/dispatch/<route>
-  // history entries that 404'd on back-button navigation.
   const pathname = window.location.pathname;
   const routerHasBasename =
     pathname === basePath || pathname.startsWith(`${basePath}/`);
@@ -1297,12 +1275,6 @@ export function NavContent({
   );
 }
 
-/**
- * Below 768px `ChatFirstSurfacePanel` is already a full-screen overlay
- * (surface-panel.tsx). Mounting the sub-app's own `AgentSidebar` chat rail
- * inside it too would stack a second full-screen shell on top of it, so the
- * rail only gets its own chat surface once there is room beside the panel.
- */
 export function renderChatFirstAppSurfaceTab({
   registration,
   embedPath,
@@ -1369,9 +1341,6 @@ export function Layout({
   const pageTitle = useHeaderTitle();
   const headerActions = useHeaderActions();
   const [mobileOpen, setMobileOpen] = useState(false);
-  // Drives renderChatFirstSurfaceTab's app-tab chatSidebar decision below —
-  // the chat-first surface panel is already a full-screen overlay at this
-  // width, so an app tab must not also mount its own full-screen chat rail.
   const isMobileSurface = useIsMobile();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -1663,9 +1632,6 @@ export function Layout({
       }
       if (resolution.target.openExternally && typeof window !== "undefined") {
         try {
-          // Builder's Visual Editor rejects iframe ancestors with CSP/X-Frame-
-          // Options. Prefer the real browser tab; the browser pane below is a
-          // visible fallback when popup policy blocks this non-click event.
           if (
             window.open(resolution.target.url, "_blank", "noopener,noreferrer")
           ) {

@@ -1,21 +1,8 @@
-/**
- * Bridge between plain text and Yjs CRDT operations.
- *
- * Converts text diffs into minimal Yjs Y.Text operations (insert/delete)
- * so that agent text changes merge cleanly with concurrent editor edits.
- */
-
 import DiffMatchPatch from "diff-match-patch";
 import * as Y from "yjs";
 
 const dmp = new DiffMatchPatch();
 
-/**
- * Apply new text content to a Y.Text field, computing a minimal diff
- * and translating it into Yjs insert/delete operations.
- *
- * Returns the binary Yjs update produced by the transaction.
- */
 export function applyTextToYDoc(
   doc: Y.Doc,
   fieldName: string,
@@ -26,15 +13,12 @@ export function applyTextToYDoc(
   const currentText = ytext.toString();
 
   if (currentText === newText) {
-    // No change — return empty update
     return new Uint8Array(0);
   }
 
-  // Compute character-level diff
   const diffs = dmp.diff_main(currentText, newText);
   dmp.diff_cleanupEfficiency(diffs);
 
-  // Capture the update produced by this transaction
   let update: Uint8Array = new Uint8Array(0);
   const handler = (u: Uint8Array) => {
     update = u;
@@ -63,10 +47,6 @@ export function applyTextToYDoc(
   return update;
 }
 
-/**
- * Initialize a Y.Doc with text content (for seeding from existing data).
- * Returns the full document state as a Uint8Array.
- */
 export function initYDocWithText(
   fieldName: string,
   text: string,

@@ -227,8 +227,6 @@ describe("/api/public-meeting route", () => {
             completedAt: null,
           },
         ],
-        // The owner is already a listed participant (case-insensitively),
-        // so their email is already public on this page — safe to include.
         ownerEmail: "owner@example.com",
         transcript: null,
       },

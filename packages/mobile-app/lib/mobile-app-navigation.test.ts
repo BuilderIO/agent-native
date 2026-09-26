@@ -24,16 +24,12 @@ describe("mobile chat-first navigation", () => {
   });
 
   it("fills missing preferred slots with the next registered app", () => {
-    // Only one preferred app is available, so the spare slot falls through to
-    // an unpreferred one rather than being left empty.
     expect(
       getDefaultMobileTabAppIds([{ id: "clips" }, { id: "calendar" }]),
     ).toEqual(["calendar", "clips"]);
   });
 
   it("does not choose disabled apps for default slots", () => {
-    // `content` outranks `design` in the preferred order, so it would take the
-    // second slot if being disabled were ignored.
     expect(
       getDefaultMobileTabAppIds([
         { id: "content", enabled: false },
@@ -58,7 +54,6 @@ describe("mobile chat-first navigation", () => {
       new Set(["mail", "analytics"]),
     );
 
-    // "removed" is gone, so the second slot is free and the toggle lands.
     expect(toggleMobileTabAppId(currentIds, "analytics")).toEqual({
       ids: ["mail", "analytics"],
       changed: true,

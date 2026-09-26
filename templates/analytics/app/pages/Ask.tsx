@@ -45,9 +45,6 @@ export default function AskPage() {
     const pathnameAtMount = window.location.pathname;
 
     void readSelectedDashboardObject().then((selection) => {
-      // If the user already navigated away, this Ask instance no longer owns
-      // cleanup. The action also CASes the captured selection, covering a
-      // selection change that happens after this read but before the write.
       if (!mounted || window.location.pathname !== pathnameAtMount) return;
       if (selection) void clearSelectedDashboardObjectIfOwned(selection);
     });

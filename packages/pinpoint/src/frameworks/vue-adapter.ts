@@ -15,11 +15,8 @@ export const vueAdapter: FrameworkAdapter = {
 
   detect(): boolean {
     if (typeof window === "undefined") return false;
-    // Vue 3 devtools hook
     if ((window as any).__VUE__) return true;
-    // Vue 3 scoped style attributes
     if (document.querySelector("[data-v-]")) return true;
-    // Check for Vue 3 app instance
     return !!document.querySelector("[__vue_app__]");
   },
 
@@ -52,24 +49,18 @@ export const vueAdapter: FrameworkAdapter = {
   },
 };
 
-/**
- * Get the Vue component instance associated with a DOM element.
- */
 function getVueInstance(element: Element): any {
-  // Vue 3: __vueParentComponent or __vue_app__
   const el = element as any;
 
   if (el.__vueParentComponent) {
     return el.__vueParentComponent;
   }
 
-  // Walk up to find the nearest Vue component
   let current: Element | null = element;
   while (current) {
     if ((current as any).__vueParentComponent) {
       return (current as any).__vueParentComponent;
     }
-    // Vue 2 compatibility
     if ((current as any).__vue__) {
       return (current as any).__vue__;
     }
@@ -79,20 +70,14 @@ function getVueInstance(element: Element): any {
   return null;
 }
 
-/**
- * Get the display name of a Vue component instance.
- */
 function getComponentName(instance: any): string | null {
   if (!instance) return null;
 
-  // Vue 3 Composition API
   if (instance.type?.name) return instance.type.name;
   if (instance.type?.__name) return instance.type.__name;
 
-  // Vue 3 Options API
   if (instance.$options?.name) return instance.$options.name;
 
-  // Infer from __file
   const file = instance.type?.__file || instance.$options?.__file;
   if (file) {
     const match = file.match(/([^/\\]+)\.\w+$/);

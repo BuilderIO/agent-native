@@ -80,9 +80,6 @@ export function runWriteFrameGeometrySnapshot(
     frameGeometrySaveTimerRef.current = null;
   }
   pendingFrameGeometrySaveRef.current = null;
-  // Geometry-persist guard — same contract as queueFrameGeometrySave:
-  // never let absurd frame geometry (a corrupted zoom basis' product)
-  // reach canvasFrames or the screenMetadata viewport sync below.
   const { geometryById: safeGeometryById } =
     sanitizeCanvasFrameGeometryForPersist(
       geometryById,

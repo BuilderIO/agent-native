@@ -1,4 +1,3 @@
-/* Self-hosted via @fontsource-variable/inter and @fontsource-variable/jetbrains-mono — no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
 
@@ -7,8 +6,6 @@
 @import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
-
-/* ===== Light Mode (Notion light) ===== */
 
 :root {
   --background: 0 0% 100%;
@@ -42,7 +39,6 @@
 
   --radius: 0.375rem;
 
-  /* Sidebar light = Notion light sidebar */
   --sidebar-background: 0 0% 98%;
   --sidebar-foreground: 0 0% 34%;
   --sidebar-primary: 0 0% 15%;
@@ -58,7 +54,6 @@
   --color-sidebar-muted: hsl(var(--sidebar-muted));
 }
 
-/* ===== Dark Mode ===== */
 .dark {
   --background: 0 0% 13%;
   --foreground: 0 0% 90%;
@@ -89,7 +84,6 @@
   --input: 0 0% 24%;
   --ring: 0 0% 50%;
 
-  /* Sidebar dark */
   --sidebar-background: 0 0% 10%;
   --sidebar-foreground: 0 0% 60%;
   --sidebar-primary: 0 0% 75%;
@@ -158,7 +152,6 @@
   }
 }
 
-/* ===== Scrollbar ===== */
 @layer utilities {
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
@@ -182,7 +175,6 @@
   }
 }
 
-/* ===== Login Screen ===== */
 .login-loading {
   display: flex;
   min-height: 100vh;
@@ -287,8 +279,6 @@
   color: hsl(var(--muted-foreground));
 }
 
-/* ===== Visual Editor (tiptap / Notion-like) ===== */
-
 .visual-editor-wrapper {
   position: relative;
   min-height: max(320px, 50vh);
@@ -314,10 +304,6 @@
   min-height: max(320px, 50vh);
 }
 
-/* Block fields stack multiple editors, so each surface uses a compact
-   min-height instead of the full-page max(320px, 50vh) — otherwise every field
-   reserves ~half the viewport and the gap between fields balloons. 6rem is the
-   Tailwind `min-h-24` step (~70% smaller than 320px). */
 .block-field-content .visual-editor-wrapper,
 .block-field-content .visual-editor-wrapper .notion-editor {
   min-height: 6rem;
@@ -336,7 +322,6 @@
   margin-top: 0;
 }
 
-/* Headings */
 .notion-editor h1 {
   font-size: 1.875em;
   font-weight: 700;
@@ -382,7 +367,6 @@
   color: hsl(var(--muted-foreground));
 }
 
-/* Paragraphs */
 .notion-editor p {
   margin: 0.5em 0;
   min-height: 1.5em;
@@ -420,7 +404,6 @@
   margin-left: calc(var(--notion-indent-size) * 8);
 }
 
-/* Placeholders */
 .notion-editor p.is-editor-empty:first-child::before,
 .notion-editor p.is-empty::before,
 .notion-editor h1.is-empty::before,
@@ -465,7 +448,6 @@
   background: hsl(var(--muted));
 }
 
-/* Lists */
 .notion-editor ul:not(.notion-task-list),
 .notion-editor ol {
   list-style: none;
@@ -487,8 +469,6 @@
 .notion-editor ul:not(.notion-task-list) > li,
 .notion-editor ol > li {
   display: grid;
-  /* Marker column grows for multi-digit ordered-list numbers (10., 11., …).
-     A fixed 1rem clipped two-digit markers, wrapping "10." onto two lines. */
   grid-template-columns: minmax(1rem, auto) 1fr;
   column-gap: 0.5em;
 }
@@ -502,8 +482,6 @@
   line-height: 1.7;
 }
 
-/* Ordered-list numbers read better right-aligned against the content gutter,
-   and never wrap regardless of digit count. */
 .notion-editor ol > li::before {
   text-align: right;
 }
@@ -575,7 +553,6 @@
   grid-column: 2;
 }
 
-/* Task list */
 .notion-editor .notion-task-list {
   list-style: none;
   padding-left: 0;
@@ -612,7 +589,6 @@
   grid-column: 2;
 }
 
-/* Blockquote */
 .notion-editor blockquote {
   border-left: 4px solid hsl(var(--foreground));
   padding: 0.125rem 0 0.125rem 1.35rem;
@@ -627,7 +603,6 @@
   margin-bottom: 0;
 }
 
-/* Code block wrapper */
 .notion-editor .notion-code-block-wrapper {
   margin: 0.6em 0;
   border-radius: 6px;
@@ -715,7 +690,6 @@
   color: hsl(var(--primary));
 }
 
-/* Code block pre/code */
 .notion-editor .notion-code-block-wrapper pre,
 .notion-editor .notion-code-block,
 .notion-editor pre {
@@ -746,7 +720,6 @@
   color: inherit;
 }
 
-/* Syntax highlighting tokens */
 .notion-editor .hljs-comment,
 .notion-editor .hljs-quote {
   color: hsl(var(--muted-foreground));
@@ -806,7 +779,6 @@
   color: hsl(var(--foreground));
 }
 
-/* Inline code */
 .notion-editor code {
   font-family: "JetBrains Mono Variable", "JetBrains Mono", monospace;
   font-size: 0.85em;
@@ -819,7 +791,6 @@
   color: hsl(0 60% 65%);
 }
 
-/* Links */
 .notion-link {
   color: hsl(var(--foreground));
   text-decoration: underline;
@@ -832,7 +803,6 @@
   text-decoration-color: hsl(var(--foreground));
 }
 
-/* Broken Links (404) */
 .notion-link.link-broken {
   text-decoration: underline wavy;
   text-decoration-color: hsl(var(--destructive));
@@ -843,14 +813,12 @@
   color: hsl(var(--foreground));
 }
 
-/* Horizontal rule */
 .notion-editor hr {
   border: none;
   border-top: 1px solid hsl(var(--border));
   margin: 1.5em 0;
 }
 
-/* Tables */
 .tableWrapper {
   overflow-x: auto;
   margin: 1.5em 0;
@@ -940,31 +908,24 @@
   user-select: none;
 }
 
-/* Images */
 .notion-image {
   max-width: 100%;
   border-radius: 4px;
   margin: 0.8em 0;
 }
 
-/* Video */
 .notion-video {
   max-width: 100%;
   border-radius: 4px;
   margin: 0.8em 0;
 }
 
-/* Audio */
 .notion-audio {
   max-width: 100%;
   border-radius: 4px;
   margin: 0.8em 0;
 }
 
-/* Enhanced Notion-flavored markdown blocks */
-/* Notion block colors and backgrounds (matches Notion's light-mode palette).
-   Applied by the NotionBlockColor fidelity extension via `data-notion-color`
-   and the .notion-block-color--* / .notion-block-bg--* classes. */
 .notion-block-color--gray {
   color: #787774;
 }
@@ -1026,7 +987,6 @@
   background-color: #fdebec;
 }
 
-/* Synced block container — a subtle marker so it reads as shared content. */
 .notion-synced-block {
   border-left: 2px solid #d0a8e0;
   padding-left: 0.75em;
@@ -1315,7 +1275,6 @@ div[data-notion-column] > :last-child {
   text-underline-offset: 3px;
 }
 
-/* ===== Media Block (NodeView wrapper) ===== */
 .media-block-wrapper {
   display: flex;
   align-items: center;
@@ -2114,7 +2073,6 @@ audio.media-block__content {
   background: hsl(0 70% 40% / 0.9);
 }
 
-/* Placeholder for empty media blocks */
 .media-placeholder {
   display: flex;
   flex-direction: column;
@@ -2138,7 +2096,6 @@ audio.media-block__content {
   background: hsl(var(--muted));
 }
 
-/* ===== Block drag handle ===== */
 .drag-handle {
   position: absolute;
   display: none;
@@ -2224,7 +2181,6 @@ audio.media-block__content {
   transform: translateY(-1px);
 }
 
-/* Selected node outline (for toggle, callout, etc.) */
 .notion-editor .ProseMirror-selectednode {
   outline: 2px solid hsl(var(--primary) / 0.4);
   outline-offset: 1px;
@@ -2236,7 +2192,6 @@ audio.media-block__content {
   outline-offset: 0;
 }
 
-/* ===== Drag-and-drop overlay ===== */
 .visual-editor-wrapper--dragging {
   position: relative;
 }
@@ -2268,7 +2223,6 @@ audio.media-block__content {
   font-weight: 500;
 }
 
-/* Upload progress indicator */
 .media-upload-indicator {
   position: absolute;
   top: 8px;
@@ -2297,7 +2251,6 @@ audio.media-block__content {
   text-decoration: line-through;
 }
 
-/* Selection */
 .notion-editor ::selection {
   background: hsl(210 100% 52% / 0.2);
 }
@@ -2374,7 +2327,6 @@ audio.media-block__content {
   }
 }
 
-/* ===== Bubble Toolbar ===== */
 .bubble-toolbar {
   z-index: 20;
   display: flex;
@@ -2388,7 +2340,6 @@ audio.media-block__content {
     0 0 0 1px hsl(var(--border));
 }
 
-/* ===== Inline comment highlights ===== */
 .notion-editor .comment-highlight {
   --comment-highlight-fill: hsl(45 93% 47% / 0.14);
   --comment-highlight-line: hsl(45 93% 40% / 0.5);
@@ -2430,7 +2381,6 @@ audio.media-block__content {
   }
 }
 
-/* Pending suggested edits are presentation-only decorations over canonical text. */
 .notion-editor .suggestion-proposed-text,
 .notion-editor .suggestion-deleted-text {
   cursor: text;
@@ -2505,7 +2455,6 @@ audio.media-block__content {
   text-decoration: none;
 }
 
-/* @mention tokens inside comment bodies */
 .comment-mention {
   border-radius: 3px;
   padding: 0 2px;
@@ -2514,7 +2463,6 @@ audio.media-block__content {
   background-color: hsl(var(--primary) / 0.1);
 }
 
-/* ===== Slash Command Menu ===== */
 .slash-command-menu {
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
@@ -2553,7 +2501,6 @@ audio.media-block__content {
   background: hsl(var(--accent));
 }
 
-/* ===== Collaboration cursors ===== */
 .notion-editor .collaboration-carets__selection,
 .notion-editor .collaboration-cursor__selection,
 .notion-editor .ProseMirror-yjs-selection {

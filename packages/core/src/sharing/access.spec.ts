@@ -333,8 +333,6 @@ describe("shareable resource access helpers", () => {
       },
     ]);
 
-    // Public visibility is intentionally omitted from list queries by default
-    // — public means "anyone with the link," not "appears in everyone's list."
     await expect(
       listVisible({ userEmail: ownerEmail, orgId }),
     ).resolves.toEqual(["owned", "owned-solo", "same-org", "shared-org"]);
@@ -355,8 +353,6 @@ describe("shareable resource access helpers", () => {
       listVisible({ userEmail: viewerEmail, orgId }, "editor"),
     ).resolves.toEqual(["shared-org"]);
 
-    // Opt-in: callers that want cross-user public discovery in a list
-    // (e.g. a public template gallery) pass `{ includePublic: true }`.
     await expect(
       listVisible({ userEmail: viewerEmail }, "viewer", {
         includePublic: true,
@@ -491,10 +487,6 @@ describe("shareable resource access helpers", () => {
   });
 
   it("grants org-visibility access to a real org member even when a different org is active", async () => {
-    // Regression test: `org` visibility must key off actual `org_members`
-    // rows, not equality with the caller's currently active org. A caller
-    // can be a genuine member of both `orgId` and `otherOrgId` while only
-    // one of them is their active selection at any given moment.
     await insertDoc({
       id: "doc-org-cross-active",
       ownerEmail: outsiderEmail,
@@ -523,9 +515,6 @@ describe("shareable resource access helpers", () => {
       orgId: otherOrgId,
       visibility: "org",
     });
-    // viewerEmail has an active org, but is never added to `org_members` for
-    // `otherOrgId` — access must fail rather than fall back to any equality
-    // check.
     await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
       await expect(
         resolveAccess(resourceType, "doc-org-no-membership"),
@@ -1157,7 +1146,6 @@ describe("resolveAccess / assertAccess opt-in projected load", () => {
           visibility: "private",
         },
       });
-      // The full row includes non-access-decision columns like "title".
       expect(Object.keys(access!.resource)).toEqual(
         expect.arrayContaining(["title"]),
       );
@@ -1282,9 +1270,6 @@ describe("resolveAccess / assertAccess opt-in projected load", () => {
         undefined,
         { skipResourceBody: true },
       );
-      // The resolver reads `resource.title`, which only exists on a full
-      // row — this proves the opt-in projection was ignored for a
-      // registration with a dynamic `publicAccessRole` resolver.
       expect(access).toMatchObject({
         role: "editor",
         resource: { title: "proj-dynamic-edit" },

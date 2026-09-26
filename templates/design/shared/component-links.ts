@@ -99,7 +99,6 @@ function sameDocument(left: LocatedNode, right: LocatedNode): boolean {
   );
 }
 
-/** Resolve canonical mains and explicit refs by opaque ID, never by name. */
 export function analyzeComponentLinks(
   projections: readonly CodeLayerProjection[],
 ): ComponentLinkAnalysis {
@@ -204,7 +203,6 @@ interface MaterializeComponentLinkInput {
   mainNode: CodeLayerNode;
   targetSource: CodeLayerSource;
   cloneHtml: string;
-  /** Old durable node ID -> the ID assigned by prepareClonedHtmlLayer. */
   nodeIdMap: ReadonlyMap<string, string>;
 }
 
@@ -259,11 +257,6 @@ function validateNestedReference(
     return null;
   }
 
-  // A nested root is also a materialized instance of its inner component. Its
-  // source marker therefore belongs to the inner component's source domain,
-  // while the nested root's durable node ID belongs to the outer main. The
-  // marker is optional on a canonical nested root, but an authored marker must
-  // identify the inner canonical root exactly.
   const nestedSourceNodeId = identityValue(
     reference,
     COMPONENT_SOURCE_NODE_ID_ATTR,
@@ -427,11 +420,6 @@ function atomicComponentSubtree(
   return { nodes, nestedRoots };
 }
 
-/**
- * Convert a clone of a canonical main into an explicitly linked instance.
- * The caller supplies the clone helper's durable-ID map; this function never
- * guesses a descendant correspondence from names, tags, or source order.
- */
 export function materializeComponentLink({
   mainProjection,
   projections = [mainProjection],
@@ -725,11 +713,6 @@ export type ComponentPropertyTransformResult =
       message?: string;
     };
 
-/**
- * Result shape shared by property and structural component propagation.
- * Structural callers receive the same typed refusal vocabulary so a rejected
- * reconciliation cannot be mistaken for a successful save.
- */
 export type ComponentStructureTransformResult =
   ComponentPropertyTransformResult;
 
@@ -1567,11 +1550,6 @@ interface RenderedComponentChild {
   idMap: Map<string, string>;
 }
 
-/**
- * Rebuild one projected container from its original source slots. The
- * projected child list can change order and membership while raw gaps,
- * comments, and unprojected markup stay in the component.
- */
 function renderComponentChildren(
   content: string,
   sourceContent: string,
@@ -2149,8 +2127,6 @@ function renderComponentStructureNode(
   context.visiting.add(sourceNodeId);
 
   try {
-    // Nested linked components are one opaque correspondence unit. The
-    // nested component owns its descendants and is handled by its own edit.
     if (context.newMainTree.nestedBySourceId.has(sourceNodeId)) {
       const instanceNode = context.oldInstanceBySourceId.get(sourceNodeId);
       if (!instanceNode) {
@@ -2513,11 +2489,6 @@ interface ComponentStructureReplacement {
   content: string;
 }
 
-/**
- * Reconcile one canonical MAIN snapshot against every materialized reference.
- * The caller owns persistence; this function only returns an all-or-nothing
- * set of source changes after validating both identity graphs.
- */
 export function applyComponentStructureEdit(args: {
   documents: readonly ComponentSourceDocument[];
   target: ComponentNodeHandle;
@@ -3069,7 +3040,6 @@ function resultChanges(
   });
 }
 
-/** Apply a supported property edit to a main or one linked instance. */
 export function applyComponentPropertyEdit(args: {
   documents: readonly ComponentSourceDocument[];
   target: ComponentNodeHandle;
@@ -3402,7 +3372,6 @@ export function applyComponentStructureIntent(args: {
   });
 }
 
-/** Apply one inspector commit across linked and ordinary selected targets. */
 export function applyComponentStyleTargetsEdit(args: {
   documents: readonly ComponentSourceDocument[];
   targets: readonly ComponentStyleTarget[];
@@ -3511,7 +3480,6 @@ export function applyComponentStyleTargetsEdit(args: {
   };
 }
 
-/** Reset every supported override on one linked instance to its latest main value. */
 export function resetComponentInstanceOverrides(args: {
   documents: readonly ComponentSourceDocument[];
   instance: ComponentNodeHandle;

@@ -13,15 +13,6 @@ import {
   enterInteractView,
 } from "./helpers";
 
-/**
- * Canvas background parity: reproduces feedback.md's "white flash after
- * edits" / "white background comes back after undo" reports, and the peer
- * (Codex) failure at e2e/canvas-background.spec.ts:134 (dark 26->33, light
- * 235->255 after the first shape). Every test samples the RENDERED PIXEL
- * (not a computed style, which can read correctly while something else
- * paints on top) at a point that never touches shape geometry.
- */
-
 async function postAction(
   request: APIRequestContext,
   name: string,
@@ -70,8 +61,6 @@ async function pixelAt(page: Page, x: number, y: number): Promise<string> {
   );
 }
 
-/** getComputedStyle(--design-editor-canvas-bg) resolved to rgb(...), read on
- *  the parent-page canvas container itself, not through the shield. */
 async function canvasVarRgb(page: Page): Promise<string> {
   return page.evaluate(() => {
     const el = document.querySelector("[data-design-canvas-container]");
@@ -92,16 +81,6 @@ async function designTraceDump(page: Page): Promise<unknown> {
   );
 }
 
-/**
- * The naive "15% across the canvas container" point from the older spec
- * actually lands UNDER the absolutely-positioned left chrome rail
- * (`[data-design-chrome-region="left-shell"]`, z-70) here: `elementFromPoint`
- * resolves to the Layers panel, not the canvas, and its
- * `--design-editor-panel-bg` (33/33/33 dark, white light) is exactly the
- * "wrong" colour this whole area is chasing. So compute a point clear of
- * every known chrome region and CONFIRM via `elementFromPoint` that it lands
- * on the canvas container or a transparent descendant before trusting it.
- */
 async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
   const canvasBox = await page
     .locator("[data-design-canvas-container]")
@@ -204,8 +183,6 @@ for (const { theme, canvasRgb } of [
 
       await drawFirstRectangle(page);
 
-      // This is the exact peer-reported regression: dark 26->33, light
-      // 235->255 once the board-surface layer mounts its first content.
       const after = await pixelAt(page, x, y);
       if (after !== canvasRgb) {
         console.log(
@@ -260,8 +237,6 @@ test("dark: canvas background does not flash light after undoing the first shape
       timeout: 10_000,
     });
 
-    // Sample repeatedly across the settle window: a one-frame flash that a
-    // single sample after a fixed wait would miss.
     const samples: string[] = [];
     for (let i = 0; i < 8; i++) {
       samples.push(await pixelAt(page, x, y));
@@ -313,7 +288,6 @@ test("dark: canvas background does not flash light after dragging a shape", asyn
     await drawFirstRectangle(page);
     await expect.poll(() => pixelAt(page, x, y)).toBe("26,26,26");
 
-    // Drag the newly created board rectangle across the board.
     await page.mouse.move(900, 450);
     await page.mouse.down();
     await page.mouse.move(1100, 620, { steps: 15 });
@@ -365,14 +339,6 @@ test("dark: canvas background stays correct after grouping two shapes", async ({
     const { x, y } = await sampleXY(page);
     await drawFirstRectangle(page);
 
-    // Second rectangle, elsewhere on the board. Drawn BELOW the first rather
-    // than to its right: at this viewport width the right inspector panel
-    // (`[data-design-chrome-region="right-panel"]`) opens once the first
-    // rectangle is selected and covers screen-x from ~1020 to the page edge,
-    // so a draw starting at x=1050 lands entirely inside the panel chrome
-    // and never reaches the canvas — the drag is silently swallowed and no
-    // second layer is created. Staying in the already-confirmed-clear
-    // x=800-1000 column sidesteps that without depending on panel geometry.
     await page.locator('button[aria-label="Rectangle"]').first().click();
     await page.mouse.move(800, 600);
     await page.mouse.down();
@@ -382,16 +348,11 @@ test("dark: canvas background stays correct after grouping two shapes", async ({
       timeout: 10_000,
     });
 
-    // Select both via marquee, then group. Vertical span matching the two
-    // rectangles' new stacked layout above.
     await page.mouse.move(760, 340);
     await page.mouse.down();
     await page.mouse.move(1050, 780, { steps: 15 });
     await page.mouse.up();
     await page.keyboard.press("ControlOrMeta+g");
-    // Grouping leaves the two original rows nested under the new Group row;
-    // depending on default expand state the tree can hold 1 (collapsed) or
-    // 3 (expanded) treeitems — scope to the topmost (the group) either way.
     await expect(page.locator('[role="treeitem"]').first()).toContainText(
       "Group",
       { timeout: 10_000 },
@@ -478,14 +439,9 @@ test("theme toggle with existing board content: no stale colour from the other s
     await drawFirstRectangle(page);
     await expect.poll(() => pixelAt(page, x, y)).toBe("26,26,26");
 
-    // Flip the OS/browser scheme to light while the app is already mounted
-    // with dark board content baked in (this is what board-surface-html's
-    // "a block from the other scheme is stale" comment is guarding against).
     await page.emulateMedia({ colorScheme: "light" });
     await page.evaluate(() => localStorage.setItem("theme", "light"));
     await page.evaluate(() => {
-      // Nudge next-themes without a full reload, matching a user's
-      // in-app theme-switcher click rather than a hard refresh.
       document.documentElement.classList.remove("dark");
       document.documentElement.classList.add("light");
     });
@@ -535,10 +491,6 @@ test("light: canvas background does not flash light->white on initial load befor
       waitUntil: "commit",
     });
 
-    // Sample as fast as possible from first paint through settle. The
-    // reported bug is a literal white (255,255,255) flash, which is neither
-    // the dark canvas (26,26,26) nor the dark skeleton bg (~28,28,28) — so
-    // any 255 sample here is the regression, not noise.
     const samples: string[] = [];
     for (let i = 0; i < 25; i++) {
       const box = await page
@@ -575,16 +527,6 @@ test("light: canvas background does not flash light->white on initial load befor
   }
 });
 
-/**
- * A board FRAME (auto-layout, `data-agent-native-group-wrapper="true"` +
- * `data-an-primitive="frame"`) is a live-DOM drag: the bridge writes
- * left/top straight onto the element and only the persisted file goes
- * through undo's content-revert path (replaceRuntimeDocument /
- * getEmbeddedFrameDocumentContent), which never carried the board's
- * render-style tag. Reproduces feedback.md's "white canvas after drag /
- * Cmd+Z / double-click" on a Frame specifically (a plain shape has no
- * group-wrapper marker and does not exercise the same path).
- */
 const BOARD_FRAME_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -651,17 +593,8 @@ test("dark: dragging a board Frame then undoing restores its position and the ca
     const before = await frame.boundingBox();
     if (!before) throw new Error("no bounding box for the board frame");
 
-    // A point well inside the frame's own empty flex space — both
-    // rectangles sit in the left half of the fixture's 320px-wide frame, see
-    // its geometry above — clear of both children (so this grabs the FRAME
-    // itself, never a click-through) and far enough from every edge to miss
-    // the selected frame's own resize handles.
     const px = before.x + before.width * 0.7;
     const py = before.y + before.height / 2;
-    // A point safely below the frame's own box, clear of it at every one of
-    // before/dragged/undone positions in this test — the canvas's own
-    // colour shows through here whenever bug (A) is fixed, regardless of
-    // whether (B) also put the frame itself back.
     const bgX = before.x + before.width / 2;
     const bgY = before.y + before.height + 120;
 
@@ -687,8 +620,6 @@ test("dark: dragging a board Frame then undoing restores its position and the ca
     await page.keyboard.press("ControlOrMeta+z");
     await page.waitForTimeout(500);
 
-    // (B) the LIVE canvas position, not just the persisted file, must
-    // follow the undo.
     const undone = await frame.boundingBox();
     if (!undone) throw new Error("frame disappeared after undo");
     expect(
@@ -696,10 +627,6 @@ test("dark: dragging a board Frame then undoing restores its position and the ca
       `undo must restore the pre-drag on-screen position (${before.x},${before.y}); got (${undone.x},${undone.y}). Trace: ${JSON.stringify(await designTraceDump(page)).slice(-1000)}`,
     ).toEqual([Math.round(before.x), Math.round(before.y)]);
 
-    // (A) the board iframe's document must keep its dark-theme render style
-    // (color-scheme:dark + transparent background) across the undo's
-    // content revert, or Chrome paints its opaque light UA base behind the
-    // still-transparent document — a white canvas.
     const boardHtml = boardIframe(page).contentFrame().locator("html");
     await expect
       .poll(() => boardHtml.evaluate((el) => getComputedStyle(el).colorScheme))
@@ -715,9 +642,6 @@ test("dark: dragging a board Frame then undoing restores its position and the ca
       )
       .toBe(true);
 
-    // Ground truth: the actual rendered pixel below the frame, sampled
-    // repeatedly across the settle window so a one-frame flash can't hide
-    // between two checks.
     const samples: string[] = [];
     for (let i = 0; i < 8; i++) {
       samples.push(await pixelAt(page, bgX, bgY));

@@ -142,8 +142,6 @@ export default function HomeRoute() {
       } else if (result.fallbackReason === "saved-document-unavailable") {
         toast.info(t("landing.previousPageUnavailable"));
       }
-      // Hand the known title to the editor skeleton only when the resolver
-      // confirmed it for this exact page; a fallback keeps the title hidden.
       const hint = lastLocationHintRef.current;
       stashLandingTitleHint(
         hint && hint.documentId === result.documentId ? hint : null,
@@ -157,8 +155,6 @@ export default function HomeRoute() {
         { replace: true },
       );
     } catch (error) {
-      // Keep the typed mutation error available to QueryErrorState. Retrying
-      // starts a fresh resolver attempt rather than pretending arrival worked.
       console.error("Failed to resolve the Content landing page", error);
     }
   }, [

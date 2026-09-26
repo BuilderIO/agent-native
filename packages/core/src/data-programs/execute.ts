@@ -36,9 +36,7 @@ import {
 
 const PANEL_VIEW_TIMEOUT_MS = 25_000;
 const DEFAULT_TIMEOUT_MS = 120_000;
-/** Background executions get a generous budget — they run out-of-band. */
 const BACKGROUND_TIMEOUT_MS = 10 * 60 * 1000;
-/** Max chars of combined stdout/stderr retained per run row for debugging. */
 const LOGS_TAIL_MAX_CHARS = 4096;
 
 export type DataProgramErrorCode =
@@ -85,16 +83,8 @@ export type DataProgramTriggeredBy =
   | "preview";
 
 export interface RunDataProgramArgs {
-  /** Stored program id. Mutually exclusive with `code` (code = inline dry-run/preview path). */
   programId?: string;
-  /**
-   * The calling app's id. When provided alongside `programId`, the lookup is
-   * scoped to programs owned by this app — a program created in one app is
-   * not runnable from another app's agent chat in a shared-database
-   * deployment, even for a user who otherwise has row-level access.
-   */
   appId?: string;
-  /** Inline code for a dry-run/preview — no persisted program, no cache. */
   code?: string;
   params?: Record<string, unknown>;
   ctx: { userEmail?: string; orgId?: string | null };
@@ -103,12 +93,6 @@ export interface RunDataProgramArgs {
   timeoutMs?: number;
   evaluator?: SandboxCodeEvaluator;
 }
-
-// ---------------------------------------------------------------------------
-// Module-level action supplier — mirrors the `getActions` supplier pattern
-// `createRunCodeEntry` closes over, so the sandbox bridge exposes the same
-// app-scoped action registry data programs (and run-code) already use.
-// ---------------------------------------------------------------------------
 
 let _actionsSupplier: (() => Record<string, ActionEntry>) | undefined;
 let _initializedAppId: string | undefined;
@@ -126,12 +110,10 @@ export function initDataPrograms(opts: {
   }
 }
 
-/** The appId passed to the most recent `initDataPrograms()` call, if any. */
 export function getInitializedDataProgramsAppId(): string | undefined {
   return _initializedAppId;
 }
 
-/** Test-only: clear module-level supplier state. */
 export function _resetDataProgramsRuntimeForTests(): void {
   _actionsSupplier = undefined;
   _initializedAppId = undefined;
@@ -144,7 +126,6 @@ function defaultTimeoutFor(triggeredBy: DataProgramTriggeredBy): number {
     : DEFAULT_TIMEOUT_MS;
 }
 
-/** Canonical (key-sorted) JSON so equivalent params always hash the same. */
 export function canonicalDataProgramParamsJson(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
@@ -233,10 +214,6 @@ function failure(
   };
 }
 
-/**
- * Attach the last successful run (if any) to a failure result, so panels can
- * stale-serve instead of showing a blank error card.
- */
 async function failureWithLastGood(
   programId: string | undefined,
   paramsHash: string | undefined,
@@ -262,11 +239,6 @@ function buildActionRunContext(
   };
 }
 
-/**
- * Execute one prepared (prelude + code) module through the existing run-code
- * sandbox. Never throws — resolves to either a parsed contract result or a
- * structured failure (timeout, sandbox_error, or a contract error code).
- */
 async function executeProgramCode(
   fullCode: string,
   timeoutMs: number,
@@ -356,10 +328,6 @@ function accessContextFrom(ctx: RunDataProgramArgs["ctx"]): AccessContext {
   };
 }
 
-/**
- * Run a stored data program (or inline code for preview/dry-run). Never
- * throws — always resolves to a discriminated success/failure result.
- */
 export async function runDataProgram(
   args: RunDataProgramArgs,
 ): Promise<DataProgramResult> {
@@ -370,9 +338,6 @@ export async function runDataProgram(
       ? DEFAULT_TIMEOUT_MS
       : defaultTimeoutFor(triggeredBy));
 
-  // Inline preview/dry-run path: no persisted program, no cache, no access
-  // check beyond "the caller can execute code at all" (governed by the
-  // caller's own action-level toolCallable gate).
   if (!args.programId) {
     if (!args.code) {
       return failure(
@@ -442,8 +407,6 @@ export async function runDataProgram(
     if (cached) return cached;
   }
 
-  // Background programs: serve the last good run as `stale: true` while
-  // (re)enqueuing a durable execution, deduped against any active run.
   if (program.background) {
     return runBackgroundProgram(program, args, paramsHash, timeoutMs);
   }
@@ -488,10 +451,6 @@ async function runForegroundProgram(
   paramsHash: string,
   timeoutMs: number,
 ): Promise<DataProgramResult> {
-  // Best-effort double-run guard: skip re-execution if another `running` row
-  // for this (programId, paramsHash) is still within its own timeout window.
-  // Programs are read-only, so a duplicate concurrent run is wasted work, not
-  // a correctness hazard — this is advisory, not a hard lock.
   const active = await getActiveRun(program.id, paramsHash);
   if (active && Date.now() - active.startedAt < timeoutMs) {
     const latestSuccess = await getLatestSuccessfulRun(program.id, paramsHash);
@@ -579,9 +538,6 @@ async function runBackgroundProgram(
 
   const backgroundTimeout = Math.max(timeoutMs, BACKGROUND_TIMEOUT_MS);
 
-  // Poll-driven completion: if there's already a queued/running row, check
-  // whether its execution has gone terminal and finalize it before deciding
-  // whether to enqueue another.
   const active = await getActiveRun(program.id, paramsHash);
   if (active?.executionId && args.ctx.userEmail) {
     const execution = await getSandboxExecutionForOwner(
@@ -622,7 +578,6 @@ async function runBackgroundProgram(
         triggeredBy: args.triggeredBy,
       });
     } catch (err) {
-      // Enqueue failed — fall through to serving lastGoodRun / background_pending.
       console.error(
         `[data-programs] failed to enqueue background run for ${program.id}:`,
         err,

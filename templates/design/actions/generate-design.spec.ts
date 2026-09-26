@@ -1,28 +1,6 @@
-/**
- * Tests for generate-design.
- *
- * Coverage focus (in addition to the pre-existing tool-schema test): the
- * existing-file UPDATE path now goes through writeInlineSourceFile with a
- * freshly-read expectedVersionHash, closing the stale-diff-base race where
- * `file.content` is LLM-generated content that can be arbitrarily stale by
- * the time this action persists it (the same bug class already fixed in
- * insert-design-native-asset.ts / insert-asset.ts). The NEW-file creation
- * path (db.insert + seedFromText) uses the same core write mechanics as
- * before. Both paths now also stamp missing data-agent-native-node-id
- * attributes before persisting (shared/screen-annotation.ts) so generated
- * screens are born fully addressable by id-keyed editor operations instead
- * of depending on a client-side backfill the first time someone opens them.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
-  // `where()` must behave both as a directly-awaited result (this action's
-  // own existingFiles/select lookups) AND as a chain that supports a
-  // trailing `.limit(1)` (writeInlineSourceFile's internal re-select in
-  // server/source-workspace.ts, now used by the existing-file update path).
-  // Returning a real Promise with an extra `.limit()` method attached covers
-  // both call shapes with the same mocked resolved rows.
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
@@ -31,11 +9,6 @@ const mocks = vi.hoisted(() => {
     return promise;
   }
 
-  // Backing rows for the design's files. The action's own lookup filters by
-  // designId only (the fake `eq` doesn't narrow further in that shape);
-  // writeInlineSourceFile's internal re-select filters by a single file id
-  // (`eq(designFiles.id, file.id)`), which this fake `where` recognizes by
-  // predicate shape and narrows to.
   let fileRows: Array<Record<string, unknown>> = [];
   let designRows: Array<Record<string, unknown>> = [
     { id: "design-1", data: null },
@@ -73,9 +46,6 @@ const mocks = vi.hoisted(() => {
     },
   );
 
-  // select() is called with either no args (designFiles lookups) or a
-  // projection object (the tx.select({ data: ... }) design-data read).
-  // Dispatch on whether a projection was requested to the right chain.
   const select = vi.fn((projection?: Record<string, unknown>) => {
     if (projection && "data" in projection) return designSelectChain;
     return fileSelectChain;
@@ -98,8 +68,6 @@ const mocks = vi.hoisted(() => {
     return fileUpdateChain;
   });
 
-  // Populated after the db.mock schema object is constructed below (needed
-  // so `update()` can dispatch by table identity).
   const schemaRef: { designFiles?: unknown; designs?: unknown } = {};
 
   const tx = {
@@ -120,12 +88,6 @@ const mocks = vi.hoisted(() => {
     transaction,
   };
 
-  // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile
-  // (used by the existing-file update path) re-reads getText() right after
-  // seedFromText/applyText to persist the "authoritative" collab content back
-  // to SQL, so seedFromText must actually store what getText reads back.
-  // Cleared per-test in beforeEach (the vi.mock factory only runs once per
-  // file, so without an explicit reset this map would leak across tests).
   const seededCollabText = new Map<string, string>();
 
   return {
@@ -400,14 +362,6 @@ describe("generate-design action tool schema", () => {
 });
 
 describe("generate-design: canvasFrames duplicate-target rejection", () => {
-  // mergeCanvasFramePlacements folds two placements for the same target into
-  // one canvasFrames[fileId] value (last one wins), but the mutateDesignData
-  // isApplied check verifies EVERY placedFrames entry against that single
-  // folded value, so the earlier (now-overwritten) entry always mismatches.
-  // Since the mutate callback is deterministic, every retry recomputes the
-  // same mismatch, so the action would always fail with a "concurrent write
-  // conflicts" error after burning through every retry. Reject the malformed
-  // input up front instead.
   it("rejects two canvasFrames entries targeting the same fileId", () => {
     const parsed = (action as any).schema.safeParse({
       designId: "design-1",
@@ -491,11 +445,6 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     expect(result.savedFiles).toEqual([
       { id: "file-1", filename: "index.html", fileType: "html" },
     ]);
-    // writeInlineSourceFile persists the authoritative collab content via
-    // db.update(schema.designFiles).set({ content, updatedAt }). Content is
-    // annotated with data-agent-native-node-id before persisting (see
-    // shared/screen-annotation.ts), so the saved html/body tags carry stamped
-    // ids rather than the byte-exact input string.
     expect(mocks.fileUpdateChain.set).toHaveBeenCalledWith(
       expect.objectContaining({
         content: expect.stringMatching(
@@ -528,14 +477,11 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     let hasCollabCalls = 0;
     (collab.hasCollabState as any).mockImplementation(async () => {
       hasCollabCalls += 1;
-      return hasCollabCalls > 0; // collab doc already exists from the start
+      return hasCollabCalls > 0;
     });
     let getTextCalls = 0;
     (collab.getText as any).mockImplementation(async () => {
       getTextCalls += 1;
-      // First call: the action's pre-write read (establishes the base hash).
-      // Second call: writeInlineSourceFile's internal re-check, after a
-      // concurrent write has landed.
       return getTextCalls === 1
         ? "<html><body>old</body></html>"
         : "<html><body>concurrent-edit</body></html>";
@@ -553,11 +499,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       ],
     });
 
-    // Must fail loud: the stale content must never be persisted...
     expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
-    // ...but a single-file batch is just a batch of size one — the conflict
-    // is reported the same retryable way a multi-file batch reports it, not
-    // as a thrown error, so the caller has one consistent shape to check.
     expect(result.savedFiles).toEqual([]);
     expect(result.fileErrors).toEqual([
       {
@@ -625,9 +567,6 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       ],
     });
 
-    // file-1 saved (and got its canvas frame placed) even though file-2
-    // failed later in the same batch — a partial failure must not discard an
-    // already-committed sibling's bookkeeping.
     expect(result.savedFiles).toEqual([
       { id: "file-1", filename: "index.html", fileType: "html" },
     ]);
@@ -639,7 +578,6 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       (data.canvasFrames as Record<string, unknown> | undefined)?.["file-1"],
     ).toBeDefined();
 
-    // file-2's conflict is reported back, not thrown and not swallowed.
     expect(result.fileErrors).toEqual([
       {
         filename: "details.html",
@@ -672,13 +610,6 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
   it("rethrows an unclassified infrastructure failure instead of reporting it as a fileError", async () => {
     setExistingFile("<html><body>old</body></html>");
 
-    // The first assertAccess call is this action's own top-level access
-    // check (line ~709); the second is writeInlineSourceFile's internal
-    // check for this one file. Reject only the second call, simulating a
-    // transient provider/DB failure unrelated to any conflict or integrity
-    // rule — the kind of failure a caller must be able to tell apart from a
-    // legitimate per-file rejection so it retries the WHOLE call instead of
-    // reading "index.html" as durably rejected.
     mocks.assertAccess
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error("ECONNREFUSED: connection lost"));
@@ -697,9 +628,6 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       }),
     ).rejects.toThrow("ECONNREFUSED");
 
-    // Nothing about this failure is a legitimate per-file outcome: the write
-    // never happened and the caller must see a failed action call, not a
-    // successful response with the DB error text tucked into fileErrors.
     expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
   });
 });
@@ -716,15 +644,6 @@ describe("generate-design: generation-session lock guards concurrent fan-out", (
     resetDesignDataMutation();
   });
 
-  // generate-screens' own tool description recommends fanning out parallel
-  // generate-design calls per returned frame. Both calls read-modify-write
-  // the same design-generation-session:<designId> application-state key with
-  // no CAS/versioning primitive available, so without in-process
-  // serialization, whichever write lands second silently discards the first
-  // call's frame-done update (classic lost-update race). Artificial delays on
-  // the mocked readAppState/writeAppState make the race deterministic: without
-  // the lock, both reads land on the same pre-update session before either
-  // write commits.
   it("marks both fanned-out frames done instead of losing one to a last-write-wins race", async () => {
     const sessionStore = new Map<string, Record<string, unknown>>();
     const key = "design-generation-session:design-1";
@@ -837,13 +756,7 @@ describe("generate-design: new-file creation path", () => {
 
     expect(result.savedFiles).toHaveLength(1);
     expect(mocks.insert).toHaveBeenCalled();
-    // The new-file path seeds collab state directly; it must not go through
-    // the update path's db.update(designFiles) content write.
     expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
-    // Content is annotated with data-agent-native-node-id before persisting
-    // (see shared/screen-annotation.ts) so the new screen is fully
-    // addressable by id-keyed editor operations immediately, instead of the
-    // byte-exact unannotated input string.
     const seededValues = Array.from(mocks.seededCollabText.values());
     expect(seededValues).toHaveLength(1);
     expect(seededValues[0]).toContain("<body");
@@ -1005,9 +918,7 @@ describe("generate-design: new-file creation path", () => {
     const [frame] = Object.values(
       data.canvasFrames as Record<string, Record<string, unknown>>,
     );
-    // Widest device (desktop) seeds the primary frame.
     expect(frame).toMatchObject({ width: 1440, height: 900 });
-    // Breakpoints are the narrower devices only, ascending, never the base width.
     expect(data.breakpointSet).toMatchObject({
       breakpoints: [
         expect.objectContaining({ label: "Mobile", widthPx: 390 }),
@@ -1038,7 +949,6 @@ describe("generate-design: new-file creation path", () => {
       data.canvasFrames as Record<string, Record<string, unknown>>,
     );
     expect(frame).toMatchObject({ width: 390, height: 844 });
-    // Single device => empty breakpoint set => no breakpointSet is seeded.
     expect(data.breakpointSet).toBeUndefined();
   });
 
@@ -1168,7 +1078,6 @@ describe("generate-design: new screens never stack on existing frames", () => {
   });
 
   it("relocates a second screen that requests the first screen's coordinates", async () => {
-    // A screen already sits at the origin (state after the first generation).
     mocks.setDesignData({
       canvasFrames: {
         "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
@@ -1185,7 +1094,6 @@ describe("generate-design: new screens never stack on existing frames", () => {
           content: "<!doctype html><html><body>Pricing</body></html>",
         },
       ],
-      // The agent reuses the skill example's x:0,y:0 for the new screen.
       canvasFrames: [
         { filename: "pricing.html", x: 0, y: 0, width: 1440, height: 900 },
       ],
@@ -1233,8 +1141,6 @@ describe("generate-design: new screens never stack on existing frames", () => {
     >;
     const first = frames[result.savedFiles[0]!.id]!;
     const second = frames[result.savedFiles[1]!.id]!;
-    // The default source aspect differs from the desktop frame, so both
-    // responsive previews use the renderer's full-scale reflow path.
     expect(second.x - first.x).toBeCloseTo(1440 + 24 + 768 + 24 + 390 + 96);
   });
 
@@ -1558,10 +1464,6 @@ describe("generate-design: placement clears rotated existing frames", () => {
   });
 
   it("relocates a new screen clear of a rotated frame's real footprint", async () => {
-    // A wide-short frame at y=1000 rotated 90° becomes a tall band whose AABB
-    // is x∈[670,770], y∈[330,1770] — overlapping a new origin screen even
-    // though its UNROTATED rect (y∈[1000,1100]) does not. Requires
-    // rotation-aware collision to relocate the new screen.
     mocks.setDesignData({
       canvasFrames: {
         "file-1": {
@@ -1593,8 +1495,6 @@ describe("generate-design: placement clears rotated existing frames", () => {
       { x: number; width: number }
     >;
     const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
-    // Without rotation awareness the new screen would stay at x:0 (its
-    // unrotated rect misses); rotation-aware collision bumps it past the band.
     expect(placed.x).toBeGreaterThanOrEqual(770);
   });
 });
@@ -1620,8 +1520,6 @@ describe("generate-design: explicit device requests reconcile breakpoints & rota
   ];
 
   it("replaces a stale set when an explicit multi-device request adds a device", async () => {
-    // Existing design has only Mobile; regenerating as mobile+tablet+desktop
-    // must add the Tablet breakpoint, not silently keep only Mobile.
     mocks.setDesignData({
       breakpointSet: {
         id: "old",
@@ -1643,9 +1541,6 @@ describe("generate-design: explicit device requests reconcile breakpoints & rota
   });
 
   it("relocates a new ROTATED screen whose rotated footprint overlaps", async () => {
-    // Existing frame occupies x∈[0,1440]. A new 200x200 screen requested at
-    // x:1450 (unrotated: clears it) rotated 45° has an AABB reaching back to
-    // ~1409, overlapping the existing frame — so it must be relocated.
     mocks.setDesignData({
       canvasFrames: {
         "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
@@ -1722,8 +1617,6 @@ describe("generate-design: explicit device requests reconcile breakpoints & rota
       { x: number }
     >;
     const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
-    // The target's explicit 200x200 canvas frame now seeds its missing source
-    // metadata, so its 390px responsive preview has a square fallback height.
     expect(placed.x).toBeCloseTo(2140);
   });
 });
@@ -1741,7 +1634,6 @@ describe("generate-design: explicit device request resizes an existing frame", (
   });
 
   it("resizes a persisted desktop frame to mobile (keeping position) on devices:[mobile]", async () => {
-    // Existing index.html (file-1) with a persisted desktop-sized frame.
     setExistingFile("<html><body>old</body></html>");
     mocks.setDesignData({
       screenMetadata: {

@@ -54,12 +54,6 @@ function getSharedOwner(): string {
   return sharedResourceOwner(getRequestOrgId());
 }
 
-/**
- * Determine if the current request's user is an org owner/admin in the
- * given org. Used to allow privileged users to update or delete shared
- * jobs created by other org members. Returns false when there is no org,
- * no user, no membership, or any error querying — fail closed.
- */
 async function isCurrentUserOrgAdmin(
   orgId: string | undefined,
 ): Promise<boolean> {
@@ -112,7 +106,6 @@ export async function authorizeJobMutation(
   const createdBy = meta.createdBy?.toLowerCase();
   if (createdBy && createdBy === caller.toLowerCase()) return null;
 
-  // Allow org owners/admins to manage shared jobs created by other members.
   const isAdmin = await isCurrentUserOrgAdmin(
     resourceOrgId ?? meta.orgId ?? getRequestOrgId() ?? undefined,
   );
@@ -170,8 +163,6 @@ async function runCreate(
   const owner = scope === "personal" ? getOwner() : getSharedOwner();
   const path = `jobs/${name}.md`;
   const now = new Date();
-  // A cron time with no zone silently means the host's zone, which is how an
-  // "8am" job ends up firing at 4am for the person who asked for it.
   if (requestedTimezone && !isValidTimezone(requestedTimezone)) {
     return JSON.stringify({
       error: `Unknown timezone: "${requestedTimezone}". Use an IANA zone such as America/New_York.`,
@@ -243,7 +234,6 @@ async function runList(
 ): Promise<string> {
   const owner = getOwner();
   const sharedOwner = getSharedOwner();
-  // Fetch only current user's and shared jobs (not other users')
   const [personal, shared] = await Promise.all([
     resourceList(owner, "jobs/"),
     resourceList(sharedOwner, "jobs/"),
@@ -315,7 +305,6 @@ async function runUpdate(
   } = args;
   const path = `jobs/${name}.md`;
 
-  // Try to find the resource
   let resource = await resourceGetByPath(getSharedOwner(), path);
   if (!resource && scope !== "shared") {
     resource = await resourceGetByPath(getOwner(), path);
@@ -332,11 +321,6 @@ async function runUpdate(
     });
   }
 
-  // Reject when the caller doesn't own the shared job and isn't an org
-  // admin. Without this check, any user could rewrite a shared job whose
-  // `createdBy` is alice@…, and the next cron tick would run the
-  // attacker's instructions as alice (creator-runAs schedules in
-  // jobs/scheduler.ts line 273-278).
   const denied = await authorizeJobMutation(resource.owner, meta, appId);
   if (denied) {
     return JSON.stringify({ error: denied });
@@ -378,9 +362,6 @@ async function runUpdate(
   }
 
   if (enabled !== undefined) {
-    // Accept both the schema's string enum ("true"/"false") and a real boolean
-    // from non-LLM callers. `enabled === "true"` alone treats a boolean `true`
-    // as false — silently *disabling* a job the caller meant to enable.
     meta.enabled = enabled === true || enabled === "true";
     fields.enabled = meta.enabled;
   }
@@ -488,9 +469,6 @@ async function runDelete(
     return JSON.stringify({ error: `Job "${name}" not found` });
   }
 
-  // Same access check as runUpdate — only the creator or an org admin can
-  // remove a shared job. Otherwise any user could break another tenant's
-  // recurring schedule.
   const { meta } = parseJobFrontmatter(resource.content);
   if (classifyJobResource(resource.content).kind === "automation") {
     return JSON.stringify({

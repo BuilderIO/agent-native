@@ -43,11 +43,6 @@ export interface AnalyticsHandoff {
   context: string;
 }
 
-/**
- * Keep the handoff compact and declarative. Analytics owns source selection and
- * query execution; Clips only supplies the recording identity and the visible
- * snapshot that motivated the request.
- */
 export function buildAnalyticsHandoff(
   input: AnalyticsHandoffInput,
 ): AnalyticsHandoff {
@@ -85,7 +80,6 @@ export function buildAnalyticsHandoff(
 export interface ConnectAnalyticsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Activates a route-owned Agent surface instead of the workspace rail. */
   onOpenAgent?: () => void;
   recordingId: string;
   recordingTitle?: string;

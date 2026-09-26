@@ -256,8 +256,6 @@ export function createCheckpoint(
             timeout: TIMEOUT,
             env: lockedIndexEnv,
           });
-          // Publish the index first so an interruption leaves recoverable staged
-          // changes against the old HEAD, never a new HEAD with the old index.
           const preparedIndexHash = createHash("sha256")
             .update(fs.readFileSync(indexLockPath))
             .digest("hex");
@@ -329,13 +327,11 @@ export function createCheckpoint(
 
 export function restoreToCheckpoint(cwd: string, sha: string): boolean {
   try {
-    // Restore all tracked files to the checkpoint state
     execFileSync("git", ["checkout", sha, "--", "."], {
       cwd,
       stdio: "pipe",
       timeout: TIMEOUT,
     });
-    // Remove files that were added after the checkpoint
     try {
       const added = execFileSync(
         "git",

@@ -56,8 +56,6 @@ describe("external result contract guard", () => {
         run: async () => ({ id: "1" }),
       });
     `;
-    // Only the comment (line 2) was added; \`defineAction(\` is on line 3,
-    // which was NOT added — this file already existed before this branch.
     const violations = findExternalResultContractViolations(
       "templates/tasks/actions/create-task.ts",
       source,

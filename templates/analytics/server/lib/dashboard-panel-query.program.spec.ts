@@ -72,10 +72,6 @@ describe("dashboard-panel-query: program source", () => {
     });
 
     it("accepts a bare program id and stores it as a descriptor", () => {
-      // Production: a panel saved as `dp_01c5e3d...` threw `is not valid JSON`
-      // on every render because the writer passed any string through untouched
-      // while the reader required JSON. With no params the id IS the whole
-      // descriptor, so both sides have to accept it.
       expect(normalizeDashboardPanelQuery("program", "dp_01c5e3d")).toBe(
         JSON.stringify({ programId: "dp_01c5e3d" }),
       );

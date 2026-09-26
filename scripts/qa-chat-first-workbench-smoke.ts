@@ -246,9 +246,6 @@ async function createContext(
     );
   }
   await page.goto(`${baseUrl}${pathname}`, { waitUntil: "domcontentloaded" });
-  // The client-side auth guard can redirect after the initial document has
-  // loaded, when its first session query returns 401. Give that redirect a
-  // chance to settle before deciding whether the local-dev CTA is needed.
   await page.waitForTimeout(2_000);
   const localDevButton = page.getByRole("button", {
     name: /continue as local dev/i,
@@ -463,8 +460,6 @@ async function runSmoke(browser: Browser): Promise<void> {
       state: "detached",
     });
 
-    // App-only panes intentionally hide the tab strip. Start a fresh surface
-    // store before testing the tabbed side-surface picker below.
     await on.page.reload({ waitUntil: "domcontentloaded" });
     await on.page.waitForTimeout(7_000);
     await on.page.locator("[data-chat-first-surface-toggle]").click();
@@ -1211,8 +1206,6 @@ async function runElectronSmoke(): Promise<void> {
       "Chat-first app creation should stay in the chat instead of opening a separate workbench",
     );
 
-    // App-only panes intentionally hide the tab strip. Reset the surface store
-    // before exercising the tabbed side-surface picker below.
     await page.evaluate(() => {
       localStorage.removeItem("agent-native:chat-first-surface-tabs:v1");
       localStorage.removeItem("agent-native:chat-first-surface-panel:v1");

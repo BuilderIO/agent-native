@@ -163,8 +163,6 @@ beforeEach(() => {
 describe("get-deck", () => {
   it("accepts the deck id under either `id` or `deckId`", () => {
     expect(action.schema.safeParse({ id: "deck-1" }).success).toBe(true);
-    // Every sibling tool (create-deck, add-slide, update-slide, patch-deck)
-    // names this parameter `deckId`; rejecting it here cost agents a retry.
     expect(action.schema.safeParse({ deckId: "deck-1" }).success).toBe(true);
     expect(JSON.stringify(action.tool.parameters).includes("deckId")).toBe(
       true,

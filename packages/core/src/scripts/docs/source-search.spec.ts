@@ -45,8 +45,6 @@ describe("source-search", { timeout: 60000 }, () => {
 
     expect(files).toContain("templates/chat/package.json");
 
-    // Core and Toolkit source already ship as dist/, docs/, and the Toolkit
-    // package's own src/; a corpus copy was the same bytes a second time.
     expect(
       files.filter(
         (file) => file.startsWith("core/") || file.startsWith("toolkit/"),

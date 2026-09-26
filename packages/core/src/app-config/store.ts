@@ -7,13 +7,6 @@ import {
   type AppConfigInput,
 } from "./schema.js";
 
-/**
- * Resolution order for app configuration, lowest opinion first.
- *
- * `legacy` is where the bespoke `configure*` / `set*` setters this schema
- * replaces write their values, so a deprecated call still works and still has
- * a stated position rather than whichever `if` happens to run first.
- */
 const LAYER_ORDER = ["env", "legacy", "app"] as const;
 
 export type AppConfigLayer = (typeof LAYER_ORDER)[number];
@@ -21,7 +14,6 @@ export type AppConfigLayer = (typeof LAYER_ORDER)[number];
 interface AppConfigState {
   layers: Partial<Record<AppConfigLayer, AppConfigInput>>;
   resolved?: AppConfig;
-  /** Serialized env layer the cached `resolved` was built from. */
   envSignature?: string;
 }
 
@@ -29,17 +21,9 @@ interface AppConfigGlobals {
   __agentNativeAppConfig?: AppConfigState;
 }
 
-/**
- * Nitro replaces this build-only sentinel with a literal before bundling. A
- * missing marker means this is a local/test build, where optional adapters are
- * available from the workspace dependencies.
- */
 export const enterpriseAuthAdaptersBuilt =
   process.env.AGENT_NATIVE_BUILD_ENTERPRISE_AUTH !== "false";
 
-// Same reason the provider registries do this: core can be loaded more than
-// once in a dev server or a dual-format build, and a config set by a plugin
-// has to be visible to a reader that resolved a different copy of the module.
 const globals = globalThis as typeof globalThis & AppConfigGlobals;
 const state: AppConfigState = (globals.__agentNativeAppConfig ??= {
   layers: {},
@@ -53,11 +37,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   );
 }
 
-/**
- * Merges `override` onto `base`, recursing into domain subobjects so two
- * layers can each set a different field of the same domain. Functions, arrays,
- * and scalars replace rather than merge.
- */
 function mergeLayers(
   base: Record<string, unknown>,
   override: Record<string, unknown>,
@@ -83,25 +62,11 @@ function resolve(envLayer: Record<string, unknown>): AppConfig {
     if (value) merged = mergeLayers(merged, value as Record<string, unknown>);
   }
   const parsed = appConfigSchema.parse(merged);
-  // Checked on the MERGED result, not per layer: a deployment may legitimately
-  // set one half of a relationship in the environment and the other in a
-  // plugin, and a per-layer check would reject that pairing before it exists.
-  // Defaults go through here too — the pair that shipped violated was a pair of
-  // defaults.
   assertRunLifecycleInvariants(parsed.agent);
-  // After parsing, not as a layer: it derives from `packageName`, which the
-  // layers above have to have resolved first.
   parsed.app = deriveAppIdentity(parsed.app);
   return parsed;
 }
 
-/**
- * Nitro embeds build-only deployment markers into direct env reads. Netlify's
- * prebuilt beta lane has those markers while building, but does not copy them
- * into the deployed Function environment. Keep the embedded values as the
- * fallback for this one config boundary so a later dynamic `env[key]` read
- * cannot erase the build decision from the server bundle.
- */
 export function readConfigEnvironment(
   embedded: Record<string, string | undefined> = {
     AGENT_NATIVE_RELEASE_MIGRATIONS:
@@ -122,10 +87,6 @@ export function readConfigEnvironment(
   return env;
 }
 
-/**
- * Writes one layer of the ladder. Framework-internal: the deprecated setters
- * use it to keep working without reintroducing a second namespace.
- */
 export function setAppConfigLayer(
   layer: AppConfigLayer,
   config: AppConfigInput,
@@ -137,45 +98,16 @@ export function setAppConfigLayer(
         config as Record<string, unknown>,
       ) as AppConfigInput)
     : config;
-  // Validate where the value is set, so a bad value names the call site that
-  // set it instead of whichever unrelated read happened to run first.
   appConfigSchema.parse(next);
   state.layers[layer] = next;
   state.resolved = undefined;
 }
 
-/**
- * Sets this app's server configuration.
- *
- * Values given here beat any environment variable aliased to the same field.
- * Calling it more than once merges, so an app can split its configuration by
- * domain across plugin files.
- *
- * Returns a Nitro plugin so the canonical home is `server/plugins/config.ts`
- * with `export default defineAppConfig({ … })` — the same shape as every other
- * framework plugin an app already writes. Before that, the docs said "call it
- * from a server plugin" without saying what such a file looks like, and no app
- * in this repo ever did.
- *
- * The layer is applied here, at module load, not when the returned plugin runs:
- * configuration has to be resolved before another plugin reads it, and plugin
- * invocation order is not something an app should have to reason about.
- */
 export function defineAppConfig(config: AppConfigInput): () => void {
   setAppConfigLayer("app", config);
   return () => {};
 }
 
-/**
- * The resolved configuration, with declared defaults applied.
- *
- * The parsed result is cached, but the env layer is rebuilt each call and the
- * cache is dropped when it differs. Re-reading a handful of declared keys is
- * cheap next to re-parsing the schema, and caching the env read outright would
- * mean whichever code path ran first froze the configuration for the process —
- * a stale value nobody can see, which is the failure this module exists to
- * remove.
- */
 export function getAppConfig(): AppConfig {
   const envLayer = readEnvConfigLayer(appConfigSchema, readConfigEnvironment());
   const signature = JSON.stringify(envLayer);
@@ -184,12 +116,6 @@ export function getAppConfig(): AppConfig {
   return (state.resolved = resolve(envLayer));
 }
 
-/**
- * Drops every layer and the resolved cache.
- *
- * The resolved object is cached on first read, so a test that mutates
- * `process.env` between cases has to call this to be seen.
- */
 export function resetAppConfigForTests(): void {
   state.layers = {};
   state.resolved = undefined;

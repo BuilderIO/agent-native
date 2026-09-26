@@ -16,8 +16,6 @@ export async function ensureCheckpointTable(): Promise<void> {
           created_at BIGINT NOT NULL
         )
       `;
-      // Hot read paths: getCheckpointsByThread filters on thread_id and
-      // sorts by created_at; getCheckpointByRunId filters on run_id.
       const threadIdxSql = `CREATE INDEX IF NOT EXISTS agent_checkpoints_thread_created_idx ON agent_checkpoints (thread_id, created_at)`;
       const runIdxSql = `CREATE INDEX IF NOT EXISTS agent_checkpoints_run_idx ON agent_checkpoints (run_id)`;
 
@@ -28,7 +26,6 @@ export async function ensureCheckpointTable(): Promise<void> {
       );
       await ensureIndexExists("agent_checkpoints_run_idx", runIdxSql);
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });

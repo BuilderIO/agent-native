@@ -78,12 +78,6 @@
   font: inherit;
 }
 
-/*
- * AgentKit owns the complete visual contract for the shared composer
- * primitives it renders internally. Keep this stylesheet independent from the
- * Toolkit Tailwind source-registration stylesheet: AgentKit must remain valid
- * CSS in hosts that do not use Tailwind.
- */
 .agentkit-composer-stack [data-agent-composer-slot="area"] {
   position: relative;
   z-index: 1;
@@ -231,7 +225,6 @@
   flex: none;
 }
 
-/* Recessed queued work grows from behind the composer as one workflow. */
 .agentkit-composer-stack
   [data-agent-message-queue="true"][data-agent-message-queue-variant="recessed"] {
   position: relative;
@@ -407,8 +400,6 @@
   color: var(--agentkit-text);
 }
 
-/* The slash and mention palette is portaled to body, so it resolves host
- * tokens directly instead of relying on inheritance from .agentkit-chat. */
 [data-agent-native-composer-popover="true"] {
   --agentkit-palette-surface: var(
     --agent-kit-popover-surface,

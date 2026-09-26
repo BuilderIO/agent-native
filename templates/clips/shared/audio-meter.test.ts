@@ -41,8 +41,6 @@ describe("nextMeterLevel", () => {
 describe("foldMeterSources", () => {
   it("keeps the far end's level up while the local mic is silent", () => {
     let levels = EMPTY_METER_SOURCES;
-    // Mic and system buffers interleave on one event stream. Someone else
-    // talking on a muted-side call must still drive the meter.
     for (let i = 0; i < 10; i++) {
       levels = foldMeterSources(levels, "system", 0.6);
       levels = foldMeterSources(levels, "mic", 0);
@@ -64,8 +62,6 @@ describe("advanceWaveform", () => {
   });
 
   it("uses the room's own range, not an absolute one", () => {
-    // Capture peaks rarely pass ~0.3 even when someone is shouting. Against a
-    // fixed scale that is a flat meter, which is the bug this replaced.
     let quiet = createWaveformState();
     for (let i = 0; i < 12; i += 1) quiet = advanceWaveform(quiet, 0.06);
     const shown = quiet.history[quiet.history.length - 1];
@@ -81,8 +77,6 @@ describe("advanceWaveform", () => {
   });
 
   it("keeps a floor under the rolling peak", () => {
-    // Without it, silence drives the gain to zero and the first whisper pins
-    // the meter to full height.
     let state = createWaveformState();
     for (let i = 0; i < 200; i += 1) state = advanceWaveform(state, 0);
     expect(state.gain).toBe(WAVEFORM_GAIN_FLOOR);
@@ -147,9 +141,6 @@ describe("micSignalWarning", () => {
 });
 
 describe("nextWaveformState", () => {
-  // The flow bar asks for 14 bars and the web mic test for 18. Against a
-  // history fixed at five, everything past the fifth slot rendered as an idle
-  // dot forever, so both meters looked mostly dead while audio was live.
   it("gives a wide meter a history it can actually fill", () => {
     let state = createWaveformState(18);
     expect(state.history).toHaveLength(18);
@@ -166,8 +157,6 @@ describe("nextWaveformState", () => {
     expect(widened.history).toHaveLength(14);
   });
 
-  // A caller that stops capture sets `level` to null. Holding the last frame
-  // there leaves a loud waveform on screen claiming someone is still talking.
   it("rests the meter when the level goes null instead of freezing it", () => {
     let state = createWaveformState();
     for (let i = 0; i < 5; i += 1) state = nextWaveformState(state, 1, 5);
@@ -182,8 +171,6 @@ describe("nextWaveformState", () => {
   });
 
   it("treats silence as a sample, not as a stopped stream", () => {
-    // 0 is "the room is quiet", null is "there is no room". Only the second
-    // resets the rolling gain.
     let state = createWaveformState();
     for (let i = 0; i < 30; i += 1) state = nextWaveformState(state, 0.9, 5);
     const quiet = nextWaveformState(state, 0, 5);

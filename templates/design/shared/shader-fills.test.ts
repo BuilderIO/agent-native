@@ -39,8 +39,6 @@ import {
   getGlslShaderPreset,
 } from "./shader-presets";
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
 const SIMPLE_GLSL = `precision highp float;
 uniform vec2 u_resolution;
 uniform float u_time;
@@ -86,8 +84,6 @@ const DOC = `<!doctype html>
 </body>
 </html>`;
 
-// ─── Validation ──────────────────────────────────────────────────────────────
-
 describe("validateGlslSource", () => {
   it("accepts a well-formed fragment shader", () => {
     expect(validateGlslSource(SIMPLE_GLSL).valid).toBe(true);
@@ -114,10 +110,6 @@ describe("validateGlslSource", () => {
   });
 
   it("allows a bare closing </script> in a comment (escaped on serialize)", () => {
-    // No opening <script> tag here — just a closing marker, e.g. as part of
-    // a comment describing a breakout attempt. This is no longer rejected at
-    // the string-validation level because serializeShaderScriptBlock escapes
-    // it before embedding (see the "shader script breakout" describe block).
     const result = validateGlslSource(
       SIMPLE_GLSL + "\n// this is a </script> breakout attempt",
     );
@@ -227,8 +219,6 @@ describe("fallback color safety", () => {
   });
 });
 
-// ─── Serialization round-trips ───────────────────────────────────────────────
-
 describe("shader block serialization", () => {
   it("round-trips a definition through serialize + parse", () => {
     const def = makeDef();
@@ -269,7 +259,6 @@ describe("shader block serialization", () => {
     const parsed = listShadersInHtml(html);
     expect(parsed).toHaveLength(1);
     expect(parsed[0].name).toBe("Renamed");
-    // Inserted before </body>, exactly once.
     expect(html.match(new RegExp(SHADER_SCRIPT_TYPE, "g"))).toHaveLength(1);
   });
 
@@ -281,17 +270,6 @@ describe("shader block serialization", () => {
     expect(getShaderFromHtml(removed, def.id)).toBeUndefined();
   });
 });
-
-// ─── </script> breakout hardening ────────────────────────────────────────────
-//
-// def.glsl is caller-controlled and embedded raw inside a
-// <script type="application/x-agent-native-shader"> block. A literal
-// </script> substring in the GLSL (e.g. inside a line comment) would
-// otherwise prematurely close the script block when the HTML is rendered,
-// exported, or shared — corrupting everything that follows it in the
-// document. serializeShaderScriptBlock escapes the marker before embedding;
-// parseShaderBlockBody reverses the escape so callers always get the
-// original GLSL back.
 
 const GLSL_WITH_BREAKOUT_COMMENT =
   SIMPLE_GLSL + "\n// this is a </script> breakout attempt";
@@ -331,8 +309,6 @@ describe("shader script breakout hardening (serialize/parse)", () => {
     const def = makeDef({ glsl: GLSL_WITH_BREAKOUT_COMMENT });
     const block = serializeShaderScriptBlock(def);
 
-    // Strip the block's own two legitimate opening/closing script tags
-    // before checking the body — only the BODY must be free of the marker.
     const bodyStart = block.indexOf(">") + 1;
     const bodyEnd = block.lastIndexOf("</script>");
     const body = block.slice(bodyStart, bodyEnd);
@@ -349,13 +325,9 @@ describe("shader script breakout hardening (serialize/parse)", () => {
 
     const html = upsertShaderInHtml(docWithTrailingContent, def);
 
-    // The trailing content must still be present, verbatim, as real markup
-    // (not turned into visible/escaped text by a premature script close).
     expect(html).toContain(
       '<footer id="trailing-marker">Trailing content after shader block</footer>',
     );
-    // Only the shader block's own legitimate open/close script tags exist —
-    // no extra </script> was introduced by the unescaped breakout marker.
     expect(html.match(/<\/script>/gi)).toHaveLength(1);
   });
 
@@ -382,15 +354,6 @@ describe("shader script breakout hardening (serialize/parse)", () => {
   });
 
   it("defense in depth: a hand-crafted UNESCAPED </script in a stored block does not throw and does not corrupt sibling parsing", () => {
-    // Simulates legacy/hand-edited content written before this fix (or a
-    // malicious direct DB edit) that still contains a raw, unescaped
-    // </script inside the shader body. SHADER_BLOCK_RE's lazy match
-    // terminates at the FIRST </script it sees, so this shader's GLSL is
-    // simply truncated at that point (existing regex behavior — not a
-    // crash) and any legacy unescaped content self-heals on next save
-    // (which re-serializes through the new escaping path). What matters is
-    // that this never throws and never corrupts parsing of a SIBLING
-    // shader block or surrounding document content.
     const corruptedBlock =
       `<script type="${SHADER_SCRIPT_TYPE}" data-shader-id="an-shader-corrupt1">\n` +
       serializeManifestComment(makeDef().uniforms) +
@@ -407,17 +370,12 @@ describe("shader script breakout hardening (serialize/parse)", () => {
     expect(() => listShadersInHtml(html)).not.toThrow();
     const defs = listShadersInHtml(html);
 
-    // The corrupted block's GLSL truncates at the first </script — it does
-    // not crash, and it does not swallow or corrupt the sibling shader or
-    // the trailing document content.
     const sibling = defs.find((d) => d.id === "an-shader-sibling1");
     expect(sibling).toBeDefined();
     expect(sibling?.glsl).toBe(SIMPLE_GLSL);
     expect(html).toContain('<div id="tail">tail content</div>');
   });
 });
-
-// ─── Runtime embedding ───────────────────────────────────────────────────────
 
 describe("shader runtime embedding", () => {
   it("runtime source is embeddable (no closing script tag, IIFE, versioned)", () => {
@@ -453,8 +411,6 @@ describe("shader runtime embedding", () => {
   });
 });
 
-// ─── Element annotation ──────────────────────────────────────────────────────
-
 describe("element annotation", () => {
   it("annotates a fill node with attrs + fallback background", () => {
     const result = annotateNodeWithShader(DOC, {
@@ -468,7 +424,6 @@ describe("element annotation", () => {
     expect(result.changed).toBe(true);
     expect(result.html).toContain(`${SHADER_FILL_ATTR}="an-shader-test0001"`);
     expect(result.html).toContain("background: #123456");
-    // Existing style declarations survive.
     expect(result.html).toContain("color: red");
     const mounts = listShaderMounts(result.html);
     expect(mounts).toEqual([
@@ -489,7 +444,6 @@ describe("element annotation", () => {
       values: { u_speed: 2 },
     });
     expect(result.errors).toEqual([]);
-    // Original inline style survives unchanged; no background injected.
     expect(result.html).toContain('style="color: red"');
     expect(result.html).not.toContain("background:");
   });
@@ -552,7 +506,6 @@ describe("element annotation", () => {
         }),
       ]),
     );
-    // Removing only the effect keeps the fill.
     const effectRemoved = clearNodeShader(withBoth.html, "hero", "effect");
     const remaining = listShaderMounts(effectRemoved.html);
     expect(remaining).toHaveLength(1);
@@ -593,8 +546,6 @@ describe("element annotation", () => {
   });
 });
 
-// ─── High-level apply / persistence round-trip ──────────────────────────────
-
 describe("applyShaderToHtml", () => {
   it("performs the full persistence transform in one call", () => {
     const def = makeDef();
@@ -607,13 +558,10 @@ describe("applyShaderToHtml", () => {
     expect(result.errors).toEqual([]);
     expect(result.changed).toBe(true);
 
-    // 1. Definition block present and parseable.
     expect(listShadersInHtml(result.html)).toEqual([def]);
-    // 2. Runtime embedded exactly once.
     expect(
       result.html.match(new RegExp(SHADER_RUNTIME_ATTR, "g")),
     ).toHaveLength(1);
-    // 3. Element annotated with overrides + fallback.
     expect(listShaderMounts(result.html)).toEqual([
       {
         nodeId: "hero",
@@ -624,7 +572,6 @@ describe("applyShaderToHtml", () => {
     ]);
     expect(htmlHasShaderReferences(result.html)).toBe(true);
 
-    // Re-applying with tweaked uniforms stays single-block, single-runtime.
     const again = applyShaderToHtml(result.html, {
       nodeId: "hero",
       def: { ...def, uniforms: { ...def.uniforms } },
@@ -662,8 +609,6 @@ describe("applyShaderToHtml", () => {
   });
 });
 
-// ─── Misc helpers ────────────────────────────────────────────────────────────
-
 describe("misc helpers", () => {
   it("newShaderId produces valid unique ids", () => {
     const ids = new Set(Array.from({ length: 64 }, () => newShaderId()));
@@ -681,8 +626,6 @@ describe("misc helpers", () => {
     });
   });
 });
-
-// ─── GLSL preset library sanity ──────────────────────────────────────────────
 
 describe("GLSL shader preset library", () => {
   it("ships 12 presets: 9 fills + 3 effects", () => {

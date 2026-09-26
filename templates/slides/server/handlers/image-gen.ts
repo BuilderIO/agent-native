@@ -1,7 +1,7 @@
 import { resolveSecret } from "@agent-native/core/server";
 
 interface ReferenceImage {
-  data: string; // base64
+  data: string;
   mimeType: string;
 }
 
@@ -28,9 +28,6 @@ function cappedContext(label: string, value?: string): string {
   return `\n\n${label} (topic/style context only; do not render these words): ${capped}`;
 }
 
-/**
- * Generate an image using Gemini with optional reference images for style matching
- */
 export async function generateWithGemini(
   prompt: string,
   referenceImages: ReferenceImage[] = [],
@@ -41,14 +38,12 @@ export async function generateWithGemini(
   if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
   const client = new GoogleGenAI({ apiKey });
 
-  // Randomly select 4 reference images for better style matching per generation
   const shuffled = [...referenceImages].sort(() => Math.random() - 0.5);
   const selectedRefs = shuffled.slice(0, 4);
   console.log(
     `[Gemini] Using ${selectedRefs.length} of ${referenceImages.length} reference images (randomly selected)`,
   );
 
-  // Build contents with reference images + text prompt
   const contents: any[] = [];
   for (const ref of selectedRefs) {
     contents.push({

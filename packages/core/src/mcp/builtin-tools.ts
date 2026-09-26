@@ -1,36 +1,3 @@
-/**
- * Generic cross-app MCP tools — a stable verb set every external agent gets
- * regardless of which template it is talking to.
- *
- * These are merged into the MCP action registry by
- * `createMCPServerForRequest` (see `build-server.ts`). **Precedence: template
- * actions win.** If a template defines an action named `list_apps` /
- * `open_app` / `ask_app` / `create_workspace_app` / `list_templates`, the
- * template's `ActionEntry` overwrites the builtin of the same name. This is
- * the same template-over-framework precedence `autoDiscoverActions` uses.
- *
- * | Tool                  | Side effects | Returns                                  |
- * | --------------------- | ------------ | ---------------------------------------- |
- * | `list_apps`           | none         | `{ apps: [{ id, url, running }] }`       |
- * | `open_app`            | none         | `{ url }` (+ deep-link `link`)           |
- * | `create_embed_session`| ticket mint  | `{ startUrl }` for MCP App iframes       |
- * | `ask_app`             | agent loop   | `{ app, routedVia, response, verification }` or task   |
- * | `ask_app_status`      | none         | poll a durable `ask_app` task            |
- * | `create_workspace_app`| scaffolds    | `{ name, url, port, deepLink }` (+ link) |
- *
- * `open_app` / `create_workspace_app` return an **absolute** URL on the
- * *target* app's origin when it differs from this app (so a workspace link
- * lands in the right app), and a relative path for the same app / standalone.
- * `ask_app` routes a known *different* workspace app over A2A and reports
- * `routedVia: "a2a"`; unknown cross-app targets fail closed instead of running
- * on the current app. Same-app requests report `routedVia: "local"`.
- * | `list_templates`      | none         | `{ templates: [...] }` (allow-list only) |
- *
- * Node-only at call time (workspace resolution + scaffolding use `fs`), but
- * the module has no top-level Node imports so it bundles fine alongside
- * `mountMCP` — the Node bits are dynamically imported inside `run()`.
- */
-
 import type { A2AApprovedAction, Task } from "../a2a/types.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
@@ -50,17 +17,11 @@ import type { MCPConfig } from "./build-server.js";
 import { embedApp } from "./embed-app.js";
 import { fetchOrgApps, type OrgApp } from "./org-directory.js";
 
-/** Flat map of param name → JSON-schema property. */
 type Params = Record<
   string,
   { type: string; description?: string; enum?: string[] }
 >;
 
-/**
- * Build an `ActionTool`. `parameters` is wrapped in the
- * `{ type:"object", properties, required }` shape `createMCPServerForRequest`
- * forwards verbatim as the MCP tool `inputSchema`.
- */
 function tool(
   description: string,
   parameters?: Params,
@@ -77,19 +38,12 @@ function tool(
   };
 }
 
-/**
- * The canonical app id this MCP server is mounted for. `MCPConfig.appId` is
- * authoritative; fall back to lowercasing `name` (which is the capitalized
- * app id at every call site) for back-compat with configs that predate the
- * `appId` field.
- */
 function currentAppId(config: MCPConfig): string {
   return (config.appId || config.name || "app").toLowerCase();
 }
 
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
-// Leave response headroom for the hosted MCP transport after the inline wait.
 const ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const ASK_APP_POLL_INTERVAL_MS = 1_500;
 const ASK_APP_A2A_REQUEST_TIMEOUT_MS = 10_000;
@@ -321,13 +275,6 @@ function askAppTaskResult(
   };
 }
 
-/**
- * Same shape as `askAppTaskResult`, but built from an in-process
- * `ask-app-inline-tasks.ts` snapshot instead of an A2A `Task` — used by the
- * no-origin fallback (no A2A task exists to describe). Kept field-for-field
- * identical so `ask_app` / `ask_app_status` callers can't tell which backing
- * store answered.
- */
 function askAppInlineTaskResult(
   selfId: string,
   taskId: string,
@@ -675,17 +622,6 @@ function askAppStatusReadUnavailableResult(
   };
 }
 
-/**
- * Resolve the absolute origin of a *target* workspace app (e.g.
- * `http://127.0.0.1:8101`) so cross-app deep links / A2A calls point at the
- * right app instead of the current request's origin. Reuses the same
- * workspace resolution `list_apps` / the stdio proxy use.
- *
- * Returns `null` when:
- *   - the target is the current app (caller should keep relative behavior),
- *   - there is no workspace info (standalone / single app), or
- *   - the target app is unknown.
- */
 async function resolveTargetAppOrigin(
   config: MCPConfig,
   targetAppId: string,
@@ -704,10 +640,6 @@ async function resolveTargetAppOrigin(
   }
 }
 
-// ---------------------------------------------------------------------------
-// list_apps
-// ---------------------------------------------------------------------------
-
 function listAppsTool(
   config: MCPConfig,
   requestMeta?: { origin?: string },
@@ -725,14 +657,6 @@ function listAppsTool(
       const { resolveWorkspace } = await import("./workspace-resolve.js");
       const ws = await resolveWorkspace();
 
-      // The MCP request is served BY the current app, so it is provably
-      // reachable at the inbound request origin — that beats a guessed
-      // `PORT || 5173` probe (which reports the wrong URL + `running:false`
-      // whenever the dev server picked a non-default port, e.g. `agent-
-      // native dev` on :8080). For the entry that IS this app (the sole
-      // entry when single-app, or the id matching `config.appId` in a
-      // workspace) prefer the live origin; other workspace apps keep their
-      // probed values.
       const liveOrigin = requestMeta?.origin?.replace(/\/+$/, "") || "";
       let livePort = 0;
       if (liveOrigin) {
@@ -779,16 +703,12 @@ function listAppsTool(
       const seenIds = new Set(apps.map((a) => a.id.toLowerCase()));
       const seenOrigins = new Set(apps.map((a) => a.url.replace(/\/+$/, "")));
 
-      // Merge the org directory's deployed sibling apps. Inactive (no env)
-      // or any failure ⇒ fetchOrgApps() returns [] and this is a no-op, so
-      // the existing local/workspace behavior is preserved exactly.
       const orgApps = await fetchOrgApps({
         selfId: currentAppId(config),
       }).catch(() => [] as OrgApp[]);
       for (const oa of orgApps) {
         const idKey = oa.id.toLowerCase();
         const originKey = oa.url.replace(/\/+$/, "");
-        // Dedupe by id OR origin — a workspace app already listed wins.
         if (seenIds.has(idKey) || seenOrigins.has(originKey)) continue;
         seenIds.add(idKey);
         seenOrigins.add(originKey);
@@ -809,10 +729,6 @@ function listAppsTool(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// open_app
-// ---------------------------------------------------------------------------
 
 function openAppTool(
   config: MCPConfig,
@@ -862,11 +778,6 @@ function openAppTool(
     run: async (args: Record<string, any>) => {
       const app = String(args.app ?? "").trim();
       const view = String(args.view ?? "").trim();
-      // `safeAppPath` rejects anything that isn't a leading-slash same-origin
-      // path. When the caller passes nothing, fall back to the app's root so a
-      // bare `open_app({app:"dispatch"})` lands on the home page instead of
-      // throwing. The model self-corrects on the retry today, but the extra
-      // round-trip wastes a turn and looks broken to the user.
       const path = safeAppPath(args.path) || (view ? null : "/");
       if (!app) {
         throw new Error("open_app requires 'app'.");
@@ -916,23 +827,11 @@ function openAppTool(
       }
       if (params && Object.keys(params).length === 0) params = undefined;
 
-      // A bare `view` is a name, not a route. Only `/_agent-native/open` knows
-      // the mapping — each app supplies it through `resolveOpenPath` (design
-      // routes `view: "editor"` at `/design/:id`, slides at `/deck/:id`,
-      // content at `/page/:id`). Synthesizing `/<view>` here produced a 404
-      // both inside the embed iframe and in the "Open in new tab" fallback the
-      // host offers when that iframe fails. Deep-link instead; embed tickets
-      // already accept an open-route target (see `requestMatchesEmbedTarget`).
       const relUrl = path
         ? appendParamsToPath(path, params)
         : buildDeepLink({ app, view, params });
       const sameAppUrl = path ? withConfiguredBasePath(relUrl) : relUrl;
 
-      // Cross-app target in a workspace: resolve the TARGET app's origin and
-      // return an absolute URL. Otherwise the MCP layer would prefix the
-      // relative path with the CURRENT request origin, landing the user in
-      // the wrong app (e.g. open_app({app:"calendar"}) served from Mail).
-      // Same-app / standalone keeps the relative path (current behavior).
       const targetApp = await resolveTargetAppOrigin(config, app);
       const appUrl = targetApp
         ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
@@ -1011,10 +910,6 @@ function openAppTool(
   };
 }
 
-// ---------------------------------------------------------------------------
-// create_embed_session
-// ---------------------------------------------------------------------------
-
 function createEmbedSessionTool(requestMeta?: {
   origin?: string;
 }): ActionEntry {
@@ -1041,8 +936,6 @@ function createEmbedSessionTool(requestMeta?: {
       ),
       _meta: { ui: { visibility: ["app"] } },
     } as ActionTool,
-    // App-only bootstrap helper: the ticket becomes a normal browser session,
-    // so keep it write-scoped until embed sessions can enforce MCP scopes.
     readOnly: false,
     parallelSafe: true,
     run: async (args: Record<string, any>) => {
@@ -1094,15 +987,6 @@ function createEmbedSessionTool(requestMeta?: {
   };
 }
 
-/**
- * Route an `ask_app` message to a *different* app's agent over A2A. Shared by
- * the workspace-resolved path and the org-directory-resolved path so the A2A
- * call logic is not duplicated. `origin` is the target app's A2A base
- * (workspace dev origin or the directory's `a2aUrl`); `id` is reported back.
- *
- * Throws on failure so the caller can be honest — it never falls back to this
- * app's agent and pretends it was the target.
- */
 async function routeAskOverA2A(
   origin: string,
   id: string,
@@ -1146,10 +1030,6 @@ async function routeAskOverA2A(
   }
   const { callAgent } = await import("../a2a/client.js");
   const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
-  // The MCP handler runs inside `runWithRequestContext`, so this is the
-  // verified caller identity and org scope. Reuse the same auth resolver as
-  // org-directory discovery so the directory lookup and actual A2A call are
-  // scoped the same way.
   const auth = await resolveA2ACallerAuth();
   const response = await callAgent(origin, message, {
     apiKey: auth.apiKey,
@@ -1158,7 +1038,6 @@ async function routeAskOverA2A(
     orgSecret: auth.orgSecret,
     requestOrigin: options?.requestOrigin,
     approvedActions: options?.approvedActions,
-    // Bound the wait — cross-app A2A polls async by default.
     timeoutMs: 5 * 60_000,
   });
   return { app: id, routedVia: "a2a", response, verification: "unverified" };
@@ -1210,10 +1089,6 @@ async function resolveAskAppStatusRoute(
 
   throw new Error(`No reachable ask_app task route for app "${requestedApp}".`);
 }
-
-// ---------------------------------------------------------------------------
-// ask_app
-// ---------------------------------------------------------------------------
 
 function askAppTool(
   config: MCPConfig,
@@ -1288,10 +1163,6 @@ function askAppTool(
         ? (args.approvedActions as A2AApprovedAction[])
         : undefined;
 
-      // Cross-app: the caller named a *different* workspace app. Route the
-      // message to THAT app's agent over A2A (its `/_agent-native/a2a`
-      // endpoint runs the real agent loop with JWT identity) rather than
-      // silently answering from this app's agent and claiming delegation.
       const targetApp = await resolveTargetAppOrigin(config, requestedApp);
       if (targetApp) {
         try {
@@ -1309,8 +1180,6 @@ function askAppTool(
             },
           );
         } catch (err: any) {
-          // Be honest: routing was attempted and failed — do NOT fall back to
-          // this app's agent and pretend it was the target.
           throw new Error(
             `Failed to route ask_app to "${targetApp.id}" via A2A: ` +
               `${err?.message ?? err}`,
@@ -1318,11 +1187,6 @@ function askAppTool(
         }
       }
 
-      // Not a known local/workspace app — try the org directory. When a
-      // directory is configured and the requested app is one of the org's
-      // deployed sibling apps, route to it over A2A (same path as above,
-      // against its `a2aUrl`). Inactive directory / any failure ⇒ orgApps is
-      // [] and this is skipped, preserving the exact local-only behavior.
       if (requestedApp && requestedApp.toLowerCase() !== selfId) {
         const orgApps = await fetchOrgApps({ selfId }).catch(
           () => [] as OrgApp[],
@@ -1361,20 +1225,12 @@ function askAppTool(
         );
       }
 
-      // Same app (or no target): answer locally with this
-      // app's own ask-agent handler — the same entry point the HTTP MCP mount
-      // + A2A use, so there is no second agent runner.
       if (!config.askAgent) {
         throw new Error(
           "This app does not expose an agent (no ask-agent handler).",
         );
       }
 
-      // Hosted MCP cannot safely keep a JSON request/response open for a full
-      // agent loop: serverless gateways can return an inactivity 504 before
-      // the result body exists. When we know the running app origin, submit the
-      // local ask through the app's durable A2A task path and only wait a
-      // short bounded window for fast completions.
       const localA2AEndpointUrl = selfA2AEndpointUrl(requestMeta);
       if (localA2AEndpointUrl) {
         return submitAskAppA2ATask(
@@ -1392,14 +1248,6 @@ function askAppTool(
         );
       }
 
-      // No derivable app origin at all (e.g. stdio / no request context) —
-      // there is no `/_agent-native/a2a` endpoint to submit a durable task
-      // to either. Bound the wait against a process-local task map instead
-      // of awaiting config.askAgent() unbounded, so a slow agent run can't
-      // hold this MCP call open indefinitely. Settling in time keeps the
-      // original response shape; timing out returns the same still-working
-      // poll payload the A2A path would, using the same taskId contract
-      // (see ask-app-inline-tasks.ts).
       const { startAskAppInlineTask } =
         await import("./ask-app-inline-tasks.js");
       const inline = await startAskAppInlineTask(
@@ -1416,8 +1264,6 @@ function askAppTool(
         };
       }
       if (inline.status === "failed") {
-        // Settled with an error inside the bounded wait — surface it the
-        // same way the old unbounded `await config.askAgent(message)` did.
         throw new Error(inline.error || "ask_app task failed.");
       }
       return askAppInlineTaskResult(selfId, inline.taskId, inline);
@@ -1484,13 +1330,6 @@ function askAppStatusTool(
 
       const taskId = suppliedTaskId;
 
-      // The no-derivable-origin ask_app fallback tracks its tasks in a
-      // process-local map, not the durable A2A store. Check it FIRST —
-      // before any origin requirement — so a taskId minted by that fallback
-      // never has to satisfy `resolveAskAppStatusRoute`'s "running app
-      // origin" check. Falls through to the normal A2A route when the id
-      // isn't one of these (never started here, evicted, or an ordinary A2A
-      // task id).
       const { getAskAppInlineTask } = await import("./ask-app-inline-tasks.js");
       const inline = getAskAppInlineTask(taskId);
       if (inline) {
@@ -1507,10 +1346,6 @@ function askAppStatusTool(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// list_templates
-// ---------------------------------------------------------------------------
 
 function listTemplatesTool(): ActionEntry {
   return {
@@ -1532,10 +1367,6 @@ function listTemplatesTool(): ActionEntry {
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// create_workspace_app
-// ---------------------------------------------------------------------------
 
 function createWorkspaceAppTool(): ActionEntry {
   return {
@@ -1565,9 +1396,6 @@ function createWorkspaceAppTool(): ActionEntry {
         );
       }
 
-      // Enforce the strict public template allow-list. The authoritative,
-      // dependency-free source inside @agent-native/core is cli/templates-meta
-      // (kept in sync with packages/shared-app-config/templates.ts; CI guard).
       const { visibleTemplates } = await import("../cli/templates-meta.js");
       const allowed = new Set(visibleTemplates().map((t) => t.name));
       if (!allowed.has(template)) {
@@ -1595,10 +1423,6 @@ function createWorkspaceAppTool(): ActionEntry {
       const alreadyExisted = fs.existsSync(appDir);
 
       if (!alreadyExisted) {
-        // Reuse the CLI scaffolder directly (no second `agent-native`
-        // subprocess). `addAppToWorkspace(name, { template })` takes the
-        // non-interactive single-template path when name + one template are
-        // given. Run it from the workspace root so detectWorkspace resolves.
         const prevCwd = process.cwd();
         try {
           process.chdir(root);
@@ -1613,18 +1437,9 @@ function createWorkspaceAppTool(): ActionEntry {
         }
       }
 
-      // The workspace gateway auto-detects new apps/* dirs (fs.watch +
-      // 2s sync) and lazily boots the dev server on first request, so we
-      // don't spawn vite ourselves — opening the deep link warms it. Resolve
-      // the port the gateway will use so we can report it.
       const ws = await resolveWorkspace(root);
       const appInfo = ws.apps.find((a) => a.id === name);
       const port = appInfo?.port;
-      // The scaffolded app is always a *different* app from the host MCP
-      // server, so anchor the deep link to the new app's own origin. A
-      // relative path would otherwise be prefixed with the current request
-      // origin and land on the wrong app. Fall back to the relative path
-      // only if the gateway hasn't reported the new app's URL yet.
       const relDeepLink = buildDeepLink({ app: name, view: "home" });
       const deepLink = appInfo?.url
         ? `${appInfo.url.replace(/\/+$/, "")}${relDeepLink}`
@@ -1654,15 +1469,6 @@ function createWorkspaceAppTool(): ActionEntry {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
-/**
- * Build the generic cross-app builtin tool registry. Called by
- * `createMCPServerForRequest`; the result is merged UNDER the config's
- * actions so template actions of the same name win.
- */
 export function getBuiltinCrossAppTools(
   config: MCPConfig,
   requestMeta?: AskAppRequestMeta,

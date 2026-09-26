@@ -75,7 +75,6 @@ describe("live heading indentation after a paragraph", () => {
         after: { changedText: "\t" },
       });
       const snapshot = JSON.stringify(visual);
-      // These are DocumentEditor's live-session adapter fields, not its saved adapter.
       const live: VisualEditorSuggestion = {
         id: visual.id,
         kind: operation.kind,

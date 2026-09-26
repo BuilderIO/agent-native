@@ -283,12 +283,6 @@ describe("design export helpers", () => {
   });
 });
 
-/**
- * The action-side exporter tokenizes stored HTML text while the editor-side
- * exporter walks the live DOM. They ship the same file format, so a directive
- * one of them rejects must be rejected by the other too — they now share
- * shared/xml-export-attributes.ts, and this pins that agreement.
- */
 describe("buildSvgForeignObject XML validity", () => {
   it("drops directives inside <template> markup", () => {
     const svg = buildSvgForeignObject({
@@ -319,12 +313,6 @@ describe("buildSvgForeignObject XML validity", () => {
   });
 });
 
-/**
- * The tokenizer reads raw source text while the client sanitizer reads decoded
- * DOM values, so the two only agree if the tokenizer decodes before deciding.
- * The XML consumer resolves `&#58;` back to `:`, which turned an inert-looking
- * token into an active `javascript:` URL in the exported file.
- */
 describe("buildSvgForeignObject active-content decoding", () => {
   it("drops entity-encoded javascript schemes", () => {
     const svg = buildSvgForeignObject({
@@ -360,8 +348,6 @@ describe("buildSvgForeignObject element parity with the client sanitizer", () =>
     });
     expect(svg).not.toContain("http-equiv");
     expect(svg).not.toContain("example.com/next");
-    // `<meta>` has no end tag: a tokenizer hunting for `</meta>` would drop
-    // everything that follows it.
     expect(svg).toContain("<p>after</p>");
   });
 

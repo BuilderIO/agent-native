@@ -11,17 +11,6 @@ export type ContentLandingRecoveryState = {
   unavailableDocumentId: string;
 };
 
-/**
- * `resolve-content-landing` is the only surface that can promise a Page the
- * caller may actually open, and the landing route is its only entry point. A
- * deep link that resolves to an unauthorized or missing document therefore
- * hands off to that route rather than rendering a terminal screen — otherwise
- * a first arrival at a Page id the account cannot read (a signup resuming a
- * stale or foreign link) has no valid destination at all.
- *
- * Only the full-page host redirects. An embedded preview has no URL of its own
- * to replace, so it keeps the inline unavailable state.
- */
 export function contentLandingRecoveryTarget(input: {
   host: string;
   documentId: string;
@@ -33,9 +22,6 @@ export function contentLandingRecoveryTarget(input: {
   };
 }
 
-/** Read the recovery handoff off a history entry. `null` when absent or shaped
- * differently, so a hand-written `/home` visit stays distinguishable from a
- * recovery arrival. */
 export function readContentLandingRecovery(
   state: unknown,
 ): ContentLandingRecoveryState | null {

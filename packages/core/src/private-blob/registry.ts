@@ -173,9 +173,6 @@ async function putViaEncryptedPublicUpload(
     metadata: input.metadata,
   };
 
-  // Do not hand callers a reference that the next request cannot read yet.
-  // The public-upload fallback is eventually consistent at the URL boundary,
-  // so readiness belongs to the write path as well as the later read path.
   await readViaEncryptedPublicUpload(handle);
   return handle;
 }
@@ -255,8 +252,6 @@ async function readViaEncryptedPublicUpload(
       provider: handle.provider,
     });
   }
-  // The uploaded ciphertext is intentionally opaque; the descriptor carries
-  // auth tag + IV separately so the backing public URL is useless by itself.
   const ciphertext = new Uint8Array(await response.arrayBuffer());
   return {
     data: decryptBytes(descriptor.encryption, ciphertext),

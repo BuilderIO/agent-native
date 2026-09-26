@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   DEFAULT_LAYOUT_GRID,
@@ -75,8 +75,6 @@ export default defineAction({
           },
         };
       },
-      // Intent-based, so a sibling writer adding an unrelated key right after
-      // our commit is not mistaken for a lost write.
       isApplied: (current) => {
         const grid = parseLayoutGridById(current.layoutGrids)[screenId];
         if (remove) return !grid;

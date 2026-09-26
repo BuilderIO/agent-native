@@ -103,13 +103,6 @@ function describeTrigger(entry: ListedAutomation, t: Translate): string {
   );
 }
 
-/**
- * `nextRun` is computed from the cron expression, not from anything that
- * promises to run it, so it must never be presented with more confidence than
- * the scheduler check earned. Three answers, three phrasings: a known-dead
- * scheduler replaces the date, an unverified one qualifies it, and a confirmed
- * one shows it plainly.
- */
 function nextRunValue(
   entry: ListedAutomation,
   t: Translate,
@@ -244,9 +237,6 @@ export function AgentJobsTab({
   const organizationJobsQuery = useRecurringJobs("org");
   const organizationAutomationsQuery = useAutomations("org");
   const scheduledTriggerState = useScheduledTriggerState();
-  // Three states, not `!== false`: that expression also swallowed a FAILED
-  // status query, which then licensed a confident "Next run" forever. See
-  // `scheduleFiringFor` for which way each state leans and why.
   const scheduleFiring = scheduleFiringFor(scheduledTriggerState);
   const personalJobsMutation = useManageRecurringJob("user");
   const personalAutomationsMutation = useManageAutomation("user");

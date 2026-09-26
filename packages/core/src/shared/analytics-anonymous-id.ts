@@ -1,10 +1,3 @@
-/**
- * Browser identity handoff for server-side analytics events.
- *
- * The value is pseudonymous and intentionally host-scoped. It lets a signup
- * event carry the same browser id as the pageviews that preceded it without
- * turning the cookie into cross-app identity state.
- */
 export const ANALYTICS_ANONYMOUS_ID_COOKIE_NAME = "an_aid";
 export const ANALYTICS_ANONYMOUS_ID_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 

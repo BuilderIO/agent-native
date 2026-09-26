@@ -3,12 +3,6 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * Every route to a share link has to refuse while redactions are only drawn
- * on, or the guard is decoration. These are source assertions because the
- * component needs a session, a popover and a clipboard to render — cheap
- * cover for the thing that matters: that no entry point is left open.
- */
 const read = (path: string) => readFileSync(join(process.cwd(), path), "utf8");
 
 describe("sharing is held back while redactions are pending", () => {

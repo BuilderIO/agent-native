@@ -3,9 +3,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-// The bridge JS that was previously inlined in DesignCanvas.tsx now lives in
-// editor-chrome.bridge.ts (compiled to .generated/bridge/editor-chrome.generated.ts).
-// These tests check the bridge source for required implementation details.
 const source = readFileSync(
   fileURLToPath(new URL("./bridge/editor-chrome.bridge.ts", import.meta.url)),
   "utf8",
@@ -21,7 +18,6 @@ describe("DesignCanvas spacing overlay bridge", () => {
 
   it("persists dragged padding and gap values through visual style changes", () => {
     expect(source).toContain("function startSpacingDrag");
-    // Quote style may be single or double depending on formatter; check property access only
     expect(source).toContain("styles[handle.property] = finalValue +");
     expect(source).toContain("styles[handle.oppositeProperty] = finalValue +");
     expect(source).toContain("addAxisGaps");

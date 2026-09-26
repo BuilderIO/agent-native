@@ -13,8 +13,6 @@ export const DEFAULT_EDITOR_PREFERENCES: DesignEditorPreferences = {
   inspectorGridDebug: false,
 };
 
-/** Figma allows 1-1000 for both nudge amounts and rejects 0 — a 0 nudge makes
- * the arrow keys look broken rather than doing nothing on purpose. */
 export const MIN_NUDGE_AMOUNT = 1;
 export const MAX_NUDGE_AMOUNT = 1000;
 
@@ -36,9 +34,6 @@ export type ParseEditorPreferencesResult =
       reason: string;
     };
 
-/** Never collapses "nothing stored yet" and "stored value is corrupt" into the
- * same result: the caller must be able to tell a first run from a store it
- * should overwrite rather than keep re-reading. */
 export function parseEditorPreferences(
   raw: string | null | undefined,
 ): ParseEditorPreferencesResult {

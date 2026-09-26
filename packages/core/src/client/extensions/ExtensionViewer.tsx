@@ -387,15 +387,9 @@ function EditToolPopover({
     onOpenChange?.(v);
   };
 
-  // Radix's outside-click detection runs in the parent document, so a click
-  // inside the extension iframe (or any other iframe) never fires it. The browser
-  // does shift focus to the iframe though, which blurs the parent window — we
-  // hook that to close the popover so it behaves like a normal click-outside.
   useEffect(() => {
     if (!open) return;
     const handleBlur = () => {
-      // Defer until after the focus actually lands so document.activeElement
-      // reflects the iframe (or whatever the user clicked on).
       setTimeout(() => {
         if (document.activeElement?.tagName === "IFRAME")
           setOpenAndNotify(false);
@@ -714,27 +708,15 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   const [refreshKey, setRefreshKey] = useState(0);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const titleSuffixRef = useRef<string | null | undefined>(undefined);
-  // Tracks how many toolbar popovers are open. Iframes capture pointer events
-  // from areas they visually overlap, so when a popover opens above the iframe,
-  // hover and click on the popover items get swallowed by the iframe. Disabling
-  // pointer-events on the iframe while any popover is open lets the popover
-  // receive its own events. Each popover increments on open / decrements on
-  // close, so concurrent popovers (rare) compose correctly.
   const [openPopoverCount, setOpenPopoverCount] = useState(0);
   const onPopoverOpenChange = useCallback((open: boolean) => {
     setOpenPopoverCount((c) => Math.max(0, c + (open ? 1 : -1)));
   }, []);
   const queryClient = useQueryClient();
-  // (audit H4) Role plumbed through from the iframe's render binding. Until
-  // the iframe announces its role we deny non-trivial helper calls — that
-  // way a malicious extension body that races the announcement can't briefly
-  // operate at higher privilege than the viewer's actual role.
   const bridgeContextRef = useRef<BridgePolicyContext>({
     role: "viewer",
     isAuthor: false,
   });
-  // (audit H4) Latch the render binding once per iframe instance; later
-  // announcements are attacker-controllable and must be ignored.
   const bindingLatchedRef = useRef(false);
 
   useEffect(() => {
@@ -775,10 +757,6 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
       if (!message) return;
 
       if (message.type === "agent-native-extension-binding") {
-        // (audit H4) Trust only the FIRST announcement: the shell sends the
-        // server-resolved binding BEFORE user-authored content runs. Later
-        // announcements share the iframe realm with user code and could forge
-        // an owner role, so they are ignored.
         if (bindingLatchedRef.current) return;
         bindingLatchedRef.current = true;
         const binding = message.binding ?? {};
@@ -806,12 +784,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         message.type === "agent-native-extension-consent-granted" ||
         message.type === "agent-native-extension-consent-cancelled"
       ) {
-        // (audit C1) The consent stub fired; force a reload of the iframe so
-        // the next render returns the extension body (granted) or stays on the
-        // stub (cancelled — viewer can also navigate away).
         if (message.type === "agent-native-extension-consent-granted") {
-          // Invalidate the cached extension record — author may have edited
-          // since the cache was warmed.
           void queryClient.invalidateQueries({
             queryKey: ["extension", extensionId],
           });
@@ -868,12 +841,6 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
           .map((e) => (e.stack ? `${e.message}\n${e.stack}` : e.message))
           .join("\n\n");
 
-        // Force a fresh read from the server. toolRef.current is bound to the
-        // React Query cache, which is the same state the agent's previous
-        // (broken) turn just wrote — without this, Fix-in-same-chat ends up
-        // patching the agent's prior attempt from chat history instead of the
-        // current DB row, which is why users had to open a new chat to
-        // recover. Cache-bust so we never read a stale fetch.
         let freshContent: string | undefined;
         try {
           const res = await fetch(
@@ -949,9 +916,6 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
 
       try {
         const options = sanitizeExtensionRequestOptions(message.options);
-        // (audit H4) Role-aware policy gate: viewer-shared extensions can read
-        // but not write. Decided here in the parent before the request
-        // leaves; the server enforces a second layer.
         const policy = checkBridgePolicy(path, options.method ?? "GET", {
           ...bridgeContextRef.current,
           extensionId,
@@ -967,11 +931,6 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
           });
           return;
         }
-        // (audit H5) Tag every outbound bridge request with the
-        // X-Agent-Native-Extension-Bridge sentinel so the action-routes layer can
-        // enforce per-action `toolCallable` opt-in. The header is added by
-        // the parent — it is NOT taken from the iframe-supplied options
-        // (which were filtered by sanitizeExtensionRequestOptions).
         const finalHeaders = new Headers(options.headers ?? undefined);
         finalHeaders.set("X-Agent-Native-Extension-Bridge", "1");
         finalHeaders.set("X-Agent-Native-Extension-Id", extensionId);
@@ -1088,8 +1047,6 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
 
   useEffect(() => {
     setIframeReady(false);
-    // Reset role to deny-by-default on every reload — the new render's
-    // binding announcement re-establishes the role before any helper call.
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
   }, [extensionId, extension?.updatedAt, refreshKey]);

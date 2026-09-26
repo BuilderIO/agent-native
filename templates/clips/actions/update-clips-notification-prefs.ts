@@ -1,10 +1,3 @@
-/**
- * Update Clips email notification preferences for the current user.
- *
- * Usage:
- *   pnpm action update-clips-notification-prefs --emailNotifications=false
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { mutateUserSetting } from "@agent-native/core/settings";

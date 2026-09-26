@@ -500,9 +500,6 @@ async function performProfiledMarquee(
       secondLastBox.y + secondLastBox.height + 12,
       { steps: 8 },
     );
-    // Release while both screen collections can still be in flight. The
-    // second screen's response is delayed by the profiler above so this
-    // exercises the finishDrag boundary instead of synchronizing around it.
     await page.mouse.up();
   } finally {
     await page.keyboard.up(modifier);
@@ -877,9 +874,6 @@ test("collect selectable rects baseline on nested responsive screens", async ({
   expect(marqueeProfiler.host.buildCodeLayerProjection).toBeLessThanOrEqual(4);
   expect(marqueeProfiler.host.reactCommits).toBeGreaterThan(0);
   expect(marqueeProfiler.bridge.domScans).toBe(2);
-  // Overview marquee collection is intentionally lightweight: it still scans
-  // each touched document for selectable geometry, but defers portable subtree
-  // snapshots until a later copy/direct-selection boundary.
   expect(marqueeProfiler.bridge.subtreeQueries).toBe(0);
   expect(marqueeProfiler.bridge.subtreeNodes).toBe(0);
   expect(marqueeSelectionAfterRows).not.toEqual(marqueeSelectionBeforeRows);

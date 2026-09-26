@@ -28,7 +28,6 @@ import { cn } from "@/lib/utils";
 
 import { FRAME_SIZE_PRESET_CATEGORIES } from "./inspector/frame-size-presets";
 
-/** Framer's default breakpoint widths, offered by the "+" affordance. */
 export const FRAMER_BREAKPOINT_PRESETS: ReadonlyArray<{
   labelKey: "desktop" | "tablet" | "phone";
   widthPx: number;
@@ -38,7 +37,6 @@ export const FRAMER_BREAKPOINT_PRESETS: ReadonlyArray<{
   { labelKey: "phone", widthPx: 390 },
 ];
 
-/** Presets not already present in the breakpoint set (by exact width). */
 export function availableBreakpointPresets(
   existingWidths: readonly number[],
 ): Array<{ labelKey: "desktop" | "tablet" | "phone"; widthPx: number }> {
@@ -47,17 +45,6 @@ export function availableBreakpointPresets(
   );
 }
 
-/**
- * Device widths offered beyond the three Framer defaults, drawn from the frame
- * tool's own preset catalog so both surfaces agree on what a "Tablet" is.
- *
- * Without these the "+" popover empties out as soon as Desktop/Tablet/Phone are
- * added — `availableBreakpointPresets` filters by exact width — leaving a bare
- * number input and no way to pick a real device size. Only width matters for a
- * breakpoint, so widths are de-duplicated (many devices share one) and the
- * first device at each width names it. Device names are untranslated product
- * literals, matching frame-size-presets' documented policy.
- */
 export function extraBreakpointWidthPresets(
   existingWidths: readonly number[],
 ): Array<{ name: string; widthPx: number }> {
@@ -76,19 +63,12 @@ export function extraBreakpointWidthPresets(
   return out.sort((a, b) => b.widthPx - a.widthPx);
 }
 
-/** Default English label for a preset/custom width (used for add-breakpoint). */
 export function breakpointLabelForWidth(widthPx: number): string {
   if (widthPx >= 1024) return "Desktop";
   if (widthPx >= 600) return "Tablet";
   return "Phone";
 }
 
-/**
- * Validate a raw width-input string for the add/change-width flows. Returns
- * the parsed integer width when acceptable, or null for non-numeric or
- * out-of-range input, or a width already taken by another breakpoint.
- * Pure/exported for unit tests.
- */
 export function parseBreakpointWidthInput(
   raw: string,
   existingWidths: readonly number[],
@@ -113,26 +93,16 @@ export interface BreakpointBarBreakpoint {
 }
 
 export interface BreakpointDeviceControlProps {
-  /** The design's breakpoint definitions (any order — sorted internally). */
   breakpoints: BreakpointBarBreakpoint[];
-  /** Active breakpoint frame width; undefined = base frame active. */
   activeWidthPx?: number;
-  /** The primary frame's width, shown in the Base tooltip when known. */
   baseWidthPx?: number | null;
-  /** Gates add/remove/change affordances; selection is allowed read-only. */
   canEdit: boolean;
-  /** Disables breakpoint changes while a mutation is in flight. */
   mutationPending?: boolean;
-  /** Linked side-by-side frames toggle (overview). Hidden when undefined. */
   showAllFrames?: boolean;
   onShowAllFramesChange?: (value: boolean) => void;
-  /** Segment click: switch viewport + edit scope. undefined = base. */
   onSelect: (widthPx: number | undefined) => void;
-  /** "+" affordance: add a breakpoint at a preset or custom width. */
   onAdd?: (widthPx: number, label: string) => void;
-  /** "…" menu: remove a breakpoint. */
   onRemove?: (breakpointId: string) => void;
-  /** "…" menu: change a breakpoint's width (Enter in the width input). */
   onChangeWidth?: (breakpointId: string, widthPx: number) => void;
   className?: string;
 }
@@ -155,12 +125,9 @@ export function BreakpointDeviceControl({
   const [addOpen, setAddOpen] = useState(false);
   const canMutateBreakpoints = canEdit && !mutationPending;
   const [customWidth, setCustomWidth] = useState("");
-  /** Which breakpoint's "…" menu is open (id), if any. */
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
-  /** Draft value of the width input inside the open "…" menu. */
   const [widthDraft, setWidthDraft] = useState("");
 
-  // Framer order: widest first (base segment, then breakpoints desc).
   const ordered = [...breakpoints].sort((a, b) => b.widthPx - a.widthPx);
   const existingWidths = ordered.map((bp) => bp.widthPx);
   const presets = availableBreakpointPresets(existingWidths);

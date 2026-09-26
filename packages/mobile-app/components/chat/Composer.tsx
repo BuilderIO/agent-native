@@ -499,7 +499,6 @@ export function Composer({
     !(target === "computer" && attachments.length > 0) &&
     canSendChatMessage(chatReady, fileUploadStatus, attachments.length > 0);
 
-  // A mention is being typed only when the caret is a collapsed cursor.
   const activeMention = useMemo(
     () =>
       selection.start === selection.end
@@ -522,7 +521,6 @@ export function Composer({
         void fetchMentions(mentionQuery, {
           signal: controller.signal,
           baseUrl,
-          // Surface each batch as it arrives so fast sources show immediately.
           onItems: (items) => {
             if (!controller.signal.aborted) setMentionItems(items);
           },

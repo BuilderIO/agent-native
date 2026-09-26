@@ -112,12 +112,6 @@ export function createLocalFigmaQaUploadProvider(options?: {
   };
 }
 
-/**
- * Design version checkpoints over the inline SQL limit are private blobs. The
- * public-upload fallback cannot back them here: it reads each blob back over
- * HTTP, and this QA storage only serves images to a signed-in browser. Without
- * a private store no local QA design can grow past 256 KiB.
- */
 export function createLocalFigmaQaPrivateBlobProvider(options?: {
   rootDir?: string;
   enabled?: () => boolean;

@@ -1,8 +1,6 @@
 import { getLaunchDarklyClient } from "./client.js";
 import { buildLaunchDarklyContext, type LaunchDarklyActor } from "./context.js";
 
-// Fails closed to `defaultValue` — never throws — because a flag read must
-// never become an availability dependency for its caller.
 export async function getLaunchDarklyVariation<T>(
   flagKey: string,
   actor: LaunchDarklyActor,
@@ -19,10 +17,6 @@ export async function getLaunchDarklyVariation<T>(
   }
 }
 
-// Uses `boolVariation` rather than the generic `variation()` cast above — the
-// SDK itself falls back to `defaultValue` when the dashboard flag isn't
-// actually boolean-typed, instead of handing a truthy non-boolean (e.g. the
-// string `"false"`) to a caller's `if (enabled)` gate.
 export async function isLaunchDarklyFlagEnabled(
   flagKey: string,
   actor: LaunchDarklyActor,

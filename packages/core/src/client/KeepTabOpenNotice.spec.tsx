@@ -60,14 +60,11 @@ describe("KeepTabOpenNotice", () => {
         <KeepTabOpenNotice threadId="thread-1" hosted showAfterMs={30_000} />,
       );
     });
-    // First poll fires at ~2s; a run a few seconds old shows nothing.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(container.textContent ?? "").toBe("");
 
-    // Still the same foreground run 30s+ later — the client-driven
-    // continuation boundary is imminent, so the notice appears.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30_000);
     });
@@ -120,8 +117,6 @@ describe("KeepTabOpenNotice", () => {
         <KeepTabOpenNotice threadId="thread-1" hosted showAfterMs={5_000} />,
       );
     });
-    // Stepped advancement: the first act lands the poll + effect (which arms
-    // the show timer); the second lets that timer fire.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4_000);
     });
@@ -130,8 +125,6 @@ describe("KeepTabOpenNotice", () => {
     });
     expect(container.textContent).toContain("Keep this tab open");
 
-    // The foreground run became self-chainable: the tab is no longer
-    // load-bearing — no linger, hide on the next poll.
     dispatchMode = "foreground-self-chain";
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
@@ -156,8 +149,6 @@ describe("KeepTabOpenNotice", () => {
         <KeepTabOpenNotice threadId="thread-1" hosted showAfterMs={5_000} />,
       );
     });
-    // Stepped advancement: the first act lands the poll + effect (which arms
-    // the show timer); the second lets that timer fire.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4_000);
     });
@@ -167,8 +158,6 @@ describe("KeepTabOpenNotice", () => {
     expect(container.textContent).toContain("Keep this tab open");
 
     active = false;
-    // Shortly after the run stops the notice lingers (a continuation chunk
-    // gap is sub-second; hiding instantly would flicker across boundaries)…
     await act(async () => {
       await vi.advanceTimersByTimeAsync(8_000);
     });
@@ -176,7 +165,6 @@ describe("KeepTabOpenNotice", () => {
       await vi.advanceTimersByTimeAsync(1_000);
     });
     expect(container.textContent).toContain("Keep this tab open");
-    // …then clears once the thread is confirmed idle.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20_000);
     });
@@ -203,7 +191,6 @@ describe("KeepTabOpenNotice", () => {
       await vi.advanceTimersByTimeAsync(30_000);
     });
     expect(container.textContent ?? "").toBe("");
-    // Not hosted → the poll loop is not even scheduled.
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

@@ -4,17 +4,6 @@ import { describe, expect, it } from "vitest";
 
 import { sampleSpring, springToCssLinear } from "../../../shared/motion-easing";
 
-/**
- * These tests exercise the REAL motion-preview bridge script that
- * `DesignCanvas.tsx` injects into the design iframe. Rather than copy the
- * interpolation logic (which would drift), we import the compiled bridge
- * string from the generated module, strip the IIFE wrapper, and pull out
- * `lerp` / `interpolate` so we can assert the live-scrub preview produces
- * smoothly interpolated values instead of snapping at the midpoint.
- *
- * Source: app/components/design/bridge/motion-preview.bridge.ts
- * Compiled: .generated/bridge/motion-preview.generated.ts
- */
 interface FakeElement {
   style: Record<string, string>;
 }
@@ -31,16 +20,10 @@ function loadBridge(): {
     track: { delayMs?: number; durationMs?: number },
     t: number,
   ) => number;
-  /** Dispatch a parent → iframe postMessage into the bridge's listener. */
   sendMessage: (data: unknown) => void;
-  /** Register a fake element addressable by data-agent-native-node-id. */
   addElement: (nodeId: string) => FakeElement;
-  /** Simulate the node leaving the document (e.g. replaced by a host edit). */
   removeElement: (nodeId: string) => void;
 } {
-  // Import the compiled bridge string from the generated module. Using
-  // require() so the import is synchronous and the function can be called
-  // at module evaluation time (loadBridge() is called at top level).
   const generatedPath = fileURLToPath(
     new URL(
       "../../../.generated/bridge/motion-preview.generated.ts",
@@ -52,25 +35,13 @@ function loadBridge(): {
     motionPreviewBridgeScript: string;
   };
 
-  // The generated string is the compiled IIFE JS (no <script> tags).
-  // esbuild wraps the source IIFE in an outer arrow-IIFE:
-  //   "use strict";\n(() => {\n  // source-file-comment\n  (function() {\n    ...\n  })();\n})();\n
-  // Strip both wrappers so only the function body is left, then pull out
-  // lerp / interpolate / parseColor by appending a return statement.
   let body = motionPreviewBridgeScript;
-  // Remove leading "use strict"; and outer (() => { ... })() opening
   body = body.replace(/^["']use strict["'];\s*\(\(\)\s*=>\s*\{/, "");
-  // Remove outer IIFE closing
   body = body.replace(/\}\)\(\);\s*$/, "");
-  // Remove source-location comment (// app/components/design/bridge/...)
   body = body.replace(/^\s*\/\/[^\n]*\n/, "");
-  // Remove inner (function() { ... })() opening
   body = body.replace(/^\s*\(function\s*\(\s*\)\s*\{/, "");
-  // Remove inner IIFE closing
   body = body.replace(/\}\)\(\);\s*$/, "");
 
-  // Fake window/document so the bridge's live message handler and
-  // applyPreview() path are exercised for real (offsets, inline styles).
   const listeners: Array<(e: unknown) => void> = [];
   const elements = new Map<string, FakeElement>();
   const parentSentinel = {};
@@ -85,12 +56,6 @@ function loadBridge(): {
       const m = /\[data-agent-native-node-id="([^"]+)"\]/.exec(selector);
       return m ? (elements.get(m[1]) ?? null) : null;
     },
-    // The bridge's element cache (resolveTrackElement) checks
-    // `document.contains(cached)` before trusting a cached lookup, so the
-    // fake document needs to answer that too — "contained" here means
-    // still registered in this test's `elements` map (removeElement below
-    // simulates the node leaving the document, e.g. a host-applied edit
-    // replacing it).
     contains(node: unknown): boolean {
       return Array.from(elements.values()).includes(node as FakeElement);
     },
@@ -121,10 +86,6 @@ function loadBridge(): {
 }
 
 const bridge = loadBridge();
-// Value-interpolation tests pin ease to "linear" so they assert exact
-// midpoints; easing behavior itself is covered separately below. Keyframes
-// without an ease fall back to the CSS "ease" curve (the compiled
-// stylesheet's defaultEase default), not linear.
 const at = (from: string, to: string, t: number, ease = "linear") =>
   bridge.interpolate(
     [
@@ -159,9 +120,7 @@ describe("motion-preview bridge interpolation", () => {
   });
 
   it("interpolates hex colors through rgb (color / background-color)", () => {
-    // #000000 -> #ffffff at 0.5 is mid-grey.
     expect(at("#000000", "#ffffff", 0.5)).toBe("rgb(128, 128, 128)");
-    // #ff0000 -> #0000ff at 0.5.
     expect(at("#ff0000", "#0000ff", 0.5)).toBe("rgb(128, 0, 128)");
   });
 
@@ -172,7 +131,6 @@ describe("motion-preview bridge interpolation", () => {
     expect(at("rgba(0,0,0,0)", "rgba(0,0,0,1)", 0.5)).toBe(
       "rgba(0, 0, 0, 0.5)",
     );
-    // hsl red -> hsl(120 ...) green-ish; just assert it produced an rgb mix.
     expect(at("hsl(0, 100%, 50%)", "hsl(120, 100%, 50%)", 0)).toBe(
       "rgb(255, 0, 0)",
     );
@@ -194,8 +152,6 @@ describe("motion-preview bridge interpolation", () => {
     ];
     for (const [from, to] of presets) {
       const mid = at(from, to, 0.5);
-      // A correctly-interpolated midpoint must differ from at least one
-      // endpoint (the old snap returned an endpoint verbatim).
       expect(mid === from && mid === to).toBe(false);
       if (from !== to) {
         expect(mid).not.toBe(from);
@@ -205,8 +161,6 @@ describe("motion-preview bridge interpolation", () => {
   });
 
   it("maps a `none` endpoint to the identity of the other endpoint", () => {
-    // transform: none -> translateY(16px) lerps from translateY(0px)
-    // instead of midpoint-snapping.
     expect(at("none", "translateY(16px)", 0.5)).toBe("translateY(8px)");
     expect(at("translateY(16px)", "none", 0.5)).toBe("translateY(8px)");
     expect(at("none", "blur(8px)", 0.5)).toBe("blur(4px)");
@@ -225,7 +179,6 @@ describe("motion-preview bridge easing", () => {
       ],
       0.5,
     );
-    // ease(0.5) ≈ 0.8 — decisively NOT the linear midpoint.
     expect(parseFloat(eased)).toBeGreaterThan(0.7);
     expect(parseFloat(eased)).toBeLessThan(0.9);
   });
@@ -239,7 +192,6 @@ describe("motion-preview bridge easing", () => {
     expect(bridge.evalEase("step-end", 0.99)).toBe(0);
     expect(bridge.evalEase("steps(4, end)", 0.3)).toBeCloseTo(0.25, 6);
     expect(bridge.evalEase("steps(4, start)", 0.3)).toBeCloseTo(0.5, 6);
-    // Endpoints always pin for every supported form.
     for (const ease of [
       "linear",
       "ease",
@@ -258,7 +210,6 @@ describe("motion-preview bridge easing", () => {
       bridge.evalEase("cubic-bezier(0.34,1.56,0.64,1)", x),
     );
     expect(Math.max(...values)).toBeGreaterThan(1);
-    // Overshoot flows through numeric interpolation (extrapolates past `to`).
     const mid = bridge.interpolate(
       [
         {
@@ -321,7 +272,6 @@ describe("motion-preview bridge spring + linear() easing (Figma Motion parity)",
     expect(bridge.evalEase("linear(0, 0.5, 1)", 0.25)).toBeCloseTo(0.25, 6);
     expect(bridge.evalEase("linear(0, 0.9 20%, 1)", 0.2)).toBeCloseTo(0.9, 6);
     expect(bridge.evalEase("linear(0, 1 40% 60%, 1)", 0.5)).toBeCloseTo(1, 6);
-    // A compiled spring replays through linear() close to the true spring.
     const compiled = springToCssLinear({ bounce: 0.69, settle: 1 });
     for (const x of [0.2, 0.5, 0.8]) {
       expect(
@@ -337,7 +287,6 @@ describe("motion-preview bridge spring + linear() easing (Figma Motion parity)",
 describe("motion-preview bridge per-track offsets (span timing)", () => {
   it("maps timeline time into an offset track's local span, clamped outside", () => {
     const fresh = loadBridge();
-    // Establish the timeline duration via a load message.
     fresh.sendMessage({
       type: "motion-load-tracks",
       tracks: [],
@@ -345,11 +294,10 @@ describe("motion-preview bridge per-track offsets (span timing)", () => {
     });
     const track = { delayMs: 500, durationMs: 1000 };
     expect(fresh.trackLocalT(track, 0)).toBe(0);
-    expect(fresh.trackLocalT(track, 0.25)).toBe(0); // 500ms = span start
-    expect(fresh.trackLocalT(track, 0.5)).toBeCloseTo(0.5, 6); // 1000ms
-    expect(fresh.trackLocalT(track, 0.75)).toBe(1); // 1500ms = span end
+    expect(fresh.trackLocalT(track, 0.25)).toBe(0);
+    expect(fresh.trackLocalT(track, 0.5)).toBeCloseTo(0.5, 6);
+    expect(fresh.trackLocalT(track, 0.75)).toBe(1);
     expect(fresh.trackLocalT(track, 1)).toBe(1);
-    // Offset-free tracks pass through unchanged.
     expect(fresh.trackLocalT({}, 0.42)).toBeCloseTo(0.42, 6);
   });
 
@@ -372,29 +320,17 @@ describe("motion-preview bridge per-track offsets (span timing)", () => {
         },
       ],
     });
-    // Before the span: holds the first keyframe value (fill-mode both).
     fresh.sendMessage({ type: "motion-preview", t: 0.25, durationMs: 2000 });
     expect(el.style.opacity).toBe("0");
-    // Mid-span: 1500ms → local t 0.5.
     fresh.sendMessage({ type: "motion-preview", t: 0.75, durationMs: 2000 });
     expect(el.style.opacity).toBe("0.5");
-    // After the span end: holds the last keyframe value.
     fresh.sendMessage({ type: "motion-preview", t: 1, durationMs: 2000 });
     expect(el.style.opacity).toBe("1");
-    // Clear restores the original inline value.
     fresh.sendMessage({ type: "motion-preview-clear" });
     expect(el.style.opacity).toBe("");
   });
 
   it("caches the resolved element across preview ticks but re-resolves once it leaves the document", () => {
-    // Perf regression coverage: applyPreview used to call
-    // document.querySelector for every track on every single "motion-preview"
-    // tick (one per parent rAF frame), even though the target element almost
-    // never changes between ticks. Assert the cache (a) is actually used —
-    // repeated ticks with the node still present must keep hitting the SAME
-    // element instance — and (b) is safely invalidated when the node is no
-    // longer in the document (e.g. a host-applied edit replaced it), so a
-    // stale cached reference can never silently swallow further updates.
     const fresh = loadBridge();
     const originalEl = fresh.addElement("hero");
     fresh.sendMessage({
@@ -416,17 +352,11 @@ describe("motion-preview bridge per-track offsets (span timing)", () => {
     fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
     expect(originalEl.style.opacity).toBe("0.5");
 
-    // The node is replaced (removed, then a NEW element re-registered under
-    // the same nodeId) without any "motion-load-tracks" reload in between —
-    // exactly what a live DOM patch looks like from the bridge's perspective.
     fresh.removeElement("hero");
     const replacementEl = fresh.addElement("hero");
     fresh.sendMessage({ type: "motion-preview", t: 0.75, durationMs: 1000 });
 
-    // The stale cached element must NOT keep receiving updates...
     expect(originalEl.style.opacity).toBe("0.5");
-    // ...the NEW element must, proving the cache re-resolved instead of
-    // silently no-oping against a detached reference.
     expect(replacementEl.style.opacity).toBe("0.75");
   });
 
@@ -464,7 +394,6 @@ describe("motion-preview bridge per-track offsets (span timing)", () => {
       ],
     });
     fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
-    // Individual transform properties compose without clobbering each other.
     expect(el.style.translate).toBe("0px 8px");
     expect(el.style.rotate).toBe("45deg");
     expect(el.style.scale).toBe("0.9");

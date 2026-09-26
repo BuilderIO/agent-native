@@ -479,12 +479,6 @@ function generatedRoute(
   sourceFile: string,
   isPublic: boolean,
 ): string {
-  // Emit dynamic strings as JSON-stringified JSX expressions so route paths
-  // containing JSX-significant characters (`{`, `}`, `<`, `>`, `&`) or
-  // template-literal terminators (backticks, `${`) can't break the outer
-  // generated file. Next.js routes legitimately contain `[slug]`, `(group)`,
-  // and `@parallel` segments; any of those slipping into JSX text un-escaped
-  // would produce invalid TS.
   const routePathExpr = JSON.stringify(routePath);
   const sourceFileExpr = JSON.stringify(sourceFile);
   return `export default function MigratedRoute() {

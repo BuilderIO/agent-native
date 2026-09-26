@@ -1,14 +1,5 @@
 import type { ContentDatabaseResponse } from "../../../../shared/api.js";
 
-/**
- * How the table/board/gallery "New" controls must create an item for one
- * collection.
- *
- * The workspace Files collection has no row-mutation contract, because its rows
- * are the workspace's pages rather than collection-owned rows. It still accepts
- * creation - through the same document create the sidebar "+" uses - so the two
- * entry points must resolve to one target here instead of diverging.
- */
 export type DatabaseCreateTarget =
   | { kind: "row" }
   | { kind: "space-page"; spaceId: string }

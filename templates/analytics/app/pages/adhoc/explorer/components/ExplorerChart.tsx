@@ -259,7 +259,6 @@ function TimeSeriesView({
 
   const { chartData, seriesNames } = useMemo(() => {
     if (!seriesKey) {
-      // Simple: date + count
       return {
         chartData: rows.map((r) => ({
           date: formatDate(r.date),
@@ -269,7 +268,6 @@ function TimeSeriesView({
       };
     }
 
-    // Pivot: date x series → wide format
     const dateMap = new Map<string, Record<string, number>>();
     const allSeries = new Set<string>();
 
@@ -283,7 +281,6 @@ function TimeSeriesView({
       entry[s] = (entry[s] ?? 0) + v;
     }
 
-    // Rank series by total, keep top 10
     const totals = new Map<string, number>();
     for (const entry of dateMap.values()) {
       for (const [s, v] of Object.entries(entry)) {
@@ -369,7 +366,6 @@ function TimeSeriesView({
 function formatDate(val: unknown): string {
   if (!val) return "";
   const s = stringifyValue(val);
-  // BigQuery DATE format: { value: "2024-01-15" } or plain string
   if (typeof val === "object" && val !== null && "value" in val) {
     return stringifyValue((val as { value: unknown }).value);
   }

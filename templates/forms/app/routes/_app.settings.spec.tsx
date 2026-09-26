@@ -88,10 +88,6 @@ describe("Forms settings route", () => {
       root.render(<SettingsRoute />);
     });
 
-    // _app.extensions._index.tsx unconditionally redirects to
-    // /settings/extensions, and the agent's own navigate instructions list
-    // "extensions" as a workspace view — without this, that destination
-    // silently falls back to General.
     expect(container.textContent).toContain("Extension management");
   });
 });

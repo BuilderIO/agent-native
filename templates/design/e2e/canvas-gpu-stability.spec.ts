@@ -209,9 +209,6 @@ async function exerciseGesture(page: Page, point: { x: number; y: number }) {
     for (let step = 0; step < 48; step += 1) {
       await page.mouse.wheel(0, -120);
     }
-    // Pan while the transformed surface is at a large scale. This is the
-    // combination that previously left stale compositor tiles behind and was
-    // not covered by the ordinary parity zoom tests.
     await page.keyboard.up("Control");
     for (let step = 0; step < 8; step += 1) {
       await page.mouse.wheel(240, 180);

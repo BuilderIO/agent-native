@@ -69,9 +69,6 @@ export function parseCanvasFrameGeometryById(
   );
 }
 
-/** Design-data maps whose per-entry dimension keys must be persisted as JSON
- *  numbers. Every reader treats a non-number as absent, so accepting `"800"`
- *  would silently drop the write instead of resizing anything. */
 const NUMERIC_DESIGN_DATA_ENTRY_KEYS: Record<string, ReadonlySet<string>> = {
   canvasFrames: new Set(CANVAS_FRAME_GEOMETRY_KEYS),
   screenMetadata: new Set(["width", "height"]),
@@ -163,14 +160,6 @@ function breakpointHeightError(width: string, value: unknown): string | null {
     : `Responsive breakpoint height at width ${width} must be at most ${MAX_SANE_FRAME_DIMENSION_PX} px.`;
 }
 
-/**
- * Message describing why a path-addressed design-data write carries a
- * non-numeric dimension, or null when the write is acceptable.
- *
- * Callers must reject on a message rather than coercing: the readers below
- * drop non-numbers, so a coerced write and an ignored one are indistinguishable
- * to whoever asked for the resize.
- */
 export function numericDesignDataWriteError(
   path: readonly string[],
   value: unknown,
@@ -219,8 +208,6 @@ export function numericDesignDataWriteError(
   return numericValueError(map, key, value);
 }
 
-/** Y a new group must start at to clear existing frames, or 0 when the board is
- *  empty. Placing at y=0 unconditionally stacks each new group on the last. */
 export function nextFreeCanvasRowY(
   existing: unknown,
   gap: number,
@@ -305,10 +292,6 @@ export function nextFreeCanvasRowY(
           resolveBreakpointHeightPx,
         })
       : height;
-    // A rotated frame's visual box extends below y + height; place under its
-    // rotated corners so the new row cannot overlap it. Responsive previews
-    // rotate with the primary around its center, so use their full group
-    // footprint around that same pivot.
     let frameBottom: number;
     if (!rotation) {
       frameBottom = y + paintedHeight;

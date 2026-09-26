@@ -15,9 +15,6 @@ const requireFromThisFile = createRequire(import.meta.url);
 let cachedFfmpegStaticPath: string | null | undefined;
 
 export type AudioOnlyExtractionErrorCode =
-  // The stored recording has no audio stream at all — a measurement of the
-  // file, distinct from "we looked and found no speech". Kept separate so the
-  // message can say so instead of blaming the recording.
   | "NO_AUDIO_SAVED"
   | "NO_AUDIO_TRACK"
   | "NO_SPEECH_DETECTED"
@@ -91,12 +88,6 @@ export function isFfmpegUnavailableError(err: unknown): boolean {
   );
 }
 
-/**
- * True for extraction failures that are worth an automatic retry — an
- * ffmpeg timeout is almost always transient (system under load, a slow
- * disk/network read of the source media), unlike a permanently unusable
- * input (no audio track, silent audio, ffmpeg missing from the runtime).
- */
 export function isTransientExtractionError(err: unknown): boolean {
   return err instanceof AudioOnlyExtractionError && err.code === "TIMEOUT";
 }
@@ -415,10 +406,6 @@ export async function assertAudioHasAudibleSignal(
   try {
     signal = await analyzeAudioSignal(media);
   } catch (err) {
-    // The silence pre-check is a best-effort guard, not a hard requirement.
-    // When ffmpeg is unavailable (e.g. a serverless runtime without the
-    // bundled binary) skip it and let the transcription provider decide,
-    // rather than failing the whole request before it starts.
     if (isFfmpegUnavailableError(err)) {
       console.warn(
         "[clips] ffmpeg unavailable; skipping silence detection and proceeding to transcription.",
@@ -536,10 +523,6 @@ export async function prepareAudioOnlyTranscriptionMedia({
       recordingId,
     });
   } catch (err) {
-    // If ffmpeg is unavailable or too slow for this clip, hand the original
-    // media to the transcription provider. Gemini/Builder accepts video
-    // containers directly; Whisper-style providers may reject them, in which
-    // case the normal provider error path takes over.
     if (
       isFfmpegUnavailableError(err) ||
       (err instanceof AudioOnlyExtractionError && err.code === "TIMEOUT")

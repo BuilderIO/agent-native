@@ -30,21 +30,10 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-/**
- * Routes whose page renders its own h-12 toolbar (with title + AgentToggleButton).
- * Layout still wraps these with the left Sidebar and AgentSidebar but skips the
- * global Header so they don't double-stack a header bar.
- */
 function routeOwnsToolbar(pathname: string): boolean {
   return pathname.startsWith("/extensions") || isPlanDetailRoute(pathname);
 }
 
-// Recaps are a kind of plan: `/plans/:id` and `/recaps/:id` both render
-// PlansPage and share the immersive full-screen reader, so the layout must
-// treat them identically (matching `viewForPath` in use-navigation-state.ts).
-// Without `/recaps/` here, recap routes never owned their toolbar and never
-// went immersive — they were stuck in app view and the full-screen toggle did
-// nothing.
 function isPlanDetailRoute(pathname: string): boolean {
   return /^\/(plans|recaps|local-plans)\/[^/]+/.test(pathname);
 }
@@ -181,10 +170,6 @@ export function Layout({ children }: LayoutProps) {
       window.removeEventListener(PLAN_READER_VIEW_EVENT, onPlanReaderView);
   }, [planDetailRoute]);
 
-  // Embed mode: render just the reader, flowing — no Sidebar, no AgentSidebar,
-  // no h-screen shell. Those (some in shared core) lock the embed to the iframe
-  // height; bypassing them lets the document flow so the shell sizes to content
-  // (see global.css `html[data-embed]` + frame.ts content-height reporting).
   const embedded = new URLSearchParams(location.search).get("embedded") === "1";
   if (embedded) {
     return (

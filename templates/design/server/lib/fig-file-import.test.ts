@@ -393,7 +393,6 @@ describe("editable .fig conversion", () => {
 
   it("keeps a frame-child at its parent-relative offset, ignoring the frame's canvas position", () => {
     const document = editableDocument();
-    // Frame far out on the canvas.
     document.nodeChanges[2]!.transform = {
       m00: 1,
       m01: 0,
@@ -402,7 +401,6 @@ describe("editable .fig conversion", () => {
       m11: 1,
       m12: 800,
     };
-    // Child at a parent-relative offset (Kiwi transforms are relativeTransform).
     document.nodeChanges[3]!.transform = {
       m00: 1,
       m01: 0,
@@ -416,7 +414,6 @@ describe("editable .fig conversion", () => {
 
     expect(rendered.frames[0]!.html).toContain("left: 26.19px");
     expect(rendered.frames[0]!.html).toContain("top: 0px");
-    // The frame's own canvas offset must not leak into the child.
     expect(rendered.frames[0]!.html).not.toContain("left: 826.19px");
     expect(rendered.frames[0]!.html).not.toContain("left: -773");
   });
@@ -461,7 +458,6 @@ describe("editable .fig conversion", () => {
           type: "FRAME",
           name: "Image wrapper",
           size: { x: 200, y: 100 },
-          // Parent-relative offset inside the offset frame.
           transform: {
             m00: 1,
             m01: 0,
@@ -758,12 +754,6 @@ describe("editable .fig conversion", () => {
   });
 
   it("imports multi-frame flows in left-to-right canvas order, not layer/creation order", async () => {
-    // A designer can reorder or duplicate frames in the layers panel without
-    // moving them on the canvas, so `parentIndex.position` (creation/z order)
-    // can point the opposite way from where the frames actually sit. Three
-    // frames laid out left-to-right on the canvas (x: 0, 400, 800) but stored
-    // with their layer order reversed (rightmost frame has the earliest
-    // `position`) must still import in canvas order: Left, Middle, Right.
     const document = editableDocument();
     const frame = (
       localID: number,

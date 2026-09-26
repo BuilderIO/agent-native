@@ -746,8 +746,6 @@ describe("content database source actions", () => {
   });
 
   it("maps epoch-millis Builder date values into populated date property values", () => {
-    // Builder CMS date fields come back as milliseconds-since-epoch numbers;
-    // they must still populate a `date` property rather than being dropped.
     const result = sourceFieldPropertyValuesFromRows(
       [
         {

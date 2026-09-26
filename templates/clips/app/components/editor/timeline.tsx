@@ -17,12 +17,10 @@ export interface TimelineChapter {
 export interface TimelineProps {
   width: number;
   durationMs: number;
-  /** Current playhead in original ms. */
   playheadMs: number;
   chapters?: TimelineChapter[];
   excludedRanges?: Array<{ startMs: number; endMs: number }>;
   splitPoints?: number[];
-  /** Countdown-complete start after explicit Rewind history was prepended. */
   originalStartMs?: number;
   onSeek?: (originalMs: number) => void;
   onClickChapter?: (chapter: TimelineChapter) => void;
@@ -39,7 +37,6 @@ const getBrandColor = () => {
   return v ? `hsl(${v})` : "#0f172a";
 };
 
-/** Timestamp ruler + playhead + chapter markers + excluded overlays. */
 export function Timeline({
   width,
   durationMs,
@@ -55,7 +52,6 @@ export function Timeline({
   const t = useT();
   const ticks = useMemo(() => {
     if (durationMs <= 0) return [];
-    // Target ~1 tick per 100px at the current zoom, rounded to a human interval.
     const targetTickCount = Math.max(4, Math.floor(width / 100));
     const rawInterval = durationMs / targetTickCount;
     const niceIntervals = [
@@ -80,8 +76,6 @@ export function Timeline({
     onSeek(ms);
   };
 
-  // The ruler is where scrubbing lives: the track above it spends its drags
-  // on moving cuts, so dragging here is the way to run the playhead along.
   const scrubbingRef = useRef(false);
 
   const startScrub = (e: React.PointerEvent<HTMLDivElement>) => {

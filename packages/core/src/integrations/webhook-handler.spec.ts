@@ -347,10 +347,6 @@ describe("integration webhook handler", () => {
   });
 
   it("dispatches to this deploy, not production, on a deploy preview", () => {
-    // The copy of this resolver that used to live in webhook-handler.ts
-    // preferred APP_URL and never read DEPLOY_PRIME_URL, so integration work
-    // enqueued by a preview was POSTed to production while agent background
-    // work correctly stayed on the preview.
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("DEPLOY_PRIME_URL", "https://preview--app.netlify.app");
     vi.stubEnv("APP_URL", "https://app.example.com");
@@ -413,9 +409,6 @@ describe("integration webhook handler", () => {
   });
 
   it("resolves the integration key for the engine the plugin selected", async () => {
-    // Provenance lives in `resolveOwnerEngineApiKey` (see
-    // owner-engine-api-key.spec.ts); this only guards the pass-through, since
-    // dropping `engineOption` here would silently restore the untagged key.
     resolveOwnerEngineApiKeyMock.mockResolvedValue({
       apiKey: "sk-openai-deploy",
       apiKeyEnvVar: "OPENAI_API_KEY",

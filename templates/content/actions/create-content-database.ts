@@ -474,9 +474,6 @@ export async function createContentDatabaseRecord(
     }
 
     documentId = args.newDocumentId ?? nanoid();
-    // Snapshot as a const so the closure below keeps TypeScript's
-    // non-undefined narrowing from the guard above (`let` bindings lose
-    // narrowing across a closure boundary).
     const resolvedOwnerEmail = ownerEmail;
     await withPositionLock(
       documentsPositionScope(resolvedOwnerEmail, parentId),
@@ -544,8 +541,6 @@ export async function createContentDatabaseRecord(
     updatedAt: now,
   });
 
-  // Every database is seeded with one primary "Content" Blocks field, backed
-  // by `documents.content`, so each row's body is a first-class property.
   const primaryBlocksPropertyId = await seedDefaultBlocksField({
     databaseId,
     ownerEmail,

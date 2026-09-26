@@ -5,10 +5,6 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
-/**
- * Design has no workspace-defaults tier: only the caller's own isDefault row,
- * scoped to their current org (or personal context when there is none).
- */
 export async function resolveDefaultDesignSystemId(
   ownerEmail: string,
 ): Promise<string | null> {
@@ -32,11 +28,6 @@ export async function resolveDefaultDesignSystemId(
   return rows[0]?.id ?? null;
 }
 
-/**
- * Resolves an exact title to an id using the same access filter
- * list-design-systems uses, so a title matches only what that action would
- * offer the caller to pick from.
- */
 export async function resolveDesignSystemIdByTitle(
   title: string,
 ): Promise<string> {

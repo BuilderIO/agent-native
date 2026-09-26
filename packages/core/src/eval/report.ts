@@ -1,8 +1,3 @@
-/**
- * Human-readable formatting for an eval run report. Kept separate from the
- * runner so the CLI can print a table while CI consumes the JSON shape.
- */
-
 import type { EvalRunReport } from "./types.js";
 
 function bar(score: number, width = 10): string {
@@ -19,7 +14,6 @@ function pct(score: number): string {
   return `${Math.round(clamp01(score) * 100)}%`.padStart(4);
 }
 
-/** Render a scored table for the terminal. */
 export function formatReport(report: EvalRunReport): string {
   const lines: string[] = [];
   lines.push("");

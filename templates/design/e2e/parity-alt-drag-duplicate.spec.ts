@@ -17,12 +17,6 @@ import {
   installBridge,
 } from "./helpers";
 
-// Figma spec §2 (Move) + §6 (Copy/Paste) + Part 3 resolution "Alt-drag
-// duplicate": the ORIGINAL stays put, a COPY moves with the pointer, the copy
-// keeps the IDENTICAL layer name, is inserted directly ABOVE the original in
-// DOM/z order, selection ends on the copy, and one undo removes the copy and
-// restores selection to the original.
-
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 
 async function action(
@@ -81,10 +75,6 @@ async function createDesign(
   return { designId, fileIds };
 }
 
-// A plain <div> with no id/class/aria-label falls back to a tag-derived name
-// ("Frame"). A <button> falls back to "Button". Named via an explicit
-// data-agent-native-layer-name so we know the exact string Figma parity
-// requires the copy to keep.
 const NAMED_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;min-height:900px">
 <div data-agent-native-node-id="rect" data-agent-native-layer-name="Widget"
@@ -92,10 +82,6 @@ const NAMED_HTML = `<!doctype html>
 </div>
 </body></html>`;
 
-// No explicit name and no id/class/aria-label: layerNameFor() falls back to
-// the tag ("Frame" for a plain positioned div). This is the shape that
-// exercises prepareClonedHtmlLayer's "tag-sourced name -> stamp literal
-// 'Copy'" branch.
 const UNNAMED_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;min-height:900px">
 <div data-agent-native-node-id="plain" style="position:absolute;left:100px;top:100px;width:200px;height:120px;background:#a37">
@@ -239,8 +225,6 @@ async function openOverview(page: Page, designId: string, screens: number) {
   });
   const firstCard = page.locator("[data-screen-card]").first();
   await expect(firstCard).toBeVisible();
-  // Overview layout settles asynchronously after mount with no discrete
-  // event — poll the first card's box until two consecutive reads agree.
   let lastBox: { x: number; y: number } | null = null;
   await expect
     .poll(
@@ -339,8 +323,6 @@ async function zoomOutToBoardDropPoint(
   }, excludedRects);
 }
 
-// Excludes aria-level="1" rows: those are the screen/frame roots (e.g.
-// "Home"), not the elements inside them.
 async function layerNames(page: Page): Promise<string[]> {
   return page
     .getByRole("tree", { name: "Layers" })
@@ -567,7 +549,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       await expect(rect).toBeVisible();
       const before = (await rect.boundingBox())!;
 
-      // Select first (a fresh click, not part of the drag itself).
       await page.mouse.click(
         before.x + before.width / 2,
         before.y + before.height / 2,
@@ -588,7 +569,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       const nodes = frame.locator("body > [data-agent-native-node-id]");
       await expect(nodes).toHaveCount(2, { timeout: 10_000 });
 
-      // Original stayed exactly where it was.
       const originalAfter = await frame
         .locator('[data-agent-native-node-id="rect"]')
         .boundingBox();
@@ -596,7 +576,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       expect(Math.round(originalAfter!.x)).toBe(Math.round(before.x));
       expect(Math.round(originalAfter!.y)).toBe(Math.round(before.y));
 
-      // A copy exists at a different node id and moved with the pointer.
       const allIds = await frame
         .locator("body > [data-agent-native-node-id]")
         .evaluateAll((els) =>
@@ -611,7 +590,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       expect(Math.abs(copyBox!.x - before.x)).toBeGreaterThan(10);
       expect(Math.abs(copyBox!.y - before.y)).toBeGreaterThan(10);
 
-      // Name parity: the copy must keep the IDENTICAL name, not a suffix.
       const names = await layerNames(page);
       const widgetCount = names.filter((n) => n === "Widget").length;
       if (widgetCount !== 2) {
@@ -623,12 +601,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       }
       expect(names.filter((n) => n === "Widget")).toHaveLength(2);
 
-      // Selection ends on the copy, not the original. The layers-panel row
-      // exposes an internal CodeLayerNode id ("html:...", not the raw
-      // data-agent-native-node-id), so comparing it directly to copyId can
-      // never match — verify via __designTrace's selection-changed element
-      // selector instead (the same signal the clipboard/duplicate parity
-      // spec's identical check relies on).
       const selectionTrace = await dumpTrace(page);
       const selectionMatches = [
         ...(selectionTrace ?? "").matchAll(
@@ -771,8 +743,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
           description: JSON.stringify({ bodyOrder, trace }),
         });
       }
-      // The copy must sit immediately after "rect" (same parent), i.e. above
-      // it in paint/z order, and must not have jumped past "other".
       expect(copyIndex).toBe(rectIndex + 1);
       expect(copyIndex).toBeLessThan(otherIndex);
     } finally {
@@ -797,10 +767,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       );
       await page.waitForTimeout(200);
 
-      // Layer rows are keyed by the code-layer projection's own hashed id
-      // (e.g. "html:1oii98w"), not the authored data-agent-native-node-id —
-      // capture the ORIGINAL's real id here rather than assuming a literal
-      // "rect" a Layers row can never actually carry.
       const originalLayerNodeId = await page
         .getByRole("tree", { name: "Layers" })
         .locator('[aria-selected="true"] [data-layer-row-button]')
@@ -891,7 +857,6 @@ test.describe("alt-drag duplicate (overview)", () => {
       const sourceX = sourceBox.x + sourceBox.width / 2;
       const sourceY = sourceBox.y + sourceBox.height / 2;
 
-      // Select the element first with a plain click.
       await page.mouse.dblclick(sourceX, sourceY);
       await page.waitForTimeout(500);
       await page.mouse.click(sourceX, sourceY);
@@ -960,18 +925,10 @@ test.describe("alt-drag duplicate (overview)", () => {
           }),
         });
       }
-      // Original stays inside the screen alone: the drag must not have
-      // duplicated in place inside the source screen.
       expect(insideScreenCount).toBe(1);
       expect(warningVisible).toBe(false);
-      // The copy must actually have landed on the board, not vanished.
       expect(boardCopyCount).toBeGreaterThan(0);
 
-      // A board copy is runtime-only until its pending source edit is
-      // applied, so the Layers projection may not contain it yet. Verify the
-      // real bridge -> host selection round trip instead: Escape clears the
-      // optimistic drag selection, then a real pointer click must select the
-      // clone and restore the host-level board SelectionBox for its runtime id.
       const boardIframe = page
         .locator("[data-board-surface-layer] iframe")
         .first();
@@ -1158,8 +1115,6 @@ test.describe("alt-drag duplicate (overview)", () => {
         labelBox.x < shellBox.x + shellBox.width &&
         labelBox.x + labelBox.width > shellBox.x;
 
-      // Ask the browser which element is actually hit-tested at the label's
-      // own centre point — this is what a real click would hit.
       const elementAtPoint = await page.evaluate(
         ({ x, y }) => {
           const el = document.elementFromPoint(x, y);
@@ -1175,7 +1130,6 @@ test.describe("alt-drag duplicate (overview)", () => {
         },
       );
 
-      // Try the plain click (no force) as a real user would.
       let clickThrew = false;
       try {
         await label.click({ timeout: 3000 });
@@ -1194,10 +1148,6 @@ test.describe("alt-drag duplicate (overview)", () => {
         });
       }
 
-      // This assertion documents the real user-facing question: a plain,
-      // un-forced click on the frame label must succeed. If the left shell
-      // geometrically overlaps the label at the default viewport, that is a
-      // genuine reachability bug, not a stale-selector problem.
       expect(clickThrew).toBe(false);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});

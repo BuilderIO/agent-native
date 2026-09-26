@@ -1,9 +1,3 @@
-/**
- * The two per-type primitives both surfaces render identically: an option chip
- * and a star rating. Everything larger — the grid's fixed-height cell, the
- * record panel's labelled row — stays with its own surface.
- */
-
 import { IconStar, IconStarFilled } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
@@ -14,11 +8,6 @@ import {
   type CrmValueToken,
 } from "./attribute-value";
 
-/**
- * An option's colour tints the chip rather than filling it. `color-mix` instead
- * of an appended hex alpha: an option colour may be any CSS colour, and
- * `#0a0` + "22" is not a colour at all — it silently rendered untinted.
- */
 export function AttributeOptionChip({
   token,
   className,

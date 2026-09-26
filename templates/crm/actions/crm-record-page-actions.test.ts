@@ -1,9 +1,3 @@
-// Integration tests for the record page actions against a real PGlite
-// database with the app's own migrations applied. The two things they have to
-// prove — that a superseded bitemporal row is never read as the current value,
-// and that two entries of one record in one list both survive — are exactly
-// what a mocked query builder would let through.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -218,8 +212,6 @@ describe("get-crm-record-page", () => {
   it("has no upstream link for a native record", async () => {
     const recordId = await createRecord("Native Co");
     const page = await asOwner(() => getRecordPage.run({ recordId }, ownerCtx));
-    // Absent and unavailable are different states; a native record has no
-    // upstream record at all, so neither field is populated.
     expect(page.recordUrl).toBeNull();
     expect(page.recordUrlUnavailableReason).toBeNull();
   });
@@ -319,7 +311,6 @@ describe("list-crm-record-field-history", () => {
       listFieldHistory.run({ recordId, apiSlug: "last_seen" }, ownerCtx),
     );
     expect(history.historyTracked).toBe(false);
-    // Updated in place: one row, holding the newest value.
     expect(history.changes).toHaveLength(1);
     expect(history.changes[0].value).toBe("b");
   });

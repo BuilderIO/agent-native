@@ -52,18 +52,8 @@ interface WorkspaceResourceOption {
 type VaultAccessMode = "all-apps" | "manual";
 
 interface CreateAppPopoverProps {
-  /**
-   * Custom trigger element. Defaults to a dashed-border tile that matches the
-   * apps grid empty state.
-   */
   trigger?: ReactNode;
-  /**
-   * Override the popover alignment. Defaults to "center" with a 10px offset.
-   */
   align?: "start" | "center" | "end";
-  /**
-   * Called after the server accepts a Builder app creation request.
-   */
   onCreated?: () => void;
 }
 
@@ -105,11 +95,6 @@ function isErrorFailureReason(reason: string | null): boolean {
   return !!reason && ERROR_FAILURE_REASONS.has(reason);
 }
 
-/**
- * Inline two-step app-creation flow: prompt → optional access picker → submit.
- * Used both in the popover form and in the dedicated `/new-app` page so the
- * same UX shows up everywhere a teammate kicks off a new workspace app.
- */
 export function CreateAppFlow({
   onClose,
   onCreated,
@@ -137,9 +122,6 @@ export function CreateAppFlow({
 
   const basePath = useMemo(() => defaultDispatchBasePath(), []);
 
-  // Enabled only while the connect CTA is on screen. Left always-on, the hook
-  // would poll Builder status on every popover mount and fire onConnected on
-  // its first status read for anyone already connected.
   const connectFlow = useBuilderConnectFlow({
     enabled: failureReason === "builder-not-connected",
     provisionAccount: true,
@@ -151,7 +133,6 @@ export function CreateAppFlow({
     },
   });
 
-  // Fetch access options eagerly so step 2 has them ready immediately.
   useEffect(() => {
     let cancelled = false;
     fetchJson(actionUrl(basePath, "list-vault-secret-options"))

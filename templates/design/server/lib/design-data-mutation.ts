@@ -50,9 +50,6 @@ function parseDesignData(
   designId: string,
   serialized: string | null,
 ): DesignDataRecord {
-  // A small number of legacy rows predate the current NOT NULL schema. Treat
-  // SQL NULL as the old empty-data sentinel, while still refusing malformed
-  // non-null JSON so a corrupt blob is never silently discarded.
   if (serialized === null) return {};
   try {
     const parsed: unknown = JSON.parse(serialized);
@@ -100,10 +97,7 @@ function isRetryableTransactionConflict(error: unknown): boolean {
         ? (error as { code: string }).code
         : ""
       : "";
-  return (
-    code === "40001" || // Postgres serialization failure
-    code === "40P01" // Postgres deadlock detected
-  );
+  return code === "40001" || code === "40P01";
 }
 
 function withDesignDataLock<T>(
@@ -128,16 +122,7 @@ interface MutateDesignDataOptions<TTransactionResult = undefined> {
     current: DesignDataRecord,
     context: { updatedAt: string },
   ) => DesignDataRecord;
-  /**
-   * Proves the caller's intent is present in the committed row. This is
-   * deliberately intent-based rather than whole-object equality: a sibling
-   * writer may safely add unrelated keys immediately after our commit.
-   */
   isApplied: (persisted: DesignDataRecord) => boolean;
-  /**
-   * Optional content changes committed in the same transaction as `data`.
-   * The callback receives the same latest design snapshot used by `mutate`.
-   */
   mutateFiles?: (
     current: DesignDataRecord,
     next: DesignDataRecord,
@@ -152,7 +137,6 @@ interface MutateDesignDataOptions<TTransactionResult = undefined> {
     next: DesignDataRecord,
     context: { updatedAt: string },
   ) => Promise<TTransactionResult>;
-  /** Runs after each commit, including attempts retried by the intent check. */
   afterCommit?: (
     transactionResult: TTransactionResult | undefined,
   ) => Promise<void>;
@@ -161,21 +145,6 @@ interface MutateDesignDataOptions<TTransactionResult = undefined> {
   now?: () => Date;
 }
 
-/**
- * Atomically mutate the designs.data JSON record without losing sibling keys.
- *
- * The conditional UPDATE uses the Postgres Drizzle query builder. The read,
- * compare-and-swap, and confirmation read live in one transaction. A
- * post-commit read then proves the requested intent survived before success is
- * reported. Explicit property deletion performed by `mutate` is preserved
- * because the complete transformed object is the CAS candidate.
- *
- * Isolation assumptions: local PGlite transactions use the framework's
- * top-level queue, so no sibling writer can enter between the read and CAS.
- * Postgres may let a sibling commit after the read, but its
- * conditional UPDATE is re-evaluated after the row-lock wait; the confirmation
- * read detects a lost CAS and triggers a retry.
- */
 async function mutateDesignDataUnlocked<TTransactionResult>({
   designId,
   mutate,
@@ -195,9 +164,6 @@ async function mutateDesignDataUnlocked<TTransactionResult>({
     previousContent: string;
   }>;
 }> {
-  // Re-assert at the shared write boundary. Callers also check before doing
-  // parse/index work so unauthorized requests fail early, but this helper must
-  // remain independently scoped if a new action adopts it later.
   await assertAccess("design", designId, "editor");
   const db = getDb();
 
@@ -275,8 +241,6 @@ async function mutateDesignDataUnlocked<TTransactionResult>({
           .set({ data: nextSerialized, updatedAt })
           .where(and(...revisionConditions));
 
-        // Inside the same transaction the row remains locked after a winning
-        // UPDATE, so exact equality proves this CAS attempt wrote its candidate.
         const [confirmed] = await tx
           .select({ data: schema.designs.data })
           .from(schema.designs)
@@ -411,9 +375,6 @@ export function mutateDesignData<TTransactionResult = undefined>(
     previousContent: string;
   }>;
 }> {
-  // Serialize same-process calls before entering a backend transaction. This
-  // avoids overlapping PGlite transactions on one client; the CAS
-  // remains necessary for multi-instance and cross-process writers.
   return withDesignDataLock(options.designId, () =>
     mutateDesignDataUnlocked(options),
   );

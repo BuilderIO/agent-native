@@ -151,8 +151,6 @@ describe("matchFigmaClipboardNodes", () => {
     expect(result).toMatchObject({
       status: "ambiguous",
       matches: [],
-      // A caller must be able to tell "several frames tied" from "no frame
-      // contained the text" — both used to arrive as a bare "ambiguous".
       reason: "tied-text-matches",
     });
     expect(result.candidateNames?.length).toBeGreaterThan(1);

@@ -43,7 +43,6 @@ export interface AgentKitManagedClientOptions extends Omit<
 
 export type AgentKitClientSource =
   | {
-      /** A host-owned controller. AgentKit never disposes it. */
       controller: AgentKitController;
       transport?: never;
       clientOptions?: never;
@@ -51,7 +50,6 @@ export type AgentKitClientSource =
       http?: never;
     }
   | {
-      /** A host-owned transport used by one AgentKit-managed controller. */
       controller?: never;
       transport: AgentTransport;
       clientOptions?: AgentKitManagedClientOptions;
@@ -59,7 +57,6 @@ export type AgentKitClientSource =
       http?: never;
     }
   | {
-      /** HTTP endpoint used by an AgentKit-managed transport and controller. */
       endpoint: string;
       http?: Omit<AgentKitHttpTransportOptions, "baseUrl">;
       controller?: never;
@@ -74,30 +71,22 @@ export interface AgentKitRootBaseProps {
   registry?: AgentKitRegistry;
   labels?: Partial<AgentKitLabels>;
   onOpenObject?: (object: AgentObjectReference) => void;
-  /** Navigates or otherwise activates a newly forked thread. */
   onThreadForked?: (thread: AgentThread) => void;
   onConnectionRequest?: (
     request: AgentConnectionRequest,
   ) => Promise<AgentConnectionResponse>;
-  /** Reports custom renderer failures without exposing internals to users. */
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
     name: string;
     data?: Record<string, unknown>;
   }) => void;
-  /** Loads the thread projection on mount and whenever `threadId` changes. */
   load?: "auto" | "manual";
-  /** Observes an initial load failure in addition to the rendered error state. */
   onLoadError?: (error: unknown) => void;
 }
 
 export type AgentKitRootProps = AgentKitRootBaseProps & AgentKitClientSource;
 
-/**
- * Owns AgentKit's controller lifecycle without imposing a visual shell.
- * Use this for custom products that compose the headless hooks directly.
- */
 export function AgentKitRoot({
   controller,
   transport,
@@ -213,8 +202,6 @@ export function AgentKitRoot({
       released: false,
     };
     activeLoadLease.current = lease;
-    // openThread loads the projection, resumes active runs, and owns the
-    // subscriptions until this client/thread scope releases its lease.
     void resolvedController
       .openThread(threadId)
       .then((threadLease) => {
@@ -236,9 +223,6 @@ export function AgentKitRoot({
         ) {
           return;
         }
-        // A caller-owned client can finish an obsolete load after the current
-        // thread succeeded. Refresh the active projection so that stale global
-        // connection state cannot replace the current thread's recovered state.
         void active.controller
           .loadThread(active.threadId)
           .catch((activeError) => {
@@ -262,9 +246,6 @@ export function AgentKitRoot({
     return () => {
       const remaining = (mountedManagedClients.get(managedClient) ?? 1) - 1;
       mountedManagedClients.set(managedClient, remaining);
-      // Strict Mode replays effects in the same task. Deferring disposal lets
-      // the replacement setup retain the same client while real unmounts still
-      // release it deterministically.
       queueMicrotask(() => {
         if ((mountedManagedClients.get(managedClient) ?? 0) > 0) return;
         mountedManagedClients.delete(managedClient);

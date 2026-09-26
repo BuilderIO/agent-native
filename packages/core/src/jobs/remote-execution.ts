@@ -24,7 +24,6 @@ import {
 } from "./frontmatter.js";
 import { finishAutomationRun, startAutomationRun } from "./run-history.js";
 
-/** A remote run is allowed to be long-lived, but never indefinitely invisible. */
 export const REMOTE_AUTOMATION_MAX_ACTIVE_MS = 24 * 60 * 60_000;
 
 export type RemoteAutomationState =
@@ -49,7 +48,6 @@ export interface RemoteAutomationDispatchInput {
   prompt: string;
   title: string;
   historyId?: string;
-  /** Whether completing this remote dispatch should advance its cron schedule. */
   advanceSchedule?: boolean;
   now?: Date;
 }
@@ -139,11 +137,6 @@ function remoteRunIdFromCommand(command: RemoteCommand): string | undefined {
   return readString(run?.id, run?.runId);
 }
 
-/**
- * Queue one host-targeted automation. The request key is derived from the
- * persisted start timestamp, so a worker crash between the queue write and
- * resource bookkeeping cannot create a second remote run.
- */
 export async function dispatchRemoteAutomation(
   input: RemoteAutomationDispatchInput,
 ): Promise<{
@@ -394,8 +387,6 @@ export async function getRemoteAutomationStatus(input: {
     };
   }
   if (runStatus === "needs-approval") return { state: "active", command };
-  // A future container/Kubernetes adapter may complete a command without
-  // exposing the desktop run shape. Its terminal command is still authoritative.
   return { state: "completed", command };
 }
 

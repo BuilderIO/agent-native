@@ -2,19 +2,14 @@ import { useEffect, useRef, type MutableRefObject } from "react";
 
 import { getAudioStreamWithFallback } from "../lib/media-capture-constraints";
 
-// Number of points sampled across the wave line. Fewer points = wider, bigger
-// waves (each above/below pair is one hump); more = a tighter, busier line.
 export const WAVE_BARS = 10;
 
-// How often the meter pushes a fresh sample (ms).
 export const METER_INTERVAL_MS = 50;
 
-// SVG path coordinate space. The line is drawn into a 0..VIEW_W × 0..VIEW_H box
-// stretched to the row width; the stroke stays crisp via non-scaling-stroke.
 const VIEW_W = 100;
 const VIEW_H = 24;
 const CENTER_Y = VIEW_H / 2;
-const MAX_AMP = 11; // peak deflection from center, leaves a little headroom
+const MAX_AMP = 11;
 const FLAT_LINE = `M 0 ${CENTER_Y} L ${VIEW_W} ${CENTER_Y}`;
 const activeMeterCleanups = new Set<() => void>();
 
@@ -24,10 +19,6 @@ export function stopAllMicMeters(): void {
   }
 }
 
-// Build a smooth wave path from 0..1 levels. Points alternate above/below the
-// center line so the result reads as an oscillating waveform (not a one-sided
-// envelope); quadratic curves through the midpoints round off the corners. At
-// rest (levels ~0) it collapses to a flat center line.
 function buildWavePath(levels: number[]): string {
   const n = levels.length;
   if (n < 2) return FLAT_LINE;
@@ -56,7 +47,6 @@ function flatten(path: SVGPathElement | null): void {
   if (path) path.setAttribute("d", FLAT_LINE);
 }
 
-// Shared analyser config so local and relay modes sample identically.
 export function createMeterAnalyser(
   ctx: AudioContext,
   stream: MediaStream,
@@ -69,8 +59,6 @@ export function createMeterAnalyser(
   return { analyser, data: new Uint8Array(analyser.frequencyBinCount) };
 }
 
-// Read the analyser and bucket the usable FFT bins into `barCount` levels. The
-// top ~30% of bins carry little voice energy, so we only sample the lower 70%.
 export function sampleLevels(
   analyser: AnalyserNode,
   data: Uint8Array<ArrayBuffer>,
@@ -127,8 +115,6 @@ export function useMicMeter({
           return;
         }
         audioCtx = new AudioContext();
-        // A context created without a user gesture can start suspended, which
-        // freezes the analyser at zero — resume before reading it.
         await audioCtx.resume();
         const { analyser, data } = createMeterAnalyser(audioCtx, stream);
         timer = setInterval(() => {

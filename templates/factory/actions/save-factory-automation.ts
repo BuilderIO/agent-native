@@ -318,11 +318,6 @@ export default defineAction({
       ).toISOString();
       content = setAutomationFrontmatterField(content, "nextRun", nextRun);
     }
-    // Insert the predecessor's raw content before the live write commits: if
-    // the write below fails, this is just an unused extra row, but if the
-    // order were reversed a crash or history-insert failure after a
-    // successful write would report a failed save while silently losing the
-    // last pre-save state with no way to recover it.
     const insertedVersion = await insertFactoryAutomationVersionIfChanged({
       automationId: definition.resource.id,
       factoryId: input.factoryId,
@@ -334,10 +329,6 @@ export default defineAction({
       summary: "Automation save",
       source: "save",
     });
-    // A thrown write failure (DB/provider error) must compensate exactly like
-    // a falsy return (optimistic-concurrency mismatch) — resourcePutIfCurrent
-    // has no try/catch of its own, so a throw here would otherwise skip the
-    // cleanup below and leave the inserted version orphaned.
     let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
     let writeError: unknown;
     try {

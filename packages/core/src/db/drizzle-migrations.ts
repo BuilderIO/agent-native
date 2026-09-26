@@ -87,13 +87,6 @@ export async function loadDrizzleMigrations(
   return migrations;
 }
 
-/**
- * Create a migration plugin backed by Drizzle Kit's generated SQL files.
- *
- * The folder is read lazily after the shared serverless request guard runs.
- * This keeps migration-file I/O out of request paths when releases own DDL.
- * The filesystem-backed loader is intentionally unavailable on edge runtimes.
- */
 export function runDrizzleMigrations(
   migrationsFolder: DrizzleMigrationsFolder,
   options: RunDrizzleMigrationsOptions,

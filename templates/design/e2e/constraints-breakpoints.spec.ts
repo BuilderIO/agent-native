@@ -3,12 +3,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers } from "./helpers";
 
-/**
- * Constraints assert Figma parity (doc-quoted). Breakpoints assert Design's
- * OWN Framer-model contract from .agents/skills/responsive-breakpoints — they
- * are deliberately not a Figma concept, so parity is not the bar there.
- */
-
 const PAGE_W = 1440;
 const PAGE_H = 900;
 
@@ -113,8 +107,6 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  // No blind settle: expandAllLayers waits for the first layer row, which
-  // the editor cannot render before it has parsed the document.
   await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
@@ -126,8 +118,6 @@ async function rendered(page: Page, id: string) {
   });
 }
 
-/** Resize the parent through the inspector, isolating constraints from the
- *  broken resize handles. */
 async function setWidth(page: Page, value: string): Promise<void> {
   const input = page
     .getByText("W", { exact: true })
@@ -202,8 +192,6 @@ test.describe("constraints (Figma parity)", () => {
 
     const after = await rendered(page, "child");
     const parentAfter = await rendered(page, "parent");
-    // peer PR (screen-frame resize) owns setWidth actually resizing the
-    // parent; observed: width went ${parentBefore.width} -> ${parentAfter.width}.
     expect(
       Math.abs(parentAfter.width - parentBefore.width),
       `precondition: the parent must actually resize for this constraint to be testable. ` +
@@ -225,12 +213,8 @@ test.describe("constraints (Figma parity)", () => {
     await layerRow(page, "Child").click();
     await page.waitForTimeout(1500);
     const opened = await openConstraints(page);
-    // peer PR (inspector) owns the Constraints control's presence.
     expect(opened, "no Constraints control to set Scale with").toBe(true);
 
-    // Scale lives inside the Horizontal axis Select, not on the widget itself:
-    // its options are not in the DOM until that trigger is opened, so the old
-    // `count() === 0` check skipped this test on every run.
     await page.getByRole("combobox", { name: "Horizontal" }).first().click();
     const scaleOption = page.getByRole("option", { name: /Scale/i });
     await expect(scaleOption.first()).toBeVisible({ timeout: 10_000 });
@@ -401,8 +385,6 @@ test.describe("breakpoints (Design's Framer model, not Figma)", () => {
     const id = created?.id ?? created?.data?.id;
     if (!id) throw new Error("create-design returned no id");
 
-    // Device defaults are applied by generation. A manually created shell plus
-    // create-file intentionally starts with Base + Add instead.
     const generated = await postAction(page, "generate-design", {
       designId: id,
       prompt: "Create a responsive constraints test fixture.",

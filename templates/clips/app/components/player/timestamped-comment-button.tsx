@@ -17,7 +17,6 @@ interface TimestampedCommentButtonProps {
   className?: string;
 }
 
-/** Trigger that opens the docked comment composer, pinned to the current time. */
 export function TimestampedCommentButton({
   enableComments,
   canComment,
@@ -50,10 +49,6 @@ interface TimestampedCommentBarProps {
   onDraftChange?: (value: string) => void;
 }
 
-/**
- * Bottom-docked comment composer. Render inside a `relative` container (the
- * video wrapper) so it overlays the bottom of the video at the captured moment.
- */
 export function TimestampedCommentBar({
   recordingId,
   atMs,

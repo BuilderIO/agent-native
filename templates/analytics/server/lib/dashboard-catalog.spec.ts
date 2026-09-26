@@ -284,17 +284,11 @@ describe("dashboard catalog", () => {
     ]) {
       const catalogPanel = requiredFirstPartyPanel(id);
       const seedPanel = seedPanels.find((panel) => panel.id === id);
-      // retention-over-time's spine reaches 365 days back and each anchor
-      // needs the six first-seen days before it, so its base looks back 371.
       const lookbackFilter =
         id === "retention-over-time"
           ? "event_date >= to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD')"
           : "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')";
       expect(seedPanel?.sql).toContain(lookbackFilter);
-      // retention-over-time's description dropped the "previous 365 days"
-      // wording when it switched to describing per-row return-window
-      // maturity instead of the cohort lookback; the other two panels are
-      // unaffected by that copy change.
       if (id !== "retention-over-time") {
         expect(seedPanel?.config?.description).toContain("previous 365 days");
       }
@@ -568,9 +562,6 @@ describe("dashboard catalog", () => {
   });
 
   it("repairs a retention panel persisted with the app-filter scope already injected", () => {
-    // Persisted panels store SQL after scopeFirstPartyPanelSql injects the
-    // {{appFilter}} predicate, so the registered legacySql (unscoped) must
-    // still match already-deployed (scoped) panels.
     const deployedScopedRetention = scopeFirstPartyPanelSql(
       PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
     );

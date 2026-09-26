@@ -12,10 +12,6 @@ concurrency:
   group: neon-preview-branches-pr-${{ github.event.pull_request.number || github.event.number }}
   cancel-in-progress: true
 
-# Preview database isolation is intentionally disabled. Preview deploys use the
-# shared Netlify database configuration; this workflow only cleans up branch
-# resources left by the former isolation flow when a PR closes.
-
 env:
   NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
 

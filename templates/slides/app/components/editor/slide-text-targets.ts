@@ -3,7 +3,6 @@ import { detectSlideListKind } from "./list-editing";
 
 type EditingTarget = EventTarget | Element | null;
 
-/** Inline markup changes presentation, but does not create a canvas target. */
 const INLINE_TEXT_TAGS = new Set([
   "SPAN",
   "STRONG",
@@ -48,7 +47,6 @@ function isEditingTarget(target: EditingTarget): boolean {
   );
 }
 
-/** Whether a keyboard/pointer event belongs to an active slide text edit. */
 export function isSlideTextEditingTarget(
   target: EditingTarget,
   activeElement: Element | null = null,
@@ -74,7 +72,6 @@ export function shouldStampBuilderId(element: HTMLElement): boolean {
   );
 }
 
-/** Top-level selectable canvas targets in DOM order, excluding renderer shells. */
 export function getSlideCanvasTraversalElements(
   canvasContent: HTMLElement,
 ): HTMLElement[] {
@@ -103,11 +100,6 @@ export function getSlideCanvasTraversalElements(
   });
 }
 
-/**
- * On the editing canvas a slide link is content to select and edit, not a way
- * out of the editor: no click on it (Cmd/Ctrl-click adds to the selection, a
- * middle click, a click that only selects its card) opens it.
- */
 export function preventSlideLinkNavigation(
   event: Pick<Event, "target" | "preventDefault">,
 ) {
@@ -117,7 +109,6 @@ export function preventSlideLinkNavigation(
   }
 }
 
-/** Canvas-only shortcuts must not consume keys while focus is in editor chrome. */
 export function isSlideCanvasShortcutTarget(
   activeElement: Element | null,
   canvas: HTMLElement | null,
@@ -129,11 +120,6 @@ export function isSlideCanvasShortcutTarget(
   );
 }
 
-/**
- * A single-cell table satisfies `isRichTextBlock` all the way up to `<table>`,
- * but a table is a grid of independently selectable cells, not one text layer.
- * Rich-text ownership stops here so cells keep their own rows and edits.
- */
 const RICH_TEXT_TABLE_TAGS = new Set([
   "CAPTION",
   "COL",
@@ -153,18 +139,10 @@ function ownsRichTextLayer(element: HTMLElement): boolean {
   );
 }
 
-/**
- * Smart groups contain layout wrappers that the rich-text schema cannot
- * round-trip, so edit the clicked text leaf without replacing the group.
- */
 function ownsRichTextEditingLayer(element: HTMLElement): boolean {
   return canEnterRichTextEdit(element) && !isSmartGroup(element);
 }
 
-/**
- * Rich text is a single canvas layer, so the blocks inside it are structure
- * rather than layers and must not each earn their own Layers panel row.
- */
 function isRichTextLayerAncestor(element: HTMLElement): boolean {
   let ancestor = element.parentElement;
   while (ancestor) {
@@ -185,7 +163,6 @@ export function isSlideCanvasShell(element: HTMLElement): boolean {
   );
 }
 
-/** Rich-text editing may use a nested block that has no canvas identity. */
 export function resolveSlideTextSelectionTarget(
   element: HTMLElement,
   root: HTMLElement,
@@ -203,17 +180,12 @@ export function resolveSlideTextSelectionTarget(
   return element;
 }
 
-/**
- * A text leaf is a block-level element whose children are text nodes or inline
- * elements. Inline style runs are deliberately not text leaves themselves.
- */
 export function isTextLeaf(element: HTMLElement): boolean {
   if (!element || isInlineTextElement(element) || element.tagName === "IMG") {
     return false;
   }
   if (element.tagName === "H5" || element.tagName === "H6") return false;
   if (element.classList.contains("fmd-img-placeholder")) return false;
-  // A user-placed text box stays editable after its content is deleted.
   if (element.classList.contains("fmd-text-box")) return true;
   if (!element.textContent?.trim()) return false;
   for (const child of Array.from(element.children)) {
@@ -222,7 +194,6 @@ export function isTextLeaf(element: HTMLElement): boolean {
   return true;
 }
 
-/** A container made only of text leaves or nested text groups. */
 export function isSmartGroup(element: HTMLElement): boolean {
   if (
     !element ||
@@ -245,10 +216,6 @@ export function isSmartGroup(element: HTMLElement): boolean {
   return true;
 }
 
-/**
- * A text block whose text was all deleted: the edit leaves a `<br>` so the
- * empty line keeps its height, and it must stay enterable to type again.
- */
 function isEmptiedTextBlock(element: HTMLElement): boolean {
   return (
     !element.textContent?.trim() &&
@@ -257,7 +224,6 @@ function isEmptiedTextBlock(element: HTMLElement): boolean {
   );
 }
 
-/** A single canvas target whose descendants are rich-text structure, not layers. */
 export function isRichTextBlock(element: HTMLElement): boolean {
   if (!element || isInlineTextElement(element) || element.tagName === "IMG") {
     return false;
@@ -306,10 +272,6 @@ const RICH_TEXT_PRESERVED_STYLE_PROPERTIES = new Set([
   "text-decoration",
 ]);
 
-/**
- * Rich text can replace a block's children, so layout and decoration styles
- * on a multi-leaf group must stay outside the editor boundary.
- */
 function hasUnsafeRichTextDescendant(element: HTMLElement): boolean {
   return [
     element,
@@ -332,7 +294,6 @@ function hasUnsafeRichTextDescendant(element: HTMLElement): boolean {
 
 function canEnterRichTextEdit(element: HTMLElement): boolean {
   if (!isRichTextBlock(element)) return false;
-  // A single text layer keeps its outer style while its contents are edited.
   if (
     isTextLeaf(element) ||
     isEmptiedTextBlock(element) ||
@@ -349,7 +310,6 @@ export function shouldTraverseSlideLayerChildren(
   return !canEnterRichTextEdit(element) || isSmartGroup(element);
 }
 
-/** Keep a semantic list inside its containing canvas text block while editing. */
 export function resolveRichTextEditingBlock(element: HTMLElement): HTMLElement {
   let block = element;
   while (
@@ -362,10 +322,6 @@ export function resolveRichTextEditingBlock(element: HTMLElement): HTMLElement {
   return block;
 }
 
-/**
- * Outermost rich text block containing `target`, so a click on a paragraph
- * inside one resolves to the whole layer instead of that one paragraph.
- */
 function findSlideRichTextOwner(
   target: HTMLElement,
   root: HTMLElement,
@@ -412,7 +368,6 @@ function paintsOwnBox(element: HTMLElement): boolean {
   );
 }
 
-/** A painted box this large is the slide's backdrop, not an object on it. */
 const SLIDE_BACKDROP_AREA_RATIO = 0.9;
 
 function isPaintedObject(element: HTMLElement, root: HTMLElement): boolean {
@@ -426,7 +381,6 @@ function isPaintedObject(element: HTMLElement, root: HTMLElement): boolean {
   );
 }
 
-/** The nearest box at or above `target` that the slide paints, such as a card. */
 function paintedBoxAround(
   target: HTMLElement,
   root: HTMLElement,
@@ -442,12 +396,6 @@ function paintedBoxAround(
   return null;
 }
 
-/**
- * Whether `element` holds a painted box with text, such as a card in a grid:
- * one edit there would let Enter and Backspace move text between boxes the
- * slide draws apart. List items are their list's own rows, and a box with no
- * text (a marker, a divider) holds nothing to move.
- */
 export function holdsPaintedTextBox(
   element: HTMLElement,
   root: HTMLElement,
@@ -460,13 +408,6 @@ export function holdsPaintedTextBox(
   );
 }
 
-/**
- * Google Slides drags a shape from anywhere, its text included, while a bare
- * text box keeps its interior for the caret. Generated HTML has no shape type,
- * so the nearest block that paints its own box (fill, border, shadow) plays
- * the shape: a press on text inside it grabs the box, and a second click edits.
- * Images, tables, manual text boxes, and groups keep their own contracts.
- */
 export function findSlideShapeOwner(
   target: HTMLElement | null,
   root: HTMLElement,
@@ -490,7 +431,6 @@ export function findSlideShapeOwner(
   return null;
 }
 
-/** The shape a press grabs, unless the selection has already gone inside it. */
 export function findGrabbedSlideShape(
   target: HTMLElement,
   root: HTMLElement,
@@ -502,11 +442,6 @@ export function findGrabbedSlideShape(
     : null;
 }
 
-/**
- * Resolve a click inside inline markup to the containing editable text block.
- * The block never spans more than one painted box: it may be the card the
- * click is in, or text inside it, never the grid around the cards.
- */
 export function findSmartBlock(
   target: HTMLElement,
   root: HTMLElement,

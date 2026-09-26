@@ -9,7 +9,7 @@ import {
   normalizeToolResultImages,
 } from "./tool-result-images.js";
 
-const PNG_B64 = "iVBORw0KGgoAAAANSUhEUg=="; // small, valid-looking base64
+const PNG_B64 = "iVBORw0KGgoAAAANSUhEUg==";
 
 describe("normalizeToolResultImages", () => {
   it("accepts https url images", () => {
@@ -117,7 +117,6 @@ describe("extractAgentImagesFromActionResult", () => {
       { url: "https://cdn.example.com/chart.png", label: "revenue chart" },
     ]);
     expect(extracted.notes).toEqual([]);
-    // Original result object is not mutated.
     expect(result).toHaveProperty(AGENT_IMAGES_FIELD);
   });
 

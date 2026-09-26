@@ -1,15 +1,3 @@
-/**
- * Public surface for the first-class evals primitive.
- *
- * Authors write `*.eval.ts` (or `evals/*.ts`) files that `export default
- * defineEval(...)`, compose scorers with `createScorer` / the built-ins, and
- * run them with `agent-native eval` (which gates CI on the thresholds).
- *
- * This is complementary to `@agent-native/core`'s observability run-scoring:
- * that scores real production runs after the fact; this actively runs the
- * agent against fixed inputs as a deterministic gate. See `types.ts`.
- */
-
 export { defineEval, DEFAULT_EVAL_THRESHOLD } from "./define-eval.js";
 export {
   createScorer,

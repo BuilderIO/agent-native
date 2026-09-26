@@ -40,7 +40,6 @@ async function loadOrgDisplayNames(
       ),
     );
   } catch {
-    // Some templates or older local databases may not have org tables yet.
     return new Map();
   }
 }
@@ -86,17 +85,12 @@ export default defineAction({
       requireOrgMemberForUserShares: boolean;
       supportsGroupShares?: boolean;
     } = {
-      // Defaults match registration defaults so the UI behaves the same for
-      // resources that haven't opted into restrictions.
       allowPublic: reg.allowPublic !== false,
       requireOrgMemberForUserShares: reg.requireOrgMemberForUserShares === true,
       ...(reg.supportsGroupShares === true
         ? { supportsGroupShares: true }
         : {}),
     };
-    // Only `ownerEmail`/`orgId`/`visibility` are read below, all of which the
-    // projected load carries — so the share dialog never pulls a resource's
-    // body blob just to render who it is shared with.
     const access = await resolveAccess(
       args.resourceType,
       args.resourceId,

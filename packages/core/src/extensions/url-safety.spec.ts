@@ -266,7 +266,6 @@ describe("isBlockedExtensionUrl", () => {
 
 describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
   it("blocks a public hostname that resolves to a private IP", async () => {
-    // Mock node:dns/promises so this test doesn't hit the network.
     vi.doMock("node:dns/promises", () => ({
       lookup: async () => [{ address: "169.254.169.254", family: 4 }],
     }));
@@ -310,7 +309,6 @@ describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
 });
 
 describe("ssrfSafeFetch per-hop policies", () => {
-  // Public IP literals skip the DNS lookup, so these tests stay offline.
   const httpsOrigin = "https://93.184.216.34/image.png";
   const httpOrigin = "http://93.184.216.34/image.png";
 
@@ -336,7 +334,6 @@ describe("ssrfSafeFetch per-hop policies", () => {
     await expect(
       ssrfSafeFetch(httpsOrigin, {}, { httpsOnly: true }),
     ).rejects.toThrow(/SSRF blocked: refusing to fetch non-HTTPS/);
-    // Only the initial HTTPS request went out; the HTTP hop was never fetched.
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(httpsOrigin);
   });
@@ -355,7 +352,6 @@ describe("ssrfSafeFetch per-hop policies", () => {
     const response = await ssrfSafeFetch(httpsOrigin);
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    // The followed hop's body must be drained so its connection is released.
     expect(redirectResponse.bodyUsed).toBe(true);
   });
 

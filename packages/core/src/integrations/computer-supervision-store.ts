@@ -257,11 +257,6 @@ export async function listComputerApprovalsForOwner(input: {
   return rows.map((row) => rowToApproval(row as Record<string, unknown>));
 }
 
-/**
- * Authorizes an operation immediately before it is enqueued. Callers should
- * pass their transaction handle so one-shot approval consumption and command
- * insertion commit atomically.
- */
 export async function authorizeComputerOperation(
   input: {
     ownerEmail: string;

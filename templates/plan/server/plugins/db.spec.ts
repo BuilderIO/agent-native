@@ -29,8 +29,6 @@ function isDrizzleTable(value: unknown): value is DrizzleTable {
   return (
     !!value &&
     typeof value === "object" &&
-    // Drizzle tables carry a Symbol-keyed metadata bag; plain exports (types,
-    // functions) don't.
     Object.getOwnPropertySymbols(value).some((s) =>
       s.toString().includes("drizzle"),
     )
@@ -107,11 +105,6 @@ describe("plan db migrations cover every schema.ts column", () => {
  * DB) carry a name.
  */
 describe("plan db.ts migration entries follow the naming convention", () => {
-  // Matches one migration entry's `version: N` followed later (before the
-  // next `version:`) by an optional `name: "..."`. Entries in this file are
-  // written as `{ version: N, [name: "...",] sql: ... }`, so scanning for
-  // `version:` occurrences and capturing an optional immediately-following
-  // `name:` is sufficient without a full parser.
   const entryRe = /version:\s*(\d+),\s*(?:name:\s*"([^"]+)",\s*)?/g;
 
   function extractEntries(source: string): Array<{
@@ -137,9 +130,6 @@ describe("plan db.ts migration entries follow the naming convention", () => {
   const MAX_VERSION_IN_CODE = 37;
 
   it("finds migration entries to check (sanity guard against a regex drift)", () => {
-    // There are fewer entries than the max version number (v34/v35 are
-    // deliberately absent from code) — this just guards against the regex
-    // finding ~zero entries.
     expect(entries.length).toBeGreaterThan(30);
   });
 
@@ -158,15 +148,6 @@ describe("plan db.ts migration entries follow the naming convention", () => {
   });
 });
 
-/**
- * Belt-and-braces guard for the same bug class: even with the regression
- * guard above, a future column could still ship without a migration if
- * someone forgets to update this file. `ensureAdditiveColumns` (from
- * @agent-native/core/db) is the framework-level safety net that patches any
- * gap at boot. This asserts db.ts actually wires it in — after
- * `runMigrations(...)` so hand-written migrations stay authoritative — not
- * just that the regex guard above passes.
- */
 describe("plan db.ts wires ensureAdditiveColumns after runMigrations", () => {
   it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
     expect(dbTsSource).toMatch(
@@ -181,8 +162,6 @@ describe("plan db.ts wires ensureAdditiveColumns after runMigrations", () => {
     expect(ensureCallIdx).toBeGreaterThan(-1);
     expect(ensureCallIdx).toBeGreaterThan(migrationsCallIdx);
 
-    // The runMigrations(...) plugin function must be awaited before
-    // ensureAdditiveColumns runs, not just textually after it.
     expect(dbTsSource).toMatch(
       /await\s+runPlanMigrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
     );

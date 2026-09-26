@@ -97,18 +97,10 @@ import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
  */
 const shaderWriteLocks = new Map<string, Promise<void>>();
 
-/** True while a shader persist for this file id has not yet settled. */
 export function isShaderWriteInFlight(fileId: string | undefined): boolean {
   return !!fileId && shaderWriteLocks.has(fileId);
 }
 
-/**
- * Resolves once every shader persist registered for this file id (at the time
- * of the call) has settled. Callers that are about to perform their own
- * competing full-document content write for the same file should await this
- * first so their write is always computed from — and lands after — the
- * shader's already-settled result, instead of racing it.
- */
 export async function waitForShaderWriteToSettle(
   fileId: string | undefined,
 ): Promise<void> {
@@ -117,14 +109,6 @@ export async function waitForShaderWriteToSettle(
   if (pending) await pending.catch(() => {});
 }
 
-/**
- * Registers `fn` as the in-flight shader write for `fileId` until it settles,
- * chaining behind any already-registered write for the same file so two
- * shader operations on one file stay ordered too. Mirrors the identity-guard
- * pattern DesignEditor.tsx's fileSaveChainsRef already uses for update-file
- * saves: only clear the registry entry if nothing newer replaced it while
- * this one was running.
- */
 function withShaderWriteLock<T>(
   fileId: string,
   fn: () => Promise<T>,
@@ -144,29 +128,14 @@ function withShaderWriteLock<T>(
   return run;
 }
 
-// ─── Context contract ─────────────────────────────────────────────────────────
-
 export interface GlslShaderPanelContext {
   designId?: string;
   fileId?: string;
-  /** Stable data-agent-native-node-id of the target element. */
   nodeId?: string;
   selector?: string;
-  /**
-   * Called after a persisted apply with the patched file content so the host
-   * editor can sync local/collab state (same contract as component prop
-   * edits' onComponentPropApplied).
-   */
   onApplied?: (fileId: string, content: string, updatedAt?: string) => void;
-  /**
-   * Optional: focus the Code panel on this screen's source so the user can
-   * edit the GLSL directly. When absent the Edit-code affordance still
-   * explains where the source lives.
-   */
   onEditCode?: (shaderId: string) => void;
 }
-
-// ─── Screen-source plumbing ───────────────────────────────────────────────────
 
 interface SourceFileResult {
   fileId?: string;
@@ -175,7 +144,6 @@ interface SourceFileResult {
   versionHash?: string;
 }
 
-/** Broadcast a bridge message to every screen iframe (runtime filters by target). */
 export function broadcastShaderMessage(message: Record<string, unknown>): void {
   if (typeof document === "undefined") return;
   const frames = document.querySelectorAll<HTMLIFrameElement>("iframe");
@@ -188,10 +156,6 @@ export function broadcastShaderMessage(message: Record<string, unknown>): void {
   });
 }
 
-/**
- * Read the target screen's saved shaders + element mounts. Co-located data
- * hook for the shader picker and the effects rows.
- */
 export function useScreenGlslShaders(context: GlslShaderPanelContext) {
   const enabled = Boolean(context.designId && context.fileId);
   const query = useActionQuery<SourceFileResult>(
@@ -205,10 +169,6 @@ export function useScreenGlslShaders(context: GlslShaderPanelContext) {
   return { ...query, enabled, content, shaders, mounts };
 }
 
-/**
- * One persisted shader write: fresh read → pure HTML transform → guarded
- * full-replace write → host sync + iframe rescan.
- */
 export function usePersistShaderEdit(context: GlslShaderPanelContext) {
   const t = useT();
   const applyEdit = useActionMutation("apply-source-edit");
@@ -225,18 +185,7 @@ export function usePersistShaderEdit(context: GlslShaderPanelContext) {
     const designId = context.designId;
     setBusy(true);
     try {
-      // Serialize against any other in-flight shader write for this file, AND
-      // register this operation in the shared registry so DesignEditor.tsx's
-      // commitVisualStyles (Add layer / Remove layer / any other base style
-      // commit) can await waitForShaderWriteToSettle(fileId) before doing its
-      // own competing full-document ydoc rewrite — see the module doc comment
-      // above for why an un-serialized race here corrupts the document.
       return await withShaderWriteLock(fileId, async () => {
-        // read-source-file is a read-only GET action (see useScreenGlslShaders'
-        // useActionQuery above and the code-workbench inline provider's
-        // readFile) — it must be called imperatively via callAction with
-        // method: "GET", never useActionMutation (which always POSTs and the
-        // server rejects with "Method not allowed. Use GET.").
         const source = await callAction<SourceFileResult>(
           "read-source-file",
           { designId, fileId },
@@ -280,8 +229,6 @@ export function usePersistShaderEdit(context: GlslShaderPanelContext) {
 
   return { persist, busy };
 }
-
-// ─── Small building blocks ────────────────────────────────────────────────────
 
 function normalizeHex(value: string): string {
   const hex = value.trim();
@@ -373,11 +320,6 @@ function ColorKnob({
   );
 }
 
-/**
- * Localized preset-category labels. `shared/shader-presets.ts` only carries
- * the stable English `GLSL_SHADER_PRESET_CATEGORY_LABELS` (shared code, not
- * i18n-aware), so the picker maps category -> catalog key here instead.
- */
 function useShaderPresetCategoryLabel() {
   const t = useT();
   return (category: GlslShaderPresetCategory): string => {
@@ -439,8 +381,6 @@ function PresetThumb({
   );
 }
 
-// ─── Uniform knobs (shared by fill picker + effect rows) ─────────────────────
-
 export function GlslShaderKnobs({
   def,
   values,
@@ -452,10 +392,6 @@ export function GlslShaderKnobs({
   values: Record<string, GlslUniformValue>;
   disabled?: boolean;
   presentation?: "compact" | "popover";
-  /**
-   * phase "preview" = live scrub tick (cheap, broadcast-only);
-   * phase "commit" = gesture end (persist).
-   */
   onValuesChange: (
     next: Record<string, GlslUniformValue>,
     changedName: string,
@@ -645,18 +581,10 @@ export function GlslShaderKnobs({
   );
 }
 
-// ─── Main panel ───────────────────────────────────────────────────────────────
-
 export interface GlslShaderPanelProps {
   mode: GlslShaderMode;
   context: GlslShaderPanelContext;
   presentation?: "compact" | "popover";
-  /**
-   * Return to the previous picker view (fill picker) or close the popover.
-   * `hasShader` reports whether the target element has a persisted shader of
-   * this panel's mode — callers use it to decide whether to revert the paint
-   * type (never revert when a shader is actually applied).
-   */
   onBack: (hasShader: boolean) => void;
   disabled?: boolean;
 }
@@ -671,9 +599,6 @@ export function GlslShaderPanel({
   const t = useT();
   const categoryLabel = useShaderPresetCategoryLabel();
   const [search, setSearch] = useState("");
-  // View state: detail view shows whenever the target node has a shader of
-  // this mode (or one was just applied) UNLESS the user explicitly backed
-  // out to browse for a replacement.
   const [browsing, setBrowsing] = useState(false);
   const [justAppliedId, setJustAppliedId] = useState<string | null>(null);
   const screen = useScreenGlslShaders(context);
@@ -686,7 +611,6 @@ export function GlslShaderPanel({
       : t("editPanel.shaders.fillsTitle");
   const roomy = presentation === "popover";
 
-  // The shader currently mounted on the target node (persisted state).
   const nodeMount = useMemo(
     () =>
       screen.mounts.find(
@@ -819,7 +743,6 @@ export function GlslShaderPanel({
   ) => {
     if (!activeDef) return;
     setDraftValues(next);
-    // Live-update the mounted shader in whichever iframe hosts the node.
     broadcastShaderMessage({
       type: "glsl-shader-set-uniform",
       filter: { shaderId: activeDef.id, ...(nodeId ? { nodeId } : {}) },
@@ -840,7 +763,6 @@ export function GlslShaderPanel({
     }
   };
 
-  // ── Detail view — knobs for the applied shader ────────────────────────────
   if (activeDef) {
     return (
       <div className="flex flex-col">
@@ -944,7 +866,6 @@ export function GlslShaderPanel({
     );
   }
 
-  // ── Browse view ────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col">
       {!roomy ? (
@@ -1100,14 +1021,6 @@ export function GlslShaderPanel({
   );
 }
 
-// ─── Effects-section integration ─────────────────────────────────────────────
-
-/**
- * Shader rows + picker for EditPanel's Effects section. Rendered alongside
- * the shadow/blur rows; the "Add effect ▸ Shader" menu item controls
- * `pickerOpen`. One shader effect per element (it can coexist with a shader
- * fill — different attribute namespaces).
- */
 export function GlslShaderEffectSection({
   context,
   pickerOpen,

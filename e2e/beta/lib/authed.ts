@@ -15,25 +15,10 @@ import {
   installBetaE2ETrafficMarker,
 } from "./test-traffic";
 
-/**
- * Shared setup for the authenticated lane.
- *
- * Sessions are established once, in global setup, and stored per app. A spec
- * that finds no stored session must stop the run rather than continue signed
- * out: an authenticated assertion evaluated against an anonymous page is not a
- * weaker test, it is a false one.
- */
-
 export function authedLaneEnabled(): boolean {
   return authedLaneReady();
 }
 
-/**
- * Skip the whole file when this run was never asked to authenticate.
- *
- * Deliberately narrow: it skips on "not requested", never on "requested but
- * broken" — global setup throws for that, before any spec runs.
- */
 export function skipUnlessAuthed(): void {
   test.skip(
     !authedLaneEnabled(),
@@ -41,7 +26,6 @@ export function skipUnlessAuthed(): void {
   );
 }
 
-/** A browser context signed in as the e2e identity for one beta app. */
 export async function signedInContext(
   browser: Browser,
   site: BetaSite,
@@ -68,14 +52,6 @@ export async function signedInContext(
   return context;
 }
 
-/**
- * Confirm the page is signed in as the expected identity and is on the beta
- * build, before any assertion depends on either.
- *
- * The lane check matters because a Builder.io address on a production host is
- * redirected to beta automatically; without it a run could report on whichever
- * build it happened to land on.
- */
 export async function assertSignedInOnBeta(
   context: BrowserContext,
   site: BetaSite,
@@ -123,7 +99,6 @@ export async function assertSignedInOnBeta(
   }
 }
 
-/** A marker that ties fixtures created by this run back to it. */
 export function runMarker(label: string): string {
   const run =
     process.env.GITHUB_RUN_ID ??

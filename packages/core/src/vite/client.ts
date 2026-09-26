@@ -297,9 +297,6 @@ function skipViteChildCompiler(plugin: Plugin): Plugin {
   return {
     ...plugin,
     apply(config, configEnv) {
-      // React Router creates a config-file-free child compiler to inspect route
-      // exports. Nitro must only own the main server; a second environment
-      // would open the same PGlite directory and lose writes on close.
       if ((config as UserConfig & { configFile?: false }).configFile === false)
         return false;
       if (!originalApply) return true;
@@ -311,45 +308,15 @@ function skipViteChildCompiler(plugin: Plugin): Plugin {
   };
 }
 
-/**
- * Debounce window for coalescing Nitro's dev-mode full-reload broadcasts.
- *
- * Nitro's own Vite plugin (the `hotUpdate` hook inside `nitro/vite`)
- * invalidates each changed server module in the module graph synchronously,
- * then sends `{ type: "full-reload" }` over that environment's hot channel —
- * once per file-change event, with no debounce of its own. Every full-reload
- * makes the Nitro dev worker re-import the entire SSR/server entry point,
- * which is expensive. AI coding agents routinely write dozens of files in a
- * single burst, so one edit session can trigger dozens of sequential
- * re-imports back to back and pin a CPU core for minutes. This is a distinct
- * concern from `fullReloadOnOptimizeDep504` elsewhere in this file (which
- * rate-limits an unrelated client-reload nudge); keep the two independent.
- */
 const NITRO_FULL_RELOAD_DEBOUNCE_MS = 300;
 const OPTIMIZE_DEP_FULL_RELOAD_COOLDOWN_MS = 2_000;
 const OPTIMIZE_DEP_FULL_RELOAD_WINDOW_MS = 30_000;
 const OPTIMIZE_DEP_MAX_FULL_RELOADS = 3;
 
-/**
- * Wraps a single Nitro-provided Vite plugin so that, if it defines a
- * `hotUpdate` hook, any `environment.hot.send({ type: "full-reload" })` call
- * made from inside that hook is coalesced with a trailing debounce (leading
- * edge suppressed) instead of firing immediately for every changed file.
- * Everything else — module-graph invalidation, non-reload hot messages, the
- * hook's return value — passes through unchanged and immediate. A burst of
- * N changes within the debounce window collapses into exactly one
- * full-reload once things go quiet; a single isolated change still reloads,
- * just delayed by up to `NITRO_FULL_RELOAD_DEBOUNCE_MS`.
- *
- * `hotUpdate` only ever runs on Vite's dev server (never during a build), so
- * this has no effect outside `vite dev`.
- */
 function debounceNitroFullReloadHotUpdate(plugin: Plugin): Plugin {
   const originalHook = plugin.hotUpdate;
   if (!originalHook) return plugin;
 
-  // Vite hook properties are either a plain function or `{ handler, ... }`
-  // ("object form", used to attach hook metadata like `order`). Support both.
   const isHandlerForm = typeof originalHook === "object";
   const originalHandler = (
     isHandlerForm
@@ -360,9 +327,6 @@ function debounceNitroFullReloadHotUpdate(plugin: Plugin): Plugin {
     options: HotUpdateOptions,
   ) => unknown;
 
-  // One pending-reload timer per Vite environment name ("ssr" by default, or
-  // a named Nitro service environment), so unrelated environments can never
-  // block or coalesce into each other.
   const pendingReloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   function wrappedHotUpdate(
@@ -370,9 +334,6 @@ function debounceNitroFullReloadHotUpdate(plugin: Plugin): Plugin {
     options: HotUpdateOptions,
   ) {
     const realEnvironment = this.environment;
-    // Proxy `this.environment.hot.send` so nitro's hook body (which reads
-    // `this.environment` and calls `env.hot.send(...)`) is otherwise
-    // untouched — only full-reload payloads get intercepted below.
     const proxiedThis = new Proxy(this, {
       get(target, prop, receiver) {
         if (prop !== "environment") {
@@ -395,7 +356,6 @@ function debounceNitroFullReloadHotUpdate(plugin: Plugin): Plugin {
                     typeof payload !== "object" ||
                     (payload as { type?: string }).type !== "full-reload"
                   ) {
-                    // Not a full-reload — pass through immediately.
                     return (hotTarget.send as (p: unknown) => void)(payload);
                   }
                   const key = realEnvironment.name || "default";
@@ -405,7 +365,6 @@ function debounceNitroFullReloadHotUpdate(plugin: Plugin): Plugin {
                     pendingReloadTimers.delete(key);
                     (hotTarget.send as (p: unknown) => void)(payload);
                   }, NITRO_FULL_RELOAD_DEBOUNCE_MS);
-                  // Never hold the process open just for a pending reload.
                   timer.unref?.();
                   pendingReloadTimers.set(key, timer);
                 };
@@ -430,26 +389,10 @@ function debounceNitroFullReloadHotUpdate(plugin: Plugin): Plugin {
   return { ...plugin, hotUpdate: wrappedHotUpdate } as Plugin;
 }
 
-/** Prefix Vite gives React Router's virtual modules. */
 const REACT_ROUTER_VIRTUAL_ID_PREFIX = "\0virtual:react-router/";
 
-/**
- * Debounce window for coalescing mirrored route-table reloads.
- *
- * A coding agent that rewrites a route tree emits one watcher event per file,
- * and React Router re-resolves its config for each one. Keep this independent
- * of `NITRO_FULL_RELOAD_DEBOUNCE_MS`: that one throttles Nitro's own reload
- * broadcasts, this one throttles ours, and tuning either must not silently
- * retune the other.
- */
 const REACT_ROUTER_INVALIDATION_MIRROR_DEBOUNCE_MS = 300;
 
-/**
- * Invalidate every React Router virtual module in every Vite environment, and
- * tell each affected server environment's runner to re-import.
- *
- * Returns the environment names that had something to invalidate.
- */
 function mirrorReactRouterVirtualInvalidation(
   server: any,
   now: () => number = Date.now,
@@ -474,9 +417,6 @@ function mirrorReactRouterVirtualInvalidation(
     if (invalidated === 0) continue;
 
     touched.push(name);
-    // Server environments evaluate the build inside a runner that keeps its own
-    // module cache; graph invalidation alone never reaches it. Client
-    // environments get their update through React Router's own HMR handling.
     if (environment?.config?.consumer !== "client") {
       environment?.hot?.send?.({ type: "full-reload" });
     }
@@ -484,30 +424,6 @@ function mirrorReactRouterVirtualInvalidation(
   return touched;
 }
 
-/**
- * Mirror React Router's dev-time virtual-module invalidation into the
- * environment that actually serves requests.
- *
- * `@react-router/dev`'s framework-mode plugin invalidates its virtual modules
- * through `server.moduleGraph` — Vite's deprecated back-compat graph, which
- * proxies only the `client` and `ssr` environments. Agent-Native serves SSR
- * from Nitro's `nitro` environment, so that invalidation never reaches the
- * `virtual:react-router/server-build` the request path evaluates, and the route
- * table stays frozen at whatever it was when the dev server booted. A new route
- * file then 404s forever, and a deleted one makes the stale manifest import a
- * file that no longer exists — which fails the whole build, so EVERY page 500s
- * with "Failed to load url … Does the file exist?" until the process restarts.
- * Editing a route's contents hides all of this, because that path goes through
- * Vite's normal HMR pipeline, which is environment-aware.
- *
- * Hooking React Router's call rather than the file watcher is what makes this
- * ordering-safe: it awaits `updatePluginContext()` before invalidating, so by
- * the time we mirror, the freshly resolved routes are already in place.
- *
- * React Router's RSC plugin already iterates `environments`; only the classic
- * plugin still uses the back-compat graph (still true in 8.3.0). Delete this
- * once upstream's classic path is environment-aware.
- */
 function installReactRouterVirtualInvalidationMirror(
   server: any,
   {
@@ -545,7 +461,6 @@ function installReactRouterVirtualInvalidationMirror(
       pending = undefined;
       mirrorReactRouterVirtualInvalidation(server, now);
     }, debounceMs);
-    // Never hold the process open just for a pending reload.
     pending.unref?.();
     return result;
   };
@@ -562,24 +477,9 @@ function reactRouterVirtualInvalidationMirrorPlugin(): Plugin {
   };
 }
 
-/**
- * Sync discovery for the workspace-core in an enterprise monorepo.
- *
- * Mirrors `getWorkspaceCoreExports` in deploy/workspace-core.ts but stays
- * synchronous so it can run inline in `defineConfig`. Returns the workspace
- * core's package name + absolute directory, or null if no workspace core is
- * declared in the ancestor chain.
- *
- * Walks up from `startDir` looking for a package.json with
- * `agent-native.workspaceCore`. Resolves the declared package name through
- * `<workspaceRoot>/node_modules/<name>` (pnpm symlink, fastest) or by
- * scanning `packages/*` for a matching `name` field (fallback for
- * pre-install scenarios).
- */
 function findWorkspaceCoreSync(
   startDir: string,
 ): { packageName: string; packageDir: string; workspaceRoot: string } | null {
-  // 1) Walk up looking for the root package.json that declares workspaceCore.
   let dir = path.resolve(startDir);
   let workspaceRoot: string | null = null;
   let packageName: string | null = null;
@@ -604,13 +504,11 @@ function findWorkspaceCoreSync(
   }
   if (!workspaceRoot || !packageName) return null;
 
-  // 2a) pnpm/npm symlink under workspaceRoot/node_modules.
   const nm = path.join(workspaceRoot, "node_modules", packageName);
   if (fs.existsSync(path.join(nm, "package.json"))) {
     return { packageName, packageDir: fs.realpathSync(nm), workspaceRoot };
   }
 
-  // 2b) Scan packages/* and packages/@scope/* for a matching `name`.
   const packagesDir = path.join(workspaceRoot, "packages");
   if (fs.existsSync(packagesDir)) {
     const candidates: string[] = [];
@@ -820,12 +718,10 @@ function findPnpmWorkspaceRoot(startDir: string): string | null {
   return null;
 }
 
-/** Escape a string so it can be embedded as a regex literal. */
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Check if a package is installed in the project */
 function hasDep(pkg: string, cwd: string): boolean {
   try {
     const pkgJson = JSON.parse(
@@ -855,41 +751,25 @@ function hasCoreDep(pkg: string, cwd: string): boolean {
 }
 
 function hasOptimizeDep(pkg: string, cwd: string): boolean {
-  // The nested dependency entry below is rooted at @agent-native/core, so
-  // monorepo consumers need to retain it even though the source package does
-  // not list itself as a dependency.
   if (pkg === "@agent-native/core" && findCorePackageRoot(cwd)) return true;
   return hasDep(pkg, cwd) || hasCoreDep(pkg, cwd);
 }
 
-/**
- * Build the `resolve.dedupe` list dynamically. Reads core's package.json and
- * collects every peerDependency that the consuming app also declares. This
- * ensures Vite resolves them from the app root, not from core's own
- * node_modules — preventing duplicate React context / singleton issues.
- */
 function getClientDedupe(cwd: string): string[] {
-  // Always dedupe React internals (sub-path exports aren't in peerDeps)
   const always = new Set([
     "react",
     "react-dom",
     "react-dom/client",
-    // AgentSidebar and the shared composers exchange context through these
-    // packages. Keep the source graph and published toolkit graph on one
-    // assistant-ui store when core is linked into a consumer app.
     "@assistant-ui/react",
     "@assistant-ui/core",
     "@assistant-ui/store",
     "@assistant-ui/tap",
     ...(hasDep("zustand", cwd) ? ["zustand"] : []),
-    // Framework routers must share one react-router instance so
-    // FrameworkContext (Meta/Links/Scripts) matches ServerRouter/HydratedRouter.
     ...(hasDep("react-router", cwd)
       ? ["react-router", "react-router/dom"]
       : []),
   ]);
 
-  // Server-only packages that never run in the browser — no point deduping.
   const serverOnly = new Set([
     "drizzle-kit",
     "node-pty",
@@ -906,15 +786,11 @@ function getClientDedupe(cwd: string): string[] {
     const corePkgPath = path.resolve(__dirname, "../../package.json");
     const corePkg = JSON.parse(fs.readFileSync(corePkgPath, "utf-8"));
 
-    // Scan both peerDependencies and dependencies. Direct deps like
-    // @radix-ui/* use React internally — they must resolve against the
-    // app's React, not a second copy inside core's node_modules.
     const coreDeps = new Set([
       ...Object.keys(corePkg.peerDependencies ?? {}),
       ...Object.keys(corePkg.dependencies ?? {}),
     ]);
 
-    // Read the consuming app's dependencies
     const appPkg = JSON.parse(
       fs.readFileSync(path.join(cwd, "package.json"), "utf-8"),
     );
@@ -925,8 +801,6 @@ function getClientDedupe(cwd: string): string[] {
 
     for (const dep of coreDeps) {
       if (serverOnly.has(dep)) continue;
-      // Dedupe if the app also declares it, OR if it's a React-based
-      // UI library (Radix, Tanstack) that must share the app's React.
       if (
         appDeps.has(dep) ||
         dep.startsWith("@radix-ui/") ||
@@ -942,22 +816,10 @@ function getClientDedupe(cwd: string): string[] {
   return [...always];
 }
 
-/**
- * Locate `packages/core/src` if we're inside the framework monorepo.
- * Shared between `getCoreSourceAliases` (which redirects imports to src/)
- * and `getDefaultOptimizeDeps` (which must NOT prebundle from dist/ when
- * the alias is active — otherwise the prebundle is built from a snapshot
- * of dist/ at startup and never picks up new exports).
- */
 function findCorePackageRoot(cwd: string): string | null {
   const localSourceRoot = findLocalCoreSourceRoot(cwd);
   if (localSourceRoot) return localSourceRoot;
 
-  // Published Core packages are installed as transitive dependency roots in
-  // pnpm. The consuming app cannot resolve Core's client-only dependencies
-  // from its own node_modules unless we first locate that installed package
-  // and read its manifest. This is also what lets optimizeDeps use Vite's
-  // nested-dependency syntax for standalone CLI-generated apps.
   try {
     const appRequire = createRequire(path.join(cwd, "package.json"));
     const resolved = appRequire.resolve("@agent-native/core");
@@ -984,12 +846,6 @@ function findCorePackageRoot(cwd: string): string | null {
   return null;
 }
 
-/**
- * Locate a local framework checkout whose source should be aliased for HMR.
- * This intentionally does not use Node package resolution: published Core
- * tarballs include `src/` for source maps/docs, but must still be consumed
- * through their built `dist/` exports.
- */
 function findLocalCoreSourceRoot(cwd: string): string | null {
   try {
     const pkg = JSON.parse(
@@ -1030,12 +886,6 @@ function findCoreSrcDir(cwd: string): string | null {
   return root ? path.join(root, "src") : null;
 }
 
-/**
- * Pin react-router imports to the consuming app's install. pnpm keeps a peer
- * copy under `@agent-native/core/node_modules/react-router`; `resolve.dedupe`
- * alone can still leave SSR `Meta`/`Links` on a different FrameworkContext
- * than React Router's dev server router.
- */
 function getReactRouterAliases(
   cwd: string,
 ): Array<{ find: RegExp; replacement: string }> {
@@ -1054,11 +904,6 @@ function getReactRouterAliases(
   }
 }
 
-/**
- * Core's source graph can resolve assistant-stream from the framework
- * checkout while the consuming app's assistant-ui package resolves a newer
- * copy. Pin both public entry points to the consumer's installed peer graph.
- */
 function getAssistantUiRequire(cwd: string): NodeJS.Require | null {
   try {
     const appRequire = createRequire(path.join(cwd, "package.json"));
@@ -1085,11 +930,6 @@ function getAssistantUiAliases(
     const assistantUiRequire = getAssistantUiRequire(cwd);
     if (!assistantUiRequire) return [];
     return [
-      // A linked framework checkout can otherwise resolve the assistant-ui
-      // imports in core's source graph from the checkout's React 19.2.7 peer
-      // tree while Vite prebundles the app's React 19.2.8 tree. Dedupe does
-      // not rewrite those /@fs source imports, so pin the singleton packages
-      // to the consuming app's installed peer graph explicitly.
       {
         find: /^@assistant-ui\/react$/,
         replacement: assistantUiRequire.resolve("@assistant-ui/react"),
@@ -1121,13 +961,6 @@ function getAssistantUiAliases(
   }
 }
 
-/**
- * Every `@agent-native/core` subpath that gets a source alias. Must stay in
- * sync with `getCoreSourceAliases`. Used by `getDefaultOptimizeDeps` to skip
- * prebundling in monorepo mode, and by the consumer config to add them to
- * `optimizeDeps.exclude` so Vite always resolves them through the source
- * alias on every request — never from a stale dist/ snapshot.
- */
 const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core",
   "@agent-native/core/client",
@@ -1173,9 +1006,6 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/ui",
   "@agent-native/core/client/uploads",
   "@agent-native/core/client/widgets",
-  // Dedicated subpath that exports ONLY appBasePath/agentNativePath/appPath.
-  // entry.client.tsx imports from here so it never pulls the full client barrel
-  // (and its transitive ~650-700 KB gzip chat stack) onto the critical path.
   "@agent-native/core/client/api-path",
   "@agent-native/core/client/clipboard",
   "@agent-native/core/client/zoom-gesture",
@@ -1197,22 +1027,6 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/voice",
 ];
 
-/**
- * Dep-prebundle sourcemaps are roughly two thirds of `node_modules/.vite/deps`
- * (65 MB of maps against 37 MB of code in a typical app), and Vite writes the
- * whole replacement bundle to a sibling `deps_temp_*` before swapping, so a
- * re-optimize needs twice that free. Whole workspaces have hit ENOSPC while
- * Vite was writing a `.js.map`.
- *
- * Vite 8's optimizer hardcodes `sourcemap: "hidden"` in its `bundle.write()`
- * call, after spreading `optimizeDeps.rolldownOptions.output` — so the option
- * cannot be set through config, and `optimizeDeps.esbuildOptions` no longer
- * feeds the bundler at all. A rolldown `outputOptions` hook is the one seam
- * that runs late enough to win. Losing these maps only costs stepping into
- * third-party code in the debugger; app sourcemaps are untouched, and Vite
- * already treats a missing dep map as a normal state (`vite:optimized-deps`
- * loads the module with a null map).
- */
 const disableDepSourcemapsPlugin: Plugin = {
   name: "agent-native:no-dep-prebundle-sourcemaps",
   outputOptions: (options) => ({ ...options, sourcemap: false }),
@@ -1221,9 +1035,6 @@ const disableDepSourcemapsPlugin: Plugin = {
 function getDefaultOptimizeDeps(cwd: string): string[] {
   const inMonorepo = findCoreSrcDir(cwd) !== null;
   const entries: Array<{ specifier: string; packageName?: string }> = [
-    // In monorepo mode the source alias resolves these to src/ on every
-    // import, so prebundling from dist/ would just create a stale snapshot.
-    // Skip them entirely — `optimizeDeps.exclude` below makes that explicit.
     ...(inMonorepo
       ? []
       : ([
@@ -1431,13 +1242,6 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     )
     .map(({ specifier, packageName }) => {
       const dependencyName = packageName ?? specifier;
-      // In the monorepo, core is source-aliased and its dependencies live
-      // under packages/core/node_modules. A bare optimizeDeps.include entry
-      // is resolved from the template root, so core-only dependencies fail
-      // the initial prebundle and are rediscovered after the page loads. Vite
-      // then rebundles and reloads the editor. Its documented nested-dependency
-      // syntax resolves the right-hand package from core's package directory,
-      // while app-owned dependencies should remain direct entries.
       if (!hasDep(dependencyName, cwd) && hasCoreDep(dependencyName, cwd)) {
         return `@agent-native/core > ${specifier}`;
       }
@@ -1495,12 +1299,6 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
         ]
       : [];
 
-  // AgentKit, Core, Toolkit, and their ESM dependencies stay native. Prebundle
-  // the small set of framework entry points needed to hydrate standalone Chat,
-  // plus React's shared singleton and the CommonJS leaf modules imported by
-  // those ESM graphs. Vite's normal discovery follows every lazy route in a
-  // generated app; that made a cold Chat optimize unrelated inspector,
-  // charting, syntax-highlighting, and editor surfaces before rendering.
   return [
     ...standaloneChatEntries,
     ...(hasDep("react", cwd) ? ["react"] : []),
@@ -1556,21 +1354,12 @@ function getAgentKitOptimizeExcludes(
   cwd: string,
   command?: AgentNativeViteCommand,
 ): string[] {
-  // Published standalone apps do not have a source checkout to keep hot, so
-  // serving every framework module as native ESM only creates a cold-start
-  // waterfall in Vite dev. Monorepo apps keep the exclusions below so HMR
-  // continues to resolve framework changes from source.
   if (
     (command === "serve" || (!command && !isBuildCommand(command))) &&
     findCoreSrcDir(cwd) === null
   )
     return [];
 
-  // These packages already ship browser-native ESM. Prebundling them makes
-  // Vite traverse the entire framework graph before the generated Chat server
-  // can answer its first action request, which can starve constrained CI and
-  // serverless development hosts. Their actual third-party CommonJS seams stay
-  // in getAgentKitOptimizeDeps above.
   return [
     "@agent-native/agentkit",
     "@agent-native/core",
@@ -1579,22 +1368,12 @@ function getAgentKitOptimizeExcludes(
   ];
 }
 
-/**
- * In monorepo dev mode, resolve @agent-native/core imports to source (src/)
- * instead of dist/ so that Vite HMR picks up changes without rebuilding.
- *
- * Returns Vite array-style aliases with exact matching (regex anchored with $)
- * to prevent `@agent-native/core` from prefix-matching and swallowing
- * sub-path imports like `@agent-native/core/client`.
- */
 function getCoreSourceAliases(
   cwd: string,
 ): Array<{ find: RegExp; replacement: string }> {
   const coreSrc = findCoreSrcDir(cwd);
-  if (!coreSrc) return []; // Not in monorepo — use dist as normal
+  if (!coreSrc) return [];
 
-  // Map every @agent-native/core/* export to its src/ equivalent.
-  // Each entry uses a regex with $ anchor for exact matching.
   const entries: Record<string, string> = {
     "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
@@ -1759,7 +1538,6 @@ function getCoreSourceAliases(
       coreSrc,
       "client/widgets/index.ts",
     ),
-    // Dedicated thin subpath — only the URL helpers, no chat stack in the closure.
     "@agent-native/core/client/api-path": path.join(
       coreSrc,
       "client/api-path.ts",
@@ -1781,7 +1559,6 @@ function getCoreSourceAliases(
       coreSrc,
       "client/extensions/index.ts",
     ),
-    // Legacy alias — see exports map note above.
     "@agent-native/core/client/tools": path.join(
       coreSrc,
       "client/extensions/index.ts",
@@ -1880,18 +1657,12 @@ function getCoreSourceAliases(
       coreSrc,
       "server/entry-server.tsx",
     ),
-    // Shared stylesheet — alias to src so CSS edits (composer/theme rules)
-    // take effect live in dev instead of silently loading the stale built
-    // copy at dist/styles/. From src/styles/ the `@source "../client/**"`
-    // directive resolves to the real .tsx source, which is what dev should
-    // scan for Tailwind classes anyway.
     "@agent-native/core/styles/agent-native.css": path.join(
       coreSrc,
       "styles/agent-native.css",
     ),
   };
 
-  // Escape special regex chars in the key and anchor with $
   return Object.entries(entries).map(([find, replacement]) => ({
     find: new RegExp(`^${find.replace(/[/]/g, "\\/")}$`),
     replacement,
@@ -1899,96 +1670,30 @@ function getCoreSourceAliases(
 }
 
 export interface NitroOptions {
-  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "aws_amplify", "cloudflare_module"). Default: "node" */
   preset?: string;
-  /** Source directory for server files. Default: "./server" */
   srcDir?: string;
-  /** Routes directory name (relative to srcDir). Default: "routes" */
   routesDir?: string;
-  /** Any additional Nitro config overrides */
   [key: string]: unknown;
 }
 
 export interface ClientConfigOptions {
-  /** Port for dev server. Default: 8080 */
   port?: number;
-  /** Additional hostnames allowed to access the dev server. */
   allowedHosts?: NonNullable<NonNullable<UserConfig["server"]>["allowedHosts"]>;
-  /** Vite log level. Workspace child apps default to "warn" so only the gateway URL is advertised. */
   logLevel?: UserConfig["logLevel"];
-  /** Additional Vite plugins */
   plugins?: any[];
-  /** Static design tokens emitted into the client build. */
   designSystemTheme?: DesignSystemTheme;
-  /** Nitro plugin options (preset, srcDir, etc) */
   nitro?: NitroOptions;
-  /** Override resolve aliases */
   aliases?: Record<string, string>;
-  /** Override build.outDir. Default: "dist/spa" */
   outDir?: string;
-  /** Additional fs.allow paths */
   fsAllow?: string[];
-  /** Additional fs.deny patterns */
   fsDeny?: string[];
-  /** Additional Vite optimizeDeps configuration */
   optimizeDeps?: NonNullable<UserConfig["optimizeDeps"]>;
-  /** Additional Vite define constants. */
   define?: UserConfig["define"];
-  /**
-   * Public app behavior from `agent-native.json` or an optional typed
-   * `agent-native.config.ts` file. Explicit Vite options win over the JSON
-   * file, while the typed file remains the default project-level source of
-   * truth. `agent-native.ts`, `.mts`, and `agent-native.config.mts` remain
-   * compatibility aliases.
-   */
   agentNativeConfig?: AgentNativeConfigInput;
-  /**
-   * Browser/server compatibility epoch for app changes that cannot safely run
-   * across a cached client and a newer action backend. Bump only for an
-   * incompatible protocol or data-model transition, not for every deploy.
-   */
   clientCompatibilityVersion?: string;
-  /**
-   * Framework route warmup behavior mounted by AppProviders.
-   *
-   * React Router's native prefetch warms both `.data` and JS, but its `.data`
-   * request uses browser link prefetch. Chrome sends `Sec-Purpose: prefetch`
-   * on those requests, which some production CDNs reject for dynamic `.data`
-   * URLs before our SWR cache headers can help. Agent-Native therefore uses
-   * ordinary fetches for `.data` and `modulepreload` for route JS by default.
-   */
   routeWarmup?: AgentNativeRouteWarmupConfigInput;
-  /**
-   * Controls the MCP integrations catalog exposed from the composer + menu.
-   *
-   * - `false` hides the whole MCP integrations entry.
-   * - `{ defaults: false }` hides all bundled provider presets but still
-   *   allows custom MCP servers.
-   * - `{ defaults: { include: ["context7"] } }` allows only those preset ids.
-   * - `{ defaults: { exclude: ["stripe"] } }` hides specific preset ids.
-   */
   mcpIntegrations?: McpIntegrationsConfigInput;
-  /**
-   * Whether to auto-inject the Tailwind v4 Vite plugin (`@tailwindcss/vite`).
-   * Defaults to true — set to `false` if a template wants to manage Tailwind
-   * itself (e.g. the legacy v3 PostCSS pipeline).
-   */
   tailwind?: boolean;
-  /**
-   * Package names to stub in the SSR bundle with an empty proxy object.
-   *
-   * Use this for dependencies that only run in the browser (canvas / diagram
-   * libraries, editors, WebGL) but would otherwise get pulled into the
-   * server bundle via SSR's noExternal policy — pushing the CF Pages
-   * Functions bundle over the 25 MiB limit.
-   *
-   * Only add packages that are provably never called during SSR. If the
-   * server imports one, it will receive a Proxy that throws on any real
-   * use (which is better than bundling a 10 MiB dep the worker never calls).
-   *
-   * @example
-   * ssrStubs: ["mermaid", "@excalidraw/excalidraw"]
-   */
   ssrStubs?: string[];
   /**
    * @deprecated Pass `reactRouter()` directly in the `plugins` array instead.
@@ -2006,38 +1711,9 @@ export interface AgentNativeVitePluginOptions extends Omit<
   ClientConfigOptions,
   "plugins" | "reactRouter"
 > {
-  /**
-   * Include the legacy React SWC transform for non-React Router SPA apps.
-   *
-   * React Router framework-mode apps should pass `reactRouter()` as a normal
-   * Vite plugin and leave this off.
-   */
   legacySpa?: boolean;
 }
 
-/**
- * Vite plugin that recovers the page when Vite's dependency optimizer
- * invalidates modules mid-load (the "504 Outdated Optimize Dep" error).
- *
- * Without this, the page silently fails: <script type="module"> tags 504,
- * React never mounts, and the user is stuck on a blank screen until they
- * manually refresh. We catch the failure modes and auto-reload, with a
- * visible overlay so the user knows what's happening, and a loop guard
- * so we never thrash forever.
- *
- * CRITICAL: this must be a SYNCHRONOUS (non-module) script injected at
- * `head-prepend`. Module scripts are deferred — the browser starts fetching
- * all module scripts in parallel during HTML parsing, so a module listener
- * registers AFTER sibling modules have already started loading and
- * possibly errored out. A regular <script> blocks parsing and runs
- * synchronously, so the listener is registered before ANY module fetch
- * begins.
- *
- * Catches three failure modes (all before React needs to mount):
- *   1. <script type="module"> / <link> 504 — window "error" event, capture phase
- *   2. Dynamic import 504 — "unhandledrejection" with "dynamically imported module"
- *   3. Child module 504 — resource timing when browser exposes the HTTP status
- */
 function autoReloadOnOptimizeDep(): Plugin {
   return {
     name: "agent-native-auto-reload-optimize-dep",
@@ -2046,7 +1722,6 @@ function autoReloadOnOptimizeDep(): Plugin {
       return [
         {
           tag: "script",
-          // NOTE: no `type: "module"` — this must be a synchronous script.
           children: getViteDevRecoveryScript(),
           injectTo: "head-prepend",
         },
@@ -2055,14 +1730,6 @@ function autoReloadOnOptimizeDep(): Plugin {
   };
 }
 
-/**
- * Vite handles outdated optimized-dep requests inside its own transform
- * middleware and ends the HTTP response with `504 Outdated Optimize Dep`.
- * Browser module loaders do not consistently surface those child-module
- * failures to userland JavaScript, so also nudge the Vite HMR client from the
- * server side. This turns the confusing blank-screen state into the same
- * full-page reload Vite would have requested once optimization settled.
- */
 function fullReloadOnOptimizeDep504(): Plugin {
   return {
     name: "agent-native-full-reload-optimize-dep-504",
@@ -2112,23 +1779,11 @@ function fullReloadOnOptimizeDep504(): Plugin {
   };
 }
 
-/**
- * Vite plugin that prevents the built-in base middleware from redirecting
- * "/" → "/app/" (or whatever the base is). When agent-native apps run with
- * --base /app/ in single-port mode, Vite's baseMiddleware sends a 302 from
- * "/" to the base path. This breaks Electron webview and iframe embeds
- * that load the app at the root. Instead, we rewrite "/" to the base path
- * internally so the app serves without a visible redirect.
- */
 function baseRedirectGuard(): Plugin {
   return {
     name: "agent-native-base-redirect-guard",
     apply: "serve",
     configureServer(server) {
-      // Return a function so the middleware is added AFTER Vite's internal
-      // middleware is built — but we insert BEFORE by using the pre-hook
-      // approach: configureServer hooks that return nothing run before
-      // internal middleware.
       server.middlewares.use((req, res, next) => {
         const base = server.config.base;
         if (base && base !== "/" && req.url?.startsWith(base)) {
@@ -2168,22 +1823,6 @@ function baseRedirectGuard(): Plugin {
         if (serveMountedEmbedRuntimeModule(server, req, res, base)) {
           return;
         }
-        // stripMountedDevApiPath only rewrites paths that resolve to /api/**
-        // (see isApiDevPath below), so this never touches static asset or
-        // document requests — only mounted API calls. Nitro's dev router
-        // matches routes against req.url with the mount prefix still in
-        // place (its own baseURL is unset in dev), so a mounted API request
-        // must have that prefix stripped before Nitro's router ever sees it,
-        // regardless of Sec-Fetch-Dest — otherwise it falls through to
-        // Vite/connect's generic 404 instead of the real handler. This used
-        // to be gated to document/iframe/frame/empty only, because stripping
-        // for video/audio/image previously made Vite's base middleware see
-        // the stripped path (e.g. /api/video/:id without /clips/) before
-        // Nitro's router got a chance to match it. That gate is stale: image
-        // and video requests hit the exact same "Cannot GET" fallback today,
-        // because the browser sends Sec-Fetch-Dest: image/video/audio/track
-        // for <img>/<video>/<audio> fetches, not empty — so those requests
-        // were never actually reaching Nitro pre-strip in the first place.
         const secFetchDest = req.headers["sec-fetch-dest"] as
           | string
           | undefined;
@@ -2207,7 +1846,6 @@ function baseRedirectGuard(): Plugin {
           base !== "/" &&
           (req.url === "/" || req.url === "/index.html")
         ) {
-          // Rewrite to the base path so Vite serves the app directly
           req.url = base;
         }
         next();
@@ -2216,15 +1854,6 @@ function baseRedirectGuard(): Plugin {
   };
 }
 
-/**
- * Force Nitro's dev middleware to treat extension-bearing framework endpoints
- * as dynamic so they reach the h3 server instead of Vite's static pipeline.
- *
- * Nitro's Vite dev middleware routes paths with asset-like extensions through
- * Vite unless a Nitro route matches them. Framework endpoints are registered
- * as h3 middleware, so mounted `/_agent-native/*` and `/.well-known/*` paths
- * can otherwise become dev-only 404s before reaching the framework handler.
- */
 function frameworkDevDynamicForwarder(): Plugin {
   return {
     name: "agent-native-framework-dev-dynamic-forwarder",
@@ -2233,14 +1862,6 @@ function frameworkDevDynamicForwarder(): Plugin {
       server.middlewares.use((req, _res, next) => {
         const url = req.url;
         if (url && isFrameworkDynamicDevPath(url, server.config.base)) {
-          // Embed-start uses document/iframe to select its transplant response,
-          // and Nitro's own dev classifier already treats document/iframe/frame
-          // as non-asset, so those (and an already-"empty" value) pass through
-          // untouched. Everything else — undefined, or a real browser's
-          // destination for a fetch this route never anticipated, like
-          // "speculationrules" for the native Speculation-Rules auto-fetch —
-          // gets normalized to "empty" so Nitro's classifier falls back to its
-          // extension check instead of treating the request as a static asset.
           const fetchDest = req.headers["sec-fetch-dest"];
           if (
             fetchDest === undefined ||
@@ -2426,8 +2047,6 @@ function mountedEmbedRuntimeModuleUrl(
     return null;
   }
 
-  // Vite distinguishes valueless module flags such as `?url` from `?url=`.
-  // Strip only the embed controls so those flags reach Vite byte-for-byte.
   const hashStart = runtimeUrl.indexOf("#");
   const searchStart = runtimeUrl.indexOf("?");
   const search =
@@ -2496,7 +2115,6 @@ async function loadMountedEmbedRuntimeModule(
 ): Promise<string | null> {
   const virtualId = virtualModuleIdFromRuntimeUrl(runtimeUrl);
 
-  // transform import to encode virtual modules in vite as these imports don't work in the browser
   const result = await server.transformRequest(virtualId ?? runtimeUrl);
   if (typeof result?.code === "string") return result.code;
 
@@ -2599,10 +2217,6 @@ function serveExternalEmbedBrowserManifest(
   res: ServerResponse,
 ): boolean {
   if (req.method !== "GET" && req.method !== "HEAD") return false;
-  // Browsers send Origin even on same-origin module imports. When the page
-  // and the manifest share an origin, root-relative URLs already resolve
-  // correctly, and rewriting them from the Host header breaks behind dev
-  // proxies that rewrite Host to an address the browser can't reach.
   if (req.headers["sec-fetch-site"] === "same-origin") return false;
   if (!isMcpEmbedCorsOrigin(String(req.headers.origin ?? ""))) return false;
   if (!isReactRouterBrowserManifestUrl(req.url)) return false;
@@ -2654,12 +2268,6 @@ function embedDevFrameHeaders(): Plugin {
         if (isMcpEmbedCorsOrigin(origin)) {
           res.setHeader("Access-Control-Allow-Origin", origin);
           res.setHeader("Vary", "Origin");
-          // The desktop app's dev origin (http://localhost:1420) also matches
-          // here, and it logs in with `credentials: "include"`. A credentialed
-          // request needs this header or the browser discards the response.
-          // The OPTIONS short-circuit below means we can't rely on the real
-          // auth handler to set it, so set it here too (production already does
-          // the same).
           if (shouldAllowMcpEmbedCredentials(origin)) {
             res.setHeader("Access-Control-Allow-Credentials", "true");
           }
@@ -2770,8 +2378,6 @@ export function isFrameworkDevPath(
   const pathname = devPathname(reqUrl);
   const normalizedBase =
     !base || base === "/" ? "" : base.endsWith("/") ? base.slice(0, -1) : base;
-  // Vite's own middleware runs before the h3 boundary translates the public
-  // prefix, so both names must be recognised here.
   return devFrameworkRoutePrefixes().some(
     (prefix) =>
       matchesPathPrefix(pathname, prefix) ||
@@ -2780,10 +2386,6 @@ export function isFrameworkDevPath(
   );
 }
 
-/**
- * Framework-owned dynamic dev paths whose responses are served by the h3 app:
- * the `/_agent-native/*` API surface plus framework `/.well-known/*` documents.
- */
 export function isFrameworkDynamicDevPath(
   reqUrl: string,
   base: string | undefined,
@@ -2798,18 +2400,12 @@ export function isFrameworkDynamicDevPath(
   return false;
 }
 
-/**
- * Work around a Rolldown bug where Nitro passes service entries as objects
- * ({index: "path"}) but Rolldown expects strings. This plugin normalizes
- * rollupOptions.input entries in the SSR environment.
- */
 function rolldownInputFix(): Plugin {
   return {
     name: "agent-native-rolldown-input-fix",
     configEnvironment(_name, config) {
       const input = config.build?.rollupOptions?.input;
       if (!Array.isArray(input)) return;
-      // Flatten any object entries to just their string values
       const fixed = input.map((entry: any) => {
         if (typeof entry === "string") return entry;
         if (typeof entry === "object" && entry !== null) {
@@ -2823,21 +2419,6 @@ function rolldownInputFix(): Plugin {
   };
 }
 
-/**
- * Replace caller-specified packages with an empty proxy stub during SSR
- * builds. For apps whose heavy browser-only deps would otherwise bloat the
- * edge worker past CF Pages' 25 MiB Functions limit.
- *
- * The template lists the packages in its `defineConfig({ ssrStubs })` call —
- * the framework never hardcodes package names.
- */
-/**
- * Optional peers reached only through a `React.lazy` boundary whose module body
- * guards on `typeof window === "undefined"`. The server can never import them,
- * so their SSR chunk is pure unpack weight in every app that ships a terminal
- * surface. Defaulted here rather than repeated in sixteen vite configs, where
- * it would drift.
- */
 const ALWAYS_SSR_STUBBED = [
   "@xterm/xterm",
   "@xterm/addon-fit",
@@ -2952,7 +2533,6 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     enforce: "pre",
     resolveId(id, _importer, opts) {
       if (!opts?.ssr) return null;
-      // Match the bare package name or any subpath
       const pkg = id
         .split("/")
         .slice(0, id.startsWith("@") ? 2 : 1)
@@ -2962,9 +2542,6 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     },
     load(id) {
       if (id !== STUB_ID) return null;
-      // Proxy that answers any property access with itself — lets dead
-      // import/re-export chains parse without blowing up, and still throws
-      // if code actually tries to call any of it on the server.
       return (
         "const handler = { get(_, p) { " +
         "if (p === Symbol.toPrimitive) return () => ''; " +
@@ -3056,11 +2633,6 @@ function readAppChangelogMarkdown(
   changelogPath: string,
   watchFile: (file: string) => void,
 ): string {
-  // Only ever register real files with Vite's `addWatchFile`. Passing a
-  // directory makes import-analysis try to resolve it as a module and fail
-  // with "Failed to resolve import .../changelog", which breaks hydration for
-  // every template in dev. New/removed pending files are still picked up via
-  // `handleHotUpdate` (Vite watches the project root recursively).
   watchFile(changelogPath);
   const existing = fs.existsSync(changelogPath)
     ? fs.readFileSync(changelogPath, "utf-8")
@@ -3079,10 +2651,6 @@ function readAppChangelogMarkdown(
     .map((file) => {
       const filePath = path.join(pendingDir, file);
       watchFile(filePath);
-      // `agent-native changelog add` prefixes every pending filename with its
-      // date. Preserve that date when a hand-written entry omits `date:` so a
-      // deployed What's new surface never groups an already-merged update
-      // under an inaccurate "Unreleased" heading.
       const filenameDate = file.match(/^(\d{4}-\d{2}-\d{2})(?:-|\.md$)/)?.[1];
       return parsePendingEntry(
         fs.readFileSync(filePath, "utf-8"),
@@ -3136,11 +2704,6 @@ function appChangelogRawPlugin(): Plugin {
   };
 }
 
-/**
- * Expose the resolved Vite dev server port as process.env.PORT so that
- * in-process scripts (which use localFetch → http://localhost:${PORT}/api/...)
- * hit the right address even when Vite auto-increments the port.
- */
 function portExposer(): Plugin {
   return {
     name: "agent-native-port-exposer",
@@ -3156,12 +2719,6 @@ function portExposer(): Plugin {
   };
 }
 
-/**
- * Publish a discovery file while this dev server is listening so `pnpm
- * action` can forward to it instead of opening the (single-process) local
- * database itself. See `server/dev-action-bridge.ts` for the protocol and
- * the route this pairs with.
- */
 function devActionBridgePlugin(): Plugin {
   return {
     name: "agent-native-dev-action-bridge",
@@ -3208,24 +2765,11 @@ function devAppDisplayName(appRoot: string): string {
   }
 }
 
-/**
- * Identify the app, its checkout root, and the actual listening URL on the
- * plain single-app dev path, and say so explicitly when the actual port
- * ended up different from the configured one. URLs come from Vite's own
- * resolvedUrls (correct scheme, host brackets, and base) when present,
- * falling back to the resolved config plus the real bind address. The
- * workspace gateway prints its own root/URL lines for every app it fronts,
- * so the banner defers to it there.
- */
 export function _devServerStartupBanner(): Plugin {
   return {
     name: "agent-native-dev-server-banner",
     apply: "serve",
     configureServer(server) {
-      // Vite prepends its own listening listener, so resolvedUrls is already
-      // populated when this handler runs — but it also rewrites
-      // config.server.port to the bound port, so the requested port must be
-      // snapshotted before listening.
       const configuredPort = server.config.server.port;
       server.httpServer?.once("listening", () => {
         if (getAppConfig().workspace.isWorkspace === true) return;
@@ -3257,7 +2801,6 @@ function fallbackListeningUrl(
   https: boolean,
   addr: { address: string; port: number },
 ): string {
-  // IPv6 addresses need brackets in a URL host.
   const hostPort = addr.address.includes(":")
     ? `[${addr.address}]:${addr.port}`
     : `${addr.address}:${addr.port}`;
@@ -3265,11 +2808,6 @@ function fallbackListeningUrl(
   return `${https ? "https" : "http"}://${hostPort}${normalizedBase}`;
 }
 
-/**
- * The origin of the URL Vite prints in its "Local:" boot line — the single
- * canonical dev origin every other surface derives from. `undefined` when
- * nothing was printed (callers must degrade loudly, not guess a label).
- */
 function devActionBridgeOrigin(
   resolvedUrls: { local?: string[] } | null | undefined,
 ): string | undefined {
@@ -3309,9 +2847,6 @@ type NitroModuleGraph = {
   idToModuleMap: Map<string, NitroModuleNode>;
 };
 
-// Nitro's worker can expose a transformed module graph before its entry
-// module has finished importing. Keep the recovery page up for the same
-// cold-start window instead of letting the first poll render a 500 error.
 const NITRO_STARTUP_SETTLE_MS = 3_000;
 const NITRO_STARTUP_POLL_INTERVAL_MS = 100;
 const NITRO_STARTUP_TIMEOUT_MS = 30_000;
@@ -3352,9 +2887,6 @@ function sendNitroStartingResponse(
   req: IncomingMessage,
   res: ServerResponse,
 ): void {
-  // Fetch-poll this URL instead of location.reload(). Reloading after the
-  // startup gate opens stacks Nitro SSR compiles, and a 5-reload cap left
-  // the tab stuck on this page for the rest of a multi-minute first boot.
   res.statusCode = 503;
   res.setHeader("cache-control", "no-store");
   res.setHeader("content-type", "text/html; charset=utf-8");
@@ -3450,10 +2982,6 @@ function nitroStartupGate(
         }
       };
 
-      // Observe the graph independently of the first document request. A
-      // server can finish compiling while the shell is still on its loading
-      // screen; measuring stability only from the first request adds the full
-      // settle window to an otherwise-ready server.
       const observeStartup = () => {
         if (startupComplete) return;
 
@@ -3482,8 +3010,6 @@ function nitroStartupGate(
         }
       };
 
-      // Start watching before any HTML request arrives so readiness time is
-      // measured from server startup, not from the user's first navigation.
       observeStartup();
       if (!startupComplete) {
         readinessTimer = setInterval(
@@ -3602,15 +3128,6 @@ function persistent5xxRecovery(
   };
 }
 
-/**
- * Silence benign connection-reset noise from Vite's dev middleware.
- * Fires when a browser closes/reloads/navigates mid-request — the peer has
- * already gone away, there's nothing to fix, and Vite's error middleware
- * spams the terminal and browser HMR overlay with errors like
- * "read ECONNRESET" and "socket hang up". Our H3 server layer already
- * swallows these (create-server.ts onError); this plugin does the same for
- * Vite's own connect pipeline.
- */
 function silenceConnectionResets(): Plugin {
   const isClosedWebStreamController = (err: unknown) => {
     const e = err as
@@ -3658,13 +3175,11 @@ function silenceConnectionResets(): Plugin {
     name: "agent-native-silence-connection-resets",
     apply: "serve",
     configureServer(server) {
-      // Swallow socket-level resets so Node doesn't surface them as uncaught.
       server.httpServer?.on("connection", (socket) => {
         socket.on("error", (err: Error) => {
           if (!isBenign(err)) throw err;
         });
       });
-      // Drop Vite's "Internal server error: read ECONNRESET" log lines.
       const origError = server.config.logger.error.bind(server.config.logger);
       server.config.logger.error = (msg, opts) => {
         const text = typeof msg === "string" ? msg : String(msg ?? "");
@@ -3679,10 +3194,6 @@ function silenceConnectionResets(): Plugin {
         origError(msg, opts);
       };
 
-      // Vite's error middleware sends these same benign errors to the HMR
-      // client, which turns them into the full-screen browser overlay.
-      // Suppress just those payloads while leaving real transform/runtime
-      // errors untouched.
       const hot = (
         server as unknown as {
           environments?: { client?: { hot?: { send?: Function } } };
@@ -3741,10 +3252,6 @@ function createTailwindPlugin(options: Pick<ClientConfigOptions, "tailwind">) {
   try {
     let tailwindPlugin = require("@tailwindcss/vite");
     if (tailwindPlugin.default) tailwindPlugin = tailwindPlugin.default;
-    // Tailwind's Vite optimizer uses Lightning CSS internally and runs
-    // before Vite's own CSS minifier. Lightning CSS collapses the standard
-    // `backdrop-filter` declaration when a `-webkit-` fallback is present,
-    // so let Vite/esbuild handle the production CSS pass instead.
     return tailwindPlugin({ optimize: false });
   } catch {
     // Plugin not installed — silently skip. Old templates may still be on v3.
@@ -3785,8 +3292,6 @@ function createDesignSystemThemePlugin(
 }
 
 function getConfiguredAppBasePath(): { appBasePath: string; base: string } {
-  // APP_BASE_PATH lets this app be mounted under a prefix (e.g. "/mail") as
-  // part of a unified workspace deploy. Defaults to "/" for standalone apps.
   const appBasePath =
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "/";
   const base = appBasePath.endsWith("/") ? appBasePath : `${appBasePath}/`;
@@ -3832,26 +3337,16 @@ function createNitroDevPlugin(
     },
     replace: {
       ...(nitroOptions as { replace?: Record<string, string> }).replace,
-      // Netlify's netlify.toml environment is available to the build but not
-      // injected into deployed Functions. Nitro is a separate server build,
-      // so it needs the release ownership decision in its own replacement map.
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
       "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER": JSON.stringify(
         process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim() || "",
       ),
-      // Same reason as the release owner above: the recurring-jobs decision
-      // belongs to the build env, and Nitro is a separate server build with its
-      // own replacement map.
       [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
         resolveRecurringJobsBuildMarker(process.env),
       ),
     },
-    // Never auto-load test files as server handlers/plugins/middleware.
-    // Nitro scans server/{plugins,middleware,routes,api}/*; a co-located
-    // *.spec.ts would otherwise be loaded at runtime and crash the server
-    // (its top-level vitest calls throw). Keep tests next to their source safely.
     ignore: [
       ...((options.nitro as { ignore?: string[] })?.ignore ?? []),
       "**/*.spec.ts",
@@ -4003,11 +3498,6 @@ const DEFAULT_VITE_WATCH_IGNORED_DIRS = new Set([
   "build",
 ]);
 
-/**
- * Ignores files inside these directories, judged from the app root only. A
- * `**\/.claude/**` glob also matches the root's own ancestors, so an app run
- * from a `.claude/worktrees/*` checkout silently got no file watching or HMR.
- */
 export function defaultViteWatchIgnored(
   root: string,
 ): (file: string) => boolean {
@@ -4113,10 +3603,6 @@ function authClientAssetPlugin(): Plugin {
   };
 }
 
-// `.env`/`.env.production` values aren't in `process.env` unless the shell
-// exported them — Vite loads them separately via `loadEnv`. Env-gated
-// checks that only read `process.env` silently miss file-only config, so
-// this is the one merge both the plugin list and the build config use.
 function resolveAgentNativeRuntimeEnv(
   cwd: string,
   mode: string,
@@ -4131,12 +3617,6 @@ function resolveAgentNativeRuntimeEnv(
   };
 }
 
-/**
- * Vite 8's Rolldown optimizer can leave use-sync-external-store's CommonJS
- * shims unconverted when they are reached through linked framework packages.
- * React has shipped the underlying hook since React 18, so expose equivalent
- * ESM client modules and keep Node's package implementation for SSR.
- */
 function externalStoreShimPlugin(): Plugin {
   const sourceEntry = path.resolve(__dirname, "external-store-shim.ts");
   const entry = fs.existsSync(sourceEntry)
@@ -4185,8 +3665,6 @@ function createAgentNativePlugins(
   const nitroPlugin = createNitroDevPlugin(options, appBasePath, process.cwd());
   const includeNitro = !isBuildCommand(command);
   const presetMarkerPlugin = nitroPresetMarkerPlugin(options);
-  // Vite's real `mode` isn't resolved yet at this eager, pre-config-hook
-  // point — same fallback createAgentNativeConfig uses as its own default.
   const runtimeEnv = resolveAgentNativeRuntimeEnv(
     process.cwd(),
     process.env.NODE_ENV === "production" ? "production" : "development",
@@ -4205,10 +3683,6 @@ function createAgentNativePlugins(
   return [
     persistent5xxRecovery(),
     presetMarkerPlugin,
-    // Stub packages from `options.ssrStubs` in the SSR bundle so they
-    // don't bloat the edge worker. Opt-in per template — the framework
-    // hardcodes nothing (e.g. docs sites legitimately import `shiki` on
-    // the server, so we can't blanket-stub it here).
     ssrStubPlugin([
       ...ALWAYS_SSR_STUBBED,
       ...enterpriseAuthSsrStubs,
@@ -4233,15 +3707,11 @@ function createAgentNativePlugins(
     reactRouterVirtualInvalidationMirrorPlugin(),
     silenceConnectionResets(),
     rolldownInputFix(),
-    // Nitro Vite plugin for dev-mode API route serving and HMR.
-    // Disabled during build — React Router's build handles production.
     ...(useServeOnlyNitroPlugin
       ? [forceServeOnly(nitroPlugin)]
       : includeNitro
         ? [nitroPlugin]
         : []),
-    // Nitro can reject the first document request while its Vite environment
-    // is still importing. This error handler must follow Nitro's middleware.
     nitroStartupRecovery(),
     includeReactTransform ? createReactTransformPlugin() : null,
     createDesignSystemThemePlugin(options.designSystemTheme),
@@ -4326,9 +3796,6 @@ function createAgentNativeConfig(
   const configContext = createAgentNativeConfigContext(command, mode);
   const projectConfigInput = projectConfig ?? options.agentNativeConfig;
 
-  // Workspace env fallback. If this app is inside a workspace, tell Vite to
-  // also look for .env files at the workspace root. Per-app .env still wins
-  // (Vite's loadEnv merges in precedence order — app dir is loaded after).
   const workspaceRoot = findWorkspaceRoot(cwd);
   const envDir = workspaceRoot && workspaceRoot !== cwd ? workspaceRoot : cwd;
 
@@ -4380,28 +3847,18 @@ function createAgentNativeConfig(
   const harnessBuildMode = JSON.stringify(harnessMode);
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
-  // The public framework route prefix is resolved exactly here, once. The
-  // browser bundle reads it from the serialized config; the server bundle
-  // reads one literal env key (`server/framework-route-prefix.ts`), embedded
-  // below for `vite build` and set on this process for the in-process Nitro
-  // dev server. An empty string is "not configured", never a prefix.
   const frameworkRoutePrefix =
     resolvedAppConfig.runtime?.frameworkRoutePrefix ?? "";
   // guard:allow-env-mutation — Vite config phase, set once before the in-process Nitro dev server accepts a request
   process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
     frameworkRoutePrefix;
 
-  // Preload workspace-root .env into process.env so Nitro server code sees
-  // shared keys during dev (Nitro reads process.env, not vite's envDir).
   if (workspaceRoot && workspaceRoot !== cwd) {
     try {
       const dotenv = require("dotenv");
       dotenv.config({
         path: path.join(workspaceRoot, ".env"),
         override: false,
-        // Suppress the dotenv v17 tip line — this loader fires alongside
-        // utils.ts loadEnv() during dev startup and would otherwise emit a
-        // duplicate "[dotenv] injecting env" message.
         quiet: true,
       });
     } catch {}
@@ -4425,18 +3882,10 @@ function createAgentNativeConfig(
     path.resolve(cwd, "../../node_modules"),
   ].filter((candidate) => fs.existsSync(candidate));
 
-  // Workspace-core (enterprise monorepo): pull its directory into Vite's
-  // file watcher + module graph so edits to its TS sources hot-reload the
-  // dev server, and its package name into ssr.noExternal so the dynamic
-  // import in framework-request-handler.ts goes through Vite's transform
-  // pipeline (TypeScript, SSR HMR, the works).
   const workspaceCore = findWorkspaceCoreSync(cwd);
   const workspaceCoreFsAllow = workspaceCore
     ? [
         workspaceCore.packageDir,
-        // Also allow the workspace root's node_modules so Vite can serve
-        // pnpm-hoisted transitive deps (e.g. recharts, es-toolkit) as native
-        // ESM when they are excluded from the Rolldown optimizer.
         path.join(workspaceCore.workspaceRoot, "node_modules"),
       ]
     : [];
@@ -4472,23 +3921,12 @@ function createAgentNativeConfig(
   const forcePollingWatch = process.env.CHOKIDAR_USEPOLLING === "1";
   const pollingWatchInterval = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
   const userWatch = userConfig.server?.watch ?? {};
-  // Vite 8 defines `rollupOptions` on `build`/`optimizeDeps` as a getter alias
-  // of `rolldownOptions`. Spreading the section copies the alias as a plain own
-  // property, so returning our own `rolldownOptions` alongside it makes the two
-  // diverge and Vite warns that this plugin set both — then ignores the
-  // `rollupOptions` half regardless. Drop the alias from what we spread back.
   const { rollupOptions: _buildRollupOptionsAlias, ...userBuild } =
     userConfig.build ?? {};
   const { rollupOptions: _depsRollupOptionsAlias, ...userOptimizeDeps } =
     userConfig.optimizeDeps ?? {};
 
   return {
-    // Nitro builds the server separately with its own replacement map. Its
-    // `nitro:init` config hook reads `config.nitro` after this pre-enforced
-    // hook returns, so the server embeds the mode resolved from the same
-    // config, Vite mode and env files as the client. Do not also set this key
-    // in createNitroDevPlugin: Nitro's plugin options take precedence over
-    // `config.nitro`.
     nitro: {
       replace: {
         "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
@@ -4529,30 +3967,17 @@ function createAgentNativeConfig(
           process.env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
           "",
       ),
-      // The release migration owner is configured at build time. Netlify's
-      // netlify.toml environment is available to the build but not injected
-      // into deployed Functions, so embed the decision in the server bundle.
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
       "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER": JSON.stringify(
         process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim() || "",
       ),
-      // Recurring jobs are turned off (and their platform scheduled trigger
-      // omitted) by the BUILD environment, which a deployed serverless runtime
-      // never sees. Embed the decision so the Automations page reports what
-      // will actually fire instead of inferring it from runtime-only markers.
       [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
         resolveRecurringJobsBuildMarker(process.env),
       ),
-      // Same reason as the release owner above: org/context.ts's eligibility
-      // marker write must not read agent-native.json at runtime (not shipped
-      // into the deployed function), so embed the resolved mode here too.
       "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
         firstRunOnboardingBuildMode,
-      // hosted-harness-policy.ts's config read has the same problem: apps set
-      // `harness` only in agent-native.config.ts, which is not shipped into
-      // the deployed function either.
       "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
       ...(resolvedAppConfig.deployment?.environment
         ? {
@@ -4567,10 +3992,6 @@ function createAgentNativeConfig(
       "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
         process.env.GTM_CONTAINER_ID?.trim() || "",
       ),
-      // Framework route warmup controls how SSR `.data` routes are fetched:
-      // ordinary fetches keep them CDN-cacheable, while native prefetch headers
-      // can be refused before the CDN/origin sees the request. Keep this value
-      // authoritative even if app config provides its own `define` entries.
       __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify(
         normalizeAgentNativeRouteWarmupConfig(options.routeWarmup),
       ),
@@ -4632,11 +4053,6 @@ function createAgentNativeConfig(
     build: {
       ...userBuild,
       outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",
-      // Vite 8 defaults CSS minification to Lightning CSS, which collapses a
-      // `backdrop-filter` + `-webkit-backdrop-filter` pair down to only the
-      // prefixed form. Chrome ignores that, so glass effects disappear in
-      // production. Keep esbuild as the CSS minifier and target Safari 18+ so
-      // the standard property survives the production pipeline.
       cssMinify: userConfig.build?.cssMinify ?? "esbuild",
       cssTarget: userConfig.build?.cssTarget ?? ["es2020", "safari18"],
       // "hidden" writes .map files for upload without a public
@@ -4645,46 +4061,20 @@ function createAgentNativeConfig(
         userConfig.build?.sourcemap ??
         (isSentrySourceMapUploadEnabled(runtimeEnv) ? "hidden" : false),
     },
-    // Bundle all non-Node.js deps into the production SSR server build.
-    // Edge runtimes (CF Workers, Deno) don't have node_modules at runtime.
-    // In dev, React Router's Vite Environment runner expects CJS packages
-    // like React to stay external; forcing them through the module runner
-    // raises `module is not defined`.
     ssr: isBuildCommand(command)
       ? {
           ...(userConfig.ssr ?? {}),
-          // Keep the framework router and its React peers external in the
-          // intermediate SSR graph. Nitro consumes this graph as a prebuilt
-          // server chunk and bundles the same packages for the final runtime;
-          // inlining them here creates a second Router context in serverless
-          // output, so <ServerRouter> and route hooks disagree at request time.
           noExternal:
             /^(?!(?:react|react-dom|react-router|@tanstack\/react-query)(?:\/|$))(?!node:)/,
           external: [
-            // Yjs is used by both server-side collaboration actions and the
-            // client SSR graph. If Vite inlines it here, Nitro also emits its
-            // own server copy and a single request imports Yjs twice, breaking
-            // Yjs constructor identity. This externalizes only Vite's
-            // intermediate React Router SSR graph; Nitro's final Node/edge
-            // bundle still owns and bundles the dependency, so both paths
-            // share one portable module instance.
             "yjs",
-            // Nitro owns the final Core graph. Keeping Core external here
-            // prevents Vite's intermediate SSR build from duplicating it.
             "@agent-native/core",
-            // Core's external client entries must share singleton contexts with
-            // the SSR graph or prerendering sees duplicate providers.
             "react",
             "react-dom",
             "react-router",
             "@tanstack/react-query",
             ...arrayFrom((userConfig.ssr as { external?: any })?.external),
           ],
-          // Pick the workspace-core's compiled `dist/` exports in prod —
-          // Node-style `default` condition matches what edge runtimes (CF
-          // Workers, Deno) can actually load. Without this, Vite's prod
-          // build inherits the dev-condition src/ entry and ships unbuilt
-          // TypeScript into the worker.
           resolve: {
             ...((
               userConfig.ssr as
@@ -4697,30 +4087,10 @@ function createAgentNativeConfig(
         }
       : {
           ...(userConfig.ssr ?? {}),
-          // Vite already sets `development` in the dev resolve conditions,
-          // so the workspace-core template's exports.development → src/
-          // entry is picked automatically — Vite handles TS compilation
-          // and triggers a server restart when those files change.
           noExternal: [
             /^@agent-native\/core(\/.*)?$/,
-            // Keep React Router in Vite's SSR module graph so resolve.dedupe
-            // can force root.tsx and core's shared entry-server through the
-            // same FrameworkContext instance.
             ...(hasDep("react-router", cwd) ? [/^react-router(\/.*)?$/] : []),
-            // Radix UI primitives are transitive deps of @agent-native/core
-            // (used by FeedbackButton, AgentSidebar, ShareDialog, etc.). When
-            // a consumer app SSRs a component that imports Radix, Node's
-            // externalized resolver can't find @radix-ui/* from the app cwd
-            // because pnpm doesn't hoist transitive deps. Bundling them
-            // through Vite resolves them via the workspace store.
             /^@radix-ui\//,
-            // scheduling ships TypeScript-compiled dist files that contain literal
-            // `@/` path-alias imports (e.g. `import { Input } from
-            // "@/components/ui/input"`). In standalone (published) mode Node
-            // treats the package as an external CJS dep and can't resolve
-            // `@/components`. Adding it to noExternal makes Vite process it
-            // through the module pipeline, where the consumer app's `@` →
-            // `./app` alias is already registered.
             ...(hasDep("@agent-native/scheduling", cwd)
               ? [/^@agent-native\/scheduling(\/.*)?$/]
               : []),
@@ -4737,10 +4107,6 @@ function createAgentNativeConfig(
         },
     optimizeDeps: {
       ...userOptimizeDeps,
-      // AgentKit's CommonJS compatibility seams are enumerated below. The
-      // focused entries supplied by the Chat template cover its generated
-      // route graph, so a second discovery pass cannot invalidate the browser
-      // module graph and reload the active document mid-response.
       noDiscovery: usesAgentKit
         ? (userConfig.optimizeDeps?.noDiscovery ?? true)
         : userConfig.optimizeDeps?.noDiscovery,
@@ -4754,18 +4120,9 @@ function createAgentNativeConfig(
         ...(userConfig.optimizeDeps?.include ?? []),
         ...(options.optimizeDeps?.include ?? []),
       ],
-      // In monorepo mode: explicitly exclude @agent-native/core subpaths so
-      // Vite never prebundles them from dist/. The source alias above
-      // (`getCoreSourceAliases`) resolves every import to src/ on every
-      // request, so HMR picks up new exports immediately. Without exclude,
-      // the prebundle is built from dist/ once at startup and silently
-      // serves stale code even after the source / dist is updated.
       exclude: [
         ...(findCoreSrcDir(cwd) !== null ? CORE_CLIENT_SUBPATHS : []),
         ...(usesAgentKit ? getAgentKitOptimizeExcludes(cwd, command) : []),
-        // Workspace dependencies resolve to source and must remain outside the
-        // optimizer for HMR. This supplements the explicit AgentKit framework
-        // exclusions above for every other local source package.
         ...localWorkspacePackageDeps
           .filter(
             (pkg) =>
@@ -4790,27 +4147,15 @@ function createAgentNativeConfig(
     },
     resolve: {
       ...(userConfig.resolve ?? {}),
-      // Dedupe all client-side packages that core shares with the consuming
-      // app. In pnpm monorepos, core's devDependencies can install separate
-      // copies (linked to different React versions). Without deduping, each
-      // copy creates its own React context — QueryClientProvider, RouterProvider,
-      // Radix, etc. — causing "No provider" crashes at runtime.
       dedupe: [
         ...getClientDedupe(cwd),
         ...arrayFrom((userConfig.resolve as { dedupe?: any })?.dedupe),
       ],
       alias: [
-        // Published npm installs: one react-router instance for app + core.
         ...(isBuildCommand(command) ? [] : getReactRouterAliases(cwd)),
         ...getAssistantUiAliases(cwd),
-        // In monorepo dev: resolve @agent-native/core to source for HMR.
-        // Production must use compiled exports so the React Router SSR graph
-        // and Nitro do not bundle separate copies of Core.
-        // Uses regex with $ anchor for exact matching to prevent
-        // @agent-native/core from prefix-matching @agent-native/core/client.
         ...(isBuildCommand(command) ? [] : getCoreSourceAliases(cwd)),
         ...localWorkspacePackageResolveAliases,
-        // Standard path aliases (prefix matching is fine here)
         { find: "@", replacement: path.resolve(cwd, "./app") },
         { find: "@shared", replacement: path.resolve(cwd, "./shared") },
         ...Object.entries(options.aliases ?? {}).map(([find, replacement]) => ({
@@ -4848,22 +4193,6 @@ function createAgentNativeConfigPlugin(
   };
 }
 
-/**
- * Agent-Native's Vite plugin preset.
- *
- * Use this in ordinary Vite configs so `vite.config.ts` keeps Vite's native
- * `UserConfig` type surface:
- *
- * ```ts
- * import { defineConfig } from "vite";
- * import { reactRouter } from "@react-router/dev/vite";
- * import { agentNative } from "@agent-native/core/vite";
- *
- * export default defineConfig({
- *   plugins: [reactRouter(), agentNative({ ssrStubs: ["shiki"] })],
- * });
- * ```
- */
 export function agentNative(
   options: AgentNativeVitePluginOptions = {},
 ): Plugin[] {

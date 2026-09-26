@@ -26,9 +26,6 @@ const testState = vi.hoisted(() => ({
 }));
 
 const notionMocks = vi.hoisted(() => {
-  // Minimal stand-in for the real NotionApiError class (server/lib/notion.ts)
-  // so `instanceof NotionApiError` checks in notion-sync.ts work against the
-  // mocked ./notion.js module.
   class MockNotionApiError extends Error {
     status: number;
     code: string | null;
@@ -53,8 +50,6 @@ const notionMocks = vi.hoisted(() => {
     createNotionPageWithMarkdown: vi.fn(),
     fetchNotionPage: vi.fn(),
     getNotionConnectionForOwner,
-    // Mirrors the real helper: same lookup, but throws the connection-specific
-    // error instead of answering null.
     requireNotionConnectionForOwner: vi.fn(
       async (owner: string, intent: string) => {
         const connection = await getNotionConnectionForOwner(owner);
@@ -72,9 +67,6 @@ const notionMocks = vi.hoisted(() => {
   };
 });
 
-// Real `and`/`eq`/`or`/`isNull`/`lt` so the mock DB below can actually
-// evaluate WHERE conditions instead of matching unconditionally — required
-// to exercise the compare-and-swap (CAS) and claim guards under test.
 type EqCondition = { __eq: string; value: unknown };
 type IsNullCondition = { __isNull: string };
 type LtCondition = { __lt: string; value: unknown };
@@ -361,8 +353,6 @@ describe("createAndLinkNotionPage", () => {
     expect(notionMocks.createNotionPageWithMarkdown).toHaveBeenCalledTimes(1);
     expect(status.pageId).toBe("new-page");
 
-    // A retry after the failure must not create a second page — the link
-    // established by the first call makes the retry idempotent.
     await createAndLinkNotionPage("alice@example.com", "doc-1", "parent-page");
     expect(notionMocks.createNotionPageWithMarkdown).toHaveBeenCalledTimes(1);
   });
@@ -403,9 +393,7 @@ describe("unlinkDocumentFromNotion", () => {
     await unlinkDocumentFromNotion("alice@example.com", "doc-1");
 
     expect(testState.link).toBeNull();
-    // The Notion-origin comment (pulled) is removed — it belongs to the old page.
     expect(testState.comments.find((c) => c.id === "c-notion")).toBeUndefined();
-    // The local comment survives but becomes re-pushable to a new link.
     const local = testState.comments.find((c) => c.id === "c-local");
     expect(local).toBeDefined();
     expect(local?.notionCommentId).toBeNull();
@@ -502,9 +490,6 @@ describe("pullDocumentFromNotion", () => {
   it("does not overwrite a local save that races the Notion fetch, and marks conflict", async () => {
     const { pullDocumentFromNotion } = await import("./notion-sync.js");
 
-    // Simulate the multi-second Notion round-trip: by the time
-    // readNotionPageAsDocument resolves, a concurrent local save has already
-    // landed in the "documents" row.
     notionMocks.readNotionPageAsDocument.mockImplementation(async () => {
       testState.document = {
         ...testState.document,
@@ -527,13 +512,9 @@ describe("pullDocumentFromNotion", () => {
       false,
     );
 
-    // The concurrent local save must survive — never overwritten by the pull.
     expect(testState.document.content).toBe("Concurrent local edit");
-    // The link must reflect a conflict, not a silent success.
     expect(testState.link?.state).toBe("conflict");
     expect(Boolean(status.hasConflict)).toBe(true);
-    // The hash baseline must NOT be advanced to the remote content — otherwise
-    // the lost edit would be undetectable as localChanged on the next check.
     expect(testState.link?.lastSyncedContentHash).toBe(
       hashContentForTest("Local body"),
     );
@@ -600,9 +581,6 @@ describe("pullDocumentFromNotion", () => {
 
 describe("refreshDocumentSyncStatus", () => {
   beforeEach(() => {
-    // refreshDocumentSyncStatus throttles via a module-level Map keyed by
-    // documentId; reset modules so each test gets a fresh throttle map
-    // instead of being short-circuited by a previous test's call.
     vi.resetModules();
     vi.clearAllMocks();
     testState.document = {
@@ -682,8 +660,6 @@ describe("refreshDocumentSyncStatus", () => {
   it("skips the pull instead of racing when another instance already holds the sync claim", async () => {
     const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
 
-    // Simulate another tab/serverless instance already mid-sync for this
-    // document: the claim column is set to "now".
     testState.link.syncClaimedAt = new Date().toISOString();
 
     notionMocks.fetchNotionPage.mockResolvedValue({
@@ -707,9 +683,6 @@ describe("refreshDocumentSyncStatus", () => {
   it("does not flash a conflict while a save-triggered push holds the sync claim", async () => {
     const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
 
-    // The local save has landed and its push owns the claim. Notion's remote
-    // timestamp can advance before that push updates the stored hash baseline,
-    // briefly making both sides look changed to a concurrent status poll.
     testState.document = {
       ...testState.document,
       content: "Local edit being pushed",
@@ -746,9 +719,6 @@ describe("refreshDocumentSyncStatus", () => {
     };
     testState.link.syncClaimedAt = new Date().toISOString();
     notionMocks.fetchNotionPage.mockImplementation(async () => {
-      // getDocumentSyncStatus already captured the old link snapshot. Finish
-      // the competing push before refresh tries to claim, including advancing
-      // the baseline and releasing its claim.
       testState.link = {
         ...testState.link,
         state: "linked",
@@ -793,8 +763,6 @@ describe("refreshDocumentSyncStatus", () => {
       id: "notion-page",
       last_edited_time: "2026-06-01T10:30:00.000Z",
     });
-    // The newer timestamp is not a remote content edit: Notion still holds
-    // the baseline body, so auto-sync should push the local edit.
     notionMocks.readNotionPageAsDocument.mockResolvedValue({
       pageId: "notion-page",
       title: "Local title",
@@ -926,8 +894,6 @@ describe("refreshDocumentSyncStatus", () => {
   it("proceeds with the pull when a stale claim (older than the staleness window) is held", async () => {
     const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
 
-    // A claim from over a minute ago — treated as abandoned (e.g. a crashed
-    // request) rather than an active concurrent sync.
     testState.link.syncClaimedAt = new Date(Date.now() - 60_000).toISOString();
 
     notionMocks.fetchNotionPage.mockResolvedValue({
@@ -949,7 +915,6 @@ describe("refreshDocumentSyncStatus", () => {
 
     expect(notionMocks.readNotionPageAsDocument).toHaveBeenCalled();
     expect(testState.document.content).toBe("Remote edit from Notion");
-    // The claim must be released after the pull completes.
     expect(testState.link?.syncClaimedAt).toBeNull();
   });
 
@@ -1025,8 +990,6 @@ describe("pushDocumentToNotion", () => {
 
     testState.document.content = "Local edit typed just now";
 
-    // Same last_edited_time as the last sync — the timestamp alone would say
-    // "no remote change" even though the content differs.
     notionMocks.fetchNotionPage.mockResolvedValue({
       id: "notion-page",
       last_edited_time: "2026-06-01T09:00:00.000Z",
@@ -1096,7 +1059,6 @@ describe("pushDocumentToNotion", () => {
       last_edited_time: "2026-06-01T09:00:00.000Z",
     });
     notionMocks.pushDocumentToNotionPage.mockImplementation(async () => {
-      // A newer local save lands in between the PATCH and the readback.
       testState.document = {
         ...testState.document,
         content: "Newer local save mid-push",
@@ -1114,10 +1076,7 @@ describe("pushDocumentToNotion", () => {
 
     await pushDocumentToNotion("alice@example.com", "doc-1", true);
 
-    // The concurrent save must survive; normalized old content must not land.
     expect(testState.document.content).toBe("Newer local save mid-push");
-    // A lost replacement CAS must not create a history entry for a
-    // replacement that never happened.
     expect(testState.versions).toHaveLength(0);
   });
 
@@ -1138,9 +1097,6 @@ describe("pushDocumentToNotion", () => {
       lastEditedTime: "2026-06-01T09:00:00.000Z",
       warnings: [],
     });
-    // Notion normalizes the pushed markdown into something byte-different —
-    // the row must adopt exactly this readback, and the baseline hash must
-    // match it, not the pre-push document.content that was sent.
     notionMocks.pushDocumentToNotionPage.mockResolvedValue({
       pageId: "notion-page",
       title: "Local title",
@@ -1175,11 +1131,6 @@ describe("pushDocumentToNotion", () => {
   it("converges the baseline instead of flagging a phantom conflict when content already matches", async () => {
     const { pushDocumentToNotion } = await import("./notion-sync.js");
 
-    // Local content has moved on from the stored baseline (e.g. a previous
-    // push's title-PATCH step failed after replace_content already
-    // succeeded), but Notion's content already matches the new local content
-    // byte-for-byte — both sides agree even though the stored baseline
-    // metadata is stale.
     testState.document.content = "Content already applied both sides";
 
     notionMocks.fetchNotionPage.mockResolvedValue({
@@ -1212,9 +1163,6 @@ describe("pushDocumentToNotion", () => {
 
 describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () => {
   beforeEach(() => {
-    // refreshDocumentSyncStatus throttles via a module-level Map keyed by
-    // documentId; reset modules so the last test's throttle timestamp for
-    // "doc-1" doesn't short-circuit this describe's refresh test.
     vi.resetModules();
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -1257,7 +1205,6 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
   it("rejects a push while another instance holds the claim, without calling Notion (n-B)", async () => {
     const { pushDocumentToNotion } = await import("./notion-sync.js");
 
-    // Another tab/instance is already mid-sync for this document.
     testState.link.syncClaimedAt = new Date().toISOString();
     testState.document.content = "A local edit typed just now";
 
@@ -1265,10 +1212,7 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
     await vi.runAllTimersAsync();
     const status = await promise;
 
-    // Never proceeded to touch Notion — the claim was held the whole time
-    // (retries also see it held, since nothing here ever releases it).
     expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
-    // Reports the current non-mutating status rather than racing the holder.
     expect(status.documentId).toBe("doc-1");
     expect(testState.document.content).toBe("A local edit typed just now");
   });
@@ -1284,7 +1228,6 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
 
     expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
     expect(status.documentId).toBe("doc-1");
-    // The document row must be untouched.
     expect(testState.document.content).toBe("Local body");
   });
 
@@ -1302,8 +1245,6 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
     });
 
     const promise = pushDocumentToNotion("alice@example.com", "doc-1", false);
-    // Free the claim before the retry window elapses, simulating the other
-    // holder finishing mid-retry.
     testState.link.syncClaimedAt = null;
     await vi.runAllTimersAsync();
     const status = await promise;
@@ -1351,7 +1292,6 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
     ).rejects.toThrow("Notion is down");
     expect(testState.link?.syncClaimedAt).toBeNull();
 
-    // A follow-up push must be able to claim and proceed normally.
     notionMocks.pushDocumentToNotionPage.mockResolvedValue({
       pageId: "notion-page",
       title: "Local title",
@@ -1422,11 +1362,6 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
     );
 
     expect(testState.document.content).toBe("Remote edit from Notion");
-    // The claim taken by refreshDocumentSyncStatus itself must be released
-    // exactly once — not left set (double-claim without matching release)
-    // nor released twice (which would be a harmless no-op here, but the
-    // absence of an error/hang confirms skipClaim prevented a second
-    // claim attempt inside pullDocumentFromNotion from ever running).
     expect(testState.link?.syncClaimedAt).toBeNull();
     expect(status.hasConflict).toBe(false);
   });

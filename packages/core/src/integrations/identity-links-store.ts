@@ -1,8 +1,3 @@
-/**
- * Durable links between a verified provider identity and an Agent-Native user.
- * Provider credentials and raw provider payloads never belong in this table.
- */
-
 import { randomUUID } from "node:crypto";
 
 import { getDbExec, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
@@ -124,7 +119,6 @@ function matchesVerifiedLink(
   return row.userEmail === input.userEmail && row.orgId === input.orgId;
 }
 
-/** Persist a verified mapping and fail closed if it changes identity later. */
 export async function upsertVerifiedIntegrationIdentity(input: {
   platform: string;
   tenantId: string;

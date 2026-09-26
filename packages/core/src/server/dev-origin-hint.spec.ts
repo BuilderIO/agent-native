@@ -3,8 +3,6 @@ import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-// Same mocking shape as dev-action-bridge.spec.ts: a fake h3 event is a plain
-// object with a `_headers` record, and `getHeader` reads it case-insensitively.
 vi.mock("h3", () => ({
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
 }));
@@ -119,11 +117,6 @@ describe("devLoopbackAuthHint", () => {
 });
 
 describe("auth guard hint gate", () => {
-  // Driving the full auth guard needs better-auth, db, and app-config; the
-  // established contract shape for this guard is the source-contract test in
-  // dev-action-bridge.spec.ts. Assert the hint branch stays gated on dev +
-  // loopback and scoped to /_agent-native/*, so it cannot leak into /api/* or
-  // production responses.
   it("emits the hint only for dev, loopback, /_agent-native/* 401s", () => {
     const source = fs.readFileSync(
       path.join(import.meta.dirname, "auth.ts"),

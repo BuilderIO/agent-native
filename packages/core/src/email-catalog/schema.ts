@@ -1,34 +1,13 @@
-/**
- * Drizzle schema for the transactional email send log.
- *
- * One row per `sendEmail` attempt, written by the transport itself so every
- * send is recorded regardless of which app or code path triggered it. This is
- * the durable record of "did we send it": the provider's own activity feed ages
- * out (SendGrid keeps 3 days without the extended-retention add-on), so send
- * counts and last-sent must not depend on it.
- *
- * Engagement (opens, clicks, bounces) is deliberately NOT stored here. Only the
- * provider knows it, and mirroring it would go stale the moment a recipient
- * opens an old message. Dispatch reads engagement live from the provider and
- * joins on `template_id`.
- */
-
 import { table, text, bigint } from "../db/schema.js";
 
 export const emailLog = table("email_log", {
   id: text("id").primaryKey(),
-  /** Organization that owns the send. Legacy rows without this are unreadable. */
   orgId: text("org_id"),
-  /** Registered transactional email id, e.g. "calendar.booking-confirmed". */
   templateId: text("template_id"),
-  /** App slug that sent it. */
   app: text("app"),
-  /** Recipient address. */
   recipient: text("recipient").notNull(),
-  /** Resolved From address, after app-sender branding is applied. */
   sender: text("sender").notNull(),
   subject: text("subject").notNull(),
-  /** "sent" once the provider accepted it, or "failed". Never optimistic. */
   status: text("status", { enum: ["sent", "failed"] }).notNull(),
   /**
    * Error text when the call never reached the provider or threw before/
@@ -38,26 +17,11 @@ export const emailLog = table("email_log", {
    * the provider" and "the provider rejected it" stay visibly different.
    */
   error: text("error"),
-  /** "resend" | "sendgrid" | "dev". */
   provider: text("provider").notNull(),
-  /**
-   * Exact outbound JSON body sent to the provider, minus the Authorization
-   * header (the only secret in the request) and any attachment `content`
-   * bytes (large, no diagnostic value for "who did this go to").
-   */
   requestPayload: text("request_payload"),
-  /** Raw HTTP status code from the provider, when a response was received. */
   responseStatus: bigint("response_status", { mode: "number" }),
-  /** Raw HTTP response body text from the provider, when a response was received. */
   responseBody: text("response_body"),
-  /**
-   * Rendered HTML body of the message that was sent, truncated like other
-   * logged text. Magic links, reset links, and OTP codes are redacted before
-   * this is written (see `redactSensitiveEmailBodyContent`) because this
-   * table is org-admin readable.
-   */
   htmlBody: text("html_body"),
-  /** Rendered plain-text body, when the send included one. Same redaction as `htmlBody`. */
   textBody: text("text_body"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });

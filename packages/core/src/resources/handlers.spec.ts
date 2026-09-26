@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// --- Mock dependencies ---
-
 const mockResourceGet = vi.fn();
 const mockResourceGetByPath = vi.fn();
 const mockResourcePut = vi.fn();
@@ -357,7 +355,6 @@ describe("resource handlers", () => {
       const event = { _params: { id: "img1" }, _query: {}, context: {} };
       const result = await handleGetResource(event);
 
-      // Binary content should be stripped
       expect(result.content).toBe("");
       expect(result.id).toBe("img1");
       expect(result.mimeType).toBe("image/jpeg");
@@ -1276,21 +1273,18 @@ Legacy webhook.`,
       const result = await handleGetResourceTree(event);
 
       expect(result.tree).toBeDefined();
-      expect(result.tree).toHaveLength(3); // README.md, skills/, docs/
+      expect(result.tree).toHaveLength(3);
 
-      // Find the skills folder
       const skills = result.tree.find((n: any) => n.name === "skills");
       expect(skills).toBeDefined();
       expect(skills.type).toBe("folder");
       expect(skills.children).toHaveLength(2);
 
-      // Find the docs folder
       const docs = result.tree.find((n: any) => n.name === "docs");
       expect(docs).toBeDefined();
       expect(docs.type).toBe("folder");
       expect(docs.children).toHaveLength(1);
 
-      // Nested api folder
       const api = docs.children[0];
       expect(api.name).toBe("api");
       expect(api.type).toBe("folder");

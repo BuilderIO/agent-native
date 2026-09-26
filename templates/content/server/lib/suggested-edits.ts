@@ -159,9 +159,6 @@ function matchesDocumentRevision(
     typeof document.content === "string"
       ? documentRevisionToken(document.bodyRevision, document.content)
       : null;
-  // Suggestions created before the body revision token shipped persisted the
-  // document timestamp as their basis. Keep those proposals reviewable while
-  // all new get-document callers use the canonical token.
   return (
     baseRevision === canonicalRevision || baseRevision === document.updatedAt
   );
@@ -293,13 +290,6 @@ function unsupportedSuggestionStructure(
   return result;
 }
 
-/**
- * The two sides with the edit's own span cut out — the part of the Page the
- * suggestion leaves alone. Comparing each side against this, rather than
- * against each other, is what separates "the edit moved or rewrote an
- * unsupported node" from "an untouched image sits after a block the edit added
- * or removed".
- */
 function unchangedSurround(before: string, after: string): string {
   let prefix = 0;
   while (

@@ -82,12 +82,6 @@ function closingTagIndex(
   return index;
 }
 
-/**
- * Inserts markup at a document boundary without using String.replace's
- * replacement-string semantics. It ignores raw text, attributes, and comments
- * when locating a real closing tag. Body and html closers use their last
- * marker so literal close tags cannot capture the injection.
- */
 export function injectDocumentMarkup(
   html: string,
   markup: string,

@@ -1,5 +1,3 @@
-/** Browser-local presentation toggle. Backend and agent results stay real. */
-
 import { Switch } from "@agent-native/toolkit/design-system";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";

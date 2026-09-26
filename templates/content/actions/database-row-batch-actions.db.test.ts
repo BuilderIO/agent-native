@@ -1715,9 +1715,6 @@ describe("database row batch actions", () => {
 
     const rows = await orderedRows(databaseId);
     expect(rows).toHaveLength(concurrentAdds);
-    // Every row's database-item position and backing document position must
-    // be unique — two concurrent adds reading the same MAX(position) would
-    // otherwise collide on the same value.
     expect(new Set(rows.map((row) => row.itemPosition)).size).toBe(
       concurrentAdds,
     );
@@ -1842,9 +1839,6 @@ describe("database row batch actions", () => {
       ),
     ).rejects.toThrow(/not found/i);
 
-    // The whole call fails before touching any row — no property values were
-    // written, and the response never gets a chance to report per-row
-    // success/failure for a precondition that is identical for every row.
     const values = await getDb()
       .select({ id: schema.documentPropertyValues.id })
       .from(schema.documentPropertyValues)

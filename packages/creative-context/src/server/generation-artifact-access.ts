@@ -15,18 +15,6 @@ export type GenerationArtifactAccessOperation = "read" | "record";
 export interface GenerationArtifactAccessTarget {
   resourceType: string;
   resourceId: string;
-  /**
-   * Role required on `resourceId` to record provenance for this artifact.
-   * Defaults to `editor`, because for most hosts the artifact is the resource
-   * itself (a deck, a design, a document), so writing its provenance is
-   * editing it.
-   *
-   * A host sets `viewer` only when the artifact is a draft the caller just
-   * authored inside the resource rather than part of the resource's own
-   * content. Assets brand kits work that way: a kit viewer may generate
-   * candidates, so refusing to record where a candidate came from would either
-   * block the generation outright or silently lose its provenance.
-   */
   recordMinRole?: "viewer" | "editor";
 }
 
@@ -53,12 +41,6 @@ interface CapabilityClaims {
 
 const CAPABILITY_LIFETIME_MS = 60_000;
 
-/**
- * The one place an artifact operation's required role is decided. Reading
- * provenance always needs `viewer`; recording it is the host's call. Keeping
- * both branches here is what stops the mint side, the verify side, and the
- * store from drifting to three different answers.
- */
 export function generationArtifactAccessRole(
   target: GenerationArtifactAccessTarget,
   operation: GenerationArtifactAccessOperation,
@@ -85,16 +67,6 @@ export async function assertGenerationArtifactAccess(
   return createProof(identity, operation, minRole);
 }
 
-/**
- * Confirm the store is acting on a proof the host minted for this artifact,
- * strong enough for this operation.
- *
- * The operation binding carries the weight that the role used to. Once a host
- * may record with `viewer`, the role alone no longer separates a read proof
- * from a record proof, so a read capability would otherwise be replayable as a
- * write. The implication only runs one way: recording always subsumes reading
- * the same resource, so a record proof satisfies a read.
- */
 export function assertGenerationArtifactAccessProof(
   identity: GenerationArtifactIdentity,
   proof: GenerationArtifactAccessProof,

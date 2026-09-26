@@ -45,7 +45,6 @@ describe("agent model config catalog", () => {
   });
 
   it("includes every default model in its own supported list", () => {
-    // Top-level engines.
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain(
       BUILDER_MODEL_CONFIG.defaultModel,
     );
@@ -53,7 +52,6 @@ describe("agent model config catalog", () => {
       ANTHROPIC_MODEL_CONFIG.defaultModel,
     );
 
-    // Every ai-sdk provider's default must be selectable.
     for (const [provider, cfg] of Object.entries(AI_SDK_MODEL_CONFIG)) {
       expect(
         cfg.supportedModels,
@@ -205,10 +203,8 @@ describe("agent model config catalog", () => {
   it("does not contain decommissioned Groq models", () => {
     const groqModels = AI_SDK_MODEL_CONFIG.groq
       .supportedModels as readonly string[];
-    // Both were decommissioned (errors since Jan/Mar 2025)
     expect(groqModels).not.toContain("llama-3.1-70b-versatile");
     expect(groqModels).not.toContain("mixtral-8x7b-32768");
-    // Current production model must be present
     expect(groqModels).toContain("llama-3.3-70b-versatile");
   });
 
@@ -246,8 +242,6 @@ describe("agent model config catalog", () => {
   });
 });
 
-// ─── getContextWindowForModel ─────────────────────────────────────────────────
-
 describe("getContextWindowForModel", () => {
   it("returns 200K for standard Claude Haiku models", () => {
     expect(getContextWindowForModel("claude-haiku-4-5")).toBe(200_000);
@@ -273,11 +267,9 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("gpt-5.6-sol")).toBe(1_050_000);
     expect(getContextWindowForModel("gpt-5.6-terra")).toBe(1_050_000);
     expect(getContextWindowForModel("gpt-5.6-luna")).toBe(400_000);
-    // Builder gateway dashed form
     expect(getContextWindowForModel("gpt-5-6-sol")).toBe(1_050_000);
     expect(getContextWindowForModel("gpt-5-6-terra")).toBe(1_050_000);
     expect(getContextWindowForModel("gpt-5-6-luna")).toBe(400_000);
-    // OpenRouter advertises Luna with the same 1.05M context as Sol and Terra.
     expect(getContextWindowForModel("openai/gpt-5.6-luna")).toBe(1_050_000);
   });
 
@@ -310,7 +302,6 @@ describe("getContextWindowForModel", () => {
   });
 
   it("uses heuristic fallback for unlisted claude-opus-4 variants", () => {
-    // Future models not yet in the explicit table
     expect(getContextWindowForModel("claude-opus-4-9")).toBe(1_000_000);
   });
 
@@ -320,8 +311,6 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("gpt-6-preview")).toBe(1_050_000);
   });
 });
-
-// ─── getMaxOutputTokensForModel ───────────────────────────────────────────────
 
 describe("getMaxOutputTokensForModel", () => {
   it("returns 128K for Claude flagship models (Fable 5, Opus 4.6+, Sonnet 5/4.6)", () => {
@@ -351,11 +340,9 @@ describe("getMaxOutputTokensForModel", () => {
     expect(getMaxOutputTokensForModel("gpt-5.6-sol")).toBe(40_000);
     expect(getMaxOutputTokensForModel("gpt-5.6-terra")).toBe(40_000);
     expect(getMaxOutputTokensForModel("gpt-5.6-luna")).toBe(40_000);
-    // Builder gateway dashed form
     expect(getMaxOutputTokensForModel("gpt-5-6-sol")).toBe(40_000);
     expect(getMaxOutputTokensForModel("gpt-5-6-terra")).toBe(40_000);
     expect(getMaxOutputTokensForModel("gpt-5-6-luna")).toBe(40_000);
-    // OpenRouter form
     expect(getMaxOutputTokensForModel("openai/gpt-5.6-sol")).toBe(40_000);
     expect(getMaxOutputTokensForModel("openai/gpt-5.6-luna")).toBe(128_000);
   });
@@ -411,9 +398,6 @@ describe("resolveFallbackModel", () => {
   });
 
   it("resolves by family against the direct Anthropic engine's dated ids", () => {
-    // The direct Anthropic engine advertises a dated haiku id
-    // ("claude-haiku-4-5-20251001") that never appears in the Builder
-    // catalog — the resolver must match by family, not by literal id.
     expect(
       resolveFallbackModel(
         CLAUDE_SONNET_MODEL_ID,

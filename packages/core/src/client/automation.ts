@@ -7,10 +7,6 @@ export interface InvokeConfiguredAutomationWorkflowInput {
   readonly idempotencyKey?: string;
 }
 
-/**
- * Invoke an app-registered automation action without hand-writing a browser
- * request. Apps may choose a custom action name when registering the runtime.
- */
 export async function invokeConfiguredAutomationWorkflow(
   input: InvokeConfiguredAutomationWorkflowInput,
   options: { readonly actionName?: string } = {},

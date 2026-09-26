@@ -43,8 +43,6 @@ describe("getOnboardingHtml", () => {
   });
 
   it("includes an environment switcher on the standalone auth page", () => {
-    // Auth responses inject the shared switcher at the login boundary; the
-    // React shell alone only ships lane config + document styles.
     const html = injectBetaOptOutPersistence(
       getOnboardingHtml({
         requestHost: "beta.analytics.agent-native.com",
@@ -169,14 +167,12 @@ describe("getOnboardingHtml", () => {
 
   describe("browser federated SSO", () => {
     it("env unset → no federation CTA markup is added to the server shell", () => {
-      // Capture baseline with the env unequivocally absent.
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
       const baseline = getOnboardingHtml();
       expect(baseline).not.toContain('id="identity-sso-btn"');
       expect(baseline).not.toContain("/_agent-native/identity/login");
       expect(baseline).not.toContain("Sign in with Agent-Native");
 
-      // Re-render with the env still unset → must be the exact same string.
       const again = getOnboardingHtml();
       expect(again).toBe(baseline);
     });
@@ -301,8 +297,6 @@ describe("getOnboardingHtml", () => {
 
   describe("googleOnly login follows deployment credentials", () => {
     it("disables Google sign-in when the credential pair is absent", () => {
-      // A Google-only page must not send visitors into the desktop exchange
-      // flow when the server cannot mount a matching Google OAuth route.
       delete process.env.GOOGLE_CLIENT_ID;
       delete process.env.GOOGLE_CLIENT_SECRET;
       delete process.env.GOOGLE_SIGN_IN_CLIENT_ID;

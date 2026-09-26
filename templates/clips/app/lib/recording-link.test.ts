@@ -41,8 +41,6 @@ describe("freshRecordingShareUrl", () => {
   it("omits via (never referrer_user) when there is no session", () => {
     const url = freshRecordingShareUrl("rec_1", null);
     expect(new URL(url).searchParams.has("via")).toBe(false);
-    // referral_source still derives from ref/landing_path, matching the
-    // production symptom: referral_source present, referrer_user absent.
     expect(new URL(url).searchParams.get("ref")).toBe("clip_share");
   });
 });
@@ -62,10 +60,6 @@ describe("copyFreshRecordingShareLink", () => {
   });
 });
 
-// The actual regression: these are the surfaces that auto-copy a share link
-// the moment a recording is created, with no reshare/role check needed (the
-// current user always owns what they just made or just stitched). Each must
-// route through the attributed helper, never the bare one that drops `via`.
 describe("auto-copy call sites route through the attributed helper", () => {
   it("record.tsx's post-stop/post-upload copies are all attributed", () => {
     const source = readSource("../routes/record.tsx");

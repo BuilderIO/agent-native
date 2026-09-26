@@ -1,13 +1,3 @@
-/**
- * Trigger the UI to refetch library / transcripts / comments / viewers lists.
- *
- * Most mutating actions call this automatically. Call it manually when you've
- * written data through a path that bypasses the action layer (rare).
- *
- * Usage:
- *   pnpm action refresh-list
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

@@ -31,35 +31,18 @@ const getSession: (typeof import("./auth.js"))["getSession"] = (...args) =>
   import("./auth.js").then(({ getSession }) => getSession(...args));
 
 export interface EnvKeyConfig {
-  /** Environment variable name (e.g. "HUBSPOT_ACCESS_TOKEN") */
   key: string;
-  /** Human-readable label (e.g. "HubSpot") */
   label: string;
-  /** Whether this key is required for the app to function */
   required?: boolean;
-  /** Optional UI hint shown next to the field describing where to find this value. */
   helpText?: string;
-  /**
-   * Whether this key is a credential (API key, token, secret) rather than a
-   * plain config flag/address/URL. Default: true (unspecified keys are
-   * treated as secrets, so existing app-declared keys keep working). Set to
-   * `false` for non-credential settings like feature flags or a sender
-   * address — they should not be offered as Vault "keys" to store as shared
-   * secrets.
-   */
   secret?: boolean;
 }
 
 export interface CreateServerOptions {
-  /** CORS options. Ignored (H3 handles CORS via middleware). Default: enabled. */
   cors?: Record<string, unknown> | false;
-  /** JSON body parser limit. Kept for API compatibility (H3 uses readBody). */
   jsonLimit?: string;
-  /** Custom ping message. Default: reads the shared app config. */
   pingMessage?: string;
-  /** Disable the /_agent-native/ping health check. Default: false */
   disablePing?: boolean;
-  /** Key configuration for the settings UI. Enables status plus the scoped-secret compatibility save route. */
   envKeys?: EnvKeyConfig[];
 }
 
@@ -68,21 +51,11 @@ export interface CreateServerResult {
   router: ReturnType<typeof createRouter>;
 }
 
-/**
- * Create a pre-configured H3 app with standard agent-native setup:
- * - CORS headers via middleware
- * - /_agent-native/ping health check
- * - /_agent-native/env-status and the scoped-secret compatibility save route
- *   at /_agent-native/env-vars (when envKeys is provided)
- *
- * Returns { app, router } — mount routes on `router`.
- */
 export function createServer(
   options: CreateServerOptions = {},
 ): CreateServerResult {
   const app = createApp({
     onError(error, event) {
-      // Suppress connection-reset errors — client disconnected mid-request (tab close, reload)
       const err = error as NodeJS.ErrnoException;
       const code = err?.code || (err?.cause as NodeJS.ErrnoException)?.code;
       if (code === "ECONNRESET" || code === "ECONNABORTED") return;
@@ -94,16 +67,10 @@ export function createServer(
     },
   });
 
-  // CORS middleware
   if (options.cors !== false) {
     const allowedOrigins = readCorsAllowedOrigins();
     const isProduction = process.env.NODE_ENV === "production";
 
-    /**
-     * When CORS_ALLOWED_ORIGINS is unset, production only allows trusted
-     * localhost/native desktop origins. Development keeps the legacy "echo
-     * any origin" behavior so local tools and docs previews keep working.
-     */
     app.use(
       defineEventHandler((event) => {
         const requestOrigin = getRequestHeader(event, "origin");
@@ -122,14 +89,6 @@ export function createServer(
             Boolean(getRequestHeader(event, EMBED_TRANSPLANT_HEADER)) ||
             Boolean(getRequestHeader(event, "authorization")));
 
-        /**
-         * Decide whether the requesting origin is allowed. We never fall back
-         * to "the first allowlist entry" when the origin isn't in the list —
-         * that previously sent `Access-Control-Allow-Origin: <other-origin>`
-         * with credentials enabled to attacker-controlled origins, which was
-         * permissive enough that some clients followed through with the
-         * credentialed request.
-         */
         const allowedOrigin = embedCorsRequest
           ? requestOrigin
           : getAllowedCorsOrigin(requestOrigin, {
@@ -138,9 +97,6 @@ export function createServer(
               // Let the cors-origins default apply (dev-only). Passing `true`
               // here unconditionally would re-open the production localhost gap.
             });
-        // No origin header at all (same-origin fetch, server-to-server) and
-        // no allowlist → fall through with `*`-equivalent behaviour: omit
-        // ACAO entirely and let the browser apply its same-origin default.
 
         if (allowedOrigin) {
           setResponseHeader(
@@ -149,11 +105,6 @@ export function createServer(
             allowedOrigin,
           );
           setResponseHeader(event, "Vary", "Origin");
-          // A specific origin means we can honor credentialed requests
-          // (fetch with `credentials: "include"` — used by desktop tray
-          // apps that share a same-site cookie with the web app). The
-          // wildcard `*` is spec-incompatible with credentials, so only
-          // set this when we're echoing a concrete origin.
           if (shouldAllowMcpEmbedCredentials(allowedOrigin)) {
             setResponseHeader(
               event,
@@ -162,9 +113,6 @@ export function createServer(
             );
           }
         } else if (!requestOrigin) {
-          // No origin header — preserve the legacy permissive behaviour for
-          // tools/scripts that hit the API directly (no credentialed CORS
-          // semantics apply when there's no Origin).
           setResponseHeader(event, "Access-Control-Allow-Origin", "*");
         }
 
@@ -180,11 +128,6 @@ export function createServer(
         );
 
         if (method === "OPTIONS") {
-          // Reject preflights from disallowed cross-origin callers. We only
-          // 204 if either (a) there was no Origin header (same-origin or
-          // direct script invocation) or (b) the origin was in the allowlist
-          // / dev fallback above. Otherwise we 403 so the browser surfaces
-          // a hard CORS failure rather than blindly retrying with credentials.
           if (requestOrigin && !allowedOrigin) {
             return new Response(null, { status: 403 });
           }
@@ -196,7 +139,6 @@ export function createServer(
 
   const router = createRouter();
 
-  // Health check
   if (!options.disablePing) {
     router.get(
       "/_agent-native/ping",
@@ -207,8 +149,6 @@ export function createServer(
           event.url?.searchParams.get("configuration") === "true";
         if (!configuration) return { message };
 
-        // Custom required keys must come from server-side app configuration;
-        // never let an anonymous caller turn this into an env-name oracle.
         const requirements = {
           ...(event.url?.searchParams.get("auth") === "0"
             ? { authEnabled: false }
@@ -228,7 +168,6 @@ export function createServer(
     );
   }
 
-  // Env key management routes
   if (options.envKeys) {
     const envKeys = options.envKeys;
     const allowedEnvKeyNames = envKeys.map(({ key }) => key);

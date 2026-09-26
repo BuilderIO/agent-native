@@ -6,19 +6,6 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-/**
- * Regression coverage for the cross-screen alt-drag duplicate bug: a dropped
- * copy carried an unrelated ~50-property computed-style dump (position,
- * width, height, opacity, z-index, transform:none, ...) instead of just the
- * appearance the source inherited from its old stylesheet context, and
- * `position` in that dump raced the drop's own placement write. See
- * app/pages/design-editor/commands/cross-screen-element-drop.ts (the
- * `applyPortableStyleSnapshotToHtml` call) and editor-chrome.bridge.ts's
- * `collectPortableComputedStyles`, which now diffs against a bare-tag probe
- * before including a property. The final tests below exercise actual capture
- * and rendered application in Chromium; the earlier tests also pin the
- * DOM-independent apply contract.
- */
 import {
   applyPortableStyles,
   applyPortableStyleSnapshotToHtml,
@@ -35,10 +22,8 @@ describe("applyPortableStyles", () => {
       color: "rgb(10, 20, 30)",
       fontFamily: "Georgia",
     });
-    // Appearance properties land...
     expect(el.style.color).toBe("rgb(10, 20, 30)");
     expect(el.style.fontFamily).toBe("Georgia");
-    // ...but position/left/top, which the drop itself owns, are untouched.
     expect(el.style.position).toBe("absolute");
     expect(el.style.left).toBe("40px");
     expect(el.style.top).toBe("20px");
@@ -56,10 +41,6 @@ describe("applyPortableStyles", () => {
 });
 
 describe("applyPortableStyleSnapshotToHtml", () => {
-  // A source dropped inside a styled parent (dark card: white text, serif
-  // font) that never authored those properties itself — they were inherited.
-  // Once diffed against tag defaults, a correct snapshot carries only the
-  // inherited appearance (color, fontFamily), never position/box properties.
   const DEST_BARE_SCREEN = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"></head><body>
 <div data-agent-native-node-id="dropped" style="position:absolute;left:12px;top:8px;"></div>
@@ -79,13 +60,8 @@ describe("applyPortableStyleSnapshotToHtml", () => {
             styles: {
               color: "rgb(255, 255, 255)",
               fontFamily: "Georgia",
-              // Same size as the source is correct duplicate/move semantics
-              // ("same appearance, only position differs") and must survive.
               width: "60px",
               height: "60px",
-              // A stale/legacy snapshot might still carry this — the apply
-              // boundary must drop it regardless of what collection sends,
-              // since the drop itself already decided where this node sits.
               position: "static",
             },
           },
@@ -100,8 +76,6 @@ describe("applyPortableStyleSnapshotToHtml", () => {
     expect(dropped.style.fontFamily).toBe("Georgia");
     expect(dropped.style.width).toBe("60px");
     expect(dropped.style.height).toBe("60px");
-    // The drop already placed this node absolutely — the snapshot must not
-    // have touched position/left/top.
     expect(dropped.style.position).toBe("absolute");
     expect(dropped.style.left).toBe("12px");
     expect(dropped.style.top).toBe("8px");
@@ -123,20 +97,6 @@ describe("applyPortableStyleSnapshotToHtml", () => {
   });
 
   it("is a safe no-op for a LEGITIMATELY absent snapshot (nothing to carry) — not a lost/corrupted node", () => {
-    // `undefined` means "nothing to carry" (isDocumentRootElement / no root /
-    // not asked for) — this is the ordinary case for e.g. a paste or a drop
-    // whose source never had a portable-style snapshot at all, and this
-    // function's job is only to apply what it was given, safely, never to
-    // decide whether the move itself should proceed.
-    //
-    // A CAPTURE FAILURE (the bare-tag probe iframe couldn't be created) is a
-    // different value entirely — the bridge marks it with the
-    // `styleSnapshotCaptureFailed` flag alongside `styleSnapshot: null` — and
-    // is refused at the command boundary in cross-screen-element-drop.ts
-    // BEFORE this function is ever called, so a capture failure never reaches
-    // here as a plain `undefined`. See
-    // "runCrossScreenElementDrop — portable style capture failure" in
-    // cross-screen-element-drop.spec.ts for that refusal contract.
     const result = applyPortableStyleSnapshotToHtml(
       DEST_BARE_SCREEN,
       "dropped",
@@ -165,7 +125,6 @@ describe("applyPortableStyleSnapshotToHtml", () => {
   });
 });
 
-// Exercise the actual source capture and apply functions in Chromium.
 const requireFromDesign = createRequire(
   path.resolve(process.cwd(), "package.json"),
 );
@@ -282,9 +241,6 @@ describe("portable-style source capture and rendered Chromium behavior", () => {
           moduleObject,
           moduleObject.exports,
         );
-        // Supplying the legacy fourth argument makes this regression fail on
-        // the old head-equality short-circuit. The new three-argument API
-        // ignores it; the real drop caller no longer supplies it.
         return sourceHtml === undefined
           ? moduleObject.exports.applyPortableStyleSnapshotToHtml(
               html,

@@ -1,17 +1,3 @@
-/**
- * Aggregate analytics across an entire organization.
- *
- * Produces:
- *   - totals for the period (views, reactions, comments, recordings)
- *   - top videos by counted views / reactions / comments
- *   - top creators (by recordings, views, engagement)
- *   - day-by-day engagement trend (views + reactions + comments per day)
- *
- * Usage:
- *   pnpm action get-organization-insights
- *   pnpm action get-organization-insights --organizationId=<id> --days=14
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
@@ -31,10 +17,6 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Hard cap on how many recordings/engagement rows we pull into memory per
-// call so a very large organization can't turn this into an unbounded scan.
-// Insights are inherently approximate at this scale — the response flags
-// `truncated` so the UI can say "showing the most recent N recordings".
 const MAX_RECORDINGS = 2000;
 const MAX_ENGAGEMENT_ROWS = 20000;
 
@@ -66,9 +48,6 @@ export default defineAction({
     const startIso = start.toISOString();
     const endIso = now.toISOString();
 
-    // All recordings in this organization. Filter engagement down to this set.
-    // Bounded to MAX_RECORDINGS (most recent first) and projected down to the
-    // columns this action actually reads, instead of loading full rows.
     const recordings = await db
       .select({
         id: schema.recordings.id,
@@ -88,7 +67,6 @@ export default defineAction({
       recordings.map((r) => [r.id, r.ownerEmail] as const),
     );
 
-    // Totals for the period.
     const totals = {
       views: 0,
       reactions: 0,
@@ -98,9 +76,6 @@ export default defineAction({
       ).length,
     };
 
-    // Views: counted viewers first-viewed within the period. Projected to the
-    // two columns used below, and capped so a very active org can't force an
-    // unbounded row load.
     const viewerRows = recordingIds.length
       ? await db
           .select({
@@ -156,7 +131,6 @@ export default defineAction({
     totals.comments = commentRows.length;
     const truncatedComments = commentRows.length >= MAX_ENGAGEMENT_ROWS;
 
-    // Top videos.
     const viewsByRec: Record<string, number> = {};
     for (const v of viewerRows) {
       viewsByRec[v.recordingId] = (viewsByRec[v.recordingId] ?? 0) + 1;
@@ -186,7 +160,6 @@ export default defineAction({
       byComments: mk(commentsByRec),
     };
 
-    // Top creators — combine views + reactions + comments per owner, over the period.
     const creatorStats: Record<
       string,
       { email: string; recordings: number; views: number; engagement: number }
@@ -224,7 +197,6 @@ export default defineAction({
       name: profileNameFor(creator.email, null, creatorProfiles),
     }));
 
-    // Trend: per-day tallies for the period.
     const trendMap = new Map<
       string,
       { date: string; views: number; reactions: number; comments: number }
@@ -251,10 +223,6 @@ export default defineAction({
       topVideos,
       topCreators: topCreatorsWithProfiles,
       trend,
-      // True when the organization has more recordings/engagement rows than
-      // the bounded scan below covers — totals/trend reflect only the most
-      // recent MAX_RECORDINGS recordings and/or the first MAX_ENGAGEMENT_ROWS
-      // matching rows per engagement table in that case.
       truncated:
         truncatedRecordings ||
         truncatedViewers ||

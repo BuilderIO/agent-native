@@ -31,41 +31,18 @@ export interface UseSemanticNavigationStateOptions<
   NavigationState,
   NavigateCommand = NavigationState,
 > {
-  /**
-   * Compact, semantic screen state to expose to the agent: view names, record
-   * IDs, active tabs, and useful aliases. Keep URL query params in the URL
-   * unless the app needs a human-readable semantic alias.
-   */
   state: NavigationState | null | undefined;
-  /** Application-state keys the UI should write. Defaults to the current tab's `navigation` key in a browser. */
   navigationKeys?: readonly string[];
-  /** Application-state keys to read for one-shot agent commands. Defaults to the current tab's `navigate` key in a browser. */
   commandKeys?: readonly string[];
-  /** Current browser tab id. Defaults to the current page's tab. */
   browserTabId?: string;
-  /** React Query key used for command polling/cache. Defaults to [`navigate-command`]. */
   commandQueryKey?: QueryKey;
-  /** Request source tag for `useDbSync({ ignoreSource })` jitter prevention. */
   requestSource?: string;
-  /**
-   * Poll interval for command reads.
-   * Defaults to 15 000 ms — a safety-net fallback for agents that bypass the
-   * useDbSync event path. useDbSync already invalidates `navigate-command` on
-   * app-state writes in real time, so the fallback only fires when the SSE/poll
-   * connection is unavailable. Pass false to disable polling entirely.
-   */
   commandRefetchInterval?: number | false;
-  /** Disable both navigation writes and command reads. */
   enabled?: boolean;
-  /** Navigation writes use keepalive by default because they often fire during unload. */
   keepalive?: boolean;
-  /** Debounce navigation writes. Defaults to 0ms. */
   writeDebounceMs?: number;
-  /** Custom duplicate-command key. Defaults to `_writeId` or JSON content. */
   getCommandDedupKey?: (command: NavigateCommand) => string;
-  /** Called once for each non-duplicate command after the command is consumed. */
   onCommand: (command: NavigateCommand) => void | Promise<void>;
-  /** Optional sink for best-effort navigation write/read/delete/command errors. */
   onError?: (error: unknown) => void;
 }
 
@@ -94,61 +71,25 @@ export interface UseAgentRouteStateOptions<
   NavigationState,
   NavigateCommand = NavigationState,
 > {
-  /**
-   * Derive compact, semantic screen state from the current React Router URL.
-   * The framework separately exposes raw `pathname`, `search`, and parsed
-   * `searchParams` through `<current-url>`.
-   */
   getNavigationState: (
     location: AgentRouteLocation,
   ) => NavigationState | null | undefined;
-  /**
-   * Convert an agent-authored one-shot command into an app-local React Router
-   * path. Return null to consume and ignore malformed or unsupported commands.
-   */
   getCommandPath: (command: NavigateCommand) => string | null | undefined;
-  /** Application-state key the UI writes. Defaults to `navigation`. */
   navigationKey?: string;
-  /** Application-state key the agent writes for one-shot navigation. */
   commandKey?: string;
-  /** Current browser tab id. Enables tab-scoped reads/writes. */
   browserTabId?: string;
-  /** Request source tag for `useDbSync({ ignoreSource })` jitter prevention. */
   requestSource?: string;
-  /**
-   * Also write the unscoped navigation key when browserTabId is present.
-   * Defaults to false so another tab cannot observe this tab's screen.
-   */
   writeGlobalNavigation?: boolean;
-  /**
-   * Fall back to the unscoped command key when no tab-scoped command exists.
-   * Defaults to false so another tab cannot consume this tab's command.
-   */
   readGlobalCommandFallback?: boolean;
-  /** React Query key used for command polling/cache. */
   commandQueryKey?: QueryKey;
-  /**
-   * Poll interval for command reads.
-   * Defaults to 15 000 ms — a safety-net fallback; useDbSync real-time events
-   * cover the common case. Pass false to disable polling.
-   */
   refetchInterval?: number | false;
-  /** Disable both navigation writes and command reads. */
   enabled?: boolean;
-  /** Navigation writes use keepalive by default because they often fire during unload. */
   keepalive?: boolean;
-  /** Debounce navigation writes. Defaults to 0ms. */
   writeDebounceMs?: number;
-  /** Custom duplicate-command key. Defaults to `_writeId` or JSON content. */
   getCommandDedupKey?: (command: NavigateCommand) => string;
-  /** React Router navigate options, or a function of the consumed command. */
   navigateOptions?:
     | NavigateOptions
     | ((command: NavigateCommand) => NavigateOptions | undefined);
-  /**
-   * Wrap agent-authored route commands in the shared chat view transition.
-   * Use this when a page-level chat surface should morph into AgentSidebar.
-   */
   agentChatViewTransition?:
     | boolean
     | AgentChatViewTransitionOptions
@@ -156,9 +97,7 @@ export interface UseAgentRouteStateOptions<
         command: NavigateCommand,
         path: string,
       ) => boolean | AgentChatViewTransitionOptions | undefined);
-  /** Called after a command is consumed and before React Router navigation. */
   onNavigate?: (command: NavigateCommand, path: string) => void;
-  /** Optional sink for best-effort navigation write/read/delete errors. */
   onError?: (error: unknown) => void;
 }
 
@@ -275,11 +214,6 @@ function resolveAgentChatViewTransitionOption<NavigateCommand>(
   return resolved;
 }
 
-/**
- * Keeps semantic UI state agent-visible and consumes agent-authored one-shot
- * commands. This is the framework primitive behind route/navigation sync; it
- * intentionally knows nothing about app-specific route shapes.
- */
 export function useSemanticNavigationState<
   NavigationState,
   NavigateCommand = NavigationState,
@@ -435,14 +369,6 @@ export function useSemanticNavigationState<
   };
 }
 
-/**
- * React Router convenience wrapper around `useSemanticNavigationState`.
- *
- * Use URL query params as the source of truth for shareable filters. This hook
- * writes semantic aliases and stable IDs to `navigation`; the framework's
- * built-in URL sync separately exposes raw `pathname`, `search`, and
- * `searchParams` through `<current-url>` and the `set-search-params` tool.
- */
 export function useAgentRouteState<
   NavigationState,
   NavigateCommand = NavigationState,
@@ -499,11 +425,6 @@ export function useAgentRouteState<
     () => routeLocationFromReactRouter(location),
     [location],
   );
-  // Callers may include app-local state in this callback in addition to the
-  // router location. Derive on every render so those values are not frozen at
-  // the last route change, then retain the previous object when its shallow
-  // values are unchanged. This keeps the write-dedup serialization off the
-  // unrelated-render path without hiding captured state updates.
   const derivedNavigationState =
     options.getNavigationState(routeLocation) ?? null;
   const navigationStateRef = useRef<NavigationState | null>(

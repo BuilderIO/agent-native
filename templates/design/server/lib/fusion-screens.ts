@@ -1,21 +1,3 @@
-/**
- * fusion-screens — shared upsert logic for URL-backed screens on fusion
- * (full-app) designs.
- *
- * Fusion screens are iframes of the app's container dev-server preview URL,
- * the same rendering model as localhost screens (see `add-localhost-screens`)
- * but keyed off `fusionApp.previewUrl` instead of a localhost connection.
- * `screenMetadata[fileId]` is the single source the canvas reads to resolve
- * source/previewUrl/dimensions (see `resolveScreenMetadata` in
- * `MultiScreenCanvas.tsx`) — no parallel `fusionScreens` map is needed the way
- * `localhostScreens` exists for localhost (that map is only consulted by the
- * loopback-public-access heuristic in `server/db/index.ts`, which does not
- * apply to fusion designs).
- *
- * Both `sync-fusion-app` and `add-fusion-screens` call `upsertFusionScreens`
- * so the design_files + designs.data writes never diverge.
- */
-
 import {
   hasCollabState,
   applyText,
@@ -35,7 +17,6 @@ import { mutateDesignData } from "./design-data-mutation.js";
 
 const PATH_BASE_PLACEHOLDER = "http://fusion-screen-base.invalid";
 
-/** Default iframe viewport, mirroring add-localhost-screens' defaults. */
 export const DEFAULT_FUSION_SCREEN_WIDTH = 1280;
 export const DEFAULT_FUSION_SCREEN_HEIGHT = 900;
 
@@ -82,11 +63,6 @@ function uniqueFilename(path: string, used: Set<string>): string {
   return filename;
 }
 
-/**
- * Create or refresh URL-backed screens pointing at `<previewUrl><path>` for a
- * fusion-backed design. Read-modify-write on `designs.data`: preserves every
- * other key (canvasFrames for non-fusion screens, tweaks, etc.).
- */
 export async function upsertFusionScreens(args: {
   designId: string;
   previewUrl: string;
@@ -132,9 +108,6 @@ export async function upsertFusionScreens(args: {
 
   const results: FusionScreenResult[] = [];
 
-  // The base may carry a path prefix (the builder-host preview proxy), so route
-  // paths join onto it rather than resolve against it: `new URL("/", base)`
-  // would drop the prefix and point at the origin root.
   const originRelativeBase = previewUrl.startsWith("/");
   const baseWithSlash = previewUrl.endsWith("/")
     ? previewUrl
@@ -252,8 +225,6 @@ export async function upsertFusionScreens(args: {
         ? { ...current.screenMetadata }
         : {};
       for (const screen of results) {
-        // Preserve user-adjusted title/dimensions on refresh; only URL-backed
-        // source fields track the current container preview.
         const candidate = metadata[screen.fileId];
         const previous: Record<string, unknown> = isRecord(candidate)
           ? candidate

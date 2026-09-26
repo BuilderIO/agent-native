@@ -1,11 +1,3 @@
-/**
- * Decode a `.fig` into editable frames. Isomorphic on purpose: the decoder and
- * the kiwi walker no longer need Node, so this runs in the browser too, and a
- * `.fig` decoded there never has to be uploaded past Netlify's ~6MB request
- * cap. The two things that DO differ between a server and a browser -- where an
- * image is stored and how a document is wrapped -- are injected.
- */
-
 import {
   assertSafeDecodedFigDocument,
   decodeFig,
@@ -27,7 +19,6 @@ const MAX_FIG_NODES = 75_000;
 const MAX_FIG_IMAGES = 1_024;
 const MAX_FIG_FRAMES = 300;
 const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
-/** The browser action transport accepts smaller per-frame payloads. */
 export const MAX_FIG_FRAME_HTML_BYTES = 2 * 1024 * 1024;
 const MAX_TOTAL_HTML_BYTES = 24 * 1024 * 1024;
 const MAX_EMBEDDED_IMAGE_BYTES = 64 * 1024 * 1024;
@@ -70,12 +61,6 @@ export interface FigImportSummary {
   frames: FigImportFrameSummary[];
 }
 
-/**
- * Stores one image and returns where it landed, or null when storage is
- * unavailable. Injected rather than imported so this module stays isomorphic:
- * the server passes core's `uploadFile`, the browser passes a call to the
- * `upload-image` action.
- */
 export type ImageUploader = (input: {
   data: Uint8Array;
   filename: string;
@@ -89,7 +74,6 @@ export type ImageUploader = (input: {
   finalize?: () => Promise<boolean>;
 } | null>;
 
-/** Wraps a frame's HTML into a standalone document. */
 export type HtmlNormalizer = (content: string, sourceLabel: string) => string;
 
 function mimeTypeForImage(image: DecodedFigImage): string {
@@ -294,10 +278,6 @@ export function assertEmbeddedImageBudget(images: DecodedFigImage[]): void {
   }
 }
 
-/**
- * A frame rendered with placeholder image URLs. Plain data, like the rest of
- * {@link RenderedFigImport}, so the render can run in a Worker.
- */
 export interface RenderedFigImportFrame {
   html: string;
   htmlBytes: number;
@@ -306,7 +286,6 @@ export interface RenderedFigImportFrame {
   frameName: string;
   width?: number;
   height?: number;
-  /** Canvas position of the frame's bounding box, in the same space as width/height. */
   x?: number;
   y?: number;
 }
@@ -320,18 +299,10 @@ export interface RenderedFigImport {
   approximatedNodeCount: number;
   unresolvedImageRefCount: number;
   frames: RenderedFigImportFrame[];
-  /** Every frame image URL starts with this until {@link completeFigImport}. */
   imagePlaceholderPrefix: string;
-  /** The images to store, each with the placeholder its uploaded URL replaces. */
   images: Array<DecodedFigImage & { placeholder: string }>;
 }
 
-/**
- * An uploaded URL exactly as the renderer writes it inside `style="…"`:
- * `imageRefUrl()` resolves it, `paintToBackground()` escapes `'`, then
- * `escapeHtmlAttr()` runs over the whole style. Substituting anything else
- * would make the one-pass render differ from rendering with the real URLs.
- */
 function imageUrlInStyleAttr(url: string): string {
   return imageRefUrl(url)
     .replace(/'/g, "%27")
@@ -345,14 +316,6 @@ function placeholderPattern(prefix: string): RegExp {
   return new RegExp(`${prefix.replace(/[.]/g, "\\.")}\\d+\\.img`, "g");
 }
 
-/**
- * Render the frames once, with each embedded image at a unique placeholder
- * URL. The placeholders tell which images the frames use. The byte budgets are
- * checked here with every image URL counted as empty, so nothing is uploaded
- * for an import that could never fit; {@link completeFigImport} checks them
- * again with the real URLs. Counting the longest URL an upload may return
- * instead rejects image-heavy frames whose real HTML fits easily.
- */
 export function renderFigImport(
   decoded: DecodedFig,
   options: { maxFrameHtmlBytes?: number; selection?: ReadonlySet<string> } = {},
@@ -369,20 +332,12 @@ export function renderFigImport(
     options.selection && options.selection.size > 0
       ? new Set(options.selection)
       : undefined;
-  // The nonce keeps document text that happens to look like a placeholder
-  // from being treated as one.
   const imagePlaceholderPrefix = `https://fig-image.invalid/${Math.random()
     .toString(36)
     .slice(2)}/`;
   const placeholders = decoded.images.map(
     (_, index) => `${imagePlaceholderPrefix}${index}.img`,
   );
-  // Sized from the BYTES, here, while we still hold them. The renderer used to
-  // read intrinsic size back out of the fill's URL, which only ever matched a
-  // `data:` URL — and every production caller passes an uploaded https URL, so
-  // TILE sizing and nearest-neighbour magnification were dead outside the
-  // measurement harness. An undecodable container (WebP, GIF) stays absent,
-  // which the renderer reads as "cannot tell" rather than as a size.
   const imageSizes = new Map<string, { width: number; height: number }>();
   for (const image of decoded.images) {
     const size = imageSizeFromUnknownBytes(image.bytes);
@@ -440,15 +395,12 @@ export function renderFigImport(
     unresolvedImageRefCount: rendered.unresolvedImageRefs?.size ?? 0,
     frames,
     imagePlaceholderPrefix,
-    // A selection stores only what its frames use; a whole-file import keeps
-    // storing every embedded image.
     images: decoded.images
       .map((image, index) => ({ ...image, placeholder: placeholders[index]! }))
       .filter((image) => !selection || referenced.has(image.placeholder)),
   };
 }
 
-/** Store a render's images, then swap their URLs in and build the files. */
 export async function completeFigImport(
   rendered: RenderedFigImport,
   options: {

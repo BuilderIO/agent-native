@@ -138,12 +138,6 @@ export function isMcpEmbedCorsOrigin(
   );
 }
 
-/**
- * Origins allowed to read the one-time embed location returned by a browser
- * transplant request. Builder and localhost origins may use the broader MCP
- * CORS surface, but must not receive a reusable session location unless they
- * are explicitly configured through CORS_ALLOWED_ORIGINS.
- */
 export function isMcpEmbedTransplantOrigin(
   origin: string | null | undefined,
 ): boolean {
@@ -160,10 +154,6 @@ export function shouldAllowMcpEmbedCredentials(
 ): boolean {
   if (!origin || origin === "null") return false;
 
-  // Credentialed CORS is an explicit deployment decision. MCP product,
-  // Builder, localhost, and arbitrary origins use bearer/embed credentials;
-  // only the configured browser allowlist and the framework's exact native
-  // app origins may receive cookies.
   if (
     TRUSTED_NATIVE_APP_ORIGIN_RE.test(origin) ||
     isExplicitCorsAllowedOrigin(origin)
@@ -171,10 +161,6 @@ export function shouldAllowMcpEmbedCredentials(
     return true;
   }
 
-  // Dev only: the desktop renderer runs on its own localhost port
-  // (http://localhost:1420 for Tauri) and calls the dev server with
-  // `credentials: "include"`. Production keeps the rule above — a deployed
-  // app must never hand cookies to an arbitrary process on the user's machine.
   return (
     process.env.NODE_ENV === "development" && isLocalMcpEmbedOrigin(origin)
   );

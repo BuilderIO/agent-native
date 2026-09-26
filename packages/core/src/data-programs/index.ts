@@ -1,9 +1,3 @@
-/**
- * Data programs: a named, stored, agent-authored JS script executed
- * server-side through the existing run-code sandbox, cached in SQL, and
- * rendered by dashboard panels via a `"program"` source.
- */
-
 export {
   dataPrograms,
   dataProgramShares,

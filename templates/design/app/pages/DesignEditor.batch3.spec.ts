@@ -60,10 +60,6 @@ describe("CANVAS_TEXT_DEFAULT_FONT_FAMILY (item 2)", () => {
 
 describe("shouldReplacePreviewAfterVisualStyleCommit (item 5 — edit-flash)", () => {
   it("attempts the full-content preview replace when neither runtime path applied", () => {
-    // This is exactly the breakpoint-scoped case after the item-5 fix:
-    // runtimeStyleApplied is forced false at the call site whenever a
-    // breakpoint is active, since sendStyleChange can only patch inline
-    // styles and would otherwise out-rank the persisted `@media` rule.
     expect(
       shouldReplacePreviewAfterVisualStyleCommit({
         runtimeApplied: undefined,
@@ -73,10 +69,6 @@ describe("shouldReplacePreviewAfterVisualStyleCommit (item 5 — edit-flash)", (
   });
 
   it("skips the full-content replace when the cheap runtime style patch already applied", () => {
-    // Base-scope (no active breakpoint) EditPanel commits: sendStyleChange
-    // already patched the live element's inline style, which IS the
-    // persisted result for a base edit, so no further preview replace is
-    // needed (and none should be attempted — that's the zero-reload path).
     expect(
       shouldReplacePreviewAfterVisualStyleCommit({
         runtimeApplied: undefined,

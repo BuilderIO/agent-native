@@ -3,9 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
-// Real in-memory PGlite behind getDbExec so recordUsage writes and
-// listAppUsageMetrics reads exercise the genuine SQL scoping, which is where
-// the "0 usage despite heavy activity" bug lived.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
@@ -72,8 +69,6 @@ const CHAT_THREADS_SQL = `CREATE TABLE IF NOT EXISTS chat_threads (
 )`;
 
 beforeEach(async () => {
-  // recordUsage derives its primary key from Date.now()*1000 + random(0..999),
-  // which collides inside a tight loop. Make it monotonic for the test only.
   let randomCursor = 0;
   vi.spyOn(Math, "random").mockImplementation(() => {
     randomCursor = (randomCursor + 1) % 1000;
@@ -88,8 +83,6 @@ beforeEach(async () => {
     ["org-1", "a@example.com", "owner"],
     ["org-1", "admin@example.com", "admin"],
     ["org-1", "peer@example.com", "member"],
-    // `peer@example.com` also belongs to org-2, so their unattributed rows
-    // cannot be shown to belong to org-1.
     ["org-2", "peer@example.com", "member"],
   ] as const) {
     await pglite
@@ -456,10 +449,6 @@ describe("listAppUsageMetrics organization scoping", () => {
   });
 
   it("counts usage recorded with no request organization context", async () => {
-    // recordUsage fills org_id from the active request context, so recurring
-    // jobs, automations, and every row written before that column started
-    // being populated land NULL. An `org_id = ?` read filter dropped all of
-    // it and the dashboard reported 0 spend / 0 calls / 0 tokens.
     await recordUsage({
       ownerEmail: "a@example.com",
       inputTokens: 400,
@@ -520,10 +509,6 @@ describe("listAppUsageMetrics organization scoping", () => {
 
 describe("listAppUsageMetrics workspace scope", () => {
   it("does not claim another member's unattributed usage for the workspace", async () => {
-    // org_id IS NULL means the organization is unknown, and `peer` belongs to
-    // org-1 and org-2. Admitting the row into an org-1 roll-up would report
-    // another organization's spend — and expose its prompt text — to an org-1
-    // admin.
     await recordUsage({
       ownerEmail: "peer@example.com",
       inputTokens: 5_000,
@@ -585,10 +570,6 @@ describe("listAppUsageMetrics workspace scope", () => {
 
 describe("listAppUsageMetrics self-scope classification", () => {
   it("counts a solo owner's unattributed usage in the default workspace view", async () => {
-    // A one-member organization selects no user, so `selectedUserEmail` is
-    // null — but the effective owner list is still exactly the viewer, which
-    // makes the read self-scoped. Classifying it as a roll-up kept a solo
-    // user's own unattributed spend hidden, which is the original bug.
     await pglite.exec(`DELETE FROM org_members`);
     await pglite
       .prepare(`INSERT INTO org_members (org_id, email, role) VALUES (?, ?, ?)`)

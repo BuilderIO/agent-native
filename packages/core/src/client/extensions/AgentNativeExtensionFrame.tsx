@@ -56,25 +56,16 @@ export interface AgentNativeExtensionFrameProps extends Omit<
   "src" | "srcDoc"
 > {
   extension: AgentNativeExtensionDefinition;
-  /** Stable slot identifier, for example `customer-detail.sidebar`. */
   slotId?: string;
-  /** Context pushed into `window.slotContext` and merged into host context. */
   context?: Record<string, unknown> | null;
-  /** Live actions exposed to the extension through `appAction()` and `agentNative.action()`. */
   actions?: AgentNativeClientActions;
-  /** Page/app context exposed through `agentNative.context()`. */
   getContext?: AgentNativeHostContextGetter;
-  /** Host commands exposed through `agentNative.command()` and `agentNative.refresh()`. */
   commands?: AgentNativeHostCommandHandlers;
-  /** Host-enforced action allowlist. Defaults to extension manifest requestedActions. */
   allowedActions?: AgentNativeExtensionPermissionList;
-  /** Host-enforced command allowlist. Defaults to extension manifest requestedCommands. */
   allowedCommands?: AgentNativeExtensionPermissionList;
   auth?: AgentNativeHostAuth;
   session?: string | Partial<AgentNativeHostSession>;
-  /** Storage adapter used by `extensionData.*`. Defaults to browser localStorage. */
   storage?: AgentNativeExtensionStorage | false;
-  /** Host-enforced storage scope allowlist. Defaults to extension manifest storageScopes. */
   allowedStorageScopes?: AgentNativeExtensionStorageScopeList;
   storageNamespace?: string;
   storageContext?: Omit<

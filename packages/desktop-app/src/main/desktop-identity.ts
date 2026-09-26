@@ -20,9 +20,6 @@ export const DESKTOP_IDENTITY_COMPLETE_PATH =
   "/_agent-native/identity/desktop-complete";
 
 const DESKTOP_IDENTITY_LOGIN_PATH = "/_agent-native/identity/login";
-// Dispatch is the identity authority, not an SSO client. Its identity login
-// route intentionally returns 404 to prevent self-federation, so the parent
-// ceremony must use the ordinary login document while child apps use SSO.
 const DESKTOP_IDENTITY_AUTHORITY_LOGIN_PATH = "/login";
 const DESKTOP_IDENTITY_AUTHORIZE_PATH = "/_agent-native/identity/authorize";
 const DESKTOP_IDENTITY_CALLBACK_PATH = "/_agent-native/identity/callback";
@@ -41,8 +38,6 @@ const GOOGLE_IDENTITY_WINDOW_CLOSE_GRACE_MS = 5_000;
 const DISPATCH_WORKSPACE_EMBED_ACTION =
   "/_agent-native/actions/create-workspace-app-embed-session";
 const DESKTOP_IDENTITY_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
-// Every app tab mints its own embed session on launch; without a cap the
-// hosted endpoint sees them all at once and starts returning 429s.
 const APP_SESSION_MINT_CONCURRENCY = 3;
 const APP_SESSION_MINT_MAX_ATTEMPTS = 3;
 const APP_SESSION_MINT_MAX_RETRY_DELAY_MS = 5_000;
@@ -297,9 +292,7 @@ interface DesktopIdentityWindow {
 
 export interface DesktopIdentityBrokerOptions {
   identitySession: Session;
-  /** Keeps the hosted callback on the native desktop handoff path. */
   userAgent?: string;
-  /** Opens provider verification in the user's system browser. */
   openExternal?: (url: string) => void | Promise<void>;
   isAvailable?: (
     authorityApp: DesktopIdentityApp,
@@ -537,9 +530,6 @@ export class DesktopIdentityBroker {
   private readonly externalSignOutWaiters = new Set<() => void>();
   private readonly internalRevocationNonce =
     randomBytes(16).toString("base64url");
-  // Bounded across every appId, unlike pendingModernAppSessions above (which
-  // only dedupes concurrent calls for the *same* app) — this is what keeps a
-  // launch-time fan-out of distinct app tabs from minting all at once.
   private appSessionMintSlotsAvailable = APP_SESSION_MINT_CONCURRENCY;
   private readonly appSessionMintWaiters: Array<() => void> = [];
   private status: DesktopIdentityStatus = "idle";
@@ -594,12 +584,6 @@ export class DesktopIdentityBroker {
   }
 
   async refreshStatus(authorityApp: DesktopIdentityApp | null): Promise<void> {
-    // A verified workspace session is the source of truth for the desktop
-    // shell. App tabs must not turn a normal navigation into another remote
-    // session check or strand the user behind a loading gate. Revalidate on a
-    // bounded interval so external expiry or revocation is still observed.
-    // Sign-out is a ceremony boundary: do not let the signed-in fast path
-    // make a tab activation look healthy while session revocation is running.
     if (this.signOutOperation) return;
     if (
       this.status === "signed-in" &&
@@ -629,11 +613,6 @@ export class DesktopIdentityBroker {
         !this.signOutOperation &&
         verifiedEmail
       ) {
-        // The hosted login may finish in the identity window or system
-        // browser before its original ceremony callback is observed by the
-        // shell. A verified parent session is enough to recover the broker;
-        // advancing the generation also cancels the stale poll without
-        // replacing a deliberate account switch with an unverified cookie.
         this.ceremonyGeneration += 1;
         this.completedModernAppSessions.clear();
         this.reloadedModernAppSessions.clear();
@@ -679,10 +658,6 @@ export class DesktopIdentityBroker {
     try {
       verifiedEmail = await this.verifyIdentitySession(authorityApp);
     } catch (error) {
-      // A transient network, server, timeout, or session-partition read
-      // failure must not turn a verified workspace into a sign-in screen. An
-      // authoritative missing-session response still returns null below and
-      // correctly requires sign-in.
       console.warn("[desktop identity] session status refresh failed", {
         reason: error instanceof Error ? error.message : "unknown error",
       });
@@ -694,9 +669,6 @@ export class DesktopIdentityBroker {
         return;
       }
       if (observedStatus === "signed-in") {
-        // Preserve the verified session through a transient outage, but
-        // bound retries so every tab activation does not start another remote
-        // request while the authority is unavailable.
         this.statusRevalidationRetryAt = Date.now();
       } else this.setStatus("sign-in-required");
       return;
@@ -711,16 +683,10 @@ export class DesktopIdentityBroker {
     this.setStatus(verifiedEmail ? "signed-in" : "sign-in-required");
   }
 
-  /**
-   * Whether child app sessions are still being minted. The first-run fan-out
-   * is deliberately serial because concurrent hosted-origin session work
-   * produces opaque 500s, so background work must wait it out.
-   */
   hasPendingAppSessionWork(): boolean {
     return this.pendingModernAppSessions.size > 0;
   }
 
-  /** Verified signed-in email, or null when no session has been verified. */
   getVerifiedEmail(): string | null {
     return this.verifiedIdentityEmail;
   }
@@ -787,11 +753,6 @@ export class DesktopIdentityBroker {
     return operation;
   }
 
-  /**
-   * Synchronize one newly opened eligible app after the workspace is already
-   * signed in. This stays in the main process and is intentionally a no-op
-   * while the broker is unavailable or signed out.
-   */
   ensureAppSession(
     appId: string,
     options: DesktopIdentityEnsureAppSessionOptions = {},
@@ -818,8 +779,6 @@ export class DesktopIdentityBroker {
           skipIfPresent: true,
           verifyExistingSession: true,
           preserveExistingSession: options.preserveExistingSession,
-          // Lazy child synchronization is scoped to the requested WebView. Do
-          // not replace the workspace-level signed-in state while it runs.
           preserveStatus: true,
         });
     return operation;
@@ -881,8 +840,6 @@ export class DesktopIdentityBroker {
       return this.inspectCachedModernAppSession(app, expectedEmail).then(
         (sessionState) => {
           if (sessionState === "matching") return true;
-          // A transient session-check failure must not turn a known-good
-          // completed handoff into an unnecessary sign-in ceremony.
           if (sessionState === "unavailable") return false;
           this.completedModernAppSessions.delete(pendingKey);
           return this.ensureModernAppSessionDeduped(
@@ -988,10 +945,6 @@ export class DesktopIdentityBroker {
     this.unsupportedAppIds.delete(appId);
     const generation = this.ceremonyGeneration;
     const adoption = this.sessionAdoptionOperation;
-    // Google desktop OAuth is completed inside the isolated identity window.
-    // The initiating-browser binding is held by that window's session cookie;
-    // opening the authorization URL in the system browser would lose the
-    // binding and reintroduce login-CSRF token theft.
     const operation = this.options.openExternal
       ? this.runSecureGoogleSignIn(appId, generation)
       : adoption
@@ -1012,11 +965,6 @@ export class DesktopIdentityBroker {
     return operation;
   }
 
-  /**
-   * Start a parent magic-link exchange without opening a hosted login window.
-   * The request is acknowledged as soon as the email is queued; the broker
-   * keeps polling the one-time exchange until the system browser verifies it.
-   */
   requestMagicLink(
     request: DesktopIdentityMagicLinkRequest,
   ): Promise<DesktopIdentityMagicLinkResult> {
@@ -1232,10 +1180,6 @@ export class DesktopIdentityBroker {
         resolveWindowClosed = resolve;
         identityWindow!.on("closed", () => {
           if (closedByBroker) return;
-          // The hosted Google callback closes its OAuth window after it has
-          // stored the exchange record. Give the native poll a short grace
-          // period to redeem that record before treating a closed window as
-          // an abandoned sign-in.
           windowCloseTimer = setTimeout(
             () => resolveWindowClosed(false),
             GOOGLE_IDENTITY_WINDOW_CLOSE_GRACE_MS,
@@ -1329,11 +1273,6 @@ export class DesktopIdentityBroker {
     }
   }
 
-  /**
-   * Authenticate from the trusted Desktop parent surface without opening a
-   * second login page. Credentials are sent only from preload to this main
-   * process and over the identity session's HTTPS request to Dispatch.
-   */
   authenticateWithPassword(
     request: DesktopIdentityAuthRequest,
   ): Promise<DesktopIdentityAuthResult> {
@@ -1418,8 +1357,6 @@ export class DesktopIdentityBroker {
       if (available) {
         this.availability = "available";
       } else {
-        // This is an explicit parent-auth attempt. The availability probe is
-        // user-scoped, so an anonymous false result must not block login.
         this.availability = "unavailable";
       }
     }
@@ -1614,9 +1551,6 @@ export class DesktopIdentityBroker {
     }
 
     const remaining = orderedApps.filter((app) => app.id !== firstApp.id);
-    // Each child mint makes Dispatch open a separate outbound MCP session.
-    // Keep first-run fan-out serial so serverless connection resets cannot turn
-    // a valid parent session into a batch of opaque 500 responses.
     let resolveRequested: (succeeded: boolean) => void = () => {};
     const requestedResult = new Promise<boolean>((resolve) => {
       resolveRequested = resolve;
@@ -1734,22 +1668,12 @@ export class DesktopIdentityBroker {
   private releaseAppSessionMintSlot(): void {
     const next = this.appSessionMintWaiters.shift();
     if (next) {
-      // Hand the slot straight to the next waiter instead of incrementing
-      // and letting it race a fresh acquireAppSessionMintSlot() call.
       next();
       return;
     }
     this.appSessionMintSlotsAvailable += 1;
   }
 
-  /**
-   * Mint the child embed session, honoring 429s from the hosted endpoint
-   * with retry-after/backoff. Concurrency is capped across all appIds by
-   * the mint slot semaphore so a launch-time fan-out of tabs queues instead
-   * of firing every mint at once. Returns null once retries are exhausted
-   * (rate limited) or the ceremony moved on mid-retry — distinct from a
-   * thrown error, which the caller's catch block still logs separately.
-   */
   private async fetchWorkspaceEmbedStartWithRetry(
     app: DesktopIdentityApp,
     startUrl: string,
@@ -1808,9 +1732,6 @@ export class DesktopIdentityBroker {
       expectedEmail ?? (await this.verifyIdentitySession(authority));
     if (!identityEmail) return false;
 
-    // Status notifications can arrive again after the child reloads. Keep a
-    // matching session in place instead of minting another one-time ticket
-    // and reloading the same WebView forever.
     if (await this.hasMatchingIdentitySession(app, identityEmail)) {
       await this.syncAlternateSessionCookies(app);
       // The OAuth callback can install the child cookie before its WebView is
@@ -1958,9 +1879,6 @@ export class DesktopIdentityBroker {
       cookieHeader &&
       (response.status === 401 || payload?.error === "Not authenticated")
     ) {
-      // Electron's isolated Session transport can reject a valid parent
-      // cookie on this POST even though the same request succeeds through
-      // the main-process fetch. Keep the explicit cookie boundary intact.
       response = await fetch(requestUrl, {
         ...requestInit,
         signal: AbortSignal.timeout(
@@ -2076,10 +1994,6 @@ export class DesktopIdentityBroker {
       return false;
     }
 
-    // Anonymous availability is intentionally allowed to be false so a
-    // user-scoped rollout can still show the parent sign-in surface. Once the
-    // authority session exists, evaluate the same endpoint again with that
-    // session before minting any child sessions.
     if (this.options.isAvailable) {
       let availableForSession = false;
       try {
@@ -2124,9 +2038,6 @@ export class DesktopIdentityBroker {
       }
     };
 
-    // The requested app is ordered first so the sign-in UI can finish as soon
-    // as its session is usable. The remaining apps are adopted one at a time
-    // so a sign-in does not fan out concurrent hosted-session mints.
     const requestedChild = remaining[0]?.id === appId ? remaining[0] : null;
     let requestedSucceeded = firstApp.id === appId;
     if (requestedChild) {
@@ -2254,9 +2165,6 @@ export class DesktopIdentityBroker {
         return false;
       }
       if (currentAuthorityEmail) {
-        // A child app session is not a credential for the Dispatch authority.
-        // Preserve an already-verified identity session instead of replacing
-        // it with a host-specific child cookie.
         identitySessionMatchesSource = true;
       } else if (!sourceApp.identityAuthority) {
         return false;
@@ -2335,9 +2243,6 @@ export class DesktopIdentityBroker {
 
       const apps = this.listIdentityApps(sourceApp, authority);
       const failedAppIds: string[] = [];
-      // Keep session adoption serial as well as sign-in fan-out. Each child
-      // request can mint a separate hosted session and parallel calls trigger
-      // provider rate limits before the parent session is useful.
       for (const app of apps.filter(
         (candidate) => candidate.id !== authority.id,
       )) {
@@ -2361,9 +2266,6 @@ export class DesktopIdentityBroker {
         if (!this.isCeremonyCurrent(generation)) return false;
       }
       if (failedAppIds.length > 0) {
-        // The verified source and authority sessions remain usable. A failed
-        // app is retried when its webview is opened instead of locking the
-        // whole workspace behind a second login.
         console.warn(
           "[desktop identity] automatic app session sync had failures",
           {
@@ -2576,9 +2478,6 @@ export class DesktopIdentityBroker {
         cookieHeader
       ) {
         try {
-          // Electron's isolated Session transport can return a successful
-          // unauthenticated body even when the exact cookie succeeds through
-          // the main-process fetch path.
           const fallbackResponse = await Promise.race([
             fetch(sessionUrl, {
               method: "GET",
@@ -2603,8 +2502,6 @@ export class DesktopIdentityBroker {
             body = fallbackBody;
           }
         } catch (error) {
-          // The primary session request remains authoritative when the
-          // fallback transport is unavailable.
           console.debug(
             "[desktop identity] session transport fallback unavailable",
             {
@@ -2617,14 +2514,6 @@ export class DesktopIdentityBroker {
         typeof body?.email === "string" && body.email.trim().length > 0
           ? body.email.trim()
           : null;
-      // Recorded here rather than at each signed-in transition: the
-      // interactive, legacy, and adoption fan-outs all verify through this
-      // method, and threading the email through every one of them is how a
-      // path gets missed and `auto` silently resolves to production.
-      //
-      // Only for a still-current ceremony: a response that lands after
-      // sign-out or an account switch would otherwise restore the previous
-      // account's email and route the next account onto its lane.
       if (verified && this.isCeremonyCurrent(requestGeneration)) {
         this.verifiedIdentityEmail = verified;
       }
@@ -2988,15 +2877,8 @@ export class DesktopIdentityBroker {
       return;
     }
 
-    // The alternate lane is a compatibility copy, not the source of truth.
-    // Copy it once per identity generation. Re-reading or comparing the
-    // alternate jar on every child-session check can itself create a reload
-    // loop while the hosted session rotates its cookie value.
     if (this.synchronizedAlternateSessionCookies.has(syncKey)) return;
 
-    // Claim the key before the first async cookie operation. Multiple child
-    // session checks can arrive in the same turn, and claiming after the
-    // writes lets every caller pass the guard and reload the alternate lane.
     this.synchronizedAlternateSessionCookies.add(syncKey);
 
     try {
@@ -3066,9 +2948,6 @@ export class DesktopIdentityBroker {
 
   private async hasMatchingIdentitySession(
     app: DesktopIdentityApp,
-    // The caller usually verified the authority moments ago; re-verifying it
-    // here made the already-signed-in path pay for the same round trip twice
-    // before the WebView was allowed to load anything.
     expectedIdentityEmail?: string,
   ): Promise<boolean> {
     const authority = this.resolveIdentityAuthority();
@@ -3142,11 +3021,6 @@ export class DesktopIdentityBroker {
         );
       }
 
-      // A 5xx here is the gateway/runtime in front of our own route failing
-      // (cold start, transient Lambda/DB blip) — the exchange handler itself
-      // only ever answers 200/400/403. Treat it like "pending" and keep
-      // polling instead of aborting the whole sign-in ceremony on one
-      // transient hiccup during the multi-minute polling window.
       if (response.status >= 500) {
         await this.waitForCookiePoll(
           Math.min(
@@ -3190,9 +3064,6 @@ export class DesktopIdentityBroker {
         typeof payload.token === "string" ? payload.token.trim() : "";
       if (token) {
         this.assertCeremonyActive(generation, signal);
-        // The exchange response intentionally returns the one-time credential
-        // to the native shell. Store it only in the isolated identity session;
-        // copyTargetSession then moves it into the target app partition.
         for (const cookieName of authorityApp.cookieNames) {
           this.assertCeremonyActive(generation, signal);
           await this.options.identitySession.cookies.set({
@@ -3404,10 +3275,6 @@ export class DesktopIdentityBroker {
         const flowId = extractDesktopOAuthFlowId(navigationUrl);
         if (!flowId) return;
         const verifier = extractDesktopOAuthVerifier(navigationUrl);
-        // Google OAuth keeps its verifier in the page's HttpOnly-cookie-bound
-        // flow and sends it in the exchange request header. The page owns that
-        // poll; the native ceremony only polls legacy magic-link callbacks,
-        // which still carry their verifier in the callback URL.
         if (!verifier) return;
         desktopExchangeStarted = true;
         void this.pollDesktopOAuthExchange(
@@ -3511,9 +3378,6 @@ export class DesktopIdentityBroker {
         finish(false, "failed"),
       );
       identityWindow.on("closed", () => {
-        // The hosted desktop callback page closes itself after it has claimed
-        // the browser session. Keep the broker alive until its one-time
-        // exchange poll copies that session into the target app.
         if (desktopExchangeStarted && !completionStarted) return;
         finish(false, "sign-in-required");
       });
@@ -3634,10 +3498,6 @@ export class DesktopIdentityBroker {
     });
     try {
       return await Promise.race([
-        // Partitioned cookies can be omitted by Chromium when the filter
-        // includes a URL but the current network partition is not supplied.
-        // Read the identity partition, then keep only the target app's
-        // allow-listed names in copyTargetSession.
         this.options.identitySession.cookies.get({}),
         stopped,
       ]);
@@ -3700,8 +3560,6 @@ export class DesktopIdentityBroker {
     try {
       this.options.reloadApp(app);
     } catch (error) {
-      // Session transfer succeeded even when an old webview was destroyed
-      // during reload; never strand the broker before its completion signal.
       console.warn(
         "[desktop-identity] app reload after session transfer failed",
         {
@@ -3782,14 +3640,6 @@ export class DesktopIdentityBroker {
   }
 
   private setStatus(status: DesktopIdentityStatus): void {
-    // Captured before the assignment below: only a real transition may be
-    // announced. Every listener treats this as an edge — the renderer reloads
-    // its workspace app list and environment lane, and that lane read calls
-    // back into refreshStatus(), which lands here again. Re-announcing an
-    // unchanged status closes that into a main<->renderer loop that re-warms
-    // app origins and rebuilds the menu at round-trip speed. The bookkeeping
-    // below still runs every time, so `statusVerifiedAt` keeps refreshing and
-    // the signed-in freshness check is unaffected.
     const changed = status !== this.status;
     if (
       status === "signing-in" ||

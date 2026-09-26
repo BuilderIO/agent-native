@@ -1,39 +1,3 @@
-/**
- * `agent-native recap` — the helper surface used by the PR Visual Recap GitHub
- * Action. Run `agent-native recap help` for the full subcommand list.
- *
- * The action no longer generates the recap deterministically. Instead a coding
- * agent (Claude Code or Codex) RUNS THE REPO'S visual-recap skill against the
- * diff and publishes the plan via the plan MCP tools. These subcommands are the
- * thin, deterministic glue around that:
- *
- *   gate          The security boundary: decide whether the recap runs at all
- *                 (skipping drafts, forks without secret access, bots, missing
- *                 secrets, an invalid agent/model, and untrusted PRs that touch
- *                 recap-control files) and which normalized backend agent to use.
- *   collect-diff  Collect the bounded base...head diff (excluding lockfiles,
- *                 build output, snapshots), cap it at ~600KB, and classify the
- *                 huge/tiny flags.
- *   scan          Refuse to hand a secret-leaking diff to the agent.
- *   block-reference
- *                 Fetch the live get-plan-blocks reference for the target app.
- *   build-prompt  Assemble the agent prompt = latest visual-recap skill bundle
- *                 + a task wrapper (or repo-pinned skill with --skill-source).
- *   publish       Publish the agent-authored recap-source.json over HTTP.
- *   shot          Screenshot the published plan and upload it to the plan app's
- *                 signed public image route (for an inline PR-comment image).
- *   usage         Parse and emit agent token-usage/cost from stdout.
- *   comment       Find the previous plan id / upsert the sticky PR comment.
- *   check         Evaluate the recap result and set a GitHub commit status.
- *   setup         Install the PR Visual Recap GitHub Action workflow.
- *   doctor        Diagnose missing secrets / misconfigured workflow.
- *
- * Promoting these to the published CLI means an installed repo's workflow calls
- * `agent-native recap …` instead of copying helper scripts into the repo.
- *
- * Node built-ins only (plus an optional dynamic `playwright` import for `shot`).
- */
-
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -52,10 +16,6 @@ import {
   RECAP_REFERENCE_FILES,
   VISUAL_RECAP_SKILL_MD,
 } from "./skill-content.js";
-
-/* -------------------------------------------------------------------------- */
-/* Arg parsing                                                                */
-/* -------------------------------------------------------------------------- */
 
 function parseArgs(argv: string[]): Record<string, string | boolean> {
   const out: Record<string, string | boolean> = {};
@@ -92,11 +52,6 @@ function optionalArg(
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/* -------------------------------------------------------------------------- */
-/* GitHub Action install (used by `skills add … --with-github-action`)        */
-/* -------------------------------------------------------------------------- */
-
-/** GitHub secrets the installed PR Visual Recap workflow needs. */
 export const PR_VISUAL_RECAP_SETUP: string[] = [
   "Required secrets:",
   "  PLAN_RECAP_TOKEN   — bearer token from `npx @agent-native/core@latest connect`",
@@ -114,20 +69,11 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
 ];
 
-/**
- * Result of attempting to write the PR Visual Recap workflow.
- *
- * - `written` — the file was written (new or forced overwrite).
- * - `skipped` — the file already exists and is identical; no-op.
- * - `refused` — the file already exists and differs; nothing was written.
- *   Caller should re-run with `--force` (or pass `force: true`) to overwrite.
- */
 export type WriteWorkflowResult =
   | { status: "written"; path: string; existed: boolean }
   | { status: "skipped"; path: string }
   | { status: "refused"; path: string; message: string };
 
-/** Write .github/workflows/pr-visual-recap.yml into a repo. */
 export function writePrVisualRecapWorkflow(
   baseDir: string,
   options: { force?: boolean } = {},
@@ -155,23 +101,6 @@ export function writePrVisualRecapWorkflow(
   return { status: "written", path: rel, existed: false };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Reusable-workflow installer                                                 */
-/* -------------------------------------------------------------------------- */
-
-/**
- * The thin caller workflow that consumers paste into their repo when using the
- * reusable variant.  It references the canonical reusable workflow in the
- * BuilderIO/agent-native repo rather than carrying a full copy.
- *
- * Callers must trigger on the same `pull_request` event types so that
- * `github.event.pull_request.*` expressions in the reusable workflow resolve
- * correctly (workflow_call inherits the caller's event context). The `labeled`
- * event lets required-label configurations run as soon as a maintainer opts in.
- *
- * @param options.cliVersion  Semver or tag to pin (default "main" / latest).
- * @param options.ref         Git ref to pin the reusable workflow to (default "@main").
- */
 export function buildReusableCallerWorkflow(
   options: {
     ref?: string;
@@ -249,10 +178,8 @@ export function buildReusableCallerWorkflow(
   );
 }
 
-/** File name for the reusable caller workflow. */
 const REUSABLE_CALLER_WORKFLOW_FILE = "pr-visual-recap.yml";
 
-/** Write the thin caller workflow that references the reusable workflow. */
 export function writePrVisualRecapReusableCallerWorkflow(
   baseDir: string,
   options: {
@@ -296,8 +223,6 @@ export function writePrVisualRecapReusableCallerWorkflow(
   return { status: "written", path: rel, existed: false };
 }
 
-// Narrow type used only where it's needed (avoids importing the full
-// RecapAgent type before it is defined below).
 type RecapAgentValue = "claude" | "codex" | "openai-compatible";
 
 export type RecapAgent = "claude" | "codex" | "openai-compatible";
@@ -622,7 +547,6 @@ export interface RecapRunsOnConfig {
   selfHosted: boolean;
 }
 
-/** Parse the JSON consumed by GitHub Actions `fromJSON(...)` for `runs-on`. */
 export function parseRecapRunsOn(value: string): RecapRunsOnConfig {
   let parsed: unknown;
   try {
@@ -678,7 +602,6 @@ export function parseRecapRunsOn(value: string): RecapRunsOnConfig {
   return { json: JSON.stringify(labels), labels, selfHosted: true };
 }
 
-/** Validate the plain label used directly by the gate job's `runs-on`. */
 export function parseRecapGateRunsOn(value: string): string {
   const label = value.trim();
   if (!/^[A-Za-z0-9._-]{1,100}$/.test(label)) {
@@ -853,7 +776,6 @@ function runSetup(args: Record<string, string | boolean>): void {
   const dryRun = flagArg(args, "dry-run");
   const force = flagArg(args, "force");
   const skipSecrets = flagArg(args, "skip-secrets");
-  // --reusable writes the thin caller workflow instead of the full copy.
   const reusable = flagArg(args, "reusable");
   const repo = resolveGithubRepo(optionalArg(args, "repo"));
   const plan = buildRecapSetupPlan({
@@ -1231,7 +1153,6 @@ function runDoctor(args: Record<string, string | boolean>): void {
  * contains harmless variable references like `var.webhook_token`.
  */
 const HIGH_CONFIDENCE_SECRET_PATTERNS: RegExp[] = [
-  // Common provider key prefixes.
   /\bsk-(?:proj-)?[A-Za-z0-9_-]{24,}\b/,
   /\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b/,
   /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/,
@@ -1242,17 +1163,12 @@ const HIGH_CONFIDENCE_SECRET_PATTERNS: RegExp[] = [
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bAIza[0-9A-Za-z_-]{20,}\b/,
-  // Bearer / Authorization header values with an actual token.
   /authorization\s*[:=]\s*['"]?bearer\s+[A-Za-z0-9._-]{20,}/i,
-  // Private key blocks.
   /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/,
 ];
 
 const STRICT_SECRET_PATTERNS: RegExp[] = [
   ...HIGH_CONFIDENCE_SECRET_PATTERNS,
-  // Strict mode only: `KEY=...`, `TOKEN=...`, `SECRET=...`, `PASSWORD=...`
-  // assigned a real-looking value. This is intentionally not the default; it
-  // has produced too many false positives on variable names and CLI flags.
   /\b[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY|PRIVATE_KEY|ACCESS_KEY)[A-Z0-9_]*\s*[:=]\s*['"]?(?!.*(?:your|example|placeholder|changeme|xxxx|\*\*\*|<|\$\{|process\.env|env\.|REDACTED))[A-Za-z0-9/_+=.-]{16,}/i,
 ];
 
@@ -1280,14 +1196,6 @@ export function lineLooksSecret(
   return secretPatternsForMode(mode).some((re) => re.test(line));
 }
 
-/**
- * Parse a `.github/recap-scan-allowlist` file into a list of matchers.
- * Each non-blank, non-comment line is either:
- *   - a `/regex/` literal (JS regex syntax) — matched against the full line
- *   - a plain literal string — checked with String.includes()
- *
- * Returns an empty array when the file is absent or empty.
- */
 export function parseRecapScanAllowlist(
   allowlistPath: string,
 ): Array<RegExp | string> {
@@ -1308,7 +1216,6 @@ export function parseRecapScanAllowlist(
       try {
         matchers.push(new RegExp(pattern, flags));
       } catch {
-        // Malformed regex — treat as a literal string for safety.
         matchers.push(line);
       }
     } else {
@@ -1318,10 +1225,6 @@ export function parseRecapScanAllowlist(
   return matchers;
 }
 
-/**
- * Return true when `line` matches ANY entry in the allowlist (i.e., the
- * finding should be ignored).
- */
 export function lineMatchesAllowlist(
   line: string,
   allowlist: Array<RegExp | string>,
@@ -1607,51 +1510,25 @@ export function summarizeLocalAgentFailure(
   return "";
 }
 
-/* -------------------------------------------------------------------------- */
-/* Bounded diff collection — was the workflow's "Collect bounded diff" step    */
-/* -------------------------------------------------------------------------- */
-
-/** ~600KB byte cap for the diff handed to the recap agent. */
 export const RECAP_DIFF_BYTE_CAP = 614400;
 
-/** The footer appended when a diff is truncated at the byte cap. */
 export const RECAP_DIFF_TRUNCATED_FOOTER =
   "\n\n[diff truncated at 600KB for the recap agent]\n";
 
-/**
- * The pathspecs the bounded diff excludes — lockfiles, build output, and
- * snapshots are noise for a visual recap. Kept as array args (not a shell
- * string) so the `:(exclude)` pathspecs are never mangled by a shell.
- */
 const RECAP_DIFF_PATHSPECS: string[] = [
   ".",
   ":(exclude)pnpm-lock.yaml",
   ":(exclude)**/dist/**",
   ":(exclude)**/*.snap",
   ":(exclude)**/*.lock",
-  // Common non-pnpm lockfiles (bun.lock covered by *.lock above; bun.lockb is
-  // binary and not glob-catchable by the *.lock pattern).
   ":(exclude)**/package-lock.json",
   ":(exclude)**/bun.lockb",
-  // Generated build output dirs that are sometimes checked in.
   ":(exclude)**/.next/**",
-  // Minified and source-map files — unhelpful noise in any diff.
   ":(exclude)**/*.min.js",
   ":(exclude)**/*.min.css",
   ":(exclude)**/*.map",
 ];
 
-/**
- * Classify a bounded diff into the `huge` / `tiny` flags the workflow consumes.
- *
- * - huge: BYTES over the ~600KB cap. The agent is told to summarize AND the
- *   diff file is physically truncated so it can't overflow the prompt budget.
- * - tiny: <= 1 changed file AND <= 8 changed lines. Uses ORIGINAL line count
- *   (captured before any truncation) so a large diff is never misclassified as
- *   tiny after the byte cap drops most of its lines.
- *
- * Pure (no I/O) so the classification can be unit-tested without invoking git.
- */
 export function classifyDiff(input: {
   bytes: number;
   changed: number;
@@ -1663,27 +1540,14 @@ export function classifyDiff(input: {
   };
 }
 
-/**
- * Reorder a unified diff's per-file segments so likely-noise paths (paths whose
- * first component starts with `.`, e.g. `.changeset/`, `.github/`) sort LAST,
- * and all other paths keep their original git order. This ensures that when
- * `truncateDiffAtLineBoundary` drops the tail to stay under the byte cap, source
- * files survive and dotfile dirs are sacrificed instead.
- *
- * Pure (string in → string out) for unit testing. The initial preamble (lines
- * before the first `diff --git` header) is preserved unchanged.
- */
 export function sortDiffSourceFirst(text: string): string {
-  // Split into segments on "diff --git …" headers.
   const HEADER = /^diff --git /m;
   const firstHeader = text.search(HEADER);
-  if (firstHeader < 0) return text; // no file segments — unchanged
+  if (firstHeader < 0) return text;
 
   const preamble = text.slice(0, firstHeader);
   const body = text.slice(firstHeader);
 
-  // Split into chunks: each chunk starts with "diff --git …" and ends just
-  // before the next "diff --git …" or at EOF.
   const chunks: string[] = [];
   let remaining = body;
   while (remaining.length > 0) {
@@ -1696,8 +1560,6 @@ export function sortDiffSourceFirst(text: string): string {
     remaining = remaining.slice(next + 1);
   }
 
-  // Determine whether a chunk's path is "dotfile-prefixed" (first component
-  // starts with "."). Extract the path from the diff --git header line.
   function isDotfilePrefixed(chunk: string): boolean {
     const m = chunk.match(/^diff --git a\/([^\s]+)/);
     if (!m) return false;
@@ -1718,31 +1580,15 @@ export function sortDiffSourceFirst(text: string): string {
   return preamble + [...source, ...dotfile].join("");
 }
 
-/**
- * Truncate a diff to the ~600KB byte cap at a COMPLETE LINE boundary, then
- * append the truncated footer. Dropping the last (possibly-partial) line is the
- * equivalent of the original `head -c 614400 | sed '$d'`: it guarantees the cap
- * never cuts a multi-byte UTF-8 char or a diff line mid-way and corrupts the
- * agent's input. Pure (string in, string out) so it can be unit-tested.
- */
 export function truncateDiffAtLineBoundary(text: string): string {
   const capped = Buffer.from(text, "utf8")
     .subarray(0, RECAP_DIFF_BYTE_CAP)
     .toString("utf8");
   const lastNewline = capped.lastIndexOf("\n");
-  // Drop everything after the last newline (the last, possibly-partial line),
-  // mirroring `sed '$d'`. If there is no newline at all, drop the whole partial
-  // line (empty body) — the footer still makes the truncation explicit.
   const body = lastNewline >= 0 ? capped.slice(0, lastNewline) : "";
   return body + RECAP_DIFF_TRUNCATED_FOOTER;
 }
 
-/**
- * Count lines that begin with `+` or `-` (added/removed diff lines), excluding
- * the `+++ b/file` / `--- a/file` unified-diff header lines. Without this
- * exclusion a single-file change loses ~2 "real" lines from the 8-line tiny
- * threshold, incorrectly classifying a small-but-meaningful change as tiny.
- */
 export function countDiffLines(diffText: string): number {
   let count = 0;
   for (const line of diffText.split("\n")) {
@@ -1752,26 +1598,11 @@ export function countDiffLines(diffText: string): number {
   return count;
 }
 
-/**
- * Result from `gitDiffRaw`. `failed` is true when git itself exited non-zero
- * AND produced empty stdout — which indicates a broken ref (missing object,
- * bad SHA, shallow-clone gap) rather than a legitimate empty diff.
- */
 interface GitDiffResult {
   stdout: string;
   failed: boolean;
 }
 
-/**
- * Run `git diff <base>...<head> -- <pathspecs>` and return its stdout plus a
- * `failed` flag. A non-zero exit that still produces stdout is treated as a
- * partial result (same as the original `... || true`). A non-zero exit with
- * empty stdout is a genuine failure (broken ref, missing object, etc.) and
- * sets `failed: true` so `runCollectDiff` can exit with a distinct error
- * instead of silently classifying the empty output as a tiny diff.
- *
- * Array args — NOT a shell string — so the `:(exclude)` pathspecs survive.
- */
 function gitDiffRaw(
   base: string,
   head: string,
@@ -1792,37 +1623,22 @@ function gitDiffRaw(
     });
     return { stdout, failed: false };
   } catch (err: any) {
-    // Recover whatever stdout git wrote before failing.
     const raw =
       err && typeof err.stdout === "string"
         ? err.stdout
         : err && Buffer.isBuffer(err.stdout)
           ? err.stdout.toString("utf8")
           : "";
-    // An empty stdout from a non-zero exit means a broken ref / missing
-    // object — not a legitimate empty diff. Signal failure.
     return { stdout: raw, failed: raw.trim() === "" };
   }
 }
 
-/**
- * `recap collect-diff` — the bounded-diff collection that used to be ~60 lines
- * of inline bash. Writes recap.diff + recap.stat, classifies huge/tiny, and
- * emits the same `bytes/changed/huge/tiny` outputs the workflow expects:
- * appended to $GITHUB_OUTPUT when set, AND printed as JSON to stdout (so it runs
- * and is testable outside GitHub Actions).
- *
- * Exits non-zero when git itself fails (broken SHA / missing object) so the
- * CI workflow treats it as a real failure instead of silently classifying an
- * empty diff as "tiny" and skipping the recap with no diagnostic.
- */
 function runCollectDiff(args: Record<string, string | boolean>): void {
   const base = stringArg(args, "base");
   const head = stringArg(args, "head");
   const outPath = optionalArg(args, "out") ?? "recap.diff";
   const statPath = optionalArg(args, "stat") ?? "recap.stat";
 
-  // The unified diff and the --stat summary (both excluding lockfiles/noise).
   const diffResult = gitDiffRaw(base, head, []);
   if (diffResult.failed) {
     process.stderr.write(
@@ -1837,21 +1653,14 @@ function runCollectDiff(args: Record<string, string | boolean>): void {
   const stat = gitDiffRaw(base, head, ["--stat"]).stdout;
   fs.writeFileSync(path.resolve(statPath), stat);
 
-  // ORIGINAL line count — captured BEFORE any byte-cap truncation so a large
-  // diff is never misclassified as tiny after truncation.
   const originalLines = countDiffLines(diff);
 
-  // Changed-file count from `--name-only` over the same excludes.
   const names = gitDiffRaw(base, head, ["--name-only"]).stdout;
   const changed = names.split("\n").filter((line) => line.length > 0).length;
 
-  // Write the (possibly truncated) diff and compute the on-disk byte length.
   const bytesBefore = Buffer.byteLength(diff, "utf8");
   const { huge } = classifyDiff({ bytes: bytesBefore, changed, originalLines });
   if (huge) {
-    // Reorder file segments so source dirs come before dotfile dirs, then
-    // truncate. This ensures the cap sacrifices .changeset/.github noise rather
-    // than src/templates files.
     diff = truncateDiffAtLineBoundary(sortDiffSourceFirst(diff));
   }
   fs.writeFileSync(path.resolve(outPath), diff);
@@ -1859,7 +1668,6 @@ function runCollectDiff(args: Record<string, string | boolean>): void {
 
   const { tiny } = classifyDiff({ bytes: bytesBefore, changed, originalLines });
 
-  // Preserve the existing steps.diff.outputs.{bytes,changed,huge,tiny} contract.
   const githubOutput = process.env.GITHUB_OUTPUT;
   if (githubOutput) {
     fs.appendFileSync(
@@ -1870,15 +1678,6 @@ function runCollectDiff(args: Record<string, string | boolean>): void {
   process.stdout.write(`${JSON.stringify({ bytes, changed, huge, tiny })}\n`);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Prompt builder — repo SKILL.md + task wrapper                              */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Locate the repo's visual-recap SKILL.md, preferring the host-agent install
- * locations so a user's `agent-native skills add` copy wins, then falling back
- * to the framework's own source locations.
- */
 export function readRepoSkillMd(cwd: string = process.cwd()): {
   text: string;
   source: string;
@@ -1985,8 +1784,6 @@ export function buildRecapPrompt(input: {
   huge?: boolean;
   localFiles?: boolean;
   localDir?: string;
-  /** Fully-qualified PR URL to store on the plan as the back-link. When
-   *  `repo` is supplied this is auto-derived; pass explicitly to override. */
   sourceUrl?: string;
   /**
    * When true, the diff originates from a fork PR — an external contributor's
@@ -1996,21 +1793,11 @@ export function buildRecapPrompt(input: {
    * attacker-controlled input to an LLM that holds a publish token.
    */
   forkPr?: boolean;
-  /**
-   * Byte size of the (possibly truncated) diff file — used to emit a
-   * consumption instruction so the agent knows how large the file is and reads
-   * it in full before authoring. When omitted, no size instruction is emitted.
-   */
   diffBytes?: number;
-  /**
-   * Line count of the (possibly truncated) diff — same purpose as diffBytes.
-   */
   diffLines?: number;
 }): string {
   const localDir =
     input.localDir ?? path.join("plans", `pr-${input.pr}-visual-recap`);
-  // Deterministically derive the PR back-link URL so the agent doesn't have to
-  // guess it. Use an explicit override when provided, else build from repo+pr.
 
   const lines: string[] = [];
   lines.push(
@@ -2130,10 +1917,6 @@ export function buildRecapPrompt(input: {
   lines.push("");
   return lines.join("\n");
 }
-
-/* -------------------------------------------------------------------------- */
-/* GitHub comment helpers                                                     */
-/* -------------------------------------------------------------------------- */
 
 const MARKER = "<!-- pr-visual-recap -->";
 const RECAP_IMAGE_URL_PATH_PATTERN =
@@ -2344,7 +2127,6 @@ export async function upsertComment(input: {
   repo: string;
   issue: string;
   body: string;
-  /** When true, refresh an existing comment but never create a new one. */
   updateOnly?: boolean;
   /** @internal test seam — defaults to global fetch */
   fetchFn?: typeof fetch;
@@ -2359,8 +2141,6 @@ export async function upsertComment(input: {
     : `${MARKER}\n${input.body}`;
   const existing = await findExistingComment({ ...input, fetchFn: fn });
   if (!existing && input.updateOnly) {
-    // Nothing to refresh and we were told not to create — e.g. a tiny diff with
-    // no prior recap. Stay silent rather than posting a "skipped" comment.
     return { action: "skipped", id: 0 };
   }
   if (existing) {
@@ -2394,13 +2174,10 @@ export async function upsertComment(input: {
 }
 
 function planIdFromUrl(url: string): string | null {
-  // Accept both /recaps/<id> (the canonical recap route the agent now writes)
-  // and /plans/<id> (legacy URLs) so the sticky-comment rebuild keeps working.
   const match = url.match(/\/(?:recaps|plans)\/([A-Za-z0-9_-]+)/);
   return match ? match[1] : null;
 }
 
-/** True when both URLs parse and share an origin. */
 function sameOrigin(a: string, b: string): boolean {
   try {
     return new URL(a).origin === new URL(b).origin;
@@ -2409,7 +2186,6 @@ function sameOrigin(a: string, b: string): boolean {
   }
 }
 
-/** The origin of a URL, or "" if it doesn't parse. */
 function originOf(url: string): string {
   try {
     return new URL(url).origin;
@@ -2473,7 +2249,6 @@ function trustedRecapImageUrl(raw: string | undefined, base: string): string {
   }
 }
 
-/** Build the sticky comment body from the workflow's environment. */
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const lines: string[] = [MARKER];
   const headSha = (env.HEAD_SHA || "").trim();
@@ -2481,10 +2256,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     ? `<!-- head-sha: ${headSha} -->`
     : "";
 
-  // Last-known plan id threaded from the previous run (supplied via PREV_PLAN_ID
-  // when the comment is rebuilt from scratch, or parsed from the env on upsert).
-  // We always emit the plan-id marker when any plan id is known so that a
-  // transient failure does not orphan the plan.
   const prevPlanId = (env.PREV_PLAN_ID || "").trim() || null;
 
   if (env.SUPPRESSED === "true") {
@@ -2509,22 +2280,12 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
 
   const planUrl = (env.PLAN_URL || "").trim();
   const appUrl = (env.PLAN_RECAP_APP_URL || "").trim();
-  // recap-url.txt is agent-written → untrusted. Rebuild a canonical link from a
-  // TRUSTED base (the configured PLAN_RECAP_APP_URL when set, else the parsed
-  // origin of the plan URL) plus a strictly-validated plan id, instead of
-  // embedding the raw URL. That both enforces the app origin and prevents
-  // markdown injection — a same-origin URL with a crafted path/query could
-  // otherwise break out of the markdown link.
   const planId = planUrl ? planIdFromUrl(planUrl) : null;
   const sameOriginOk = appUrl === "" || sameOrigin(planUrl, appUrl);
   const base = (appUrl || originOf(planUrl)).replace(/\/$/, "");
   const safeUrl =
     planId && base && sameOriginOk ? `${base}/recaps/${planId}` : "";
 
-  // The plan id to embed in the marker — prefer the freshly-published one when
-  // the origin is trusted, fall back to the previous run's id so the next push
-  // can still replace in-place. Never use a plan id extracted from a bad-origin
-  // URL as the marker (it would mask the last-good known id).
   const trustedPlanId = planId && sameOriginOk ? planId : null;
   const markerPlanId = trustedPlanId ?? prevPlanId;
 
@@ -2619,17 +2380,12 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   return lines.join("\n");
 }
 
-/* -------------------------------------------------------------------------- */
-/* Subcommands                                                                */
-/* -------------------------------------------------------------------------- */
-
 function runScan(args: Record<string, string | boolean>): void {
   const diffPath = stringArg(args, "diff");
   const diffText = fs.readFileSync(path.resolve(diffPath), "utf8");
   const mode = normalizeRecapSecretScanMode(
     optionalArg(args, "mode") ?? process.env.VISUAL_RECAP_SECRET_SCAN,
   );
-  // Load the optional consumer-repo allowlist to suppress known false positives.
   const allowlistPath =
     optionalArg(args, "allowlist") ??
     path.join(process.cwd(), ".github", "recap-scan-allowlist");
@@ -2664,9 +2420,6 @@ function runBuildPrompt(args: Record<string, string | boolean>): void {
     skillSource as RecapSkillSourceMode,
   );
   const diffPath = optionalArg(args, "diff") ?? "recap.diff";
-  // Read the on-disk diff so we can compute byte/line counts for the consumption
-  // instruction. Best-effort — if the file is absent (e.g. local-files mode
-  // without a pre-collected diff) we skip the size instruction.
   let diffBytes: number | undefined;
   let diffLines: number | undefined;
   try {
@@ -3026,12 +2779,6 @@ function recapUrlFromPublishResult(result: unknown, appUrl: string): string {
 
 function shouldRetryRecapPublish(status: number): boolean {
   return (
-    // The create-visual-recap route can transiently 404 during a plan-app
-    // deploy: the recap CLI ships to npm independently of the plan server, so a
-    // recap can run after the new CLI is live but before the matching action
-    // route has fully propagated to every (cold-start) server instance. A
-    // bounded retry rides through that propagation window instead of failing
-    // the whole recap.
     status === 404 ||
     status === 408 ||
     status === 409 ||
@@ -3362,17 +3109,6 @@ function delay(ms: number): Promise<void> {
     : Promise.resolve();
 }
 
-/**
- * Confirm GitHub can fetch the uploaded image anonymously before we embed it.
- *
- * Default budget: 8 attempts with capped exponential backoff (1s, 2s, 3s, …
- * capped at 4s) → ~20s total. This is enough to survive a cold-start CDN
- * propagation delay that would otherwise cause `uploadRecapImage` to return a
- * URL that the GitHub PR comment can't display.
- *
- * The `attempts` and `delayMs` overrides remain for unit tests and for callers
- * that need a tighter or looser budget.
- */
 export async function waitForPublicRecapImage(input: {
   imageUrl: string;
   attempts?: number;
@@ -3406,7 +3142,6 @@ export async function waitForPublicRecapImage(input: {
   return false;
 }
 
-/** Upload a PNG to the plan app's signed public image route; returns its URL. */
 export async function uploadRecapImage(input: {
   appUrl: string;
   token: string;
@@ -3430,9 +3165,6 @@ export async function uploadRecapImage(input: {
       },
       body: bytes,
     });
-    // Surface failures on stderr — stdout carries the machine-readable JSON the
-    // workflow parses, so it must stay clean. A silent null here is exactly what
-    // made the missing-inline-thumbnail failure undebuggable from CI logs.
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       process.stderr.write(
@@ -3466,7 +3198,6 @@ export async function uploadRecapImage(input: {
   }
 }
 
-/** Mirrors RECAP_IMAGE_MAX_BYTES on the server — the route rejects larger PNGs. */
 const RECAP_SHOT_MAX_BYTES = 5 * 1024 * 1024;
 const RECAP_SHOT_WIDTH = 950;
 const RECAP_SHOT_MAX_HEIGHT = 2000;
@@ -3481,22 +3212,6 @@ const RECAP_DOCUMENT_LOAD_ATTEMPTS = 2;
 const RECAP_SHOT_HARD_TIMEOUT =
   RECAP_DOCUMENT_WAIT_TIMEOUT * RECAP_DOCUMENT_LOAD_ATTEMPTS + 30_000;
 
-/**
- * Identity shim for esbuild's `__name` helper, injected into the browser before
- * any screenshot init script or `page.evaluate` payload.
- *
- * esbuild/tsx `keepNames` (on by default) rewrites a named inner function — e.g.
- * `const readHeights = (…) => {…}` inside a `page.evaluate` callback — into
- * `__name(() => {…}, "readHeights")`. Playwright serializes that callback with
- * `Function.prototype.toString` and runs it in the page, where `__name` does not
- * exist, throwing `ReferenceError: __name is not defined` and silently dropping
- * the recap's inline PR-comment screenshot. CI's trusted-workspace path runs this
- * CLI through `tsx` (esbuild), so it fires there even though the published
- * published package never emits `__name`. Defining `__name` as an identity
- * function (esbuild's helper returns the target unchanged) makes every main-world
- * payload safe regardless of how the CLI was transpiled. Kept as a raw string so
- * esbuild can't rewrite the shim itself.
- */
 const RECAP_SHOT_NAME_SHIM =
   "globalThis.__name = globalThis.__name || function (value) { return value; };";
 
@@ -3506,10 +3221,6 @@ async function defaultImportPlaywright(): Promise<PlaywrightModule> {
   try {
     return (await import("playwright")) as unknown as PlaywrightModule;
   } catch (err) {
-    // `@playwright/test` is an undeclared courtesy fallback for consumers that
-    // only have the test runner. Rethrow the `playwright` failure when it also
-    // misses, so a broken-but-present `playwright` is never reported as a
-    // missing `@playwright/test`.
     try {
       return (await import("@playwright/test")) as unknown as PlaywrightModule;
     } catch {
@@ -3680,9 +3391,6 @@ export async function runShot(
       deviceScaleFactor: RECAP_SHOT_DEVICE_SCALE_FACTOR,
       ...(theme ? { colorScheme: theme } : {}),
     });
-    // Must run before the theme init script and every page.evaluate below so
-    // esbuild/tsx `keepNames` wrappers don't throw `__name is not defined` in
-    // the browser (see RECAP_SHOT_NAME_SHIM).
     await context.addInitScript(RECAP_SHOT_NAME_SHIM);
     if (theme) {
       await context.addInitScript(
@@ -3712,10 +3420,6 @@ export async function runShot(
       );
     }
     if (attachToken) {
-      // Attach the bearer ONLY to same-origin requests. Context-wide
-      // extraHTTPHeaders would also send it to every cross-origin subresource
-      // the plan page loads (CDN images/fonts/scripts), leaking the publish
-      // token; routing scopes it to the trusted app origin.
       const appOrigin = new URL(appUrl as string).origin;
       await context.route("**/*", async (route) => {
         const request = route.request();
@@ -3757,9 +3461,6 @@ export async function runShot(
           // The selectors below are the real readiness signal for screenshots.
           // Some recap pages keep long-lived/background requests open.
         });
-        // The app shell renders <main> and the loading skeleton before the plan
-        // query resolves. Waiting for the actual document root prevents a
-        // successful-looking screenshot from capturing that transient skeleton.
         await page.waitForSelector(RECAP_DOCUMENT_SELECTOR, {
           timeout: RECAP_DOCUMENT_WAIT_TIMEOUT,
           state: "visible",
@@ -3836,9 +3537,6 @@ export async function runShot(
     await page.waitForTimeout(250);
     await page.screenshot({ path: out });
 
-    // If the captured PNG is over the upload cap, retry at CSS-pixel scale
-    // before giving up. The server route rejects oversized files, and the
-    // GitHub comment can only embed an image after a successful upload.
     const firstSize = fs.existsSync(out) ? fs.statSync(out).size : 0;
     if (firstSize > RECAP_SHOT_MAX_BYTES) {
       process.stderr.write(
@@ -3901,16 +3599,12 @@ async function runComment(
     const body = existing?.body ?? "";
     const match = body.match(/<!--\s*plan-id:\s*([^\s]+)\s*-->/);
     const rawId = match ? match[1] : "";
-    // Validate: require the safe-id character set (mirrors canonicalRecapUrl).
-    // Any bot comment could inject junk here; non-matching ids are treated as absent.
     const safeId = rawId && /^[A-Za-z0-9_-]{1,64}$/.test(rawId) ? rawId : "";
     process.stdout.write(safeId);
     return;
   }
 
   if (sub === "upsert") {
-    // Tiny diffs are intentionally silent. In particular, do not refresh an
-    // existing recap comment into a visible "skipped" state.
     if (process.env.DIFF_TINY === "true") {
       process.stdout.write(
         `${JSON.stringify({ action: "skipped", id: 0, reason: "tiny diff" })}\n`,
@@ -3984,15 +3678,6 @@ function recoverRecapFailureEnv(
   return recovered;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Gate — the security boundary that decides whether the recap runs at all     */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Minimal shape of the `pull_request` object from a GitHub `pull_request` event
- * payload that the gate inspects. Everything is optional so a malformed/partial
- * payload degrades to "skip" rather than throwing.
- */
 export interface RecapGatePullRequest {
   number?: number;
   draft?: boolean;
@@ -4003,41 +3688,21 @@ export interface RecapGatePullRequest {
 }
 
 export interface RecapGateInput {
-  /** The `pull_request` payload object, or null when absent. */
   pr: RecapGatePullRequest | null;
-  /** GITHUB_REPOSITORY ("owner/name"). */
   repository: string | undefined;
-  /** Whether the base repository is private. */
   repositoryPrivate?: boolean;
-  /** PLAN_RECAP_TOKEN present. */
   hasPlan: boolean;
-  /** ANTHROPIC_API_KEY present. */
   hasAnthropic: boolean;
-  /** OPENAI_API_KEY present. */
   hasOpenai: boolean;
-  /** VISUAL_RECAP_API_KEY present for OpenAI-compatible backends. */
   hasOpenaiCompatible?: boolean;
-  /** Raw VISUAL_RECAP_AGENT value (may be undefined / mis-cased). */
   agentRaw: string | undefined;
-  /** Raw VISUAL_RECAP_MODEL value (may be undefined). */
   model: string | undefined;
-  /** Raw VISUAL_RECAP_BASE_URL value for OpenAI-compatible backends. */
   baseUrl?: string;
-  /** Raw VISUAL_RECAP_SKILL_SOURCE value (auto/latest/repo; may be undefined). */
   skillSource: string | undefined;
-  /** Comma-separated PR labels required before the recap runs. */
   requiredLabels?: string;
-  /** Filenames changed by the PR (for the self-modifying guard). */
   changedFiles: string[];
 }
 
-/**
- * Files that, if an untrusted PR touches them, would let that PR rewrite
- * repo-pinned skill instructions or root agent config the trusted recap job
- * loads. The workflow runs the recap CLI from trusted base-branch source (or an
- * installed package), so normal package code, template-local AGENTS.md files,
- * and recap workflow YAML can be recapped without executing PR-modified CLI code.
- */
 function normalizeRecapSkillSourceMode(value: string | undefined): string {
   return (value || "auto").toLowerCase();
 }
@@ -4084,13 +3749,6 @@ export function isRecapSensitivePath(
   return false;
 }
 
-/**
- * The pure gate decision: given the PR payload, secret-presence flags, the
- * configured backend/model, and the PR's changed files, decide whether the
- * visual recap should run, which (normalized) agent to use, and — when skipped —
- * the human-readable reasons. This is the security boundary; it replicates the
- * inline github-script gate bit-for-bit. No I/O so it can be unit-tested.
- */
 export function evaluateRecapGate(input: RecapGateInput): {
   run: boolean;
   agent: string;
@@ -4130,7 +3788,6 @@ export function evaluateRecapGate(input: RecapGateInput): {
     );
   }
 
-  // Skip noisy automated authors.
   const login = ((pr && pr.user && pr.user.login) || "").toLowerCase();
   const botAuthors = [
     "dependabot[bot]",
@@ -4148,9 +3805,6 @@ export function evaluateRecapGate(input: RecapGateInput): {
   if (!isFork && !input.hasPlan)
     reasons.push("PLAN_RECAP_TOKEN not configured");
 
-  // The chosen backend's API key must be present. Normalize the agent value once
-  // here and validate it: an unknown or mis-cased value (e.g. "Claude", "gpt")
-  // must NOT silently pass the gate and then match neither agent step.
   const rawAgent = (input.agentRaw || "claude").toLowerCase();
   const agent = ["deepseek", "kimi", "moonshot", "custom"].includes(rawAgent)
     ? "openai-compatible"
@@ -4178,8 +3832,6 @@ export function evaluateRecapGate(input: RecapGateInput): {
     );
   }
 
-  // Validate VISUAL_RECAP_MODEL if set — an unchecked value could be injected by
-  // a repo settings writer and passed straight to the agent CLI.
   const model = input.model || "";
   if (
     agent !== "openai-compatible" &&
@@ -4198,16 +3850,6 @@ export function evaluateRecapGate(input: RecapGateInput): {
     );
   }
 
-  // Self-modifying guard: if an untrusted PR changes the visual-recap/visual-plan
-  // skill when CI is explicitly pinned to repo-local skill instructions, or root
-  // agent config the runner would load (.claude/**, CLAUDE.md, AGENTS.md,
-  // .mcp.json), skip the ENTIRE job — not just the agent — so a PR can never
-  // rewrite what the agent loads (skill, hooks, settings) and exfiltrate the
-  // publish/API secrets. In the default auto/latest modes the recap prompt comes
-  // from the trusted bundled skill, so visual skill and recap workflow files are
-  // ordinary reviewed content and may be recapped. Trusted write actors may edit
-  // recap-control files as reviewable content; running the recap is useful signal
-  // for those changes.
   const shouldApplySensitivePathGuard =
     Boolean(pr) && !isTrustedAuthor && (isFork || !isPrivate);
   const hits = shouldApplySensitivePathGuard
@@ -4224,14 +3866,6 @@ export function evaluateRecapGate(input: RecapGateInput): {
   return { run: reasons.length === 0, agent, reasons };
 }
 
-/**
- * Page through `GET /repos/{owner}/{repo}/pulls/{n}/files`, following the
- * `Link` rel="next" header, and return every changed filename. Uses the same
- * api.github.com base + auth headers as `githubRequest`; reads the `Link`
- * header (which `githubRequest` discards) so it can paginate. Throws on any
- * non-2xx so the caller can fail CLOSED — exactly like the inline gate did when
- * `github.paginate(listFiles)` rejected.
- */
 async function listPullRequestFiles(input: {
   token: string;
   owner: string;
@@ -4260,7 +3894,6 @@ async function listPullRequestFiles(input: {
     for (const f of page) {
       if (typeof f.filename === "string") filenames.push(f.filename);
     }
-    // Follow Link rel="next" for the next page; absent => done.
     const link = res.headers.get("link") || "";
     const next = link.match(/<([^>]+)>\s*;\s*rel="next"/);
     url = next ? next[1] : null;
@@ -4279,8 +3912,6 @@ async function listPullRequestFiles(input: {
 async function runGate(): Promise<void> {
   const repository = process.env.GITHUB_REPOSITORY;
 
-  // Read the pull_request object out of the event payload, tolerating a
-  // missing/unreadable file (degrades to the "no pull_request payload" reason).
   let pr: RecapGatePullRequest | null = null;
   let repositoryPrivate = false;
   const eventPath = process.env.GITHUB_EVENT_PATH;
@@ -4295,9 +3926,6 @@ async function runGate(): Promise<void> {
     }
   }
 
-  // Fetch the PR's changed files for the self-modifying guard. Any error here is
-  // turned into a skip reason (fail-closed), mirroring the inline gate's
-  // try/catch around github.paginate(listFiles).
   const changedFiles: string[] = [];
   let fileListError: string | null = null;
   if (pr && typeof pr.number === "number" && repository) {
@@ -4332,8 +3960,6 @@ async function runGate(): Promise<void> {
     changedFiles,
   });
 
-  // If listing PR files failed, append the same fail-closed reason the inline
-  // gate used and force run=false.
   let { run } = decision;
   const reasons = [...decision.reasons];
   if (fileListError !== null) {
@@ -4343,8 +3969,6 @@ async function runGate(): Promise<void> {
     run = false;
   }
 
-  // Preserve the github-script contract: write `run` + the NORMALIZED agent to
-  // $GITHUB_OUTPUT so the recap job's step conditions match case-insensitively.
   const githubOutput = process.env.GITHUB_OUTPUT;
   if (githubOutput) {
     fs.appendFileSync(
@@ -4360,21 +3984,6 @@ async function runGate(): Promise<void> {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Check run — the "Visual Recap" GitHub check (was two inline github-script    */
-/* steps in the workflow's recap job).                                          */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Canonicalize the agent-written plan URL into a trusted recap URL, or "".
- *
- * recap-url.txt is produced by the (LLM) agent, so the raw URL is untrusted.
- * This rebuilds a canonical `${origin}${base}/recaps/<id>` link from the TRUSTED
- * app URL plus a strictly-validated plan id, enforcing the app origin and
- * honoring a path-prefixed mount (e.g. https://host/agent-native). Returns ""
- * for a wrong origin or an unrecognized path. Pure so it can be unit-tested —
- * SAME impl as the workflow's previous inline `canonicalRecapUrl`.
- */
 export function canonicalRecapUrl(rawUrl: string, appUrl: string): string {
   try {
     const trusted = new URL(appUrl || "https://plan.agent-native.com");
@@ -4382,8 +3991,6 @@ export function canonicalRecapUrl(rawUrl: string, appUrl: string): string {
       ? new URL(rawUrl)
       : new URL(rawUrl, trusted);
     if (parsed.origin !== trusted.origin) return "";
-    // Honor a path-prefixed mount (e.g. https://host/agent-native): strip the
-    // trusted base path before matching /plans|recaps/<id>.
     const base = trusted.pathname.replace(/\/$/, "");
     let rest = parsed.pathname;
     if (base && rest.startsWith(base)) rest = rest.slice(base.length);
@@ -4452,31 +4059,19 @@ export function buildRecapFailureDiagnostic(input: {
   return parts.join("\n\n");
 }
 
-/** The signals that decide the completed "Visual Recap" check's conclusion. */
 export interface RecapCheckOutcomeInput {
-  /** steps.url.outputs.ok — the agent published a plan whose origin validated. */
   planOk: boolean;
-  /** steps.url.outputs.plan_url — the (untrusted) agent-written plan URL. */
   planUrl: string;
-  /** PLAN_RECAP_APP_URL — the trusted plan app origin/base. */
   appUrl: string;
-  /** steps.diff.outputs.huge — the diff exceeded the byte cap (summarized). */
   huge: boolean;
-  /** steps.diff.outputs.tiny — the diff was too small to recap. */
   tiny: boolean;
-  /** steps.scan.outputs.suppressed — a secret pattern suppressed the recap. */
   suppressed: boolean;
-  /** steps.scan.outputs.json — the raw scan JSON (carries the suppress reason). */
   suppressedJson: string;
-  /** Sanitized final agent output when no valid plan URL was produced. */
   failureSummary?: string;
-  /** Explanation from the URL-reading step when recap-url.txt was absent/bad. */
   urlReason?: string;
-  /** The Actions run URL, used as the default details_url. */
   workflowUrl: string;
 }
 
-/** The completed-check fields PATCHed to the GitHub check run. */
 export interface RecapCheckOutcome {
   conclusion: "neutral" | "success" | "skipped";
   title: string;
@@ -4485,18 +4080,6 @@ export interface RecapCheckOutcome {
   detailsUrl: string;
 }
 
-/**
- * Map the workflow's terminal recap state to the completed check's
- * conclusion/title/summary/text/details_url. Pure so it can be unit-tested —
- * reproduces the workflow's previous inline branch logic EXACTLY:
- *
- * - default → neutral "Visual recap not generated"
- * - planOk + valid recapUrl → success "Visual recap ready" (huge → "summarized"
- *   summary), Open-recap link as text, details_url = recapUrl
- * - planOk + invalid url → neutral "Visual recap published" (see the comment)
- * - else tiny → skipped "Visual recap skipped"
- * - else suppressed → skipped "Visual recap suppressed" (reason from scan JSON)
- */
 export function recapCheckOutcome(
   input: RecapCheckOutcomeInput,
 ): RecapCheckOutcome {
@@ -4522,9 +4105,6 @@ export function recapCheckOutcome(
       detailsUrl = recapUrl;
       text = `**[Open visual recap](${recapUrl})**`;
     } else {
-      // Agent reported success but the URL didn't validate against the trusted
-      // plan origin — don't claim "not generated"; the recap is linked in the
-      // sticky comment.
       title = "Visual recap published";
       summary =
         "A recap was published; see the visual recap comment on this PR for the link.";
@@ -4561,12 +4141,6 @@ function boolFlag(
   return args[key] === true || args[key] === "true";
 }
 
-/**
- * `recap check start` — create the in-progress "Visual Recap" GitHub check run
- * and write its id to $GITHUB_OUTPUT (check_run_id). Best-effort: on any API
- * error, warn on stderr and exit 0 (don't fail the job) without emitting an id.
- * Replaces the workflow's inline "Start visual recap check" github-script step.
- */
 async function runCheckStart(
   args: Record<string, string | boolean>,
 ): Promise<void> {
@@ -4619,12 +4193,6 @@ async function runCheckStart(
   }
 }
 
-/**
- * `recap check complete` — PATCH the "Visual Recap" check run to completed with
- * the computed conclusion/title/summary/text/details_url. Best-effort: on any
- * API error, warn on stderr and exit 0. Replaces the workflow's inline
- * "Complete visual recap check" github-script step.
- */
 async function runCheckComplete(
   args: Record<string, string | boolean>,
 ): Promise<void> {
@@ -4706,7 +4274,6 @@ async function runCheckComplete(
   }
 }
 
-/** `recap check <start|complete>` dispatcher. */
 async function runCheck(
   args: Record<string, string | boolean>,
   sub: string,
@@ -4724,10 +4291,6 @@ async function runCheck(
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Usage capture — parse the agent's own token usage and attach it to the plan */
-/* -------------------------------------------------------------------------- */
-
 interface ParsedUsage {
   inputTokens: number;
   outputTokens: number;
@@ -4737,7 +4300,6 @@ interface ParsedUsage {
   reportedCostUsd?: number;
 }
 
-/** Parse the last top-level JSON object from a possibly-noisy stdout dump. */
 function parseLastJsonObject(text: string): Record<string, any> | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -4759,13 +4321,6 @@ function parseLastJsonObject(text: string): Record<string, any> | null {
   return null;
 }
 
-/**
- * Claude Code `-p --output-format json` prints one final result object with a
- * `usage` block and `total_cost_usd`. Anthropic's `input_tokens` EXCLUDES cache
- * tokens, so the cache counts are added back: `inputTokens` reports the whole
- * prompt, with the cache counts a slice of it. That is the one convention
- * `calculateCost` and the engine `usage` event share.
- */
 export function parseClaudeUsage(stdout: string): ParsedUsage | null {
   const obj = parseLastJsonObject(stdout);
   const u = obj?.usage;
@@ -4790,7 +4345,6 @@ export function parseClaudeUsage(stdout: string): ParsedUsage | null {
   };
 }
 
-/** Pull the last usage object out of a Codex `exec --json` JSONL stream. */
 function lastCodexUsage(jsonl: string): Record<string, any> | undefined {
   let last: Record<string, any> | undefined;
   for (const line of jsonl.split("\n")) {
@@ -4802,8 +4356,6 @@ function lastCodexUsage(jsonl: string): Record<string, any> | undefined {
     } catch {
       continue;
     }
-    // turn.completed carries `usage`; token_count events nest it under
-    // `info.total_token_usage`. Accept whichever the pinned Codex emits.
     const u =
       obj?.usage ??
       obj?.turn?.usage ??
@@ -4815,17 +4367,6 @@ function lastCodexUsage(jsonl: string): Record<string, any> | undefined {
   return last;
 }
 
-/**
- * Codex `exec --json` reports `input_tokens` INCLUSIVE of `cached_input_tokens`
- * (OpenAI counts cached as a subset of prompt tokens), which is already the
- * convention `calculateCost` and the engine `usage` event share — so input
- * passes through untouched and `calculateCost` subtracts to price each token
- * once. This used to strip the cached tokens out here instead, back when
- * pricing added the cache counts on top; doing both now bills them twice.
- *
- * `reasoning_output_tokens` is still folded into output — it is billed at the
- * output rate and would otherwise be dropped.
- */
 export function parseCodexUsage(jsonl: string): ParsedUsage | null {
   const u = lastCodexUsage(jsonl);
   if (!u) return null;
@@ -4839,7 +4380,6 @@ export function parseCodexUsage(jsonl: string): ParsedUsage | null {
   };
 }
 
-/** Parse the usage sidecar emitted by an Agent-Native Code run. */
 export function parseOpenAiCompatibleUsage(json: string): ParsedUsage | null {
   const obj = parseLastJsonObject(json);
   const usage = obj?.usage ?? obj;
@@ -4928,8 +4468,6 @@ async function runUsage(args: Record<string, string | boolean>): Promise<void> {
     return;
   }
 
-  // The Claude result carries the model; Codex usually does not, so fall back to
-  // the pinned --model (VISUAL_RECAP_MODEL) and finally the documented default.
   const model =
     parsed.model ??
     optionalArg(args, "model") ??

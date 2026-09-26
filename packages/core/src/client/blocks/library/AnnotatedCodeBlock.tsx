@@ -31,47 +31,10 @@ import {
 } from "./code-highlight.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
-/**
- * "Explain this code" walkthrough block: a standard syntax-highlighted code
- * surface on the left with line-anchored annotation cards on the right (the
- * Stripe-docs / Sourcegraph layout). Each annotated line range gets a subtle
- * highlight band + an accent rail down the gutter; its card shows the `lines`
- * range, optional `label`, and the always-visible markdown `note` (via
- * `ctx.renderMarkdown`). Hovering a card highlights its lines and vice-versa.
- *
- * Syntax highlighting reuses the shared `highlightCode` lowlight helper (the same
- * colorful palette as the `code-tabs` block) per line, so it matches the app's
- * standard code styling and supports per-line bands without an async loader. The
- * surface uses the plan `--plan-code*`/`--plan-*` tokens and Tailwind `dark:`
- * pairs, so it reads correctly in BOTH light and dark mode. Code lines render as
- * `<span>`s (never one `<pre>` per line) so they don't pick up document
- * code/pre chrome. Lives in core so any app can register the dev-doc block.
- * Each annotated range also gets a numbered marker in the left gutter on the
- * first line, matching the diff block's annotation affordance without adding a
- * persistent note column.
- *
- * Editing is panel-driven (config-style, like the diff/HTML blocks): a monospace
- * code Textarea, filename/language Inputs, and add/remove-able annotation rows.
- */
-
-/* ── Collapse helpers ──────────────────────────────────────────────────────── */
-
-/**
- * Minimum total line count before collapse is considered. Short files render
- * fully expanded regardless of annotation coverage.
- */
 const COLLAPSE_MIN_TOTAL_LINES = 40;
 
-/**
- * Number of unannotated lines in a run that triggers collapse. Runs at or
- * below this threshold always stay expanded (no expander button).
- */
 const COLLAPSE_THRESHOLD = 16;
 
-/**
- * Context lines kept visible at each edge of a collapsed run (8 lines of
- * breathing room so the collapsed region is clearly framed).
- */
 const COLLAPSE_CONTEXT_EDGE = 8;
 
 type CollapsedSegment = {
@@ -82,13 +45,6 @@ type CollapsedSegment = {
 type VisibleSegment = { kind: "visible"; startLine: number; endLine: number };
 type LineSegment = VisibleSegment | CollapsedSegment;
 
-/**
- * Partition line numbers [1..lineCount] into visible and collapsed segments.
- * Annotated lines (and COLLAPSE_CONTEXT_EDGE lines on either side of them) are
- * always visible. Runs of unannotated lines longer than COLLAPSE_THRESHOLD are
- * collapsed. The file header (first COLLAPSE_CONTEXT_EDGE lines) is always
- * visible so context is preserved.
- */
 function buildLineSegments(
   lineCount: number,
   lineMarkers: Map<number, Array<{ index: number }>>,
@@ -97,13 +53,10 @@ function buildLineSegments(
     return [{ kind: "visible", startLine: 1, endLine: lineCount }];
   }
 
-  // Build a boolean array: true if the line must stay visible.
   const mustShow = new Array<boolean>(lineCount + 1).fill(false);
-  // File header always visible.
   for (let i = 1; i <= Math.min(COLLAPSE_CONTEXT_EDGE, lineCount); i += 1) {
     mustShow[i] = true;
   }
-  // Annotated lines and their context edges.
   for (const lineNo of lineMarkers.keys()) {
     for (
       let i = Math.max(1, lineNo - COLLAPSE_CONTEXT_EDGE);
@@ -114,7 +67,6 @@ function buildLineSegments(
     }
   }
 
-  // Compute initial segments.
   const raw: LineSegment[] = [];
   let segStart = 1;
   let visible = mustShow[1] ?? false;
@@ -136,7 +88,6 @@ function buildLineSegments(
       : { kind: "collapsed", startLine: segStart, endLine: lineCount },
   );
 
-  // Don't collapse short hidden runs — expand them in-place.
   return raw.map((seg) => {
     if (
       seg.kind === "collapsed" &&
@@ -152,8 +103,6 @@ function buildLineSegments(
   });
 }
 
-/* ── Read ──────────────────────────────────────────────────────────────────── */
-
 function AnnotatedCodeRead({
   data,
   blockId,
@@ -162,9 +111,6 @@ function AnnotatedCodeRead({
   ctx,
 }: BlockReadProps<AnnotatedCodeData>) {
   const copy = useBlockCopy();
-  // On-hover popover (anchored to the right of the code) replaces the old
-  // persistent rail: nothing is visible when idle. `codeRef` measures the code
-  // block's right edge; `hover` carries the active index + captured geometry.
   const hover = useAnnotationHover();
   const { activeIndex } = hover;
   const codeRef = useRef<HTMLDivElement | null>(null);
@@ -188,7 +134,6 @@ function AnnotatedCodeRead({
     [data.language, data.filename],
   );
 
-  // Highlight each line once; empty lines keep their height with a NBSP.
   const highlightedLines = useMemo(
     () =>
       lines.map((text) => (text.length ? highlightCode(text, language) : " ")),
@@ -200,7 +145,6 @@ function AnnotatedCodeRead({
     [data.annotations, lineCount],
   );
 
-  // line number (1-based) → resolved annotations covering it.
   const lineMarkers = useMemo(() => buildLineMarkerMap(resolved), [resolved]);
 
   const hasAnnotations = hasRailAnnotations(resolved);
@@ -242,7 +186,6 @@ function AnnotatedCodeRead({
   const hasFilename = Boolean(data.filename?.trim());
   const showLangChip = Boolean(langChip && !hasFilename);
 
-  // The resolved annotation whose card is currently shown on hover.
   const activeItem =
     useMemo<ResolvedAnnotation<AnnotatedCodeAnnotation> | null>(
       () =>
@@ -257,8 +200,6 @@ function AnnotatedCodeRead({
     persistentAnnotationIndexes.has(activeItem.index),
   );
 
-  // Line-collapse state: a set of collapsed segment start lines that have been
-  // expanded by the reader. Starts empty (all segments in their default state).
   const [expandedCollapsed, setExpandedCollapsed] = useState<Set<number>>(
     () => new Set(),
   );
@@ -481,7 +422,6 @@ function AnnotatedCodeRead({
               );
               return lineNos.map(renderLine);
             }
-            // Collapsed segment — show an expander row.
             const isExpanded = expandedCollapsed.has(seg.startLine);
             const hiddenCount = seg.endLine - seg.startLine + 1;
             if (isExpanded) {
@@ -560,8 +500,6 @@ function AnnotatedCodeRead({
   );
 }
 
-/* ── Edit (panel) ──────────────────────────────────────────────────────────── */
-
 const codeAreaClass =
   "min-h-[160px] font-mono [font-size:var(--plan-code-size)] leading-5";
 
@@ -588,7 +526,7 @@ function AnnotatedCodeEdit({
     patch({ annotations: annotations.filter((_, i) => i !== index) });
 
   const addAnnotation = () => {
-    if (annotations.length >= 80) return; // schema max
+    if (annotations.length >= 80) return;
     patch({
       annotations: [...annotations, { lines: "1", label: "", note: "" }],
     });

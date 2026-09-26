@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// In-memory stand-in for the settings table so we can inspect what is
-// persisted at rest (the whole point of this fix).
 const store = new Map<string, { value: unknown }>();
 const readAppSecret = vi.fn();
 
@@ -15,11 +13,6 @@ vi.mock("../settings/store.js", () => ({
   deleteSetting: async (key: string) => store.delete(key),
 }));
 
-// Every call site builds ctx from `getCredentialContext()`, which never
-// populates orgId for a CLI/cron run — resolveCredential falls back to
-// resolving the caller's org from their email instead. Mocked here (rather
-// than letting the real module run) so these stay hermetic unit tests, not an
-// accidental dependency on whatever database happens to be configured.
 let resolveOrgIdForEmail: (email: string) => Promise<string | null>;
 vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: (email: string) => resolveOrgIdForEmail(email),
@@ -42,7 +35,6 @@ describe("credentials encryption at rest", () => {
 
     const raw = store.get("u:a@x.com:credential:OPENAI_API_KEY");
     expect(typeof raw?.value).toBe("string");
-    // At rest it is encrypted — the plaintext is nowhere in the row.
     expect(raw?.value as string).toMatch(/^v1:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/);
     expect(raw?.value as string).not.toContain("sk-secret-value");
 
@@ -368,10 +360,6 @@ describe("credentials encryption at rest", () => {
     );
     const { resolveCredential } = await import("./index.js");
 
-    // No orgId on ctx — the caller never populated one (CLI/agent.ts,
-    // background-automation-runner.ts). Interactively the same key resolves
-    // fine because a session backfills orgId; this proves a non-interactive
-    // caller now reaches the same org-scoped row instead of silently missing.
     await expect(
       resolveCredential("BIGQUERY_SERVICE_ACCOUNT", {
         userEmail: "owner@example.test",
@@ -489,7 +477,6 @@ describe("credentials encryption at rest", () => {
     process.env.SECRETS_ENCRYPTION_KEY = "key-A";
     const { saveCredential, resolveCredential } = await import("./index.js");
     await saveCredential("ROTATED", "v", { userEmail: "a@x.com" });
-    // Key rotation — the stored ciphertext can no longer be decrypted.
     process.env.SECRETS_ENCRYPTION_KEY = "key-B";
     expect(
       await resolveCredential("ROTATED", { userEmail: "a@x.com" }),

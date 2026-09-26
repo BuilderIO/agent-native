@@ -18,11 +18,6 @@ const SCREEN_WIDTH = 800;
 const SCREEN_HEIGHT = 600;
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
-/**
- * The Potion acceptance path starts from an empty screen.  The only authored
- * node is the positioned stage; every visible shape in these tests is created
- * through the editor's real tool and pointer path.
- */
 const BLANK_SCREEN = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8"><title>Untitled Potion</title></head>
@@ -284,9 +279,6 @@ async function visibleLayerNames(page: Page): Promise<string[]> {
 }
 
 async function expandPotionLayers(page: Page): Promise<void> {
-  // Source writes remount the tree while the layer projection settles. The
-  // shared helper's one-shot click can then see a detached expand button;
-  // retry the bounded UI operation, while preserving the final failure.
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -755,9 +747,6 @@ test("Potion grouping, layer lock, and reorder use the Layers interaction path",
       grouped.indexOf('data-agent-native-layer-name="Bottle"'),
     ).toBeGreaterThan(grouped.indexOf('data-agent-native-layer-name="Group"'));
 
-    // Reorder while both siblings are movable. Locking the grouped selection
-    // is a separate Layers action; a locked target is intentionally not a
-    // valid drop destination for the reorder gesture.
     await layerRow(page, "Cork order").dragTo(layerRow(page, "Group"), {
       targetPosition: { x: 24, y: 2 },
     });
@@ -770,7 +759,6 @@ test("Potion grouping, layer lock, and reorder use the Layers interaction path",
     const reordered = await persistedSource(page, designId, (content) => {
       const cork = content.indexOf('data-agent-native-layer-name="Cork order"');
       const group = content.indexOf('data-agent-native-layer-name="Group"');
-      // Layers renders siblings in reverse source order (topmost layer first).
       return cork >= 0 && group >= 0 && cork > group;
     });
 
@@ -876,10 +864,6 @@ test("Potion screen export preserves the oracle's 200x271 output size", async ({
     await expect(
       screen.locator('xpath=ancestor::*[@role="treeitem"][1]'),
     ).toHaveAttribute("aria-selected", "true");
-    // The oracle's 200x271 result is a 1x export of the selected Screen. Use
-    // the inspector row, whose default scale is 1x and whose scope resolves
-    // the selected overview Screen. The More menu intentionally exports the
-    // current document at the capture scale, which is a different contract.
     const exportSection = section(page, "Export");
     const [download] = await Promise.all([
       page.waitForEvent("download"),

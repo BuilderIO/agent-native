@@ -1,15 +1,3 @@
-/**
- * Audit-log retention job.
- *
- * Periodically purges `agent_audit_log` rows older than the configured horizon
- * so the log doesn't grow unbounded. Retention is configurable via
- * `AGENT_NATIVE_AUDIT_RETENTION_DAYS` (default: 365 days — audit trails are kept
- * far longer than sampled traces). Setting it to `0` disables the purge (keep
- * forever). Mirrors observability/cleanup-job.ts.
- *
- * Runs once on startup after a short delay, then on a 24-hour interval. Timers
- * are unref'd so they never keep the process alive on their own.
- */
 import { deleteOldAuditEvents } from "./store.js";
 
 const DEFAULT_RETENTION_DAYS = 365;
@@ -29,10 +17,6 @@ function resolveRetentionDays(): number {
   return parsed;
 }
 
-/**
- * Run the audit cleanup once. Returns the deleted row count, or null when
- * retention is disabled (`AGENT_NATIVE_AUDIT_RETENTION_DAYS=0`).
- */
 export async function runAuditCleanupOnce(): Promise<number | null> {
   const days = resolveRetentionDays();
   if (days === 0) return null;
@@ -40,10 +24,6 @@ export async function runAuditCleanupOnce(): Promise<number | null> {
   return deleteOldAuditEvents(cutoff);
 }
 
-/**
- * Start the recurring audit-cleanup job. Idempotent — calling more than once is
- * a no-op while a previous schedule is active. Returns a stop function.
- */
 export function startAuditCleanupJob(): () => void {
   if (_cleanupTimer || _intervalTimer) return stopAuditCleanupJob;
   const days = resolveRetentionDays();

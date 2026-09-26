@@ -88,9 +88,6 @@ describe("CanvasCommentPins", () => {
       />,
     );
 
-    // Drop a pin inside the canvas. The window click handler installed by
-    // CanvasCommentPins captures clicks anywhere on `window`, so we can
-    // dispatch the click at the document level.
     act(() => {
       const clickEvent = new MouseEvent("click", {
         bubbles: true,
@@ -105,7 +102,6 @@ describe("CanvasCommentPins", () => {
       window.dispatchEvent(clickEvent);
     });
 
-    // Composer should appear. Type a draft and click Send.
     const textarea = await screen.findByPlaceholderText(
       /Tell the agent what to change/i,
     );
@@ -149,7 +145,6 @@ describe("CanvasCommentPins", () => {
       />,
     );
 
-    // Drop a pin.
     act(() => {
       const evt = new MouseEvent("click", {
         bubbles: true,
@@ -164,10 +159,6 @@ describe("CanvasCommentPins", () => {
       window.dispatchEvent(evt);
     });
 
-    // The composer is showing for this pin (it's the active pin). The Tooltip
-    // around the pin marker must be force-closed (`open={false}`) so its
-    // content (rendered at z-[250] by shadcn) cannot overlap and absorb
-    // clicks on the Send button below it.
     await screen.findByPlaceholderText(/Tell the agent what to change/i);
     const marker = document.querySelector<HTMLButtonElement>(
       "[data-pin-id] > button",

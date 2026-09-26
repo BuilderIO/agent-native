@@ -29,7 +29,6 @@ type DashboardConfigLike = {
 
 const TEMPORAL_VARIABLE_RE = /\{\{(timeRange|[A-Za-z_]\w*(?:Start|End))\}\}/g;
 
-/** Return the time variables a panel actually references. */
 export function extractDashboardTimeVariables(sql: string): string[] {
   const variables = new Set<string>();
   for (const match of sql.matchAll(TEMPORAL_VARIABLE_RE)) {
@@ -56,9 +55,6 @@ function panelConfig(panel: DashboardPanelLike): Record<string, unknown> {
 }
 
 function hasExplicitLowerBound(sql: string): boolean {
-  // This intentionally recognizes the bounded shapes used by the shipped
-  // first-party catalog. It is a compatibility escape hatch for fixed-window
-  // catalog metrics; new ad-hoc panels should use a dashboard placeholder.
   return /\b(?:event_date|timestamp|started_at|ended_at|cohort_date|created_at|date)\b[\s\S]{0,100}?(?:>=|>)\s*[\s\S]{0,160}?(?:CURRENT_DATE|CURRENT_TIMESTAMP|NOW\s*\(|INTERVAL\s*['"]|DATE\s*['"]|TIMESTAMP\s*['"]|\b20\d{2}-\d{2}-\d{2}\b)/i.test(
     sql,
   );
@@ -221,7 +217,6 @@ function splitTopLevelUnionBranches(sql: string): string[] {
   return branches;
 }
 
-/** One top-level `name AS (...)` common-table-expression's body span. */
 function topLevelCtes(sql: string): TopLevelCteParse | null {
   const sqlStart = skipSqlTrivia(sql, 0);
   const head = TOP_LEVEL_CTE_HEAD_RE.exec(sql.slice(sqlStart));
@@ -249,33 +244,14 @@ function topLevelCtes(sql: string): TopLevelCteParse | null {
 }
 
 function hasAnyTimeBound(text: string): boolean {
-  // .search() ignores the shared global-flagged regex's lastIndex state,
-  // unlike .test(), which would otherwise give wrong results across calls.
   return (
     text.search(TEMPORAL_VARIABLE_RE) !== -1 || hasExplicitLowerBound(text)
   );
 }
 
-/**
- * True if every `analytics_events` scan in `sql` has its own time bound.
- *
- * `hasExplicitLowerBound`/time-variable checks used to run against the whole
- * SQL string: a multi-CTE panel with a bound ANYWHERE (e.g. only on the
- * final SELECT, or only on one of several sibling CTEs) passed validation
- * even though an earlier, unbounded sibling CTE still did a full-table scan
- * — the exact shape of several production incidents (2026-07-25 org-wide
- * audit). This only tightens the check for that specific shape: sibling
- * top-level CTEs each need their own bound. It deliberately does NOT require
- * every nested subquery to be independently bounded — a correlated lookup
- * nested inside an already-bounded outer query (e.g. "has this id EVER
- * appeared as a referrer") is a legitimate, intentionally all-time pattern,
- * and over-flagging it would make this check untrustworthy.
- */
 function everyScanIsBounded(sql: string): boolean {
   const parsed = topLevelCtes(sql);
   if (!parsed) {
-    // A WITH query that we cannot parse must fail closed. Falling back to a
-    // whole-query bound lets a bounded sibling hide an unbounded CTE.
     if (TOP_LEVEL_CTE_HEAD_RE.test(sql.slice(skipSqlTrivia(sql, 0)))) {
       return false;
     }
@@ -291,8 +267,6 @@ function everyScanIsBounded(sql: string): boolean {
     splitTopLevelUnionBranches(unit).every((branch) => {
       const scans = branch.match(ANALYTICS_SCAN_RE) ?? [];
       if (scans.length === 0) return true;
-      // A single lower bound cannot prove that every scan in a join or nested
-      // branch is bounded. Fail closed until the SQL has one scan per branch.
       if (scans.length > 1) return false;
       return hasAnyTimeBound(branch);
     }),
@@ -317,13 +291,6 @@ function scopeValue(panel: DashboardPanelLike): DashboardTimeScope | undefined {
     : undefined;
 }
 
-/**
- * Validate the temporal contract for a first-party dashboard panel.
- *
- * Ordinary panels must bind to a dashboard filter. Intentional exceptions are
- * explicit in `config.timeScope`, while legacy fixed-window catalog SQL is
- * accepted when its lower bound is visible in the SQL itself.
- */
 export function validateFirstPartyDashboardTimeScope(
   panel: DashboardPanelLike,
   dashboard: DashboardConfigLike,
@@ -401,12 +368,6 @@ export function validateFirstPartyDashboardTimeScope(
     return `panel[${index}] ${label} reads first-party analytics without a time bound; use {{timeRange}} with a non-empty default filter, or explicitly set config.timeScope to "cohort-history" or "all-time" for intentional history scans`;
   }
 
-  // A bound anywhere in the SQL text (checked above) is not the same as
-  // every CTE/subquery that reads analytics_events having its own bound — a
-  // multi-CTE panel can look bound overall while an earlier CTE still does a
-  // full-table scan. Skip this for "all-time" and "cohort-history": both are
-  // explicit escape hatches, and a cohort-defining CTE (e.g. "first ever
-  // active date per user") is legitimately unbounded by design.
   if (
     scope !== "all-time" &&
     scope !== "cohort-history" &&

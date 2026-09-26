@@ -14,7 +14,6 @@ export type KScaleStylePatchResult =
   | { status: "applied"; content: string }
   | { status: "failed"; selector: string; reason: string };
 
-/** Apply one gesture's per-node CSS values to source as one content mutation. */
 export function applyKScaleStyleChanges(
   content: string,
   changes: readonly KScaleStyleChange[],

@@ -12,18 +12,10 @@ import { usePollLoop } from "../use-poll-loop.js";
 export interface BuilderStatus {
   configured: boolean;
   builderEnabled: boolean;
-  /** True when the deploy can create or reuse a Builder account via SSO. */
   agentNativeProvisioningEnabled?: boolean;
-  /** Short-lived proof for the one-click account provisioning route. */
   agentNativeProvisioningToken?: string;
-  /**
-   * True when `BUILDER_PRIVATE_KEY` is set at the deploy level. This is a
-   * fallback credential; per-user/org Builder connections are still allowed
-   * and take precedence for that request.
-   */
   envManaged?: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
-  /** Server-authorized ability to revoke the effective Builder grant. */
   canDisconnect?: boolean;
   connectUrl: string;
   appHost: string;
@@ -34,12 +26,6 @@ export interface BuilderStatus {
   privateKeyConfigured: boolean;
   userId?: string;
   orgName?: string;
-  /**
-   * Builder space(s) the effective credential can reach, with real display
-   * names derived from the Admin API. One entry today (a `bpk-` key is
-   * space-scoped); the list shape lets the Sources drill-down show multiple
-   * spaces later. Absent/empty when undeducible — fall back to `orgName`.
-   */
   spaces?: Array<{ id: string; name: string }>;
   orgKind?: string;
   subscription?: string;
@@ -47,17 +33,7 @@ export interface BuilderStatus {
   subscriptionName?: string;
   isEnterprise?: boolean;
   isFreeAccount?: boolean;
-  /**
-   * Set when the OAuth callback ran but failed to persist credentials.
-   * Surfaced as a one-shot row by the server so the connect-flow polling
-   * can stop with a clear message instead of timing out at 5min.
-   */
   connectError?: { message: string; at: number; code?: string };
-  /**
-   * Set when the currently effective Builder credential was rejected by
-   * Builder's API. Unlike connectError, this describes the old credential pair
-   * and should not abort a new reconnect attempt while the popup is open.
-   */
   authError?: { message: string; at: number };
 }
 
@@ -73,12 +49,6 @@ export function hasBuilderOAuthCredential(
   );
 }
 
-/**
- * Fetches Builder connection status from the neutral connection-status route.
- * The legacy /_agent-native/builder/status route remains available for older
- * clients.
- * Re-fetches on window focus to detect post-redirect state changes.
- */
 export function useBuilderStatus({
   enabled = true,
 }: { enabled?: boolean } = {}) {
@@ -138,17 +108,11 @@ export function useBuilderStatus({
       return;
     }
     setLoading(true);
-    // The Builder card is not visible during first paint; defer the initial
-    // status read past the startup window. Focus/visibility/event refreshes
-    // below stay immediate.
     let initialFetchRan = false;
     const cancelInitialFetch = scheduleAfterPaint(() => {
       initialFetchRan = true;
       void fetchStatus();
     });
-    // A focus/visibility/event inside the deferral window consumes the
-    // scheduled initial read, so one status request lands immediately
-    // instead of two when the window elapses.
     const refreshNow = () => {
       if (!initialFetchRan) {
         initialFetchRan = true;
@@ -165,8 +129,6 @@ export function useBuilderStatus({
     }
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
-    // Engine connect/disconnect actions (e.g. the Builder disconnect button)
-    // dispatch this event so dependent cards refresh without a full reload.
     window.addEventListener("agent-engine:configured-changed", refreshNow);
     return () => {
       requestGenerationRef.current += 1;
@@ -180,119 +142,45 @@ export function useBuilderStatus({
   return { status, loading, error, stale, refetch: fetchStatus };
 }
 
-// ─── useBuilderConnectFlow ──────────────────────────────────────────────────
-//
-// Shared state machine for the "open Builder OAuth popup + poll
-// /connection-status/builder until credentials land" interaction. Replaces three
-// near-duplicate inline implementations: `BuilderCliAuthMethod` in
-// OnboardingPanel, `ConnectBuilderCard`, and `BuilderConnectCta` in
-// AssistantChat. Each consumer supplies its own popup URL / completion
-// behavior; the hook owns the polling + timeout + focus refresh.
-//
-// `popupUrl` is what we pass to `window.open`. The default
-// `/_agent-native/builder/connect` begins discovery and redirects to Builder's
-// authorization endpoint. Keeping the initial open app-local makes popup
-// handling synchronous and lets the server mint fresh one-time state.
-
 export interface BuilderConnectFlowOptions {
-  /** Skip server status polling for hosts that own provider routing. */
   enabled?: boolean;
-  /** URL to synchronously open on start(). Defaults to the 302 shortcut. */
   popupUrl?: string;
-  /** Provision or reuse a Builder account from the signed-in verified email. */
   provisionAccount?: boolean;
-  /** Low-cardinality label for the UI surface that opened Builder connect. */
   trackingSource?: string;
-  /** Product flow that needed Builder connect, e.g. connect_llm. */
   trackingFlow?: string;
-  /** Invoked when the current user/org/workspace Builder credential is ready. */
   onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
 }
 
 export interface BuilderConnectStartOptions {
-  /** Override the hook-level source for this click. */
   trackingSource?: string;
-  /** Override the hook-level flow for this click. */
   trackingFlow?: string;
-  /** Override whether this click should use the optional account provisioning flow. */
   provisionAccount?: boolean;
 }
 
 export interface BuilderConnectFlow {
   configured: boolean;
-  /** True after at least one successful Builder connection-status response. */
   statusResolved: boolean;
-  /**
-   * Increments every time a `retry`/lifecycle status read settles, whether it
-   * resolved or failed. `statusResolved` alone cannot bound a caller waiting
-   * on a read, because a second failure leaves it false with no observable
-   * change. Consumers that queue work on a read need the settle, not the
-   * outcome.
-   */
   statusReadSettledCount: number;
-  /**
-   * True when the deploy has BUILDER_PRIVATE_KEY set as a fallback. Connect
-   * is still available so users can override the fallback with their own
-   * Builder account.
-   */
   envManaged: boolean;
   credentialSource?: BuilderStatus["credentialSource"] | null;
   canDisconnect?: boolean;
-  /** True only when the server has enabled the one-click account flow. */
   agentNativeProvisioningEnabled: boolean;
-  /**
-   * True when legacy Builder private/public keys are present. Cloud code-change
-   * routes (`/builder/run`, `/builder/agents-run`) still require those keys;
-   * OAuth `configured` only covers the chat gateway.
-   */
   codeChangeConfigured: boolean;
-  /**
-   * True when the server has a Builder branch project configured for this
-   * request. When false, the card surfaces a waitlist CTA instead of a Send
-   * button.
-   */
   builderEnabled: boolean;
   orgName: string | null;
   connecting: boolean;
   error: string | null;
-  /** True when account provisioning found an existing Builder account. */
   accountExists: boolean;
-  /**
-   * True once the first Builder connection-status fetch has completed (successfully
-   * or not). Consumers that accept an `initialConfigured` prop (e.g. agent
-   * tool-call results rendered with server-side state) should treat
-   * `configured`/`orgName` as authoritative only once this flips true —
-   * otherwise the hook's starting `false` defaults would cause a flash
-   * back to "Connect Builder" on first paint.
-   */
   hasFetchedStatus: boolean;
-  /** Open the popup and begin polling. Must be called from a user-gesture handler. */
   start: (options?: BuilderConnectStartOptions) => void;
-  /** Stop waiting for an OAuth attempt that cannot be closed by the app. */
   cancel: () => void;
-  /**
-   * Retry the status request before choosing a connection path. Returns true
-   * when a read actually started. A disabled flow never reads, so a caller
-   * that waits on the result must be able to tell the difference.
-   */
   retry: () => boolean;
 }
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
-// How long to keep polling after the popup itself has closed before giving up.
-// Must stay well above the couple of poll ticks a successful callback needs to
-// persist credentials and respond, so a slow-but-real confirmation still lands
-// before this fires (see the "keeps polling" tests below for the regression
-// this replaced). Anything past this is a cancelled/closed popup, not a slow
-// success, and the button must not spin for the full 5-minute ceiling.
 export const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 20_000;
-// A waiting page that never loads cannot hand off the popup, so keep the
-// connect flow bounded even when the popup remains open.
 const POPUP_LOAD_TIMEOUT_MS = 20_000;
-// Fallback timeout for callers of fetchStatus() with no external signal of
-// their own (the initial status fetch, the popup-open branches in `start`).
-// The connect-flow poll loop below gets its timeout from usePollLoop instead.
 const STATUS_FETCH_ABORT_MS = 10_000;
 const BUILDER_STATUS_UNAVAILABLE_MESSAGE =
   "Couldn't reach Builder to check your account. Retrying.";
@@ -500,9 +388,6 @@ function isCodeChangeConfigured(
 }
 
 function showBuilderConnectPopupPlaceholder(opened: Window) {
-  // Keep opener attached: the Builder callback uses postMessage to notify the
-  // settings tab that the popup completed. We still hold the WindowProxy so the
-  // parent can navigate the blank popup after refreshing the signed connect URL.
   try {
     opened.document.title = "Opening Builder.io";
     opened.document.body.style.margin = "0";
@@ -732,17 +617,10 @@ export function useBuilderConnectFlow(
   const [statusResolved, setStatusResolved] = useState(false);
   const [statusReadSettledCount, setStatusReadSettledCount] = useState(0);
   const [statusConnectUrl, setStatusConnectUrl] = useState<string | null>(null);
-  // When statusConnectUrl was last fetched. The server signs the embedded
-  // _an_connect token with a 10-minute TTL; using an older URL fails the
-  // cross-origin popup gate. Track freshness so start() can either use a
-  // still-good direct URL (desktop) or refresh a new one inside the popup
-  // gesture path (browser/editor embeds).
   const statusConnectUrlAtRef = useRef<number | null>(null);
   const connectStartedAtRef = useRef<number | null>(null);
   const connectAttemptIdRef = useRef<string | null>(null);
   const cancelledConnectAttemptIdRef = useRef<string | null>(null);
-  // Tracks the currently open popup so the poll loop can notice it closed
-  // without the callback ever landing (a cancelled/abandoned connect).
   const activePopupRef = useRef<Window | null>(null);
   const popupClosedAtRef = useRef<number | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
@@ -759,12 +637,8 @@ export function useBuilderConnectFlow(
   const statusUnavailableRef = useRef(false);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
-  // Keep onConnected in a ref so start() doesn't need to re-create when the
-  // caller passes an inline arrow function.
   const onConnectedRef = useRef(onConnected);
   onConnectedRef.current = onConnected;
-  // Tracking identity for whichever click is currently connecting, read by
-  // the poll loop's timeout-failure event below.
   const activeTrackingRef = useRef<{ source: string; flow?: string }>({
     source: trackingSource,
     flow: trackingFlow,
@@ -799,8 +673,6 @@ export function useBuilderConnectFlow(
           started !== null &&
           callbackSuccessStartedAtRef.current === started
         ) {
-          // Keep cancellation observable after confirmation finishes, but let
-          // its bounded retries finish before starting the close grace window.
           popupClosedAtRef.current ??= Date.now();
           return;
         }
@@ -819,11 +691,6 @@ export function useBuilderConnectFlow(
     };
   }, []);
 
-  // Accepts an optional external `signal` so the connect-flow poll loop below
-  // can cancel this fetch via its own timeout instead of racing a second,
-  // separately-constructed AbortController. Callers with no signal of their
-  // own (the initial status fetch, the popup-open branches in `start`) keep
-  // the internal fallback timeout.
   const fetchStatus = useCallback(
     async (signal?: AbortSignal, connectAttemptId?: string) => {
       if (!enabled) return null;
@@ -877,11 +744,6 @@ export function useBuilderConnectFlow(
     [enabled],
   );
 
-  // Initial fetch + focus/visibility refresh so if the user completed the
-  // flow in another tab (or a downgraded same-tab nav) we notice it. Also
-  // listen for `agent-engine:configured-changed` so a Disconnect click in
-  // Settings propagates to any connect-CTA cards rendered elsewhere in
-  // the app without waiting for the next focus event.
   useEffect(() => {
     if (!enabled) {
       setConfigured(false);
@@ -907,24 +769,15 @@ export function useBuilderConnectFlow(
     }
     mountedRef.current = true;
     let cancelled = false;
-    // Overlapping lifecycle refreshes supersede each other (newest started
-    // wins) so a slow older response cannot overwrite newer connect state.
     let refreshGeneration = 0;
     const refresh = async () => {
       const generation = ++refreshGeneration;
       const isCurrentRefresh = () => generation === refreshGeneration;
       const s = await fetchStatus();
       if (cancelled || !mountedRef.current || !isCurrentRefresh()) return;
-      // Flip `hasFetchedStatus` even when the fetch failed — the caller's
-      // "use initial props until the hook has an answer" pattern wants to
-      // stop waiting after we've tried, regardless of network outcome.
       setHasFetchedStatus(true);
       setStatusReadSettledCount((count) => count + 1);
       if (!s) {
-        // "Could not read the status" must not render the same as "no status
-        // yet". `statusResolved` only flips on success, so without a visible
-        // error here the connect CTA stays inert for the rest of the session
-        // and the user gets a fully styled button that does nothing.
         statusUnavailableRef.current = true;
         setError(BUILDER_STATUS_UNAVAILABLE_MESSAGE);
         return;
@@ -964,9 +817,6 @@ export function useBuilderConnectFlow(
       } else if (!hasOAuthCredential) {
         notifiedConnectedRef.current = false;
       }
-      // Surface persisted auth-failure messages on idle refreshes, but don't
-      // let an old rejected credential abort a new reconnect popup while the
-      // user is still choosing a Builder space.
       const activeConnectStartedAt = connectStartedAtRef.current;
       if (isCurrentConnectError(s.connectError, activeConnectStartedAt)) {
         setError(s.connectError.message);
@@ -980,17 +830,11 @@ export function useBuilderConnectFlow(
       void refresh();
       return true;
     };
-    // Connect-CTA cards render above the fold but their status is not needed
-    // for first paint; defer the initial read. Focus/visibility/event
-    // refreshes below stay immediate.
     let initialRefreshRan = false;
     const cancelInitialRefresh = scheduleAfterPaint(() => {
       initialRefreshRan = true;
       void refresh();
     });
-    // A focus/visibility/event inside the deferral window consumes the
-    // scheduled initial read, so one status request lands immediately
-    // instead of two when the window elapses.
     const refreshNow = () => {
       if (!initialRefreshRan) {
         initialRefreshRan = true;
@@ -1077,9 +921,6 @@ export function useBuilderConnectFlow(
       setError(null);
       if (provisionAccountForStart) setAccountExists(false);
 
-      // Open SYNCHRONOUSLY inside the caller's click handler — any await
-      // before window.open lets the user-gesture token expire, which causes
-      // popup blockers to block entirely or fall back to same-tab navigation.
       const origin = getCallbackOrigin() || window.location.origin;
       const cachedFreshUrl = isFreshSignedConnectUrl(
         statusConnectUrl,
@@ -1255,10 +1096,6 @@ export function useBuilderConnectFlow(
               setOrgName(s.orgName ?? null);
             }
 
-            // Prefer the click-time status response, but keep the signed URL
-            // already rendered into the CTA as a fallback. This avoids closing
-            // the popup when the refresh hits a transient 401/HTML/error
-            // response before the status cache has warmed.
             const freshUrl = withProvisionMode(
               s?.connectUrl ?? cachedFreshUrl ?? signedPropUrl ?? fallbackUrl,
               !!s?.agentNativeProvisioningEnabled,
@@ -1329,10 +1166,6 @@ export function useBuilderConnectFlow(
     ],
   );
 
-  // Connect-flow poll: while `connecting`, checks the server every 2s for the
-  // popup callback to have landed. `enabled` here folds in both the hook's
-  // own `enabled` option and the 5-minute overall cap (checked below and
-  // enforced by flipping `connecting` false, which then disables this loop).
   usePollLoop(
     async (signal) => {
       const started = connectStartedAtRef.current;
@@ -1380,8 +1213,6 @@ export function useBuilderConnectFlow(
           // would reconnect an account that is connected.
         }
       } else if (isCurrentConnectError(s?.connectError, started)) {
-        // OAuth callback ran but writeBuilderCredentials threw \u2014 surface the
-        // real error instead of letting the user wait 5 minutes for timeout.
         connectStartedAtRef.current = null;
         setConnecting(false);
         setAccountExists(s.connectError.code === "account_exists");
@@ -1395,13 +1226,6 @@ export function useBuilderConnectFlow(
           popupClosedAtRef.current !== null) &&
         callbackSuccessInFlightAtRef.current !== started
       ) {
-        // The user closed or cancelled the popup before Builder confirmed
-        // credentials. Give a slow-but-real confirmation a grace window
-        // (see POPUP_CLOSED_CONFIRMATION_GRACE_MS) before giving up, but do
-        // not leave the button spinning for the full 5-minute ceiling below.
-        // Suppressed only while the postMessage/BroadcastChannel handler's
-        // bounded confirmation retries are in flight; after they finish, this
-        // branch can still clear a cancelled attempt without racing success.
         popupClosedAtRef.current ??= Date.now();
         if (
           Date.now() - popupClosedAtRef.current >
@@ -1447,14 +1271,6 @@ export function useBuilderConnectFlow(
     },
   );
 
-  // Popup-side fast path: the callback page broadcasts a message so we stop
-  // polling immediately rather than waiting for the next 2s tick.
-  //
-  // We listen on BroadcastChannel (same-origin, works with noopener popups)
-  // AND on window.message (legacy path for environments without BC or for
-  // popups that still have opener access). Both paths are safe to have open
-  // simultaneously \u2014 the first one to fire wins and the error is deduplicated
-  // by the setConnecting(false) call, which is idempotent.
   useEffect(() => {
     let channel: BroadcastChannel | null = null;
     const isCurrentConnectAttempt = (attemptId: string | undefined): boolean =>

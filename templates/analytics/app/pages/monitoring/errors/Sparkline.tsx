@@ -1,10 +1,6 @@
 import { useId } from "react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 
-/**
- * Tiny inline volume sparkline for an issue row. Purely decorative — no axes,
- * tooltip, or interaction — so it stays legible at ~100x28px.
- */
 export function Sparkline({
   data,
   className,

@@ -1,21 +1,3 @@
-/**
- * Deep-link helpers — the single source of truth for the
- * `/_agent-native/open` URL format.
- *
- * Every artifact-producing / list action that wants an external agent (MCP /
- * A2A) to surface an "Open in <app> →" link returns
- * `{ url: buildDeepLink(...), label }` from its `link` builder. The MCP layer
- * turns the relative path into an absolute web URL, an `agentnative://`
- * desktop URL, and a VS Code extension URL using the request origin.
- *
- * The `/_agent-native/open` route (see `open-route.ts`) consumes these: it
- * resolves the *browser session's* identity, writes the existing one-shot
- * `navigate` application-state command, and 302-redirects to the rendered SPA
- * view so any browser / inline webview lands on the right screen with the
- * record focused. We never invent a new navigation mechanism — this just
- * bridges external surfaces to the `navigate`/`application_state` contract the
- * UI already drains every 2s.
- */
 import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
 import {
   getConfiguredAppBasePath,
@@ -23,25 +5,16 @@ import {
 } from "./app-base-path.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
 
-/** Path of the framework deep-link route, relative to the route prefix. */
 export const OPEN_ROUTE_SUBPATH = "/open";
 
-/** Custom URL scheme the desktop app registers (`agentnative://open?...`). */
 export const DESKTOP_OPEN_URL = "agentnative://open";
 
-/** VS Code extension URI used by Builder.agent-native to open a webview. */
 export const VSCODE_OPEN_URL = "vscode://builder.agent-native/open";
 
 export interface DeepLinkInput {
-  /** App id (informational + multi-app/desktop routing), e.g. "mail". */
   app?: string;
-  /** Target view — maps to the `navigate` command `view`. */
   view: string;
-  /** Record-focus + filter params, e.g. `{ threadId }`, `{ eventId, date }`,
-   *  `{ dashboardId }`. `undefined`/`null`/`""` values are dropped. */
   params?: Record<string, string | number | boolean | null | undefined>;
-  /** Explicit client-side path override (must be a same-origin, leading-slash
-   *  relative path — enforced by the open route). */
   to?: string;
 }
 
@@ -57,11 +30,6 @@ function buildQuery(input: DeepLinkInput): string {
   return sp.toString();
 }
 
-/**
- * Build the app-relative deep-link path:
- * `/_agent-native/open?app=mail&view=inbox&threadId=abc`.
- * Per-app `link` builders call this; never hand-format the URL.
- */
 export function buildDeepLink(input: DeepLinkInput): string {
   return withCollapsedAgentSidebarParam(
     publicFrameworkPath(
@@ -70,10 +38,6 @@ export function buildDeepLink(input: DeepLinkInput): string {
   );
 }
 
-/**
- * Resolve a (possibly relative) deep link to an absolute web URL using the
- * inbound request origin. Absolute URLs pass through unchanged.
- */
 export function toAbsoluteOpenUrl(
   urlOrPath: string,
   origin: string | undefined,
@@ -99,22 +63,12 @@ function withBasePath(urlOrPath: string, basePath: string): string {
   return `${basePath}${leadingPath}`;
 }
 
-/**
- * Rewrite a deep link to the desktop `agentnative://open?...` scheme so the
- * desktop app's existing `handleDeepLink` opens it inside the app webview.
- * Accepts either an app-relative `/_agent-native/open?...` path or an absolute
- * web URL; preserves the query string.
- */
 export function toDesktopOpenUrl(urlOrPath: string): string {
   const qIdx = urlOrPath.indexOf("?");
   const query = qIdx >= 0 ? urlOrPath.slice(qIdx + 1) : "";
   return query ? `${DESKTOP_OPEN_URL}?${query}` : DESKTOP_OPEN_URL;
 }
 
-/**
- * Wrap an Agent-Native web URL in the VS Code extension URI so external agents
- * can hand users a link that opens the app inside a VS Code webview.
- */
 export function toVsCodeOpenUrl(urlOrPath: string): string {
   const sp = new URLSearchParams();
   sp.set("url", urlOrPath);

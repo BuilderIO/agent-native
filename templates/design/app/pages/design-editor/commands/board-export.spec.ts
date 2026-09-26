@@ -63,7 +63,6 @@ function createReportedBoardFixture() {
     });
   }
 
-  // The six saved board elements, after the preview's +4096px content offset.
   const nodeRects = [
     { left: 4096, top: 4096, width: 190, height: 154 },
     { left: 4613, top: 4096, width: 160, height: 12 },

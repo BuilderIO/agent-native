@@ -19,9 +19,6 @@ vi.mock("h3", () => ({
     onClosed: (callback: () => void) => {
       event.close = callback;
     },
-    // h3's `close()` resolves the writer promise that `onClosed` subscribes to,
-    // so a self-close runs the handler's teardown. Mirror that here, or the
-    // lifespan test would pass against an implementation that leaks listeners.
     close: async () => {
       event.closed = true;
       event.close?.();
@@ -159,16 +156,10 @@ describe("poll event SSE handler", () => {
       const beforeClose = event.pushed.length;
       expect(beforeClose).toBeGreaterThan(1);
 
-      // A heartbeat scheduled for the same tick may land immediately before the
-      // close — harmless, and why the assertion below counts from after it.
       await vi.advanceTimersByTimeAsync(2_000);
       expect(event.closed).toBe(true);
       const afterClose = event.pushed.length;
 
-      // The teardown must have run. Listener counts are the assertion that
-      // matters: the handler's `closed` flag alone would silence the pushes
-      // below while leaving both subscriptions attached for the life of the
-      // process — a worse leak than the timeout this option removes.
       expect(listeners()).toEqual(before);
 
       await vi.advanceTimersByTimeAsync(60_000);

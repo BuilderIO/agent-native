@@ -5,16 +5,10 @@ import {
 } from "@agent-native/core/server";
 import type { ShareEmailExtras } from "@agent-native/core/sharing";
 
-/**
- * Origin plus the configured mount path. Deployments served under
- * APP_BASE_PATH (e.g. `/clips`) would otherwise link email assets at the
- * gateway root, where nothing is served.
- */
 function appBaseUrl(): string {
   return withConfiguredAppBasePath(getAppProductionUrl());
 }
 
-/** Make a stored URL absolute for use in emails (relative paths won't load). */
 export function absoluteUrl(
   url: string | null | undefined,
 ): string | undefined {
@@ -32,12 +26,6 @@ function escapeAttr(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/**
- * Percent-encode characters that could terminate a CSS `url('…')`. A style
- * attribute is HTML-decoded before it is parsed as CSS, so HTML escaping alone
- * does not protect the CSS context — an escaped quote decodes back to a real
- * one and lets the value break out into further declarations.
- */
 function escapeCssUrl(url: string): string {
   return url.replace(
     /['"()\\\s]/g,
@@ -54,11 +42,6 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-/**
- * Clips-specific body for the share-notification email: the AI companion CTA,
- * the copyable agent link, and the closing note that routes replies to the
- * person who shared the clip.
- */
 export function recordingShareEmailExtras(ctx: {
   href: string;
   senderEmail: string;
@@ -87,18 +70,10 @@ export type ShareHeroRecording = {
   animatedThumbnailUrl?: string | null;
 };
 
-/**
- * Build the share-email preview for a recording: a 16:9 thumbnail with a
- * centered play badge, linking to the clip. Uses the background-image + VML
- * technique so the badge stays centered across clients, including Outlook. The
- * play badge is served from Clips' own public assets.
- */
 export function recordingShareHeroHtml(
   recording: ShareHeroRecording,
   ctx: { href: string; alt?: string },
 ): string | undefined {
-  // GIF-only recordings leave `thumbnailUrl` empty, so fall back to the
-  // animated thumbnail rather than dropping the preview entirely.
   const thumb = absoluteUrl(
     recording.thumbnailUrl || recording.animatedThumbnailUrl,
   );

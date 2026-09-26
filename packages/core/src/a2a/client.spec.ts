@@ -18,12 +18,6 @@ import {
   signA2AToken,
 } from "./client.js";
 
-// ssrfSafeFetch does a REAL node:dns lookup before calling fetch. Under fake
-// timers that wall-clock work can take seconds on CI resolvers (agent.test is
-// not a real host), so fake time races past request timeouts and deadlines
-// before the stubbed fetch is ever reached. Keep the synchronous private-host
-// check (the blocking test relies on it; IP literals need no DNS) and skip
-// only the DNS phase — full SSRF behavior is covered by url-safety's own spec.
 vi.mock("../extensions/url-safety.js", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("../extensions/url-safety.js")>();
@@ -592,8 +586,6 @@ describe("A2AClient", () => {
       { role: "user", parts: [{ type: "text", text: "hello" }] },
       { timeoutMs: 5_000, pollIntervalMs: 1_000 },
     );
-    // Attach a handler before advancing timers so the intentional rejection is
-    // never reported as unhandled while the fake clock is moving.
     void result.catch(() => undefined);
 
     const hasTaskRead = () =>
@@ -602,9 +594,6 @@ describe("A2AClient", () => {
           init?.method === "POST" &&
           JSON.parse(String(init.body)).method === "tasks/get",
       );
-    // waitFor advances fake time in coarse intervals. Stepping the clock 1ms at
-    // a time performs 1,000 async flushes and can exceed Vitest's real 5s test
-    // timeout when the full suite is under load.
     await vi.waitFor(() => expect(hasTaskRead()).toBe(true), {
       interval: 100,
       timeout: 5_000,
@@ -667,11 +656,8 @@ describe("A2AClient", () => {
       { role: "user", parts: [{ type: "text", text: "hello" }] },
       { timeoutMs: 60_000, pollIntervalMs: 1_000 },
     );
-    // Attach a handler before advancing timers so an unexpected rejection is
-    // never reported as unhandled while the fake clock is moving.
     void result.catch(() => undefined);
 
-    // Same coarse-interval pacing rationale as the hung-poll test above.
     await vi.waitFor(() => expect(taskReads).toBeGreaterThan(0), {
       interval: 100,
       timeout: 5_000,

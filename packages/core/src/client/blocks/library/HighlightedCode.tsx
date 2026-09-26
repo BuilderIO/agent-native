@@ -19,8 +19,6 @@ let highlighterLoader: Promise<ShikiHighlighter> | null = null;
 function loadHighlighter(): Promise<ShikiHighlighter> {
   if (!highlighterLoader) {
     highlighterLoader = (async () => {
-      // Use the JavaScript regex engine instead of Oniguruma WASM (~608 KB saved).
-      // forgiving:true degrades unsupported patterns gracefully instead of throwing.
       const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] =
         await Promise.all([
           import("shiki/core"),
@@ -69,12 +67,6 @@ const LANG_ALIASES: Record<string, string> = {
   bigquery: "sql",
 };
 
-/**
- * Human-facing label for a code language hint (the value stored on a code block
- * / code tab). Returns `null` for empty / unknown / plain hints so callers can
- * keep the surface clean (no "Plain text" chrome) when the language is unknown
- * or auto-detected. Web languages lead because plans skew that way.
- */
 const LANGUAGE_LABELS: Record<string, string> = {
   typescript: "TypeScript",
   ts: "TypeScript",
@@ -175,25 +167,8 @@ export function HighlightedCode({
   );
 }
 
-/**
- * Default number of code lines shown before a code surface collapses behind a
- * "Show N more lines" toggle. Long code panes (read view, code tabs, API specs)
- * stay scannable instead of dominating the document, matching the rest of the
- * plan's progressively-disclosed surfaces.
- */
 export const DEFAULT_CODE_MAX_LINES = 30;
 
-/**
- * Read-only code surface used across the plan blocks (code tabs, API specs) and
- * the markdown read view. Syntax-highlights via {@link HighlightedCode} (Shiki,
- * client-only with a plain `<pre>` SSR fallback), follows the current
- * light/dark `--plan-code` palette, and collapses to `maxLines` with an
- * expand/collapse toggle so long snippets do not run away.
- *
- * `maxLines` of `0` / `null` disables collapsing (show everything). The default
- * is {@link DEFAULT_CODE_MAX_LINES}; the surface only collapses when the code is
- * actually longer than that.
- */
 export function CodeSurface({
   code,
   language,

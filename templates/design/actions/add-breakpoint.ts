@@ -3,7 +3,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -15,16 +15,6 @@ import type {
 } from "../shared/design-state.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 
-/**
- * Read the active breakpoint set from designs.data, or return a fresh one.
- * Breakpoint sets are stored inline in `designs.data.breakpointSet` rather
- * than a dedicated table (simplest additive storage for v1; a dedicated table
- * can be added later if per-screen sets are needed).
- *
- * Follow-up: if per-screen breakpoint sets become necessary, add a
- * `design_breakpoint_set` table keyed by (design_id, file_id) and migrate
- * this in-data storage to it.
- */
 function readBreakpointSet(
   designData: DesignDataRecord,
   fallbackId: string,
@@ -93,7 +83,6 @@ export default defineAction({
         if (set.breakpoints.some((bp) => bp.widthPx === widthPx)) {
           return current;
         }
-        // Insert sorted by widthPx ascending (Mobile → Tablet → Desktop).
         const breakpoints = [...set.breakpoints, newBreakpoint].sort(
           (a, b) => a.widthPx - b.widthPx,
         );

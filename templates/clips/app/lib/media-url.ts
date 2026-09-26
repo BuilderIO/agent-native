@@ -1,16 +1,3 @@
-/**
- * Cache-busting for stored media.
- *
- * A recording's file can be replaced while its URL stays the same — the
- * redaction burn uploads with a stable name, and the seekable-video repair
- * does too. Without a version on the URL the browser serves whatever it
- * already has, which after a burn means the *unredacted* video, playing under
- * a recording that says it is redacted.
- *
- * `mediaUpdatedAt` is the version. Every path that writes new bytes for an
- * existing recording sets it.
- */
-
 export function setUrlSearchParam(
   url: string,
   key: string,
@@ -32,7 +19,6 @@ export function setUrlSearchParam(
   }
 }
 
-/** The media URL with its version attached, or unchanged if there is none. */
 export function withMediaVersion(
   url: string,
   version: string | number | null | undefined,

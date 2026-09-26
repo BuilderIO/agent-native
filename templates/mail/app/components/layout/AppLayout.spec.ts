@@ -389,12 +389,6 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("void invalidateInboxThreads(queryClient);");
   });
 
-  // Repro: with no Google account connected, `view` for an unmatched URL
-  // (e.g. /this-route-should-not-exist-xyz) was still "not settings" and
-  // "not draft-queue", so the no-accounts takeover replaced `{children}` —
-  // the routed NotFound page — with the Google-connect banner instead. The
-  // page's <title> was correct (computed separately in $view.tsx's meta())
-  // while the rendered body silently became the inbox shell.
   it("only shows the Google-connect takeover for a known mail view", () => {
     const source = appLayoutSource();
 

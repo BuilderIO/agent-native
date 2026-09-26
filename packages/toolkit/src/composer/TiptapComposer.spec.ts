@@ -441,9 +441,6 @@ describe("createTiptapComposerExtensions", () => {
   });
 
   it("clears the persisted draft even when the host unmounts the composer before onSubmit resolves", async () => {
-    // Mirrors standalone prompt popovers (e.g. Design's "New Design" dialog)
-    // that close/unmount themselves as soon as submit starts, without
-    // waiting for the submit round trip to finish.
     const scope = "unmount-before-resolve";
     let resolveSubmit: (() => void) | undefined;
     const onSubmit = vi.fn(
@@ -503,11 +500,6 @@ describe("createTiptapComposerExtensions", () => {
       "abandoned prompt",
     );
 
-    // The host closes/unmounts the popover immediately after kicking off
-    // submit, destroying this editor instance while onSubmit is still
-    // pending. tiptap-react defers the actual `editor.destroy()` by one
-    // tick (see EditorInstanceManager.scheduleDestroy) so the wait below is
-    // required for the destruction to have actually happened.
     act(() => localRoot.unmount());
     localContainer.remove();
     await act(async () => {
@@ -524,11 +516,6 @@ describe("createTiptapComposerExtensions", () => {
   });
 
   it("does not clear a newer draft when a stale submit from an unmounted, same-scope composer instance finally resolves", async () => {
-    // Two independent mounts can share the exact same draftScope (e.g. the
-    // host reopens the same "New design" popover before the first submit's
-    // round trip settles). The stale instance's late-resolving submit must
-    // not wipe out whatever the fresh instance has since persisted under
-    // that shared key.
     const scope = "reused-scope-after-unmount";
     let resolveFirstSubmit: (() => void) | undefined;
     const firstSubmit = vi.fn(
@@ -588,16 +575,12 @@ describe("createTiptapComposerExtensions", () => {
       "stale prompt",
     );
 
-    // The host closes/unmounts the first popover instance while its submit
-    // is still pending.
     act(() => firstRoot.unmount());
     firstContainer.remove();
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 5));
     });
 
-    // The host reopens the same popover (same draftScope) and the visitor
-    // types a brand-new draft, which persists to the exact same key.
     const secondFocusRef = React.createRef<TiptapComposerHandle>();
     const secondContainer = document.createElement("div");
     document.body.appendChild(secondContainer);
@@ -635,8 +618,6 @@ describe("createTiptapComposerExtensions", () => {
       "fresh prompt",
     );
 
-    // The stale first submit finally resolves. It must not blow away the
-    // second instance's freshly persisted draft under the shared key.
     await act(async () => {
       resolveFirstSubmit?.();
       await Promise.resolve();
@@ -1221,7 +1202,6 @@ describe("createTiptapComposerExtensions", () => {
         { configured: false },
       ]),
     ).toBe(false);
-    // No CTA to fall back on — keep the list rather than empty the popover.
     expect(shouldShowOnlyConnectPath(false, unconfigured)).toBe(false);
   });
 
@@ -1244,10 +1224,6 @@ describe("createTiptapComposerExtensions", () => {
   });
 
   it("still renders the picker when nothing is configured, even though that leaves selectedModel empty", () => {
-    // Nothing routable yet means useChatModels() resolves selectedModel to
-    // "" (never null/undefined) so it can't be pre-selected — that must not
-    // read as "no picker to show": the connect-provider CTAs still live
-    // inside the picker itself.
     const unconfigured = [
       {
         engine: "openai",
@@ -1257,8 +1233,6 @@ describe("createTiptapComposerExtensions", () => {
       },
     ];
     expect(shouldRenderModelSelector(unconfigured, () => {})).toBe(true);
-    // An empty list is the initial discovery/setup state. Keep the button so
-    // the picker can show loading or provider setup rather than disappearing.
     expect(shouldRenderModelSelector([], () => {})).toBe(true);
     expect(shouldRenderModelSelector(unconfigured, undefined)).toBe(false);
     expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
@@ -1889,7 +1863,6 @@ describe("composerModelCostTier", () => {
   });
 
   it("returns undefined for unmapped models so no cost label renders", () => {
-    // A guessed tier is worse than none — these render without a `$` label.
     expect(composerModelCostTier("auto")).toBeUndefined();
     expect(composerModelCostTier("z-ai/glm-5.2")).toBeUndefined();
     expect(composerModelCostTier("kimi-k2-5")).toBeUndefined();

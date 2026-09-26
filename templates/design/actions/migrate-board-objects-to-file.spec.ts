@@ -24,10 +24,6 @@ import {
 import type { BoardObjectEntry } from "../shared/board-objects.js";
 import migrateBoardObjectsAction from "./migrate-board-objects-to-file.js";
 
-// ---------------------------------------------------------------------------
-// Action schema
-// ---------------------------------------------------------------------------
-
 describe("migrate-board-objects-to-file schema", () => {
   it("accepts a valid designId", () => {
     const result = migrateBoardObjectsAction.schema.safeParse({
@@ -49,10 +45,6 @@ describe("migrate-board-objects-to-file schema", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Board file reserved filename
-// ---------------------------------------------------------------------------
-
 describe("BOARD_FILENAME is the reserved board filename", () => {
   it("is __board__.html", () => {
     expect(BOARD_FILENAME).toBe("__board__.html");
@@ -64,10 +56,6 @@ describe("BOARD_FILENAME is the reserved board filename", () => {
     expect(isBoardFile("board.html")).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Negative coordinate preservation (core migration contract)
-// ---------------------------------------------------------------------------
 
 describe("negative-coordinate preservation in boardObjectEntryToHtmlFragment", () => {
   it("preserves negative x without clamping", () => {
@@ -121,10 +109,6 @@ describe("negative-coordinate preservation in boardObjectEntryToHtmlFragment", (
   });
 });
 
-// ---------------------------------------------------------------------------
-// Fragment injection into emptyBoardHtml
-// ---------------------------------------------------------------------------
-
 describe("fragment injection pipeline", () => {
   it("injects a single fragment before </body>", () => {
     const entry: BoardObjectEntry = {
@@ -143,7 +127,6 @@ describe("fragment injection pipeline", () => {
     expect(html).toContain("top:20px");
     expect(html).toContain("#aabbcc");
     expect(html).toContain("</body>");
-    // Should still be a well-formed document
     expect(html).toContain("<!DOCTYPE html>");
   });
 
@@ -175,13 +158,11 @@ describe("fragment injection pipeline", () => {
     const posB = html.indexOf("obj-b");
     expect(posA).toBeGreaterThan(-1);
     expect(posB).toBeGreaterThan(-1);
-    // obj-a (z=0) should appear before obj-b (z=1)
     expect(posA).toBeLessThan(posB);
   });
 
   it("handles zero board objects: produces valid empty-board HTML", () => {
     let html = emptyBoardHtml();
-    // Simulating migration with no entries
     const fragments = "";
     html = html.replace("</body>", `${fragments}\n</body>`);
 
@@ -210,10 +191,6 @@ describe("fragment injection pipeline", () => {
     expect(html).toContain("top:-100px");
   });
 });
-
-// ---------------------------------------------------------------------------
-// boardObjectEntryToHtmlFragment — node id and layer attributes
-// ---------------------------------------------------------------------------
 
 describe("boardObjectEntryToHtmlFragment — node id and layer attributes", () => {
   it("embeds data-agent-native-node-id matching the entry id", () => {
@@ -250,10 +227,6 @@ describe("boardObjectEntryToHtmlFragment — node id and layer attributes", () =
     expect(fragment).toContain(`data-agent-native-layer-name="Ellipse"`);
   });
 });
-
-// ---------------------------------------------------------------------------
-// boardObjectEntryToHtmlFragment — all kinds produce valid fragments
-// ---------------------------------------------------------------------------
 
 describe("boardObjectEntryToHtmlFragment — all kinds", () => {
   const kinds: BoardObjectEntry["kind"][] = [

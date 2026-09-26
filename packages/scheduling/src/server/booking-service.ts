@@ -1,17 +1,5 @@
 import { eq } from "drizzle-orm";
 
-/**
- * Booking lifecycle — create, reschedule, cancel — wired to providers and
- * workflow hooks.
- *
- * The booking flow:
- *   1. Load event type and resolve host (1:1, round-robin).
- *   2. Validate requested slot against availability engine.
- *   3. Insert the booking row + attendees.
- *   4. For each video/calendar provider, create external events and attach
- *      references to the booking.
- *   5. Emit lifecycle event → workflows materialize scheduled reminders.
- */
 import type {
   Booking,
   Attendee,
@@ -50,9 +38,7 @@ export interface CreateBookingInput {
   iCalUid?: string;
   iCalSequence?: number;
   orgId?: string;
-  /** If set, we're rescheduling from this booking uid */
   fromReschedule?: string;
-  /** Keep Zoom reschedules uncommitted until the replacement meeting is usable. */
   requireZoomMeeting?: boolean;
 }
 
@@ -107,7 +93,6 @@ export async function createBooking(
 
   let usableZoomMeeting = false;
 
-  // Create video meeting if location is a video kind
   if (booking.location && isVideoKind(booking.location.kind)) {
     const provider = getVideoProvider(
       videoProviderKindFor(booking.location.kind),
@@ -150,10 +135,8 @@ export async function createBooking(
     );
   }
 
-  // Write to destination calendar
   await writeToDestinationCalendars(booking);
 
-  // Fire workflow hooks
   await onBookingCreated(booking);
 
   const final = await getBookingByUid(booking.uid);
@@ -175,9 +158,6 @@ export async function rescheduleBooking(input: {
   if (!eventType) throw new Error("Event type missing");
   requireZoomMeetingResolution(original, input.zoomMeetingResolved);
 
-  // Create the new booking (validated against availability, ignoring the
-  // original's own slot) before touching the original, so a slot conflict
-  // never leaves the original marked "rescheduled" with no successor.
   const attendee = original.attendees[0];
   const guests = original.attendees.slice(1);
   const newBooking = await createBooking({
@@ -217,12 +197,10 @@ export async function rescheduleBooking(input: {
     throw error;
   }
 
-  // Mark old as rescheduled now that the replacement exists.
   await updateBookingStatus(input.uid, "rescheduled", {
     reschedulingReason: input.reason,
   });
 
-  // Update external calendar events (PATCH, not delete+create)
   for (const ref of original.references) {
     const provider = getCalendarProvider(ref.type);
     if (provider?.updateEvent && ref.credentialId) {

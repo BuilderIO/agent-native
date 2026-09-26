@@ -16,8 +16,6 @@ import {
   type ExecuteBuilderSourceExecutionDeps,
 } from "./execute-builder-source-execution";
 
-// Gated live integration: when explicitly enabled, this makes real Builder
-// writes against BUILDER_CMS_SAFE_WRITE_MODEL. Normal CI skips it offline.
 const LIVE_BUILDER_ENABLED =
   process.env.BUILDER_LIVE_E2E === "1" &&
   !!process.env.BUILDER_PRIVATE_KEY &&
@@ -356,10 +354,6 @@ describe.skipIf(!LIVE_BUILDER_ENABLED)(
   },
 );
 
-// Publication-state effects against live Builder, using the REAL readLiveEntry
-// preflight. The baseline is derived from the seeded entry's real `lastUpdated`
-// (a NUMBER from delivery), which locks down the stale-guard format fix:
-// update_in_place must NOT be falsely blocked, and a wrong baseline MUST block.
 describe.skipIf(!LIVE_BUILDER_ENABLED)(
   "Builder publication-state effects against live Builder",
   () => {
@@ -383,8 +377,6 @@ describe.skipIf(!LIVE_BUILDER_ENABLED)(
       });
       if (!created.entryId) throw new Error("Failed to seed live entry.");
       seededIds.push(created.entryId);
-      // Derive the staleness baseline exactly as a real sync would observe it:
-      // the live numeric lastUpdated, stringified.
       const live = await readBuilderCmsEntryLiveState({
         model: BUILDER_CMS_SAFE_WRITE_MODEL,
         entryId: created.entryId,
@@ -472,7 +464,6 @@ describe.skipIf(!LIVE_BUILDER_ENABLED)(
         },
         onReconcile: () => {},
       });
-      // Use the REAL preflight read against live Builder.
       deps.readLiveEntry = (args) => readBuilderCmsEntryLiveState(args);
       const realWrite = deps.executeWrite;
       deps.executeWrite = (args) => {

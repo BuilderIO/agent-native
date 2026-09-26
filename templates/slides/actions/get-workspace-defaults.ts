@@ -9,11 +9,6 @@ import {
 } from "../server/workspace-defaults.js";
 import getDesignSystem from "./get-design-system.js";
 
-/**
- * `unavailable` is not `null`. A default the caller cannot open means an admin
- * pointed at something private; collapsing that into "no default" hides the
- * misconfiguration from the only people who can fix it.
- */
 type DefaultRef =
   | { id: string; title: string; unavailable?: false }
   | { id: string; title: null; unavailable: true }

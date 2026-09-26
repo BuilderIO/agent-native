@@ -1,35 +1,3 @@
-/**
- * Request transcription for a recording.
- *
- * Native transcript first: the web recorder uses the browser Web Speech API
- * and the desktop app uses macOS Speech. Those transcripts are saved via
- * `save-browser-transcript` and are authoritative. This action preserves an
- * existing native transcript, then only falls back to cloud transcription when
- * no native transcript exists.
- *
- * Cloud fallback: Builder.io transcription (Gemini 3.1 Flash-Lite behind the
- * Builder proxy) when Builder is connected; if that model is unavailable in
- * the deployment region, retry the Builder gateway's default model.
- *
- * Clips intentionally does not route recording transcription to third-party
- * BYOK speech providers. Native macOS/Web Speech output is the primary source;
- * Builder only transcribes the original recording when native text is
- * unavailable.
- *
- * Native transcription: the browser's Web Speech API and desktop macOS Speech
- * run during recording and save an instant transcript via
- * `save-browser-transcript`. If this action finds a ready native transcript,
- * it preserves that result and only kicks off title generation.
- *
- * Fetches the recording media, extracts audio-only bytes, POSTs to the
- * provider with response_format=verbose_json and
- * timestamp_granularities[]=segment, and writes the result to
- * `recording_transcripts` with status='ready'.
- *
- * Usage:
- *   pnpm action request-transcript --recordingId=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
@@ -160,9 +128,6 @@ export async function transcribeWithBuilderModelFallback(
     console.warn(
       `[clips] Builder transcription model ${BUILDER_GEMINI_TRANSCRIPTION_MODEL} is unavailable; retrying the gateway default model.`,
     );
-    // `model` is optional on the Builder transcription endpoint. Omitting it
-    // restores the gateway's region-aware default that Clips used before the
-    // explicit Gemini model was introduced.
     return transcribeWithBuilder(options);
   }
 }
@@ -225,15 +190,9 @@ export function recordingMediaFetchTimeoutMs(
   );
 }
 
-// Bounded automatic retry for transient failures (ffmpeg timeout, transient
-// provider network/5xx errors) — NOT for permanent failures like "no audio
-// track" or a missing/rejected API key. Each retry is self-dispatched into a
-// fresh request so serverless runtimes cannot freeze a timer left behind by
-// the completed transcription request.
 const MAX_AUTO_TRANSCRIPT_RETRIES = 2;
 const AUTO_TRANSCRIPT_RETRY_BACKOFF_MS = [5_000, 20_000];
 
-/** The typed code an error already carries, if any. */
 function transcriptFailureCodeFor(err: unknown): TranscriptFailureCode | null {
   return err instanceof AudioOnlyExtractionError
     ? (err.code as TranscriptFailureCode)
@@ -257,24 +216,11 @@ function isTransientTranscriptionError(err: unknown): boolean {
     ) {
       return true;
     }
-    // Provider 5xx responses are transient; 4xx (bad key, bad request) are not.
     if (/\b5\d\d\b/.test(message) && message.includes("error")) return true;
   }
   return false;
 }
 
-/**
- * Schedule a bounded, backed-off automatic retry of `request-transcript` for
- * a transient failure in a fresh server request.
- *
- * `nextRetryCount` must already be persisted to `recording_transcripts` by the
- * caller BEFORE this is invoked (not inside the timer) so the retry budget
- * survives a process that never wakes back up to run the timer — a later
- * manual or automatic pass always sees the true attempt count. The dispatched
- * run is tagged `retryAttempt` (not `force` alone) so `run()` can tell an
- * automatic retry apart from a human/agent-initiated retry: automatic retries
- * consume the bounded budget, manual retries never do.
- */
 function scheduleAutoTranscriptRetry({
   recordingId,
   nextRetryCount,
@@ -439,21 +385,6 @@ function isRecentlyPendingTranscript(transcript: {
   );
 }
 
-/**
- * Run `work` while keeping this recording's pending transcript row marked live.
- *
- * `resolveTranscriptPresentation` infers "the worker is gone" from a pending
- * row nothing has written for STALE_PENDING_TRANSCRIPT_MS, because the row
- * carries no other liveness signal. Media fetch, ffmpeg extraction and the
- * provider call legitimately add up past that window on a long recording, so
- * without this ping the UI publishes a terminal "stopped before it finished"
- * failure over a run that is still working — and the player's self-heal then
- * forces a second concurrent transcription of the same clip.
- *
- * The update is scoped to `status = 'pending'` so it can never touch a row a
- * concurrent run has already finished, and the interval is unref'd and cleared
- * so it cannot hold a serverless invocation open.
- */
 async function withPendingTranscriptHeartbeat<T>(
   db: ReturnType<typeof getDb>,
   recordingId: string,
@@ -525,9 +456,6 @@ function splitMeasuredText(text: string): {
     };
   }
 
-  // CJK and other scripts often have no spaces between words. Segment those
-  // with the runtime's locale data when available, then fall back to Unicode
-  // code points so every timed cue can still receive some cleaned text.
   const Segmenter = (
     Intl as typeof Intl & { Segmenter?: WordSegmenterConstructor }
   ).Segmenter;
@@ -557,13 +485,6 @@ function hasMeasuredAttribution(segments: TranscriptSegment[]): boolean {
   );
 }
 
-/**
- * Rewrite attributed cues only when the cleanup is a sequence-preserving
- * normalization. Without a per-word speaker map, proportional redistribution
- * can move words across a speaker boundary. Returning null tells the caller to
- * keep the complete original transcript instead of storing mismatched fullText
- * and segmentsJson.
- */
 function rewriteAttributedSegmentText(
   segments: TranscriptSegment[],
   cleanedText: string,
@@ -594,9 +515,6 @@ function rewriteAttributedSegmentText(
     }
     if (normalized !== target) return null;
 
-    // Keep punctuation and whitespace with the preceding cue. They do not
-    // affect alignment, but dropping them makes the displayed transcript look
-    // broken at every measured speaker boundary.
     while (
       charIndex < cleanedChars.length &&
       !normalizeAlignmentText(cleanedChars[charIndex])
@@ -641,9 +559,6 @@ function rewriteMeasuredSegmentText(
       : Math.round(
           (cleaned.units.length * (weightIndex + weights[index])) / totalWeight,
         );
-    // Unattributed cues can safely be dropped when cleanup removes short
-    // filler. Keep the measured timings for the remaining cues and preserve
-    // the complete cleaned text instead of reverting to stale source text.
     const minimumEnd =
       cleaned.units.length >= segments.length ? unitIndex + 1 : unitIndex;
     const maximumEnd = Math.max(
@@ -660,15 +575,6 @@ function rewriteMeasuredSegmentText(
   });
 }
 
-/**
- * Pick the segments to store after cleanup rewrites the transcript text.
- *
- * Measured timings from the capture engine always win.
- * `buildCaptionSegmentsFromText` spaces cues in proportion to word count, so
- * re-synthesizing over real timestamps spreads a short transcript evenly across
- * the whole recording — which reads as minute-long gaps of dropped speech even
- * when nothing was dropped there.
- */
 export function resolveCleanupSegmentsJson(
   priorSegmentsJson: string | null | undefined,
   cleanedText: string,
@@ -840,9 +746,6 @@ async function failAudioOnlyPreparation({
   });
   if (preserved) return preserved;
 
-  // The code decides retryability. `isTransientTranscriptionError` stays as the
-  // fallback for errors that carry no code yet — it reads regexes over prose,
-  // which is why a reworded message could once change whether a clip retried.
   const failureCode = transcriptFailureCodeFor(err);
   const transient = failureCode
     ? isRetryableTranscriptFailure(failureCode)
@@ -877,12 +780,6 @@ async function failAudioOnlyPreparation({
   throw new Error(reason);
 }
 
-/**
- * Read the language already detected/stored on this recording's transcript row.
- * Renormalization must preserve a detected non-English language rather than
- * clobbering it back to "en". Falls back to "en" only when no row (or no
- * language) exists yet.
- */
 async function resolveStoredLanguage(
   db: ReturnType<typeof getDb>,
   recordingId: string,
@@ -1026,7 +923,6 @@ async function completeReadyTranscript({
     );
   }
 
-  // Wake the player polling after transcript metadata generation completes.
   await writeAppState("refresh-signal", { ts: Date.now() });
   await finalizeEndedMeetingsForRecording(db, recordingId);
   await queueBrainExport(recordingId);
@@ -1182,9 +1078,6 @@ const requestTranscriptAction = defineAction({
       const videoUrl = rec.videoUrl;
       if (!videoUrl) throw new Error("Recording has no videoUrl");
       if (rec.hasAudio === false) {
-        // NOT "no speech was detected" — this is a measurement of the stored
-        // file, and blaming the recording sent people hunting for a microphone
-        // problem when the screen-share simply never included audio.
         throw new AudioOnlyExtractionError(
           "NO_AUDIO_SAVED",
           transcriptFailureMessage("NO_AUDIO_SAVED"),
@@ -1229,12 +1122,6 @@ const requestTranscriptAction = defineAction({
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
 
-    // Persisted retry budget entering this run. A manual/agent retry
-    // (force=true, no retryAttempt) is NEVER blocked by this count — it always
-    // runs. Only whether a FUTURE failure schedules another automatic retry
-    // depends on it (see scheduleAutoTranscriptRetry's own cap check), so a
-    // manual retry can still top the budget back up for one more bounded
-    // automatic pass if it fails transiently again.
     const currentRetryCount = existingNativeTranscript?.retryCount ?? 0;
     const regeneratingReadyTranscript = Boolean(
       args.regenerate &&
@@ -1448,8 +1335,6 @@ const requestTranscriptAction = defineAction({
             );
           }
 
-          // Re-read title fresh — `rec.title` was fetched before the 30+ s
-          // transcription and may be stale if the user renamed during that window.
           const [freshRec] = await db
             .select({
               title: schema.recordings.title,
@@ -1530,13 +1415,6 @@ const requestTranscriptAction = defineAction({
     const reason = builderError
       ? "No native transcript was captured, and Builder transcription could not finish. Retry transcription or check Builder connection and recording audio."
       : "No transcript was captured by native speech recognition, and Builder transcription is not configured.";
-    // A cloud failure gets the SAME transient-retry treatment the audio-only
-    // path already has (see `failAudioOnlyPreparation`). This branch classified
-    // the error, logged it, and then fell through with no retry scheduled and
-    // no `retryCount` written — so the one path users report as "it works if I
-    // retry" was the one path that never retried itself. Production bears that
-    // out: `retry_count` averages 0.0 on these rows, while 12 of them say
-    // `fetch failed` and 11 say `timed out after 45` — textbook transient.
     const cloudTransient = builderError
       ? isTransientTranscriptionError(new Error(builderError))
       : false;
@@ -1584,23 +1462,11 @@ async function upsertTranscriptRow(
     ownerEmail: string;
     status: "pending" | "ready" | "failed";
     failureReason: string | null;
-    /**
-     * Machine-readable cause. This is what decides retryability; the prose in
-     * `failureReason` is rendered from it and is for humans only.
-     */
     failureCode?: TranscriptFailureCode | null;
     language?: string;
     segmentsJson?: string;
     fullText?: string;
     now: string;
-    /**
-     * Automatic-retry attempt count to persist. Pass explicitly when a
-     * transient failure is about to schedule an auto-retry so the budget
-     * survives even if the scheduled retry never runs (e.g. a serverless
-     * sandbox freezing before the timer fires). A `"ready"` status always
-     * resets the count to 0 so a later failure gets a fresh retry budget.
-     * Omit to leave the stored count untouched (the common case).
-     */
     retryCount?: number;
   },
 ): Promise<void> {
@@ -1611,10 +1477,6 @@ async function upsertTranscriptRow(
     .limit(1);
 
   const retryCount = row.status === "ready" ? 0 : (row.retryCount ?? undefined);
-  // `row.now` is captured once at the top of a run that can last minutes, so it
-  // is a creation timestamp, never a "last written" one. Stamping it as
-  // `updatedAt` would walk the pending heartbeat backwards and re-arm the stale
-  // check over a run that just finished.
   const updatedAt = new Date().toISOString();
 
   if (existing) {
@@ -1624,7 +1486,6 @@ async function upsertTranscriptRow(
         ownerEmail: row.ownerEmail,
         status: row.status,
         failureReason: row.failureReason,
-        // Cleared on success so a recovered row does not keep a stale cause.
         failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
         ...(row.language ? { language: row.language } : {}),
         ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),

@@ -47,15 +47,12 @@ describe("dateTimeInTimezoneToIso", () => {
     ).toBe("2026-08-19T13:00:00.000Z");
   });
 
-  // Santiago jumps 00:00 -> 01:00, so local midnight never happens. Collapsing
-  // backward would put the day boundary at 23:00 the previous day.
   it("uses the first instant after a skipped midnight", () => {
     expect(
       dateTimeInTimezoneToIso("2026-09-06", "00:00", "America/Santiago"),
     ).toBe("2026-09-06T04:00:00.000Z");
   });
 
-  // Collapsing backward here would turn a 60-minute event into a 0-minute one.
   it("keeps a duration whose end lands in a spring-forward gap", () => {
     const start = dateTimeInTimezoneToIso(
       "2026-03-08",
@@ -81,7 +78,7 @@ describe("dateTimeInTimezoneToIso", () => {
 
 describe("date keys", () => {
   it("reads the calendar day an instant falls on", () => {
-    const instant = new Date("2026-08-20T01:00:00Z"); // still Aug 19 in New York
+    const instant = new Date("2026-08-20T01:00:00Z");
     expect(dateKeyInTimezone(instant, "America/New_York")).toBe("2026-08-19");
     expect(dateKeyInTimezone(instant, "Europe/Warsaw")).toBe("2026-08-20");
   });

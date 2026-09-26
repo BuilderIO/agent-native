@@ -55,17 +55,10 @@ describe("filterDirectA2AActions", () => {
     );
 
     expect(publicSkills[0]?.inputSchema).toEqual(inputSchema);
-    // Everything in the authenticated set is read-only by construction. Without
-    // the flag, discovery renders each one "(mutating)" and callers back off to
-    // open-ended delegation instead of invoking them.
     expect(authenticatedSkills[0]?.readOnly).toBe(true);
     expect(authenticatedSkills[0]?.inputSchema).toEqual(inputSchema);
   });
 
-  // The app that owns the data owns its schema, dictionary and reference
-  // queries. A caller has none of that, so passing raw SQL across apps makes
-  // every caller reimplement the owner's schema badly. Callers ask; the owner
-  // forms the query.
   it("never exposes a raw query or code input to a sibling app", () => {
     const rawInput = (field: string) =>
       action({
@@ -92,9 +85,6 @@ describe("filterDirectA2AActions", () => {
           },
         },
       }),
-      // `query` is search text in every template that takes it (Brain's
-      // search-everything/search-knowledge), not a query language. Blocking it
-      // would break the ask-don't-instruct calls this rule encourages.
       "search-text": rawInput("query"),
       semantic: action({
         tool: {
@@ -123,12 +113,10 @@ describe("filterDirectA2AActions", () => {
       "open-inspector": action({ mcpTool: false }),
     };
 
-    // No configured catalog: the action's own `mcpTool: true` selects it.
     expect(Object.keys(filterDirectA2AActions(actions, {}))).toEqual([
       "list-plans",
     ]);
 
-    // A configured catalog cannot re-open an action that vetoed itself.
     expect(
       Object.keys(
         filterDirectA2AActions(actions, {
@@ -144,7 +132,6 @@ describe("filterDirectA2AActions", () => {
       "mcp-only-read": action({ agentTool: false, mcpTool: true }),
     };
 
-    // A configured catalog does not resurrect an agent-hidden action...
     expect(
       Object.keys(
         filterDirectA2AActions(actions, {
@@ -153,7 +140,6 @@ describe("filterDirectA2AActions", () => {
       ),
     ).toEqual(["mcp-only-read"]);
 
-    // ...and the MCP-only one needs no catalog entry at all.
     expect(Object.keys(filterDirectA2AActions(actions, {}))).toEqual([
       "mcp-only-read",
     ]);
@@ -323,12 +309,6 @@ describe("filterDirectA2AActions", () => {
 
 describe("resolveInitialToolNames", () => {
   it("keeps core framework kits out of the default first-request list", () => {
-    // Guard for the untagged path: `frameworkGroup` is stamped only by
-    // `mergeCoreSharingActions`, which runs against the ungated `httpActions`,
-    // so apps loading core kits from a generated registry or their own actions
-    // directory hold untagged entries — and were promoting ~45 framework
-    // schemas into every first request. Build the fixture the way those apps
-    // do, with no tag, so a regression fails here.
     const untagged = Object.fromEntries(
       Object.keys(CORE_ACTION_GROUPS).map((name) => [name, action()]),
     );
@@ -385,8 +365,6 @@ describe("resolveInitialToolNames", () => {
   });
 
   it("keeps a configured name that the action marked deferred", () => {
-    // The array is the app's explicit, current statement; an annotation must
-    // not silently delete a name the app still lists.
     expect(
       resolveInitialToolNames(
         { "export-form-archive": action({ deferLoading: true }) },

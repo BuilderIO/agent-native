@@ -4,11 +4,6 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel an in-progress CI run when a new commit is pushed to the same PR.
-# Without this, every push starts a fresh ~20-min matrix while the prior one
-# keeps running, stacking 3-4 overlapping runs on a busy PR. Keyed on the PR
-# number (falling back to the ref) so runs on different PRs never cancel each
-# other.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -41,9 +36,6 @@ jobs:
       drizzle: ${{ steps.scope.outputs.drizzle }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
     steps:
-      # A name-only diff reads no historical file contents, so history can skip
-      # them. Worth ~5s of the ~20s checkout — modest, but every job downstream
-      # of this gate waits on it.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
@@ -75,8 +67,6 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      # Lint only needs oxfmt + oxlint from root devDependencies; no package
-      # builds are required, so skip the postinstall build chain entirely.
       - uses: ./.github/actions/setup-pnpm
         with:
           install: no-scripts
@@ -147,13 +137,6 @@ jobs:
             pnpm -r --no-bail --if-present "${filters[@]}" run typecheck
           fi
 
-  # Full-fallback PRs run the complete fast-test suite - nothing is
-  # change-selected, so a test can never be silently skipped. Workspace-scoped
-  # PRs use test-targeted below, and docs-only PRs use the focused docs job.
-  # Both suites are split across the same parallel lanes by
-  # scripts/ci-test-lanes.ts. Core is divided into Vitest shards so its large
-  # suite cannot become one serial tail; every other package lands in exactly
-  # one lane. Adding a package auto-assigns it; dropping one fails discover-lanes.
   discover-lanes:
     name: Plan test lanes
     needs: change-scope
@@ -205,12 +188,8 @@ jobs:
     needs: [change-scope, discover-lanes]
     if: needs.change-scope.outputs.full == 'true'
     runs-on: ubuntu-latest
-    # Cap the run so a hung test fails fast instead of pinning a runner for
-    # GitHub's 6h default. Slow DB/integration/e2e specs run in separate jobs
-    # below so they can run in parallel instead of serially behind fast tests.
     timeout-minutes: 30
     strategy:
-      # Report every lane's result; don't cancel siblings on the first failure.
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover-lanes.outputs.matrix) }}
     steps:
@@ -234,9 +213,6 @@ jobs:
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
-        # Core is too large to keep as one package-sized lane. Vitest's shard
-        # partition preserves the full suite while letting the existing lanes
-        # execute its files in parallel.
         run: >-
           pnpm --filter @agent-native/core exec vitest run --dir src
           --shard=${{ matrix.coreShard }}
@@ -254,10 +230,6 @@ jobs:
 
       - name: Run package fast tests for lane
         if: matrix.filters != ''
-        # --workspace-concurrency=1: one package at a time so each gets the whole
-        # runner (vitest's default worker count ~= all cores). Packages run their
-        # own test script/config unchanged. Exclusions mirror the `test:fast`
-        # root script; keep the lists in sync.
         run: >-
           pnpm -r --no-bail --workspace-concurrency=1 ${{ matrix.filters }} run test
           --exclude "**/*.db.test.ts"
@@ -277,9 +249,6 @@ jobs:
     needs: [change-scope, discover-targeted-lanes]
     if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.discover-targeted-lanes.outputs.has_tests == 'true'
     runs-on: ubuntu-latest
-    # Keep each runner bounded to one package at a time, but shard the affected
-    # package set across runners. Core is also split into a Vitest shard so a
-    # core change does not serialize its whole dependent graph behind one job.
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -336,8 +305,6 @@ jobs:
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
 
-  # Stable required status check. This is a fan-in gate, not another test suite.
-  # Point branch protection at "Fast tests", not per-lane jobs whose names vary.
   fast-tests:
     name: Fast tests
     needs:
@@ -564,8 +531,6 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.brain_evals == 'true'
     runs-on: ubuntu-latest
-    # Brain evals are offline action/fixture retrieval checks; live LLM evals
-    # belong in the gated eval workflow.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -675,23 +640,14 @@ jobs:
           sudo apt-get clean
           df -h
 
-      # postinstall rebuilds any stale/missing dists (incremental tsc is fast on
-      # cache hit); no separate `pnpm build` step needed.
       - uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
 
       - name: Headless scaffold — pnpm install + typecheck + action
-        # Guards the documented one-file headless onboarding: a fresh
-        # `--headless` scaffold must `pnpm typecheck` (no inherited vite/client
-        # types) and `pnpm action hello` (server-safe package root, no React /
-        # react-query in the load graph) out of the box.
         run: pnpm --filter @agent-native/core exec vitest run src/cli/create-e2e.spec.ts
 
       - name: Headless onboarding — local core install + typecheck + action
-        # Keep the local package-linking setup scoped to the heavyweight test.
-        # Applying it to the whole create-e2e file makes lightweight scaffold
-        # tests spend their timeout packing the local Core and Toolkit.
         env:
           AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
         run: >-
@@ -700,15 +656,7 @@ jobs:
           -t "pnpm install, pnpm typecheck, and pnpm action hello all succeed"
 
       - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
-        # Dispatch is in the combo because it exercises the
-        # workspacify.ts dispatch-rewrite path (workspace:* → "latest" for
-        # @agent-native/dispatch, the only published package consumed as a
-        # workspace app). Calendar covers the requiredPackages →
-        # packages/scheduling scaffold path. Together they guard the two
-        # distinct ways a workspace template can break `pnpm install`.
         env:
-          # The PR's core version may not be published to npm yet. Exercise
-          # the scaffold against the core build checked out by this job.
           AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
         run: |
           cd "$(mktemp -d)"
@@ -788,8 +736,6 @@ jobs:
         with:
           install: no-scripts
 
-      # Build the extracted recap CLI before core so its compatibility shim is
-      # available to source imports, then produce the real serverless bundle.
       - name: Build recap CLI, AgentKit, toolkit, core, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
@@ -801,26 +747,12 @@ jobs:
       - name: Build Content template (Cloudflare Workers preset)
         run: NITRO_PRESET=cloudflare_module pnpm --filter content build
 
-      # Three templates, one per size class, because building all 17 per PR is
-      # too slow: Plan covers diagram-heavy SSR, Clips covers public-share SSR,
-      # and Assets is the one that legitimately depends on creative-context — so
-      # it is the only build that exercises the browser-runtime size budget.
       - name: Build Plan, Clips, and Assets templates (netlify preset)
         run: NITRO_PRESET=netlify pnpm --filter plan --filter clips --filter assets build
 
       - name: Import SSR handler — must not crash at cold-start
-        # External timeout is a backstop against a pathological synchronous hang;
-        # the script itself races module eval against a 30s window and force-exits.
-        # Match the deployed Netlify environment so local setup cannot call
-        # process.exit during this import-only probe.
-        # This lane intentionally probes the three built representatives above.
-        # The smoke script's optional `--report-uncovered` mode is fail-closed;
-        # use it only when the caller intends to gate on full template coverage.
         run: NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs plan clips assets
 
-      # Exercise the two other Node serverless presets as well. These import
-      # their generated handlers, so an unresolved bare runtime dependency
-      # fails before a deployment can be published.
       - name: Build and import Plan SSR handlers (Vercel and AWS Lambda)
         run: |
           NITRO_PRESET=vercel pnpm --filter plan build
@@ -837,11 +769,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          # Diff-scoped guards resolve GITHUB_BASE_REF to origin/main.
           fetch-depth: 0
 
-      # Guard scripts only need dependencies and should not depend on package
-      # lifecycle builds; skipping scripts avoids native optional builds here.
       - uses: ./.github/actions/setup-pnpm
         with:
           install: no-scripts
@@ -855,8 +784,6 @@ jobs:
       - name: Test AgentKit stream ownership guard
         run: pnpm test:agentkit-stream-ownership
 
-      # Source-backed guards import published-style package entrypoints, so
-      # build the workspace packages they inspect before loading locale data.
       - name: Build packages for source-backed guards
         run: |
           pnpm --filter @agent-native/recap-cli build
@@ -881,7 +808,6 @@ jobs:
         with:
           node-version: "22"
 
-      # No install needed — the guard script only uses Node builtins.
       - name: Scan netlify.toml + package.json for `drizzle-kit push`
         run: node scripts/guard-no-drizzle-push.mjs
 

@@ -16,10 +16,6 @@ function git(folder: string, args: string[]): string | null {
   }
 }
 
-/**
- * Returns display-only Git metadata. The local path remains Desktop-owned and
- * is intentionally excluded from this value.
- */
 export function deriveContentFilesRepositoryIdentity(
   folder: string,
 ): DesktopContentFilesRepository | undefined {

@@ -95,7 +95,6 @@ export const runCalendarMigrations = runMigrations(
     created_at TEXT NOT NULL
   )`,
     },
-    // v10-v12: sharing columns for booking_links.
     {
       version: 10,
       sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
@@ -108,7 +107,6 @@ export const runCalendarMigrations = runMigrations(
       version: 12,
       sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
     },
-    // v13: companion shares table for per-principal grants.
     {
       version: 13,
       sql: `CREATE TABLE IF NOT EXISTS booking_link_shares (
@@ -121,7 +119,6 @@ export const runCalendarMigrations = runMigrations(
     created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
-    // v14: coerce the legacy integer column to PostgreSQL BOOLEAN.
     {
       version: 14,
       sql: {
@@ -157,11 +154,6 @@ export const runCalendarMigrations = runMigrations(
     },
     {
       version: 18,
-      // Backfill owner_email + org_id on existing bookings. Direct slug match
-      // covers the common case; the redirect-aware subquery picks up bookings
-      // created under a slug that's since been renamed (the booking_links row
-      // now lives at the new slug, with booking_slug_redirects mapping the
-      // historical old_slug → current new_slug).
       sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS org_id TEXT;
 UPDATE bookings
@@ -181,15 +173,6 @@ SET owner_email = COALESCE(
   )
 WHERE owner_email = ${LEGACY_DEV_OWNER_SQL}`,
     },
-    // v19: performance indexes for the ownable booking_links table, its shares
-    // companion, and the bookings child rows.
-    // - booking_links: accessFilter() predicates on (owner_email, org_id) plus
-    //   the list ordering by updated_at. slug already has a UNIQUE index from v2.
-    // - booking_link_shares: accessFilter()'s correlated EXISTS subqueries match
-    //   on (resource_id, principal_type, principal_id).
-    // - bookings: listed/joined by slug and filtered/ordered by the start time
-    //   range. There is no booking_link_id FK column — bookings link to
-    //   booking_links via slug.
     {
       version: 19,
       sql: `CREATE INDEX IF NOT EXISTS idx_booking_links_owner ON booking_links (owner_email, org_id, updated_at);
@@ -263,8 +246,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,

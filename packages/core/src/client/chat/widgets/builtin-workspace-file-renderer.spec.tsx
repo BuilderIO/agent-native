@@ -67,9 +67,6 @@ describe("built-in workspace file renderer", () => {
     ).toBeNull();
   });
 
-  // Regression: a file-creating call (e.g. fetch/provider-api-request's
-  // saveToFile) never sets a chatUI renderer — a card must still render from
-  // its own result shape alone, with no second show-workspace-file call.
   it("renders a card from any tool's result shape, without a chatUI renderer", async () => {
     const context = {
       toolName: "web-request",

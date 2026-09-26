@@ -1,9 +1,3 @@
-// ---------------------------------------------------------------------------
-// Request-surface classification: distinguishes the framework-owned in-app
-// chat/dev-frame/desktop surfaces from arbitrary browser requests so
-// production code-editing tools stay blocked outside trusted surfaces.
-// ---------------------------------------------------------------------------
-
 export function isLocalhost(event: any): boolean {
   try {
     const host =
@@ -47,17 +41,11 @@ export function shouldBlockInProductCodeEditingSurface(input: {
   if (surface === "desktop") return false;
   if (surface === "app") return true;
 
-  // Legacy clients used to send `frame` for any iframe, which includes the
-  // app-rendered sidebar inside preview frames. Treat unknown explicit surface
-  // values as app-owned so they cannot accidentally receive dev code tools.
   if (input.surface && input.surface.trim()) return true;
 
   const userAgent = input.userAgent ?? "";
   if (/AgentNativeDesktop/i.test(userAgent)) return false;
 
-  // Missing header from an older browser client. Be conservative for browser
-  // UAs on any host, because preview URLs can be non-local while still running
-  // a dev-mode app whose in-product chat would be reloaded by source edits.
   if (isBrowserUserAgent(userAgent)) return true;
 
   const host = (input.host ?? "").toLowerCase();

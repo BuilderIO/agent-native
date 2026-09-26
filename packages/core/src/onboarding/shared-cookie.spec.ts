@@ -7,7 +7,6 @@ import {
   hashOnboardingEmail,
 } from "./shared-cookie.js";
 
-/** Build a cookie value from an arbitrary payload, bypassing `encode`. */
 function encodePayload(payload: unknown): string {
   return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
 }
@@ -55,9 +54,6 @@ describe("shared onboarding cookie codec", () => {
     expect(decodeSharedOnboardingCookie(raw)).toBeNull();
   });
 
-  // Forward compatibility is the whole reason this payload is JSON. A newer
-  // sibling app writes fields this build has never seen; discarding the
-  // completion over them would re-onboard everyone on the older app.
   it("honours a newer payload carrying unknown fields", () => {
     const emailHash = hashOnboardingEmail("alice@example.com");
     const raw = encodePayload({

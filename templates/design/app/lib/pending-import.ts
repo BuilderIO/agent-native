@@ -1,6 +1,5 @@
 export type PendingDesignImport = { kind: "file"; file: File };
 
-// Files stay in memory across the SPA handoff, never in SQL or browser storage.
 const pendingImports = new Map<
   string,
   { value: PendingDesignImport; started: boolean }

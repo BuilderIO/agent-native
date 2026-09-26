@@ -43,8 +43,6 @@ export async function ensureTable(): Promise<void> {
       )`;
 
     {
-      // PG-guard: probe information_schema / pg_indexes before issuing DDL to
-      // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
       await ensureTableExists("observational_memory", createSql);
       await ensureIndexExists(
         "observational_memory_thread_tier_idx",
@@ -59,14 +57,12 @@ export async function ensureTable(): Promise<void> {
       return;
     }
   })().catch((err) => {
-    // Reset so a transient failure can retry.
     tableReady = null;
     throw err;
   });
   return tableReady;
 }
 
-/** Reset the cached ensureTable promise — test-only seam. */
 export function __resetObservationalMemoryTableCache(): void {
   tableReady = null;
 }
@@ -133,7 +129,6 @@ export interface InsertObservationalMemoryInput extends ObservationalMemoryOwner
   visibility?: "private" | "org" | "public";
 }
 
-/** Insert one OM entry, returning the persisted row. */
 export async function insertObservationalMemory(
   input: InsertObservationalMemoryInput,
 ): Promise<ObservationalMemoryEntry> {
@@ -181,15 +176,9 @@ export async function insertObservationalMemory(
 
 export interface ListObservationalMemoryOptions extends ObservationalMemoryOwner {
   threadId: string;
-  /** When set, only entries of this tier are returned. */
   tier?: ObservationalMemoryTier;
 }
 
-/**
- * List a thread's OM entries for an owner, oldest → newest. Always
- * owner-scoped; `org_id` is matched too when supplied so org-visible rows
- * don't leak across orgs.
- */
 export async function listObservationalMemory(
   options: ListObservationalMemoryOptions,
 ): Promise<ObservationalMemoryEntry[]> {
@@ -211,11 +200,6 @@ export async function listObservationalMemory(
   return (result.rows as Record<string, unknown>[]).map(rowToEntry);
 }
 
-/**
- * The highest source-message index already folded into an observation for this
- * thread/owner, or -1 if none. The Observer uses this to know which messages
- * are still unobserved.
- */
 export async function getObservedThroughIndex(
   options: ObservationalMemoryOwner & { threadId: string },
 ): Promise<number> {
@@ -235,7 +219,6 @@ export async function getObservedThroughIndex(
   return max == null ? -1 : max;
 }
 
-/** Sum the token estimates of a thread's observation entries for an owner. */
 export async function getObservationLogTokens(
   options: ObservationalMemoryOwner & { threadId: string },
 ): Promise<number> {

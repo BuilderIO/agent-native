@@ -89,9 +89,6 @@ export function TaskListRow({
       onAnimationEnd={completion.handleRowAnimationEnd}
       dataAttributes={{ "data-task-id": item.id }}
       className={cn(
-        // Scoped to the phases that actually animate. Applied unconditionally
-        // it promoted a layer for every row in the list and never retired any
-        // of them, for an animation that only runs while a row completes.
         completionPhase !== "idle" && "will-change-[opacity,transform]",
         displayDone && completionPhase === "idle" && !selected && "opacity-60",
         completionPhase === "completing" &&

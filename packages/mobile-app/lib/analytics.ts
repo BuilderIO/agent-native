@@ -87,11 +87,6 @@ export async function getMobileAnalyticsHeaders(): Promise<
   }
 }
 
-/**
- * Send a content-free event through the app's authenticated server-side
- * analytics providers. Native mobile does not have the browser analytics
- * runtime, so this keeps attribution on the same first-party route.
- */
 export async function trackMobileEvent(
   name: string,
   properties: Record<string, unknown> = {},

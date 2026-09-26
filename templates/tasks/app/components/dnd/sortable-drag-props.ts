@@ -25,7 +25,6 @@ function sharedSortableProps(
   };
 }
 
-/** Map dnd-kit sortable listeners onto common drag surfaces (grip, row, title). */
 export function getSortableDragProps(
   attributes: DraggableAttributes,
   listeners: DragListeners | undefined,

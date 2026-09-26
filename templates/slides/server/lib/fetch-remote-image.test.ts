@@ -19,9 +19,6 @@ function lookupResult(
 
 describe("publicOnlyLookup", () => {
   it("refuses a hostname that resolves to loopback", async () => {
-    // The socket asks for the address at connect time, so this is the check
-    // a DNS-rebinding host would otherwise slip past. `localhost` resolves
-    // from the hosts file, so no network is needed.
     const { err } = await lookupResult("localhost");
     expect(err?.code).toBe("EBLOCKED");
   });
@@ -51,7 +48,6 @@ describe("fetchRemoteImage", () => {
   });
 
   it("refuses a hostname whose only addresses are private", async () => {
-    // Reaches the socket layer, where publicOnlyLookup rejects it.
     const result = await fetchRemoteImage("http://localhost.localdomain/a.png");
     expect(result.ok).toBe(false);
   });

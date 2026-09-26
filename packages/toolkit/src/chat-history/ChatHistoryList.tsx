@@ -11,23 +11,12 @@ import React, { useMemo, useRef, useState } from "react";
 
 import { cn } from "../utils.js";
 
-/** A single row in a chat history list. Purely data — no fetching, no
- * assistant-ui context. Formatting (relative time, "Active"/"Open" labels,
- * status spinners) is the caller's responsibility; hand in the already
- * rendered node via `timestamp`. */
 export interface ChatHistoryItem {
   id: string;
   title: React.ReactNode;
-  /** Plain-text form of `title`, used to seed the inline rename input.
-   * Only needed when `onRename` is supplied. */
   titleText?: string;
-  /** Secondary line — e.g. a message preview. */
   subtitle?: React.ReactNode;
-  /** Tertiary line — e.g. a scope/folder label. */
   detail?: React.ReactNode;
-  /** Pre-formatted trailing value: a relative time, "Active"/"Open", or a
-   * status node (spinner, unread dot). This component does not format
-   * dates or compute status itself. */
   timestamp?: React.ReactNode;
   pinned?: boolean;
   disabled?: boolean;
@@ -49,62 +38,36 @@ export interface ChatHistoryListLabels {
 }
 
 export interface ChatHistoryListProps {
-  /** Flat item list. Ignored when `sections` is provided. */
   items?: ChatHistoryItem[];
-  /** Grouped item list (e.g. "This deck" / "All chats", or pinned/recent). */
   sections?: ChatHistorySection[];
-  /** Id of the currently active/selected item — highlighted in the list. */
   activeId?: string | null;
   onSelect: (id: string) => void;
-  /** Fired on double-click / explicit "open" gesture, distinct from select. */
   onOpen?: (id: string) => void;
-  /** Presence enables the pin/unpin row action. */
   onTogglePin?: (id: string) => void;
-  /** Presence enables the inline "Rename" row action. */
   onRename?: (id: string, nextTitle: string) => void;
-  /** Optional character limit for the inline rename input. */
   renameMaxLength?: number;
-  /** Presence enables the "Delete" row action. */
   onDelete?: (id: string) => void;
-  /** Escape hatch: fully custom row action menu content, replacing the
-   * built-in rename/pin/delete items. Still gated by the trigger button,
-   * which shows whenever this or any of the on* callbacks above is set. */
   renderRowActions?: (item: ChatHistoryItem) => React.ReactNode;
-  /** App-specific actions inserted after pin and before delete. Call
-   * `closeMenu` before starting the action. */
   renderAdditionalRowActions?: (
     item: ChatHistoryItem,
     closeMenu: () => void,
   ) => React.ReactNode;
 
-  /** Controlled search input. Omit `onSearchChange` to hide the search box
-   * entirely and let the host render its own (results are always supplied
-   * by the caller via `items`/`sections` either way). */
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   searchPlaceholder?: string;
   searchInputRef?: React.Ref<HTMLInputElement>;
 
-  /** True while results are being fetched — shows `loadingLabel` instead of
-   * the list. */
   loading?: boolean;
   loadingLabel?: React.ReactNode;
-  /** Shown instead of the list when set (takes priority over `loading`). */
   error?: React.ReactNode;
   emptyLabel?: React.ReactNode;
-  /** Shown instead of `emptyLabel` when `searchValue` is non-empty. */
   emptySearchLabel?: React.ReactNode;
 
-  /** Optional localized labels for row actions and their accessible controls. */
   labels?: Partial<ChatHistoryListLabels>;
 
-  /** Rendered after the list, inside the scroll container (e.g. a
-   * "Load older chats" button). */
   footer?: React.ReactNode;
 
-  /** "popover" (default) matches core's compact HistoryPopover list.
-   * "rail" is a denser variant with a solid active background, closer to
-   * a sidebar run rail. */
   variant?: "popover" | "rail";
   className?: string;
   listClassName?: string;
@@ -119,19 +82,6 @@ const DEFAULT_LABELS: ChatHistoryListLabels = {
   delete: "Delete",
 };
 
-/**
- * Presentational chat history list shared by the Core `HistoryPopover`
- * and Agent-Native Code's run rail
- * (code-agents-ui). Styling is driven by stable `an-chat-history*` class
- * names (see `@agent-native/toolkit/chat-history.css`) rather than Tailwind utilities
- * so the same component renders correctly in a Tailwind host and in
- * code-agents-ui's plain-CSS host.
- *
- * This component owns no data: search filtering, pin/rename persistence,
- * and time formatting all stay with the caller. It only renders whatever
- * `items`/`sections` it is given, plus the optional search box and
- * loading/empty/error states.
- */
 export function ChatHistoryList({
   items,
   sections,

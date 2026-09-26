@@ -25,15 +25,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-/** Matches the env override read by `templates/plan/server/lib/plan-publish.ts`. */
 const CONFIG_PATH_ENV = "PLAN_PUBLISH_CONFIG_PATH";
 
-/**
- * Absolute path to the canonical publish-token file. Honors
- * `PLAN_PUBLISH_CONFIG_PATH` so connect and the local server agree on the
- * location in tests and custom setups; defaults to
- * `~/.agent-native/plan-publish.json`.
- */
 export function planPublishConfigPath(): string {
   return path.resolve(
     process.env[CONFIG_PATH_ENV] ??
@@ -41,16 +34,6 @@ export function planPublishConfigPath(): string {
   );
 }
 
-/**
- * Whether `url`'s host is the first-party Agent-Native Plans app whose token
- * we should mirror to the canonical publish file. Only the hosted Plans app
- * (`plan.agent-native.com`) qualifies — mirroring tokens for other
- * agent-native subdomains (assets, mail, …) would silently overwrite the
- * canonical Plans endpoint with the wrong URL+token each time `connect --all`
- * runs last-write-wins. A custom self-hosted origin (ngrok, localhost, a
- * private deployment) is intentionally excluded: the user can still point the
- * server at it via `PLAN_PUBLISH_URL` / `PLAN_PUBLISH_TOKEN` env vars.
- */
 export function isFirstPartyPlanHost(url: string): boolean {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -64,14 +47,6 @@ function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-/**
- * Merge `{ url, token }` into the canonical publish file without clobbering any
- * other keys the file already holds. Best-effort: returns the written path on
- * success, or `null` if the write failed or the inputs were unusable.
- *
- * `filePath` is injectable for tests; production callers omit it and get the
- * env-overridable home-dir path.
- */
 export function writePlanPublishAuth(
   params: { url: string; token: string },
   filePath: string = planPublishConfigPath(),
@@ -112,11 +87,6 @@ export function writePlanPublishAuth(
   }
 }
 
-/**
- * Read the canonical Plans publish auth written by `agent-native connect`.
- * Returns `null` for missing/corrupt/incomplete files so callers can treat the
- * publish token as optional and guide the user to reconnect.
- */
 export function readPlanPublishAuth(
   filePath: string = planPublishConfigPath(),
 ): { url: string; token: string } | null {

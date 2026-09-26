@@ -34,20 +34,6 @@ const EMPTY_CONTEXT: OrgContext = {
   role: null,
 };
 
-/**
- * The single way to read `org_members`, so no two call sites can pick opposite
- * defaults for the same failure. A transient database failure is NOT an answer
- * and propagates: a caller that turns it into "no memberships" silently drops
- * org scope, which hides every org-scoped credential behind a
- * permanent-sounding "not configured".
- *
- * `null` is every non-transient failure, not only the intended one (org tables
- * absent on a fresh install before migrations). A permanently unreadable table
- * — a role without SELECT, say — still reports as "no rows" here. Narrowing
- * that further means classifying "no database configured" as readable-absent,
- * which is load-bearing for CLI/script/test contexts that legitimately run
- * without a store; see `assertCredentialStoreReadable`.
- */
 export async function queryOrgMembers(query: {
   sql: string;
   args: unknown[];
@@ -71,12 +57,6 @@ function emailDomainOf(email: string): string | null {
   return email.split("@")[1]?.toLowerCase() || null;
 }
 
-/**
- * A workspace the user owns that nobody else has joined is a default/personal
- * workspace whatever it happens to be named, so moving the user into their
- * company org is safe. An org with other members is a team they deliberately
- * belong to — join the domain org in the background but leave them there.
- */
 async function isSoloOwnedWorkspace(
   exec: ReturnType<typeof getDbExec>,
   orgId: string,
@@ -106,28 +86,10 @@ const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 
-/**
- * Resolve the current user's organization context from their session.
- *
- * - Honors the user's `active-org-id` setting, including an explicit Personal
- *   context represented by `{ orgId: null }`.
- * - Falls back to the user's first membership.
- * - When the authenticated user has zero memberships, provisions a default org
- *   named after the user ({name}'s workspace, falling back to the email
- *   local-part). Set `AUTO_CREATE_DEFAULT_ORG=0` to opt out.
- *
- * Per-request memoized on `event.context` — mirrors the `getSession`
- * pattern so multiple callers in the same request (e.g. ssr-handler +
- * a loader) share a single org_members round trip.
- */
 export async function getOrgContext(event: H3Event): Promise<OrgContext> {
-  // Per-request memoization. Multiple call sites per request (action wrappers,
-  // SSR handler, loaders) must not each pay a separate org_members query.
   const ctx = event.context as {
     __anOrgContextCache?: Promise<OrgContext>;
   };
-  // Evict on failure. A memoized failure would otherwise answer every later
-  // caller in this request with the wrong org.
   return (ctx.__anOrgContextCache ??= resolveOrgContextUncached(event).catch(
     (err) => {
       delete ctx.__anOrgContextCache;
@@ -233,12 +195,6 @@ function loadActiveOrgSettingForEvent(
   return promise;
 }
 
-/**
- * Per-request memoization of the org_members lookup, keyed by email on
- * `event.context`. Both the session org backfill (inside `getSession`) and
- * `getOrgContext` need the membership rows; without sharing, every request
- * whose session lacks an orgId pays the query twice.
- */
 function loadMembershipsForEvent(
   event: H3Event,
   email: string,
@@ -253,8 +209,6 @@ function loadMembershipsForEvent(
     >())) as Map<string, Promise<MembershipRow[] | null>>;
   let promise = cache.get(email);
   if (!promise) {
-    // A failed read is evicted rather than memoized: caching it would make one
-    // transient error answer every later lookup in this request.
     promise = loadMemberships(email).catch((err) => {
       cache.delete(email);
       throw err;
@@ -289,10 +243,6 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
       : null;
   const sessionOrgRole = normalizeOrgRole(session.orgRole);
 
-  // Org service tokens use a synthetic email and are intentionally absent
-  // from org_members. Before the action route establishes its ALS context,
-  // sessionOrgId is the verified org_id claim; once it exists, require the
-  // request-scoped org to agree before granting the implicit member role.
   const requestContext = getRequestContext();
   const serviceRole = implicitServiceOrgRole({
     email,
@@ -313,9 +263,6 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 
   const exec = getDbExec();
 
-  // Started before the memberships await so the two round trips overlap; the
-  // `catch` only covers the early returns below, the later `await` still
-  // propagates a real failure.
   const activeOrgSettingPromise = loadActiveOrgSettingForEvent(event, email);
   activeOrgSettingPromise.catch(() => {});
 
@@ -386,14 +333,6 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   }
 
   const emailDomain = emailDomainOf(email);
-  // Membership in a domain-matched org is the only durable "already joined"
-  // signal. Recognizing the personal workspace by its *name* instead breaks the
-  // moment the provider display name or the workspace name changes, which
-  // strands an existing user in Personal with no way into their company org.
-  // `isFreeEmailProvider` short-circuits before the round trip rather than
-  // relying on the negative cache inside `autoJoinDomainMatchingOrgs`: a
-  // consumer-email domain can NEVER match (see `org/handlers.ts`, which refuses
-  // to set `allowed_domain` to a free provider), so it needs no TTL at all.
   const shouldTryDomainAutoJoin =
     !explicitPersonal &&
     session.emailVerified === true &&
@@ -522,14 +461,6 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   };
 }
 
-/**
- * Ordering for every membership lookup that falls back to "first membership".
- * Without it the fallback is whatever order the plan happens to return, so a
- * multi-org user's active org can change between two identical requests — and
- * `getSession` then freezes that arbitrary answer into `session.orgId`.
- * `org_id` breaks ties so two memberships joined in the same millisecond still
- * resolve identically.
- */
 const MEMBERSHIP_FALLBACK_ORDER_BY = `ORDER BY joined_at ASC, org_id ASC`;
 
 async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
@@ -600,13 +531,6 @@ async function loadMembershipsUncached(
   );
 }
 
-/**
- * Resolve the active org ID for a given email — for non-HTTP contexts like
- * the integration webhook handler where we have an email but no event/session.
- * Picks the user's active-org-id setting if set, including explicit Personal,
- * otherwise the oldest membership.
- * Returns null if the user has no memberships.
- */
 export async function resolveOrgIdForEmail(
   email: string,
 ): Promise<string | null> {
@@ -621,9 +545,6 @@ export async function resolveOrgIdForEmail(
     });
     return rows?.map((r: any) => String(r.org_id)) ?? null;
   });
-  // Both reads depend only on the email, so they overlap instead of queueing.
-  // The `catch` only keeps the early return below from surfacing an unhandled
-  // rejection; the `await` further down still propagates the failure.
   const settingPromise = getUserSetting(
     email,
     "active-org-id",
@@ -640,19 +561,11 @@ export async function resolveOrgIdForEmail(
   return ids[0];
 }
 
-/**
- * Event-aware variant of `resolveOrgIdForEmail` for HTTP request paths.
- * Shares the per-request membership lookup with `getOrgContext`, so the
- * session org backfill inside `getSession` and a later `getOrgContext` call
- * in the same request pay ONE org_members round trip, not two.
- */
 export async function resolveOrgIdForEmailViaEvent(
   event: H3Event,
   email: string,
 ): Promise<string | null> {
   if (getRequestContext()?.orgScope === "personal") return null;
-  // Overlapped, not queued: each is a separate round trip and this pair runs
-  // on the session-backfill path of every authenticated request.
   const settingPromise = loadActiveOrgSettingForEvent(event, email);
   settingPromise.catch(() => {});
   const memberships = await loadMembershipsForEvent(event, email);
@@ -668,13 +581,6 @@ export async function resolveOrgIdForEmailViaEvent(
   return memberships[0].orgId;
 }
 
-/**
- * Create a new organization and add the caller as a member with the given
- * role. Generates a per-org A2A secret for cross-app delegation and writes
- * the caller's `active-org-id` user-setting so the new org is immediately
- * active.
- *
- */
 export async function createOrganization(
   name: string,
   email: string,
@@ -728,7 +634,6 @@ export async function createOrganization(
   return { id, name: trimmedName, role, a2aSecret, createdAt };
 }
 
-/** Give a configured bootstrap admin ownership of the sole org, or create the canonical org. */
 export async function bootstrapAdminOrganization(
   rawEmail: string,
 ): Promise<boolean> {
@@ -758,8 +663,6 @@ export async function bootstrapAdminOrganization(
       await createOrganization(name, email, "owner", { id });
       return true;
     } catch (error) {
-      // Concurrent bootstrap sign-ins can both observe zero orgs. The stable
-      // id lets the loser recover only if the canonical org was actually made.
       const existing = await exec.execute({
         sql: `SELECT id FROM organizations WHERE id = ? LIMIT 1`,
         args: [id],
@@ -782,15 +685,6 @@ export async function bootstrapAdminOrganization(
   return true;
 }
 
-/**
- * A second organization is the single most expensive accident in this codebase:
- * vault credentials are scoped per organization, so creating one and activating
- * it orphans every key synced under the previous org, and the only symptom is a
- * missing-env-var error somewhere else entirely. The UI warns humans before
- * they click (`org.createOrgVaultNotice`); this covers the path that actually
- * did the damage — app code or a migration action calling `createOrganization`
- * directly, where no notice is ever rendered.
- */
 async function warnOnAdditionalOrganization(
   exec: ReturnType<typeof getDbExec>,
   email: string,
@@ -807,8 +701,6 @@ async function warnOnAdditionalOrganization(
     });
     if (rows.length === 0) return;
   } catch {
-    // "Couldn't tell" is not "it didn't" — swallowing the failed probe here made
-    // the function whose entire job is to not be silent, silent.
     warnAgent({
       severity: "critical",
       code: "org-additional-org-membership-unreadable",
@@ -854,12 +746,6 @@ function defaultOrgName(
   return `${titled}'s workspace`;
 }
 
-/**
- * Check whether the user has a pending invitation. If so, auto-create
- * MUST be skipped — otherwise we'd provision a personal org for them
- * before they ever see the inviter's org in the invitation banner, and they'd
- * never join the team that invited them.
- */
 async function hasPendingInvitation(
   exec: ReturnType<typeof getDbExec>,
   email: string,
@@ -871,8 +757,6 @@ async function hasPendingInvitation(
     });
     return rows.length > 0;
   } catch {
-    // If we can't tell, err on the side of NOT auto-creating — the
-    // invitation banner or team UI can surface the situation.
     return true;
   }
 }
@@ -894,40 +778,13 @@ async function hasDomainMatch(
   }
 }
 
-/** Stale-claim threshold. A claim row this old is treated as abandoned
- *  (process crashed, DELETE failed, etc.) and a new caller may take it
- *  over. Long enough that two genuine concurrent first-loads don't
- *  trample each other (those settle in milliseconds), short enough that
- *  a stuck user recovers on their next navigation. */
 const CLAIM_TTL_MS = 5 * 60 * 1000;
 
-/**
- * Attempt to provision a default org + owner membership for a user with
- * zero memberships.
- *
- * Race protection: claims the user's auto-create slot via an atomic
- * INSERT into the framework `settings` table (PRIMARY KEY (key) — so
- * concurrent inserts for the same key throw a Postgres uniqueness violation.
- * Only the request that wins the claim
- * proceeds to create the org; losers bail. By the time a losing
- * request retries on a subsequent navigation, the winner's org is in
- * `org_members` and the auto-create branch is skipped entirely.
- *
- * Stuck-state recovery: a stale claim (held longer than CLAIM_TTL_MS)
- * is reclaimed automatically. So even if the DELETE on the failure
- * path fails (network blip, DB error), the user isn't stranded — the
- * next request after the TTL elapses retries cleanly.
- *
- * Returns null on any failure so the caller can fall back to the
- * empty-context / client-guard path.
- */
 async function tryCreateDefaultOrg(
   exec: ReturnType<typeof getDbExec>,
   email: string,
   session: { name?: string } | null,
 ): Promise<OrgContext | null> {
-  // Make sure the framework `settings` table exists before we use it as
-  // a claim primitive. getSetting() ensures the table on first call.
   await getSetting("__init").catch(() => null);
 
   const claimKey = `u:${email.toLowerCase()}:auto-create-claim`;
@@ -964,9 +821,6 @@ async function tryCreateDefaultOrg(
     invalidateMemberOrgCaches();
 
     await setActiveOrgId(email, orgId, "auto-created default organization");
-    // Only apps whose build positively resolved first-run onboarding to
-    // "off" skip this write; an un-embedded build keeps writing it (see
-    // shouldWriteFirstRunOnboardingEligibility's module comment).
     if (shouldWriteFirstRunOnboardingEligibility()) {
       try {
         await appStatePut(
@@ -976,9 +830,6 @@ async function tryCreateDefaultOrg(
           { requestSource: "org-auto-create" },
         );
       } catch (error) {
-        // The safe failure mode is to omit first-run onboarding. The org itself
-        // already exists, so do not turn a marker-write failure into a false
-        // zero-membership result or retry that creates another org.
         warnAgent({
           severity: "advisory",
           code: "first-run-onboarding-eligibility-unreadable",
@@ -1008,18 +859,6 @@ async function acquireClaim(
     });
     return true;
   } catch {
-    // Conflict — someone else's claim is already in the row. If it's
-    // stale (older than CLAIM_TTL_MS) we take it over.
-    //
-    // CRITICAL: this MUST be a single atomic UPDATE guarded on
-    // `updated_at <= staleThreshold`. A read-then-DELETE-then-INSERT
-    // sequence lets two concurrent reclaimers each observe the stale
-    // timestamp, delete each other's fresh claim, and both think they
-    // won — duplicating org creation. The conditional UPDATE matches
-    // each stale row at most once: only the first writer sees
-    // rowsAffected === 1; the row's updated_at is now `now`, so any
-    // subsequent UPDATE no longer satisfies `updated_at <= staleThreshold`
-    // and matches zero rows.
     const staleThreshold = now - CLAIM_TTL_MS;
     const result = (await exec.execute({
       sql: `UPDATE settings SET value = ?, updated_at = ? WHERE key = ? AND updated_at <= ?`,
@@ -1033,19 +872,11 @@ async function releaseClaim(
   exec: ReturnType<typeof getDbExec>,
   claimKey: string,
 ): Promise<void> {
-  // Best-effort. If this fails (transient network/DB error), the
-  // CLAIM_TTL_MS-based takeover in acquireClaim recovers automatically
-  // on a future request — no permanent stuck state.
   await exec
     .execute({ sql: `DELETE FROM settings WHERE key = ?`, args: [claimKey] })
     .catch(() => {});
 }
 
-/**
- * Look up the `allowed_domain` for an org by its ID.
- * Used when making outbound A2A calls so the JWT includes the
- * caller's org domain for cross-app org resolution.
- */
 export async function getOrgDomain(orgId: string): Promise<string | null> {
   try {
     const exec = getDbExec();
@@ -1061,11 +892,6 @@ export async function getOrgDomain(orgId: string): Promise<string | null> {
   }
 }
 
-/**
- * Look up the org's A2A secret by org ID.
- * Used when making outbound A2A calls so the JWT is signed with the
- * org-specific secret rather than the global A2A_SECRET env var.
- */
 export async function getOrgA2ASecret(orgId: string): Promise<string | null> {
   try {
     const exec = getDbExec();
@@ -1081,12 +907,6 @@ export async function getOrgA2ASecret(orgId: string): Promise<string | null> {
   }
 }
 
-/**
- * Look up an org's A2A secret by its `allowed_domain`.
- * Used on the A2A receiving side: the caller's JWT includes `org_domain`,
- * and the receiver looks up which local org matches that domain to find
- * the secret used to verify the JWT signature.
- */
 export async function getA2ASecretByDomain(
   domain: string,
 ): Promise<string | null> {
@@ -1104,11 +924,6 @@ export async function getA2ASecretByDomain(
   }
 }
 
-/**
- * Resolve a local org by its `allowed_domain`.
- * Used on the A2A receiving side: the caller sends `org_domain` in the JWT,
- * and the receiver looks up which local org matches that domain.
- */
 export async function resolveOrgByDomain(
   domain: string,
 ): Promise<{ orgId: string; orgName: string } | null> {
@@ -1128,11 +943,6 @@ export async function resolveOrgByDomain(
   }
 }
 
-/**
- * Whether the requested domain is the only organization in this deployment.
- * Legacy workspace-wide A2A credentials may use this to preserve access
- * without allowing one credential to select among multiple local tenants.
- */
 export async function isSoleOrgDomain(domain: string): Promise<boolean> {
   try {
     const exec = getDbExec();

@@ -11,10 +11,6 @@ export default defineConfig({
   plugins: [
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      // These libs only render in the browser (diagram/drawing canvases) and
-      // blow past CF Pages' 25 MiB Functions limit if bundled into SSR.
-      // MermaidRenderer and Excalidraw-based components mount client-side only
-      // (inside useEffect), so SSR never calls into them.
       ssrStubs: [
         "shiki",
         "mermaid",

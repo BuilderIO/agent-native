@@ -45,15 +45,6 @@ export function canCaptureMobileWebViewSession(options: {
   );
 }
 
-/**
- * Build a WebView URL without putting any reusable session token in a URL.
- * Workspace apps receive only their one-time embed URL; non-workspace apps
- * remain on their ordinary app-owned login path.
- *
- * `"reused"` deliberately resolves to the plain app URL: the embed session is
- * already in the shared cookie store, so the app opens at its CDN-cached shell
- * instead of redeeming another one-time ticket.
- */
 export function buildMobileWebViewAuthUrl(
   options: MobileWebViewAuthUrlOptions,
 ): string {
@@ -69,25 +60,12 @@ export function buildMobileWebViewAuthUrl(
   return safeUrl;
 }
 
-/**
- * Decide which URL a mounted WebView should actually be showing.
- *
- * A WebView that already holds a document must never be renavigated because
- * the workspace handshake restarted: while it is in flight the URL builder
- * falls back to the plain app URL, and handing that to a live WebView throws
- * away everything the user had open. Only a settled handshake may replace the
- * loaded document.
- */
 export function resolveStickyWebViewUrl(options: {
   requestedUrl: string;
   loaded: { owner: string | null; url: string } | null;
-  /** Fingerprint of the parent session this render belongs to. */
   owner: string | null;
   workspaceHandshakeInFlight: boolean;
 }): string {
-  // A document loaded for a different account is not ours to keep. Without
-  // this, signing in as someone else re-mounted the previous account's URL
-  // while their own handshake was still pending.
   const mine = options.loaded && options.loaded.owner === options.owner;
   if (mine && options.workspaceHandshakeInFlight) {
     return options.loaded!.url;

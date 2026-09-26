@@ -1,10 +1,3 @@
-/**
- * Tests for TypeScript in-process aggregation over staged dataset rows.
- *
- * Covers: groupBy + sum/avg/count/min/max, where filters, orderBy, limit,
- * count_distinct, and edge cases (empty rows, non-numeric values, multi-key groups).
- */
-
 import { describe, expect, it } from "vitest";
 
 import { runAggregateQuery } from "./staged-datasets-aggregate.js";
@@ -50,7 +43,6 @@ describe("runAggregateQuery — groupBy + sum/count", () => {
       aggregate: [{ column: "amount", op: "avg", as: "avg_amount" }],
     });
     const pro = result.find((r) => r.product === "pro");
-    // (100 + 200 + 150) / 3 = 150
     expect(pro?.avg_amount).toBeCloseTo(150, 5);
   });
 
@@ -71,7 +63,7 @@ describe("runAggregateQuery — groupBy + sum/count", () => {
         { column: "product", op: "count_distinct", as: "distinct_products" },
       ],
     });
-    expect(result[0]?.distinct_products).toBe(3); // pro, free, enterprise
+    expect(result[0]?.distinct_products).toBe(3);
   });
 
   it("handles multi-column groupBy", () => {

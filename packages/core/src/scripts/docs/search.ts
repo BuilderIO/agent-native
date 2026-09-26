@@ -1,15 +1,3 @@
-/**
- * Core script: docs-search
- *
- * Search and read agent-native framework documentation.
- * Docs are bundled in @agent-native/core so they're always the right version.
- *
- * Usage:
- *   pnpm action docs-search --query "actions"
- *   pnpm action docs-search --slug authentication
- *   pnpm action docs-search --list
- */
-
 import fs from "node:fs";
 import path from "node:path";
 
@@ -26,9 +14,6 @@ export interface DocFull extends DocMeta {
 }
 
 function getDocsRoot(): string {
-  // Resolve from the package root:
-  //   src/scripts/docs/search.ts -> docs/
-  //   dist/scripts/docs/search.js -> docs/
   return path.resolve(
     path.dirname(new URL(import.meta.url).pathname),
     "../../../docs",
@@ -39,11 +24,6 @@ function getDocsDir(): string {
   return path.join(getDocsRoot(), "content");
 }
 
-/**
- * Bundled serverless deploys carry the runtime agent bundle but not the
- * framework doc pages, so a miss there means "not deployed", not "no such
- * doc". Say which, or the agent concludes a documented API does not exist.
- */
 function logMissingFrameworkDocsNote(): void {
   if (fs.existsSync(getDocsDir())) return;
   console.log(
@@ -190,9 +170,6 @@ async function loadAgentBundleDocs(): Promise<DocFull[]> {
         description: skill.meta.description,
         body: skill.content,
       });
-      // Progressive-disclosure sub-files (e.g. `references/*.md`) get their
-      // own searchable/readable doc so the "also contains" pointers the
-      // skill prompt block advertises actually resolve to something.
       for (const [relPath, content] of Object.entries(skill.files)) {
         docs.push({
           slug: skillSubfileDocsSlug(skill.meta.name, relPath),
@@ -225,7 +202,6 @@ async function searchDocs(query: string): Promise<DocMeta[]> {
         if (doc.title.toLowerCase().includes(term)) score += 10;
         if (doc.description.toLowerCase().includes(term)) score += 5;
         if (doc.slug.includes(term)) score += 8;
-        // Count body occurrences
         const bodyMatches = searchText.split(term).length - 1;
         score += Math.min(bodyMatches, 5);
       }

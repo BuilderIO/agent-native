@@ -1,14 +1,3 @@
-/**
- * Standard remote MCP OAuth 2.1 endpoints.
- *
- * These routes let MCP hosts such as Claude Code and ChatGPT authenticate
- * through their native remote-MCP OAuth flow instead of pasting bearer tokens.
- * The issued access tokens are audience-bound to the public `/mcp` route or
- * its legacy alias, carry
- * the same user/org identity as the existing connect flow, and are mediated by
- * `verifyAuth` before any MCP tool/resource request runs.
- */
-
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import type { H3Event } from "h3";
@@ -227,8 +216,6 @@ export function getMcpOAuthAudiences(event: H3Event): string[] {
   const configuredIssuer = (() => {
     const base = configuredPublicBaseUrl();
     if (!base) return undefined;
-    // Re-apply base path if present so the configured resource is also
-    // base-path-aware, consistent with how getMcpOAuthResource computes it.
     return appendConfiguredBasePath(base);
   })();
   const seen = new Set<string>();
@@ -255,9 +242,6 @@ export function getMcpOAuthProtectedResourceMetadataUrl(
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer) return undefined;
   const metadataUrl = new URL(`${issuer}/.well-known/oauth-protected-resource`);
-  // The public and legacy endpoints share one host-level metadata route. Keep
-  // the legacy resource identity in the challenge so OAuth clients that verify
-  // an exact resource URL can authenticate old MCP configurations.
   if (normalizeMcpResourcePath(routePath) === MCP_LEGACY_ROUTE_PREFIX) {
     metadataUrl.searchParams.set("resource", MCP_LEGACY_ROUTE_PREFIX);
   }
@@ -585,8 +569,6 @@ function isValidCodeVerifier(value: unknown): value is string {
   );
 }
 
-// Shared styling for the browser-facing OAuth pages (consent + post-authorize
-// confirmation) so they read as one coherent dark surface.
 const OAUTH_PAGE_BASE_STYLE = `
   :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #09090b; color: #f4f4f5; }
   body { min-height: 100vh; display: grid; place-items: center; margin: 0; padding: 24px; }
@@ -672,11 +654,6 @@ function renderConsentPage(params: {
 </html>`;
 }
 
-// Shown after the user approves a native/desktop client (cursor://, vscode://, …)
-// whose redirect is a private-use scheme. A bare 302 to a custom scheme hands the
-// code to the OS app but leaves the browser tab dangling on a blank/error page, so
-// we render a friendly confirmation that also re-fires the deep link (so the client
-// still receives the code) and tells the user they can return to their agent.
 function renderAuthorizedPage(params: {
   appName: string;
   clientName: string | null;
@@ -971,11 +948,6 @@ async function handleAuthorize(
     resource,
   });
 
-  // Native/desktop clients register a private-use scheme (cursor://, vscode://, …).
-  // A 302 to that scheme opens the app but leaves the browser tab dangling, so we
-  // render a friendly confirmation page that re-fires the deep link instead. For
-  // https/loopback callbacks the client (or its local server) renders its own page,
-  // so keep the standard redirect there.
   let isDeepLinkRedirect = false;
   try {
     const protocol = new URL(redirectUri).protocol;

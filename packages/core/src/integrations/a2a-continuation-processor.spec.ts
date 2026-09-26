@@ -304,9 +304,6 @@ describe("A2A continuation processor", () => {
     process.env = originalEnv;
   });
 
-  // CI's slower transform/import phase pushes the import of the processor
-  // module into the per-test budget; bump to 15s so the 2s fake-timer
-  // advance + module load doesn't get clipped by the default 5s timeout.
   it(
     "dispatches without aborting a long-running processor request",
     { timeout: 15000 },
@@ -341,8 +338,6 @@ describe("A2A continuation processor", () => {
   );
 
   it("self-dispatches to this deploy, not production, on a deploy preview", async () => {
-    // This resolver used to carry its own chain: it never read
-    // DEPLOY_PRIME_URL, so a preview POSTed the continuation to production.
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("WEBHOOK_BASE_URL", "");
     vi.stubEnv("DEPLOY_PRIME_URL", "https://preview--app.netlify.app");
@@ -366,8 +361,6 @@ describe("A2A continuation processor", () => {
   });
 
   it("refuses to silently dispatch to localhost in production", async () => {
-    // The old fallback was `http://localhost:${PORT}`, where the request never
-    // arrives and the continuation is dropped with no error anywhere.
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("WEBHOOK_BASE_URL", "");
     vi.stubEnv("DEPLOY_PRIME_URL", "");

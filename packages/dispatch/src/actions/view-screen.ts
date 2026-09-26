@@ -1,12 +1,3 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads and returns the current navigation state from application state.
- *
- * Usage:
- *   pnpm action view-screen
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
@@ -68,19 +59,11 @@ function threadDebugFailureStatus(
     : "all";
 }
 
-/**
- * The workspace app Dispatch has embedded, or `null` when none is open. A
- * surface that is showing an app whose identity could not be read reports
- * `status: "unknown"` — never a plausible-looking id and never silence, so the
- * agent can tell "no app open" from "an app is open and I cannot name it".
- */
 type EmbeddedApp =
   | {
       status: "open";
       id: string;
-      /** Path inside the embedded app, not the Dispatch route. */
       path: string;
-      /** Named screen the pane was opened at, when it carries one instead of a path. */
       view?: string;
       source: "route" | "chat-first-pane";
     }
@@ -112,8 +95,6 @@ async function resolveEmbeddedApp(
     };
   }
 
-  // Chat-first mode keeps the route on /chat and opens the app as a surface
-  // tab, so the pane state is the only place the open app is named.
   if (navigation?.view !== "chat") return null;
   const pane = await readAppState(CHAT_FIRST_PANE_STATE_KEY);
   if (pane === null) return null;

@@ -32,7 +32,6 @@ export {
   type BlockDataChangeMeta,
 } from "./types.js";
 
-// Registry + provisioning
 export { BlockRegistry, registerBlocks } from "./registry.js";
 export {
   BlockRegistryProvider,
@@ -40,7 +39,6 @@ export {
   useOptionalBlockRegistry,
 } from "./provider.js";
 
-// Rendering
 export { BlockView, blockEditSurface } from "./BlockView.js";
 export { AiEditableFieldLabel } from "./AiEditableField.js";
 export { SchemaBlockEditor } from "./SchemaBlockEditor.js";
@@ -51,7 +49,6 @@ export type {
   RegistryBlockSideMapBlock,
 } from "@agent-native/toolkit/editor/RegistryBlockContext";
 
-// Schema-form helpers
 export {
   markdown,
   richtext,
@@ -60,7 +57,6 @@ export {
   type FieldDescriptor,
 } from "./schema-form/introspect.js";
 
-// MDX round-trip (registry-driven serialize/parse + shared encoder primitives)
 export {
   prop,
   escapeAttr,
@@ -77,25 +73,18 @@ export {
   type ParsedBlockBase,
 } from "./mdx.js";
 
-// Agent schema export
 export {
   describeBlocksForAgent,
   renderBlockVocabularyReference,
   type BlockAgentDoc,
 } from "./agent.js";
 
-// Standard library registration. Apps call `registerLibraryBlocks(registry)` to
-// register the whole standard library (the pre-built specs + dev-doc specs) in
-// one place, then register only their app-specific blocks on top.
-// `libraryBlockSpecs` is the underlying ordered array.
 export {
   libraryBlockSpecs,
   registerLibraryBlocks,
   type LibraryBlockOverrides,
 } from "./library/specs.js";
 
-// Standard block library (React specs). Apps register these in their browser
-// registry alongside their own app-specific blocks.
 export {
   checklistBlock,
   ChecklistBlock,
@@ -231,10 +220,6 @@ export {
 } from "./library/wireframe-kit.js";
 export { renderWireframeIconHtml } from "./library/wireframe-icons.js";
 
-// Dev-doc block library (React `Read`/`Edit` renderers + their React-free
-// schema/MDX config). Apps register these alongside their own blocks, supplying
-// app-specific spec metadata (label/description/editSurface/empty) via
-// `defineBlock`. Mirrors the standard library above.
 export { MermaidRead, MermaidEdit } from "./library/MermaidBlock.js";
 export {
   mermaidSchema,

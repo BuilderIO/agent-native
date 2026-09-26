@@ -152,8 +152,6 @@ async function uploadPromptFiles(files: File[]): Promise<UploadedFile[]> {
 }
 
 function preloadPromptPopover() {
-  // This is an optional hover/focus optimization; rendering the opened popover
-  // is where a failed chunk load is surfaced through its recovery boundary.
   void loadPromptPopover().catch(() => {});
 }
 
@@ -189,13 +187,6 @@ interface HomeSuggestionsResult {
   suggestions: HomeSuggestion[];
 }
 
-/** Router-state payload for recovering the new-deck prompt after a failed
- *  generation kickoff forces a navigate away from and back to this route. */
-/**
- * A reference deck built from an upload, paired with the source file it came
- * from. Kept together so a retry skips re-reading that file only while the
- * same reference deck is still selected.
- */
 interface ImportedReferenceSource {
   deckId: string;
   filePath: string;
@@ -501,12 +492,6 @@ export default function Index() {
     if (deckSearch.trim()) setHomeSection("recent");
   }, [deckSearch]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
-  // True while the picker still reflects an auto-applied default rather than
-  // an explicit user choice. `useWorkspaceDefaults()`/`useDesignSystems()`
-  // resolve asynchronously, so the initial value set on dialog open can be a
-  // placeholder ("none") - these stay true so the hydration effects below
-  // can overwrite it once the real default arrives, and flip to false the
-  // moment the user picks explicitly.
   const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
@@ -577,8 +562,6 @@ export default function Index() {
     if (result.readable) setRecentReferences(result.items);
   }, []);
 
-  // Refreshes cards for decks that changed while a different deck was open
-  // (see `catchUpStaleDeckList`'s own comment in DeckContext).
   useEffect(() => {
     catchUpStaleDeckList();
   }, [catchUpStaleDeckList]);
@@ -757,14 +740,6 @@ export default function Index() {
     }
   }, []);
 
-  // Re-syncs the design-system picker whenever the resolved default changes
-  // while the dialog is open, not just on the first render after it opens.
-  // `useWorkspaceDefaults()` and `useDesignSystems()` load asynchronously and
-  // can settle in either order, so `initialDesignSystemId` may go from a
-  // provisional value to the real one after the picker already has a
-  // selection - guarding on `designSystemAutoRef` (instead of on whether
-  // `selectedDesignSystemId` is already set) lets that later value win as
-  // long as the user hasn't explicitly chosen something.
   useEffect(() => {
     if (!showNewDeckPrompt || !designSystemAutoRef.current) return;
     if (initialDesignSystemId) {
@@ -774,19 +749,11 @@ export default function Index() {
     }
   }, [initialDesignSystemId, designSystems.length, showNewDeckPrompt]);
 
-  // Same as above for the reference-deck picker: the local last-used reference
-  // can still be loading when the dialog opens, so re-apply it once it
-  // resolves unless the user already picked a reference deck.
   useEffect(() => {
     if (!showNewDeckPrompt || !referenceDeckAutoRef.current) return;
     setSelectedReferenceDeckId(initialReferenceDeckId ?? null);
   }, [initialReferenceDeckId, showNewDeckPrompt]);
 
-  // Restore a prompt that was held back when the user wasn't signed in:
-  // we wrote the text to sessionStorage before redirecting to sign-in,
-  // and now that they're back and authenticated, replay it into the
-  // composer's localStorage draft and pop the new-deck dialog open so
-  // they can hit submit without retyping.
   useEffect(() => {
     if (!session) return;
     let saved: string | null = null;
@@ -816,12 +783,6 @@ export default function Index() {
     setShowNewDeckPrompt(true);
   }, [initialDesignSystemId, initialReferenceDeckId, session]);
 
-  // Recovering from a failed deck-generation kickoff (see
-  // recoverFromGenerationSetupFailure below) navigates back to this route
-  // from an Index instance that already unmounted, so that instance's own
-  // setShowNewDeckPrompt/setNewDeckInitialPrompt calls landed on a dead
-  // component and did nothing. Carry the retry payload through router state
-  // instead and restore it here, on the freshly mounted instance.
   useEffect(() => {
     const state = location.state as DeckGenerationRetryState | null;
     if (!state?.retryPrompt) return;
@@ -879,11 +840,6 @@ export default function Index() {
     attachments: ReadonlyArray<PromptChatAttachment> = [],
     modelSelection?: DeckModelSelection,
   ) => {
-    // Pre-flight auth check. The add-deck action returns 403 silently
-    // when unauthenticated, leaving the user stuck on a deck page that
-    // doesn't exist server-side and a small auth error in the chat
-    // sidebar. Catch it here so the user sees a clear sign-in prompt
-    // and the typed prompt isn't lost when they come back.
     if (!session) {
       settlePendingDeckAttachments("discard");
       preservePromptForSignIn(prompt, {
@@ -935,10 +891,6 @@ export default function Index() {
       : undefined;
     let deck: ReturnType<typeof createDeck> | undefined;
     flushSync(() => {
-      // Commit the destination-shaped shell before navigating. React Router
-      // keeps the current outlet mounted while a cold route chunk loads, and
-      // showing the deck grid during that handoff makes the route indicator
-      // look like a second app.
       setIsStartingNewDeck(true);
       deck = createDeck(undefined, {
         noDefaultSlides: true,
@@ -964,9 +916,6 @@ export default function Index() {
     });
     setNewDeckPromptOpen(false);
 
-    // Leave the grid as soon as the optimistic deck exists. Persistence and
-    // agent context hydration can take several seconds, so the editor's
-    // generation state is the only useful surface while that work finishes.
     void navigate(
       `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
       {
@@ -1059,10 +1008,6 @@ export default function Index() {
       }
     }
 
-    // Only the document that actually became the reference deck is already
-    // represented; the import controls accept several files but import one, so
-    // excluding all of `referenceFilePaths` would drop the rest entirely while
-    // telling the agent every attachment had been read.
     const referenceHydration = await hydrateReferenceDocuments(
       filesForGeneration,
       {
@@ -1080,13 +1025,6 @@ export default function Index() {
       referenceHydration.status === "hydrated"
         ? referenceHydration.context
         : "";
-    // An attached document reference never sets `referenceDeckId`, so without
-    // this the no-design-system branch below prescribed the same generic
-    // fallback look a reference-less prompt gets — which is how a styled PDF
-    // produced a deck indistinguishable from one generated with no reference.
-    // Keyed on a measured design, not merely a successful read: a DOCX, or a
-    // PDF whose digest could not be built, would otherwise suppress both the
-    // workspace default and the fallback and leave no styling guidance at all.
     const hasHydratedReferenceDesign =
       referenceHydration.status === "hydrated" &&
       referenceHydration.measuredDesignCount > 0;
@@ -1262,9 +1200,6 @@ export default function Index() {
       return;
     }
 
-    // See the matching comment in create-deck-generation.ts: clear any
-    // guided-question card left over from the previous deck's still-finishing
-    // run so it can't surface on top of the deck we're navigating to now.
     deleteClientAppState(
       appStateKeyForBrowserTab("guided-questions", TAB_ID),
     ).catch(() => {});
@@ -1584,18 +1519,10 @@ export default function Index() {
           ...(selection.referenceFilePaths ?? []),
         ]),
       ];
-      // A retry re-enters this step with the reference deck from the failed
-      // attempt already in the list rather than freshly imported, so the
-      // selection no longer says which upload it was built from. Without this
-      // the retry re-reads that file, duplicating it alongside the reference
-      // deck and turning any read hiccup into a second hard stop.
       const carriedImportedReference = pending.importedReference;
       const carriedDeckSelected =
         carriedImportedReference !== undefined &&
         selection.referenceDeckId === carriedImportedReference.deckId;
-      // The reference deck can be deleted between the failed attempt and the
-      // retry. Its id then loads nothing while still reading as a reference,
-      // and its source would stay excluded — leaving the run with neither.
       const carriedDeckMissing =
         carriedDeckSelected &&
         !decks.some((deck) => deck.id === carriedImportedReference.deckId);
@@ -1650,8 +1577,6 @@ export default function Index() {
           .filter((file) => /\.(pdf|pptx|docx)$/i.test(file.originalName))
           .map((file) => file.path);
         let importedReference: ImportedReference | null = null;
-        // The target generation context must retain the source handle; the
-        // imported reference deck stores rendered slides, not the original file.
         let generationFiles = uploaded;
         if (pptxReference) {
           const imported = (await callAction(
@@ -1895,9 +1820,6 @@ export default function Index() {
   const applyWorkspaceDefaultDeck = useCallback(
     async (deck: Deck) => {
       try {
-        // A private deck is unreadable to everyone else, so share it through
-        // the audited sharing action first - it owns org binding and collab
-        // cache invalidation, which a direct visibility write here would skip.
         if (deck.visibility === "private") {
           await callAction("set-resource-visibility", {
             resourceType: "deck",
@@ -1927,8 +1849,6 @@ export default function Index() {
       if (isDefault) {
         const deck = decks.find((d) => d.id === id);
         if (!deck) return;
-        // Setting the default is one click to undo. Publishing a private deck
-        // to the whole workspace is not, so that is the only part we confirm.
         if (deck.visibility === "private") {
           setWorkspaceDefaultCandidate(deck);
           return;
@@ -1952,34 +1872,20 @@ export default function Index() {
   );
 
   const confirmWorkspaceDefaultDeck = useCallback(() => {
-    // Read but do not clear: AlertDialogAction closes the dialog itself, and
-    // unmounting it here too would pre-empt Radix's close sequence and strand
-    // `pointer-events: none` on <body>. `onOpenChange` clears the candidate.
     const deck = workspaceDefaultCandidate;
     if (!deck) return;
     void applyWorkspaceDefaultDeck(deck);
   }, [workspaceDefaultCandidate, applyWorkspaceDefaultDeck]);
 
-  // Navigating on the action's response raced the deck list: the editor reads
-  // the copy out of `useDecks()`, which had not seen the new row yet, so the
-  // route rendered "Deck unavailable". Insert the optimistic copy locally
-  // first (the same path the editor's own Duplicate uses) and navigate to
-  // that; the background action reconciles or rolls the copy back.
   const handleDuplicate = useCallback(
     async (id: string) => {
       const newId = `deck-${nanoid()}`;
       const copy = await duplicateDeck(id, newId, undefined, () => {
-        // The background duplicate-deck action failed after we already
-        // navigated to the optimistic copy's route. If the user is still
-        // there, send them back to the deck list instead of stranding them
-        // on a "Deck unavailable" screen for a deck that no longer exists.
         if (deckIdFromPathname(window.location.pathname) === newId) {
           void navigate("/home");
         }
         toast.error(t("home.duplicateFailed"));
       });
-      // The context refuses a second copy of the same deck while the first
-      // one's action is still in flight.
       if (!copy) {
         toast.error(t("home.duplicateFailed"));
         return;

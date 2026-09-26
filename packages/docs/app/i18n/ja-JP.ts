@@ -800,7 +800,6 @@ const jaJP = {
       s062: "テンプレートから始め、データを接続し、ダッシュボードの構築を開始します。",
       s063: "ドキュメントを読む",
       s064: "すべてのテンプレートを表示",
-      // V3 ランディングページコピー（2026-09-14）— hero から最終 CTA まで。
       heroEyebrow: "Analytics",
       heroTitle:
         "質問してください。チャート、クエリ、コンテキストを取得します。",
@@ -864,7 +863,6 @@ const jaJP = {
     },
     calendar: {
       s001: "Calendar テンプレートのスクリーンショット",
-      // V3 ランディングページコピー(2026年9月10日) — hero から最終 CTA まで。
       heroEyebrow: "Calendar",
       heroTitle:
         "エージェントと時間を見つけて会議を予約し、その日の予定を調整します",
@@ -1047,7 +1045,6 @@ const jaJP = {
     },
     clips: {
       s001: "Clips テンプレートのスクリーンショット",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "AIエージェントが見て、聞ける画面録画",
       heroDescription:
@@ -1194,7 +1191,6 @@ const jaJP = {
     },
     content: {
       s001: "Content テンプレートのスクリーンショット",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "AIエージェントで作業を作成・整理する",
       heroDescription:
@@ -1320,7 +1316,6 @@ const jaJP = {
     },
     design: {
       s001: "Design テンプレートのスクリーンショット",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "AIエージェントでインタラクティブなプロトタイプをデザイン",
       heroDescription:
@@ -1442,7 +1437,6 @@ const jaJP = {
     },
     dispatch: {
       s001: "Dispatch テンプレートのスクリーンショット",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "AI エージェントを一箇所でまとめて調整",
       heroDescription:
@@ -1696,7 +1690,6 @@ const jaJP = {
           "はい。チームメンバーが下書きをリクエストすると、あなたのレビューキューに表示されます。それを開いてメッセージを編集し、準備ができたら送信できます。依頼した本人があなたに代わって送信することはできません。送信を管理するのは下書きの所有者、または組織の管理者です。",
       },
       s001: "Mail テンプレートのスクリーンショット",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
       heroTitle: "Jevで受信トレイを思いどおりに",
       heroDescription:
@@ -1865,7 +1858,6 @@ const jaJP = {
     },
     slides: {
       s001: "Slides テンプレートのスクリーンショット",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "AIエージェントでプレゼンテーションを作成",
       heroDescription:
@@ -2083,7 +2075,6 @@ const jaJP = {
           "はい。CLI でコピーを作成し、actions、データ、インターフェースを追加してから、アプリケーションをデプロイしてください。環境に合わせて認証とプロバイダーアクセスを設定し、追加したワークフローをユーザーに共有する前にテストしてください。",
       },
       s001: "Chat アプリのスクリーンショット",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "自分だけの AI チャットアプリを作ろう",
       heroDescription:

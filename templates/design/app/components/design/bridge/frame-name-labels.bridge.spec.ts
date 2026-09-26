@@ -17,9 +17,6 @@ function hydratedEditorChromeBridgeScript(boardSurface: boolean): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-// Mirrors a real screen document: one frame primitive as a direct child of
-// <body>, which is the shape that made "has no frame ancestor" wrongly read as
-// "is a top-level canvas object".
 const content = `<!doctype html><html><head></head><body data-agent-native-layer-name="Screen 1" style="margin:0">
   <div data-agent-native-node-id="draft-frame-1" layer-name="Imported frame" data-an-primitive="frame" style="position:absolute;left:184px;top:109px;width:382px;height:283px;background:#ffffff">
     <div data-agent-native-node-id="rect-1" data-agent-native-layer-name="Rectangle" data-an-primitive="rectangle" style="position:absolute;left:16px;top:16px;width:48px;height:48px;background:#d4d4d8"></div>
@@ -36,8 +33,6 @@ async function frameLabelTexts(
     await page.addScriptTag({
       content: hydratedEditorChromeBridgeScript(boardSurface),
     });
-    // The bridge paints labels on a requestAnimationFrame, so an immediate read
-    // would report "no labels" before it has had a chance to draw any.
     await page.waitForTimeout(1_000);
     return await page.evaluate(() =>
       Array.from(
@@ -51,9 +46,6 @@ async function frameLabelTexts(
 }
 
 describe("editor chrome frame name labels", () => {
-  // Both halves live in one case on purpose: the board-surface result is the
-  // positive control that proves the empty screen-document result means
-  // "suppressed" rather than "the bridge never drew anything".
   it(
     "labels a top-level board frame but nothing inside a screen document",
     { timeout: 60_000 },

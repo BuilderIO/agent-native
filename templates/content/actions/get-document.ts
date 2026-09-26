@@ -79,9 +79,6 @@ export default defineAction({
     if (!args.id) throw new Error("--id is required");
 
     const access = await resolveDocumentAccess(args.id);
-    // Not-found is a deterministic client-state condition (deleted or
-    // inaccessible document still referenced by an open tab) — 404, not a
-    // 500 that floods the console as Internal Server Error.
     if (!access) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
         statusCode: 404,
@@ -148,8 +145,6 @@ export default defineAction({
       ? await favoriteDocumentIds(getDb(), userEmail, [doc.id])
       : new Set<string>();
     const properties = await listPropertiesForDocument(doc, args.databaseId, {
-      // A share authorizes the exact page and its membership-local fields,
-      // not the private database document that owns those definitions.
       requireDatabaseAccess: propertyDatabaseAccess !== null,
     });
     const source = serializeDocumentSource(doc);

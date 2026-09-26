@@ -1,45 +1,6 @@
-/**
- * insert-design-native-asset.interleave.spec.ts
- *
- * Regression test for the QA-reported (R64/R71) asset-insert corruption bug:
- * inserting assets (insert-design-native-asset / insert-asset) while other
- * edits are in flight corrupted the stored design HTML — assets disappeared
- * / reappeared, deleted assets resurrected, and attribute text + style edits
- * were serialized as VISIBLE TEXT with nested <!DOCTYPE> blocks.
- *
- * Root cause: both actions read a "base" HTML string (collab live text, or
- * the SQL row) at the START of the action, then performed unrelated async
- * work (DB lookups, assertAccess), and only THEN wrote the transformed
- * content via a raw `db.update` + unconditional `applyText`/`seedFromText`
- * char-diff merge — with no re-check that the base they diffed against was
- * still current. If a concurrent writer (another insert, or a style/attr
- * edit racing through update-file/apply-visual-edit) landed in the gap
- * between the read and the write, the diff-based `applyText` call computed
- * its cursor-based delete/insert against a STALE base while the live Y.Text
- * had already moved on — corrupting or dropping whichever change didn't
- * "win" (the same stale-diff-base class of bug documented and fixed for
- * update-file in apply-source-edit.interleave.spec.ts).
- *
- * Fix: both actions now read the live base via readLiveSourceFile and write
- * through writeInlineSourceFile (server/source-workspace.ts), passing the
- * versionHash of the base they just read as expectedVersionHash.
- * writeInlineSourceFile re-reads the live text immediately before its own
- * applyText call and rejects the write if it no longer matches — closing the
- * race window instead of silently corrupting.
- *
- * This spec exercises the REAL insert-design-native-asset/insert-asset
- * action modules (not mocked at the writeInlineSourceFile boundary) against
- * a fake DB + a real per-docId Y.Doc registry, the same harness shape as
- * apply-source-edit.interleave.spec.ts.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-// ---------------------------------------------------------------------------
-// Fake @agent-native/core/collab backed by a real per-docId Y.Doc registry,
-// with a real deterministic prefix/suffix-trim diff for applyText — same
-// approach as apply-source-edit.interleave.spec.ts.
-// ---------------------------------------------------------------------------
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
@@ -141,11 +102,6 @@ vi.mock("@agent-native/core/application-state", () => ({
   readAppStateForCurrentTab: vi.fn().mockResolvedValue(null),
 }));
 
-// ---------------------------------------------------------------------------
-// Minimal fake Drizzle app-DB layer backing a single design_files row, same
-// query shapes as apply-source-edit.interleave.spec.ts (select+where(+limit),
-// update+set+where, plus insert-*'s innerJoin(designs) multi-file lookup).
-// ---------------------------------------------------------------------------
 interface FileRow {
   id: string;
   designId: string;
@@ -286,9 +242,6 @@ function assertWellFormed(content: string) {
   expect((content.match(/<html/g) ?? []).length).toBe(1);
   expect((content.match(/<\/html>/g) ?? []).length).toBe(1);
   expect(content).toContain("<head>");
-  // The bug's reported symptom: attribute text leaking as visible body text,
-  // typically via a stray/duplicated tag boundary. A well-formed merge never
-  // contains a bare, unquoted "=""" artifact from a mis-parsed attribute.
   expect(content).not.toMatch(/data-agent-native-node-id="[^"]*"=""/);
   expect(content).not.toMatch(/<!DOCTYPE html>[\s\S]*<!DOCTYPE html>/);
 }
@@ -317,13 +270,8 @@ describe("insert-design-native-asset / insert-asset race safety (R64/R71)", () =
   });
 
   it("a concurrent style edit that lands AFTER insert-design-native-asset reads its base is not silently dropped: the write is rejected instead of corrupting", async () => {
-    // Simulate the action's own base read (what it now does internally via
-    // readLiveSourceFile before calling insert-design-native-asset.run).
     const preInsertLive = await readLiveSourceFile(currentFileRef());
 
-    // A concurrent style-edit writer (e.g. a border-radius commit racing in
-    // from another tab/agent turn) lands on the SAME collab doc, changing
-    // the live text out from under the not-yet-run insert action.
     const styleEditedContent = preInsertLive.content.replace(
       "border-radius: 8px;",
       "border-radius: 24px;",
@@ -332,13 +280,8 @@ describe("insert-design-native-asset / insert-asset race safety (R64/R71)", () =
       seedFromText(FILE_ID, preInsertLive.content),
     );
     await applyText(FILE_ID, styleEditedContent, "content", "agent");
-    // Mirror the SQL row too, the way update-file's guarded write does.
     seedFile(styleEditedContent);
 
-    // The insert action runs its OWN internal read-then-write sequence from
-    // scratch (it doesn't share preInsertLive) — so in the real race this
-    // assertion instead documents the safe case where the insert's own read
-    // happens to observe the edited content and write succeeds, converging.
     const result = await insertDesignNativeAsset.run({
       kind: "hero",
       designId: DESIGN_ID,
@@ -348,20 +291,11 @@ describe("insert-design-native-asset / insert-asset race safety (R64/R71)", () =
     expect(result.inserted).toBe(true);
     const finalLive = await readLiveSourceFile(currentFileRef());
     assertWellFormed(finalLive.content);
-    // BOTH changes present: the prior style edit and the new insert.
     expect(finalLive.content).toContain("border-radius: 24px;");
     expect(finalLive.content).toContain(result.insertedNodeId);
   });
 
   it("two concurrent insert-design-native-asset calls from a common ancestor converge with BOTH assets present, no doubled DOCTYPE, no attribute-as-text leakage", async () => {
-    // Both callers read the SAME live base "simultaneously" (before either
-    // writes) — the exact shape of the reported bug: "inserting multiple
-    // assets" racing each other. We drive this by reading live content once,
-    // then racing the two real action invocations with Promise.all; each
-    // action performs its OWN internal read (which will observe whichever
-    // state exists at that moment) and write, and writeInlineSourceFile's
-    // expectedVersionHash re-check must ensure the SECOND writer either
-    // converges cleanly or fails loud — never silently corrupts.
     const results = await Promise.allSettled([
       insertDesignNativeAsset.run({
         kind: "card",
@@ -382,21 +316,12 @@ describe("insert-design-native-asset / insert-asset race safety (R64/R71)", () =
         Awaited<ReturnType<typeof insertDesignNativeAsset.run>>
       > => r.status === "fulfilled",
     );
-    // At least one must succeed; the other may either succeed (if its
-    // internal read observed the first writer's result before writing) or
-    // fail loud with the staleness guard — both are acceptable, corruption
-    // is not.
     expect(fulfilled.length).toBeGreaterThanOrEqual(1);
 
     const finalLive = await readLiveSourceFile(currentFileRef());
     assertWellFormed(finalLive.content);
-    // The original hero content must still be present regardless of which
-    // writer(s) won or lost — no lost update wiping the whole document.
     expect(finalLive.content).toContain("an-existing-hero");
 
-    // Every successfully-inserted node must actually be present in the final
-    // document — no "disappears/reappears" symptom where a fulfilled action
-    // result claims insertion but the merged doc doesn't contain it.
     for (const { value } of fulfilled) {
       expect(finalLive.content).toContain(value.insertedNodeId);
     }
@@ -426,14 +351,6 @@ describe("insert-design-native-asset / insert-asset race safety (R64/R71)", () =
   });
 
   it("deleted-asset-resurrection guard: a concurrent delete of the inserted-into region is not resurrected by a stale insert write", async () => {
-    // Model "deleted assets resurrect": another writer deletes the existing
-    // hero section entirely (e.g. a Delete-layer commit) while an insert
-    // action's OWN read-transform-write sequence is mid-flight against the
-    // pre-delete base. We simulate the mid-flight window by reading the live
-    // base first (as the action's internals do), then landing the delete on
-    // the collab doc + SQL row BEFORE constructing the insert's write via
-    // writeInlineSourceFile, using the pre-delete versionHash — this must be
-    // rejected, not silently re-introduce the deleted section.
     const preDeleteLive = await readLiveSourceFile(currentFileRef());
     expect(preDeleteLive.content).toContain("an-existing-hero");
 
@@ -457,8 +374,6 @@ describe("insert-design-native-asset / insert-asset race safety (R64/R71)", () =
       }),
     ).rejects.toThrow(/changed since it was read/);
 
-    // The delete must survive untouched — the resurrected hero must NOT
-    // reappear because a stale insert write was rejected instead of merged.
     const finalLive = await readLiveSourceFile(currentFileRef());
     expect(finalLive.content).not.toContain("an-existing-hero");
     assertWellFormed(finalLive.content);

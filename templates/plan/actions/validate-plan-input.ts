@@ -8,11 +8,6 @@ type PlanInputSources = {
   components?: readonly unknown[];
 };
 
-/**
- * A full content payload is a replacement, not a second source to merge with
- * the convenience arrays. Rejecting mixed inputs keeps screen CSS and blocks
- * from being silently discarded at the action boundary.
- */
 export function rejectMixedPlanSources(
   value: PlanInputSources,
   ctx: RefinementCtx,

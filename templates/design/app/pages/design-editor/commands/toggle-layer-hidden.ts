@@ -127,9 +127,6 @@ export function runToggleLayerHidden(
     applyLayerStatePreview(layerScreenId, layerId, "hidden", hidden);
     return;
   }
-  // BUG-LOCK-HIDE-LIVE-SNAPSHOT: see the matching note in
-  // handleToggleLayerLocked, including why `node` has to be re-resolved
-  // against the live snapshot content before it's usable there.
   const liveSnapshot = liveScreenSnapshotsById[owner.fileId];
   const nodeIdAttr = node.dataAttributes["data-agent-native-node-id"];
   const liveNode =

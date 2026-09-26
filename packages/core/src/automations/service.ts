@@ -40,7 +40,6 @@ import {
 
 export type AutomationScope = "personal" | "organization";
 
-/** Conservative default for new scheduled automations when no cadence is given. */
 export const DEFAULT_AUTOMATION_SCHEDULE = "0 * * * *";
 
 export interface AutomationActor {
@@ -59,7 +58,6 @@ export interface AutomationDefinition {
   };
   body: string;
   canUpdate: boolean;
-  /** Returned only to an actor who can update the webhook automation. */
   webhookPath?: string;
 }
 
@@ -239,12 +237,6 @@ async function mutationAccess(
   };
 }
 
-/**
- * Compatibility adapters may expose both explicit automations and legacy
- * scheduled jobs. Keep their mutation authorization on the same boundary as
- * the canonical service without forcing legacy resources through the explicit
- * automation classifier.
- */
 export async function canUpdateAutomationResource(
   actorInput: AutomationActor,
   resource: Resource,
@@ -263,12 +255,6 @@ export async function canUpdateAutomationResource(
   return (await mutationAccess(actor, resource, meta)).canUpdate;
 }
 
-/**
- * Factory is a shared team workspace: any current org member may queue Run now
- * for that app's Factory-domain org jobs. Mail/CRM and other automations stay
- * on creator-or-admin `canUpdate`. Recovered Factory-folder jobs that lost
- * `domain` / `appId` stay on the same team-member exception.
- */
 export async function canQueueAutomationRunNow(
   actorInput: AutomationActor,
   resource: Resource,
@@ -438,8 +424,6 @@ export async function defineAutomation(
   if (input.timezone && !isValidTimezone(input.timezone)) {
     throw httpError(`Unknown timezone "${input.timezone}".`, 400);
   }
-  // Resolve now and persist it: a schedule whose zone is implicit means
-  // something different the moment it is read on a differently-zoned host.
   const timezone =
     input.triggerType === "schedule"
       ? input.timezone || (await resolveUserSchedulingTimezone(actor.userEmail))
@@ -689,8 +673,6 @@ export async function deleteAutomation(
     await deleteAutomationWebhookToken(definition.resource, definition.meta);
   }
   await resourceDelete(definition.resource.id);
-  // Names are reusable, so leaving history behind would attach these runs to
-  // whatever automation is created under the same name next.
   await deleteAutomationRuns(definition.resource.owner, name);
 }
 
@@ -704,14 +686,6 @@ export type AutomationExecutionIdentityResult =
   | { ok: true; identity: AutomationExecutionIdentity }
   | { ok: false; reason: string };
 
-/**
- * Resolve the identity used by an explicit automation run.
- *
- * Organization automations are visible through their organization owner, but
- * always execute as their immutable creator. Event dispatchers must also
- * require EventMeta.owner to equal `eventOwner`; organization visibility does
- * not make an event organization-wide.
- */
 export async function resolveAutomationExecutionIdentity(
   resourceOwner: string,
   meta: JobFrontmatter,

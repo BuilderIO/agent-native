@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-// Stub the heavy MCP SDK + builtin-tools so importing build-server.ts is
-// cheap — this spec only exercises `conciseToolResultText`.
 vi.mock("./builtin-tools.js", () => ({ getBuiltinCrossAppTools: () => ({}) }));
 
 const { conciseToolResultText } = await import("./build-server.js");

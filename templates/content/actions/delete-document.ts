@@ -821,7 +821,6 @@ async function deleteCollectedDocuments(
     );
   });
 
-  // Delete database membership/schema, sync links, versions, shares, then documents.
   await deleteWhereIn(sourceIds, async (sourceIdBatch) => {
     await db
       .delete(schema.contentDatabaseBodyHydrationQueue)
@@ -940,9 +939,6 @@ async function deleteCollectedDocuments(
     await db
       .delete(schema.contentDatabases)
       .where(inArray(schema.contentDatabases.id, databaseIdBatch));
-    // Receipts deliberately have no database foreign key. Removing them after
-    // the database row closes the race with a migration that already holds the
-    // row lock and commits its receipt before this deletion can continue.
     await db
       .delete(schema.contentDatabaseMigrationReceipts)
       .where(

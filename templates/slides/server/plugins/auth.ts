@@ -25,8 +25,6 @@ export default createAuthPlugin({
     // The handler still requires either a session or a live share token.
     "/api/image-proxy",
     "/_agent-native/google-docs/callback",
-    // React Router's lazy route-discovery endpoint must stay public so
-    // unauthenticated viewers can open shared presentation links directly.
     "/__manifest",
   ],
 });

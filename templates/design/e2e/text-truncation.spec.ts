@@ -265,11 +265,6 @@ async function zoomAndPanTitleIntoCanvas(page: Page, nodeId: string) {
     const moveY = Math.max(-280, Math.min(280, deltaY));
     const startX = surfaceBox.x + surfaceBox.width / 2;
     const startY = surfaceBox.y + surfaceBox.height / 2;
-    // closeTypographyDetails() leaves its toggle button focused. A focused
-    // <button> treats a native Space keydown as its own activation (which
-    // can even re-open the panel it just closed) instead of letting it
-    // reach the canvas's Space-to-pan handler, so every drag below no-ops
-    // and titleBox never moves. Blur it so Space drives the canvas pan.
     await page.evaluate(() =>
       (document.activeElement as HTMLElement | null)?.blur(),
     );
@@ -416,9 +411,6 @@ test(
       await expect
         .poll(() => readStyle(page, "class-title", "overflow"))
         .toBe("clip");
-      // A single readSource here races the debounced source save, same as
-      // the enabled-case check above (which is why that one is also backed
-      // by a poll) — poll instead of reading once.
       await expect
         .poll(async () =>
           inlineValue(

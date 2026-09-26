@@ -191,7 +191,7 @@ test("clicking an empty Fill heading adds the first fill", async ({
       .poll(() =>
         shape.evaluate((node) => getComputedStyle(node).backgroundColor),
       )
-      .toBe("rgb(217, 217, 217)"); // #d9d9d9 — Figma's new-fill paint, see fill-gradient-helpers.ts NEW_FILL_COLOR
+      .toBe("rgb(217, 217, 217)");
     await expect(
       fill.locator('[data-inspector-layout="paint-row"]'),
     ).toBeVisible();

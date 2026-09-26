@@ -382,7 +382,6 @@ export function useSidebarReorderItem(itemId: string) {
           ...sortable.listeners,
           onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
             if (event.target !== event.currentTarget) return;
-            // Enter follows a row link; Space remains its keyboard drag activator.
             if (
               event.key === "Enter" &&
               event.currentTarget.matches('a[href], [role="link"]')

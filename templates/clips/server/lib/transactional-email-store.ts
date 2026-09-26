@@ -24,7 +24,6 @@ export const transactionalEmailStateSchema = z.enum([
 
 export const recapMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 
-/** The three recap modules the agent writes; everything else is templated. */
 export const recapCopySchema = z
   .object({
     heroLine: nonEmptyStringSchema.max(400),
@@ -72,7 +71,6 @@ export const transactionalEmailPayloadSchema = z.discriminatedUnion("type", [
     .object({
       type: z.literal("monthly-recap"),
       ...commonPayloadFields,
-      // The month's top clip, which anchors the card and the AI copy.
       recordingIds: z.array(recordingIdSchema).length(1),
       month: recapMonthSchema,
     })
@@ -197,7 +195,6 @@ export type TransactionalEmailConfig = z.infer<
 export type TransactionalEmailJob = z.infer<typeof transactionalEmailJobSchema>;
 export type RecapCopy = z.infer<typeof recapCopySchema>;
 
-/** Job types whose copy is written by the agent before they can be sent. */
 export function isAiBackedType(type: TransactionalEmailJob["type"]): boolean {
   return type === "two-clips";
 }

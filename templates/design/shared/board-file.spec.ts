@@ -1,9 +1,3 @@
-/**
- * Tests for shared/board-file.ts helpers.
- *
- * These are pure-logic tests with no DB or React dependencies.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,19 +13,11 @@ import {
 } from "./board-file.js";
 import type { BoardObjectEntry } from "./board-objects.js";
 
-// ---------------------------------------------------------------------------
-// BOARD_FILENAME
-// ---------------------------------------------------------------------------
-
 describe("BOARD_FILENAME", () => {
   it("equals __board__.html", () => {
     expect(BOARD_FILENAME).toBe("__board__.html");
   });
 });
-
-// ---------------------------------------------------------------------------
-// isBoardFile
-// ---------------------------------------------------------------------------
 
 describe("isBoardFile", () => {
   it("returns true for the exact board filename", () => {
@@ -41,15 +27,11 @@ describe("isBoardFile", () => {
   it("returns false for other filenames", () => {
     expect(isBoardFile("index.html")).toBe(false);
     expect(isBoardFile("screen.html")).toBe(false);
-    expect(isBoardFile("__BOARD__.html")).toBe(false); // case-sensitive
+    expect(isBoardFile("__BOARD__.html")).toBe(false);
     expect(isBoardFile("__board__")).toBe(false);
     expect(isBoardFile("")).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// emptyBoardHtml
-// ---------------------------------------------------------------------------
 
 describe("emptyBoardHtml", () => {
   it("returns a string containing the required body style", () => {
@@ -74,17 +56,12 @@ describe("emptyBoardHtml", () => {
 
   it("has an empty body (no content elements)", () => {
     const html = emptyBoardHtml();
-    // Body content should be empty except for whitespace
     const bodyContent = html
       .replace(/^[\s\S]*<body[^>]*>([\s\S]*)<\/body>[\s\S]*$/, "$1")
       .trim();
     expect(bodyContent).toBe("");
   });
 });
-
-// ---------------------------------------------------------------------------
-// boardObjectEntryToHtmlFragment — geometry & positioning
-// ---------------------------------------------------------------------------
 
 describe("boardObjectEntryToHtmlFragment — basic geometry", () => {
   const baseEntry: BoardObjectEntry = {
@@ -161,10 +138,6 @@ describe("boardObjectEntryToHtmlFragment — basic geometry", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Negative coordinate preservation
-// ---------------------------------------------------------------------------
-
 describe("boardObjectEntryToHtmlFragment — negative coordinate preservation", () => {
   it("preserves negative x (left)", () => {
     const entry: BoardObjectEntry = {
@@ -213,10 +186,6 @@ describe("boardObjectEntryToHtmlFragment — negative coordinate preservation", 
   });
 });
 
-// ---------------------------------------------------------------------------
-// boardObjectEntryToHtmlFragment — rotation and z-index
-// ---------------------------------------------------------------------------
-
 describe("boardObjectEntryToHtmlFragment — rotation and z-index", () => {
   it("includes transform:rotate when rotation is set", () => {
     const entry: BoardObjectEntry = {
@@ -251,10 +220,6 @@ describe("boardObjectEntryToHtmlFragment — rotation and z-index", () => {
     expect(fragment).toContain("z-index:5");
   });
 });
-
-// ---------------------------------------------------------------------------
-// boardObjectEntryToHtmlFragment — kind-specific rendering
-// ---------------------------------------------------------------------------
 
 describe("boardObjectEntryToHtmlFragment — ellipse", () => {
   it("uses border-radius:50% for ellipse kind", () => {
@@ -337,7 +302,6 @@ describe("boardObjectEntryToHtmlFragment — text", () => {
     const fragment = boardObjectEntryToHtmlFragment(entry);
     expect(fragment).not.toContain("width:200px");
     expect(fragment).not.toContain("height:40px");
-    // left/top positioning must still be present.
     expect(fragment).toContain("left:0px");
     expect(fragment).toContain("top:0px");
   });
@@ -406,8 +370,6 @@ describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
       createdAt: "2024-01-01T00:00:00.000Z",
     };
     const fragment = boardObjectEntryToHtmlFragment(entry);
-    // The path and marker use the same context stroke so changing the shaft
-    // color or weight cannot leave the arrowhead stale.
     expect(fragment).toContain('stroke="#000000"');
     expect(fragment).toContain('stroke-width="1"');
     expect(fragment).toMatch(
@@ -489,16 +451,10 @@ describe("boardObjectEntryToHtmlFragment — id escaping", () => {
       createdAt: "2024-01-01T00:00:00.000Z",
     };
     const fragment = boardObjectEntryToHtmlFragment(entry);
-    // The attribute value must not contain an unescaped double quote
-    // after the opening quote.
     expect(fragment).toContain("&quot;");
     expect(fragment).not.toContain('data-agent-native-node-id="bad"id"');
   });
 });
-
-// ---------------------------------------------------------------------------
-// backfillBoardPrimitiveMarkers
-// ---------------------------------------------------------------------------
 
 describe("backfillBoardPrimitiveMarkers — no-op cases", () => {
   it("returns the original string when there are no node-id-bearing elements", () => {
@@ -527,7 +483,6 @@ describe("backfillBoardPrimitiveMarkers — no-op cases", () => {
 <svg style="position:absolute;left:0px;top:0px" data-agent-native-node-id="svg1" data-agent-native-layer-name="Line" data-an-primitive="line" xmlns="http://www.w3.org/2000/svg"><path d="M 0 5 L 100 5" fill="none" stroke="#2563eb" stroke-width="3"/></svg>
 </body></html>`;
     const out = backfillBoardPrimitiveMarkers(html);
-    // SVG is unchanged — the marker was already present and we do not add another
     expect(out).toBe(html);
   });
 });
@@ -562,9 +517,7 @@ describe("backfillBoardPrimitiveMarkers — SVG vector inference", () => {
 <svg style="position:absolute;left:0px;top:0px;width:100px;height:100px" data-agent-native-node-id="x1" data-agent-native-layer-name="Mystery" xmlns="http://www.w3.org/2000/svg"><path d="M 0 0 L 10 10"/><path d="M 20 20 L 30 30"/></svg>
 </body></html>`;
     const out = backfillBoardPrimitiveMarkers(html);
-    // No reliable single signal — left unmarked (still classifies as a shape).
     expect(out).not.toContain("data-an-primitive=");
-    // Geometry untouched.
     expect(out).toBe(html);
   });
 
@@ -657,10 +610,8 @@ describe("backfillBoardPrimitiveMarkers — mixed content", () => {
 <div style="position:absolute;left:100px;top:0px;width:100px;height:50px;background:blue" data-agent-native-node-id="missing" data-agent-native-layer-name="Rectangle"></div>
 </body></html>`;
     const out = backfillBoardPrimitiveMarkers(html);
-    // The already-marked ellipse should appear exactly once.
     const ellipseMatches = out.match(/data-an-primitive="ellipse"/g) ?? [];
     expect(ellipseMatches.length).toBe(1);
-    // The missing element should get "rectangle".
     expect(out).toContain('data-an-primitive="rectangle"');
   });
 
@@ -693,10 +644,6 @@ describe("backfillBoardPrimitiveMarkers — mixed content", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Layer name defaults
-// ---------------------------------------------------------------------------
-
 describe("boardObjectEntryToHtmlFragment — default layer names", () => {
   const kinds: BoardObjectEntry["kind"][] = [
     "frame",
@@ -725,10 +672,6 @@ describe("boardObjectEntryToHtmlFragment — default layer names", () => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// stripBoardSurfaceOffsetFromCoord / isBoardSurfacePoisonedCoord
-// ---------------------------------------------------------------------------
-
 describe("stripBoardSurfaceOffsetFromCoord", () => {
   it("strips a single surface offset from poisoned coordinates (real values from the nest findings)", () => {
     expect(stripBoardSurfaceOffsetFromCoord(66904)).toBe(1368);
@@ -738,9 +681,9 @@ describe("stripBoardSurfaceOffsetFromCoord", () => {
   });
 
   it("strips stacked offsets (k > 1) and negative-side poisoning", () => {
-    expect(stripBoardSurfaceOffsetFromCoord(131172)).toBe(100); // 2*65536 + 100
-    expect(stripBoardSurfaceOffsetFromCoord(-65420)).toBe(116); // -65536 + 116
-    expect(stripBoardSurfaceOffsetFromCoord(65436)).toBe(-100); // 65536 - 100
+    expect(stripBoardSurfaceOffsetFromCoord(131172)).toBe(100);
+    expect(stripBoardSurfaceOffsetFromCoord(-65420)).toBe(116);
+    expect(stripBoardSurfaceOffsetFromCoord(65436)).toBe(-100);
   });
 
   it("passes sane coordinates through untouched", () => {
@@ -757,10 +700,6 @@ describe("stripBoardSurfaceOffsetFromCoord", () => {
     expect(stripBoardSurfaceOffsetFromCoord(32768)).toBe(32768);
   });
 });
-
-// ---------------------------------------------------------------------------
-// computeReparentedChildPosition
-// ---------------------------------------------------------------------------
 
 describe("computeReparentedChildPosition", () => {
   it("rebases a viewport-poisoned source against a clean board-space target", () => {
@@ -788,10 +727,6 @@ describe("computeReparentedChildPosition", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// normalizePoisonedBoardNestedCoords
-// ---------------------------------------------------------------------------
-
 describe("normalizePoisonedBoardNestedCoords", () => {
   const wrap = (body: string) =>
     `<!DOCTYPE html>\n<html><head><style>body{margin:0}</style></head><body>${body}</body></html>`;
@@ -805,7 +740,6 @@ describe("normalizePoisonedBoardNestedCoords", () => {
     const result = normalizePoisonedBoardNestedCoords(html);
     expect(result.changed).toBe(true);
     expect(result.html).toContain("left:151px;top:275px;width:420px");
-    // Parent (top-level) coordinates are untouched.
     expect(result.html).toContain("left:200px;top:1500px;width:1119px");
   });
 
@@ -818,12 +752,9 @@ describe("normalizePoisonedBoardNestedCoords", () => {
     );
     const result = normalizePoisonedBoardNestedCoords(html);
     expect(result.changed).toBe(true);
-    // b: (65887 - 65536) - 200 = 151; (67311 - 65536) - 1500 = 275
     expect(result.html).toContain(
       'id="b" style="position:absolute;left:151px;top:275px',
     );
-    // c left: (66904 - 65536) - (200 + 151) = 1017 → outside b (w 420) → clamped to 420 - 60 = 360.
-    // c top: (67174 - 65536) - (1500 + 275) = -137 → within sanity band → kept.
     expect(result.html).toContain(
       'id="c" style="position:absolute;left:360px;top:-137px',
     );
@@ -837,7 +768,6 @@ describe("normalizePoisonedBoardNestedCoords", () => {
     );
     const result = normalizePoisonedBoardNestedCoords(html);
     expect(result.changed).toBe(true);
-    // strip → 100/200; minus origin 5000 → -4900/-4800 → insane vs 400/300 → clamp to 0.
     expect(result.html).toContain(
       'id="c" style="position:absolute;left:0px;top:0px',
     );
@@ -851,7 +781,6 @@ describe("normalizePoisonedBoardNestedCoords", () => {
     );
     const result = normalizePoisonedBoardNestedCoords(html);
     expect(result.changed).toBe(true);
-    // 131172 - 2*65536 = 100; minus origin 100 = 0. 131272 → 200 - 100 = 100.
     expect(result.html).toContain(
       'id="c" style="position:absolute;left:0px;top:100px',
     );
@@ -934,9 +863,6 @@ describe("normalizePoisonedBoardNestedCoords", () => {
     );
   });
 
-  // Finding 4: detectability — the function itself stays side-effect-free,
-  // but reports enough (fixedNodeCount + a before/after sample) for a caller
-  // to log what happened when the heuristic actually fires.
   describe("detectability metadata (fixedNodeCount / samples)", () => {
     it("reports zero fixedNodeCount and no samples when nothing changed", () => {
       const html = wrap(
@@ -982,9 +908,6 @@ describe("normalizePoisonedBoardNestedCoords", () => {
 
 describe("normalizePoisonedBoardNestedCoords — negative-k (translate-compensated) shape", () => {
   it("treats rel-minus-65536 values as already parent-relative (strip only, no ancestor subtraction)", () => {
-    // Real values from the live nest repro: bridge rect-space rebase wrote
-    // parentRelative - 65536 for a child nested into a top-level board rect
-    // at (266, 997).
     const html =
       "<!DOCTYPE html>\n<html><head></head><body>" +
       '<div data-agent-native-node-id="a" style="position:absolute;left:266px;top:997px;width:662px;height:441px">' +
@@ -992,7 +915,6 @@ describe("normalizePoisonedBoardNestedCoords — negative-k (translate-compensat
       "</div></body></html>";
     const result = normalizePoisonedBoardNestedCoords(html);
     expect(result.changed).toBe(true);
-    // -65308 + 65536 = 228; -65396 + 65536 = 140 — already parent-relative.
     expect(result.html).toContain(
       'id="b" style="position:absolute;left:228px;top:140px',
     );

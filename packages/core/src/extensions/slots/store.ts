@@ -44,7 +44,6 @@ export async function ensureSlotTables(): Promise<void> {
       await client.execute(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
       await client.execute(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -72,10 +71,6 @@ export interface ExtensionSlotInstallRow {
   updatedAt: string;
 }
 
-/**
- * Declare that a extension can render in a slot. Caller must have editor access on
- * the extension (only people who can edit a extension can change its slot targets).
- */
 export async function addExtensionSlotTarget(
   extensionId: string,
   slotId: string,
@@ -101,7 +96,6 @@ export async function addExtensionSlotTarget(
   try {
     await db.insert(extensionSlots).values(row);
   } catch (err: any) {
-    // Unique index hit — already declared. Treat as idempotent: return existing.
     if (
       String(err?.message ?? err)
         .toLowerCase()
@@ -171,10 +165,6 @@ export async function listSlotsForExtension(
   return rows as ExtensionSlotRow[];
 }
 
-/**
- * List extensions that declare a slot — but only extensions the current user has access
- * to. Joins through the extensions access filter.
- */
 export async function listExtensionsForSlot(slotId: string): Promise<
   Array<{
     extensionId: string;
@@ -186,7 +176,6 @@ export async function listExtensionsForSlot(slotId: string): Promise<
 > {
   await ensureSlotTables();
   const db = getDb();
-  // Pull extensions the user can see, then narrow to ones declaring this slot.
   const accessible = await db
     .select({
       id: extensions.id,
@@ -245,11 +234,6 @@ export async function listExtensionsForSlot(slotId: string): Promise<
   return [...sqlRows, ...localRows];
 }
 
-/**
- * Install a extension into a slot for the current user. Verifies the user has at
- * least viewer access to the extension. Idempotent — re-installing returns the
- * existing row.
- */
 export async function installExtensionSlot(
   extensionId: string,
   slotId: string,
@@ -349,12 +333,6 @@ export async function uninstallExtensionSlot(
   return true;
 }
 
-/**
- * List the current user's installs for a slot. Joins with `extensions` so the
- * caller gets extension name/description/icon/updatedAt without a second query.
- * Extensions the user has lost access to are silently skipped (lazy garbage
- * collection).
- */
 export async function listSlotInstallsForUser(slotId: string): Promise<
   Array<{
     installId: string;
@@ -440,7 +418,6 @@ export async function listSlotInstallsForUser(slotId: string): Promise<
   return [...localInstalls, ...sqlInstalls];
 }
 
-/** Delete every slot/install row referencing an extension for maintenance. */
 export async function cascadeDeleteExtensionSlots(
   extensionId: string,
 ): Promise<void> {

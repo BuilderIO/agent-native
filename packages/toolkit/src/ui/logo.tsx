@@ -26,7 +26,6 @@ export function Logo({ className, showIcon = false }: LogoProps) {
     );
   }
 
-  // Stylized text logo
   return (
     <span className={cn("font-logo font-bold tracking-tight", className)}>
       <span className="text-foreground">nutri</span>

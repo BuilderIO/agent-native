@@ -1,5 +1,3 @@
-// View config CRUD: create, normalize, update, add, rename, duplicate, delete, move views.
-// Pure logic — no React, no icons.
 import type {
   ContentDatabaseView,
   ContentDatabaseViewConfig,
@@ -531,7 +529,6 @@ export function uniqueDatabaseViewName(
   }
 }
 
-// Normalize helpers used by normalizeClientDatabaseView and createDatabaseView.
 export function normalizeClientDatabaseFilterMode(
   value: unknown,
 ): import("./types").DatabaseFilterMode {

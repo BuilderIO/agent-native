@@ -3,23 +3,10 @@ import { expect, test, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers, gotoEditor } from "./helpers";
 
-/**
- * Group / Frame / Ungroup parity against Figma, per figma-ground-truth.md
- * checks 2-3 and figma-interaction-spec.md Part 3 (§Screens/§5 resolution):
- * Cmd+G -> plain GROUP (no fill/clip property, tight bbox, "Group" name,
- * topmost-child z-position, one undo). Cmd+Opt+G -> FRAME (no fill, no
- * clip). Cmd+Shift+G -> ungroup restores children at absolute prior
- * position, keeps them selected.
- */
-
 const PAGE_W = 900;
 const PAGE_H = 700;
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
-// Three siblings stacked in DOM order back->front: Red (bottom), Green
-// (middle), Blue (top). Non-adjacent selection (Red + Blue, skipping Green)
-// is the fixture used to prove the z-position claim: grouping Red+Blue must
-// place the group at Blue's stacking position (above Green), not Red's.
 const FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Group Frame</title></head>
@@ -88,10 +75,6 @@ function styleOf(html: string, id: string): string {
   );
 }
 
-// The layers panel reflects the in-memory Yjs doc synchronously, but
-// get-design reads the persisted file, which lands a write-debounce cycle
-// later. Polling here (rather than reading indexHtml once right after a
-// layers-panel assertion) avoids a race against that persist.
 async function persistedHtml(
   page: Page,
   designId: string,
@@ -152,11 +135,6 @@ async function openEditorAndExpandLayers(
 }
 
 async function multiSelect(page: Page, names: string[]): Promise<void> {
-  // Cmd/Ctrl-click toggles ONE row into the selection (LayersPanel's
-  // `additive` path); Shift-click selects the contiguous RANGE between the
-  // anchor and the clicked row instead (`range`). The non-adjacent fixture
-  // needs the former — Shift here would silently pull in the skipped middle
-  // row too, defeating the "gap" the test exists to prove.
   await layerRow(page, names[0]).click();
   await page.waitForTimeout(700);
   for (const name of names.slice(1)) {
@@ -206,7 +184,6 @@ test.describe("Cmd+G group", () => {
       `Figma: group bounds are the union of children. Expected right ${Math.round(expectedRight)}, got ${Math.round(group!.x + group!.width)}`,
     ).toBeCloseTo(expectedRight, -1);
 
-    // One undo fully reverses the group back to the exact prior siblings.
     await page.keyboard.press(`${MOD}+z`);
     await expect(
       layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
@@ -232,9 +209,6 @@ test.describe("Cmd+G group", () => {
   }) => {
     const id = await newDesign(page);
     await openEditorAndExpandLayers(page, id);
-    // Red (bottom) + Blue (top), skipping Green (middle). Figma places the
-    // resulting group at Blue's stacking position, so Green ends up BELOW
-    // the group, not above it.
     await multiSelect(page, ["Red", "Blue"]);
     await page.keyboard.press(`${MOD}+g`);
     await expect(
@@ -264,10 +238,6 @@ test.describe("Cmd+G group", () => {
   test("Cmd+G on a single selected element wraps it in a Group (Figma allows single-layer groups)", async ({
     page,
   }) => {
-    // Figma DOES allow grouping one layer: Cmd+G on a single selection
-    // creates a Group containing just that layer (verified live against
-    // Figma — see figma-ground-truth.md). This is not the 2+ requirement an
-    // earlier version of this test wrongly assumed.
     const id = await newDesign(page);
     await openEditorAndExpandLayers(page, id);
     await layerRow(page, "Solo").click();
@@ -287,7 +257,6 @@ test.describe("Cmd+G group", () => {
     );
     const groupMatch = /data-agent-native-layer-name="Group"/.exec(html);
     expect(groupMatch, "no Group wrapper found in source").not.toBeNull();
-    // The wrapper contains exactly the one grouped layer.
     const soloIdx = html.indexOf('data-agent-native-node-id="solo"');
     expect(soloIdx, "solo not found (-1)").toBeGreaterThan(-1);
     expect(
@@ -295,13 +264,11 @@ test.describe("Cmd+G group", () => {
       "Solo must be nested inside the Group wrapper",
     ).toBeGreaterThan(groupMatch!.index);
 
-    // Selection becomes the new group.
     await expect(
       groupRow,
       "the new Group must become the selection",
     ).toHaveAttribute("aria-selected", "true");
 
-    // One undo removes the group and restores Solo as a top-level sibling.
     await page.keyboard.press(`${MOD}+z`);
     await expect(
       layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
@@ -430,11 +397,6 @@ test.describe("Cmd+Opt+G frame selection", () => {
       fillSection,
       "a Frame should expose a Fill section (unlike a Group)",
     ).toBeVisible();
-    // The empty Fill section's heading doubles as a clickable "Add fill"
-    // action alongside the header's own "+" icon button — both carry
-    // aria-label "Add fill" (see boolean-subtract.spec.ts and
-    // parity-tutorial-4.spec.ts's note on the same ambiguity), so an
-    // unscoped role/name query resolves to 2 elements.
     await fillSection.getByRole("button", { name: "Add fill" }).first().click();
 
     const frame = previewFrame(page)
@@ -444,8 +406,6 @@ test.describe("Cmd+Opt+G frame selection", () => {
       .poll(() => frame.evaluate((el) => getComputedStyle(el).backgroundColor))
       .not.toBe("rgba(0, 0, 0, 0)");
 
-    // Children remain visible above the fill (background paints behind, not
-    // as an opaque shape covering the design layers — Apoorva's report).
     const redVisible = await node(page, "red").isVisible();
     const greenVisible = await node(page, "green").isVisible();
     expect(
@@ -478,11 +438,6 @@ test.describe("Cmd+Shift+G ungroup", () => {
       `Cmd+Shift+G left the Group layer in place — trace: ${JSON.stringify(await dump(page))}`,
     ).toHaveCount(0);
 
-    // The layers panel above reflects the in-memory doc synchronously, but
-    // get-design (indexHtml) reads the persisted file, which lands a
-    // write-debounce cycle later — see persistedHtml's own comment. A
-    // one-shot indexHtml read here races that persist; poll for Red's own
-    // ungrouped style instead of reading once right after the panel settles.
     const html = await persistedHtml(
       page,
       id,
@@ -501,7 +456,6 @@ test.describe("Cmd+Shift+G ungroup", () => {
       "ungroup must restore Green's original absolute left (60px)",
     ).toBe(60);
 
-    // Figma: ungrouping leaves the former children selected.
     const selectedNames = await page
       .locator('[role="treeitem"][aria-selected="true"]')
       .allTextContents();

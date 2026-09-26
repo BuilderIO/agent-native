@@ -11,10 +11,6 @@ function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
 
-// Escapes LIKE wildcards (`%`, `_`) and the escape char itself so a caller's
-// literal prefix is matched verbatim. Used with `ESCAPE '!'` in prefix queries
-// below; without this, a prefix such as `user_settings` would treat `_` as a
-// single-char wildcard and over-match (e.g. delete `userXsettings`).
 function escapeLike(s: string): string {
   return s.replace(/[!%_]/g, (match) => `!${match}`);
 }
@@ -43,7 +39,6 @@ export async function ensureTable(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS app_state_key_updated_idx ON application_state (key, updated_at)`,
       );
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -65,13 +60,6 @@ export async function appStateGet(
   return JSON.parse(rows[0].value as string);
 }
 
-/**
- * Read several application-state keys for one session in a single SQL query,
- * returning ONLY the rows that exist. A key absent from the result has no row;
- * a key present with a `null` value has a row that stores `null`. Callers that
- * must not conflate the two (the batched HTTP read) depend on that difference,
- * so this deliberately does not pad missing keys.
- */
 export async function appStateGetManyEntries(
   sessionId: string,
   keys: readonly string[],
@@ -91,11 +79,6 @@ export async function appStateGetManyEntries(
   }));
 }
 
-/**
- * Read several application-state keys for one session in a single SQL query.
- * Missing keys are returned as `null` so callers can preserve the requested
- * shape without issuing one fallback query per key.
- */
 export async function appStateGetMany(
   sessionId: string,
   keys: readonly string[],
@@ -316,10 +299,6 @@ export async function appStateList(
   }));
 }
 
-/**
- * List a bounded batch of keys across sessions for framework-owned cleanup.
- * Callers must use the returned session id when conditionally deleting a row.
- */
 export async function appStateListByKeyPrefix(
   keyPrefix: string,
   limit = 100,
@@ -348,7 +327,6 @@ export async function appStateDeleteByPrefix(
   await ensureTable();
   const client = getDbExec();
 
-  // Get keys first so we can emit events
   const { rows } = await client.execute({
     sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
     args: [sessionId, escapeLike(keyPrefix) + "%"],

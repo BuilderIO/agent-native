@@ -1,10 +1,6 @@
 import { IconRefresh } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
-/**
- * Subscribes to auto-update status from the main process. Returns the latest
- * UpdateStatus, or null if Electron isn't available (e.g. browser preview).
- */
 export function useUpdateStatus(): UpdateStatus | null {
   const [status, setStatus] = useState<UpdateStatus | null>(null);
 
@@ -35,7 +31,6 @@ export function useUpdateStatus(): UpdateStatus | null {
   return status;
 }
 
-/** Chat-first rail action for an update that is ready to install. */
 export function UpdateIndicator() {
   const status = useUpdateStatus();
   const updater = window.electronAPI?.updater;

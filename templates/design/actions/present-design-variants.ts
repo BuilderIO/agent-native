@@ -11,7 +11,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
@@ -40,9 +40,6 @@ const TABLET_WIDTH = 768;
 const TABLET_HEIGHT = 1024;
 const DESKTOP_WIDTH = 1440;
 const DESKTOP_HEIGHT = 900;
-// Desktop-base default: the primary/base frame is Desktop (1440), so the
-// breakpoint set is Mobile only. The primary width is never included and no
-// tablet is auto-added, matching generate-design's device derivation.
 const DEFAULT_RESPONSIVE_BREAKPOINTS = [MOBILE_WIDTH].map((widthPx) => ({
   id: `generated-${widthPx}`,
   label: "Mobile",
@@ -56,30 +53,12 @@ const SPECIFICATION_SIGNAL_PATTERNS = [
   /\b(?:design system|brand system|brand kit|visual language|tokens?)\b/i,
 ] as const;
 
-/**
- * Direction summaries are useful for genuinely open-ended exploration, but
- * the fallback renderer cannot reproduce a supplied layout or system. Keep a
- * complete-HTML requirement at the action boundary so a model cannot turn a
- * detailed screen brief into generic cards just by omitting `content`.
- *
- * The weakest of the two signals, and never the only one: `prompt` is the chat
- * caption this same model writes for the picker, so an agent that has just
- * decided to explore writes an exploration-flavored caption and clears the
- * check for free. `hasLinkedDesignSystem` below is the fact the server owns.
- */
 export function hasSpecifiedDesignPrompt(prompt?: string): boolean {
   const value = prompt?.trim() ?? "";
   if (!value) return false;
   return SPECIFICATION_SIGNAL_PATTERNS.some((pattern) => pattern.test(value));
 }
 
-/**
- * The one specification signal that survives an intake round-trip. Attachments
- * are turn-scoped (see `ActionRunContext.attachments`), so by the time the
- * agent asks its questions and comes back to present variants, the reference
- * screenshot the user supplied is no longer visible to this action — but the
- * design system they linked still is.
- */
 async function hasLinkedDesignSystem(designId: string): Promise<boolean> {
   const [design] = await getDb()
     .select({ designSystemId: schema.designs.designSystemId })
@@ -93,12 +72,6 @@ async function hasLinkedDesignSystem(designId: string): Promise<boolean> {
   return Boolean(design?.designSystemId?.trim());
 }
 
-/**
- * Absent, or present but unreadable — the caller must not treat these alike.
- * A malformed set is still the user's data: overwriting it with the generated
- * default silently discards breakpoints they configured, so it reports
- * `"malformed"` and the install is skipped rather than clobbering it.
- */
 function classifyBreakpointSet(
   value: unknown,
 ): "absent" | "malformed" | "present" {
@@ -205,32 +178,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-/**
- * True only when `rawSet` proves none of its screens has ever been removed by
- * delete-file.ts. This action stamps every variant set it creates with
- * `screenCount` — the exact number of screens it generated, which never
- * changes afterward (present-design-variants.ts never mutates an existing
- * set's `screenCount`, and delete-file.ts's `pruneDesignVariantSets` only
- * ever shortens/removes a set's `screens` array, never touches `screenCount`).
- * The moment any member is deleted, `screens.length` drops below the
- * recorded `screenCount` (or the whole entry is removed once <=1 screens
- * remain) — either way, `screens.length === screenCount` no longer holds. So
- * this equality proves no delete-file call has EVER resolved against this
- * set.
- *
- * IMPORTANT: this does NOT prove the user never picked a screen from the set.
- * A pick only exists as a chat instruction (see `VARIANT_PICK_SUBMIT_MESSAGE`)
- * until the agent's follow-up turn actually calls delete-file for the losers;
- * there is no synchronous server-side seam that records a pick before that
- * turn runs (an agent retry after a run cutoff, or a second
- * present-design-variants call, can both land before the delete-file calls
- * do). So `isUntouchedVariantSet` is used only to decide whether a set is
- * eligible to be *marked* superseded — never as authority to delete its
- * files. See `markSupersededVariantSets` / `deleteVariantSetsByIds` below.
- * Sets without a numeric `screenCount` at all (legacy data predating this
- * field) are NOT treated as untouched either, since we cannot prove those
- * were never picked.
- */
 function isUntouchedVariantSet(
   rawSet: unknown,
 ): rawSet is { screens: unknown[]; screenCount: number } & Record<
@@ -279,27 +226,6 @@ function pruneKeyedRecordForIds(
   return next;
 }
 
-/**
- * Marks each PREVIOUS present-design-variants set for this design that is
- * proven untouched (see `isUntouchedVariantSet`) as `superseded: true`,
- * whenever a new variant set is created for the same design. This is
- * bookkeeping ONLY — it never deletes files, never touches `canvasFrames` or
- * `screenMetadata`, and is always safe to run unconditionally. A set with
- * `superseded: true` still renders normally; the flag only makes it eligible
- * for the opt-in `deleteSupersededSetIds` path below.
- *
- * Deletion is intentionally NOT automatic here. The failure mode this
- * guards against: set V1=[S1,S2,S3] is generated; the user picks S2 in chat;
- * before the agent's delete-file turn for S1/S3 actually runs (run cutoff,
- * retry, or a second present-design-variants call arriving first),
- * `screens.length === screenCount` still holds for V1 — a pick is not
- * observable server-side until delete-file resolves it. Auto-deleting on
- * that inference would have hard-deleted the picked screen S2 with no
- * recovery. So this function only records bookkeeping; real deletion
- * requires the agent to explicitly name the set via `deleteSupersededSetIds`
- * — see that action param's description for the discipline expected of
- * callers.
- */
 async function markSupersededVariantSets(
   designId: string,
 ): Promise<{ markedSetIds: string[] }> {
@@ -376,33 +302,12 @@ async function markSupersededVariantSets(
   return { markedSetIds };
 }
 
-/**
- * Explicit, opt-in permanent deletion of specific variant sets by id. This is
- * the ONLY path that hard-deletes variant-set files; it never runs
- * automatically. The caller (the agent) must pass `deleteSupersededSetIds`
- * naming the exact sets it knows were abandoned without any user pick — e.g.
- * generating a brand-new set after the user asked to see different options.
- * Never pass a previous set's id here on the strength of a guess or a retry;
- * only do so when there is no reason to believe the user discussed or picked
- * one of its screens.
- *
- * As a safety net, a requested id is only honored when the set is already
- * flagged `superseded: true` by `markSupersededVariantSets` (i.e. proven
- * untouched by any delete-file call as of this same run). A set that has
- * already had even one delete-file call resolve against it — the normal sign
- * that a pick is mid-flight — is never marked superseded and is therefore
- * never eligible here, regardless of what the caller requests.
- */
 async function deleteVariantSetsByIds(
   designId: string,
   requestedSetIds: string[],
 ): Promise<{ removedSetIds: string[]; removedFileIds: string[] }> {
   const db = getDb();
 
-  // Same cheap early-exit as markSupersededVariantSets: skip the
-  // updatedAt-bumping mutateDesignData commit when none of the requested set
-  // ids currently qualifies for deletion. The authoritative check still runs
-  // inside the mutate() callback below.
   const [designRow] = await db
     .select({ data: schema.designs.data })
     .from(schema.designs)
@@ -505,10 +410,6 @@ async function deleteVariantSetsByIds(
         );
     });
 
-    // Closes the small window between the metadata prune above and the
-    // physical row delete: mirrors delete-file.ts's before/delete/after
-    // pattern so a sibling request that refreshed canvasFrames/screenMetadata
-    // for one of these now-deleted ids in that window still gets swept.
     await mutateDesignData({
       designId,
       mutate: (current, { updatedAt }) => ({
@@ -806,19 +707,9 @@ ${compact ? ".sidebar { padding: 16px; } .nav { grid-template-columns: repeat(2,
 </html>`;
 }
 
-/**
- * Lays the generated directions out in rows of up to three.
- *
- * Each cell reserves the screen's WHOLE painted footprint, not just its
- * primary frame: this action also installs a design-wide breakpoint set, and
- * the overview paints one preview per breakpoint to the right of every primary
- * frame. Spacing by `width + VARIANT_GAP` alone drops the next direction on top
- * of the previous one's breakpoint row.
- */
 function placeVariantScreens(
   screens: VariantScreen[],
   breakpointWidths: readonly number[],
-  /** Y to start the lineup at, so an additional set clears the existing one. */
   originY = 0,
 ) {
   const placements: CanvasFramePlacement[] = [];
@@ -844,8 +735,6 @@ function placeVariantScreens(
         height: screen.height,
         z: rowStart + offset,
       });
-      // These frames use their natural device dimensions, so previews are
-      // drawn at scale 1.
       x +=
         getResponsiveGroupWidth({
           primaryWidth: screen.width,
@@ -870,9 +759,6 @@ function placeVariantScreens(
   return placements;
 }
 
-/** Widths the overview will paint beside each primary frame once this call
- * settles: the design's own set when it has one, otherwise the set this action
- * is about to install. */
 function effectiveBreakpointWidths(currentBreakpointSet: unknown): number[] {
   if (!hasBreakpointSet(currentBreakpointSet)) {
     return DEFAULT_RESPONSIVE_BREAKPOINTS.map(({ widthPx }) => widthPx);
@@ -967,12 +853,6 @@ export default defineAction({
       );
     }
 
-    // Before any mutation. These are model-authored screens created by raw
-    // insert, so they need the same well-formedness gate as generate-design —
-    // though not its document-shape rules, since a variant may be a sketch with
-    // `<html>`/`<body>` implied. Ordering is the load-bearing part: the
-    // supersession and deletion below are irreversible, so throwing after them
-    // would destroy existing variant sets and create nothing to replace them.
     for (const variant of variants) {
       const candidate = variant.content?.trim();
       if (!candidate) continue;
@@ -982,13 +862,6 @@ export default defineAction({
       });
     }
 
-    // Non-destructive bookkeeping: flag earlier still-complete variant sets
-    // as superseded. Files are NEVER deleted automatically — a user's pick
-    // exists only as a chat instruction until the agent's delete-file turn
-    // runs, so an automatic sweep here could destroy the picked screen. Real
-    // deletion happens only for set ids the caller explicitly opts into via
-    // `deleteSupersededSetIds` below (and only when the set is provably
-    // untouched by any delete-file call).
     await markSupersededVariantSets(designId);
     const variantSetCleanup =
       deleteSupersededSetIds && deleteSupersededSetIds.length > 0
@@ -1030,9 +903,6 @@ export default defineAction({
           const { width, height } = providedContent
             ? inferVariantSize({ ...variant, content: rawContent })
             : initialSize;
-          // Stamp missing data-agent-native-node-id attributes before
-          // persisting so each variant screen is fully addressable by
-          // id-keyed editor operations as soon as it lands on the board.
           const content = annotateScreenHtmlForPersist(rawContent, "html");
 
           await tx.insert(schema.designFiles).values({
@@ -1065,9 +935,6 @@ export default defineAction({
       ),
     );
 
-    // Presenting options should not silently reconfigure the design. When it
-    // does, the overview paints an extra preview beside EVERY primary frame
-    // from then on — including screens created later — so the caller is told.
     let installedBreakpointSet = false;
 
     await mutateDesignData({
@@ -1075,18 +942,11 @@ export default defineAction({
       mutate: (current, { updatedAt }) => {
         installedBreakpointSet =
           classifyBreakpointSet(current.breakpointSet) === "absent";
-        // Placement depends on the breakpoint set in effect after this call, so
-        // it is resolved here (inside the compare-and-set body) rather than
-        // against a design snapshot that a concurrent write may have moved on
-        // from.
         const mergedFrames = mergeCanvasFramePlacements({
           existing: current.canvasFrames,
           placements: placeVariantScreens(
             screens,
             effectiveBreakpointWidths(current.breakpointSet),
-            // Start below what is already on the board. The set being written is
-            // excluded so re-running the same set lands where it was instead of
-            // marching further down each time.
             nextFreeCanvasRowY(current.canvasFrames, VARIANT_GAP, {
               ignoreFileIds: screens.map((screen) => screen.id),
               responsiveLayout: {
@@ -1121,12 +981,6 @@ export default defineAction({
           id: variantSetId,
           prompt: prompt ?? "Pick a direction",
           createdAt: now,
-          // Immutable record of how many screens this set started with, so a
-          // later present-design-variants call can prove no delete-file call
-          // has ever resolved against any of this set's screens — see
-          // markSupersededVariantSets / isUntouchedVariantSet above.
-          // delete-file.ts's pruneDesignVariantSets only ever shortens or
-          // removes `screens`; it never rewrites this field.
           screenCount: screens.length,
           screens: screens.map((screen) => ({
             id: screen.id,
@@ -1143,8 +997,6 @@ export default defineAction({
           canvasFrames: mergedFrames.canvasFrames,
           screenMetadata: previousMetadata,
           designVariantSets: previousVariantSets,
-          // Only when genuinely absent. A malformed set is the user's data in
-          // a shape this action cannot read, not a blank slate to overwrite.
           ...(classifyBreakpointSet(current.breakpointSet) !== "absent"
             ? {}
             : {
@@ -1192,10 +1044,6 @@ export default defineAction({
       editorView: "overview",
       path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
     });
-    // The pick opens a continuation turn that inherits nothing from this one,
-    // and that turn is what expands the kept placeholder into the real screen.
-    // Without this, the expansion is design-system-blind even though the user
-    // linked one before generating.
     const [linkedDesign] = await db
       .select({ designSystemId: schema.designs.designSystemId })
       .from(schema.designs)

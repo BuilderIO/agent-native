@@ -1,8 +1,8 @@
 const SEED: u32 = 0x6f636561u;
 const RESOLUTION: u32 = 512u;
 
-// Random-access form of front's mulberry32. `callIndex` is the number of
-// preceding PRNG calls, so each texel reproduces the CPU upload without state.
+
+
 fn mulberryAt(callIndex: u32) -> f32 {
   let state = SEED + 0x6d2b79f5u * (callIndex + 1u);
   var t = state;

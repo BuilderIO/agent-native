@@ -5,43 +5,14 @@ import { notifyWithDelivery } from "../notifications/registry.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { deleteSettingIfValue, mutateSetting } from "../settings/store.js";
 
-/**
- * Sends one Slack alert when an app's chat stops answering.
- *
- * The detector for this already existed as `scripts/chat-health.mjs --strict`,
- * correctly calibrated and exiting 1 on a partial outage — but nothing ever ran
- * it and nothing ever paged, so an app answering 11% of its turns was found by
- * a user posting in Slack. This is the missing half: the same measurement, on
- * the durable sweep that already drives stale reaping, scoped to the one app it
- * runs in so no cross-app credential has to exist anywhere.
- */
-
-/** Turns are scored over this window on every sweep. */
 const WINDOW_MS = 60 * 60_000;
-/**
- * Below this, a rate is noise: one failed turn out of two is 50% and means
- * nothing. Chat-health's own fleet view showed apps sitting at 100% on a single
- * turn all day.
- */
 const MIN_TURNS = 5;
-/**
- * Deliberately far above `chat-health`'s 0.1 review budget. That threshold
- * answers "is this app degraded", which is a question for a dashboard. This one
- * answers "is chat down", which is the only question worth waking someone for.
- */
 const BAD_RATE_THRESHOLD = 0.5;
-/** One page per outage, not one per sweep. */
 const COOLDOWN_MS = 60 * 60_000;
-/** Slack sends time out well inside this lease; failed sends release it early. */
 const CLAIM_LEASE_MS = 5 * 60_000;
 
 const LAST_ALERT_SETTING_KEY = "chat-health-alert:last-slack-alert-at";
 
-/**
- * Every outcome is distinguishable. "Not enough turns to judge" and "healthy"
- * are different answers, and a check that could not run is neither — collapsing
- * them is how a monitor reports all-clear through an outage.
- */
 export type ChatHealthAlertOutcome =
   | { status: "healthy"; turns: number; badRate: number }
   | { status: "insufficient-data"; turns: number }
@@ -61,11 +32,6 @@ interface AlertRecipient {
   orgId: string;
 }
 
-/**
- * Scores the LAST run of each turn in the window, matching how
- * `scripts/chat-health.mjs` reports so a page and the CLI never disagree.
- * User-stopped turns are excluded: someone hitting Stop is not an outage.
- */
 async function countRecentTurns(since: number): Promise<TurnCounts> {
   const { rows } = await getDbExec().execute({
     sql: `WITH ranked AS (
@@ -139,7 +105,6 @@ export async function checkChatHealthAndAlert(
   try {
     counts = await countRecentTurns(now - WINDOW_MS);
   } catch (error) {
-    // A check that could not read the ledger has not found the app healthy.
     return { status: "check-failed", reason: String(error) };
   }
 
@@ -152,9 +117,6 @@ export async function checkChatHealthAndAlert(
     return { status: "healthy", turns: counts.turns, badRate };
   }
 
-  // Claim the page before awaiting the external send. The short lease keeps
-  // overlapping sweeps from both sending; failed sends release it below,
-  // while a crashed send becomes retryable after the lease.
   const claimId = randomUUID();
   const claimExpiresAt = now + CLAIM_LEASE_MS;
   let claim: Record<string, unknown>;
@@ -255,8 +217,6 @@ export async function checkChatHealthAndAlert(
     };
   }
 
-  // Finalize only after Slack confirms delivery. The claim id keeps a slow or
-  // expired sender from overwriting a newer claim's cooldown.
   try {
     const finalized = await mutateSetting(LAST_ALERT_SETTING_KEY, (current) =>
       String(current?.claimId ?? "") === claimId

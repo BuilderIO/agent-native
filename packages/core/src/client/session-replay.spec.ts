@@ -90,18 +90,8 @@ async function parseReplayUpload(init: RequestInit): Promise<any> {
   return JSON.parse(bytes.toString("utf8"));
 }
 
-// The channel name the duplicated-tab claim guard uses internally
-// (SESSION_REPLAY_BROADCAST_CHANNEL_NAME in session-replay.ts). Not
-// exported -- kept in sync here rather than widening the module's public
-// surface just for a test.
 const REPLAY_BROADCAST_CHANNEL_NAME = "agent-native-session-replay";
 
-/**
- * A minimal same-process BroadcastChannel stand-in: instances constructed
- * with the same name and returned by the same factory call can message each
- * other (never themselves), same as the real API. Each test gets its own
- * isolated "network" by calling the factory fresh.
- */
 function createFakeBroadcastChannelClass() {
   const registry = new Map<string, Set<InstanceType<typeof FakeChannel>>>();
   class FakeChannel {
@@ -229,7 +219,6 @@ function installBrowser(
     setTimeout,
     clearTimeout,
   };
-  // A real top-level browsing context exposes itself as window.parent.
   windowStub.parent = windowStub;
   vi.stubGlobal("window", windowStub);
   vi.stubGlobal("document", {
@@ -245,10 +234,6 @@ function installBrowser(
   vi.stubGlobal("crypto", {
     randomUUID: vi.fn(() => `00000000-0000-4000-8000-${++idCounter}`),
   });
-  // Node exposes a real global BroadcastChannel, which would otherwise make
-  // every resumed-session start wait out the duplicated-tab claim timeout
-  // for no reason in tests that don't care about it. Tests exercising that
-  // guard stub their own BroadcastChannel back in.
   vi.stubGlobal("BroadcastChannel", undefined);
   const fetchMock = vi.fn(async (input: unknown) => {
     if (String(input).includes("/_agent-native/auth/session")) {
@@ -259,9 +244,6 @@ function installBrowser(
     return new Response("{}");
   });
   vi.stubGlobal("fetch", fetchMock);
-  // `storage` is the sessionStorage-backed map -- the replay session record
-  // (replayId + sequence) is per-tab and lives there. `localStorage` is
-  // exposed separately for tests asserting the legacy key gets cleared.
   return {
     fetchMock,
     history,
@@ -523,15 +505,10 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(recordMock).toHaveBeenCalledTimes(2);
 
-      // Client-side abort is not proof that the keepalive request was not
-      // accepted by the server. The old identity stays fenced, so a manual
-      // flush cannot retry its sequence.
       fetchMock.mockResolvedValue(new Response("{}"));
       await replay.flushSessionReplay("manual");
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      // The timed-out episode is retired after the original request settles;
-      // the restarted recorder supplies a fresh Meta + FullSnapshot stream.
       recordOptions.emit({ type: 2, data: { href: "/restarted" } });
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -579,8 +556,6 @@ describe("session replay", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(vi.getTimerCount()).toBe(recorderTimers);
 
-      // Advancing past the upload timeout must not surface an orphaned
-      // rejection from a timer that outlived the synchronous fetch failure.
       await vi.advanceTimersByTimeAsync(15_000);
       expect(vi.getTimerCount()).toBe(recorderTimers);
 
@@ -632,9 +607,6 @@ describe("session replay", () => {
 
       await vi.advanceTimersByTimeAsync(15_000);
 
-      // With no transport-level cancellation, the timed-out batch stays fenced
-      // while its original request is still live. Retrying it here would allow
-      // a late success to race the same replay sequence.
       fetchMock.mockResolvedValue(new Response("{}"));
       const blockedFlush = replay.flushSessionReplay("manual");
       await vi.advanceTimersByTimeAsync(0);
@@ -642,9 +614,6 @@ describe("session replay", () => {
 
       let teardownStart: Promise<unknown> | undefined;
       firstStopRecorder?.mockImplementation(() => {
-        // Recovery tears down the old recorder before it chooses the pending
-        // restart. This call happens in that teardown gap and must win over
-        // the stale implicit restart request.
         teardownStart = replay.startSessionReplay({
           publicKey: "anpk_test",
           endpoint: "https://analytics.example.test/restarted-replay",
@@ -653,9 +622,6 @@ describe("session replay", () => {
         });
       });
 
-      // Once the original request settles, the old replay identity is retired.
-      // The restarted recorder supplies a fresh Meta + FullSnapshot stream; it
-      // must never send the uncertain batch a second time.
       resolveUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
       await blockedFlush;
@@ -768,9 +734,6 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(15_000);
 
       firstStopRecorder?.mockImplementation(() => {
-        // The recovery path has already marked the recorder inactive before
-        // awaiting its final flush. This explicit stop must cancel recovery,
-        // not allow the old options to restart a fresh recorder afterward.
         explicitStop = replay.stopSessionReplay("manual");
       });
       resolveUpload(new Response("{}"));
@@ -923,8 +886,6 @@ describe("session replay", () => {
       await visibilityFlush;
       await terminalFlush;
 
-      // The coalesced terminal reason suppresses the implicit restart even
-      // though the timed-out payload itself was labeled visibility-hidden.
       expect(recordMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       await replay.stopSessionReplay();
@@ -976,9 +937,6 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(15_000);
       expect(recordMock).toHaveBeenCalledTimes(1);
 
-      // BFCache resume must rotate to a fresh identity even if the old
-      // keepalive request never settles. Waiting for it would leave replay
-      // fenced indefinitely after the page returns.
       fireWindowEvent("pageshow", { persisted: true });
       resolveUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
@@ -1034,8 +992,6 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      // pageshow can run before the timeout because BFCache freezes timers.
-      // The later timeout must still be connected to fresh-identity recovery.
       fireWindowEvent("pageshow", { persisted: true });
       await vi.advanceTimersByTimeAsync(0);
       expect(recordMock).toHaveBeenCalledTimes(1);
@@ -1049,8 +1005,6 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(2);
 
-      // The pre-BFCache request remains uncertain and must not trigger a
-      // second recovery when it eventually settles.
       resolveUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
       expect(recordMock).toHaveBeenCalledTimes(2);
@@ -1110,8 +1064,6 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(15_000);
 
-      // A later ordinary timeout must remain fenced until its old request
-      // settles; a stale BFCache marker would restart immediately here.
       expect(recordMock).toHaveBeenCalledTimes(1);
       resolveSecondUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
@@ -1154,8 +1106,6 @@ describe("session replay", () => {
       ).toBe(true),
     );
 
-    // Without a signal a hung endpoint never settles, `state.flushing` stays
-    // set, and every later flush early-returns while the queue keeps growing.
     const replayCall = fetchMock.mock.calls.find(([url]) =>
       String(url).includes("/api/analytics/replay"),
     );
@@ -2207,8 +2157,6 @@ describe("session replay", () => {
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     for (let index = 1; index <= 4; index += 1) {
-      // Each serialized event is below 1 KiB in UTF-16 code units but above
-      // half the cap in UTF-8, so no two may share a bounded upload.
       recordOptions.emit({
         type: 3,
         data: { href: `/event-${index}`, text: "é".repeat(350) },
@@ -2498,8 +2446,6 @@ describe("session replay", () => {
         true,
       ]);
       if (reason === "pagehide") {
-        // The rejected reservation rolls back to zero; each accepted half then
-        // reserves the sequence again before its keepalive request begins.
         expect(sequenceAtRequest).toEqual([1, 1, 2]);
       }
       if (reason === "max-duration") {
@@ -2969,9 +2915,6 @@ describe("session replay", () => {
     );
     expect(rejectedUpload.sessionId).toBe("sample-in");
 
-    // Simulate the analytics session rotating while the rejected upload is in
-    // flight. This id scores above 0.5, but conflict recovery must preserve the
-    // original recording's accepted sampling decision and session id.
     localStorage.set("agent-native.session_id", "a");
     localStorage.set("agent-native.session_last_activity", String(Date.now()));
     conflictResponse.resolve(new Response("conflict", { status: 409 }));
@@ -3190,10 +3133,6 @@ describe("session replay", () => {
     expect(firstResult.started).toBe(true);
     await first.stopSessionReplay();
 
-    // Simulate a second tab of the same browser session: same origin, same
-    // localStorage-backed analytics sessionId (localStorage is shared by
-    // every tab), but its own empty sessionStorage (never shared across
-    // tabs) -- so it must mint its own replayId rather than resume tab1's.
     const sharedSessionId = tab1.localStorage.get("agent-native.session_id");
     const sharedLastActivity = tab1.localStorage.get(
       "agent-native.session_last_activity",
@@ -3239,10 +3178,6 @@ describe("session replay", () => {
         .replayId,
     ).toBe(firstResult.replayId);
 
-    // Simulate a reload within the same tab: the module's in-memory state
-    // resets, but window.sessionStorage (this test's installBrowser() mock,
-    // never reset mid-test) persists exactly like a real tab's
-    // sessionStorage does across a reload/navigation.
     delete (globalThis as any)[replayStateKey];
     const second = await freshSessionReplay();
     const secondResult = await second.startSessionReplay({
@@ -3383,10 +3318,6 @@ describe("session replay", () => {
     await first.stopSessionReplay();
     const resumedReplayId = firstResult.replayId!;
 
-    // A peer that still owns (and replies "taken" for) the resumed id --
-    // e.g. the browser duplicated this tab, so both copies briefly share the
-    // exact same sessionStorage snapshot and would otherwise both try to
-    // resume the same replayId.
     const peer = new FakeBroadcastChannel(REPLAY_BROADCAST_CHANNEL_NAME);
     peer.onmessage = (event: { data: any }) => {
       if (
@@ -3435,8 +3366,6 @@ describe("session replay", () => {
     const peer = new FakeBroadcastChannel(REPLAY_BROADCAST_CHANNEL_NAME);
     peer.onmessage = (event: { data: any }) => {
       if (event.data?.type !== "an-replay-claim") return;
-      // Simulate another copied tab probing at the same time. Its lower nonce
-      // wins deterministically, so this tab must abandon the shared id.
       peer.postMessage({
         type: "an-replay-claim",
         replayId: event.data.replayId,
@@ -3473,8 +3402,6 @@ describe("session replay", () => {
       expect(firstResult.started).toBe(true);
       await first.stopSessionReplay();
 
-      // No peer is registered on the channel this time, so the claim goes
-      // unanswered -- advance fake time past the ~150ms claim timeout.
       delete (globalThis as any)[replayStateKey];
       const second = await freshSessionReplay();
       const startPromise = second.startSessionReplay({

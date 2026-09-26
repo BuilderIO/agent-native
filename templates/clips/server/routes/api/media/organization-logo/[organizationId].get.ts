@@ -96,8 +96,6 @@ async function readBoundedBody(response: Response): Promise<Uint8Array | null> {
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  // Organization logos are public share/email branding, but this endpoint
-  // resolves only the logo reference saved on this organization.
   const organizationId = getRouterParam(event, "organizationId");
   if (
     !organizationId ||

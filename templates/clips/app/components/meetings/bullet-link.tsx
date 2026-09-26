@@ -92,10 +92,6 @@ function tokenize(s: string): string[] {
   return matches.filter((t) => t.length > 2 && !STOPWORDS.has(t));
 }
 
-/**
- * Find the segment whose token-overlap with the bullet is highest.
- * Returns -1 if no segment shares enough content (threshold ≥2 shared tokens).
- */
 function findBestSegmentMatch(
   bullet: string,
   segments: TranscriptSegment[],

@@ -81,10 +81,6 @@ const RECORDING = {
   expiresAt: null as string | null,
 };
 
-/**
- * `select().from().where().limit()` reads the recording;
- * `select().from().where()` (no limit) reads thread participants.
- */
 function stubDb(options: {
   recording: typeof RECORDING | null;
   participants?: string[];
@@ -123,7 +119,6 @@ describe("clips activity notifications", () => {
     });
     mocks.getUserSetting.mockResolvedValue(null);
     stubDb({ recording: RECORDING });
-    // Access filtering has its own tests; these assert who is offered.
     mocks.filterRecipients.mockImplementation(
       async ({ emails }: { emails: string[] }) => [...emails],
     );

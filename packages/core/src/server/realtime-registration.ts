@@ -52,32 +52,10 @@ import { resolveDeploymentBaseUrl } from "./self-dispatch.js";
  */
 const REGISTRATION_SETTING_KEY = REALTIME_REGISTRATION_SETTING_KEY;
 
-/**
- * Well under the 10s serverless synchronous-function ceiling (and under the
- * client's own 10s mint abort). At 10s a black-holed POST gets the whole
- * function killed by the platform before the handler can return its 404, and
- * the client reads that 5xx as transient and retries into more cold starts.
- */
 const REGISTER_TIMEOUT_MS = 4_000;
 
-/**
- * How long a DECLINED registration is remembered. Without it every request on a
- * deployment the gateway refuses re-POSTs; a 403 is a stable answer and
- * deserves to be treated as one.
- */
 const FAILURE_BACKOFF_MS = 10 * 60 * 1000;
 
-/**
- * How long an UNREACHABLE gateway is remembered.
- *
- * Much shorter, because a timeout is not an answer. The long backoff exists to
- * stop re-asking a question that has already been settled; a gateway that was
- * briefly unreachable has settled nothing, and holding a warm isolate on local
- * polling for ten minutes after the outage ended is a self-inflicted second
- * outage. Still long enough that a sustained outage costs one attempt per
- * isolate per half-minute rather than one per request, and the single-flight
- * collapses concurrent callers onto that one attempt.
- */
 const UNAVAILABLE_BACKOFF_MS = 30 * 1000;
 
 export interface RealtimeChannel {
@@ -87,19 +65,6 @@ export interface RealtimeChannel {
 
 interface StoredRegistration {
   channelId: string;
-  /**
-   * AES-256-GCM ciphertext (`v1:…`), not the secret.
-   *
-   * This row lives in the app's OWN database, and the standard way to make a
-   * preview or a dev branch is to copy that database — Neon's branches are
-   * copy-on-write clones of production. A plaintext secret here would ride
-   * along, and channel id + secret is the entire subscribe-token auth story:
-   * read access to any branch would mint valid tokens for arbitrary
-   * owner/orgId against the PRODUCTION channel. The key material is env-only
-   * (`*_SECRETS_ENCRYPTION_KEY` / `SECRETS_ENCRYPTION_KEY` /
-   * `BETTER_AUTH_SECRET`), so a copied database carries ciphertext and nothing
-   * that opens it.
-   */
   hmacSecretEncrypted: string;
   /**
    * Digest of the inputs the channel was registered with. A rotated database
@@ -138,36 +103,19 @@ let memo: {
   result: RegistrationResult;
   at: number;
 } | null = null;
-/** Single-flight, keyed by fingerprint: concurrent requests on a cold isolate
- * must not all POST, but a caller whose inputs changed mid-flight must not be
- * served the previous inputs' channel either. */
 let inFlight: {
   fingerprint: string;
   promise: Promise<RealtimeChannel | null>;
 } | null = null;
 
-/**
- * The inputs of the most recently STARTED attempt.
- *
- * An attempt whose fingerprint is no longer this one has been superseded, and
- * must not write the memo or the settings row when it finally resolves: it
- * would restore the pre-rotation channel over the current one, and the next
- * request would then see a fingerprint miss and register all over again.
- */
 let currentFingerprint: string | null = null;
 
-/** Test seam. */
 export function resetRealtimeRegistrationCache(): void {
   memo = null;
   inFlight = null;
   currentFingerprint = null;
 }
 
-/**
- * True when the last resolution failed to REACH the gateway, as opposed to
- * being told no. Read by the health probe, which promises that split; every
- * other caller only needs the channel.
- */
 export function realtimeRegistrationUnavailable(): boolean {
   return memo?.result.channel === null && memo.result.failure === "unavailable";
 }
@@ -230,14 +178,8 @@ function isRegisterableDatabase(databaseUrl: string): boolean {
   if (isPgliteUrl(databaseUrl)) return false;
   let host: string;
   try {
-    // Strip the fully-qualified trailing dot before matching. `localhost.` and
-    // `metadata.google.internal.` are the same names to a resolver but slip
-    // past a suffix test written without it.
     host = new URL(databaseUrl).hostname.toLowerCase().replace(/\.$/, "");
   } catch {
-    // An unparseable connection string is not a registerable one, and it is
-    // also a real misconfiguration the operator should see rather than
-    // discover as "hosted realtime silently never turned on".
     console.warn(
       "[realtime] DATABASE_URL is not a parseable URL; staying on local sync",
     );
@@ -247,14 +189,9 @@ function isRegisterableDatabase(databaseUrl: string): boolean {
   if (host.endsWith(".internal") || host.endsWith(".svc.cluster.local")) {
     return false;
   }
-  // Any IP literal: the gateway rejects these, and a bare address is never a
-  // managed-Postgres endpoint.
   return !/^\d{1,3}(\.\d{1,3}){3}$/.test(host) && !host.includes(":");
 }
 
-/**
- * Everything the gateway needs, or null if this deployment can't self-register.
- */
 function collectInputs(): RegistrationInputs | null {
   const databaseUrl = getDatabaseUrl().trim();
   if (!databaseUrl || !isRegisterableDatabase(databaseUrl)) return null;
@@ -266,19 +203,6 @@ function collectInputs(): RegistrationInputs | null {
   // the machine. Previews keep local sync, which is what they had before.
   if (resolveDeployEnvironment() !== "production") return null;
 
-  // A Builder workspace container carries an env key it does not own. Sharing
-  // the container's dev database under that key's org is the exact conflation
-  // `canUseBuilderDeployCredentialFallbackForRequest` exists to prevent, so
-  // this path declines there rather than inheriting someone else's identity.
-  //
-  // The predicate is broader than that rationale: `AGENT_NATIVE_WORKSPACE` is
-  // also baked into the function wrappers of a customer's own
-  // `agent-native deploy` workspace bundle, so a customer workspace app
-  // deployed to their own Netlify/Vercel declines here too. That is deliberate
-  // for now — sibling apps in a workspace share one origin, and the gateway
-  // upserts on (org, origin), so they would collide on one channel and repoint
-  // each other's database. It is not obvious from `registered: false`, so say
-  // it once rather than leaving an operator to infer it from the rollout flag.
   if (isHostedWorkspaceRuntime()) {
     warnOnce(
       "workspace",
@@ -287,10 +211,6 @@ function collectInputs(): RegistrationInputs | null {
     return null;
   }
 
-  // Deployment-level only, via the one resolver for that key. A per-user
-  // Builder OAuth connection authorizes that user's LLM calls; it must not
-  // silently register the whole deployment's database under whichever org
-  // happened to make the first request.
   const privateKey = readDeployCredentialEnv("BUILDER_PRIVATE_KEY")?.trim();
   if (!privateKey) return null;
 
@@ -349,11 +269,6 @@ function collectInputs(): RegistrationInputs | null {
 
   let origin: string;
   try {
-    // The declared value wins: an operator who names the origin is telling us
-    // which one this process serves, which is exactly what the platform vars
-    // would otherwise be inferred to mean.
-    // Not `resolveSelfDispatchBaseUrl`: its declared override is typically
-    // loopback, and the gateway calls this origin from outside.
     origin = new URL(declaredAppUrl || resolveDeploymentBaseUrl()).origin;
   } catch {
     console.warn(
@@ -362,9 +277,6 @@ function collectInputs(): RegistrationInputs | null {
     return null;
   }
 
-  // Inside the guard for the same reason `postRegistration` wraps its own call:
-  // a non-string base or a malformed override must decline like every other
-  // missing input, not reject out of the resolver.
   let endpoint: string;
   try {
     endpoint = registrationEndpoint();
@@ -383,7 +295,6 @@ function collectInputs(): RegistrationInputs | null {
   };
 }
 
-/** One line per reason per process: these are boot-time facts, not events. */
 const warnedOnce = new Set<string>();
 function warnOnce(key: string, message: string): void {
   if (warnedOnce.has(key)) return;
@@ -398,11 +309,6 @@ async function readStored(
     const stored = (await getSetting(
       REGISTRATION_SETTING_KEY,
     )) as StoredRegistration | null;
-    // Only the fingerprint gates reuse. There was a time-based revalidation
-    // here as well, to catch a channel rotated gateway-side — but nothing
-    // rotates one today, so it bought nothing and made every healthy app
-    // re-register twice a day. When rotation exists, the trigger should be the
-    // gateway rejecting a token, not a blind timer.
     if (
       stored?.channelId &&
       stored.hmacSecretEncrypted &&
@@ -442,7 +348,6 @@ function registrationEndpoint(): string {
   return `${getBuilderGatewayBaseUrl().replace(/\/+$/, "")}/realtime/register`;
 }
 
-/** The server's disambiguating `{code}`, or undefined if it sent none. */
 async function readRejectionCode(res: Response): Promise<string | undefined> {
   try {
     const body = (await res.json()) as { code?: unknown };
@@ -460,8 +365,6 @@ async function postRegistration(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REGISTER_TIMEOUT_MS);
   try {
-    // Inside the try: a throw here (a non-string base, a malformed override)
-    // must resolve to null like every other failure, not reject into the mint.
     const res = await fetch(registrationEndpoint(), {
       method: "POST",
       signal: controller.signal,
@@ -475,13 +378,6 @@ async function postRegistration(
       }),
     });
     if (!res.ok) {
-      // A 403 is NOT only "the org isn't in the rollout yet". The same status
-      // comes back for a revoked or malformed key, an org that opted out of
-      // the gateway, a suspended org, an unverified email, and a PAT policy
-      // rejection — and the server distinguishes them in the body's `code`.
-      // Swallowing all of them sent an operator whose key was revoked to check
-      // a rollout flag, while the deployment silently re-POSTed every ten
-      // minutes forever with nothing in the logs.
       const code =
         res.status === 403 ? await readRejectionCode(res) : undefined;
       if (code !== "flag_off") {
@@ -489,18 +385,12 @@ async function postRegistration(
           `[realtime] gateway registration failed (${res.status}${code ? `: ${code}` : ""}); staying on local sync`,
         );
       }
-      // The gateway answered. A 5xx is the one status that is a failure to
-      // serve rather than a decision, so it reads as unavailable.
       return {
         channel: null,
         failure: res.status >= 500 ? "unavailable" : "declined",
       };
     }
     const body = (await res.json()) as Partial<RealtimeChannel>;
-    // Types, not truthiness. `{ channelId: {} }` is truthy, and it would then
-    // reach `createHash().update()` in the health probe and the token signer,
-    // where a non-string throws — turning a bad gateway response into a 500 on
-    // routes whose entire contract is to fail soft to local sync.
     const channelId = typeof body?.channelId === "string" ? body.channelId : "";
     const hmacSecret =
       typeof body?.hmacSecret === "string" ? body.hmacSecret : "";
@@ -515,7 +405,6 @@ async function postRegistration(
     console.warn(
       `[realtime] gateway registration failed (${(err as Error)?.message ?? err}); staying on local sync`,
     );
-    // Abort, DNS, connection refused, unreadable body: we never got an answer.
     return { channel: null, failure: "unavailable" };
   } finally {
     clearTimeout(timeout);
@@ -532,16 +421,9 @@ async function register(
   const channel = result.channel;
   if (!channel) return result;
 
-  // A superseded attempt must not persist: its channel is the one the current
-  // inputs just moved away from, and writing it here would also make the next
-  // request miss on fingerprint and register a third time.
   if (currentFingerprint !== inputs.fingerprint) return result;
 
   try {
-    // Fans out no sync event, in either direction: `poll.ts` skips this key
-    // when wiring the settings emitter (this process) and excludes it from the
-    // settings watermark (every other live isolate), the same way it handles
-    // the change-marker keys.
     await putSetting(REGISTRATION_SETTING_KEY, {
       channelId: channel.channelId,
       hmacSecretEncrypted: encryptSecretValue(channel.hmacSecret),
@@ -549,8 +431,6 @@ async function register(
       registeredAt: Date.now(),
     } satisfies StoredRegistration);
   } catch (err) {
-    // Worth using for this process even if it can't be persisted; the next cold
-    // start just registers again, which the gateway treats as the same channel.
     console.warn(
       `[realtime] could not persist the registration (${(err as Error)?.message ?? err}); it will be re-fetched next cold start`,
     );
@@ -575,7 +455,6 @@ export async function resolveRegisteredRealtimeChannel(): Promise<RealtimeChanne
   if (memo && memo.fingerprint === inputs.fingerprint) {
     const cached = memo.result;
     if (cached.channel) return cached.channel;
-    // The two failure kinds get different patience: see UNAVAILABLE_BACKOFF_MS.
     const backoff =
       "failure" in cached && cached.failure === "unavailable"
         ? UNAVAILABLE_BACKOFF_MS
@@ -583,17 +462,11 @@ export async function resolveRegisteredRealtimeChannel(): Promise<RealtimeChanne
     if (Date.now() - memo.at < backoff) return null;
   }
 
-  // Reuse an in-flight attempt only when it is for THESE inputs. A rotation
-  // mid-flight must not be answered with the previous inputs' channel, and its
-  // own fingerprint must still get registered.
   if (inFlight?.fingerprint === inputs.fingerprint) return inFlight.promise;
 
   currentFingerprint = inputs.fingerprint;
   const attempt = register(inputs)
     .then((result) => {
-      // Same reason `register` skips the persist: a superseded attempt
-      // resolving late must not put the pre-rotation channel back in the memo
-      // on top of the current one.
       if (currentFingerprint === inputs.fingerprint) {
         memo = { fingerprint: inputs.fingerprint, result, at: Date.now() };
       }

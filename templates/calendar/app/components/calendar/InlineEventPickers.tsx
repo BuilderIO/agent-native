@@ -262,7 +262,6 @@ export function RepeatPicker({
   recurrence?: string[];
   onChange: (preset: RecurrencePreset) => void;
   onCustomChange?: (draft: CustomRecurrenceDraft) => void;
-  /** Inline on the date line, the way Notion stacks repeat next to the timezone. */
   compact?: boolean;
 }) {
   const t = useT();

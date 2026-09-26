@@ -24,7 +24,6 @@ describe("content-fit frame height", () => {
   });
 
   it("uses measured content height over the primary-aspect projection", () => {
-    // Before measurement, the pure aspect projection is used (unchanged).
     const projected = getBreakpointFrameGeometry({
       widthPx: 390,
       naturalAspect: 900 / 1440,
@@ -32,8 +31,6 @@ describe("content-fit frame height", () => {
     });
     expect(projected.naturalHeight).toBe(Math.round(390 * (900 / 1440)));
 
-    // Once measured, the frame grows to its real content (floored at one device
-    // viewport) instead of the clipped primary-aspect projection.
     const measured = getBreakpointFrameGeometry({
       widthPx: 390,
       naturalAspect: 900 / 1440,
@@ -55,8 +52,6 @@ describe("content-fit frame height", () => {
   });
 
   it("keeps a pinned height below the device floor", () => {
-    // A pinned height is a user decision, so the floor must not raise it back
-    // up the way it does for a measured height.
     const geo = getBreakpointFrameGeometry({
       widthPx: 390,
       naturalAspect: 1,
@@ -89,8 +84,6 @@ describe("content-fit frame height", () => {
       primary,
       () => 3000,
     );
-    // Group must be tall enough to contain the 3000px-tall mobile frame
-    // (scaled by primary scale) so culling doesn't evict it while visible.
     expect(withMeasure.height).toBeGreaterThanOrEqual(3000 * (1440 / 1440) - 1);
   });
 
@@ -111,15 +104,12 @@ describe("content-fit frame height", () => {
   });
 
   it("dedupes breakpoints against the device width, not the resized box width", () => {
-    // A desktop primary (device width 1440) resized down to a 390px box must
-    // NOT drop the distinct 390 mobile breakpoint as a "duplicate".
     const screen = {
       id: "s1",
       metadata: { width: 1440, height: 900 },
       breakpointWidths: [390],
     };
     const resizedBox = { x: 0, y: 0, width: 390, height: 900 };
-    // Width exceeds the base box only if the 390 breakpoint is still present.
     expect(
       getResponsiveScreenGroupSize(screen, resizedBox).width,
     ).toBeGreaterThan(resizedBox.width);
@@ -128,8 +118,6 @@ describe("content-fit frame height", () => {
 
 describe("visibleBreakpointWidths", () => {
   it("drops a breakpoint whose width equals the primary/base frame width", () => {
-    // Default generated design: desktop-1440 primary must not render a
-    // redundant desktop-1440 breakpoint frame next to itself.
     expect(visibleBreakpointWidths([390, 1440], 1440)).toEqual([390]);
   });
 
@@ -433,9 +421,6 @@ describe("hit-test foreground tie-break", () => {
   });
 
   it("keeps the sticky activeId for a fresh draw gesture too — it's the same id paint boosts", () => {
-    // A draw gesture must not special-case itself away from activeId: the
-    // canvas paints activeId's screen with a z-index boost (topScreenId)
-    // whether or not a NEW gesture is starting, so hit-testing has to agree.
     expect(
       resolveHitTestForegroundId({
         selectedIds: [],
@@ -451,19 +436,12 @@ describe("hit-test foreground tie-break", () => {
       id: "original",
       geometry: { x: 0, y: 0, width: 1440, height: 900 },
     };
-    // A larger new screen placed so it overlaps the original's right edge —
-    // the ambiguous zone from the repro (auto-placement only checks the
-    // drag's start point, not the full drawn rect, against neighbours).
     const created = {
       id: "new",
       geometry: { x: 1300, y: 0, width: 1440, height: 900 },
     };
     const pointInsideNewScreen = { x: 1400, y: 50 };
 
-    // "original" is still activeId (nothing is selected), so the canvas
-    // paints it above "new" (topScreenId's z boost) even though "new" was
-    // added later — the hit test must own the shape for the same screen
-    // paint actually shows on top, not for whichever is last in the array.
     const resolved = findTopFrameEntryAtPoint(
       [original, created],
       pointInsideNewScreen,

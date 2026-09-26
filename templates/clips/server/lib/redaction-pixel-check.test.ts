@@ -1,15 +1,3 @@
-/**
- * Does a burn actually destroy the pixels?
- *
- * The maths is checked against buffers built by hand, and then — where ffmpeg
- * is available — against a clip burned by the real filter graph, because that
- * is the claim that matters and it is not one unit tests of the graph string
- * can make. The moving-box case is the one worth having: `drawbox` evaluates
- * its geometry once at filter init, so an earlier version of this feature drew
- * a box that never moved, covering only where it started while looking
- * perfectly correct in the filter graph.
- */
-
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -84,8 +72,6 @@ describe("measuring a covered area", () => {
 
   it("calls a mosaic destroyed, and finds its grid", () => {
     const block = 40;
-    // One value per block, so every block is flat and the steps between them
-    // are hard — a mosaic, offset from the corner as a real one usually is.
     const bytes = rgb(200, 200, (x, y) => {
       const bx = Math.floor((x + 7) / block);
       const by = Math.floor((y + 3) / block);
@@ -103,7 +89,6 @@ describe("measuring a covered area", () => {
   });
 
   it("calls readable detail what it is", () => {
-    // Fine vertical stripes: the shape text has, and nothing a mosaic leaves.
     const bytes = rgb(200, 200, (x) => (x % 3 === 0 ? 240 : 10));
     const detail = measureArea({ bytes, width: 200, height: 200, blockPx: 40 });
     expect(detail.destroyed).toBe(false);
@@ -129,9 +114,6 @@ describe("measuring a covered area", () => {
 
   it("still tiles an area too small to drop its rim, rather than giving up", () => {
     const block = 43;
-    // Three blocks wide, two tall — a box over one line of text. Dropping the
-    // outermost block on each side leaves nothing, and measuring the whole
-    // rectangle as one block would call this mosaic "detailed".
     const bytes = rgb(129, 86, (x, y) => {
       const bx = Math.floor(x / block);
       const by = Math.floor(y / block);
@@ -158,8 +140,6 @@ describe("measuring a covered area", () => {
 
 describe("reading an area out of a file", () => {
   it("refuses a frame size of zero rather than measuring the corner", async () => {
-    // `recordings.width` defaults to 0, so this is reachable — and a 2x2 crop
-    // of the top-left corner would measure flat and pass.
     await expect(
       readCoveredArea({
         inputPath: "/nonexistent.mp4",
@@ -179,9 +159,6 @@ describe.skipIf(!hasFfmpeg)("burning for real", () => {
   async function burn(redaction: VideoRedaction, dir: string) {
     const input = join(dir, "in.mp4");
     const output = join(dir, "out.mp4");
-    // Dense detail everywhere, so neither verdict can be an accident of the
-    // picture. `testsrc2` alone is not enough: it carries big flat colour
-    // panels, and the control sample landed on one and read as destroyed.
     await ffmpeg([
       "-hide_banner",
       "-loglevel",
@@ -215,9 +192,6 @@ describe.skipIf(!hasFfmpeg)("burning for real", () => {
   }
 
   it("leaves no edge behind, and says so only where there was one to lose", async () => {
-    // The burn leaves a smeared field rather than blocks, so the question is
-    // whether any edge survived. The same area once the box has gone is the
-    // control: without it, "no edges" could just mean the check cannot tell.
     const dir = await mkdtemp(join(tmpdir(), "clips-smooth-"));
     try {
       const rect = { x: 0.25, y: 0.25, w: 0.4, h: 0.3 };
@@ -262,12 +236,6 @@ describe.skipIf(!hasFfmpeg)("burning for real", () => {
   }, 60_000);
 
   it("fills a mosaic from nothing the frame contains", async () => {
-    // The mosaic used to be `pixelize`, whose blocks are averages of the thing
-    // being hidden — so its safety rested on the blocks being coarse enough.
-    // It is now flooded with a tone and randomised instead, and this is the
-    // proof: the same box burned over two sources with nothing in common reads
-    // back as the same tone from both. Averaging would come back white over
-    // white and dark over dark.
     const dir = await mkdtemp(join(tmpdir(), "clips-mosaic-"));
     try {
       const redaction: VideoRedaction = {
@@ -355,16 +323,10 @@ describe.skipIf(!hasFfmpeg)("burning for real", () => {
 
       const [overWhite, overBusy] = means;
       for (let channel = 0; channel < 3; channel += 1) {
-        // A tolerance rather than equality, because the encode is lossy — but
-        // white versus dense noise underneath would be nowhere near each other
-        // if any of it were coming through.
         expect(Math.abs(overWhite[channel] - overBusy[channel])).toBeLessThan(
           8,
         );
       }
-      // And it is the palette, not the picture. Over the busy source — dense
-      // noise averaging to a mid grey — the burned area still comes back light,
-      // which it could not do if any of what it covers were coming through.
       expect(overBusy[0]).toBeGreaterThan(170);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -372,9 +334,6 @@ describe.skipIf(!hasFfmpeg)("burning for real", () => {
   }, 60_000);
 
   it("reads an area out of a still image, where there is no frame to seek to", async () => {
-    // The thumbnail is checked the same way as the video, and `-ss 0` on a
-    // single-frame input skips it: ffmpeg then exits 0 having written nothing,
-    // which looked like "could not decode that area" on a perfectly good file.
     const dir = await mkdtemp(join(tmpdir(), "clips-still-"));
     try {
       const still = join(dir, "still.jpg");
@@ -429,8 +388,6 @@ describe.skipIf(!hasFfmpeg)("burning for real", () => {
       });
       expect(measureArea({ ...covered, blockPx }).destroyed).toBe(true);
 
-      // The same rectangle after the box has gone: still a picture. Without
-      // this, "destroyed" could just mean the check cannot tell.
       const after = await readCoveredArea({
         inputPath: output,
         atMs: 3200,
@@ -463,7 +420,6 @@ describe.skipIf(!hasFfmpeg)("burning for real", () => {
       const output = await burn(redaction, dir);
       const blockPx = mosaicBlockPx(width);
 
-      // Along the path, including well away from the starting position.
       for (const atMs of [200, 1000, 2000, 3000, 3800]) {
         const rect = redactionRectAt(redaction, atMs);
         const covered = await readCoveredArea({

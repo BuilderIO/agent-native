@@ -97,11 +97,9 @@ function setupFetch() {
       listFailures = count;
       listFailureStatus = status;
     },
-    /** Make every `get-deck` hang so the list/body gap is observable. */
     holdDeckReads() {
       holdDeckReads = true;
     },
-    /** Make every `get-deck` fail deterministically (no retry budget spent). */
     failDeckReads() {
       failDeckReads = true;
     },
@@ -113,11 +111,6 @@ function setupFetch() {
   };
 }
 
-/**
- * Records every distinct state the deck list would render. The report is about
- * the sequence, not the destination, so the assertion has to see the whole
- * transition list rather than the settled value.
- */
 function renderDeckListStates() {
   const seen: DeckListViewState[] = [];
   const hook = renderHook(
@@ -158,8 +151,6 @@ describe("deck list loading states", () => {
   it("keeps the initial load pending when a cold first read recovers on retry", async () => {
     const api = setupFetch();
     api.setServerDecks([deck("deck-a"), deck("deck-b")]);
-    // Exhaust the shared retry budget, then recover on the bounded follow-up
-    // read without rendering either the error or empty state in between.
     api.failNextListReads(4, 503);
 
     const { result, seen } = renderDeckListStates();
@@ -182,8 +173,6 @@ describe("deck list loading states", () => {
 
   it("surfaces a repeated deterministic action failure", async () => {
     const api = setupFetch();
-    // 500 is what an action's own unhandled throw becomes, so each read fails
-    // once without spending the shared transport retry budget.
     api.failNextListReads(2, 500);
 
     const { seen } = renderDeckListStates();
@@ -215,9 +204,6 @@ describe("deck list loading states", () => {
     });
     await waitFor(() => expect(result.current.decks).toHaveLength(1));
 
-    // React batches every update inside the `act` above, so the intermediate
-    // "loading" is not separately observable here. What must hold is that the
-    // recovery never renders "no decks yet" on its way to the decks.
     expect(seen).not.toContain("empty");
     expect(seen[seen.length - 1]).toBe("decks");
   }, 15_000);
@@ -302,9 +288,6 @@ describe("deck list recovery through the fallback poll", () => {
     });
     await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
 
-    // The light list recovers and names deck-a, but its body never reads back.
-    // "The server says you have a deck we could not load" must not resolve to
-    // "you have no decks".
     api.failNextListReads(0);
     api.failDeckReads();
     await act(async () => {
@@ -328,9 +311,6 @@ describe("deck list recovery through the fallback poll", () => {
     await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
     expect(seen).toEqual(["loading", "error"]);
 
-    // The poll's light list read now succeeds, but the deck bodies it has to
-    // fetch are still in flight. That window is where "no decks yet" used to
-    // render over a user who has decks.
     api.holdDeckReads();
     api.failNextListReads(0);
     await act(async () => {

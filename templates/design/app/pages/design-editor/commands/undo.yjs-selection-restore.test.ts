@@ -13,21 +13,6 @@ import { runUndo } from "@/pages/design-editor/commands/undo";
 import { LOCAL_EDIT_ORIGIN } from "@/pages/design-editor/editor-session";
 import { YJS_UNDO_SELECTION_META_KEY } from "@/pages/design-editor/history";
 
-/**
- * Figma parity (§13 Undo/Redo + Part 3's alt-drag-duplicate resolution):
- * "deleting an element then one undo restores it with its original
- * position, name and selection" / "one undo after alt-drag removes the
- * copy and restores selection to the original" (parity-undo-redo.spec.ts,
- * parity-alt-drag-duplicate.spec.ts).
- *
- * Single-screen content edits are undone through the Yjs `Y.UndoManager`
- * (`um.undo()`), not the overview `contentUndoStackRef` path — that path's
- * `restoreSelectionSnapshot` never even runs here (view mode is "single").
- * Before this fix, undo only ever "refreshed" whatever was CURRENTLY
- * selected against the restored content — for a delete, current selection
- * is already null (delete cleared it), so the refresh is a no-op and
- * selection stays empty forever, never returning to the deleted element.
- */
 const CONTENT_WITH_BOX_A = `<!doctype html><html data-agent-native-node-id="html-1"><body data-agent-native-node-id="body-1">
 <div data-agent-native-node-id="box-a" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></div>
 </body></html>`;
@@ -224,13 +209,13 @@ describe("runUndo — single-screen Yjs undo restores the stamped selection", ()
     const setSelectedElement = vi.fn((updater: unknown) => {
       capturedElement =
         typeof updater === "function"
-          ? (updater as (p: unknown) => unknown)(null) // delete already cleared selection to null
+          ? (updater as (p: unknown) => unknown)(null)
           : updater;
     });
     const setSelectedLayerIdsState = vi.fn((updater: unknown) => {
       capturedLayerIds =
         typeof updater === "function"
-          ? (updater as (p: unknown) => unknown)([]) // delete already cleared this too
+          ? (updater as (p: unknown) => unknown)([])
           : updater;
     });
 
@@ -281,9 +266,6 @@ describe("runUndo — single-screen Yjs undo restores the stamped selection", ()
       baseArgs({ um, undoManagerRef: { current: um }, setSelectedElement }),
     );
 
-    // Unstamped + already-null prev: the heuristic's own no-op ("if (!prev)
-    // return prev") — proves this path is untouched by the fix, not that a
-    // regression made it disappear.
     expect(capturedElement).toBeNull();
   });
 });

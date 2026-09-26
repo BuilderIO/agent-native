@@ -156,16 +156,11 @@ export default function ImageGenPanel({
 
     agentSubmit(label, context);
     setPrompt("");
-    // Generation happens asynchronously in the agent chat, which already
-    // surfaces its own progress/failure state — keeping this popup open with
-    // a separate loading flag risks it getting stuck if the two states
-    // diverge (e.g. the chat run keeps going after this request finishes).
     onOpenChange(false);
   };
 
   if (!open) return null;
 
-  // Position below anchor button
   let style: React.CSSProperties = {
     position: "fixed",
     top: "50%",

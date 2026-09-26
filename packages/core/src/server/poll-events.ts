@@ -27,24 +27,11 @@ export function canSeeAwarenessChangeForUser(
 }
 
 export interface PollEventsHandlerOptions {
-  /**
-   * Close the stream after this many milliseconds instead of holding it open
-   * indefinitely. Set it below the host's function ceiling on a serverless
-   * runtime. Unset (the default) keeps the stream open until the client or the
-   * platform ends it.
-   */
   maxDurationMs?: number;
 }
 
-// setTimeout clamps anything above this to 1ms, which would close every stream
-// immediately instead of capping it.
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
-/**
- * Throws on a value that would silently disable (or break) the cap: the option
- * exists to avoid host timeouts, so a misconfiguration must fail loudly rather
- * than read as "unset". `undefined` means no cap.
- */
 export function validateSseMaxDurationMs(
   value: unknown,
   name = "maxDurationMs",
@@ -63,33 +50,6 @@ export function validateSseMaxDurationMs(
   return value;
 }
 
-/**
- * Stream in-process poll events over SSE.
- *
- * This is the fast path for agent/tool/action writes that happen in the same
- * server process. The regular /poll endpoint remains the cross-process and
- * serverless cold-start fallback because it can detect DB timestamp changes
- * even when the write happened somewhere this EventEmitter could not see.
- *
- * Also forwards awareness change events (cursor/presence updates) so
- * connected peers receive cursor moves push-style instead of waiting for
- * the next poll cycle. Polling fallback keeps working — cursors degrade
- * gracefully to poll cadence without SSE.
- *
- * `state` defaults to the process-wide instance so self-hosted apps are
- * unchanged; the hosted gateway passes a per-app instance to fan out that
- * app's events (awareness stays on the process-global emitter and is a v0
- * gateway Non-Goal).
- *
- * `maxDurationMs` closes the stream cleanly after that long. The stream is
- * otherwise unbounded, which is right for a long-lived host and wrong for a
- * serverless one: the platform kills the invocation at its own ceiling and
- * records it as a failure, so a single open tab turns into a steady drip of
- * runtime-timeout errors that mask real ones. Closing first ends the response
- * at 200; EventSource reconnects exactly as it does after a platform kill, and
- * `/poll` replays the gap from the cursor, so no event is lost either way.
- * Default: unset (no cap), preserving today's behavior everywhere.
- */
 export function createPollEventsHandler(
   state: AppSyncState = getDefaultAppSyncState(),
   options: PollEventsHandlerOptions = {},
@@ -125,13 +85,9 @@ export function createPollEventsHandler(
 
     const pushHeartbeat = () => {
       if (closed) return;
-      // A named event keeps the keepalive out of the client's JSON message
-      // handler while still writing a packet through edge idle timeouts.
       void stream.push({ event: "heartbeat", data: "" });
     };
 
-    // Awareness fast-path: forward cursor/presence events immediately.
-    // No ring-buffer needed — clients reconcile on the next poll if SSE is down.
     const pushAwareness = (change: AwarenessChangeEvent) => {
       if (closed) return;
       if (!canSeeAwarenessChangeForUser(change, session.email, session.orgId)) {
@@ -141,12 +97,6 @@ export function createPollEventsHandler(
     };
 
     state.getPollEmitter().on(POLL_CHANGE_EVENT, push);
-    // Awareness lives ONLY on the process-global emitter and is filtered via the
-    // module-level (default-state) access path — both untenable in a multi-app
-    // gateway process, where they'd leak another app's presence/document id and
-    // resolve access against the wrong tenant. Fail closed: only the default
-    // (in-process) instance forwards awareness. The gateway advertises
-    // `no-awareness` so collab keeps its own presence cadence.
     const forwardAwareness = state === getDefaultAppSyncState();
     if (forwardAwareness) {
       getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, pushAwareness);
@@ -154,9 +104,6 @@ export function createPollEventsHandler(
 
     pushHeartbeat();
     const heartbeatTimer = setInterval(pushHeartbeat, 10_000);
-    // `close()` resolves the writer's `closed` promise, which is what
-    // `onClosed` subscribes to — so the teardown below runs for a self-close
-    // exactly as it does for a client disconnect. Nothing to unwind here.
     const lifespanTimer = maxDurationMs
       ? setTimeout(() => {
           closed = true;

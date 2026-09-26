@@ -254,13 +254,9 @@ describe("formatting source ranges", () => {
   });
 });
 
-// A code fence emits its body unescaped and sizes its own delimiter from the
-// body's longest backtick run, so the inline escaping every other run restores
-// from silently made any page holding real code non-suggestable.
 describe("code fences stay mappable", () => {
   const bold = "Intro **bold** text";
   const mappable = (source: string) => {
-    // Only a fixpoint can be compared byte-for-byte against its own mapping.
     expect(canonicalizeNfm(source)).toBe(source);
     expect(docToNfm(nfmToDoc(source))).toBe(source);
     return suggestionMarkedSourceRanges(source);
@@ -354,8 +350,6 @@ describe("code fences stay mappable", () => {
       "</details>",
     );
     const two = source.indexOf("two");
-    // A toggle's summary is an attribute, so the code body alone is the text
-    // the editor sees; the second line's own tab is structural.
     expect(suggestionFormattingSourceRange(source, two, two + 3)).toMatchObject(
       {
         from: "one\ntwo".indexOf("two"),
@@ -435,8 +429,6 @@ describe("code fences stay mappable", () => {
     expect(mappable(L(bold, "```", "", "```"))).toEqual([{ from: 6, to: 14 }]);
   });
 });
-// Nothing pinned which page shapes are suggestable, so a whole-page refusal
-// could regress silently. Every source here is a canonical NFM fixpoint.
 describe("page shapes stay suggestable", () => {
   const bold = "Intro **bold** text";
   const mappable = (source: string) => {
@@ -562,8 +554,6 @@ describe("page shapes stay suggestable", () => {
       "\tSee the ~~old~~ notes.",
       "</callout>",
     );
-    // Each marked run must still resolve to its own delimited source span,
-    // with the code fence between them contributing none.
     expect(
       mappable(source)?.map((range) => source.slice(range.from, range.to)),
     ).toEqual(["**three**", "[loader](https://example.test)", "~~old~~"]);

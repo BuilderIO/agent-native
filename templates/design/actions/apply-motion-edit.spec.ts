@@ -1,19 +1,3 @@
-/**
- * apply-motion-edit.spec.ts
- *
- * Unit tests for the helpers extracted from apply-motion-edit.ts.
- *
- * Issue 1 regression: assertSafeCssProperty rejects malicious track.property.
- * Issue 3 regression: motion values/easing reject CSS injection payloads.
- * Issue 2 regression: motion_timeline row is persisted BEFORE HTML content so
- *   a failure in the HTML write step cannot leave design content mutated with
- *   no corresponding row.
- *
- * Note: The action itself requires a live DB + collab runtime. These tests
- * cover the pure helper functions and the ordering contract expressed in the
- * action source code — checked via static inspection of the compiled module.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -32,10 +16,6 @@ import action, {
 
 describe("assertSafeCssProperty (Issue 1 — CSS injection via track.property)", () => {
   it("FAILS before fix: injection payload containing colon is accepted — MUST throw after fix", () => {
-    // This is the canonical injection vector: the property string breaks out of
-    //   `${property}: ${value};`
-    // inside the @keyframes block, producing:
-    //   color:red} body{display:none: 0%;
     expect(() =>
       assertSafeMotionCssProperty(
         "color:red} body{display:none",
@@ -166,12 +146,6 @@ describe("canPatchManagedMotionCss", () => {
   });
 });
 
-// ─── Issue 2: Write ordering contract ────────────────────────────────────────
-//
-// We verify the source ordering by reading the compiled action source and
-// asserting that the DB transaction (motion_timeline write) appears before
-// the persistFileContent call in the source text.
-
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -190,7 +164,6 @@ describe("apply-motion-edit write ordering (Issue 2 — non-atomic write)", () =
     expect(txIdx).toBeGreaterThan(-1);
     expect(persistIdx).toBeGreaterThan(-1);
 
-    // After the fix, the transaction must come first.
     expect(txIdx).toBeLessThan(persistIdx);
   });
 
@@ -201,10 +174,8 @@ describe("apply-motion-edit write ordering (Issue 2 — non-atomic write)", () =
     );
     const src = readFileSync(actionPath, "utf8");
 
-    // The new comment explicitly states the row is written first.
     expect(src).toMatch(/motion_timeline row FIRST/i);
 
-    // The old incorrect comment ("Content is written before the row") must be gone.
     expect(src).not.toMatch(/Content is written before the row/);
   });
 
@@ -241,15 +212,6 @@ describe("apply-motion-edit write ordering (Issue 2 — non-atomic write)", () =
   });
 });
 
-// ─── Issue 6: duplicate-track key separator must not be a literal NUL ─────────
-//
-// The duplicate (targetNodeId, property) guard joins the two fields with a
-// separator. Previously that separator was a literal NUL (\0) embedded in the
-// source, which made tooling (grep, editors, diff) treat the file as binary.
-// motionTrackKey now uses the ASCII Unit Separator (\x1f), an escape in source
-// so the file stays plain text, while still being a delimiter that cannot
-// appear in a CSS-safe nodeId or property.
-
 describe("motionTrackKey (Issue 6 — NUL separator made the file binary)", () => {
   it("does not contain a literal NUL byte", () => {
     expect(motionTrackKey("node-1", "opacity")).not.toContain("\0");
@@ -275,8 +237,6 @@ describe("motionTrackKey (Issue 6 — NUL separator made the file binary)", () =
   });
 
   it("cannot be forged by a nodeId/property boundary shift", () => {
-    // Without a delimiter, ("ab","c") and ("a","bc") would collide. The
-    // separator keeps them distinct.
     expect(motionTrackKey("ab", "c")).not.toBe(motionTrackKey("a", "bc"));
   });
 
@@ -289,8 +249,6 @@ describe("motionTrackKey (Issue 6 — NUL separator made the file binary)", () =
     expect(src.includes("\0")).toBe(false);
   });
 });
-
-// ─── Figma Motion parity: spring ease validation + playback mode plumbing ───
 
 describe("assertValidMotionEase", () => {
   it("accepts CSS keywords, beziers, steps, linear() lists, and spring tokens", () => {
@@ -353,16 +311,6 @@ describe("playback mode + track timing plumbing (source contract)", () => {
     expect(src).toContain('assertValidMotionEase(defaultEase, "defaultEase")');
   });
 });
-
-// ─── DoS-guard caps: tracks/keyframes/duration ────────────────────────────────
-//
-// Mirrors the existing shader-mount cap style (a small exported constant plus
-// a clear thrown Error, never a silent clamp). durationMs is capped directly
-// in the zod schema (tested here via action.schema.safeParse, no DB needed).
-// tracks.length / keyframes.length are capped in run()'s early validation
-// loop, which requires a resolved design file to reach — like the other
-// run()-internal contracts in this file (write ordering, playback mode
-// plumbing), those are verified via static source inspection.
 
 function fadeKeyframe(t: number) {
   return { t, value: String(t) };

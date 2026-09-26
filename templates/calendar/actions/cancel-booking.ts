@@ -15,10 +15,6 @@ export default defineAction({
       .optional()
       .describe("Confirm the Zoom meeting was checked and resolved"),
   }),
-  // toolCallable only gates the sandboxed tools-iframe bridge; it does not
-  // remove this from the agent's own tool list. The agent chat loop still
-  // needs a real gate before it can send a cancellation email and delete the
-  // linked Google event on its own, so require human approval too.
   toolCallable: false,
   needsApproval: true,
   run: async ({ id, zoomMeetingResolved }) => {

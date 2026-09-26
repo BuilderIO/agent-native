@@ -1,8 +1,4 @@
 import { UserInputError } from "../errors.js";
-/**
- * Canonicalize validated configs for storage (select option ids and sort order).
- * Shape validation lives in schema.ts; domain rules in validate.ts.
- */
 import type {
   FieldConfig,
   FieldDefinition,

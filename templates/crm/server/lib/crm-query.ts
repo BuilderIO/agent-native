@@ -1,19 +1,3 @@
-/**
- * The CRM grid's server-side query: a typed filter/sort tree compiled into one
- * Postgres Drizzle statement.
- *
- * Two rules shape everything here.
- *
- * 1. A filter that cannot be compiled is an ERROR, never a dropped condition.
- *    Silently ignoring an unknown attribute returns a full unfiltered page that
- *    looks exactly like a correct answer, which is the failure mode the root
- *    CLAUDE.md forbids.
- * 2. Attribute values live in `crm_record_fields`, one bitemporal row per
- *    attribute with `active_until IS NULL` for the current value. Filtering is
- *    therefore EXISTS/NOT EXISTS against that table, and sorting is a correlated
- *    scalar subquery over the current row.
- */
-
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -51,7 +35,6 @@ import { getDb, schema } from "../db/index.js";
 const MAX_RECORD_LIMIT = 100;
 const MAX_SCOPE_VALIDATIONS = 20;
 
-/** A filter the caller must fix before retrying — surfaces as HTTP 422. */
 export class CrmFilterError extends Error {
   readonly statusCode = 422;
   readonly code: string;
@@ -63,7 +46,6 @@ export class CrmFilterError extends Error {
   }
 }
 
-/** A cursor that does not belong to this query — surfaces as HTTP 400. */
 export class CrmCursorError extends Error {
   readonly statusCode = 400;
   readonly code = "crm-cursor-mismatch";
@@ -73,10 +55,6 @@ export class CrmCursorError extends Error {
     this.name = "CrmCursorError";
   }
 }
-
-// ---------------------------------------------------------------------------
-// Input shapes
-// ---------------------------------------------------------------------------
 
 export const CRM_FILTER_CONDITIONS = [
   "is",
@@ -111,9 +89,7 @@ const filterValueSchema = z.union([
 ]);
 
 const leafSchema = z.object({
-  /** Attribute id, `api_slug`, or `field_name` on `crm_field_policies`. */
   attributeId: z.string().trim().min(1).max(128).optional(),
-  /** A column on `crm_records` — see RECORD_COLUMNS. */
   field: z.string().trim().min(1).max(64).optional(),
   condition: z.enum(CRM_FILTER_CONDITIONS),
   value: filterValueSchema.optional(),
@@ -124,10 +100,6 @@ const groupSchema = z.object({
   conditions: z.array(leafSchema).min(1).max(30),
 });
 
-/**
- * One level of nesting, spelled out rather than recursive: an unbounded tree is
- * an unbounded number of correlated subqueries in one statement.
- */
 export const crmFilterSchema = z.object({
   op: z.enum(["and", "or"]).default("and"),
   conditions: z.array(z.union([groupSchema, leafSchema])).max(30),
@@ -148,25 +120,11 @@ export type CrmFilterGroup = z.infer<typeof groupSchema>;
 export type CrmFilter = z.infer<typeof crmFilterSchema>;
 export type CrmSort = z.infer<typeof crmSortSchema>;
 
-/**
- * The tree the compiler walks. Input is capped at one level of nesting by the
- * schema; this shape lets the query builder wrap an already-parsed filter in
- * another group without re-typing it.
- */
 export interface CrmFilterNode {
   op: "and" | "or";
   conditions: Array<CrmFilterLeaf | CrmFilterNode>;
 }
 
-// ---------------------------------------------------------------------------
-// Targets: an attribute value or a `crm_records` column
-// ---------------------------------------------------------------------------
-
-/**
- * The condition vocabulary a target accepts. Derived from the attribute-type
- * registry so a new attribute type inherits a family instead of needing a new
- * branch at every call site.
- */
 type ConditionFamily =
   | "text"
   | "number"
@@ -224,15 +182,9 @@ function conditionFamily(type: CrmAttributeType): ConditionFamily {
 interface RecordColumnSpec {
   column: SQL;
   family: ConditionFamily;
-  /** Compared case-insensitively and eligible for `@currentUser`. */
   actor?: boolean;
 }
 
-/**
- * Filterable/sortable columns on `crm_records`. An allow-list, not a lookup by
- * string: an unlisted name is a typed error, so a filter can never reach a
- * column the summary does not expose.
- */
 const RECORD_COLUMNS: Record<string, RecordColumnSpec> = {
   displayName: {
     column: sql`${schema.crmRecords.displayName}`,
@@ -315,10 +267,6 @@ function isActorTarget(target: ResolvedTarget): boolean {
     : target.spec.actor === true;
 }
 
-// ---------------------------------------------------------------------------
-// Attribute resolution — one query for every reference in the tree
-// ---------------------------------------------------------------------------
-
 interface AttributeRow {
   id: string;
   fieldName: string;
@@ -347,11 +295,6 @@ function attributeRefs(
   return Array.from(refs);
 }
 
-/**
- * Resolve every attribute reference in one pass. A reference may name the
- * attribute id, its `api_slug`, or its legacy `field_name`; unknown, archived,
- * and ambiguous references are all typed errors that name the reference.
- */
 async function resolveAttributes(
   refs: string[],
 ): Promise<Map<string, ResolvedAttribute>> {
@@ -396,9 +339,6 @@ async function resolveAttributes(
         `Filter references archived attribute "${ref}".`,
       );
     }
-    // The same slug can exist on several objects/connections. That is fine as
-    // long as they agree on how the value is stored — the predicate keys on the
-    // slug, not on one row's id.
     const shapes = new Set(
       live.map((row) => `${row.attributeType}:${row.multi ? 1 : 0}`),
     );
@@ -458,16 +398,8 @@ function resolveTarget(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Values
-// ---------------------------------------------------------------------------
-
 type Scalar = string | number | boolean;
 
-/**
- * `@currentUser` is resolved here and nowhere else. Resolving it on the client
- * would make one shared view render the author's rows for everybody.
- */
 function resolveToken(
   value: Scalar,
   target: ResolvedTarget,
@@ -545,16 +477,6 @@ function requireNumber(value: Scalar, target: ResolvedTarget): number {
   return parsed;
 }
 
-// ---------------------------------------------------------------------------
-// Relative dates
-//
-// Boundaries are emitted as bare `YYYY-MM-DD`, which compares correctly against
-// both a `date` value ("2026-07-26") and a `timestamp` value
-// ("2026-07-26T13:00:00.000Z") under lexicographic ordering. Days are UTC: the
-// server has no caller timezone, and inventing one would silently shift every
-// "today" filter for half the world.
-// ---------------------------------------------------------------------------
-
 const RELATIVE_DAYS = /^(last|next)-(\d{1,3})-days$/;
 
 function isoDay(time: number): string {
@@ -576,7 +498,6 @@ export function resolveRelativeDateToken(
     return { from: isoDay(startOfDay), to: isoDay(startOfDay + DAY_MS) };
   }
   if (token === "this-week") {
-    // ISO weeks start Monday; getUTCDay() is 0 for Sunday.
     const weekday = (new Date(startOfDay).getUTCDay() + 6) % 7;
     const start = startOfDay - weekday * DAY_MS;
     return { from: isoDay(start), to: isoDay(start + 7 * DAY_MS) };
@@ -598,10 +519,6 @@ export function resolveRelativeDateToken(
     : { from: isoDay(startOfDay), to: isoDay(startOfDay + days * DAY_MS) };
 }
 
-// ---------------------------------------------------------------------------
-// Predicate compilation
-// ---------------------------------------------------------------------------
-
 function likePattern(value: Scalar, mode: "contains" | "prefix" | "suffix") {
   const escaped = String(value).replace(/([\\%_])/g, "\\$1");
   if (mode === "prefix") return `${escaped}%`;
@@ -609,7 +526,6 @@ function likePattern(value: Scalar, mode: "contains" | "prefix" | "suffix") {
   return `%${escaped}%`;
 }
 
-// Lowering both sides makes PostgreSQL contains matching case-insensitive.
 function likeSql(column: SQL, pattern: string): SQL {
   return sql`lower(${column}) like lower(${pattern}) escape '\\'`;
 }
@@ -637,7 +553,6 @@ function jsonArrayContains(value: Scalar): SQL {
   )!;
 }
 
-/** The `crm_record_fields` column a target's values live in. */
 function valueColumnFor(attribute: ResolvedAttribute): SQL {
   if (attribute.multi) return sql`${schema.crmRecordFields.jsonValue}`;
   const storage = ATTRIBUTE_TYPE_SPECS[attribute.attributeType].storageColumn;
@@ -690,12 +605,6 @@ interface CompileContext {
   now: Date;
 }
 
-/**
- * A positive predicate over one value column, plus whether the caller must
- * negate the surrounding EXISTS. `is-not` means "has no such value", which
- * includes records that have no value at all — so it is NOT EXISTS of the
- * positive test, not EXISTS of an inequality.
- */
 interface Predicate {
   sql: SQL;
   negate: boolean;
@@ -734,8 +643,6 @@ function comparePredicate(
     const value = requireValue(leaf, target, ctx.actorEmail);
     const wanted =
       typeof value === "boolean" ? value : value === "true" || value === 1;
-    // The boolean column stores 0/1, and a raw `sql`
-    // fragment bypasses the column codec that would have converted this.
     return { sql: sql`${column} = ${wanted ? 1 : 0}`, negate: false };
   }
 
@@ -771,7 +678,6 @@ function comparePredicate(
     return datePredicate(column, target, leaf, ctx);
   }
 
-  // text / option / reference
   if (condition === "is" || condition === "is-not") {
     const value = requireValue(leaf, target, ctx.actorEmail);
     return {
@@ -857,7 +763,6 @@ function datePredicate(
   return { sql: sql`${column} = ${raw}`, negate: false };
 }
 
-/** Correlated current-value rows for one attribute of the outer record. */
 function currentValueRows(attribute: ResolvedAttribute, predicate?: SQL) {
   const conditions = [
     eq(schema.crmRecordFields.recordId, schema.crmRecords.id),
@@ -913,10 +818,6 @@ export async function compileCrmFilter(input: {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Sorting and keyset pagination
-// ---------------------------------------------------------------------------
-
 interface SortKey {
   expression: SQL;
   direction: "asc" | "desc";
@@ -961,12 +862,6 @@ function decodeCursor(cursor: string, expected: string): CursorPayload {
   return payload as CursorPayload;
 }
 
-/**
- * "Strictly after the cursor" under NULLS LAST ordering, expanded
- * lexicographically over the sort keys with the record id as the final,
- * always-ascending tiebreak. Without that tiebreak two rows with equal sort
- * values could swap between pages and be skipped or repeated.
- */
 function keysetPredicate(
   keys: SortKey[],
   cursor: CursorPayload,
@@ -979,8 +874,6 @@ function keysetPredicate(
       value === null
         ? sql`${key.expression} is null`
         : sql`${key.expression} = ${value}`;
-    // NULLs sort last, so nothing follows a null on this key: only the later
-    // keys can still order two rows apart.
     const after =
       value === null
         ? undefined
@@ -996,7 +889,6 @@ function keysetPredicate(
 function orderByFor(keys: SortKey[]): SQL[] {
   const clauses: SQL[] = [];
   for (const key of keys) {
-    // Rank NULLs explicitly so pagination does not depend on database defaults.
     clauses.push(
       sql`case when ${key.expression} is null then 1 else 0 end asc`,
     );
@@ -1009,10 +901,6 @@ function orderByFor(keys: SortKey[]): SQL[] {
   clauses.push(sql`${schema.crmRecords.id} asc`);
   return clauses;
 }
-
-// ---------------------------------------------------------------------------
-// Saved views
-// ---------------------------------------------------------------------------
 
 export interface StoredCrmView {
   id: string;
@@ -1032,10 +920,6 @@ export interface StoredCrmView {
   updatedAt: string;
 }
 
-/**
- * Views saved before typed filters stored `{query, fieldEquals}`. Translate them
- * at the boundary so the rest of the pipeline only ever sees one filter shape.
- */
 export function normalizeStoredFilter(raw: unknown): CrmFilter {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { op: "and", conditions: [] };
@@ -1184,14 +1068,9 @@ export function hydrateSavedViewRow(row: {
   };
 }
 
-/** Legacy sort entries used `{field}` for record columns; that still parses. */
 function normalizeStoredSort(raw: unknown): unknown {
   return Array.isArray(raw) ? raw : [];
 }
-
-// ---------------------------------------------------------------------------
-// The query
-// ---------------------------------------------------------------------------
 
 type ScopeValidationTarget = {
   connectionId: string;
@@ -1277,7 +1156,6 @@ function toRecordSummary(row: SummaryRow, columns?: string[]) {
 export interface QueryCrmRecordsInput {
   kind?: CrmObjectKind;
   connectionId?: string;
-  /** Display-name substring; sugar for a `displayName contains` condition. */
   query?: string;
   viewId?: string;
   filter?: CrmFilter;
@@ -1318,9 +1196,6 @@ export async function queryCrmRecords(
 
   const base: CrmFilterNode = view?.filter ??
     input.filter ?? { op: "and", conditions: [] };
-  // A `query` NARROWS whatever it is combined with. Appending it to an
-  // or-rooted filter would widen the result set instead, so an or-root is
-  // wrapped as a group under a new and-root.
   const search: CrmFilterLeaf | undefined = input.query
     ? { field: "displayName", condition: "contains", value: input.query }
     : undefined;
@@ -1516,8 +1391,6 @@ function normalizeCursorValue(
   ) {
     return value;
   }
-  // A sort key that is not a comparable scalar cannot be resumed from; failing
-  // here beats emitting a cursor that silently reorders the next page.
   throw new CrmCursorError(
     "CRM list sort key is not a comparable value; remove it from the sort.",
   );
@@ -1536,9 +1409,6 @@ function sortKeyExpression(
     );
   }
   const column = valueColumnFor(target.attribute);
-  // A record has at most one current row per attribute (the partial unique
-  // index enforces it); LIMIT 1 keeps PostgreSQL from erroring if that ever
-  // slips rather than failing the whole page.
   const subquery = getDb()
     .select({ value: sql`${column}`.as("value") })
     .from(schema.crmRecordFields)

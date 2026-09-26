@@ -75,7 +75,6 @@ export async function ensureTable(): Promise<void> {
 )`;
 
       {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
         await ensureTableExists("integration_remote_commands", createSql);
         await ensureComputerCommandColumns();
         await ensureIndexExists(
@@ -90,7 +89,6 @@ export async function ensureTable(): Promise<void> {
         return;
       }
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });

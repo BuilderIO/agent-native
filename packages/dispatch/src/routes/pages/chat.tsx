@@ -51,9 +51,6 @@ function stripBasePath(pathname: string): string {
   return pathname;
 }
 
-// The chat surface renders for both `/chat` and the `/chat/:threadId` deep
-// link. The thread id is read from the pathname (not `useParams`) because the
-// param is owned by the nested deep-link route, not this leaf component.
 function threadIdFromPath(pathname: string): string | null {
   const match = stripBasePath(pathname).match(/^\/chat\/([^/]+)/);
   if (!match) return null;
@@ -65,8 +62,6 @@ function threadIdFromPath(pathname: string): string | null {
   }
 }
 
-// Mirror the basename handling Dispatch's nav links use: pass a router-local
-// path when the live URL is already under the mount, otherwise prefix it.
 function dispatchNavTarget(path: string): string {
   if (typeof window === "undefined") return path;
   const basePath = appBasePath();

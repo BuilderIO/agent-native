@@ -256,8 +256,6 @@ describe("create-design-from-template", () => {
   });
 
   it("treats a design holding only the board row as empty", async () => {
-    // The editor creates the board on mount, so requiring zero files would
-    // reject every design the New Design button just made.
     testState.targetDesignFiles = [];
 
     const result = await action.run({
@@ -270,8 +268,6 @@ describe("create-design-from-template", () => {
   });
 
   it("keeps the target's own editor state instead of replacing its data blob", async () => {
-    // boardFileId lives in designs.data; losing it makes the editor mint a
-    // second board the next time the design is opened.
     testState.targetDesignRows = [
       { data: JSON.stringify({ boardFileId: "board-1", keepMe: true }) },
     ];

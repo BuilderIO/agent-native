@@ -1,8 +1,5 @@
 import { fail } from "../utils.js";
 
-// Credential and identity tables are deliberately off-limits to the generic
-// agent DB tools. They contain OAuth tokens, encrypted API keys, sessions, or
-// auth identity data; use the framework stores/actions instead.
 const SENSITIVE_FRAMEWORK_TABLE_RE =
   /\b(app_secrets|oauth_tokens|user|users|session|sessions|account|accounts|verification|jwks|organization|member|invitation|org_members|org_invitations|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
 

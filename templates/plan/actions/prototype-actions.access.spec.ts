@@ -1,31 +1,3 @@
-/**
- * AUTHZ / ownership matrix for the NEW prototype actions:
- *   - create-prototype-plan
- *   - convert-visual-plan-to-prototype
- *
- * These landed with the prototype prototype feature and had no access spec of
- * their own. This file drives the REAL actions against a REAL PostgreSQL DB with the
- * REAL core sharing helpers (registerShareableResource / resolveAccess /
- * assertAccess) and the REAL request context, mocking only filesystem/email side
- * effects. It pins:
- *
- *   create-prototype-plan
- *     - owner scoping: the new plan row is owned by the request user
- *       (requirePlanOwnerEmailForWrite), private, and org-tagged from context.
- *     - an unauthenticated hosted request (no identity, PLAN_LOCAL_MODE=0) is
- *       rejected ("requires an authenticated user"), nothing persisted.
- *     - a guest-author identity may NOT create on a hosted deploy.
- *     - one user cannot create a plan that another user can read.
- *
- *   convert-visual-plan-to-prototype
- *     - requires EDITOR on the SOURCE plan (assertPlanEditor) — a non-owner with
- *       no access, a viewer-only share holder, and a public-link reader must all
- *       be rejected and must NOT mutate the owner's plan row.
- *     - the owner CAN convert their own convertible plan.
- *
- * Mirrors the proven setup in publish-visual-plan.access.spec.ts /
- * sharing-access-matrix.spec.ts.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -51,7 +23,6 @@ import {
 
 import * as planSchema from "../server/db/schema.js";
 
-// Real PostgreSQL access matrices run alongside every workspace suite in CI.
 vi.setConfig({ testTimeout: 60_000 });
 
 type SqlStatement = string | { sql: string; args?: unknown[] };
@@ -144,11 +115,6 @@ async function countPlans() {
   return rows.length;
 }
 
-/**
- * Create a prototype plan as the given user. Returns the plan id (or null if the
- * action threw — used by negative tests). Prototype plans embed a canvas derived
- * from their screens, which makes them convertible.
- */
 async function createPrototypeAs(
   ownerEmail: string | undefined,
   orgId?: string,
@@ -253,9 +219,6 @@ beforeEach(async () => {
   `);
 });
 
-// ===========================================================================
-// create-prototype-plan: owner scoping
-// ===========================================================================
 describe("create-prototype-plan: owner scoping", () => {
   it("create-visual-plan can import existing plan text without a separate skill action", async () => {
     const planText = `# Existing Import Plan
@@ -326,12 +289,9 @@ describe("create-prototype-plan: owner scoping", () => {
 
   it("a non-owner read goes through loadPlanBundle's ForbiddenError (statusCode 403, clean 4xx)", async () => {
     const planId = await createPrototypeAs(OWNER);
-    // The task's re-verify item: loadPlanBundle conflates not-found/no-access
-    // into a 403 ForbiddenError so a missing/private plan never surfaces a 500.
     await expect(
       asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
     ).rejects.toMatchObject({ statusCode: 403 });
-    // Same 403 for a truly non-existent id (no existence leak).
     await expect(
       asUser({ userEmail: OTHER }, () =>
         getVisualPlan.run({ id: "plan_nope" }),
@@ -378,15 +338,9 @@ describe("create-prototype-plan: owner scoping", () => {
   });
 });
 
-// ===========================================================================
-// convert-visual-plan-to-prototype: requires editor on the source plan
-// ===========================================================================
 describe("convert-visual-plan-to-prototype: editor gate", () => {
   it("owner can convert their own convertible plan", async () => {
     const planId = await createPrototypeAs(OWNER);
-    // Strip the prototype so convert re-derives it from the canvas; otherwise
-    // it would short-circuit to the existing prototype. Either way the editor
-    // gate is the load-bearing check; this confirms the happy path still works.
     const res = await asUser({ userEmail: OWNER }, () =>
       convertVisualPlanToPrototype.run({ planId }),
     );
@@ -402,7 +356,6 @@ describe("convert-visual-plan-to-prototype: editor gate", () => {
         convertVisualPlanToPrototype.run({ planId }),
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
-    // The owner's plan row is untouched.
     const after = await rawPlan(planId);
     expect(after.updatedAt).toBe(before.updatedAt);
     expect(after.currentFocus).toBe(before.currentFocus);
@@ -445,7 +398,6 @@ describe("convert-visual-plan-to-prototype: editor gate", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
     const after = await rawPlan(planId);
-    // Title/content/currentFocus must be unchanged by the rejected convert.
     expect(after.currentFocus).toBe(before.currentFocus);
     expect(after.updatedAt).toBe(before.updatedAt);
   });
@@ -495,10 +447,6 @@ describe("convert-visual-plan-to-prototype: editor gate", () => {
   });
 
   it("the editor gate (403) precedes the content checks — a non-editor never learns the plan's content shape", async () => {
-    // A real visual plan with NO convertible content (no canvas frames). The
-    // owner would get a 400 ("No HTML canvas wireframes..."), but a non-editor
-    // must be stopped at the 403 gate first, never reaching the 400 that would
-    // leak the plan's convertibility.
     const planId = await asUser({ userEmail: OWNER }, async () => {
       const r = await createVisualPlan.run({
         title: "Text only",

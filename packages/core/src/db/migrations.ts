@@ -85,7 +85,6 @@ async function releaseMigrationExec(): Promise<void> {
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-/** True when an ADD COLUMN statement reports an existing column. */
 export function isDuplicateColumnError(err: unknown): boolean {
   const msg = (err as Error | undefined)?.message ?? "";
   return /column .* already exists/i.test(msg) || /duplicate_object/i.test(msg);
@@ -110,7 +109,6 @@ function isMissingRelationError(err: unknown): boolean {
   );
 }
 
-/** Split a multi-statement SQL blob while preserving quoted semicolons. */
 function splitSqlStatements(sql: string): string[] {
   const out: string[] = [];
   let buf = "";
@@ -151,7 +149,6 @@ function splitSqlStatements(sql: string): string[] {
 
 export interface RunMigrationsOptions {
   runInServerlessRequest?: boolean;
-  /** Each template needs a private bookkeeping table. */
   table: string;
 }
 
@@ -168,7 +165,6 @@ export type MigrationRunResult = void | typeof MIGRATION_DEFERRED;
 export interface MigrationEntry {
   version: number;
   sql: MigrationSql;
-  /** Generated entries keep their stable name without advancing the legacy gate. */
   name?: string;
   run?: (exec: DbExec) => Promise<MigrationRunResult>;
 }

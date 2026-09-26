@@ -197,7 +197,6 @@ export default function Present() {
     searchParams,
   ]);
 
-  // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -210,12 +209,8 @@ export default function Present() {
         );
         if (action === "close-comments") setCommentsOpen(false);
         if (action === "exit-presentation") void navigate(`/design/${id}`);
-        // ReviewCanvasPins owns "defer-to-comment-mode" so it can dismiss an
-        // active draft before it exits the tool.
         return;
       }
-      // Freeze slide navigation while review UI is active so typing a space
-      // or using arrow keys in the sheet cannot change the anchored screen.
       if (shouldBlockPresentPageNavigation({ commentsOpen, commentMode }))
         return;
       if (files.length <= 1) return;

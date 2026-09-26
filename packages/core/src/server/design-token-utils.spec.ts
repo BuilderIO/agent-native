@@ -157,9 +157,6 @@ describe("design-token GitHub helpers", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// SSRF pre-filter — the highest-value security invariant in this module.
-// ---------------------------------------------------------------------------
 describe("validateUrl (SSRF pre-filter)", () => {
   it("accepts public http(s) URLs", () => {
     expect(() => validateUrl("https://example.com/path")).not.toThrow();
@@ -216,16 +213,11 @@ describe("validateUrl (SSRF pre-filter)", () => {
   });
 
   it("does not block public hosts that merely start with a private-looking octet", () => {
-    // 10.x is blocked by prefix, but a public IP like 100.x must pass — the
-    // guard must not over-block legitimate public addresses.
     expect(() => validateUrl("http://100.20.30.40")).not.toThrow();
     expect(() => validateUrl("http://11.0.0.1")).not.toThrow();
   });
 });
 
-// ---------------------------------------------------------------------------
-// Tailwind config parser
-// ---------------------------------------------------------------------------
 describe("parseTailwindConfig", () => {
   it("extracts colors, fontFamily, spacing, and borderRadius blocks", () => {
     const config = `
@@ -262,9 +254,6 @@ module.exports = {
   });
 });
 
-// ---------------------------------------------------------------------------
-// CSS parser
-// ---------------------------------------------------------------------------
 describe("parseCss", () => {
   it("extracts custom properties and @font-face / Google Fonts families", () => {
     const css = `
@@ -284,7 +273,6 @@ describe("parseCss", () => {
       "--space-2": "0.5rem",
     });
     expect(result.fonts).toContain("Custom Sans");
-    // Google Fonts family is URL-decoded and '+' becomes a space.
     expect(result.fonts).toContain("Inter Tight");
   });
 
@@ -295,14 +283,10 @@ describe("parseCss", () => {
 `;
     const result = parseCss(css);
     expect(result.fonts).toEqual(["Dup"]);
-    // No CSS variables present → undefined, not an empty object.
     expect(result.cssCustomProperties).toBeUndefined();
   });
 });
 
-// ---------------------------------------------------------------------------
-// Styling framework detection
-// ---------------------------------------------------------------------------
 describe("detectStylingFramework", () => {
   it("detects tailwind from dependencies or devDependencies", () => {
     expect(
@@ -348,14 +332,11 @@ describe("detectStylingFramework", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Code analysis state + helpers
-// ---------------------------------------------------------------------------
 describe("addFont", () => {
   it("normalizes quotes/whitespace and dedupes case-insensitively", () => {
     const state = createCodeAnalysisState();
     addFont(state, '  "Inter" ', "a.css");
-    addFont(state, "inter", "b.css"); // duplicate (case-insensitive)
+    addFont(state, "inter", "b.css");
     addFont(state, "Roboto");
     expect(state.fonts).toEqual([
       { family: "Inter", source: "a.css" },
@@ -382,18 +363,15 @@ describe("extractCssVars", () => {
         --z-index: 10;
       }`,
     );
-    // Everything goes into cssCustomProperties…
     expect(Object.keys(state.cssCustomProperties)).toEqual([
       "--primary-color",
       "--gap-md",
       "--radius-lg",
       "--z-index",
     ]);
-    // …and color/spacing/radius are also bucketed by name heuristics.
     expect(state.colors["--primary-color"]).toBe("#ff0000");
     expect(state.spacing["--gap-md"]).toBe("12px");
     expect(state.borderRadius["--radius-lg"]).toBe("8px");
-    // Unclassifiable var stays only in the generic map.
     expect(state.colors["--z-index"]).toBeUndefined();
     expect(state.spacing["--z-index"]).toBeUndefined();
   });
@@ -487,9 +465,6 @@ describe("analyzeCodeFiles", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Document analysis helpers
-// ---------------------------------------------------------------------------
 describe("document helpers", () => {
   it("unique trims and dedupes", () => {
     expect(unique([" a ", "a", "b "])).toEqual(["a", "b"]);

@@ -22,12 +22,6 @@ interface FooterColumn {
   links: FooterLink[];
 }
 
-// Only links with a real, confirmed destination belong here. Delete a link
-// rather than guessing at a route/handle that doesn't exist yet — add it back
-// once the real page or account exists (see #website-redesign Slack thread).
-// This footer renders on every route, including locale-prefixed ones, so
-// internal destinations have to be built for the active locale rather than
-// dropping the visitor back into the English tree.
 function footerColumns(
   t: (key: string) => string,
   localizedPath: (path: string) => string,
@@ -101,8 +95,6 @@ const SOCIAL_LINKS: Array<{
   },
 ];
 
-// Docs, legal, and app routes all render this footer, so it is the one
-// in-site way to report a problem now that the header no longer carries it.
 const DOCS_FEEDBACK_URL = firstPartyAppUrl(
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
 );
@@ -135,8 +127,6 @@ export function Footer() {
     <PageSection
       as="footer"
       showGrid={false}
-      // The --b-* variables live on the builder-brand-tokens class, and the
-      // footer renders on docs pages that do not otherwise opt in.
       className="builder-brand-tokens border-t border-solid border-[var(--b-border-default)]"
     >
       <div className="border-b border-solid border-[var(--b-border-default)]">

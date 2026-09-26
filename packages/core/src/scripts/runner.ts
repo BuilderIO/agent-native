@@ -1,15 +1,3 @@
-/**
- * Generic action dispatcher for @agent-native/core apps.
- *
- * Dynamically imports and runs actions from the app's actions/ directory.
- * Falls back to scripts/ directory for backwards compatibility, then to
- * core scripts (db-schema, db-query, db-exec, etc.) when no local action is found.
- *
- * Actions must export a default function: (args: string[]) => Promise<void>
- *
- * Usage: pnpm action <action-name> ['{"arg":"value"}'] [--args]
- */
-
 import fs from "fs";
 import { spawnSync } from "node:child_process";
 import path from "path";
@@ -50,7 +38,6 @@ import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 import { resolveDevUserEmail } from "./dev-session.js";
 import { loadEnv } from "./utils.js";
 
-// Load .env from cwd so DATABASE_URL and other vars are available to all actions.
 loadEnv();
 
 const CLI_HANDOFF_KEYS = new Set(["embedStartUrl", "startUrl"]);
@@ -103,7 +90,6 @@ type CliHandoffLaunchOutcome =
     };
 
 interface CliHandoffLaunchDeps {
-  /** Override the app origin when a verified dev-server discovery supplies it. */
   baseUrl?: string;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
@@ -223,12 +209,7 @@ function assertCliHandoffLaunched(
 }
 
 export interface RunScriptOptions {
-  /**
-   * Actions contributed by packages rather than the app's local `actions/`
-   * directory. Local app actions still win on name collision.
-   */
   packageActions?: Record<string, ActionEntry>;
-  /** Help-section label for package actions. */
   packageActionLabel?: string;
 }
 
@@ -243,12 +224,6 @@ async function runAppDbPluginIfPresent(): Promise<void> {
   }
 }
 
-/**
- * Run the action dispatcher. Call this from your app's actions/run.ts (or scripts/run.ts):
- *
- *   import { runScript } from "@agent-native/core";
- *   runScript();
- */
 export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   const actionName = process.argv[2];
   const args = process.argv.slice(3);
@@ -258,7 +233,6 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
       `Usage: pnpm action <action-name> ['{"arg":"value"}'] [--arg value ...]`,
     );
 
-    // List local actions (try actions/ first, then scripts/)
     const actionsDir = path.resolve(process.cwd(), "actions");
     const scriptsDir = path.resolve(process.cwd(), "scripts");
     const localDir = fs.existsSync(actionsDir) ? actionsDir : scriptsDir;
@@ -283,7 +257,6 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
       }
     }
 
-    // List core scripts
     const coreNames = getCoreScriptNames();
     if (coreNames.length > 0) {
       console.log(`\nCore actions (built-in):`);
@@ -295,39 +268,13 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
     process.exit(0);
   }
 
-  // Validate action name (only allow alphanumeric + hyphens)
   if (!/^[a-z][a-z0-9-]*$/.test(actionName)) {
     console.error(`Error: Invalid action name "${actionName}"`);
     process.exit(1);
   }
 
-  // Forward to an already-running local dev server before touching the
-  // database ourselves — PGlite's process lock (db/client.ts) means opening
-  // it here while `pnpm dev` holds it open fails outright. Exits the process
-  // on every forwarded outcome (success, action error, or an unauthorized
-  // dev server); falls through to run in-process when nothing matched.
   await tryForwardToDevServer(actionName, args);
 
-  // Establish a request context for the duration of this CLI run. Without
-  // it, db-exec / db-query / db-patch and any action that calls
-  // `getRequestUserEmail()` see no identity and refuse to run. The
-  // resolver picks up `AGENT_USER_EMAIL` if explicitly set, otherwise
-  // reads the DB session owner only when it is unambiguous (dev-only,
-  // narrowly gated — see dev-session.ts).
-  //
-  // This wrap is intentionally a single point of injection: it covers
-  // both the local-action branch and the fall-through to core scripts
-  // (db-query, db-exec, …) so every CLI entrypoint runs scoped to a real
-  // user. It uses `runWithRequestContext` rather than mutating
-  // `process.env.AGENT_USER_EMAIL` because env mutation leaks across
-  // boundaries — see the cautionary comment in
-  // `server/request-context.ts` about exactly that pattern.
-
-  // A CLI run mounts no Nitro plugins, so nothing has claimed the file upload
-  // slot that `createCoreRoutesPlugin` and the onboarding plugin claim on a
-  // server. Without this an action calling `uploadFile()` from `pnpm action`
-  // finds no provider and fails with storage fully configured — the same action
-  // works from the dev server and in production.
   await loadCliBootstrap();
 
   const userEmail = await resolveDevUserEmail();
@@ -338,31 +285,13 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   );
 }
 
-/**
- * Try forwarding this call to a matching local dev server instead of running
- * it in-process. Returns (never — every forwarded path calls `process.exit`)
- * only when the call was actually sent; otherwise returns normally so the
- * caller runs in-process exactly as it would without this feature.
- *
- * "Matching" requires all three: a readable discovery file, a live pid, and
- * a `databaseKey` equal to this CLI's own resolved `DATABASE_URL` — a stale
- * file from a different app/database must never be trusted. A connection
- * failure (server not actually listening) falls back silently; a 401/403
- * from a server that IS there does not, since that would otherwise reach
- * the PGlite lock and print a second, more confusing error.
- */
 export async function tryForwardToDevServer(
   actionName: string,
   args: string[],
 ): Promise<void> {
   const discovery = readDevActionDiscoveryFile(process.cwd());
   if (!discovery || !isProcessAlive(discovery.pid)) return;
-  // The file is the only source of the origin, and the request carries the
-  // dev token plus the caller's identity headers: only ever send those to the
-  // loopback origin the dev server publishes for itself.
   if (!isLoopbackDevActionOrigin(discovery.origin)) return;
-  // Same resolver the running server's request-time clients use, so an app
-  // configured with a runtime/unpooled URL still produces a matching key.
   const ourDatabaseKey = hashDatabaseKey(
     getRuntimeDatabaseUrl("pglite:./data/pglite"),
   );
@@ -405,14 +334,9 @@ export async function tryForwardToDevServer(
     response = await fetch(`${discovery.origin}${DEV_ACTION_ROUTE}`, request);
   } catch {
     await tlsDispatcher?.destroy();
-    // The dev server isn't actually listening (stale discovery file,
-    // ECONNREFUSED) or is otherwise unreachable — run in-process.
     return;
   }
 
-  // The dev server doesn't serve this action at all (e.g. a core script
-  // like db-query, which is never mounted as an HTTP route) — run in-process
-  // rather than treating an unrelated 404 as a hard failure.
   if (response.status === 404) {
     await tlsDispatcher?.close();
     return;
@@ -559,12 +483,6 @@ function parsePositionalJsonArg(args: string[]): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-/**
- * Build the `ctx` passed as the action's second arg for CLI dispatch. The
- * identity comes from the `runWithRequestContext` wrap in `runScript` (which
- * resolves `AGENT_USER_EMAIL` / the dev session); we never inject a dev
- * identity here beyond what that wrap already established.
- */
 function cliActionCtx(
   actionName: string,
 ): import("../action.js").ActionRunContext {
@@ -584,7 +502,6 @@ async function dispatchAction(
   args: string[],
   options: RunScriptOptions,
 ): Promise<void> {
-  // 1. Try local app action first (actions/ then scripts/ for backwards compat)
   const actionsPath = path.resolve(
     process.cwd(),
     "actions",
@@ -604,7 +521,6 @@ async function dispatchAction(
         /* @vite-ignore */ pathToFileURL(localPath).href
       );
       const handler = mod.default;
-      // Support defineAction-style default exports (object with run method)
       if (
         handler &&
         typeof handler === "object" &&
@@ -636,7 +552,6 @@ async function dispatchAction(
     }
   }
 
-  // 2. Try package-contributed actions (e.g. @agent-native/dispatch)
   const packageAction = options.packageActions?.[actionName];
   if (packageAction) {
     try {
@@ -662,7 +577,6 @@ async function dispatchAction(
     }
   }
 
-  // 3. Fall back to core scripts
   const coreScript = coreScripts[actionName];
   if (coreScript) {
     try {
@@ -679,7 +593,6 @@ async function dispatchAction(
     }
   }
 
-  // 4. Not found anywhere
   console.error(
     `Error: Action "${actionName}" not found. Run "pnpm action --help" for available actions.`,
   );

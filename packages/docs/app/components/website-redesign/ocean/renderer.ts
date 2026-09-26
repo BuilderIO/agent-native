@@ -1,9 +1,3 @@
-// Vendored from the vgpu `fft-ocean` example ("Particles ocean").
-//   revision 8ca322aa1cf0bc25aff3d38389d48090bf065c6baf14bea858fd9b8e4bceea96
-//   npx vgpu examples pull fft-ocean
-// Diff against that revision before pulling upstream changes: this copy is
-// edited (see present.wgsl's token-driven colouring and setPresentColors).
-
 import {
   clock,
   draw,
@@ -49,19 +43,11 @@ interface RendererOptions {
   readonly canvas: HTMLCanvasElement;
   readonly colors?: OceanColors;
   readonly fps?: number;
-  /**
-   * Called once for any failure after construction -- init, resize rebuild, or
-   * a throw inside the frame loop. Without it those failures rethrow, which in
-   * the frame loop means an uncaught error and a hero that silently stops
-   * updating. The caller is expected to swap in the fallback background.
-   */
   readonly onError?: (error: unknown) => void;
 }
 
 type PointerTarget = readonly [number, number, number];
 
-// The lag is intentional: a 30fps hero should feel like the field is drifting
-// toward the cursor, not that it is pinned to it.
 const POINTER_POSITION_EASING = 0.22;
 const POINTER_STRENGTH_EASING = 0.16;
 
@@ -86,17 +72,12 @@ export function createRenderer({
   let resizePending = false;
   let releaseErrorListener: (() => void) | undefined;
 
-  // Distinct from `ready`, which only means initialize() returned -- the frame
-  // loop is registered by then but has not run. Callers that reveal the canvas
-  // need the first drawn frame, or they fade in an empty surface.
   let signalFirstFrame: () => void = () => {};
   let signalFirstFrameFailed: (error: unknown) => void = () => {};
   const firstFrame = new Promise<void>((resolve, reject) => {
     signalFirstFrame = resolve;
     signalFirstFrameFailed = reject;
   });
-  // Failure is delivered through onError; this keeps the rejection from
-  // surfacing as an unhandled promise when no caller awaits firstFrame.
   firstFrame.catch(() => {});
   let drewOnce = false;
   let gpu: Gpu | undefined;
@@ -132,12 +113,8 @@ export function createRenderer({
     } catch {
       // coercion-ok: teardown errors must not replace the original renderer failure.
     }
-    // Never resolves after a failure: fulfilling it would let a caller fade in
-    // a dead canvas at the same moment onError demotes to the fallback.
     if (first) signalFirstFrameFailed(error);
     if (!onError) throw error;
-    // Only the first failure is reported: dispose() can cascade, and the
-    // caller swaps backgrounds on the first one anyway.
     if (first) onError(error);
   }
 
@@ -168,12 +145,6 @@ export function createRenderer({
 
   const scheduleResize = () => {
     if (disposed) return;
-    // A rebuild allocates six 512x512 rgba32float simulation targets plus the
-    // HDR and bloom chain. resizeFrame alone does not stop a drag-resize from
-    // starting the next one mid-flight, because it is cleared before the await
-    // -- so overlapping rebuilds would each pay that cost concurrently and the
-    // generation check would only free them afterwards. One at a time, then
-    // one more pass for whatever size the drag settled on.
     if (rebuilding) {
       resizePending = true;
       return;
@@ -226,10 +197,6 @@ export function createRenderer({
 
     unsubscribeResize = output.onResize(scheduleResize);
 
-    // The frame callback's try/catch only covers what runs inside it. vgpu
-    // reports validation failures asynchronously, and a lost device surfaces
-    // on the GPUDevice itself -- neither reaches that catch, so without these
-    // the hero keeps a frozen ocean mounted and never demotes.
     releaseErrorListener = nextGpu.onError((error) => {
       if (!disposed) fail(error);
     });
@@ -262,16 +229,6 @@ export function createRenderer({
     if (!disposed) fail(error);
   });
 
-  /**
-   * A theme flip must not rebuild the graph: the simulation targets are six
-   * 512x512 rgba32float textures and reallocating them stalls the frame the
-   * user is watching the toggle in.
-   */
-  /**
-   * Skips frame work while the hero is scrolled out of view. The loop stays
-   * registered rather than being stopped and rebuilt, so resuming costs one
-   * boolean instead of a device round trip.
-   */
   function setPaused(next: boolean): void {
     paused = next;
   }
@@ -595,7 +552,6 @@ function presentUniforms(colors: OceanColors) {
   };
 }
 
-/** Retunes the present pass in place. Allocates nothing. */
 export function setPresentColors(graph: OceanGraph, colors: OceanColors): void {
   graph.effects.present.set({ uniforms: presentUniforms(colors) });
 }

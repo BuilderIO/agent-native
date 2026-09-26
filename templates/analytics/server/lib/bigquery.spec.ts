@@ -60,8 +60,6 @@ describe("runQuery cancellation", () => {
 
     const pending = runQuery("SELECT 1", { signal: controller.signal });
 
-    // Advance only pending microtasks: the query request has completed and
-    // BigQuery polling is now waiting for its first one-second interval.
     await vi.advanceTimersByTimeAsync(0);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -74,8 +72,6 @@ describe("runQuery cancellation", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     await vi.advanceTimersByTimeAsync(60_000);
 
-    // Cancellation clears the pending interval, avoids another
-    // getQueryResults poll, and best-effort cancels the submitted job.
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenLastCalledWith(
       expect.stringContaining("/projects/test-project/jobs/job-1/cancel"),

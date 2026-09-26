@@ -64,9 +64,6 @@ async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
 
   await role.getByRole("button", { name: /skip for now/i }).click();
 
-  // "Configure manually" now completes onboarding and redirects straight to
-  // Settings from the merged choice screen — there is no separate tools step
-  // on this path.
   const skipManual = page.locator(
     '[data-testid="first-run-open-key-settings"]',
   );
@@ -98,8 +95,6 @@ async function fillMagicLinkEmail(page: Page, email: string): Promise<void> {
   await expect
     .poll(
       async () => {
-        // The auth document is server-rendered before React hydrates it. Reapply
-        // the value until the controlled form accepts the input event.
         await emailInput.fill(email);
         return submit.isEnabled();
       },
@@ -111,12 +106,6 @@ async function fillMagicLinkEmail(page: Page, email: string): Promise<void> {
     .toBe(true);
 }
 
-/**
- * One app per run by default. The deterministic canary already covers every
- * app every day; this lane spends model tokens, so it walks the fleet on a
- * rotation instead of paying for all of it daily. The index comes from the UTC
- * day so consecutive runs land on different apps without storing any state.
- */
 function agentTargets(): SignupTarget[] {
   const all = selectedSignupTargets();
   if (all.length === 0) {
@@ -277,9 +266,6 @@ async function capture(
   return {
     label,
     url: page.url(),
-    // A page whose text cannot be read is not a page with no text: handing the
-    // model an empty string there would have it judge a blank screen and
-    // report a phantom finding, or miss a real one.
     visibleText,
     screenshot,
     consoleErrors: [...consoleErrors],
@@ -338,8 +324,6 @@ for (const target of targets) {
       const submit = page.locator("#magic-link-submit");
       await fillMagicLinkEmail(page, email);
       await submit.click();
-      // Give the app the moment a real user would give it before judging
-      // whether the submit visibly did anything.
       await page.waitForTimeout(4_000);
       steps.push(
         await capture(
@@ -364,7 +348,6 @@ for (const target of targets) {
       }
       const message = result.message;
       const link = verificationLinkFor(message, target.origin);
-      // The link-sent page redirects itself when its session poll sees verification.
       const verificationPage = await page.context().newPage();
       const { errors: verificationErrors } = collectAppPageErrors(
         verificationPage,
@@ -426,8 +409,6 @@ for (const target of targets) {
       );
     });
 
-    // A review that could not run is not a clean review: let this throw and
-    // fail the lane rather than reporting an empty finding list.
     const review = await reviewSignupJourney(
       target.app,
       target.environment,
@@ -449,8 +430,6 @@ for (const target of targets) {
         contentType: "image/png",
       });
     }
-    // Advisory by design: model-reported issues are surfaced in the job
-    // summary and the rolling issue, never used to fail a build or page anyone.
     console.log(markdown);
   });
 }

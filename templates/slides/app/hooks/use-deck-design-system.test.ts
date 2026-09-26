@@ -41,10 +41,6 @@ describe("mergeDesignSystemData", () => {
   });
 
   it("falls back to the default when a leaf value has the wrong runtime type", () => {
-    // DesignSystemCard's firstFontName() calls `.split()` on
-    // typography.headingFont with no type guard. An interrupted generation
-    // that persisted an object here must not survive the merge -- it would
-    // crash the whole Design Systems list, not just this row.
     const merged = mergeDesignSystemData({
       typography: { headingFont: {}, bodyWeight: 450 },
       borders: { radius: ["14px"] },

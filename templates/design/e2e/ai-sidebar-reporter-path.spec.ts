@@ -10,9 +10,6 @@ const GENERATION_PROMPT =
 const FOLLOW_UP =
   "The selected mobile heading needs a stronger visual hierarchy. Make the selected mobile heading larger.";
 
-// The loopback model makes the transport and action contract deterministic; it
-// does not assert response quality from a hosted Luna model.
-
 test.use({ viewport: { width: 2800, height: 1200 } });
 
 type DesignFile = { id: string; filename: string; content: string };

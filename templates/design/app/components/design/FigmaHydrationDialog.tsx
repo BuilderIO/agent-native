@@ -1,10 +1,3 @@
-/**
- * FigmaHydrationDialog — shown after a no-token local-kiwi clipboard import
- * when IMAGE fills couldn't be resolved. Collects a Figma access token, saves
- * it, then calls `hydrate-figma-paste-images` for each imported file to
- * replace the `url("about:blank")` placeholders with real durable images.
- */
-
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useRef, useState } from "react";

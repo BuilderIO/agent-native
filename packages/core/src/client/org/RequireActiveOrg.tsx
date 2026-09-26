@@ -19,35 +19,11 @@ import {
 
 export interface RequireActiveOrgProps {
   children: ReactNode;
-  /**
-   * Override the heading shown on the create-org pane. Default: "Create your organization".
-   */
   title?: string;
-  /**
-   * Override the description shown below the heading. Default explains that
-   * an org is required to use the app.
-   */
   description?: string;
-  /** Optional extra classes on the blocking pane wrapper. */
   className?: string;
 }
 
-/**
- * Guards its children behind the user having an active organization.
- *
- * When the user has no active org, renders a blocking, centered pane in place
- * of `children` with:
- *   1. Any pending invitations (one-click accept), and
- *   2. A "Create your organization" form.
- *
- * As soon as an org is joined or created, `useOrg` refetches and `children`
- * renders normally.
- *
- * The pane fills whatever box this component is rendered into — it does **not**
- * position itself `fixed` over the viewport. Place it inside your app shell so
- * ambient UI (agent sidebar, global nav) stays accessible while the user
- * completes org setup.
- */
 export function RequireActiveOrg({
   children,
   title,
@@ -59,10 +35,6 @@ export function RequireActiveOrg({
 
   if (isLoading) return null;
 
-  // Network / server failure on the org lookup — do NOT fall through to the
-  // create-org pane (that would lock out an existing member on a transient
-  // 500). Render a retry state instead. Only treat a successful null orgId
-  // response as "genuinely no org".
   if (isError) {
     return (
       <ErrorPane

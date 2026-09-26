@@ -16,11 +16,6 @@ import {
 
 import type { BridgeRegistrationFailureKind } from "./external-preview";
 
-/**
- * Shows the localhost bridge permission/retry affordance. The failure state is
- * a non-blocking card over the running app; first-land permission is a dialog
- * so the browser's user-gesture requirement is clear before editing starts.
- */
 export function LocalNetworkAccessPrompt({
   kind,
   connecting,

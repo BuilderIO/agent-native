@@ -1,22 +1,3 @@
-/**
- * Unit tests for the pure geometry helpers behind the on-canvas gradient
- * editing overlay (Figma-parity gradient handles, overview-canvas board/
- * draft/screen-frame scope). These helpers translate between a linear
- * gradient's `{ angle, stops }` (as authored by `GradientEditor`'s
- * `GradientValue`) and points in the target's own local (unrotated)
- * `{ width, height }` box — the same coordinate space `SelectionBox`'s
- * resize handles and `VectorEditOverlay`'s anchors already render in.
- *
- *  1. `gradientLineEndpoints` — angle+box -> the CSS `linear-gradient()`
- *     line's start/end points (the exact formula browsers use), so the
- *     rendered line matches the rendered fill exactly.
- *  2. `gradientStopPoints` — projects each stop's 0–100 position onto that
- *     line, for placing a round marker per stop.
- *  3. `angleFromDraggedEndpoint` / `stopPercentFromDraggedPoint` — the
- *     inverse direction: a dragged handle's local point back into an angle
- *     or stop position, so dragging on canvas round-trips with the above.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -28,8 +9,6 @@ import {
 
 describe("gradientLineEndpoints", () => {
   it("points straight up-to-down at 0deg spanning the full box height", () => {
-    // 0deg = "to top" in CSS terms == the gradient line's END is at the top;
-    // this app's angle convention (0 = north, clockwise) matches AngleDial.
     const { start, end } = gradientLineEndpoints(0, 100, 200);
     expect(start.x).toBeCloseTo(50);
     expect(start.y).toBeCloseTo(200);
@@ -47,9 +26,6 @@ describe("gradientLineEndpoints", () => {
 
   it("spans corner-to-corner on a square box at 45deg", () => {
     const { start, end } = gradientLineEndpoints(45, 100, 100);
-    // 45deg on a square should run exactly along a diagonal (top-left to
-    // bottom-right, since 45deg is halfway between 0=up and 90=right, i.e.
-    // pointing down-right).
     expect(start.x).toBeCloseTo(0);
     expect(start.y).toBeCloseTo(100);
     expect(end.x).toBeCloseTo(100);
@@ -126,9 +102,6 @@ describe("angleFromDraggedEndpoint", () => {
   });
 
   it("adds 180deg for the start handle (it's the far end of the axis)", () => {
-    // Dragging the START handle to the right of center means the gradient's
-    // start is on the right, so the line points left-to-right reversed —
-    // i.e. the axis angle (measured toward the END) is 270, not 90.
     const angle = angleFromDraggedEndpoint(
       { x: 100, y: 50 },
       100,
@@ -181,9 +154,6 @@ describe("stopPercentFromDraggedPoint", () => {
   });
 
   it("projects an off-axis point onto the line rather than ignoring it", () => {
-    // A point directly "above" the midpoint (perpendicular offset) should
-    // still project to ~50%, matching GradientEditor's own bar-click
-    // projection behavior for off-axis pointer positions.
     const { start, end } = gradientLineEndpoints(90, 100, 200);
     const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
     const offAxis = { x: mid.x, y: mid.y - 40 };

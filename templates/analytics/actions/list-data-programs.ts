@@ -1,10 +1,3 @@
-/**
- * Analytics HTTP surface for listing stored data programs.
- *
- * Core registers list-data-programs for the agent tool bag; template apps also
- * expose it here so extension iframes can call it via
- * /_agent-native/actions/list-data-programs.
- */
 import { defineAction } from "@agent-native/core/action";
 import { listDataPrograms } from "@agent-native/core/data-programs";
 import { getCredentialContext } from "@agent-native/core/server/request-context";

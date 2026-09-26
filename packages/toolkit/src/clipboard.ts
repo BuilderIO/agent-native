@@ -40,11 +40,6 @@ function writeWithExecCommand(text: string): boolean {
   }
 }
 
-/**
- * Writes text through the strongest clipboard available to the current host.
- * Desktop bridges are preferred, then the browser Clipboard API, with the
- * synchronous DOM path retained for embedded surfaces that deny async writes.
- */
 export async function writeClipboardText(
   text: string,
   options?: { html?: string },

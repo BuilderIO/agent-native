@@ -26,8 +26,6 @@ describe("detectSlideListKind", () => {
   });
 
   it("ignores a list that is only part of the object", () => {
-    // A whole-object toggle has no defined meaning here, so it must not claim
-    // the object is already a list and offer to unwrap it.
     expect(
       detectSlideListKind(element("<h2>Care</h2><ul><li>A</li></ul>")),
     ).toBeNull();
@@ -58,8 +56,6 @@ describe("toggleSlideList", () => {
   });
 
   it("keeps text sitting outside an inline tag", () => {
-    // An inline child is not a line of its own; treating it as one would keep
-    // only its text and drop everything around it.
     const host = element("Water <strong>weekly</strong> in summer");
 
     toggleSlideList(host, "bullet");
@@ -80,7 +76,6 @@ describe("toggleSlideList", () => {
   });
 
   it("drops the glyph when converting agent-styled bullet rows", () => {
-    // Without this the row's own marker and the list marker both render.
     const host = element(
       '<div style="display:flex"><span>•</span><span>Water weekly</span></div>',
     );

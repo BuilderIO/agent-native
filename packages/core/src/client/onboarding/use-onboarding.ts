@@ -1,12 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-/**
- * `useOnboarding` — client hook for the framework onboarding system.
- *
- * Fetches `/_agent-native/onboarding/steps` on mount, after any user-initiated
- * mutation (complete / dismiss / reopen), and when the tab regains focus.
- * No polling — onboarding state changes are user-driven, so a poll loop just
- * burns the DB and amplifies transient network errors.
- */
 
 import type {
   OnboardingAppProfile,
@@ -61,32 +53,17 @@ export interface UseOnboardingResult {
   profile: OnboardingAppProfile | null;
   loading: boolean;
   error: string | null;
-  /** Active step = first required+incomplete, else first incomplete. */
   currentStepId: string | null;
   completeCount: number;
   totalCount: number;
-  /** True when every required step is complete. */
   allComplete: boolean;
-  /** User dismissed the banner via the X button. */
   dismissed: boolean;
-  /** Refetch steps immediately. */
   refresh: () => Promise<void>;
-  /** Mark a step complete via the server-side override. */
   complete: (id: string) => Promise<void>;
-  /** Dismiss the banner permanently (until server-side reset). */
   dismiss: () => Promise<void>;
-  /** Re-open the panel after dismissal. */
   reopen: () => Promise<void>;
-  /** True until the post-signup full-screen flow is completed. */
   firstRun: boolean;
-  /** Clear the post-signup full-screen flow marker. Rejects instead of
-   *  resolving silently when the server call fails — see
-   *  `completeFirstRunError` for the message to show the user. */
   completeFirstRun: () => Promise<void>;
-  /** Set when the last `completeFirstRun()` call failed. Cleared on the next
-   *  attempt (success or failure). Distinct from `error` (the initial steps
-   *  load failure) so a failed Skip/Continue doesn't swap the whole screen
-   *  for an unrelated "could not load" message. */
   completeFirstRunError: string | null;
 }
 
@@ -115,9 +92,6 @@ export function useOnboarding(
   const fetchAll = useCallback(async () => {
     const fetchGeneration = ++fetchGenerationRef.current;
     try {
-      // One composed read replaces the three per-mount calls (steps,
-      // dismissed, profile); first-run status keeps its own endpoint because
-      // the startup gate reads it independently.
       const summaryUrl = agentNativePath(
         preview
           ? "/_agent-native/onboarding/summary?preview=1"
@@ -140,7 +114,6 @@ export function useOnboarding(
           reject(new Error("onboarding summary timed out"));
         }, ONBOARDING_SUMMARY_TIMEOUT_MS);
       });
-      // Keep the deadline armed through json(); a response body can stall after headers.
       const summaryRequest = (async () => {
         const response = await fetch(summaryUrl, {
           ...(summaryController ? { signal: summaryController.signal } : {}),
@@ -211,19 +184,11 @@ export function useOnboarding(
 
   useEffect(() => {
     mountedRef.current = true;
-    // The checklist is not visible during first paint; defer the initial
-    // read past the startup window. Focus/visibility refetches and
-    // post-mutation refreshes below stay immediate.
     let initialFetchRan = false;
     const cancelInitialFetch = scheduleAfterPaint(() => {
       initialFetchRan = true;
       if (mountedRef.current) void fetchAll();
     });
-    // Refetch when the tab regains focus — picks up any changes the agent
-    // made while the user was away (or that another tab made). A focus or
-    // visibility event inside the deferral window consumes the scheduled
-    // initial read, so one fetch lands immediately instead of two when the
-    // window elapses.
     const refetchOnFocus = () => {
       if (!initialFetchRan) {
         initialFetchRan = true;
@@ -270,7 +235,7 @@ export function useOnboarding(
   );
 
   const dismiss = useCallback(async () => {
-    setDismissed(true); // optimistic
+    setDismissed(true);
     const currentStepIndex = steps.findIndex((step) => !step.complete);
     const currentStep = steps[currentStepIndex];
     trackOnboardingEvent("onboarding_dismissed", {
@@ -292,7 +257,7 @@ export function useOnboarding(
   }, [fetchAll, steps]);
 
   const reopen = useCallback(async () => {
-    setDismissed(false); // optimistic
+    setDismissed(false);
     trackOnboardingEvent("onboarding_reopened", {
       flow: "checklist",
       reason: "user_action",
@@ -316,9 +281,6 @@ export function useOnboarding(
       return;
     }
     setCompleteFirstRunError(null);
-    // Both a rejected fetch (offline, dropped connection) and a non-ok
-    // response are real failures — neither may look like success to the
-    // caller, so both throw instead of returning as if the step advanced.
     let response: Response;
     try {
       response = await fetch(
@@ -388,5 +350,4 @@ export function useOnboarding(
   };
 }
 
-/** Re-export type for convenience. */
 export type { OnboardingMethod, OnboardingStepStatus };

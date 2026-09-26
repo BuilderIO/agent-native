@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-/** CTAs are rendered as external links, so only web URLs are valid targets. */
 export const ctaUrlSchema = z
   .string()
   .url()

@@ -3,13 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { buildPlanSlashCommands } from "./planSlashCommands";
 
-/**
- * The slash menu's block commands are derived from the registry's `"block"`
- * specs, and in Notion-sync mode they must be filtered to the NFM-representable
- * allowlist. We stub the registry's `list("block")` with the full plan +
- * standard-library set so a newly registered block cannot silently disappear
- * from the slash menu.
- */
 const REGISTRY_TYPES = [
   "callout",
   "diagram",
@@ -68,9 +61,6 @@ function stubRegistry(): BlockRegistry {
   return { list: () => specs } as unknown as BlockRegistry;
 }
 
-// Block command search text carries the block `type` (so the menu filter matches
-// the type keyword), so the set of registry-block types offered = the set of
-// search keywords among the items beyond the base prose commands.
 function blockTypesOffered(
   items: ReturnType<typeof buildPlanSlashCommands>,
 ): string[] {
@@ -91,7 +81,6 @@ describe("buildPlanSlashCommands", () => {
     const items = buildPlanSlashCommands(stubRegistry());
     const offered = blockTypesOffered(items);
     expect(offered).toEqual([...REGISTRY_TYPES]);
-    // Base prose commands are always present.
     expect(items.some((item) => item.title === "Text")).toBe(true);
     expect(items.some((item) => item.title === "Heading 1")).toBe(true);
   });
@@ -128,17 +117,14 @@ describe("buildPlanSlashCommands", () => {
       notionCompatibleOnly: true,
     });
     const offered = blockTypesOffered(items);
-    // Compatible types stay.
     expect(offered).toEqual(
       expect.arrayContaining(["callout", "checklist", "table"]),
     );
-    // Incompatible types are filtered out.
     for (const type of REGISTRY_TYPES.filter(
       (type) => !["callout", "checklist", "table"].includes(type),
     )) {
       expect(offered).not.toContain(type);
     }
-    // Prose commands are unaffected.
     expect(items.some((item) => item.title === "Text")).toBe(true);
     expect(items.some((item) => item.title === "Quote")).toBe(true);
   });

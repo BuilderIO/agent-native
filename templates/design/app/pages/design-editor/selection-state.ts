@@ -22,12 +22,6 @@ import {
 import type { GeometryHistorySelection } from "./history";
 import type { DesignTool, EditorMode } from "./types";
 
-// PF11: cache the FNV hash by content-string value. Two calls with an equal
-// (===, i.e. SameValueZero) content string always hash to the same
-// signature, so a plain value-keyed Map is a correct cache — no need for
-// reference-identity tricks. Bounded LRU-ish eviction (drop oldest entry)
-// keeps this from growing unboundedly across a long editing session with
-// many distinct HTML revisions.
 const CONTENT_SIGNATURE_CACHE_MAX = 200;
 const contentSignatureCache = new Map<string, string>();
 export function getContentSignature(content: string): string {
@@ -59,12 +53,6 @@ export function getOverviewScreenRuntimeReplacementKey({
   return [screenId, updatedAt ?? "", getContentSignature(content)].join(":");
 }
 
-/** Keep inline overview iframe identity stable across active-screen switches
- * and content/history updates. Inline overview screens have the bridge-backed
- * full-document replacement channel, so content changes belong in
- * `runtimeReplacementKey`, never in the iframe's srcdoc identity key. Other
- * source types retain the legacy remount fallback because they may not expose
- * an in-place document replacement bridge. */
 export function getOverviewScreenContentKey({
   screenId,
   screenIsActive,
@@ -96,13 +84,6 @@ export function shouldUseOverviewRuntimeReplacement({
   return sourceType === "inline" && !externalSnapshotHtml;
 }
 
-/**
- * Only inline HTML screens may contribute a fresh client snapshot to the
- * atomic screen-rename action. Localhost/fusion design_files rows intentionally
- * store a route URL marker rather than the rendered preview HTML; sending that
- * live snapshot as an override would silently convert the screen to inline
- * source and break /visual-edit.
- */
 export function shouldIncludeScreenRenameContentOverride(args: {
   fileType: string;
   sourceType: DesignSourceType;
@@ -124,24 +105,6 @@ export function sameStringIds(a: string[], b: string[]) {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
-/**
- * Undo/redo inspector-panel resync — decides whether a pending live edit
- * being reverted/replayed (by handleUndo's pendingStyleUndo/
- * pendingNonStyleUndo branches, or handleRedo's pendingTextRedo/
- * pendingLiveRedo branches) targets the SAME element as the current
- * `selectedElement`. Undo/redo aren't guaranteed to be undoing the
- * currently-selected element (the user may have re-selected something else
- * since the edit was made), so the panel should only be patched with the
- * revert/redo payload when this returns true — otherwise a background
- * undo would incorrectly clobber whatever the user has selected right now.
- * Matches by sourceId when BOTH sides carry one (the stable, authoritative
- * identity across re-renders) — a sourceId mismatch there means a different
- * element even if their selectors coincidentally collide (e.g. repeated
- * list items sharing one CSS selector). Falls back to the CSS selector only
- * when a sourceId comparison isn't possible on at least one side.
- *
- * Exported for unit testing.
- */
 export function pendingEditTargetsSelectedElement(args: {
   editSourceId?: string | null;
   editSelector: string;
@@ -161,12 +124,6 @@ export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
   return tagName === "BODY" || tagName === "HTML";
 }
 
-/**
- * MultiScreenCanvas keeps the owning screen in `selectedIds` while an element
- * inside it is selected, so every overview command reading that array (Delete,
- * arrow-key nudge) sees "the screens" when the real target is one node. The
- * more specific target wins. `__`-prefixed and file-id rows are frames.
- */
 export function overviewSelectionTargetsElement(args: {
   selectedElement: ElementInfo | null | undefined;
   selectedLayerIds: readonly string[];
@@ -211,16 +168,8 @@ export function shouldIgnoreOverviewLayerCreationEcho(args: {
   if (args.event === "clear" || isScreenRootElementInfo(args.info)) {
     return true;
   }
-  // Layers-panel selection is applied optimistically in the host, then the
-  // selected selector is mirrored into the overview iframe. The bridge echoes
-  // that exact layer back as an ordinary element-select a frame later. Without
-  // recognizing the matching id here, a Cmd/Ctrl toggle or Shift range briefly
-  // renders the correct multi-selection and is then collapsed to the echoed
-  // primary layer. Only ignore the exact pending layer; a real canvas click on
-  // any other element must still replace the panel selection immediately.
   const echoedLayerId =
     args.info?.sourceId ?? args.info?.id ?? args.info?.pendingNodeId;
-  // Projection ids are file-scoped; authored DOM ids can repeat across Screens.
   return (
     args.resolvedLayerId === args.pendingLayerId ||
     (args.pendingScreenId === args.screenId &&
@@ -425,9 +374,6 @@ export function getSidebarCodeLayerSelectionState(args: {
       ? ownerFileId
       : null;
   return {
-    // Layer selection is an editing action, so it always targets the infinite
-    // canvas. Keeping `single` here let the Layers rail turn Interact into the
-    // removed focused Edit view when the handler subsequently set mode=edit.
     viewMode: "overview" as const,
     overviewSelectedScreenIds: ownerScreenId
       ? [ownerScreenId]
@@ -475,22 +421,6 @@ export function shouldEscapeToOverview(args: {
   );
 }
 
-/**
- * A node's `parentId` in the FLAT code-layer ownership map
- * (`codeLayerOwnerByNodeId` / `codeLayerOwnerByNodeIdRef` in DesignEditor.tsx)
- * still points at `<html>`/`<body>` even though the VISUAL layers tree
- * collapses those document-shell nodes away (see shared/code-layer.ts's
- * `isCollapsibleDocumentShellNode` / `compactCodeLayerTreeNodes`) — the flat
- * map is built straight from `projection.nodes`, which is never filtered.
- * Mirrors `isCollapsibleDocumentShellNode`'s own check (tag is html/body AND
- * the layer name came from the tag itself, i.e. nothing more specific named
- * it) against the flat `CodeLayerNode`'s own fields directly, since the flat
- * node already carries `tag`/`layerNameSource` without needing a separate
- * lookup map.
- *
- * Select-parent must treat a document-shell parent as NO parent, or walking up
- * from a top-level layer selects raw `<body>` and strands the inspector at 0x0.
- */
 export function isDocumentShellCodeLayerNode(node: {
   tag: string;
   layerNameSource: string;
@@ -501,11 +431,6 @@ export function isDocumentShellCodeLayerNode(node: {
   );
 }
 
-/**
- * Callers walking the flat code-layer ownership map must use this instead of a
- * bare `Boolean(parentNode)` check, or a top-level layer's collapsed
- * `<body>`/`<html>` ancestor gets treated as a selectable parent layer.
- */
 export function hasSelectableCodeLayerParent(args: {
   parentNode: { tag: string; layerNameSource: string } | null | undefined;
 }): boolean {
@@ -514,23 +439,6 @@ export function hasSelectableCodeLayerParent(args: {
   );
 }
 
-/**
- * B5-1: an empty-canvas click (a marquee/hit-test that resolved to zero
- * elements) must deselect ANY current selection kind — a selected
- * overview screen frame AND a selected element inside a screen (set via the
- * iframe bridge). `handleLayerMarqueeSelectionChange` already clears the
- * host-side `selectedElement` state when nothing was hit and the gesture
- * isn't additive; this helper decides whether it must ALSO signal the
- * iframe/bridge overlays to clear their own selection highlight
- * (`overviewClearSelectionRequest`) — otherwise a previously-selected
- * in-screen element keeps showing its selection chrome inside the iframe
- * even though the host's `selectedElement` is already null. True whenever
- * the resolved hit-set is empty and the gesture isn't additive (an additive
- * click/shift-click on empty space is a no-op, matching Escape and the
- * MultiScreenCanvas-level `shouldClearSelectionOnEmptyCanvasClick`).
- *
- * Exported for unit testing.
- */
 export function shouldClearBridgeSelectionOnEmptyMarquee(args: {
   resolvedCount: number;
   additive: boolean | undefined;
@@ -538,22 +446,12 @@ export function shouldClearBridgeSelectionOnEmptyMarquee(args: {
   return args.resolvedCount === 0 && !args.additive;
 }
 
-/**
- * Figma spec §1 (see screen-element-select.ts's click-path
- * `additiveSelection`): Shift is the only additive (union) gesture. Cmd/Ctrl
- * deep-selects and REPLACES, same as a plain click. The marquee path must
- * resolve this the same way the click path does, or a Cmd-marquee unions
- * onto the existing selection instead of replacing it.
- *
- * Exported for unit testing.
- */
 export function resolveMarqueeAdditive(
   intent: ElementSelectionIntent | undefined,
 ): boolean {
   return Boolean(intent?.additive || intent?.range || intent?.shiftKey);
 }
 
-/** Clear stale element context when review focus changes screens or the board. */
 export function shouldClearSelectionForReviewThreadTarget(args: {
   activeFileId?: string | null;
   targetId?: string | null;
@@ -565,30 +463,6 @@ export function shouldClearSelectionForReviewThreadTarget(args: {
   return Boolean(args.targetId && args.targetId !== args.activeFileId);
 }
 
-/**
- * PICK-RACE: MultiScreenCanvas's `onPick` prop is `(id: string) => void` — no
- * modifier/event info — even though a shift-click there already toggled a
- * full multi-id array internally (handleFrameClick's own `selectedIds`
- * state) before calling `onPick` with just the resulting PRIMARY id. That
- * full array only reaches DesignEditor a render later, via the
- * `onScreenSelectionChange` effect (MultiScreenCanvas reports its
- * `selectedIds` from a `useEffect` that commits after this synchronous
- * `onPick` call already ran).
- *
- * Forcing `selectedLayerIdsState` down to `[pickedId]` in
- * `handleOverviewScreenPick` is wrong for BOTH shift-click cases: adding a
- * screen would drop every other already-selected screen, and removing one
- * would replace the whole array with just the new primary — there is no way
- * to reconstruct the correct multi-id array from a single id. So: while
- * Shift is held, this returns the CURRENT selection unchanged instead of a
- * wrong singleton, and lets `overviewSelectedScreenIds` (which the
- * `selectedLayerIds` derivation already prefers whenever non-empty) be the
- * sole source of truth once that effect settles. When Shift isn't held this
- * is a plain single-screen pick, matching the previous unconditional
- * behavior.
- *
- * Exported for unit testing.
- */
 export function computeOverviewScreenPickSelectionIds(args: {
   pickedId: string;
   shiftKeyHeld: boolean;
@@ -597,15 +471,6 @@ export function computeOverviewScreenPickSelectionIds(args: {
   return args.shiftKeyHeld ? args.currentSelectedLayerIds : [args.pickedId];
 }
 
-/**
- * Build the set of all node ids (both projection ids and data-agent-native-node-id
- * attribute values) that exist in the given projection. Used by handleGroupSelection
- * and handleUngroupSelection to filter selectedLayerIdsState to the active file's
- * nodes before passing them to wrapNodes / unwrap, preventing cross-file stale ids
- * from causing spurious "conflict" errors.
- *
- * Exported for unit testing.
- */
 export function buildActiveFileNodeIdSet(
   projection: CodeLayerProjection,
 ): Set<string> {
@@ -618,32 +483,12 @@ export function buildActiveFileNodeIdSet(
   return ids;
 }
 
-/**
- * Figma parity: only a genuine user pick — pointer, keyboard, or marquee,
- * see ElementSelectionIntent's `source` — is its own undo step. An
- * intent-less call is the bridge/host re-anchoring selection as a side
- * effect of something else (a duplicate's clone selected mid-gesture, a
- * post-persist code-layer catch-up echo, a drag-reparent commit reselecting
- * the moved node); that edit's own content/geometry entry already carries
- * selectionBefore/After, so recording this too would stack a stray
- * "selection" entry on top of it — and undo would pop the reselect instead
- * of the edit.
- *
- * Exported for unit testing.
- */
 export function isUserOriginatedSelectionIntent(
   intent: ElementSelectionIntent | undefined,
 ): boolean {
   return Boolean(intent);
 }
 
-/**
- * Whether two selection snapshots are the same selection — used to skip
- * recording a no-op selection-history entry (a command ran but landed back
- * on the same selection it started from).
- *
- * Exported for unit testing.
- */
 export function selectionHistorySnapshotsEqual(
   a: GeometryHistorySelection,
   b: GeometryHistorySelection,
@@ -655,21 +500,6 @@ export function selectionHistorySnapshotsEqual(
   );
 }
 
-/**
- * Figma-parity undo/redo selection restore for the new selection-only
- * history kind: `restoreSelectionSnapshot` (DesignEditor.tsx) only knows
- * `GeometryHistorySelection`'s own fields (layer ids, screen ids, active
- * file) and has no `ElementInfo` to give the canvas selection overlay, which
- * reads `selectedElement`, not `selectedLayerIdsState`. Mirrors the same
- * derivation `undoContent`/`redoContent` already do from a content
- * projection, but from the flat `codeLayerOwnerByNodeId` map instead (a
- * selection-only entry never rewrites document content, so there is no
- * content snapshot to re-project). Scoped to exactly one restored layer, like
- * its content-history counterparts — a multi-select has no single
- * `ElementInfo` to give the overlay.
- *
- * Exported for unit testing.
- */
 export function elementInfoForSelectionSnapshot(
   selection: GeometryHistorySelection,
   codeLayerOwnerByNodeId: ReadonlyMap<string, { node: CodeLayerNode }>,
@@ -679,15 +509,6 @@ export function elementInfoForSelectionSnapshot(
   return owner ? elementInfoFromCodeLayerNode(owner.node) : null;
 }
 
-/**
- * Tail of DesignEditor.tsx's `selectedLayerIds` memo: the primary pick
- * (`selectedElementLayerId`, from `selectedElement`) is re-added when a
- * stale re-anchoring echo left it out of the otherwise-filtered array.
- * `selectedElement` is the thing a Shift+click toggle-off must move FIRST
- * (see runScreenElementSelect) — as long as it does, this never resurrects a
- * member the user just removed, since the filtered array and the primary
- * agree on which id fell out.
- */
 export function resolveEffectiveSelectedLayerIds(
   filtered: string[],
   selectedElementLayerId: string | null,

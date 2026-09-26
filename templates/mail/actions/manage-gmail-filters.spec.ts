@@ -18,11 +18,6 @@ beforeEach(() => {
 
 describe("manage-gmail-filters action", () => {
   it("throws a typed, caller-facing ActionContractError when no Google account is connected", async () => {
-    // Regression: a plain Error here has no statusCode, so action-routes.ts
-    // collapses it to a generic 500 "Internal server error" and the specific,
-    // actionable message never reaches the UI (see find-5). ActionContractError
-    // carries an explicit sub-500 statusCode, which action-routes.ts treats as
-    // user-facing and echoes verbatim.
     await expect(action.run({ operation: "list" })).rejects.toSatisfy(
       (err: unknown) => {
         expect(isActionContractError(err)).toBe(true);

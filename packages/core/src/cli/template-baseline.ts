@@ -1,16 +1,3 @@
-/**
- * Baseline store for `agent-native template`.
- *
- * A baseline is the pristine upstream tree an app was generated from — the
- * "base" side of the 3-way merge. It is stored as a git ref under
- * `refs/agent-native/template-baseline/<app-path>` so it never shows up as
- * working-tree files, and as a gzipped tar under `.agent-native/` only when
- * the app is not inside a git repository at all.
- *
- * Every git operation here is plumbing driven by a throwaway `GIT_INDEX_FILE`
- * and an out-of-tree `--work-tree`. Nothing in this file may move HEAD, touch
- * the user's index, or write into their working tree.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -20,13 +7,9 @@ export type BaselineSlot = "baseline" | "pending";
 
 export interface BaselineStore {
   appDir: string;
-  /** Absolute `.git` directory, or null when the app is not in a repo. */
   gitDir: string | null;
-  /** Absolute work-tree root, or null when the app is not in a repo. */
   repoRoot: string | null;
-  /** Repo-relative posix prefix the app lives at ("" when app === repo root). */
   prefix: string;
-  /** Stable id used in ref names and tarball filenames. */
   slug: string;
 }
 
@@ -38,9 +21,7 @@ export interface BaselineWriteMeta {
 
 export interface BaselineWriteResult {
   kind: "git-ref" | "tarball";
-  /** Ref name or tarball path. */
   location: string;
-  /** Commit sha for git refs. */
   commit?: string;
   configuredRefspecs: string[];
 }
@@ -54,8 +35,6 @@ const GIT_IDENTITY = {
 };
 
 export function resolveBaselineStore(appDir: string): BaselineStore {
-  // git reports realpaths; comparing against a symlinked temp path (macOS
-  // /var → /private/var) would compute a nonsense repo-relative prefix.
   const resolved = realpath(path.resolve(appDir));
   const gitDir = findGitDir(resolved);
   const repoRoot = gitDir ? findRepoRoot(resolved) : null;
@@ -115,11 +94,6 @@ export function baselineDescription(
   return `${ref} (${commit.slice(0, 12)}) ${subject}`;
 }
 
-/**
- * Snapshot `sourceDir` into the baseline store. Writes through a temporary
- * index and an out-of-tree work-tree so HEAD, the real index, and the working
- * tree are untouched.
- */
 export function writeBaseline(
   store: BaselineStore,
   sourceDir: string,
@@ -146,8 +120,6 @@ export function writeBaseline(
 
     const indexFile = path.join(stage, "index");
     const env = { ...process.env, ...GIT_IDENTITY, GIT_INDEX_FILE: indexFile };
-    // --force: the app's own .gitignore lives inside the staged tree and would
-    // otherwise drop scaffolded files from the baseline.
     git(store, ["--work-tree", stageRoot, "add", "-A", "--force", "."], {
       cwd: stageRoot,
       env,
@@ -182,7 +154,6 @@ export function writeBaseline(
   }
 }
 
-/** Point `slot` at whatever `from` currently points at. */
 export function promoteBaseline(
   store: BaselineStore,
   from: BaselineSlot,
@@ -214,10 +185,6 @@ export function clearBaseline(store: BaselineStore, slot: BaselineSlot): void {
   }
 }
 
-/**
- * Extract a stored baseline into a fresh temp directory whose root is the app
- * root. Returns null when the slot is empty. Callers own the returned dir.
- */
 export function materializeBaseline(
   store: BaselineStore,
   slot: BaselineSlot,
@@ -263,10 +230,6 @@ export function materializeBaseline(
   }
 }
 
-/**
- * Teach the repo's remote to carry `refs/agent-native/*` so baselines survive
- * clone and push. Returns the refspecs it actually added.
- */
 export function ensureBaselineRefspecs(store: BaselineStore): string[] {
   if (!store.gitDir) return [];
   const remotes = git(store, ["remote"])
@@ -290,7 +253,6 @@ export function ensureBaselineRefspecs(store: BaselineStore): string[] {
   return added;
 }
 
-/** Uncommitted changes under the app dir, as porcelain lines. */
 export function appDirtyPaths(store: BaselineStore): string[] {
   if (!store.gitDir) return [];
   const out = gitAllowFail(store, [
@@ -305,18 +267,12 @@ export function appDirtyPaths(store: BaselineStore): string[] {
     .filter(Boolean);
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Internals
- * ───────────────────────────────────────────────────────────────────────── */
-
 function git(
   store: BaselineStore,
   args: string[],
   options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
 ): string {
   return execFileSync("git", ["--git-dir", store.gitDir!, ...args], {
-    // Without an explicit work tree, `--git-dir` makes git treat cwd as the
-    // work-tree root, which turns every sibling path into a phantom deletion.
     cwd: options.cwd ?? store.repoRoot ?? store.appDir,
     encoding: "utf-8",
     env: options.env ?? { ...process.env, ...GIT_IDENTITY },
@@ -371,8 +327,6 @@ function findRepoRoot(dir: string): string | null {
   }
 }
 
-/** Copy regular files and directories only. Symlinks are never part of a
- *  baseline: they are agent-tool conveniences, not upstream content. */
 function copyPlainTree(src: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
@@ -388,7 +342,6 @@ function copyPlainTree(src: string, dest: string): void {
   }
 }
 
-/** Make each path segment safe for `git check-ref-format`. */
 export function sanitizeRefPath(value: string): string {
   const segments = value
     .split("/")

@@ -1,12 +1,3 @@
-/**
- * The CPU-heavy half of a browser `.fig` import: decode, inspect, render.
- *
- * It runs inside `fig-import-worker.ts`, or inline where there is no Worker.
- * The decoded document stays here either way: structured-cloning it across a
- * Worker boundary costs about a second in each direction, so only the summary
- * and the rendered frames ever leave.
- */
-
 import { decodeFig } from "../../server/lib/fig-file-decoder.js";
 import type { DecodedFig } from "../../server/lib/fig-file-decoder.js";
 import {
@@ -18,13 +9,10 @@ import {
   type RenderedFigImport,
 } from "../../shared/fig-to-frames.js";
 
-/** Base64 plus action JSON must stay below the serverless request ceiling. */
 export const MAX_CLIENT_IMAGE_BYTES = 4 * 1024 * 1024;
-/** Finite browser allocation ceiling; this is far above the old 50 MB upload cap. */
 export const MAX_CLIENT_FIG_BYTES = 512 * 1024 * 1024;
 
 export interface RenderedBrowserFigImport extends RenderedFigImport {
-  /** Embedded images too large for one `upload-image` request. */
   skippedEmbeddedImageCount: number;
 }
 
@@ -46,9 +34,6 @@ export function createFigImportSession(): FigImportSession {
   return {
     async prepare(file) {
       assertBrowserFigSize(file);
-      // The file never crosses the network on this path. Keep the decoder's
-      // decompression, node, image, and generated-HTML budgets, but remove the
-      // server-only raw upload ceiling.
       decoded = decodeFig(new Uint8Array(await file.arrayBuffer()), {
         maxFileBytes: MAX_CLIENT_FIG_BYTES,
       });

@@ -41,8 +41,6 @@ vi.mock("../server/lib/mail-settings.js", () => ({
 vi.mock("../server/lib/inbox-store.js", () => ({
   readInboxThreads: mocks.readInboxThreads,
   readCachedLabels: mocks.readCachedLabels,
-  // Identity-ish: the action only needs a stable row -> item mapping here,
-  // not the real Gmail-label-id remap (covered in inbox-store.spec.ts).
   inboxRowToItem: (row: any) => ({
     id: row.latestMessageId,
     threadId: row.threadId,
@@ -96,7 +94,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   mocks.isConnected.mockResolvedValue(true);
-  // Gmail-connected by default; local-mode tests override this to [].
   mocks.getConnectedAccountsWithErrors.mockResolvedValue({
     accounts: [OWNER],
     errors: [],
@@ -223,7 +220,6 @@ describe("list-inbox-threads action", () => {
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0].threadId).toBe("t1");
-    // total/tab counts describe the whole tab, not the unread-filtered page.
     expect(result.total).toBe(2);
     expect(result.complete).toBe(false);
     expect(result.tabs.find((t) => t.id === "important")?.total).toBe(2);
@@ -308,7 +304,6 @@ describe("list-inbox-threads action — local mode (no connected Google account)
         isRead: true,
         date: "2024-01-02T00:00:00Z",
       }),
-      // Not in the inbox — excluded from the thread.
       localEmail({ id: "m3", threadId: "t2", isArchived: true }),
       localEmail({ id: "m4", threadId: "t3", isTrashed: true }),
       localEmail({ id: "m5", threadId: "t4", isDraft: true }),
@@ -324,7 +319,7 @@ describe("list-inbox-threads action — local mode (no connected Google account)
     expect(result.items).toHaveLength(1);
     const item = result.items[0];
     expect(item.threadId).toBe("t1");
-    expect(item.id).toBe("m2"); // latest by date
+    expect(item.id).toBe("m2");
     expect(item.messageCount).toBe(2);
     expect(item.unreadCount).toBe(1);
     expect(item.messageIds.sort()).toEqual(["m1", "m2"]);
@@ -412,10 +407,6 @@ describe("list-inbox-threads action — local mode (no connected Google account)
 
 describe("list-inbox-threads action — managed workspace grant (no per-user OAuth row)", () => {
   it("uses the synced-store path, not local fallback, when connected accounts reports a managed grant", async () => {
-    // HIGH review finding: a managed Gmail grant has no per-user OAuth row,
-    // so the "is this account connected" check must go through
-    // the connected-account inventory includes the managed client's email,
-    // not listOAuthAccountsByOwner directly.
     mocks.getConnectedAccountsWithErrors.mockResolvedValue({
       accounts: ["managed@example.com"],
       errors: [],

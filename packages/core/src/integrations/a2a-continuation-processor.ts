@@ -70,9 +70,6 @@ const PROCESSOR_PATH = `${FRAMEWORK_ROUTE_PREFIX}/integrations/process-a2a-conti
 const TERMINAL_STATES = new Set(["completed", "failed", "canceled"]);
 const MAX_ATTEMPTS = 30;
 const MAX_REMOTE_WORK_MS = 20 * 60_000;
-// Re-dispatch continuations after a short delay. Serverless hosts do not keep
-// in-memory interval sweepers alive between requests, so delayed self-dispatch
-// is the portable retry mechanism.
 const RESCHEDULE_DELAY_MS = 20_000;
 const MAX_PRE_CLAIM_WAIT_MS = 25_000;
 const POLL_INTERVAL_MS = 2_000;
@@ -103,14 +100,6 @@ export async function dispatchA2AContinuation(
   continuationId: string,
   webhookBaseUrl?: string,
 ): Promise<void> {
-  // Self-dispatch: this POST has to land on the deployment that enqueued the
-  // continuation. It used to carry its own chain, which omitted
-  // DEPLOY_PRIME_URL — so a deploy preview dispatched to production — and
-  // silently fell back to localhost in production, where the request simply
-  // never arrives and the continuation is dropped with no error.
-  // `WEBHOOK_BASE_URL` stays ahead of it: this runs from a retry job with no
-  // inbound request, and a dev tunnel is reachable where the app's own address
-  // is not.
   const baseUrl =
     webhookBaseUrl ||
     process.env.WEBHOOK_BASE_URL ||
@@ -317,13 +306,6 @@ export async function processDueA2AContinuations(options: {
   }
 }
 
-/**
- * Durable scheduler wake-up only: make a bounded set of due/stale rows
- * eligible, then invoke their normal processors. It never polls remote A2A
- * tasks or runs a mutation itself, keeping the scheduled route within its
- * short execution budget. Duplicate wake-ups are safe because each processor
- * still takes the store's atomic claim before it can progress or deliver.
- */
 export async function recoverDueA2AContinuations(options?: {
   limit?: number;
   webhookBaseUrl?: string;
@@ -922,11 +904,6 @@ async function deliverA2AContinuationResponse(
       throw new Error("Continuation progress completed without delivery proof");
     } catch {
       throwIfAborted(signal);
-      // A resumed Slack stream can no longer be finalized (for example when
-      // chat.stopStream rejects). Preserve the final answer with the same
-      // thread reply fallback used by the initial webhook run. Also ask the
-      // adapter to terminate the native stream: otherwise Slack can keep the
-      // task card in its working state after the thread fallback succeeds.
       try {
         await progress.fail?.(
           "I couldn't update the live response, but I posted the final result in this thread.",
@@ -1326,9 +1303,6 @@ async function signContinuationToken(
   }
   if (!storedToken) return {};
 
-  // Older continuations may have persisted the initial short-lived JWT. Avoid
-  // replaying it forever after expiry; opaque legacy bearer keys can still be
-  // reused because we cannot re-mint those.
   if (isLikelyJwt(storedToken)) return {};
   return { apiKey: storedToken };
 }
@@ -1423,8 +1397,6 @@ function extractVerifiedRecoverableArtifactText(
   const text = formatContinuationArtifactText(extractTaskText(task), agentUrl);
   if (!text.trim()) return null;
 
-  // Require the signed identity ledger so arbitrary peer progress prose cannot
-  // prematurely complete the continuation.
   const artifacts = extractA2AArtifactIdentities(
     [{ tool: "call-agent", result: text }],
     {

@@ -14,7 +14,6 @@
  */
 import { parseEnvelope, symmetricDecrypt } from "better-auth/crypto";
 
-/** Better Auth's stable copy for this failure (plugins/jwt sign path). */
 const JWKS_DECRYPT_ERROR_SNIPPET = "Failed to decrypt private key";
 
 export function isJwksDecryptError(error: unknown): boolean {
@@ -23,11 +22,6 @@ export function isJwksDecryptError(error: unknown): boolean {
   );
 }
 
-/**
- * A failed heal must not be re-attempted on every request — under an outage
- * every session check funnels here at once. One attempt per process per
- * cooldown window; concurrent callers share the in-flight attempt.
- */
 const HEAL_COOLDOWN_MS = 60_000;
 let lastHealAttemptAt = 0;
 let inFlightHeal: Promise<boolean> | undefined;
@@ -55,8 +49,6 @@ export async function healUndecryptableJwks(): Promise<boolean> {
 }
 
 async function attemptHeal(): Promise<boolean> {
-  // Lazy imports keep this module cycle-free: better-auth-instance wraps the
-  // JWT plugin with `withJwksRotationRecovery` from this file.
   const [{ getDbExec }, { getAuthSecret }] = await Promise.all([
     import("../db/client.js"),
     import("./better-auth-instance.js"),
@@ -69,14 +61,8 @@ async function attemptHeal(): Promise<boolean> {
     args: [nowValue],
   });
   const storedPrivateKey = rows[0]?.private_key;
-  // No active key: Better Auth mints one itself, nothing to heal.
   if (typeof storedPrivateKey !== "string") return false;
 
-  // Better Auth stores the ciphertext JSON-encoded; a non-string payload means
-  // private-key encryption is disabled and the decrypt failure came from
-  // somewhere else — expiring healthy keys would be worse than the 500.
-  // An unparseable stored key is "not the shape this heal owns", and false
-  // ("did not heal") is the typed answer callers distinguish from success.
   let ciphertext: unknown;
   try {
     ciphertext = JSON.parse(storedPrivateKey);
@@ -94,8 +80,6 @@ async function attemptHeal(): Promise<boolean> {
 
   try {
     await symmetricDecrypt({ key: getAuthSecret(), data: ciphertext });
-    // The key decrypts with the current secret — the observed failure was not
-    // a secret rotation. Leave the healthy key alone.
     return false;
     // coercion-ok: this decrypt is a probe; the throw is the positive signal.
   } catch {
@@ -115,9 +99,6 @@ async function attemptHeal(): Promise<boolean> {
   return true;
 }
 
-// Structural stand-in for BetterAuthPlugin: the real hook context type is
-// plugin-specific, and `any` keeps the wrapper assignable both ways without
-// importing better-auth's internal endpoint types.
 type AuthHookLike = {
   matcher: (context: any) => boolean;
   handler: (context: any) => Promise<unknown>;
@@ -130,14 +111,6 @@ type AuthPluginLike = {
   };
 };
 
-/**
- * Wrap a Better Auth plugin's after-hooks so a JWKS decrypt failure heals and
- * retries instead of failing the request. Built for the JWT plugin, whose
- * `/get-session` hook only decorates the response with `set-auth-jwt`: when
- * the retry still cannot sign, the header is skipped — loudly — because
- * failing every session check over an optional header is exactly the outage
- * this module exists to prevent.
- */
 export function withJwksRotationRecovery<P extends AuthPluginLike>(
   plugin: P,
 ): P {

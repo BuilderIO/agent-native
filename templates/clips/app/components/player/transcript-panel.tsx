@@ -54,9 +54,7 @@ export interface TranscriptPanelProps {
   failureReason?: string | null;
   recordingTitle?: string;
   audience?: "creator" | "viewer";
-  /** Called when the user asks us to retry transcription after fixing an error. */
   onRetry?: () => void;
-  /** Called when the user asks for a fresh transcript from the recording media. */
   onRegenerate?: () => void;
   isRegenerating?: boolean;
 }
@@ -233,9 +231,6 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     URL.revokeObjectURL(url);
   }
 
-  // Surface the setup card when transcription failed due to a provider
-  // configuration issue — missing key, quota error, rejected key, etc.
-  // Builder connection is the recommended fix in all these cases.
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
   const needsSetup =
@@ -592,11 +587,6 @@ function BuilderCreditsPausedNotice({
   );
 }
 
-/**
- * Returns true when the transcription failure is due to a provider
- * configuration problem — missing key, quota exceeded, key rejected,
- * no provider at all. Builder connection fixes all of these.
- */
 function isTranscriptionSetupNeeded(
   reason: string | null | undefined,
 ): boolean {
@@ -667,13 +657,6 @@ function friendlyTranscriptFailure(
   return reason;
 }
 
-/**
- * Inline card shown when transcription needs a provider set up.
- *
- * Builder.io is the only cloud fallback — free, one-click, no separate API
- * key required (uses BUILDER_PRIVATE_KEY once the user connects). Clips does
- * not route recording transcription to BYOK speech providers.
- */
 function TranscriptSetupCard({
   failureReason,
   onRetry,

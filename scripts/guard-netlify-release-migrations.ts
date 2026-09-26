@@ -82,12 +82,6 @@ export function validateNetlifyReleaseMigrationConfig(
   return [];
 }
 
-/**
- * Published sites have two build lanes in this repository: production and the
- * automatic beta prebuilt lane. A production-only command/flag is not enough
- * when beta builds use branch-deploy context, because that leaves the request
- * runtime doing schema probes on every cold function.
- */
 export function validatePublishedNetlifyReleaseMigrationConfig(
   source: string,
   file = "netlify.toml",

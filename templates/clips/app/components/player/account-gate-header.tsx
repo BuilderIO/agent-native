@@ -12,11 +12,6 @@ interface AccountGateHeaderProps {
   welcomeLabel: ReactNode;
 }
 
-/**
- * Shared hierarchy for every public-share account prompt. Keeping the intent
- * in the description slot lets each gate change its copy without changing the
- * visual rhythm or the accessible dialog title.
- */
 export function AccountGateHeader({
   actionLabel,
   returnLabel,

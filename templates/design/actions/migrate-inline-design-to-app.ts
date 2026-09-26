@@ -54,17 +54,12 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   resolveBuilderStatus,
   buildMigrationSeed,
 } from "../shared/builder-app.js";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** The default Builder app host — mirrors the constant in builder-browser.ts. */
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 
 function resolveBuilderAppHost(): string {
@@ -98,9 +93,6 @@ async function snapshotDesign(
   const versionId = nanoid();
   const now = new Date().toISOString();
 
-  // Read the current file contents for the snapshot (stored content only;
-  // we intentionally capture the persisted baseline, not in-flight collab text,
-  // so the snapshot is stable and reproducible).
   const files = await db
     .select({
       filename: schema.designFiles.filename,
@@ -143,10 +135,6 @@ async function snapshotDesign(
   return versionId;
 }
 
-// ---------------------------------------------------------------------------
-// Action
-// ---------------------------------------------------------------------------
-
 export default defineAction({
   description:
     "Migrate an inline Alpine/HTML design to a real React + Tailwind app " +
@@ -178,16 +166,12 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, brandKitSummary, branchName }) => {
-    // ── 1. Access check ────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) {
       throw new Error("Design not found");
     }
     const design = access.resource as typeof schema.designs.$inferSelect;
 
-    // Snapshotting a design_versions row + kicking off a paid Builder cloud run
-    // are mutations: require editor access. A read-only (viewer) share must not
-    // be able to trigger them.
     await assertAccess("design", designId, "editor");
 
     // Make Real migration is Builder-staff only for now. The dialog waitlists
@@ -201,11 +185,9 @@ export default defineAction({
       );
     }
 
-    // ── 2. Builder status check ────────────────────────────────────────────
     const builderStatus = await resolveBuilderStatus();
 
     if (!builderStatus.connected || !builderStatus.builderEnabled) {
-      // Return a graceful CTA; never throw so the UI can render the card.
       const connectUrl = buildConnectUrl(
         process.env.APP_URL ??
           process.env.VITE_APP_URL ??
@@ -233,7 +215,6 @@ export default defineAction({
         };
       }
 
-      // Connected but no project ID.
       return {
         status: "not-configured" as const,
         designId,
@@ -253,7 +234,6 @@ export default defineAction({
       };
     }
 
-    // ── 3. Resolve branch project ID ──────────────────────────────────────
     const projectId = await resolveBuilderBranchProjectId();
     if (!projectId) {
       throw new Error(
@@ -263,16 +243,13 @@ export default defineAction({
       );
     }
 
-    // ── 4. Snapshot the current design (reversible baseline) ──────────────
     const versionId = await snapshotDesign(
       designId,
       `Pre-migration snapshot — ${design.title}`,
     );
 
-    // ── 5. Build the live snapshot (Yjs preferred for in-flight edits) ────
     const snapshot = await buildDesignSnapshot(designId, design.data);
 
-    // ── 6. Build the migration seed prompt ────────────────────────────────
     const seed = buildMigrationSeed({
       title: design.title,
       files: snapshot.files,
@@ -280,7 +257,6 @@ export default defineAction({
       brandKitSummary,
     });
 
-    // ── 7. Hand off to the Builder cloud agent ────────────────────────────
     const ownerEmail = getRequestUserEmail();
     const result = await runBuilderAgent({
       prompt: seed.prompt,

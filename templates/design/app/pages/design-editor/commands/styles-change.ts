@@ -108,8 +108,6 @@ export function runStylesChange(
     return;
   }
 
-  // Gesture cancellation is paired with a preceding preview that restored the
-  // pointerdown values. It must not enter this command's preview or commit path.
   if (meta?.phase === "cancel") {
     if (selectedScreenId && selectedScreenStyleChange) {
       selectedScreenStyleChange(
@@ -133,12 +131,6 @@ export function runStylesChange(
     );
     return;
   }
-  // Interaction-states phase 2 — see handleStyleChange's matching branch
-  // (and commitInteractionStateStyles's doc comment) for the full
-  // contract. Batched form: every property in this one commit lands in
-  // the SAME managed-block write (one applyFileContentUpdate call), so a
-  // multi-property commit made while a state is active (e.g. a shadow
-  // popover's X/Y/blur/spread) is still exactly one history step.
   if (meta?.interactionState) {
     if (selectedScreenId && selectedScreenStyleChange) {
       selectedScreenStyleChange(
@@ -158,13 +150,6 @@ export function runStylesChange(
       return;
     }
   }
-  // Item 14 — see handleStyleChange's matching branch for the full
-  // breakpointReset contract. EditPanel's BreakpointOverrideIndicator
-  // reset currently only fires through onStyleChange (a single
-  // property), but StylesChangeHandler shares the same StyleChangeMeta
-  // type, so this guards defensively for any batched caller too —
-  // breakpointReset only ever targets its own `property`, so only that
-  // one key of `styles` is relevant here.
   if (meta?.breakpointReset) {
     handleClearBreakpointOverride(
       meta.breakpointReset.property,
@@ -246,11 +231,6 @@ export function runStylesChange(
     );
     if (meta?.relativeExpression || applied) return;
   }
-  // PF12: same preview/commit split as handleStyleChange — see its
-  // comment for the full undo-safety rationale. A batched multi-property
-  // preview tick (e.g. EditPanel's shadow X/Y/blur/spread popover) is
-  // still just a live preview: send every property to the cheap iframe
-  // bridge and skip the expensive multi-property commitVisualStyles call.
   if (
     shouldSkipVisualStyleCommitForPreview({
       phase: meta?.phase,

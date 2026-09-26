@@ -14,8 +14,6 @@ const mocks = vi.hoisted(() => ({
   assertSourceWorkspaceConnectionAvailable: vi.fn(),
 }));
 
-// The real fail() is what makes the reason survive the action HTTP route as a
-// readable 400 instead of a generic 500, so it is deliberately not mocked.
 vi.mock("@agent-native/core/action", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (action: unknown) => action,
@@ -53,8 +51,6 @@ type ActionRun = { run: (args: Record<string, unknown>) => Promise<unknown> };
 const createSource = createSourceAction as unknown as ActionRun;
 const updateSource = updateSourceAction as unknown as ActionRun;
 
-// The exact value from the bug report: a markdown link pasted into the plain
-// text "Allowed channels" field.
 const GARBLED_PASTE = "http://slack.com/channel](http://slack.com/channel)";
 
 describe("create-source config validation", () => {

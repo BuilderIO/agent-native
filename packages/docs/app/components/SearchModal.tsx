@@ -22,8 +22,6 @@ import { buildSearchIndexAsync, type SearchEntry } from "./docs-content";
 import { docsPathForSlug } from "./docs-locale";
 import { useDocsTheme } from "./ThemeToggle";
 
-// Lazily built on first open — not at module scope — so the index and the full
-// docs corpus are not included in the initial page bundle.
 const cachedIndexes = new Map<string, SearchEntry[]>();
 const pendingIndexes = new Map<string, Promise<SearchEntry[]>>();
 function getCachedSearchIndex(locale: string): SearchEntry[] | null {
@@ -46,8 +44,6 @@ function loadSearchIndex(locale: string): Promise<SearchEntry[]> {
       return index;
     })
     .catch((error) => {
-      // A stale or unavailable document chunk must not poison retries for the
-      // rest of the session with the same rejected promise.
       pendingIndexes.delete(locale);
       throw error;
     });
@@ -96,7 +92,6 @@ function search(query: string, index: SearchEntry[]): SearchEntry[] {
         if (pageLower.includes(word)) score += isPageEntry ? 5 : 2;
         if (textLower.includes(word)) score += 3;
       }
-      // exact phrase bonus
       if (keywordsLower.includes(q)) score += 35;
       if (pageLower.includes(q)) score += isPageEntry ? 25 : 5;
       if (textLower.includes(q)) score += 20;
@@ -225,7 +220,6 @@ export function SearchModal({
     };
   }, [locale, open, retryCount]);
 
-  // Focus management: save focus before open, restore on close
   useEffect(() => {
     if (open) {
       previousFocusRef.current = document.activeElement;
@@ -256,7 +250,6 @@ export function SearchModal({
     [navigate, onClose],
   );
 
-  // Keyboard: Escape, arrows, Enter, and Tab focus trap
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -289,7 +282,6 @@ export function SearchModal({
         const result = results[activeIdx - resultIndexOffset];
         if (result) go(result);
       } else if (e.key === "Tab") {
-        // Focus trap: cycle focus within the modal
         const modal = modalRef.current;
         if (!modal) return;
         const focusable = Array.from(

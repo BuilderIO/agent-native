@@ -65,10 +65,6 @@ export interface IntegrationScope extends IntegrationScopeKey {
 export interface SaveIntegrationScopeInput extends IntegrationScopeKey {
   conversationType: IntegrationConversationType;
   trust?: IntegrationConversationTrust;
-  /**
-   * Omit to use the caller's active org, or pass null for a personal scope.
-   * Passing an org other than the caller's active org is always rejected.
-   */
   orgId?: string | null;
   installationId?: string | null;
   defaultModel?: string | null;
@@ -189,7 +185,6 @@ function normalizeKey(key: IntegrationScopeKey): IntegrationScopeKey {
   };
 }
 
-/** A stable, non-secret subject key suitable for a scope budget. */
 export function integrationScopeSubjectKey(key: IntegrationScopeKey): string {
   const normalized = normalizeKey(key);
   return JSON.stringify([
@@ -497,7 +492,6 @@ export function evaluateIntegrationScopePolicy(
   return { allowed: true };
 }
 
-/** Test-only reset for suites that swap the injected database. */
 export function _resetIntegrationScopeStoreForTests(): void {
   initPromise = undefined;
 }

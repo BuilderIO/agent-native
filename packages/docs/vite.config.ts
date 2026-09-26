@@ -14,9 +14,6 @@ const agentNativePlugins = agentNative as unknown as (
 export default defineConfig({
   plugins: [
     tailwindcss(),
-    // Turns the hero ocean's `.wgsl` modules into importable strings. Must run
-    // ahead of the React Router plugins so the shader files are already plain
-    // JS by the time the route graph is walked.
     wgslVitePlugin(),
     ...reactRouterPlugins(),
     sitemapPlugin(),
@@ -78,8 +75,6 @@ export default defineConfig({
         "tiptap-markdown",
         "prosemirror-markdown",
       ],
-      // Warm routes as they enter the real viewport. Render-warming the whole
-      // docs graph stampedes uncached SSR/function calls after every mount.
       routeWarmup: {
         strategy: "viewport",
         data: true,

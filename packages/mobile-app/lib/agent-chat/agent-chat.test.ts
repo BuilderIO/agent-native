@@ -192,8 +192,6 @@ describe("applyWireEvent", () => {
     expect(state.errorCode).toBe("missing_api_key");
   });
 
-  // A session that expires mid-run arrives as a plain error event, not a 401,
-  // so without this the UI offers a Retry that can never succeed.
   it("classifies an expired session inside a run as an auth error", () => {
     for (const error of [
       "Unauthorized",
@@ -383,7 +381,6 @@ describe("groupThreadsByApp", () => {
   });
 
   it("groups threads under one header per app, preserving order", () => {
-    // Newest-first across apps (as listAllThreads returns).
     const rows = groupThreadsByApp([
       thread("t1", "dispatch", 300),
       thread("t2", "content", 200),
@@ -443,7 +440,6 @@ describe("activeMentionQuery", () => {
 
   it("only considers the fragment before the cursor", () => {
     const text = "a @one @two";
-    // Cursor sits after "on" inside the first mention.
     expect(activeMentionQuery(text, 5)).toEqual({
       query: "on",
       start: 2,

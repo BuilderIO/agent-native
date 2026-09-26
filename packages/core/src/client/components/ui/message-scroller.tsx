@@ -63,8 +63,6 @@ function MessageScrollerViewport({
     <ShadcnMessageScroller.Viewport
       className={cn(
         "min-h-0 flex-1 overflow-y-auto overflow-x-hidden",
-        // The base class carries the mask itself so it is never added or
-        // removed; the modifier only widens the fade. See agent-native.css.
         "message-scroller-viewport",
         hasContentAbove && "message-scroller-viewport--top-fade",
         className,
@@ -110,13 +108,6 @@ function MessageScrollerButton({
       render={
         render ??
         ((buttonProps) => (
-          // Overlaid, not in normal flow. As a flex sibling of the viewport
-          // this button's own 28px took height away from the viewport when it
-          // appeared and gave it back when it hid — and whether it appears is
-          // derived from scroll position, so showing it could scroll the
-          // content enough to hide it, which gave it back the space, which
-          // showed it again. That loop is the scroll jumping up and down while
-          // text streams. Positioning it over the viewport breaks the cycle.
           <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center">
             <button
               {...buttonProps}

@@ -1,5 +1,3 @@
-// Neutral on purpose: a tinted canvas default reads as a theme the user never
-// chose.
 export const DEFAULT_SLIDE_BACKGROUND = "#FFFFFF"; // guard:allow-raw-color - default slide canvas fallback
 
 // `slide.background` holds either a raw CSS value or a Tailwind arbitrary

@@ -1,10 +1,6 @@
 import fs from "fs";
 import path from "path";
 
-/**
- * Symlink definitions for agent tool discovery.
- * Each entry maps a symlink path (relative to the project root) to its target.
- */
 const FILE_SYMLINKS: Array<{ link: string; target: string }> = [
   { link: "CLAUDE.md", target: "AGENTS.md" },
 ];
@@ -13,28 +9,20 @@ const DIR_SYMLINKS: Array<{ link: string; target: string }> = [
   { link: ".claude/skills", target: "../.agents/skills" },
 ];
 
-/**
- * Create symlinks for all supported agent tools (Claude, Cursor, Windsurf, etc.).
- * Idempotent — skips existing correct symlinks and user-customized files.
- */
 export function setupAgentSymlinks(targetDir: string): void {
-  // File symlinks (CLAUDE.md, .cursorrules, .windsurfrules → AGENTS.md)
   for (const { link, target } of FILE_SYMLINKS) {
     const linkPath = path.join(targetDir, link);
     const targetPath = path.join(targetDir, target);
 
-    // Skip if the target doesn't exist
     if (!fs.existsSync(targetPath)) continue;
 
     try {
       const stat = fs.lstatSync(linkPath);
       if (stat.isSymbolicLink()) {
         const existing = fs.readlinkSync(linkPath);
-        if (existing === target) continue; // Already correct
-        // Wrong target — remove and recreate
+        if (existing === target) continue;
         fs.unlinkSync(linkPath);
       } else {
-        // Real file exists — don't overwrite user customizations
         continue;
       }
     } catch {
@@ -44,7 +32,6 @@ export function setupAgentSymlinks(targetDir: string): void {
     try {
       fs.symlinkSync(target, linkPath);
     } catch {
-      // On Windows or restricted environments, copy instead
       try {
         fs.copyFileSync(targetPath, linkPath);
       } catch {
@@ -53,16 +40,13 @@ export function setupAgentSymlinks(targetDir: string): void {
     }
   }
 
-  // Directory symlinks (.claude/skills → ../.agents/skills)
   for (const { link, target } of DIR_SYMLINKS) {
     const linkPath = path.join(targetDir, link);
     const parentDir = path.dirname(linkPath);
     const absTarget = path.resolve(parentDir, target);
 
-    // Skip if the target directory doesn't exist
     if (!fs.existsSync(absTarget)) continue;
 
-    // Ensure parent directory exists
     fs.mkdirSync(parentDir, { recursive: true });
 
     if (fs.existsSync(linkPath)) {
@@ -70,9 +54,9 @@ export function setupAgentSymlinks(targetDir: string): void {
         const stat = fs.lstatSync(linkPath);
         if (stat.isSymbolicLink()) {
           const existing = fs.readlinkSync(linkPath);
-          if (existing === target) continue; // Already correct
+          if (existing === target) continue;
         } else {
-          continue; // Real directory — don't overwrite
+          continue;
         }
       } catch {
         // Proceed to create
@@ -105,10 +89,6 @@ function copyDir(src: string, dest: string): void {
   }
 }
 
-/**
- * CLI entry point for `agent-native setup-agents`.
- * Runs in the current working directory.
- */
 export function runSetupAgents(): void {
   const dir = process.cwd();
   if (!fs.existsSync(path.join(dir, "AGENTS.md"))) {

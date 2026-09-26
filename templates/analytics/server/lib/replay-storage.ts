@@ -5,14 +5,6 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 
-/**
- * Session replay chunk bytes are stored through the framework file-upload /
- * private-blob path (Builder.io CDN by default, or an S3-compatible bucket).
- * In production we require a configured provider — storing replay chunks inline
- * in SQL is a local PGlite development fallback. This mirrors the Clips video-storage
- * contract so replay capture fails loudly (and the UI can prompt setup) instead
- * of silently recording empty, unplayable sessions.
- */
 export const REPLAY_STORAGE_SETUP_REQUIRED_REASON =
   "Session replay storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to record replays.";
 
@@ -39,14 +31,6 @@ export interface ReplayStorageResolveContext {
   orgId?: string | null;
 }
 
-/**
- * Whether a durable upload provider (non-inline) is configured for the given
- * owner/org scope. Iterates registered providers (e.g. S3) first, then falls
- * back to a resolvable Builder.io private key. When a scope is supplied the
- * check runs inside that user/org request context so org-scoped `app_secrets`
- * credentials resolve — exactly the scope the anonymous replay-ingest path
- * lacks on its own.
- */
 export async function hasRequestReplayStorage(
   context?: ReplayStorageResolveContext,
 ): Promise<boolean> {

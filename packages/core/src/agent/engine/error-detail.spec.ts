@@ -49,10 +49,6 @@ describe("describeErrorWithCauses", () => {
 });
 
 describe("isProviderConnectionErrorMessage", () => {
-  // The exact string production throws ~150 times a week. A classifier
-  // anchored with `startsWith`/`===` scores this as unclassified, the run
-  // persists `error_code = 'unknown'`, and the client — which only
-  // auto-recovers known transport codes — ends the user's chat on a blip.
   it("matches the AI SDK RetryError wrapper around a TLS reset", () => {
     const wrapped =
       "Failed after 2 attempts. Last error: Cannot connect to API: " +
@@ -102,14 +98,6 @@ describe("isProviderConnectionErrorMessage", () => {
     ).toBe("builder_gateway_network_error");
   });
 
-  // These two were left unclassified so a deterministic failure could not be
-  // promoted to a recoverable code and spiral. But unclassified means
-  // `unknown`, which the client also never retries AND renders as raw provider
-  // text — 41 dead turns/week across the prod app DBs (2026-07-24..31), each at
-  // exactly 1.00 runs/turn. Naming a failure and marking it recoverable are
-  // separate decisions: these get names, and
-  // `sse-event-processor.spec.ts` ("names a deterministic failure without
-  // making it recoverable") holds the line that names alone never auto-continue.
   it("names deterministic failures instead of leaving them unknown", () => {
     expect(classifyTerminalErrorCode("Missing Authentication header")).toBe(
       "authentication_error",
@@ -120,18 +108,11 @@ describe("isProviderConnectionErrorMessage", () => {
       ),
     ).toBe("provider_config_error");
     expect(classifyTerminalErrorCode(undefined)).toBe(undefined);
-    // A bare "429"/"529" inside a request id must not promote the failure.
     expect(
       classifyTerminalErrorCode("Bad request (request_id: req_a529b429c)"),
     ).toBe(undefined);
   });
 
-  // The Builder gateway answers 200, streams nothing, then emits an error frame
-  // whose whole message is its own unhandled-500 envelope. No status, no code,
-  // and no keyword any other predicate here matches, so it persisted as
-  // `unknown`: 14 Analytics turns in one 100-minute window on 2026-08-17, every
-  // one at exactly 1.00 runs/turn, i.e. dead on the first attempt with Builder's
-  // internal correlation id shown to the user.
   it("names the Builder gateway internal-error envelope", () => {
     expect(
       classifyTerminalErrorCode(
@@ -189,9 +170,6 @@ describe("isProviderConnectionErrorMessage", () => {
     );
   });
 
-  // `streamText` reports most provider HTTP failures as a stream part, not a
-  // throw. That path discarded statusCode/isRetryable, so every one landed as
-  // `unknown` and was retried only if its prose matched a keyword.
   it("classifies a provider error identically however it arrived", () => {
     const apiError = Object.assign(new Error("Rate limit reached"), {
       statusCode: 429,
@@ -203,7 +181,6 @@ describe("isProviderConnectionErrorMessage", () => {
       providerRetryable: true,
     });
 
-    // Same error wrapped by the SDK's exhausted-retry RetryError.
     const retryError = Object.assign(
       new Error("Failed after 2 attempts. Last error: Rate limit reached"),
       { lastError: apiError },
@@ -317,9 +294,6 @@ describe("isBareProviderRejectionMessage", () => {
     expect(
       isBareProviderRejectionMessage("User is not authorized for this space"),
     ).toBe(false);
-    // "403 status code" is only a bare echo on its own — a message that goes
-    // on to name a reason after it must not match the same way "403 status
-    // code (no body)" does.
     expect(
       isBareProviderRejectionMessage("403 status code: invalid API key"),
     ).toBe(false);
@@ -345,7 +319,6 @@ describe("classifyProviderError retryAfterMs", () => {
   it("reads retry-after off the AI SDK RetryError's unwrapped lastError", () => {
     const apiError = Object.assign(new Error("Too many requests"), {
       statusCode: 429,
-      // Header lookup is case-insensitive.
       responseHeaders: { "Retry-After": "5" },
     });
     const retryError = Object.assign(

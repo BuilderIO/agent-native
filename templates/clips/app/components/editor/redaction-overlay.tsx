@@ -14,34 +14,15 @@ import {
   type VideoRedaction,
 } from "@/lib/video-redactions";
 
-/**
- * The redaction boxes, drawn over the video preview.
- *
- * This is a preview and nothing more — the file underneath still has every
- * pixel until the burn runs, which is why the editor says so out loud rather
- * than letting a black box imply the job is done.
- *
- * Boxes are positioned against the *picture*, not the player: a video is
- * letterboxed inside its box by `object-contain`, so the overlay measures
- * where the frame actually lands and lays itself over that. Get this wrong and
- * every redaction is burned in a slightly different place than it was drawn.
- */
-
 export interface RedactionOverlayProps {
   redactions: VideoRedaction[];
-  /** Original-time playhead: which boxes are showing, and where they sit. */
   playheadMs: number;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
-  /** A box was drawn from scratch. */
   onDraw: (rect: RedactionRect) => void;
-  /** A box was moved or resized — becomes a waypoint at the playhead. */
   onReshape: (id: string, rect: RedactionRect) => void;
-  /** True while the Redact tool is armed, which is when a drag draws a box. */
   drawing: boolean;
-  /** What a box drawn now will be: a mosaic, or a solid fill. */
   newStyle: RedactionStyle;
-  /** The video's own aspect ratio, for laying the overlay over the picture. */
   videoWidth: number;
   videoHeight: number;
   className?: string;
@@ -58,7 +39,6 @@ type Gesture =
     }
   | { kind: "resize"; id: string; anchorX: number; anchorY: number };
 
-/** Where the picture actually sits inside a letterboxed player. */
 export function pictureRect(
   box: { width: number; height: number },
   videoWidth: number,
@@ -78,22 +58,9 @@ export function pictureRect(
   };
 }
 
-/**
- * A tile of random blocks, used to preview a mosaic before it is burned.
- *
- * The burn lays down wide random blocks and smears them sideways, so the
- * preview does the same: a tile of 3:1 blocks from the same palette, blurred by
- * about a block's height. Built once at module load — it only has to read like
- * the burn, not to match the blocks the burn will generate, which come from a
- * seed it picks at the time.
- */
 const STREAK_TILE_COLS = 12;
 const STREAK_TILE_ROWS = 12;
 const streakTileUrl = (() => {
-  // Deterministic rather than `Math.random()`: this module is evaluated on the
-  // server too, and a tile that differs between the server's render and the
-  // browser's is a hydration mismatch. The burn picks its own seed at the time;
-  // the preview only has to look like one.
   let state = 0x2f6f6b;
   const next = () => {
     state = (state * 1664525 + 1013904223) >>> 0;
@@ -102,8 +69,6 @@ const streakTileUrl = (() => {
   const rects: string[] = [];
   for (let y = 0; y < STREAK_TILE_ROWS; y += 1) {
     for (let x = 0; x < STREAK_TILE_COLS; x += 1) {
-      // The same palette the burn draws from, so the preview is the real thing
-      // in miniature rather than an impression of it.
       const hex =
         MOSAIC_PALETTE[Math.floor(next() * MOSAIC_PALETTE.length)].slice(1);
       rects.push(
@@ -134,8 +99,6 @@ export function RedactionOverlay({
     id: string | null;
     rect: RedactionRect;
   } | null>(null);
-  // The player's own size, watched rather than read once: the preview pane
-  // resizes with the window, the sidebar and the chapters panel.
   const [box, setBox] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -151,7 +114,6 @@ export function RedactionOverlay({
 
   const frame = pictureRect(box, videoWidth, videoHeight);
 
-  /** Pointer position as a fraction of the picture, not of the player. */
   const toPicture = useCallback(
     (clientX: number, clientY: number) => {
       const rect = rootRef.current?.getBoundingClientRect();
@@ -198,11 +160,6 @@ export function RedactionOverlay({
     });
   };
 
-  /**
-   * `commit` is false for a cancelled pointer. A cancel is the browser taking
-   * the gesture away, not a release, so the half-drawn box is thrown away
-   * rather than saved as a redaction nobody finished placing.
-   */
   const endGesture = (commit: boolean) => {
     const gesture = gestureRef.current;
     const shape = preview;
@@ -229,18 +186,12 @@ export function RedactionOverlay({
   };
 
   const showing = redactions.filter((r) => isRedactionActiveAt(r, playheadMs));
-  // The burn's block size, scaled from the picture down to the preview, so a
-  // block looks here the size it will be in the file.
-  // A streak's height on screen: what it will be in the file, scaled down to
-  // the preview.
   const previewBlockPx = Math.max(
     3,
     Math.round(
       (streakUnitPx(videoWidth) * frame.width) / Math.max(videoWidth, 1),
     ),
   );
-  // The blur goes on a child, not on the box: a CSS filter applies to the
-  // border too, and the border is the one part that has to stay sharp.
   const streakFill = (
     <span
       aria-hidden="true"
@@ -300,28 +251,18 @@ export function RedactionOverlay({
                   ? // guard:allow-raw-color — the preview shows what the burn writes into the file, not themed UI.
                     "bg-[#0b0f19]"
                   : undefined,
-                // Always grabbable, even with the draw tool off — moving a box
-                // you can see is the obvious gesture.
                 "pointer-events-auto",
                 "cursor-move",
                 selected
                   ? "outline outline-2 outline-amber-400"
                   : "outline outline-1 outline-white/40",
               )}
-              // The preview draws the redaction itself rather than blurring what
-              // is underneath. The burn does not build it out of the picture, so
-              // a blurred preview would be showing the editor something the
-              // stored file will not contain — and where the blur did not apply,
-              // the wash behind it read as a black box.
               style={{
                 ...framePercent(live),
                 overflow: "hidden",
                 // guard:allow-raw-color — the border the burn draws, shown as it will be.
                 border: "2px solid #8a9099",
               }}
-              // A drag that starts on a box moves that box, tool armed or not:
-              // the cursor says move, so it has to move. A new box is drawn by
-              // starting somewhere the picture is not already covered.
               onPointerDown={(e) => {
                 const at = toPicture(e.clientX, e.clientY);
                 onSelect(redaction.id);
@@ -417,11 +358,6 @@ function rectBetween(
   });
 }
 
-/**
- * Percentages of the picture element, which is laid over the frame itself and
- * not over the letterbox bars. That is what keeps a box drawn on a small
- * preview landing in the same place when it is burned at full resolution.
- */
 function framePercent(rect: RedactionRect): React.CSSProperties {
   return {
     left: `${rect.x * 100}%`,

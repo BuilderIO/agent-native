@@ -1,12 +1,3 @@
-/**
- * The centre pane: Activity, Notes, Tasks, Related.
- *
- * Two of these are deliberately honest about not existing yet rather than
- * dressed up with a plausible-looking feed:
- *  - Activity reads `crm_interactions`, which nothing in this app writes today.
- *  - Notes has no table at all; inventing one here would be a schema change.
- */
-
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChecklist,

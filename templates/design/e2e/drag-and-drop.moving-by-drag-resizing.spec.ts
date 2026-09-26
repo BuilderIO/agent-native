@@ -18,13 +18,6 @@ test.beforeEach(async ({}, testInfo) => {
   setBaseURL(testInfo);
 });
 
-/**
- * The SE resize handle, in host coordinates.
- *
- * Element handles live INSIDE the iframe as children of the selection overlay.
- * `[data-resize-handle]` in the host is the screen's own board chrome, so
- * reading that one drags the screen and never resizes the element.
- */
 async function seResizeHandle(
   page: Page,
 ): Promise<{ x: number; y: number } | null> {
@@ -128,8 +121,6 @@ test.describe("resizing", () => {
     await page.waitForTimeout(2000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
     const after = await geom(page, id, "box-a");
-    // A skip here made a broken resize look like a clean run: the anchoring
-    // assertion below is vacuous unless the size actually changed.
     expect(
       [after.width > before.width, after.height > before.height],
       `the resize must land before anchoring means anything ` +

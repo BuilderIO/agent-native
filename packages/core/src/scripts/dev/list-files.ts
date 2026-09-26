@@ -41,14 +41,12 @@ function listDir(
     return;
   }
 
-  // Sort: directories first, then files, alphabetical within each
   entries.sort((a, b) => {
     if (a.isDirectory() && !b.isDirectory()) return -1;
     if (!a.isDirectory() && b.isDirectory()) return 1;
     return a.name.localeCompare(b.name);
   });
 
-  // Skip common non-useful directories
   const skip = new Set([
     "node_modules",
     ".git",

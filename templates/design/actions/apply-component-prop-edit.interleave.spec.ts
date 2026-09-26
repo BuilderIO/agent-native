@@ -1,32 +1,6 @@
-/**
- * apply-component-prop-edit.interleave.spec.ts
- *
- * Regression test for a FALSE compare-and-swap in
- * apply-component-prop-edit.ts's persistEdit helper: the action computed its
- * patch from `html` (source.currentContent or the SQL row read earlier in
- * run()), but persisted by re-reading the LIVE state again inside persistEdit
- * and using THAT re-read's hash as `expectedVersionHash`. Since the re-read
- * happens right before the write, it always matches "whatever is live now"
- * trivially — it never actually proved that `html` (the real transform base)
- * was still current. A sibling write landing between the read of `html` and
- * the persist call was silently clobbered instead of rejected.
- *
- * Fix: run() now computes `baseVersionHash = sourceContentHash(html)` at the
- * SAME point `html` is read/resolved (the actual transform base), and
- * persistEdit passes THAT hash through as expectedVersionHash instead of
- * re-deriving one at write time — matching apply-visual-edit.ts's
- * resolveEditableDesignFile / persistDesignFileEdit split.
- *
- * Harness: same stateful per-docId Y.Doc collab mock + fake Drizzle app-DB
- * layer as insert-design-native-asset.interleave.spec.ts / apply-a11y-fix
- * .interleave.spec.ts, driving the REAL apply-component-prop-edit module.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-// ---------------------------------------------------------------------------
-// Fake @agent-native/core/collab backed by a real per-docId Y.Doc registry.
-// ---------------------------------------------------------------------------
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
 const accessState = vi.hoisted(() => ({ sourceType: "inline" }));
 
@@ -128,9 +102,6 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
-// ---------------------------------------------------------------------------
-// Minimal fake Drizzle app-DB layer backing a single design_files row.
-// ---------------------------------------------------------------------------
 interface FileRow {
   id: string;
   designId: string;
@@ -275,8 +246,6 @@ describe("apply-component-prop-edit CAS safety (false-CAS fix)", () => {
   it("succeeds and preserves a sibling's concurrent edit when the action's own read observes the latest base (no clobber of a landed sibling write)", async () => {
     await seedFromText(FILE_ID, baseDoc());
 
-    // A sibling edit lands on the collab doc + SQL mirror before the prop
-    // edit action runs (its own internal DB read will observe this).
     const preEditLive = await readLiveSourceFile(currentFileRef());
     const siblingEdited = preEditLive.content.replace(
       "color: #999999;",
@@ -320,9 +289,6 @@ describe("apply-component-prop-edit CAS safety (false-CAS fix)", () => {
   });
 
   it("rejects a persist whose expectedVersionHash is stale relative to what's live, instead of silently overwriting the concurrent writer's change", async () => {
-    // Prove the CAS is a real check (not a check-against-self no-op): build
-    // the exact false-CAS shape the bug had directly against
-    // writeInlineSourceFile, the shared guard persistEdit routes through.
     await seedFromText(FILE_ID, baseDoc());
     const staleBase = await readLiveSourceFile(currentFileRef());
 
@@ -336,8 +302,6 @@ describe("apply-component-prop-edit CAS safety (false-CAS fix)", () => {
       writeInlineSourceFile({
         designId: DESIGN_ID,
         file: currentFileRef(),
-        // A patch computed from the NOW-STALE staleBase.content (simulating
-        // persistEdit receiving a stale caller-supplied expectedVersionHash).
         content: staleBase.content.replace(
           'data-agent-native-prop-label="Save"',
           'data-agent-native-prop-label="Saved"',

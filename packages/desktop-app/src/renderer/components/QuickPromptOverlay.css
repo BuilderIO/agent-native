@@ -137,7 +137,6 @@ body.quick-prompt-surface #root {
   box-shadow: 0 12px 32px hsl(var(--foreground) / 0.18);
 }
 
-/* Leave room for the shared picker's nested model list inside this narrow window. */
 body.quick-prompt-surface [data-agent-native-composer-popover="true"] {
   width: min(16rem, calc(50vw - 24px));
 }

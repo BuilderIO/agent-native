@@ -1,8 +1,4 @@
 export function normalizeMailLabel(value: string): string {
-  // Gmail's search UI encodes a label's spaces as hyphens in `label:` query
-  // tokens (e.g. "Automated Notifications" -> `label:automated-notifications`).
-  // Folding both `_` and `-` to spaces here means a query token and a stored
-  // label id compare equal regardless of which separator either side used.
   return value.trim().replace(/[_-]/g, " ").toLowerCase();
 }
 
@@ -36,8 +32,6 @@ export function mailLabelsIncludeAny(
   return targets.some((target) => mailLabelsInclude(candidates, target));
 }
 
-// Pre-normalized (normalizeMailLabel folds "-" to " ") since this set is
-// checked against a normalized value below.
 const INBOX_SCOPED_APP_LABEL_IDS = new Set([
   "important",
   "note to self",

@@ -36,8 +36,6 @@ export function shouldShowDeckEditorSkeleton({
   retrying: boolean;
   deckAccessDeniedConfirmed: boolean;
 }): boolean {
-  // The metadata-only access check is authoritative even when loading the
-  // protected deck list fails or stays pending.
   if (deckAccessDeniedConfirmed) return false;
   if (decksLoading) return true;
   if (deckFound || !accessCheckKey) return false;

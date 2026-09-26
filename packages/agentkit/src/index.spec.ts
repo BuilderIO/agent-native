@@ -22,11 +22,6 @@ function manifest(): Manifest {
   ) as Manifest;
 }
 
-/**
- * A subpath export can silently pull React into a headless install: nothing in
- * `tsc` or the test suite fails, and the cost only shows up in a consumer's
- * bundle. Walking the real import graph is the only check that catches it.
- */
 function moduleGraphFrom(entries: string[]): Map<string, string[]> {
   const graph = new Map<string, string[]>();
   const queue = entries.map((entry) => path.resolve(srcDir, entry));

@@ -82,7 +82,6 @@ function inlinePreloadChunksPlugin(): Plugin {
   return {
     name: "agent-native:inline-preload-chunks",
     generateBundle(_options, bundle) {
-      // Sandboxed Electron preloads need to be self-contained inside app.asar.
       const preloadBundle = bundle as PreloadOutputBundle;
       const sharedChunks = Object.entries(preloadBundle).flatMap(
         ([fileName, output]) =>
@@ -201,9 +200,6 @@ const desktopSentryDefines = {
   ),
 };
 
-// Local packaged builds should behave like development builds. Release CI
-// sets CI=true, while AGENT_NATIVE_DESKTOP_BUILD_CHANNEL lets packaging jobs
-// override that default explicitly when they need to.
 const desktopBuildChannel =
   firstNonEmpty(process.env.AGENT_NATIVE_DESKTOP_BUILD_CHANNEL) ||
   (process.env.CI === "true" || process.env.CI === "1" ? "release" : "dev");

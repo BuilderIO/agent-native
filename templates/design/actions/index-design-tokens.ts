@@ -5,16 +5,12 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import type { DesignSystemData } from "../shared/api.js";
 import {
   isDirectCssVarSelectionKey,
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
-
-// ---------------------------------------------------------------------------
-// Token type classification
-// ---------------------------------------------------------------------------
 
 function classifyVar(
   name: string,
@@ -51,7 +47,6 @@ function classifyVar(
   return "other";
 }
 
-/** Derive a friendly display name from a CSS var name like `--primary-color`. */
 function friendlyName(cssVar: string): string {
   return cssVar
     .replace(/^--/, "")
@@ -59,44 +54,16 @@ function friendlyName(cssVar: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// ---------------------------------------------------------------------------
-// Token entry shape
-// ---------------------------------------------------------------------------
-
 export interface DesignToken {
-  /** Human-readable display name, e.g. "Primary Color". */
   name: string;
-  /** CSS custom property, e.g. "--primary-color". */
   cssVar: string;
-  /** Resolved string value, e.g. "#3B82F6" or "0.5rem". */
   value: string;
-  /** Semantic token category. */
   type: "color" | "typography" | "spacing" | "radius" | "shadow" | "other";
-  /** Opaque source chip label, e.g. "globals.css" or "Brand Kit". */
   source: string;
-  /**
-   * Every design file that declares this cssVar, when more than one does
-   * (e.g. the same :root var repeated in index.html and task-details.html).
-   * `source` stays the first file for compatibility; omitted when only one
-   * file contributed.
-   */
   sources?: string[];
-  /**
-   * Per-file value, keyed by filename, present only when contributing files
-   * disagree on this cssVar's value — surfaced instead of silently keeping
-   * whichever file's value happened to be read first.
-   */
   sourceValues?: Record<string, string>;
-  /**
-   * True when the value comes from the design's own tweak selections (i.e.
-   * the user has already customised this token in the editor).
-   */
   isTweakOverride?: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Action
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:
@@ -120,9 +87,6 @@ export default defineAction({
     const design = access.resource;
     const db = getDb();
 
-    // ------------------------------------------------------------------
-    // 1. Parse tokens from the design's own HTML files (:root vars)
-    // ------------------------------------------------------------------
     const files = (
       await db
         .select({
@@ -139,16 +103,7 @@ export default defineAction({
       sources: string[];
       sourceValues?: Record<string, string>;
     }
-    /** cssVar -> contributing (value, source) info. */
     const rawTokens: Map<string, RawTokenEntry> = new Map();
-    // Persisted Brand Kit JSON can outlive its schema. Keep one malformed token
-    // from taking down the whole read action while preserving valid siblings.
-    //
-    // `accumulate` distinguishes two different meanings of "setting a token
-    // again": the design's own files merely co-declaring the same :root var
-    // (accumulate — every file is a legitimate contributor, so track them
-    // all) vs. the Brand Kit / Tweaks overlay passes below, which intend to
-    // replace whatever an earlier layer set (not accumulate).
     const setRawToken = (
       cssVar: string,
       value: unknown,
@@ -169,11 +124,6 @@ export default defineAction({
         return;
       }
 
-      // Same cssVar declared in more than one design file — keep the first
-      // file's (value, source) as the reported primary for compatibility and
-      // record every contributing file's value (the output only surfaces
-      // `sourceValues` when they disagree) instead of silently keeping
-      // whichever file the DB happened to return last.
       const sources = existing.sources.includes(src)
         ? existing.sources
         : [...existing.sources, src];
@@ -201,13 +151,7 @@ export default defineAction({
       }
     }
 
-    // ------------------------------------------------------------------
-    // 2. Overlay tokens from the linked Brand Kit / design system
-    // ------------------------------------------------------------------
     if (design.designSystemId) {
-      // Design systems are their own access boundary (same pattern as
-      // get-design-system.ts). A user who can read the design but has no
-      // access to the linked design system must NOT receive its tokens.
       const dsAccess = await resolveAccess(
         "design-system",
         design.designSystemId,
@@ -224,7 +168,6 @@ export default defineAction({
       if (dsRow?.data) {
         try {
           const dsData = JSON.parse(dsRow.data) as Partial<DesignSystemData>;
-          // Flatten the Brand Kit's known token fields into CSS vars
           const brandColors = dsData.colors ?? {};
           const colorRoleMap: Record<string, string> = {
             primary: "--color-primary",
@@ -239,11 +182,9 @@ export default defineAction({
             const v = (brandColors as Record<string, string>)[role];
             if (v) setRawToken(cssVar, v, "Brand Kit");
           }
-          // Border radius
           if (dsData.borders?.radius) {
             setRawToken("--radius", dsData.borders.radius, "Brand Kit");
           }
-          // Spacing
           if (dsData.spacing?.elementGap) {
             setRawToken(
               "--spacing-element-gap",
@@ -264,9 +205,6 @@ export default defineAction({
       }
     }
 
-    // ------------------------------------------------------------------
-    // 3. Overlay tweak-resolved values (user customisations win)
-    // ------------------------------------------------------------------
     let designData: Record<string, unknown> = {};
     try {
       designData = design.data
@@ -298,7 +236,6 @@ export default defineAction({
         ? (designData.tokenImportSources as Record<string, string>)
         : {};
 
-    // Cast tweaks array to the shape resolveTweaksToCssVars expects
     type TweakDef = Parameters<typeof resolveTweaksToCssVars>[0][number];
     const resolvedOverrides = resolveTweaksToCssVars(
       tweaks as TweakDef[],
@@ -312,9 +249,6 @@ export default defineAction({
       setRawToken(cssVar, value, tokenImportSources[cssVar] ?? "Tweaks");
     }
 
-    // ------------------------------------------------------------------
-    // 4. Build friendly token list
-    // ------------------------------------------------------------------
     const tokens: DesignToken[] = [];
     for (const [
       cssVar,
@@ -334,7 +268,6 @@ export default defineAction({
       });
     }
 
-    // Group by type for the panel
     type TokenGroup = { type: DesignToken["type"]; tokens: DesignToken[] };
     const ORDER: DesignToken["type"][] = [
       "color",

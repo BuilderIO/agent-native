@@ -7,7 +7,7 @@ import {
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { migrateBreakpointMediaBounds } from "../server/lib/breakpoint-media-migration.js";
 import {
   mutateDesignData,
@@ -46,7 +46,6 @@ function readBreakpointSet(designData: DesignDataRecord): BreakpointSetRead {
     return { kind: "invalid", set: null };
   }
 
-  // Keep the original object so unrelated persisted set metadata survives.
   return { kind: "valid", set: raw as BreakpointSet };
 }
 

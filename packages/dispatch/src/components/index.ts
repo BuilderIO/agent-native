@@ -1,10 +1,3 @@
-/**
- * Public dispatch UI components. Most consumers only use `dispatchRoutes`
- * and never import from here directly — components are exported as a
- * customization escape hatch for embedding (e.g. mount `<DispatchShell>`
- * inside a parent layout, or render `<AppKeysPopover>` next to a custom
- * card list).
- */
 export { DispatchShell } from "./dispatch-shell.js";
 export { RequireDispatchAccess } from "./dispatch-access.js";
 export { AdminShell } from "./admin-navigation.js";

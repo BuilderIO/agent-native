@@ -24,15 +24,8 @@ export interface RunAutomationNowInput {
   orgId?: string | null;
   appId?: string | null;
   scope: AutomationScope;
-  /** Inbound request headers used to dispatch back to this exact local host. */
   requestHeaders?: Headers;
-  /** Flat automation name, resolved as `jobs/<name>.md`. */
   name?: string;
-  /**
-   * Full resource path for an automation the caller already resolved. Required
-   * for automations nested under `jobs/` (e.g. per-factory jobs), whose names
-   * contain a slash and cannot round-trip through `name`.
-   */
   path?: string;
 }
 
@@ -80,12 +73,6 @@ function ownerForScope(input: RunAutomationNowInput): string {
   return organizationResourceOwner(input.orgId);
 }
 
-/**
- * One place decides which resource a run-now request means. Callers that
- * already hold the resource pass `path`; callers that only know a flat slug
- * pass `name`. Accepting both at once would let two disagreeing identifiers
- * silently pick a winner.
- */
 function resolveAutomationTarget(input: RunAutomationNowInput): {
   path: string;
   name: string;
@@ -152,8 +139,6 @@ export async function queueAutomationRunNow(
     );
   }
 
-  // A manual-run request is a guaranteed app request even on hosts without a
-  // durable timer. Use it to recover older rows before adding the new one.
   await redispatchUnclaimedAutomationRuns({
     appId: input.appId,
     requestHeaders: input.requestHeaders,
@@ -188,11 +173,6 @@ export async function queueAutomationRunNow(
   return { queued: true, runId: historyId, automationRunId: historyId };
 }
 
-/**
- * Recover manual rows whose first serverless handoff never reached a worker.
- * This is intentionally a redelivery, not a second execution: the worker's
- * claim CAS decides which request owns the run.
- */
 export async function redispatchUnclaimedAutomationRuns(options?: {
   appId?: string | null;
   requestHeaders?: Headers;

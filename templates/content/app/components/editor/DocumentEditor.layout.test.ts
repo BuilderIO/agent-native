@@ -329,9 +329,6 @@ describe("document editor layout", () => {
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
     ).replace(/\r\n/g, "\n");
-    // One effect, keyed on the selection. Keying it on the whole pending
-    // comment resets the target to invalid for a frame on every keystroke,
-    // which flashes the "select text" alert inside the open composer.
     expect(
       source.match(/setPendingCommentTargetValid\(false\);\n    update\(\);/g),
     ).toHaveLength(1);
@@ -1705,8 +1702,6 @@ describe("document editor layout", () => {
       },
     ).replace(/\r\n/g, "\n");
 
-    // Every SQL-backed reader keeps the scoped collaboration subscription for
-    // presence, but only editors bind the rendered body to Yjs.
     expect(documentEditorSource).toContain(
       "const collabEnabled = !isLocalFileDocument;",
     );
@@ -1740,8 +1735,6 @@ describe("document editor layout", () => {
       'awareness.setLocalStateField("canFlushDocument", false)',
     );
 
-    // Viewers can read comments; only comment-capable roles get composer
-    // affordances inside the shared sidebar.
     expect(documentEditorSource).toContain(
       "!isLocalFileDocument ? documentId : null",
     );

@@ -1,12 +1,5 @@
 name: Nightly full fast-test suite
 
-# Main-branch health check. PRs already run the full fast-test suite (ci.yml),
-# so this is not the primary safety net; it catches drift that only shows up
-# post-merge — e.g. two individually-green PRs that conflict once combined on
-# main, or a newly-flaky test.
-#
-# Deliberately unsharded: nobody is waiting on a nightly run, so one runner is
-# the least wasteful way to cover everything.
 on:
   schedule:
     - cron: "0 8 * * *"

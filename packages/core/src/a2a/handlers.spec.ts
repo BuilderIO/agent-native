@@ -18,7 +18,6 @@ const getA2ASecretByDomainMock = vi.hoisted(() => vi.fn());
 const callActionMock = vi.hoisted(() => vi.fn());
 const findWorkspaceDispatchAgentMock = vi.hoisted(() => vi.fn());
 
-// Mock h3's setResponseStatus and setResponseHeader
 vi.mock("h3", () => ({
   getHeader: (event: any, name: string) =>
     event.req?.headers?.get?.(name) ?? event.node?.req?.headers?.[name],
@@ -30,7 +29,6 @@ vi.mock("h3", () => ({
   },
 }));
 
-// Mock task-store (now async/SQL-backed)
 vi.mock("./task-store.js", () => {
   let tasks: Record<string, any> = {};
   let counter = 0;
@@ -217,7 +215,6 @@ vi.mock("../integrations/internal-token.js", () => ({
   extractBearerToken: (h?: string) => h?.replace(/^Bearer\s+/i, "") ?? null,
 }));
 
-// Mock agentChat.call for default handler tests
 vi.mock("../shared/agent-chat.js", () => ({
   agentChat: {
     call: vi.fn().mockResolvedValue({
@@ -242,7 +239,6 @@ vi.mock("../server/agent-discovery.js", () => ({
   findWorkspaceDispatchAgent: findWorkspaceDispatchAgentMock,
 }));
 
-/** Create a mock H3 event for testing handleJsonRpcH3 */
 function mockEvent(): any {
   return {
     _status: 200,
@@ -1057,8 +1053,6 @@ describe("handleJsonRpc", () => {
   });
 
   it("async message/send returns immediately and processor runs in fresh execution", async () => {
-    // Handler resolves only when we let it — so if the response came back
-    // synchronously the task could not yet be 'completed'.
     let release: (v: unknown) => void = () => {};
     const gate = new Promise((resolve) => {
       release = resolve;
@@ -1094,11 +1088,6 @@ describe("handleJsonRpc", () => {
       slowConfig,
     );
 
-    // Returned immediately, before the handler resolved. The dispatcher
-    // self-fires a POST to /_process-task on the same deployment — in the
-    // real wire-up `mountA2A` mounts that route and calls
-    // `processA2ATaskFromQueue` in a fresh function execution. Here we
-    // invoke it directly to simulate that next request.
     expect(result.error).toBeUndefined();
     expect(result.result.status.state).toBe("working");
     const taskId = result.result.id;
@@ -1106,7 +1095,6 @@ describe("handleJsonRpc", () => {
     const { processA2ATaskFromQueue } = await import("./handlers.js");
     const processorPromise = processA2ATaskFromQueue(taskId, slowConfig);
 
-    // Now let the handler finish, and verify the task progresses to completed
     release(undefined);
     await processorPromise;
     const followup = await handleJsonRpc(
@@ -1195,8 +1183,6 @@ describe("handleJsonRpc", () => {
         params: {
           async: true,
           metadata: {
-            // Past the 3-minute A2A_QUEUED_LIFETIME_MAX_MS default — dispatch
-            // never got the task out of submitted/working.
             testCreatedAt: Date.now() - 3 * 60 * 1000 - 1,
           },
           message: {
@@ -1252,9 +1238,6 @@ describe("handleJsonRpc", () => {
         params: {
           async: true,
           metadata: {
-            // Fresh heartbeat (well under the 5-minute stale check) but past
-            // the 30-minute A2A_PROCESSING_LIFETIME_MAX_MS default — a hung
-            // await inside an otherwise-alive process.
             testUpdatedAt: Date.now(),
             testCreatedAt: Date.now() - 30 * 60 * 1000 - 1,
           },
@@ -1383,8 +1366,6 @@ describe("handleJsonRpc", () => {
         params: {
           async: true,
           metadata: {
-            // Past the 10s queued-dispatch-stuck threshold, but well under
-            // the 3-minute lifetime cap — should attempt one refire.
             testUpdatedAt: Date.now() - 11_000,
           },
           message: {
@@ -1399,9 +1380,6 @@ describe("handleJsonRpc", () => {
     expect(result.error).toBeUndefined();
     const taskId = result.result.id;
 
-    // Every dispatch attempt (including the initial one above) fails from
-    // here on — mirrors a persistently missing background function or bad
-    // A2A secret.
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -1420,8 +1398,6 @@ describe("handleJsonRpc", () => {
       customHandler,
     );
 
-    // No throw out of handleJsonRpc (no unhandled rejection) and the task is
-    // left exactly as it was — still working, not incorrectly marked failed.
     expect(status.error).toBeUndefined();
     expect(status.result.status.state).toBe("working");
   });

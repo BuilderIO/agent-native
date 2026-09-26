@@ -757,7 +757,6 @@ const esES = {
         answer5:
           "Sí. Comparte paneles con tu equipo o tu organización con acceso de lector, editor o administrador. También puedes programar informes por correo con los resultados actuales del panel, o configurar alertas para las condiciones que quieras vigilar.",
       },
-      // Copy V3 de la landing page (2026-09-14) — del hero al CTA final más abajo.
       heroEyebrow: "Analytics",
       heroTitle:
         "Haz una pregunta. Obtenga el gráfico, la consulta y el contexto.",
@@ -888,7 +887,6 @@ const esES = {
           "Sí. Añade coanfitriones obligatorios y Calendar comprobará su información de libre/ocupado antes de ofrecer un horario. Para respetar también el horario laboral configurado de cada coanfitrión, tú y ese coanfitrión debéis añadir vuestros calendarios mutuamente como superposiciones. Sin ese uso compartido mutuo, Calendar solo comprueba su información de libre/ocupado.",
       },
       s001: "Calendar captura de pantalla de la plantilla",
-      // Copia V3 de la página de destino (2026-09-10) — del hero al CTA final.
       heroEyebrow: "Calendar",
       heroTitle:
         "Encuentre tiempo, reserve reuniones y adapte su día con un agente",
@@ -1013,7 +1011,6 @@ const esES = {
       },
       s001: "Assets captura de pantalla de la plantilla",
       imageCredits: "Créditos de imágenes",
-      // V3 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Assets",
       heroTitle: "Genera imágenes de marca en una conversación",
       heroDescription:
@@ -1076,7 +1073,6 @@ const esES = {
           "Sí. Crea una copia con la CLI, añade tus acciones, datos e interfaz, y despliega tu aplicación. Configura la autenticación y el acceso a proveedores para tu entorno, y prueba los flujos de trabajo que añadas antes de compartirlos con tus usuarios.",
       },
       s001: "Captura de pantalla de la app Chat",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "Crea tu propia app de chat con IA",
       heroDescription:
@@ -1122,7 +1118,6 @@ const esES = {
     },
     clips: {
       s001: "Clips captura de pantalla de la plantilla",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle:
         "Grabaciones de pantalla que tu agente de IA puede ver y escuchar",
@@ -1291,7 +1286,6 @@ const esES = {
           "Sí. Los documentos nuevos son privados de forma predeterminada. Compártelos con acceso de lector, editor o administrador, y usa el historial de versiones de la página para restaurar una instantánea anterior. Restaurar una instantánea reemplaza el contenido actual de la página.",
       },
       s001: "Content captura de pantalla de la plantilla",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "Crea y organiza tu trabajo con tu agente de IA",
       heroDescription:
@@ -1415,7 +1409,6 @@ const esES = {
           "Exporta HTML o un ZIP de los archivos de diseño, o prepara un traspaso para un agente de programación. El prototipo ofrece un punto de partida para el desarrollo; la lógica de la aplicación, las integraciones, las pruebas y el despliegue aún necesitan implementación y revisión. Las exportaciones HTML pueden usar recursos de tiempo de ejecución externos.",
       },
       s001: "Design captura de pantalla de la plantilla",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "Diseña prototipos interactivos con tu agente de IA",
       heroDescription:
@@ -1539,7 +1532,6 @@ const esES = {
           "No. En un espacio de trabajo de equipo, Dispatch puede exigir revisión de sus propios cambios en recursos y configuraciones compartidos. Las acciones dentro de las apps conectadas, como enviar un correo electrónico, siguen los controles de esas apps. La cola de aprobaciones de Dispatch no es una puerta universal para cada acción del agente.",
       },
       s001: "Dispatch captura de pantalla de la plantilla",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "Coordina tus agentes de IA desde un solo lugar",
       heroDescription:
@@ -1777,7 +1769,6 @@ const esES = {
           "Sí. Un compañero de equipo puede solicitar un borrador que aparece en tu cola de revisión. Ábrelo, edita el mensaje y envíalo cuando esté listo. Quien lo solicitó no puede enviarlo en tu nombre; quien es propietario del borrador o un administrador de la organización controla el envío.",
       },
       s001: "Mail captura de pantalla de la plantilla",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
       heroTitle: "Toma el control de tu bandeja de entrada con Jev",
       heroDescription:
@@ -1966,7 +1957,6 @@ const esES = {
           "Exporta un archivo PPTX para abrirlo en PowerPoint. Para usar la presentación en Google Slides, impórtalo allí. Revisa las fuentes y los diseños después de exportar, porque pueden renderizarse de forma distinta entre editores.",
       },
       s001: "Slides captura de pantalla de la plantilla",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "Crea presentaciones con tu agente de IA",
       heroDescription:

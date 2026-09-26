@@ -553,8 +553,6 @@ test("multi-selected text leaves share inspector styles and one undo restores bo
   const paragraphName = "First fixture paragraph for selection tests.";
   try {
     await gotoEditor(page, designId);
-    // Re-enter through a hard reload so the initial mixed inspector state is
-    // proven against persisted source, not just the first render.
     await page.reload();
     await selectTextLayers(page, [headingName, paragraphName]);
 
@@ -641,8 +639,6 @@ test("multi-selected text leaves share inspector styles and one undo restores bo
         },
       });
 
-    // Keep the multi-selection active for a second shared write so the next
-    // history step is the style transaction, not a selection change.
     const undoSize = await sizeInput(page);
     await undoSize.fill("26");
     await undoSize.press("Enter");
@@ -704,8 +700,6 @@ test("Line Height Enter returns a real Text-tool range to the editor", async ({
     const nodeId = await editor.getAttribute("data-agent-native-node-id");
     if (!nodeId) throw new Error("Text tool editor has no source node id");
 
-    // Read-only text geometry guides a real pointer drag; the test never sets
-    // the iframe's Selection programmatically.
     const points = await textToolRangePointerPoints(editor);
     await page.mouse.move(points.startX, points.y);
     await page.mouse.down();

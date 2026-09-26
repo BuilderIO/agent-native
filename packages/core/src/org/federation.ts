@@ -425,7 +425,6 @@ async function loadFederatedRoster(
   return roster;
 }
 
-/** Add an explicitly invited member to the identity authority roster. */
 export async function addFederatedOrganizationMember(
   event: H3Event,
   input: {
@@ -439,7 +438,6 @@ export async function addFederatedOrganizationMember(
   return sendFederatedMemberOperation(event, input, "add-member");
 }
 
-/** Propagate an owner/admin role change to the identity authority roster. */
 export async function updateFederatedOrganizationMemberRole(
   event: H3Event,
   input: {
@@ -453,7 +451,6 @@ export async function updateFederatedOrganizationMemberRole(
   return sendFederatedMemberOperation(event, input, "update-member-role");
 }
 
-/** Remove a member from the identity authority before removing its local row. */
 export async function revokeFederatedOrganizationMember(
   event: H3Event,
   input: {
@@ -466,12 +463,6 @@ export async function revokeFederatedOrganizationMember(
   return sendFederatedMemberOperation(event, input, "remove-member");
 }
 
-/**
- * Revalidate a linked local membership against Dispatch before using it for
- * authorization. This is the satellite-side revocation boundary: local rows
- * are copied state, so a successful authority response can remove or retag
- * them while an unavailable authority fails closed.
- */
 export async function validateFederatedOrganizationMembership(
   event: H3Event | undefined,
   input: { orgId: string; email: string },
@@ -604,7 +595,6 @@ export async function validateFederatedOrganizationMembership(
   return { active: true, role: body.memberRole };
 }
 
-/** Validate a linked membership from an action, which only retains request metadata. */
 export async function validateFederatedOrganizationMembershipForCurrentRequest(input: {
   orgId: string;
   email: string;
@@ -615,7 +605,6 @@ export async function validateFederatedOrganizationMembershipForCurrentRequest(i
   );
 }
 
-/** Register the local org and its current member with the Dispatch authority. */
 export async function syncOrganizationToIdentityHub(
   event: H3Event,
   input: FederatedOrganizationSyncInput,
@@ -725,10 +714,6 @@ async function ensureLocalMembership(
   invalidateMemberOrgCaches();
 }
 
-/**
- * Link the signed Dispatch org into this app without guessing from a name or
- * email domain. Existing local orgs with no durable match are left untouched.
- */
 export async function provisionFederatedOrganization(
   identity: FederatedOrganizationIdentity,
 ): Promise<FederatedOrganizationProvisionResult> {

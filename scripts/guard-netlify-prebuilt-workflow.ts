@@ -1602,8 +1602,6 @@ if (
   !firstBetaPublish.includes(
     "did not become ready and published within 30 minutes",
   ) ||
-  // Monotonic, not exact-equality: the immediate pre-publish recheck inside
-  // this step must use the same ancestor-of-main compare, not a hard match.
   !firstBetaPublish.includes("compare_status") ||
   firstBetaPublish.includes('"${main_sha,,}" != "${SOURCE_REF,,}"') ||
   !reusableBetaFreshness.includes("id: beta_first_publish_reconcile") ||
@@ -1644,8 +1642,6 @@ if (
   !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",
   ) ||
-  // Monotonic, not exact-equality: the source must be an ancestor of (or
-  // equal to) main, and must not regress the already-published deploy.
   !reusableBetaFreshness.includes("published_deploy_source_ref") ||
   !reusableBetaFreshness.includes("not on main") ||
   !reusableBetaFreshness.includes("is already newer") ||

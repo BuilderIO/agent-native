@@ -10,23 +10,10 @@ import { GridInner, PageSection } from "./page-grid";
 interface LogoEntry {
   id: string;
   label: string;
-  // Real intrinsic pixel size of `src`, required alongside it so the img
-  // element always has a definite size and never collapses to 0x0 while
-  // loading (see width/height + no conflicting inline auto-sizing style
-  // below).
   src?: string;
   srcWidth?: number;
   srcHeight?: number;
-  // Uploaded logo images ship with their own built-in padding baked into
-  // the asset (unlike the tight-cropped inline SVGs), so they need to fill
-  // the tile instead of being capped at the shared 55% size meant for
-  // vector marks.
   fill?: boolean;
-  // Multiplier applied on top of the shared tile cap. Marks with a lot of
-  // built-in viewBox padding (sparse icons) need to scale up; marks whose
-  // viewBox tightly hugs the artwork (wordmarks, solid glyphs) need to scale
-  // down, so every logo reads as roughly the same visual weight. Re-tune
-  // this once each placeholder below is swapped for its real mark/image.
   scale?: number;
 }
 
@@ -34,8 +21,6 @@ interface Logo extends LogoEntry {
   render: () => ReactNode;
 }
 
-// Placeholder while real logo art is swapped in one-by-one; replace each
-// entry's `render` with the actual svg/img once the asset is provided.
 function LogoPlaceholder({ label }: { label: string }) {
   return (
     <div className="box-border flex max-h-full min-h-14 max-w-full min-w-14 items-center justify-center overflow-hidden rounded-[var(--b-radius-sm)] border border-dashed border-[var(--b-border-default)] p-[var(--spacing-1)] text-center font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-3)] leading-[1.2] text-[var(--b-text-secondary)]">
@@ -255,25 +240,14 @@ const LOGO_ENTRIES: LogoEntry[] = [
   },
 ];
 
-// Each logo ships with its own intrinsic SVG/img dimensions, so without a
-// shared cap they render at wildly different visual sizes next to each other
-// at every breakpoint, not just mobile. mix-blend-mode lives here (on the
-// marks) rather than on the grid container — blending the container blended
-// its own border against the page background too, which showed up as a
-// doubled/ghosted line at the grid's right edge.
 const LOGO_IMG_CLASS =
   "h-auto w-auto mix-blend-luminosity max-h-[55%] max-w-[55%]";
 
-// Uploaded logo assets ship with their own built-in padding, unlike the
-// tight-cropped inline SVGs, so they fill the tile instead of being capped.
 const LOGO_IMG_FILL_CLASS =
   "h-auto w-auto mix-blend-luminosity max-h-full max-w-full";
 
 const LOGO_TILE_CLASS = [
   "flex aspect-square items-center justify-center overflow-hidden p-[var(--spacing-4)] box-border",
-  // Monochrome marks use fill="currentColor" instead of a hardcoded white so
-  // they stay visible against --b-bg-page in both themes, rather than
-  // disappearing once the light theme makes the page background near-white.
   "text-[var(--b-text-primary)]",
 ].join(" ");
 
@@ -318,7 +292,6 @@ export function WorksWithStack() {
             <div
               key={logo.id}
               className={LOGO_TILE_CLASS}
-              // The brand name, not the asset filename that `id` carries.
               aria-label={logo.label}
               role="img"
             >

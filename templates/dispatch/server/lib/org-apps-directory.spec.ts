@@ -123,9 +123,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
   });
 
   it("REJECTS a cross-org token (domain resolves to a different org secret)", async () => {
-    // Signed with ORG A's secret, but the verifier only knows ORG B's secret
-    // for that domain and there is no matching global secret. Nothing the
-    // verifier holds can validate it -> rejected (no cross-org disclosure).
     const tok = await signA2AToken(
       "mallory@orga.com",
       "orga.com",
@@ -236,7 +233,6 @@ describe("buildOrgAppsResponse", () => {
     });
 
     expect(res.org).toBe("acme.com");
-    // dispatch (self), the dup, the ftp, and the empty-id are all excluded.
     expect(res.apps.map((a) => a.id)).toEqual(["calendar", "mail"]);
     const mail = res.apps.find((a) => a.id === "mail")!;
     expect(mail).toEqual({
@@ -251,9 +247,6 @@ describe("buildOrgAppsResponse", () => {
   });
 
   it("only references allow-listed first-party apps when fed the real registry", async () => {
-    // Source of truth = Dispatch's existing connected-apps registry
-    // (discoverAgents -> getBuiltinAgents -> BUILTIN_AGENTS), which already
-    // excludes hidden templates. Assert no hidden first-party slug leaks.
     const { getBuiltinAgents } =
       await import("@agent-native/core/server/agent-discovery");
     const builtins = getBuiltinAgents();
@@ -282,7 +275,6 @@ describe("buildOrgAppsResponse", () => {
     for (const slug of HIDDEN_SLUGS) {
       expect(ids.has(slug)).toBe(false);
     }
-    // Whole-fleet clients retain Dispatch; every entry has a valid a2aUrl.
     expect(ids.has("dispatch")).toBe(true);
     for (const a of res.apps) {
       expect(a.a2aUrl.endsWith("/_agent-native/a2a")).toBe(true);

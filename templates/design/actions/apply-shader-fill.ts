@@ -1,31 +1,3 @@
-/**
- * apply-shader-fill — PERSISTING apply action.
- *
- * Writes the chosen shader fill onto a design element as a CSS `background`,
- * the same gradient the preview renders. This is the deliberate commit step
- * after `preview-shader-fill`; preview stays non-persisting.
- *
- * Safety model (this action is SAFETY-gated, not Builder-gated):
- * - Editor access is asserted on the target design before any write
- *   (`accessFilter` on the read + `assertAccess("design", id, "editor")`).
- * - Only HTML design-file sources are writable — the deterministic HTML editor
- *   (`applyVisualEdit`) is the single mutation seam, exactly like
- *   `apply-visual-edit`. localhost / fusion / inline-html sources are NOT
- *   written; the caller gets the preview + an explanation instead.
- * - The persisted value is a CSS `background` produced by
- *   `buildShaderFillBackground`, which runs every colour through the same strict
- *   CSS-colour allowlist that `preview-shader-fill` uses (`shader-fill.ts`), so a
- *   `descriptor.colors` payload can never inject CSS into the source.
- * - The descriptor is validated against the preset manifest first, so callers
- *   get clear errors before any round-trip.
- *
- * The write persists durable SQL content directly. The edit is a single
- * inline-style `style.background` change on the resolved node — no structural
- * inserts, no new owned rows.
- *
- * Plan reference: DESIGN-STUDIO-PLAN.md §6.7 + §7 (shader fill apply).
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   agentEnterDocument,
@@ -60,8 +32,6 @@ import {
   type ShaderPresetName,
   validateDescriptor,
 } from "../shared/shader-presets.js";
-
-// ─── Schema ──────────────────────────────────────────────────────────────────
 
 const PRESET_NAMES = Object.keys(SHADER_PRESET_MAP) as [
   ShaderPresetName,
@@ -146,29 +116,16 @@ const targetSchema = z
     "Target element by nodeId (data-agent-native-node-id) or selector.",
   );
 
-// ─── Persist helpers (mirrors apply-visual-edit.ts) ───────────────────────────
-
 interface ResolvedDesignFile {
   id: string;
   designId: string;
   filename: string;
   fileType: string;
   content: string;
-  /** versionHash of `content` — the exact base the transform reads from. */
   versionHash: string;
   codeLayerSource: CodeLayerSource;
 }
 
-/**
- * Resolve the target HTML design file with an access-scoped read, then assert
- * editor access. Mirrors `resolveEditableDesignFile` in apply-visual-edit.ts so
- * the shader-fill write goes through the exact same ownership gate.
- *
- * `prepareInlineSourceEdit` keeps the caller's working copy (the transform
- * base) separate from the live hash it is allowed to replace (the write CAS).
- * This preserves unsaved local edits based on the matching SQL revision while
- * still rejecting a third, concurrently-edited live value.
- */
 async function resolveEditableDesignFile(source: {
   designId?: string;
   fileId?: string;
@@ -278,15 +235,6 @@ async function resolveEditableDesignFile(source: {
   };
 }
 
-/**
- * Persist the patched HTML through the collab-aware seam
- * (`writeInlineSourceFile`), conditioned on the versionHash of the SAME base
- * the `applyVisualEdit` transform used — not a fresh re-read/re-check at
- * persist time. `writeInlineSourceFile` re-reads the live text immediately
- * before its own write and throws "Source file changed since it was read..."
- * if it no longer matches; callers map that rejection to the existing
- * `ShaderFillRevisionConflictError`-shaped response (see run()'s catch block).
- */
 async function persistDesignFileEdit(file: {
   id: string;
   designId: string;
@@ -325,8 +273,6 @@ async function persistDesignFileEdit(file: {
     agentLeaveDocument(file.id);
   }
 }
-
-// ─── Action ──────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description: `
@@ -372,8 +318,6 @@ snippet (WebGL canvas / JSX component), call apply-shader.
       offsetY: rawDescriptor.offsetY,
     };
 
-    // Validate against the preset manifest before any write so the caller gets
-    // clear errors without a wasted DB / collab round-trip.
     const validation = validateDescriptor(descriptor);
     if (!validation.valid) {
       return {
@@ -385,14 +329,9 @@ snippet (WebGL canvas / JSX component), call apply-shader.
       };
     }
 
-    // Resolve the CSS `background` to write. Every colour is run through the
-    // strict CSS-colour allowlist here (same path preview-shader-fill uses).
     const { background, colors } = buildShaderFillBackground(descriptor);
     const fallbackCss = generateShaderFillFallbackCss(descriptor);
 
-    // Only HTML design-file sources are persisted. Everything else gets the
-    // preview value plus an explanation and writes nothing — the deterministic
-    // HTML editor is the single safe mutation seam.
     if (source.kind !== "design-file") {
       return {
         ok: true,

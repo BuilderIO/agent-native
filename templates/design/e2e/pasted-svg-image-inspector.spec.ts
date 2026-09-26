@@ -547,12 +547,8 @@ test("stroke gradient edits stay on the selected nested pasted-SVG shape", async
     await svgRow.getByRole("button", { name: "Expand layer" }).click();
     const groupRow = layers.getByRole("treeitem", { level: 3 }).first();
     await groupRow.getByRole("button", { name: "Expand layer" }).click();
-    // Imported SVG paths can have authored IDs, so Layers exposes their
-    // generated copy-ID actions instead of a generic PATH label.
     const shapeRows = layers.getByRole("treeitem", { level: 4 });
     await expect(shapeRows).toHaveCount(2);
-    // Layers orders the imported paths in reverse authored order: the first
-    // row is the authored `second` path.
     await shapeRows.nth(0).click();
     await expect(shapeRows.nth(0)).toHaveAttribute("aria-selected", "true");
 

@@ -74,8 +74,6 @@ import {
 } from "./useIntegrationStatus.js";
 import { isNonPublicWebhookUrl } from "./webhook-url.js";
 
-// ─── Platform config ─────────────────────────────────────────────────────────
-
 interface PlatformInfo {
   id: string;
   label: string;
@@ -84,7 +82,6 @@ interface PlatformInfo {
   envVars: string[];
   setupSteps: string[];
   docsUrl?: string;
-  /** If true, this is a "client" integration (user connects TO the agent) rather than a webhook */
   isClient?: boolean;
   category: "Messaging" | "Workspace tools" | "Agent clients";
 }
@@ -189,8 +186,6 @@ function useAgentEngineConfigured() {
   return configured;
 }
 
-// ─── Integration detail view ─────────────────────────────────────────────────
-
 function IntegrationDetail({
   platform,
   serverStatus,
@@ -221,9 +216,6 @@ function IntegrationDetail({
         onRefresh();
         return;
       }
-      // Surface the real reason instead of silently doing nothing.
-      // The endpoint returns `{ error }` for known failures (admin gating,
-      // missing secrets, etc.); fall back to status text otherwise.
       const data = (await res.json().catch(() => null)) as {
         error?: string;
       } | null;
@@ -474,8 +466,6 @@ function IntegrationDetail({
   );
 }
 
-// ─── Main panel ──────────────────────────────────────────────────────────────
-
 function startMcpOAuthReconnect(server: McpServer): void {
   const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const params = new URLSearchParams({
@@ -559,13 +549,6 @@ function McpServerStatus({
   );
 }
 
-/**
- * Shared "installed MCP server" list used by both the merged Integrations
- * panel and McpIntegrationsSection's own Connected/Installed block. Healthy
- * servers render as compact plugin-page rows; a server in an error state
- * keeps the richer diagnostic card (reason + reconnect) since that detail
- * doesn't fit a one-line row.
- */
 function McpServerRows({
   servers,
   role,
@@ -685,8 +668,6 @@ function useMcpIntegrationsController({
 }: {
   integrations?: DefaultMcpIntegration[];
 } = {}) {
-  // Settings surface: mounted while the panel itself may still be off-screen,
-  // so it waits out the paint window.
   const serversQuery = useMcpServers({ defer: true });
   const createServer = useCreateMcpServer();
   const deleteServer = useDeleteMcpServer();
@@ -1115,9 +1096,6 @@ const EMAIL_ROW_DESCRIPTION = "Send from the agent with Resend or SendGrid.";
 const BUILDER_ROW_DESCRIPTION =
   "Model access, browser automation, file storage, and workspace identity. Free tier available.";
 
-/** A 40px "app icon" well for logos that are plain tabler icons rather than
- * an McpIntegrationLogo image — matches McpIntegrationLogo's own default
- * bordered-square treatment so every row's logo reads consistently. */
 function PlainIntegrationIcon({
   icon: Icon,
 }: {
@@ -1130,8 +1108,6 @@ function PlainIntegrationIcon({
   );
 }
 
-// Lazy: SettingsPanel.js is a large module (it also lazy-loads this panel),
-// so the reverse reference stays dynamic to avoid a circular static import.
 const LazyEmailSectionInner = lazy(() =>
   import("../settings/SettingsPanel.js").then((m) => ({
     default: m.EmailSectionInner,

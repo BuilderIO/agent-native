@@ -776,7 +776,6 @@ const zhCN = {
       s062: "从模板开始，连接数据，开始构建仪表板。",
       s063: "阅读文档",
       s064: "查看所有模板",
-      // V3 落地页文案（2026-09-14）—— 以下为 hero 到最终 CTA。
       heroEyebrow: "Analytics",
       heroTitle: "问一个问题。获取图表、查询和上下文。",
       heroDescription:
@@ -837,7 +836,6 @@ const zhCN = {
     },
     calendar: {
       s001: "Calendar 模板屏幕截图",
-      // V3 落地页文案(2026年9月10日)—— 从 hero 到最终 CTA。
       heroEyebrow: "Calendar",
       heroTitle: "找到时间、预订会议并与代理一起调整您的一天",
       heroDescription:
@@ -1017,7 +1015,6 @@ const zhCN = {
     },
     clips: {
       s001: "Clips 模板屏幕截图",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "让 AI 智能体能看懂、听懂的屏幕录制",
       heroDescription:
@@ -1162,7 +1159,6 @@ const zhCN = {
     },
     content: {
       s001: "Content 模板屏幕截图",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "和你的 AI 智能体一起创建和整理工作",
       heroDescription:
@@ -1284,7 +1280,6 @@ const zhCN = {
     },
     design: {
       s001: "Design 模板屏幕截图",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "用你的 AI 智能体设计交互式原型",
       heroDescription:
@@ -1405,7 +1400,6 @@ const zhCN = {
     },
     dispatch: {
       s001: "Dispatch 模板屏幕截图",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "在一个地方协调你的 AI 代理",
       heroDescription:
@@ -1655,7 +1649,6 @@ const zhCN = {
           "可以。同事可以请求生成一份草稿，出现在你的审核队列中。打开它、编辑内容，准备好后再发送。请求方无法代替你发送；由草稿的所有者或组织管理员来控制发送。",
       },
       s001: "Mail 模板屏幕截图",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
       heroTitle: "用 Jev 掌控你的收件箱",
       heroDescription:
@@ -1819,7 +1812,6 @@ const zhCN = {
     },
     slides: {
       s001: "Slides 模板屏幕截图",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "用你的 AI 智能体创建演示文稿",
       heroDescription:
@@ -2031,7 +2023,6 @@ const zhCN = {
           "可以。用 CLI 创建一份副本，添加你的 actions、数据和界面，然后部署你的应用。为你的环境配置认证和服务访问权限，并在与用户分享之前测试你新增的工作流。",
       },
       s001: "Chat 应用截图",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "打造属于你自己的 AI 聊天应用",
       heroDescription:

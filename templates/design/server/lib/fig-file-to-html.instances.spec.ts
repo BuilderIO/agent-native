@@ -1,8 +1,3 @@
-/**
- * Instance, slot, layout and paint fidelity of the .fig walker. Each case pins
- * one rule with a minimal synthetic document: masters and slot content live on
- * an internal page, the rendered frame on page 1.
- */
 import { describe, expect, it } from "vitest";
 
 import { renderHtmlTemplates } from "./fig-file-to-html.js";
@@ -162,8 +157,6 @@ describe("an instance's derived layout", () => {
   });
 
   it("re-lays a resized frame's children by their constraints", () => {
-    // Figma writes back only what auto-layout moved: the frame's new width is
-    // derived data, its MAX and CENTER children are not.
     const markup = html([
       symbol(50, { size: { x: 200, y: 100 } }),
       node(50, 51, {
@@ -215,7 +208,6 @@ describe("an instance's own auto-layout", () => {
         type: "INSTANCE",
         overrideKey: { sessionID: 7, localID: 51 },
         symbolData: { symbolID: id(70) },
-        // A snapshot of variant 70, plus a padding the designer set.
         stackMode: "HORIZONTAL",
         stackSpacing: 4,
         stackPaddingRight: 9,
@@ -472,8 +464,6 @@ describe("text layout", () => {
 });
 
 describe("icon-font glyphs", () => {
-  // Figma's path-command blob (op byte + f32 LE args) for a triangle. Glyph
-  // outlines open with a ClosePath, which SVG rejects before a MoveTo.
   const square = (() => {
     const bytes = new Uint8Array(1 + 1 + 8 + 1 + 8 + 1 + 8 + 1);
     const view = new DataView(bytes.buffer);

@@ -1,10 +1,3 @@
-/**
- * Restore a recording — clears archivedAt and trashedAt.
- *
- * Usage:
- *   pnpm action restore-recording --id=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";

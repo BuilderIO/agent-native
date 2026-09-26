@@ -264,8 +264,6 @@ export async function runDownloadAllScreensPdf({
         const rendered = await renderExportDocumentCanvas({
           doc,
           iframe,
-          // Same print-quality floor as the single-page path: a 1x capture
-          // stretched to fill a fixed physical page size reads as blurry.
           exportScale: PDF_MIN_PRINT_RASTER_SCALE,
           render: html2canvas,
         });

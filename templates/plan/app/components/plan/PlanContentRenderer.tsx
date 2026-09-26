@@ -76,15 +76,6 @@ type PlanContentRendererProps = {
   fallbackBrief: string;
   onContentChange?: (content: PlanContent) => Promise<void> | void;
   onContentPatch?: (patch: PlanContentPatch) => Promise<void> | void;
-  /**
-   * Immediately reflect a STRUCTURAL block change (drag-to-columns, reorder,
-   * insert/delete) into the source-of-truth query cache, BEFORE the debounced
-   * server save lands. Without this the lagging `get-visual-plan` poll re-supplies
-   * the pre-edit content during the save window and the reconcile briefly reverts
-   * the new layout ("drop works, then undoes, then comes back"). Called only on
-   * structural changes — a per-keystroke optimistic write would make the editor's
-   * `value` track local state and loop the reconcile.
-   */
   onOptimisticBlocks?: (blocks: PlanBlock[]) => void;
   onMetadataChange?: (patch: {
     title?: string;
@@ -100,35 +91,19 @@ type PlanContentRendererProps = {
   ) => Promise<void> | void;
   onCanvasViewportChange?: (view: CanvasViewport) => void;
   onCanvasCommentShortcut?: () => void;
-  /** Plan id used to key per-block collaborative editing docs. */
   planId?: string | null;
-  /** Current user for collaborative cursor labels. */
   collabUser?: RichMarkdownCollabUser | null;
-  /** Focus the reader on the live prototype only, for popout windows. */
   prototypeOnly?: boolean;
-  /** Render as a read-only visual recap ("Visual Recap" eyebrow, recap copy). */
   isRecap?: boolean;
-  /** Hide recap changed-file rails/blocks for compact generated screenshots. */
   hideChangedFiles?: boolean;
-  /** Hide recap labels, source chips, stats, and contents rails for screenshots. */
   hideRecapChrome?: boolean;
-  /** Render code annotation cards as static inline overlays for screenshots. */
   showCodeAnnotationOverlays?: boolean;
-  /** Force GitHub-matched screenshot colors for generated recap thumbnails. */
   recapScreenshotTheme?: "light" | "dark" | null;
-  /** URL of the source PR/issue this recap covers. When set, a "View PR" chip
-   *  is shown in the recap header as a back-link. */
   sourceUrl?: string | null;
   visualSurfaceMode?: PlanVisualSurfaceMode;
   onVisualSurfaceModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
 
-/**
- * Identity of the block TREE — ids, types, and nesting (including tab/column
- * children) — ignoring rich-text markdown and block `data`. A drop, reorder, or
- * insert/delete changes this signature; a pure text edit does not. Used to fire
- * the optimistic cache write ONLY for structural changes.
- */
 function blockStructureSignature(blocks: PlanBlock[]): string {
   const walk = (list: PlanBlock[]): string =>
     list
@@ -165,12 +140,6 @@ export function getPlanCodeAnnotationLayout({
   };
 }
 
-/**
- * Thin composition shell: the spatial board (CanvasArea) on top when present,
- * the semantic document (DocumentArea blocks) below. All visual quality lives
- * in the area/wireframe modules; this shell only wires data + the document
- * header/scaffold.
- */
 export function PlanContentRenderer({
   content,
   fallbackTitle,
@@ -199,17 +168,8 @@ export function PlanContentRenderer({
   sourceUrl,
 }: PlanContentRendererProps) {
   const t = useT();
-  // Deep-link scroll on load/reload/back-forward (TOC clicks aside).
   usePlanHashScroll(content.blocks);
 
-  // ─── Plan-level presence + agent visibility ─────────────────────────────────
-  //
-  // A content-free `plan:<planId>` collab doc carries only awareness: which
-  // humans are viewing/editing, plus the agent's presence + recent-edit
-  // attribution published by the patch actions (`agentTouchDocument`). We render
-  // a PresenceBar in the header and paint a lingering highlight over any block
-  // the agent just patched. Disabled for recaps / non-persisted surfaces (no
-  // planId) and while editing is fully disabled.
   const presenceUser = useMemo<CollabUser | undefined>(
     () =>
       collabUser?.email
@@ -234,9 +194,6 @@ export function PlanContentRenderer({
       if (!container || edit.descriptor.kind !== "paths") return null;
       const paths = edit.descriptor.paths;
       if (!Array.isArray(paths) || paths.length === 0) return null;
-      // Each path is a block id; resolve the first one that maps to a live block
-      // node (the core registry NodeView + the read-only view both stamp
-      // `data-block-id` on the block wrapper).
       for (const blockId of paths) {
         if (typeof blockId !== "string" || !blockId) continue;
         const escaped =
@@ -272,9 +229,6 @@ export function PlanContentRenderer({
       });
       return;
     }
-    // Registered blocks (e.g. the callout auto-editor) autosave their `data`
-    // through the existing generic `update-block` patch (shallow data merge,
-    // re-validated by `planBlockSchema`) — no new persistence channel.
     if (onContentPatch && planBlockRegistry.has(nextBlock.type)) {
       await onContentPatch({
         op: "update-block",
@@ -347,21 +301,6 @@ export function PlanContentRenderer({
     (content as { notionSync?: boolean }).notionSync,
   );
 
-  // Persist a whole-document edit (prose, reorder, insert/delete, block data),
-  // DEBOUNCED + SERIALIZED. The single-doc editor fires `onBlocksChange` on every
-  // keystroke; saving per keystroke produced overlapping `replace-blocks` POSTs
-  // that raced the server optimistic lock (`WHERE updatedAt = versionAtLoad`) — a
-  // later save had loaded a pre-bump version, matched 0 rows, threw "Plan changed",
-  // 500'd, and dropped the trailing characters. We coalesce keystrokes into one
-  // save per ~600ms pause AND keep only one save in-flight (the latest pending
-  // blocks are re-saved after it settles), so a single author's rapid edits can
-  // never overlap. The unmount flush below keeps the last edit when the reader
-  // closes / the user navigates away.
-  //
-  // Exponential backoff: on consecutive failures we back off 1s→2s→4s→…→30s
-  // (capped). After 5 consecutive failures we stop auto-retrying and surface a
-  // persistent "Couldn't save — Retry" pill. The user can click it to retry
-  // immediately, which resets the backoff counter.
   const AUTOSAVE_DEBOUNCE_MS = 600;
   const AUTOSAVE_MAX_RETRIES = 5;
   const AUTOSAVE_MAX_BACKOFF_MS = 30_000;
@@ -389,7 +328,7 @@ export function PlanContentRenderer({
   };
   const flushSaveRef = useRef<() => void>(() => {});
   flushSaveRef.current = () => {
-    if (savingRef.current) return; // serialize: the in-flight save re-flushes below
+    if (savingRef.current) return;
     const next = pendingBlocksRef.current;
     if (next === null) return;
     pendingBlocksRef.current = null;
@@ -399,14 +338,11 @@ export function PlanContentRenderer({
       .catch((error) => {
         failed = true;
         consecutiveFailuresRef.current += 1;
-        // Keep the last unsaved snapshot live. If the user typed a newer edit
-        // while this save was in-flight, that newer pending snapshot wins.
         if (pendingBlocksRef.current === null) {
           pendingBlocksRef.current = next;
         }
         // eslint-disable-next-line no-console
         console.error("Failed to autosave plan document:", error);
-        // Surface a persistent error pill after the first failure.
         setAutosaveFailed(true);
       })
       .finally(() => {
@@ -417,8 +353,6 @@ export function PlanContentRenderer({
         }
         if (pendingBlocksRef.current !== null) {
           if (failed) {
-            // Stop auto-retrying after too many consecutive failures; the user
-            // must click "Retry" to resume.
             if (consecutiveFailuresRef.current < AUTOSAVE_MAX_RETRIES) {
               const backoffMs = Math.min(
                 1_000 * 2 ** (consecutiveFailuresRef.current - 1),
@@ -427,25 +361,18 @@ export function PlanContentRenderer({
               scheduleSaveRef.current(backoffMs);
             }
           } else {
-            // A newer edit landed while saving → save it now (with the bumped version).
             flushSaveRef.current();
           }
         }
       });
   };
 
-  // Manual retry: reset backoff and immediately flush.
   const retryAutosave = () => {
     consecutiveFailuresRef.current = 0;
     setAutosaveFailed(false);
     flushSaveRef.current();
   };
   const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
-    // A STRUCTURAL change (drag-to-columns, reorder, insert/delete) must hit the
-    // source-of-truth immediately, so the editor's authoritative `value` tracks
-    // the new layout and the lagging poll never reverts it before the debounced
-    // save lands. Text edits skip this (their structure is unchanged) to avoid
-    // making `value` track every keystroke, which would loop the reconcile.
     if (
       onOptimisticBlocks &&
       blockStructureSignature(nextBlocks) !==
@@ -467,11 +394,6 @@ export function PlanContentRenderer({
     [],
   );
 
-  // Defensive guard: if planId changes while a pending debounced save exists,
-  // DROP the stale pending edit rather than letting it flush into the new plan.
-  // With key={bundle.plan.id} on the outer PlanContentRenderer this path is
-  // unreachable in practice (plan switches remount the whole tree), but guard
-  // it anyway to prevent silent data-corruption if the key is ever removed.
   const prevPlanIdRef = useRef(planId);
   useEffect(() => {
     if (planId !== prevPlanIdRef.current) {
@@ -484,11 +406,6 @@ export function PlanContentRenderer({
     }
   }, [planId]);
 
-  // Keep the latest document-level handlers in a ref so the memoized render
-  // context stays stable (no markdown-editor remounts) while `renderBlock` for
-  // nested tab children always invokes the current handlers — mirroring how the
-  // legacy `TabsBlock` received fresh `onRichTextChange`/`onVisualQuestionsSubmit`
-  // each render.
   const handlersRef = useRef({
     updateRichTextBlock,
     onVisualQuestionsSubmit,
@@ -533,16 +450,6 @@ export function PlanContentRenderer({
           regionLabel,
           compactVisuals,
         }) => (
-          // Key by container + region so a container that renders only its
-          // ACTIVE region at one position (tabs) gets a FRESH nested editor on
-          // every switch. Without it React reuses the one instance and only
-          // swaps `blocks`; the nested `useCollabReconcile` then treats the new
-          // region's content as a recent echo and skips re-applying it, so the
-          // Tiptap doc keeps the previous tab's nodes while the side-map swaps to
-          // the new tab — surfacing as "every tab shows the same diff" and, once
-          // the stale node's id is gone from the side-map, a permanent
-          // "Loading diff block…". Columns already render each region at its own
-          // keyed position, so this is a no-op there.
           <Suspense
             fallback={
               <div className="grid gap-4">
@@ -594,9 +501,6 @@ export function PlanContentRenderer({
     ],
   );
 
-  // The first recap file tree remains inline in the document. Screenshot/export
-  // paths can still hide it through `hideChangedFiles`, so generated PR recap
-  // screenshots stay focused on the visual recap content.
   const changedFilesBlockIndex = useMemo(
     () =>
       isRecap
@@ -732,8 +636,6 @@ export function PlanContentRenderer({
     [content, hideChangedFiles, renderedBlocks],
   );
 
-  // Which rails exist, mirrored onto the body as data attributes so the grid
-  // (global.css) reserves a track only for a rail that renders.
   const hasTocRail = useMemo(
     () =>
       !hideRecapChrome &&
@@ -793,8 +695,6 @@ export function PlanContentRenderer({
           />
         )}
         {!prototypeOnly && (
-          // Layout container the side-rail grid keys off; wraps only the document
-          // (not canvas) so its containment can't disturb fixed canvas chrome.
           <div className="plan-document-region">
             <div
               ref={documentRegionRef}
@@ -883,9 +783,6 @@ export function PlanContentRenderer({
                 >
                   <div className="plan-document-flow">
                     {documentEditable ? (
-                      // The whole body is ONE editable rich-markdown document; custom
-                      // blocks are inline `planBlock` NodeViews. Read-only / review /
-                      // SSR keeps the per-block render below (no Tiptap server-side).
                       <Suspense
                         fallback={renderedBlocks.map((block) =>
                           renderFlowBlockFrame(
@@ -909,10 +806,6 @@ export function PlanContentRenderer({
                           editable
                           onBlocksChange={replaceBlocks}
                           onVisualQuestionsSubmit={onVisualQuestionsSubmit}
-                          // Reuse the `plan:<planId>` connection `usePlanPresence`
-                          // already opened above for the header PresenceBar,
-                          // instead of opening a second independent one (see
-                          // `usePlanPresence`'s `collabDoc` doc comment).
                           sharedCollabDoc={collabDoc}
                         />
                       </Suspense>
@@ -1016,9 +909,6 @@ function blockContainsDiffLike(block: PlanBlock): boolean {
   return false;
 }
 
-// Matches a standalone heading that titles the files section ("Files changed",
-// "Files added", "Files", ...). Screenshot mode hides the file-tree and should
-// hide that standalone heading too, without touching body sections.
 function isChangedFilesHeadingBlock(block: PlanBlock | undefined): boolean {
   if (!block || block.type !== "rich-text") return false;
   return /^#{1,6}\s+(?:(?:changed|added|removed|touched|modified)\s+files|files(?:\s+(?:changed|added|removed|touched|modified))?)\s*$/i.test(
@@ -1085,11 +975,6 @@ function HeaderBriefText({
   );
 }
 
-/**
- * Muted chip linking back to the PR/issue that triggered this recap.
- * Parses `owner/repo#number` from a GitHub PR URL for a compact label;
- * falls back to "View PR" for non-GitHub URLs.
- */
 function PrBackLink({ url, className }: { url: string; className?: string }) {
   let label = "View PR";
   try {
@@ -1248,11 +1133,6 @@ function findBlock(blocks: PlanBlock[], id: string): PlanBlock | null {
   return null;
 }
 
-/**
- * Compute add/remove/file counts from the first `file-tree` block in a recap.
- * Returns null when no countable data is available (all entries lack a `change`
- * field, meaning the recap was authored without diff awareness).
- */
 function computeRecapStats(
   fileTreeBlock: PlanFileTreeBlock | undefined,
 ): { files: number; added: number; removed: number } | null {
@@ -1260,8 +1140,6 @@ function computeRecapStats(
   const entries = fileTreeBlock.data.entries;
   if (entries.length === 0) return null;
 
-  // Count files that have a recognized change kind. If none of them do, we
-  // can't produce a meaningful stats line.
   const changedEntries = entries.filter((e) => e.change);
   if (changedEntries.length === 0) return null;
 
@@ -1272,10 +1150,6 @@ function computeRecapStats(
   return { files: entries.length, added, removed };
 }
 
-/**
- * Quiet one-line stat strip shown under the recap brief: "N files · +A −R".
- * Only rendered for recaps with a file-tree block that carries change data.
- */
 function RecapStatStrip({
   fileTreeBlock,
   className,
@@ -1290,7 +1164,7 @@ function RecapStatStrip({
   const parts: string[] = [`${files} ${files === 1 ? "file" : "files"}`];
   if (added > 0) parts.push(`+${added}`);
   if (removed > 0) parts.push(`−${removed}`);
-  if (parts.length === 1) return null; // only file count, not interesting
+  if (parts.length === 1) return null;
   return (
     <p
       className={cn("text-xs tabular-nums text-plan-muted/80", className)}

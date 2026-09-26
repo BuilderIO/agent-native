@@ -31,15 +31,6 @@ import {
   type PanelOrderResult,
 } from "./dashboard-panel-order";
 
-/**
- * Same validation shape used in the sql-dashboard save path.
- * Variables declared on the dashboard take priority; filter `default` values
- * fill in anything missing so parametric SQL validates against a real value.
- *
- * date-range filters expand into `<id>Start` / `<id>End` to match the runtime
- * expansion in DashboardFilterBar; without this, any panel that uses
- * `{{dateStart}}` / `{{dateEnd}}` fails the dry-run.
- */
 function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -201,9 +192,6 @@ function resolveParent(
   return [node, last];
 }
 
-/** Reject out-of-bounds array indices so a bad pointer can't silently
- *  create sparse arrays. `mode` controls whether the index may equal
- *  length (insertion-style) or must be strictly less (access-style). */
 function checkArrayIndex(
   parent: unknown[],
   key: number,
@@ -264,9 +252,6 @@ function applyJsonOp(root: any, op: JsonOp): string {
         value = fromParent[fromKey as string];
         delete fromParent[fromKey as string];
       }
-      // Destination path is resolved AFTER the source splice, so natural
-      // splice semantics place the element at the requested index in the
-      // final array. No adjustment needed for same-array moves.
       const [toParent, toKey] = resolveParent(root, parsePointer(op.path));
       if (Array.isArray(toParent)) {
         checkArrayIndex(toParent, toKey as number, op.path, "insert");
@@ -281,11 +266,6 @@ function applyJsonOp(root: any, op: JsonOp): string {
   }
 }
 
-/**
- * Reject configs missing the fields the UI assumes are always present.
- * Returns a human-readable error string, or `null` when the config passes.
- * Mirrors the shape required by `app/pages/adhoc/sql-dashboard/types.ts`.
- */
 export function validateDashboardConfig(
   config: Record<string, unknown>,
 ): string | null {
@@ -305,10 +285,6 @@ export function validateDashboardConfig(
       return "config.parentId must be a non-empty dashboard id (or omitted) — it nests this dashboard under that parent in the sidebar";
     }
   }
-  // Filter ID collisions cause two controls to read/write the same URL param.
-  // For paired start/end dates use a single date-range filter — the FilterBar
-  // expands it to <id>Start / <id>End at runtime, so the SQL can still
-  // reference both halves.
   const filters = config.filters;
   if (filters !== undefined && !Array.isArray(filters)) {
     return "config.filters must be an array";
@@ -355,9 +331,6 @@ export function validateDashboardConfig(
     if (!p || typeof p !== "object") {
       return `panel[${i}] must be an object`;
     }
-    // Section panels are pure layout dividers and extension panels render their
-    // own iframe, so both make source and sql optional. Width stays required for
-    // backward-compatible dashboard payloads.
     const isSection = p.chartType === "section";
     const isExtension = p.chartType === "extension";
     const required =
@@ -425,7 +398,6 @@ export interface ValidatePanelSqlOptions {
   signal?: AbortSignal;
 }
 
-/** Validate every query panel, or only the supplied ids for a targeted edit. */
 export async function validatePanelSql(
   config: Record<string, unknown>,
   panelIds?: ReadonlySet<string>,
@@ -447,9 +419,6 @@ export async function validatePanelSql(
     if (panelIds && (typeof p.id !== "string" || !panelIds.has(p.id))) {
       continue;
     }
-    // Sections are layout-only and extensions render their own iframe — neither
-    // has SQL to dry-run. heatmap, callout, and other query panels still
-    // validate normally below.
     if (p.chartType === "section" || p.chartType === "extension") continue;
     if (p.source === "amplitude") {
       const raw = typeof p.sql === "string" ? p.sql : "";
@@ -515,9 +484,6 @@ export async function validatePanelSql(
 
   if (bigQueryPanels.length === 0) return null;
 
-  // A dashboard save is one logical operation. Validate the selected BigQuery
-  // panels as one bounded batch so a slow panel cannot multiply the per-query
-  // timeout by the number of panels in the mutation.
   const validationController = new AbortController();
   const abortFromCaller = () => validationController.abort();
   options.signal?.addEventListener("abort", abortFromCaller, { once: true });
@@ -588,7 +554,6 @@ function resolveScope() {
   return { orgId, email };
 }
 
-/** Resulting panel count, used for the proof-of-done return summary. */
 function countPanels(config: Record<string, unknown>): number {
   return Array.isArray(config.panels) ? config.panels.length : 0;
 }
@@ -667,10 +632,6 @@ function isAgentCaller(caller: string | undefined): boolean {
   return caller === "tool" || caller === "mcp" || caller === "a2a";
 }
 
-// Reads + writes now go through the SQL-backed dashboards store, which
-// lazy-migrates legacy settings keys on first access. See
-// `server/lib/dashboards-store.ts`.
-
 export default defineAction({
   description:
     "Save or replace a SQL dashboard full config (scope-aware) atomically in ONE call. " +
@@ -715,8 +676,6 @@ export default defineAction({
         "If true, include the full dashboard config in the result. Defaults to false to keep tool output compact.",
       ),
   }),
-  // The SQL dashboard editor persists user edits through callAction(), which
-  // needs this action mounted under /_agent-native/actions/update-dashboard.
   http: { method: "POST" },
   mcpApp: {
     compactCatalog: true,
@@ -753,9 +712,6 @@ export default defineAction({
       if (sqlError) fail(sqlError);
       let saved: DashboardRecord;
       try {
-        // Keep the 4-arg call shape when no fence is supplied (brand-new
-        // dashboard, or an explicit one-shot write) — identical semantics to
-        // passing `undefined`, but matches every other unfenced call site.
         saved =
           args.expectedUpdatedAt !== undefined
             ? await upsertDashboard(
@@ -794,9 +750,6 @@ export default defineAction({
     }
 
     if (args.panelOrder) {
-      // Recomputed on every retry attempt from the freshest dashboard config,
-      // so a concurrent writer's edit is never silently overwritten by this
-      // move.
       let orderDetails!: PanelOrderResult;
       const saved = await upsertDashboardWithRetry(
         dashboardId,
@@ -831,9 +784,6 @@ export default defineAction({
       );
     }
 
-    // Recomputed on every retry attempt from the freshest dashboard config —
-    // JSON-pointer ops are replayed against fresh state, not the stale config
-    // that produced the first (lost) attempt.
     let appliedDetails: string[] = [];
     const saved = await upsertDashboardWithRetry(
       dashboardId,

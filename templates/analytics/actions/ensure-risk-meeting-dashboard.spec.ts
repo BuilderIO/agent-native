@@ -152,7 +152,6 @@ describe("ensureRiskMeetingDashboard", () => {
       ["risk-meeting-cohort", "risk-meeting-pylon-early-warning"].sort(),
     );
 
-    // Two programs saved.
     expect(mocks.upsertDataProgram).toHaveBeenCalledTimes(2);
     const savedNames = mocks.upsertDataProgram.mock.calls.map(
       (call) => call[0].name,
@@ -161,9 +160,6 @@ describe("ensureRiskMeetingDashboard", () => {
       ["risk-meeting-cohort", "risk-meeting-pylon-early-warning"].sort(),
     );
 
-    // Every saved program is scoped to the caller and the analytics app,
-    // uses ttl refresh at the documented 15-minute interval, and is
-    // foreground (non-background).
     for (const call of mocks.upsertDataProgram.mock.calls) {
       const input = call[0];
       expect(input.appId).toBe("analytics");
@@ -174,15 +170,10 @@ describe("ensureRiskMeetingDashboard", () => {
       expect(input.background).toBe(false);
       expect(typeof input.code).toBe("string");
       expect(input.code.length).toBeGreaterThan(0);
-      // The program source is stored code, not a vendor-specific action —
-      // it must reference the generic sandbox globals, not any bespoke
-      // hubspot-deals/pylon action wrapper.
       expect(input.code).toMatch(/providerFetchAll?\(/);
       expect(input.code).toMatch(/emit\(/);
     }
 
-    // Dashboard saved once, with two panels bound to the two program ids
-    // via the "program" source and a JSON-encoded { programId } descriptor.
     expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
     const [dashboardId, kind, config] = mocks.upsertDashboard.mock.calls[0] as [
       string,
@@ -221,11 +212,8 @@ describe("ensureRiskMeetingDashboard", () => {
 
     expect(second.created).toBe(false);
     expect(second.dashboardId).toBe(first.dashboardId);
-    // Same program ids reused across the two runs (upsert-by-name, not
-    // create-a-new-row-every-time).
     expect(second.programIds).toEqual(first.programIds);
 
-    // Still only ever one row per program name / one dashboard row.
     expect(mocks.upsertDataProgram).toHaveBeenCalledTimes(2);
     expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
     expect(mocks.dashboards.size).toBe(1);
@@ -237,8 +225,6 @@ describe("ensureRiskMeetingDashboard", () => {
     await ensureRiskMeetingDashboard(CTX);
     await ensureRiskMeetingDashboard(bobCtx);
 
-    // Two independent owners produce two independent sets of program rows —
-    // never cross-owner reuse.
     expect(mocks.programsByAppOwnerName.size).toBe(4);
     for (const call of mocks.upsertDataProgram.mock.calls) {
       const input = call[0];

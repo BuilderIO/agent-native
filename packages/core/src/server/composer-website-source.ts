@@ -38,7 +38,6 @@ function bounded(value: string, limit: number): string {
     : value.slice(0, limit - TRUNCATED.length) + TRUNCATED;
 }
 
-/** Reads website context through the host's existing SSRF-safe extractor. */
 export async function readComposerWebsiteSource(
   input: string,
   extract: (url: string) => Promise<ComposerWebsiteExtraction>,

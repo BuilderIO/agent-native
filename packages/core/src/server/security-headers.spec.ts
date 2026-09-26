@@ -123,8 +123,6 @@ describe("createSecurityHeadersMiddleware", () => {
 
     const res = await app.request("http://localhost/settings");
 
-    // App documents intentionally omit CSP so framework bootstrap scripts and
-    // Google Tag Manager are not blocked by a shared header.
     expect(res.headers.get("Content-Security-Policy")).toBeNull();
     expect(res.headers.get("Content-Security-Policy-Report-Only")).toBeNull();
   });
@@ -180,9 +178,6 @@ describe("createSecurityHeadersMiddleware", () => {
         headers: { cookie: `${EMBED_SESSION_COOKIE}=${token}` },
       });
 
-      // `no-referrer` here stripped the Referer from every later same-origin
-      // request an embedded Dispatch made, which is the only signal that
-      // separates it from a child app minting its own session.
       expect(res.headers.get("Referrer-Policy")).toBe("same-origin");
     } finally {
       if (previousSecret === undefined) {

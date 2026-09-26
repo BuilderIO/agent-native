@@ -1,4 +1,3 @@
-/* Shared conversation surface used by Code chat and other host-owned chats. */
 .agent-conversation {
   position: relative;
 }
@@ -514,14 +513,6 @@
   }
 }
 
-/* ─── ReasoningCell streaming tail clamp ────────────────────────────────────── */
-/* While a reasoning cell is actively streaming and open, clamp the body to
-   roughly the last ~6 lines instead of letting it grow and push the rest of
-   the transcript around (the Claude Code "tail view" behavior). The reversed
-   column anchors the box to its bottom edge, so overflow is clipped off the
-   top while the newest lines stay pinned in view — pure CSS, no scroll/rAF
-   tracking needed. A soft fade masks the clipped edge in both themes since
-   it only touches alpha, not color. */
 .reasoning-cell-tail {
   display: flex;
   flex-direction: column-reverse;
@@ -563,11 +554,6 @@
     transition-duration: 0.01ms;
   }
 }
-
-/* ─── Agent-Markdown (AssistantChat react-markdown render surface) ─────────── */
-/* These classes are applied by the SmoothMarkdownText/MarkdownText components  */
-/* in the AssistantChat/AssistantChatInner tree. The shiki dual-theme rules      */
-/* follow the same .dark / @media pattern used above for agent-conversation.     */
 
 .agent-markdown > :first-child {
   margin-top: 0;
@@ -704,7 +690,6 @@
   color: hsl(var(--foreground, 0 0% 90%));
 }
 
-/* Shiki-highlighted code blocks inside agent-markdown replies. */
 .agent-markdown-shiki {
   margin: 0.5em 0;
   border-radius: 0.375em;

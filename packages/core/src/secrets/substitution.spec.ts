@@ -103,16 +103,11 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
         scopeId: "solo:alice@example.test",
       },
     ]);
-    // With no active org the candidate set is [user, solo-workspace] only — an
-    // org-scoped row must never be consulted (no cross-org leakage path).
     const consultedScopes = mockReadAppSecret.mock.calls.map((c) => c[0].scope);
     expect(consultedScopes).not.toContain("org");
   });
 
   it("returns the user-scope value without consulting org or workspace scopes (first-hit precedence)", async () => {
-    // A personal override must win, and lower-precedence scopes must NOT be
-    // read once it is found — otherwise a shared org/workspace row could leak
-    // metadata reads or shadow the user's own value.
     mockReadAppSecret.mockImplementation(async ({ scope }) =>
       scope === "user"
         ? { value: "personal-token" }
@@ -128,7 +123,6 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     expect(result.resolvedKeys).toEqual([
       { name: "GITHUB_TOKEN", scope: "user", scopeId: "alice@example.test" },
     ]);
-    // Only the user scope was queried — org/workspace candidates short-circuit.
     expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
     expect(mockReadAppSecret).toHaveBeenCalledWith({
       key: "GITHUB_TOKEN",
@@ -249,7 +243,6 @@ describe("resolveKeyReferences", () => {
     expect(result.resolved).toBe("https://example.com/no/placeholders");
     expect(result.usedKeys).toEqual([]);
     expect(result.secretValues).toEqual([]);
-    // No lookup should happen when there's nothing to resolve.
     expect(mockReadAppSecret).not.toHaveBeenCalled();
   });
 
@@ -263,8 +256,6 @@ describe("resolveKeyReferences", () => {
     );
 
     expect(result.resolved).toBe("Authorization: Bearer sk-secret-123");
-    // usedKeys carries NAMES (safe to log); secretValues carries the raw
-    // value separately so the caller can redact it from any output.
     expect(result.usedKeys).toEqual(["OPENAI_API_KEY"]);
     expect(result.secretValues).toEqual(["sk-secret-123"]);
   });
@@ -279,7 +270,6 @@ describe("resolveKeyReferences", () => {
     );
 
     expect(result.resolved).toBe("tok-tok-tok");
-    // The key is looked up exactly once even though it appears three times.
     expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
     expect(result.usedKeys).toEqual(["K"]);
     expect(result.secretValues).toEqual(["tok"]);
@@ -362,7 +352,6 @@ describe("resolveKeyReferences", () => {
   });
 
   it("only honors recognized truthy values for the fallback flag", async () => {
-    // A non-truthy flag value must keep the fallback OFF.
     process.env.AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK = "0";
     mockReadAppSecret.mockImplementation(async ({ scope }) =>
       scope === "workspace" ? { value: "should-not-be-used" } : null,
@@ -382,7 +371,6 @@ describe("validateUrlAllowlist", () => {
   });
 
   it("allows a URL whose origin exactly matches an allowlist entry", () => {
-    // Path/query differences are ignored — matching is on origin only.
     expect(
       validateUrlAllowlist("https://hooks.slack.com/services/abc/def", [
         "https://hooks.slack.com",
@@ -418,7 +406,6 @@ describe("validateUrlAllowlist", () => {
         "https://api.test",
       ]),
     ).toBe(true);
-    // When every entry is malformed, nothing matches.
     expect(
       validateUrlAllowlist("https://api.test/x", ["::::garbage", "also bad"]),
     ).toBe(false);

@@ -313,7 +313,6 @@ async function initializeBuilderMcp(args: {
       } satisfies BuilderMcpConnection;
     }
   } catch (error) {
-    // A legacy server may reject server/discover before initialize.
     if (
       !(error instanceof Error) ||
       !/HTTP (?:400|404|405)\./.test(error.message)

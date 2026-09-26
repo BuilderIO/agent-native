@@ -8,9 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { childNodeIds, elementInner, gotoEditor } from "./helpers";
 
-// `al-beta` must stay unpainted and unpadded: paint or pad it and it projects
-// as a frame wrapping Text, and the paste-after-a-text-object test loses the
-// only text object in the row.
 const AUTO_LAYOUT_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -66,8 +63,6 @@ test.describe("auto layout keyboard parity", () => {
       expect(flowOrder(html)).toEqual(["al-alpha", "al-beta", "al-gamma"]);
     });
 
-    // The cross axis of a non-wrapping row has nowhere to move to; Figma does
-    // nothing rather than falling back to a positional offset.
     await pressEditorKey(page, "ArrowUp");
     await expectFileContent(request, baseURL, designId, (html) => {
       expect(flowOrder(html)).toEqual(["al-alpha", "al-beta", "al-gamma"]);
@@ -133,7 +128,6 @@ test.describe("auto layout keyboard parity", () => {
   });
 });
 
-/** DOM order of the auto layout row's flow children, by node id. */
 function flowOrder(html: string): string[] {
   return childNodeIds(html, "al-row");
 }

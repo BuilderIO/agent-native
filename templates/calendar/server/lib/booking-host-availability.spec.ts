@@ -27,9 +27,6 @@ const WEEKLY_SCHEDULE = {
   sunday: { enabled: false, slots: [] },
 };
 
-// Most tests exercise a fully reciprocal owner<->peer overlay relationship,
-// so their `calendar-overlay-people` mock also needs to answer for the
-// peer's own settings read (peer must have overlaid the owner back).
 function withReciprocalOverlay(
   peerEmail: string,
   handleOtherKeys: (email: string, key: string) => unknown,
@@ -80,8 +77,6 @@ describe("getEligibleHostAvailability", () => {
         ) {
           return { people: [{ email: "peer@example.com", color: "#fff" }] };
         }
-        // peer's own overlay list is empty (or doesn't include the owner) -
-        // the owner added peer, but peer never added the owner back.
         if (email === "peer@example.com" && key === "calendar-overlay-people") {
           return { people: [] };
         }
@@ -339,7 +334,6 @@ describe("getHostOverlayStatuses", () => {
             ],
           };
         }
-        // Peer's overlay list does not contain the owner.
         if (email === "peer@example.com" && key === "calendar-overlay-people") {
           return { people: [] };
         }

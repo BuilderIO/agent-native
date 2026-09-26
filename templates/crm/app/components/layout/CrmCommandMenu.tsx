@@ -58,7 +58,6 @@ type TablerIcon = typeof IconList;
 
 interface PaletteEntry {
   id: string;
-  /** Stable ranking value; never shown. */
   value: string;
   label: string;
   keywords: string[];
@@ -535,7 +534,6 @@ function useCrmKeyboardShortcuts({
       { key: "n", handler: () => emitCrmUiIntent(CRM_NEW_RECORD_EVENT) },
       { key: "t", handler: () => emitCrmUiIntent(CRM_NEW_TASK_EVENT) },
       { key: "e", handler: () => emitCrmUiIntent(CRM_EDIT_RECORD_EVENT) },
-      // `?` needs Shift on US layouts and none on several others.
       { key: "?", handler: onShowShortcuts },
       { key: "?", shift: true, handler: onShowShortcuts },
     ],

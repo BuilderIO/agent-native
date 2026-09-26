@@ -24,7 +24,6 @@ export async function getProvider(name?: string): Promise<ImageProvider> {
     return p;
   }
 
-  // Auto: prefer gemini (has reference image support), fall back to openai
   for (const key of ["gemini", "openai"]) {
     const p = providers[key]!();
     if (await providerIsConfigured(p)) return p;

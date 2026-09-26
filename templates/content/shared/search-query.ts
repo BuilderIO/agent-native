@@ -1,33 +1,20 @@
 export interface SearchQueryTerm {
   text: string;
-  /** Was wrapped in double quotes — must match contiguously. */
   phrase: boolean;
   negated: boolean;
   titleOnly: boolean;
 }
 
 export interface SearchQueryGroup {
-  /** Terms joined by OR; at least one must match. */
   terms: SearchQueryTerm[];
 }
 
 export interface ParsedSearchQuery {
-  /** ANDed groups of OR'd positive terms. */
   groups: SearchQueryGroup[];
-  /** Terms no matching document may contain. */
   negatives: SearchQueryTerm[];
-  /**
-   * Set only when the query parses to zero terms (punctuation-only input such
-   * as `-` or `""`); callers must treat this as an empty result rather than
-   * silently matching every document.
-   */
   empty: boolean;
 }
 
-// OR is uppercase-only, matching Google: lowercase "or" is a search word.
-// An unclosed quote treats the rest of the input as the phrase.
-// Terms without any letter or digit are punctuation and are dropped, so a
-// lone `-` or `""` parses to an empty query instead of a literal match.
 export function parseSearchQuery(input: string): ParsedSearchQuery {
   const groups: SearchQueryGroup[] = [];
   const negatives: SearchQueryTerm[] = [];
@@ -97,7 +84,6 @@ export function parseSearchQuery(input: string): ParsedSearchQuery {
   };
 }
 
-/** Positive needles for match highlighting; empty for a punctuation-only query. */
 export function searchQueryNeedles(parsed: ParsedSearchQuery): string[] {
   return parsed.groups.flatMap((group) => group.terms.map((term) => term.text));
 }

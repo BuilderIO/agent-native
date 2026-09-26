@@ -53,9 +53,6 @@ describe("applyMotionAutoKeyframesForStyles (item 7 — motion auto-key wiring)"
   });
 
   it("maps camelCase style property names to the track's kebab-case catalog name", () => {
-    // Inspector edits arrive as camelCase (e.g. React style keys / EditPanel's
-    // onStyleChange("backgroundColor", ...)) — the track itself is stored
-    // kebab-case (see MOTION_PROPERTY_PRESETS in shared/motion-timeline.ts).
     const tracks = [
       track({
         property: "background-color",

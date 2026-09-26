@@ -305,7 +305,6 @@ afterEach(async () => {
   rmSync(dbDir, { recursive: true, force: true });
 });
 
-/** `rescheduleBooking` re-loads the event type by id, so it must exist. */
 async function seedEventType(eventType: EventType): Promise<void> {
   await execute({
     sql: `INSERT INTO event_types (
@@ -405,9 +404,6 @@ describe("insertBooking", () => {
         timezone: "UTC",
         attendees: [
           { email: ATTENDEE_EMAIL, name: "Attendee One" },
-          // A null email violates the NOT NULL constraint after the first
-          // attendee (and the booking row) have already been written —
-          // proving the whole write is one atomic unit.
           { email: null as unknown as string, name: "Bad Attendee" },
         ],
         ownerEmail: HOST_EMAIL,
@@ -499,8 +495,6 @@ describe("createBooking", () => {
       attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
     });
 
-    // Starts exactly when the first booking ends, so the raw windows don't
-    // overlap — only the buffered event type's 15-minute lead-in collides.
     const bufferedEventType = makeEventType({
       id: "event-type-buffered",
       beforeEventBuffer: 15,
@@ -518,9 +512,6 @@ describe("createBooking", () => {
   });
 
   it("allows an out-of-availability free slot once the conflicting booking is cancelled", async () => {
-    // Sanity check that the conflict guard is scoped to the requested
-    // window, not a blanket rejection — a later, non-overlapping slot for
-    // the same host must still succeed.
     const eventType = makeEventType();
     await createBooking({
       eventType,
@@ -556,9 +547,6 @@ describe("rescheduleBooking", () => {
       attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
     });
 
-    // Reschedule to an overlapping-but-shifted slot; if the original
-    // booking's own busy interval weren't excluded, this would always
-    // conflict with itself.
     const rescheduled = await rescheduleBooking({
       uid: original.uid,
       newStartTime: "2026-08-08T10:15:00.000Z",
@@ -597,9 +585,6 @@ describe("rescheduleBooking", () => {
       }),
     ).rejects.toBeInstanceOf(SlotConflictError);
 
-    // The original booking must stay intact after a failed reschedule
-    // attempt — it should never be left marked "rescheduled" with no
-    // successor.
     const stillOriginal = await getBookingByUid(original.uid);
     expect(stillOriginal?.status).toBe("confirmed");
   });

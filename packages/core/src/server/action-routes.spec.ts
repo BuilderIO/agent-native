@@ -60,9 +60,6 @@ vi.mock("./action-change.js", () => ({
   notifyActionChange: (...args: unknown[]) => mockNotifyActionChange(...args),
 }));
 
-// The adapter path in mountActionRoutes derives org from the verified caller
-// via resolveOrgIdForEmail. Mocked here so the owner-based lookup is
-// deterministic without a live DB/session.
 vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: (...args: unknown[]) =>
     mockResolveOrgIdForEmail(...args),
@@ -75,9 +72,6 @@ vi.mock("./auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
   registerAuthPublicPaths: (...args: unknown[]) =>
     mockRegisterAuthPublicPaths(...args),
-  // Captured into the request context so code below the HTTP layer can tell a
-  // local-dev caller from a remote one. Mocked false: these specs assert
-  // ordinary remote-request behavior.
   isLoopbackRequest: () => false,
 }));
 vi.mock("./embed-session.js", () => ({
@@ -1569,7 +1563,6 @@ describe("mountActionRoutes", () => {
       caller: "http",
       actionName: "do-thing",
     });
-    // No SSE sender on the HTTP surface.
     expect(received.send).toBeUndefined();
   });
 
@@ -1684,13 +1677,6 @@ describe("mountActionRoutes", () => {
   });
 
   it("coerces boolean and number GET params to their schema types (useActionQuery round-trip)", async () => {
-    // `useActionQuery` serializes every param into the query string, so a
-    // boolean `true` arrives at the server as the string "true" and a number
-    // as "5" (URLSearchParams stringifies everything). A schema-validated GET
-    // action expects real boolean/number, so without coercion Zod rejects them
-    // with "expected boolean, received string". This exercises the full route
-    // path (parse query → validating run) to prove the values round-trip to
-    // native types. Regression guard for the `instrument-overview` report.
     const { mountActionRoutes } = await import("./action-routes.js");
     const { defineAction } = await import("../action.js");
     const { z } = await import("zod");
@@ -1910,10 +1896,6 @@ describe("mountActionRoutes", () => {
     });
   });
 
-  // ---------------------------------------------------------------------
-  // Tools-bridge gating (audit H5)
-  // ---------------------------------------------------------------------
-
   it("refuses extension tools-bridge calls to provider-api-request", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -2001,10 +1983,6 @@ describe("mountActionRoutes", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  // ---------------------------------------------------------------------
-  // Per-action body-size guard (maxBodyBytes)
-  // ---------------------------------------------------------------------
-
   it("rejects oversize POST bodies with 413 before parsing when maxBodyBytes is set", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -2035,7 +2013,6 @@ describe("mountActionRoutes", () => {
     expect(result).toEqual({
       error: "Request body too large (max 1024 bytes)",
     });
-    // The body is never parsed and the action never runs.
     expect(json).not.toHaveBeenCalled();
     expect(actions["validate-local-plan-source"].run).not.toHaveBeenCalled();
   });
@@ -2113,7 +2090,6 @@ describe("mountActionRoutes", () => {
 
     mountActionRoutes(nitroApp, actions);
 
-    // No X-Agent-Native-Tool-Bridge header — this is a regular UI/agent call.
     const event = {
       _method: "POST",
       _headers: {},
@@ -2124,10 +2100,6 @@ describe("mountActionRoutes", () => {
     expect(result).toEqual({ ok: true });
     expect(actions["share-resource"].run).toHaveBeenCalledTimes(1);
   });
-
-  // ---------------------------------------------------------------------
-  // actionRouteAuth adapter (runs before getOwnerFromEvent / getSession)
-  // ---------------------------------------------------------------------
 
   it("accepts built-in feature flag delegation without template adapter", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
@@ -2524,9 +2496,7 @@ describe("mountActionRoutes", () => {
     expect(received.ctx.userEmail).toBe("a2a-caller@example.com");
     expect(received.requestUserEmail).toBe("a2a-caller@example.com");
     expect(received.requestUserName).toBe("A2A Caller");
-    // The framework session chain is never consulted when the adapter resolves.
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
-    // The resolved caller is seeded so nested agent runs see the same identity.
     expect(event.context[AGENT_RUN_OWNER_CONTEXT_KEY]).toEqual({
       owner: "a2a-caller@example.com",
       anonymous: false,
@@ -2652,10 +2622,6 @@ describe("mountActionRoutes", () => {
   });
 
   it("scopes the adapter-resolved caller to an owner-derived orgId", async () => {
-    // The app's resolveOrgId is session-backed and yields null for an A2A
-    // caller. The adapter path must still land the correct org by reusing
-    // core's owner-based fallback (resolveOrgIdForEmail) so org-scoped writes
-    // don't persist with org_id NULL.
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestOrgId } = await import("./request-context.js");
     mockResolveOrgIdForEmail.mockResolvedValue("org-owner-derived");
@@ -2677,7 +2643,6 @@ describe("mountActionRoutes", () => {
 
     mountActionRoutes(nitroApp, actions, {
       getOwnerFromEvent: async () => "session-user@example.com",
-      // Session-backed org resolution returns null for an A2A caller.
       resolveOrgId: async () => null,
       actionRouteAuth: {
         resolveCaller: async () => ({
@@ -2702,9 +2667,6 @@ describe("mountActionRoutes", () => {
   });
 
   it("falls back to the stored active org for a cookie session that resolved none", async () => {
-    // A session minted before org selection — or one whose membership read
-    // failed — yields no org, and an undefined org narrows every scoped read
-    // to rows with a null org_id, hiding the user's own org-scoped data.
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestOrgId } = await import("./request-context.js");
     mockResolveOrgIdForEmail.mockResolvedValue("org-stored-active");
@@ -2741,8 +2703,6 @@ describe("mountActionRoutes", () => {
   });
 
   it("keeps an explicit Personal selection personal", async () => {
-    // resolveOrgIdForEmail returns null for an explicit Personal choice, so
-    // the fallback must not promote the user into their oldest membership.
     const { mountActionRoutes } = await import("./action-routes.js");
     mockResolveOrgIdForEmail.mockResolvedValue(null);
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -2933,8 +2893,6 @@ describe("mountActionRoutes", () => {
   });
 
   it("uses the adapter-asserted orgId verbatim, skipping the owner lookup", async () => {
-    // When the adapter verified an org from the credential itself (e.g. the
-    // A2A token's org claim), that org wins and no membership lookup runs.
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestOrgId } = await import("./request-context.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -3034,9 +2992,6 @@ describe("mountActionRoutes", () => {
   });
 
   it("does not seed the adapter's orgId into the owner context", async () => {
-    // seedAgentRunOwnerContext carries identity only; org is request-context
-    // state. Downstream consumers of the seeded owner context must not see
-    // adapter-specific fields.
     const { mountActionRoutes } = await import("./action-routes.js");
     const { AGENT_RUN_OWNER_CONTEXT_KEY } =
       await import("./agent-run-context.js");
@@ -3245,9 +3200,6 @@ describe("mountWebMcpActionRoutes", () => {
     ).resolves.toEqual({ caller: "webmcp" });
     expect(run).toHaveBeenCalledTimes(2);
 
-    // A needsApproval action is discoverable and registered, but WebMCP has
-    // no approval UI of its own: the call is refused instead of executed,
-    // and the refusal tells the caller to get the human's confirmation.
     const approvalResult = await approvalInvocationRoute?.handler({
       _method: "POST",
       _headers: {},
@@ -3269,10 +3221,6 @@ describe("mountWebMcpActionRoutes", () => {
       ),
     };
     const run = vi.fn(async (args) => ({ ranWith: args }));
-    // `dryRun` defaults true and coerces the string "false" a client might
-    // send; only the validated value reflects that. A predicate reading raw
-    // JSON would see `undefined` (not the default) or the string "false" (not
-    // `false`) and approve calls it should have gated.
     const schema = z.object({
       dryRun: z.preprocess(
         (v) => (v === "false" ? false : v),
@@ -3297,7 +3245,6 @@ describe("mountWebMcpActionRoutes", () => {
       ({ path }) => path === "/_agent-native/webmcp/actions/remediate",
     );
 
-    // Omitted entirely: the schema default (true) applies, so this must run.
     await expect(
       invocationRoute?.handler({
         _method: "POST",
@@ -3306,8 +3253,6 @@ describe("mountWebMcpActionRoutes", () => {
       }),
     ).resolves.toEqual({ ranWith: { dryRun: true } });
 
-    // Sent as the string "false": raw JSON is truthy, but the coerced value
-    // is `false`, so this must be refused rather than silently executed.
     const coercedResult = await invocationRoute?.handler({
       _method: "POST",
       _headers: {},
@@ -3318,12 +3263,6 @@ describe("mountWebMcpActionRoutes", () => {
   });
 
   it("does not re-validate an already-validated call through a real defineAction entry", async () => {
-    // Uses the actual `defineAction` wrapping (not a hand-built ActionEntry
-    // stub) so `entry.run` is the real re-validating closure: a stub `run`
-    // would never exercise the double-parse this test guards against. The
-    // schema's `.preprocess` is deliberately NOT idempotent — each pass
-    // appends another suffix — so a second, unintended validation pass would
-    // be observable in what `run` actually receives.
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const { defineAction } = await import("../action.js");
     const { z } = await import("zod");
@@ -3378,8 +3317,6 @@ describe("mountWebMcpActionRoutes", () => {
           run: vi.fn(),
           readOnly: true,
         } as any,
-        // Not exposed to external agents, so it never reaches the manifest's
-        // own `tools` list even though it's in `keyToolNames` below.
         hidden: {
           tool: { description: "Hidden", parameters: { type: "object" } },
           run: vi.fn(),
@@ -3413,9 +3350,6 @@ describe("mountWebMcpActionRoutes", () => {
   it("resolves browser tab and canonical auth identity for WebMCP actions", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
-    // The action itself reads the context — same helper
-    // `readAppStateForCurrentTab` (application-state/script-helpers.ts) uses
-    // to scope app state to the calling tab.
     const run = vi.fn(async () => ({
       browserTabId: getRequestRunContext()?.browserTabId,
       authUserId: getRequestContext()?.authUserId,
@@ -3474,8 +3408,6 @@ describe("mountWebMcpActionRoutes", () => {
       authUserId: "canonical-auth-user-1",
     });
 
-    // No header sent (CLI/external-agent callers that predate tab scoping):
-    // no id is fabricated, it just stays undefined.
     await expect(
       webMcpRoute?.handler({
         _method: "POST",

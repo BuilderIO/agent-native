@@ -20,12 +20,6 @@ export interface UnclaimedBackgroundRunSweepResult {
   truncated: boolean;
 }
 
-/**
- * Redispatch unclaimed background runs from either a durable scheduler or an
- * in-process backstop. The scheduler also reaps rows outside the bounded
- * redispatch window; the fast backstop passes `reapExpired: false` so it never
- * turns a transient dispatch outage into an early terminal error.
- */
 export async function sweepUnclaimedBackgroundRuns(options?: {
   now?: number;
   reapExpired?: boolean;
@@ -59,8 +53,6 @@ export async function sweepUnclaimedBackgroundRuns(options?: {
         );
       }
       try {
-        // This marker intentionally omits continuationCount: the sweep is a
-        // chain break and must start the recovered worker at depth zero.
         await fireInternalDispatch({
           path: resolveAgentChatProcessRunDispatchPath(),
           taskId: row.id,

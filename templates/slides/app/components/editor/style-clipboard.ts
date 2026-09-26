@@ -1,5 +1,3 @@
-/** Shared style clipboard for copy/paste style (Cmd+Option+C / Cmd+Option+V) */
-
 import type { SlideStylePatch, SlideStyleSnapshot } from "./slide-style";
 
 export interface CopiedStyle {
@@ -15,7 +13,6 @@ export function setCopiedStyle(s: CopiedStyle | null): void {
   copiedStyle = s;
 }
 
-/** Appearance-only style payload used by the canvas editor. */
 export type CopiedElementStyle = Pick<
   SlideStylePatch,
   | "color"
@@ -43,7 +40,6 @@ function px(value: number): string {
   return `${Number.isInteger(value) ? value : Number(value.toFixed(2))}px`;
 }
 
-/** Converts the inspector's computed snapshot into an appearance-only patch. */
 export function copiedElementStyleFromSnapshot(
   snapshot: SlideStyleSnapshot,
 ): CopiedElementStyle {
@@ -76,7 +72,6 @@ export function setCopiedElementStyle(style: CopiedElementStyle | null): void {
   copiedElementStyle = style ? { ...style } : null;
 }
 
-// Brand palette — persisted in localStorage
 const STORAGE_KEY = "slide-brand-palette";
 
 const DEFAULT_PALETTE = [

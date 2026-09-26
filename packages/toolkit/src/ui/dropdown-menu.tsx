@@ -69,8 +69,6 @@ DropdownMenuSubContent.displayName =
 type DropdownMenuContentProps = React.ComponentPropsWithoutRef<
   typeof DropdownMenuPrimitive.Content
 > & {
-  // Allows rendering the portal into a custom container; useful when the menu
-  // must appear above a specific stacking context (e.g. a fullscreen video player).
   container?: React.ComponentPropsWithoutRef<
     typeof DropdownMenuPrimitive.Portal
   >["container"];

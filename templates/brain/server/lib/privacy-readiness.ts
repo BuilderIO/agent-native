@@ -5,11 +5,6 @@ import {
   type JevCredentialStatus,
 } from "./jev-classifier.js";
 
-/**
- * "none" means no credential was found; "unavailable" means the lookup itself
- * failed. Collapsing the two would report a broken vault as an unconfigured
- * workspace and hide the real problem.
- */
 export type BrainJevCredentialStatus = JevCredentialStatus;
 
 export interface BrainPrivacyReadiness {

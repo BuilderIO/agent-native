@@ -1,10 +1,3 @@
-// Owns: typed helpers for reading/comparing the assistant-ui message repository shape.
-
-// The assistant-ui ExportedMessageRepository type is structurally complex and
-// the normalised internal form diverges slightly. We define a structural
-// interface covering the shapes both `threadRuntime.export()` and
-// `normalizeThreadRepository()` produce, and use it everywhere instead of `any`.
-
 import { ASSISTANT_RUN_DURATION_METADATA_KEY } from "../../agent/thread-data-builder.js";
 
 export interface RepoMessageStatus {
@@ -28,11 +21,9 @@ export interface RepoMessage {
   [key: string]: unknown;
 }
 
-/** Entry in `repo.messages` — may be flat or wrapped `{ message: RepoMessage }`. */
 export interface RepoEntry {
   parentId?: string | null;
   message?: RepoMessage;
-  // Flat (unwrapped) fields are also legal:
   id?: string;
   role?: string;
   status?: RepoMessageStatus;
@@ -40,7 +31,6 @@ export interface RepoEntry {
   [key: string]: unknown;
 }
 
-/** Minimal structure of the normalised thread repository used by AssistantChat. */
 export interface NormalizedRepo {
   messages?: RepoEntry[];
   headId?: string;
@@ -133,21 +123,6 @@ export function withLastAssistantRunDuration<T extends NormalizedRepo>(
   return { ...repo, messages };
 }
 
-/**
- * Collapse duplicate message ids before a repository is handed to
- * `threadRuntime.import()`. assistant-ui's `MessageRepository` throws
- * "MessageRepository(performOp/link): A message with the same id already exists
- * in the parent tree" when the imported messages contain the same id more than
- * once (Sentry AGENT-NATIVE-BROWSER-2Q). Duplicate ids are never valid thread
- * data — they come from optimistic+echo races, streaming reconnect replays, or
- * multi-tab merges — so keep only the LAST occurrence of each id (the most
- * recent, most complete copy). parentId references stay valid because the
- * surviving entry keeps the same id.
- *
- * Returns the input unchanged (same reference) when there are no duplicates, so
- * the overwhelmingly common no-dupe case is a cheap no-op with zero behavioural
- * change for normal threads.
- */
 export function dedupeRepoMessagesById<T extends NormalizedRepo>(
   repo: T | null | undefined,
 ): T | null | undefined {
@@ -164,7 +139,6 @@ export function dedupeRepoMessagesById<T extends NormalizedRepo>(
   if (!hasDuplicate) return repo;
   const deduped = entries.filter((entry, index) => {
     const id = getRepoMessage(entry)?.id;
-    // Keep id-less entries untouched; for duplicated ids keep only the last.
     if (typeof id !== "string" || !id) return true;
     return lastIndexById.get(id) === index;
   });

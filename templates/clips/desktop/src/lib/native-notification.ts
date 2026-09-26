@@ -18,7 +18,6 @@ export interface NativeNotificationDeps {
 const tauriNotificationDeps: NativeNotificationDeps = {
   isPermissionGranted,
   requestPermission,
-  // The JS sendNotification wrapper discards the native command promise.
   sendNotification: (notification) =>
     invoke<void>("plugin:notification|notify", { options: notification }),
 };

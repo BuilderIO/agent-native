@@ -211,8 +211,6 @@ test.describe.serial("URL-backed React JSX writeback", () => {
     await expect
       .poll(() => viteChangedFiles)
       .toContain(path.join(rootPath, sourcePath));
-    // The source write invalidates Vite; reload the host to prove the bridge
-    // also serves the changed authored module on a fresh URL-backed boot.
     await page.reload({ waitUntil: "domcontentloaded" });
     const reloadedFrame = page
       .locator(

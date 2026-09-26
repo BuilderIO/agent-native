@@ -1,7 +1,3 @@
-/**
- * Unit tests for assertPathInside (pure logic, no DB).
- */
-
 import { describe, expect, it } from "vitest";
 
 import { assertPathInside } from "./verify-write-grant.js";
@@ -44,14 +40,12 @@ describe("assertPathInside", () => {
   });
 
   it("blocks a path that starts with root prefix but is a sibling dir", () => {
-    // e.g. /Users/alice/projects/my-app-evil is NOT inside /Users/alice/projects/my-app
     expect(() =>
       assertPathInside(root, "/Users/alice/projects/my-app-evil/index.html"),
     ).toThrow(/outside the consented root/);
   });
 
   it("allows the root directory itself (edge case)", () => {
-    // Targeting root itself — allowed (unlikely but should not throw)
     expect(() => assertPathInside(root, root)).not.toThrow();
   });
 

@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-// Postbuild guard: actually import the SSR-critical entry points under Node's
-// strict ESM resolver. This reproduces the failure class where compiled client
-// code reaches into copy-only template scaffolding (src/templates ships verbatim
-// .ts, so its .js never exists in dist). Such imports work under Vite's
-// on-the-fly client transform but throw ERR_MODULE_NOT_FOUND during SSR.
-//
-// A static scan can't tell a real broken import from a JSDoc example, a codegen
-// string literal, or a dynamic import of a consumer-generated file, so we run
-// the real resolver instead.
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";

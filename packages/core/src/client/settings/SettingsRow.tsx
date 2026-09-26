@@ -3,21 +3,14 @@ import type { ReactNode } from "react";
 import { cn } from "../utils.js";
 
 export interface SettingsGroupProps {
-  /** Anchor target so a settings search hit can scroll the whole group. */
   id?: string;
   title?: string;
   description?: string;
-  /** Use a soft card surface when separators would add unnecessary chrome. */
   variant?: "default" | "soft";
   className?: string;
   children: ReactNode;
 }
 
-/**
- * A bordered card holding several one-line settings instead of one card per
- * control. Copy is passed in already translated — core components do not
- * resolve an app's i18n keys.
- */
 export function SettingsGroup({
   id,
   title,
@@ -61,25 +54,16 @@ export function SettingsGroup({
 }
 
 export interface SettingsRowProps {
-  /**
-   * Anchor target. Rows keep the ids their former standalone cards used, so
-   * existing settings-search hashes still resolve after a card collapses into
-   * a row.
-   */
   id?: string;
   label: ReactNode;
   description?: ReactNode;
   icon?: ReactNode;
-  /** Badge or pill rendered beside the label. */
   status?: ReactNode;
-  /** The input itself: switch, select, button, link. */
   control?: ReactNode;
-  /** Extra content below the row, e.g. a disclosure panel. */
   children?: ReactNode;
   className?: string;
 }
 
-/** One setting: label and description on the start side, control on the end. */
 export function SettingsRow({
   id,
   label,

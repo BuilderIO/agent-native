@@ -190,12 +190,6 @@ const SCRUBBER_MARKER_LIMIT = 500;
 const TIMELINE_MARKER_LIMIT = 300;
 const TIMELINE_FOLLOW_PAUSE_MS = 4000;
 const REPLAY_CLOCK_UPDATE_INTERVAL_MS = 100;
-/**
- * Keep captured overlays intact. Toasts and snackbars are product feedback,
- * not recorder chrome, and can be essential to understanding the session.
- * The recorder does not inject notification UI into the recorded document, so
- * blanket selectors (including Sonner's data attributes) are not justified.
- */
 export const REPLAY_OVERLAY_STYLE_RULES: string[] = [];
 type ReplayConsoleDiagnostics = ReturnType<
   typeof extractReplayDiagnostics
@@ -208,14 +202,6 @@ type ConsoleErrorSignaturePayload = {
   stack?: string;
 };
 
-/**
- * Distill the resolvable error lines from a session's console diagnostics for
- * issue matching. Only error-level lines are worth sending: window errors,
- * unhandled rejections, and manual `captureException` all surface at `error`
- * level with a serialized `Name: message` (+ stack) that the server can
- * fingerprint back to a captured issue. Non-error console lines are left alone,
- * and anything without a captured issue simply comes back unmatched.
- */
 function buildConsoleErrorSignatures(
   entries: ReplayConsoleDiagnostics,
 ): ConsoleErrorSignaturePayload[] {
@@ -538,8 +524,6 @@ function ReplayPlayer({
   const eventsRef = useLiveRef(events);
   const viewportTimelineRef = useLiveRef(viewportTimeline);
   const streamedDimsRef = useLiveRef(streamedDims);
-  // Stable identity for the loaded event set so progressive chunk publishes
-  // that only grow the array do not tear down a healthy Replayer mid-playback.
   const eventsIdentity = useMemo(
     () =>
       `${events.length}:${Number(events[0]?.timestamp ?? 0)}:${Number(
@@ -550,9 +534,6 @@ function ReplayPlayer({
   const scrubbingRef = useRef(false);
   const scrubResumePlayingRef = useRef(false);
 
-  // Fall back to the default player size only when the viewport is unknown;
-  // otherwise render the raw recorded dimensions untouched. See the Replayer
-  // construction below for why "recovery" heuristics were removed here.
   const displayDims = resolveReplayDisplayDimensions(
     streamedDims ?? initialDims,
   );
@@ -575,10 +556,6 @@ function ReplayPlayer({
     response.isComplete,
   );
 
-  // Resolve captured console errors in this replay to their Sentry-style issue
-  // groups (one batched, access-scoped call, server-computed fingerprints) so
-  // each error can deep-link to its full issue detail. Only runs once devtools
-  // are open and there is at least one error line worth looking up.
   const errorSignatures = useMemo(
     () => buildConsoleErrorSignatures(diagnostics.console),
     [diagnostics.console],
@@ -631,8 +608,6 @@ function ReplayPlayer({
     return () => observer.disconnect();
   }, [playerHeight, playerWidth]);
 
-  // Keep Dev Tools from eating the stage. On short viewports the panel used to
-  // shrink the replay area into a ribbon even when Meta dimensions were fine.
   useEffect(() => {
     const el = playerShellRef.current;
     if (!el) return;
@@ -654,10 +629,6 @@ function ReplayPlayer({
   const updateTime = useCallback(
     (next: number) => {
       if (!Number.isFinite(next) || next === currentTimeRef.current) return;
-      // Keep the live value in sync before React commits. The animation clock
-      // can run again while React is still processing the previous render;
-      // relying on useLiveRef's effect here republishes the same value and can
-      // create a nested update loop in development.
       currentTimeRef.current = next;
       setCurrentTime(next);
       onTimeUpdate(next);
@@ -687,9 +658,6 @@ function ReplayPlayer({
         clamped,
       );
       if (seekDims) {
-        // rrweb 2.1 does not reliably re-emit its resize event when seeking
-        // backwards, so mirror the raw viewport-timeline lookup onto both
-        // rrweb's iframe and the outer stage state to keep them in sync.
         const currentDims = streamedDimsRef.current;
         if (
           currentDims?.width !== seekDims.width ||
@@ -744,9 +712,6 @@ function ReplayPlayer({
 
     async function loadReplay() {
       const replayEvents = eventsRef.current;
-      // Replayer construction remains all-or-nothing. Progressive response
-      // publishes update loading progress only; rebuilding during download
-      // rewinds the player and can desync the scrubber/playhead.
       if (!response.isComplete) {
         setStatus("loading");
         setError(null);
@@ -768,17 +733,7 @@ function ReplayPlayer({
       if (cancelled || !stageRootRef.current) return;
 
       stageRootRef.current.innerHTML = "";
-      // Viewport and pointer events must pass through to rrweb untouched.
-      // The 2026-07 "ultra-wide replay" bugs (e.g. a stored 1,152px-wide
-      // recording rendering as a 4,491px Meta width) were caused by demo
-      // mode's fetch redaction faking numbers >= 1000 in raw replay JSON at
-      // view time, not by malformed stored geometry — fixed in
-      // packages/core/src/demo/fetch-interceptor.ts. Stored recordings were
-      // always sane, so never add viewport "recovery" heuristics here; they
-      // can only corrupt genuine recordings (e.g. a real ultrawide window).
       setStreamedDims(replayInitialViewportDimensions(replayEvents));
-      // Keep this loosely typed: our internal AnyReplayEvent shape doesn't
-      // exactly match rrweb's declared eventWithTime type.
       localReplayer = new Replayer(replayEvents as any[], {
         root: stageRootRef.current,
         speed: speedRef.current,
@@ -786,15 +741,9 @@ function ReplayPlayer({
         showWarning: false,
         showDebug: false,
         mouseTail: false,
-        // Match stock rrweb/builder-internal focus replay. Disabling focus
-        // drops recorded focus-visible state and can leave menus/forms looking
-        // unlike the source page even when the snapshot CSS is correct.
         triggerFocus: true,
         insertStyleRules: REPLAY_OVERLAY_STYLE_RULES,
       });
-      // rrweb already sandboxes the replay document without script execution.
-      // Do not mutate recorded URLs/CSS; suppress viewer-page referrer leakage
-      // at the iframe boundary while retaining historical visual resources.
       localReplayer.iframe?.setAttribute?.("referrerpolicy", "no-referrer");
       stopCursorVisibilityObserver =
         hideReplayCursorUntilPosition(localReplayer);
@@ -826,9 +775,6 @@ function ReplayPlayer({
             width: Math.round(dims.width),
             height: Math.round(dims.height),
           };
-          // rrweb owns its iframe geometry from raw Meta/ViewportResize
-          // events. Only mirror the raw dims into React state here, for the
-          // outer stage's fit-to-container scaling.
           const currentDims = streamedDimsRef.current;
           if (
             currentDims?.width === rawDims.width &&
@@ -1030,11 +976,6 @@ function ReplayPlayer({
                   type="button"
                   className={cn(
                     "absolute inset-0 z-20 rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default",
-                    // INTENTIONAL — KEEP THE VIEWER CURSOR VISIBLE.
-                    // The recorded cursor is a separate overlay, while this
-                    // button owns the live hover target for pause/play. Do
-                    // not add `cursor-none`: it makes the user's cursor
-                    // disappear when they move over the preview.
                     "cursor-pointer",
                   )}
                   disabled={disabled}
@@ -1615,9 +1556,6 @@ function useSessionReplayPlayback(recordingId: string) {
           const chunks = loadedChunks.filter(
             (chunk): chunk is ReplayChunkEvents => Boolean(chunk),
           );
-          // Only hand events to the player once every chunk is in. Partial
-          // publishes used to rebuild the Replayer mid-playback and break the
-          // scrubber; the loading bar still updates while chunks stream in.
           const shouldPublishEvents = force || complete;
 
           if (shouldPublishEvents) {
@@ -1648,8 +1586,6 @@ function useSessionReplayPlayback(recordingId: string) {
                   loadedBytes,
                   unavailableChunks,
                 }),
-            // Keep the page shell mounted so the player loading bar can show
-            // chunk progress; the Replayer itself still waits for isComplete.
             isLoading: false,
             error: null,
           }));
@@ -2115,8 +2051,6 @@ function collapseScrollMarkerBursts(markers: ReplayMarker[]): ReplayMarker[] {
       previous &&
       marker.timestamp - previous.timestamp <= SCROLL_MARKER_BURST_MS
     ) {
-      // Keep one marker per continuous scroll gesture, using its final
-      // position while retaining the first marker's stable id/time.
       collapsed[previous.index] = {
         ...marker,
         id: collapsed[previous.index].id,
@@ -2261,10 +2195,6 @@ function replayActivityTimestamps(
     const positions = Array.isArray(event.data?.positions)
       ? event.data.positions
       : [];
-    // IMPORTANT: rrweb batches pointer positions and schedules each one at
-    // event.timestamp + timeOffset. Treat those exact moments as activity.
-    // Ignoring the batch made Skip inactivity jump across visible movement,
-    // which looked like a frozen cursor even though the recording was intact.
     return positions.flatMap((position: unknown) => {
       if (!isRecord(position)) return [];
       const timeOffset = Number(position.timeOffset ?? 0);
@@ -2371,8 +2301,6 @@ function hideReplayCursorUntilPosition(replayer: any): () => void {
 export function replayViewportDimensions(
   events: AnyReplayEvent[],
 ): ReplayViewportDimensions | null {
-  // Latest Meta / ViewportResize for CSS fit-to-stage only. Never rewrite these
-  // into the event stream — rrweb must keep Meta in sync with the FullSnapshot.
   let best: ReplayViewportDimensions | null = null;
   for (const event of events) {
     const dims = dimensionsFromReplayEvent(event);
@@ -2384,9 +2312,6 @@ export function replayViewportDimensions(
 export function replayInitialViewportDimensions(
   events: AnyReplayEvent[],
 ): ReplayViewportDimensions | null {
-  // rrweb itself initializes from the first Meta event. A resize can appear
-  // earlier in chunk order after reconnect/flush boundaries, but it must not
-  // replace the snapshot's native starting viewport.
   for (const event of events) {
     if (event.type !== RRWEB_EVENT_TYPE.Meta) continue;
     const dims = dimensionsFromReplayEvent(event);
@@ -2463,7 +2388,6 @@ function dimensionsFromReplayEvent(
   return null;
 }
 
-/** Read raw positive finite dimensions; no aspect clamping. */
 export function normalizeReplayDimensions(
   width: unknown,
   height: unknown,
@@ -2484,15 +2408,6 @@ export function normalizeReplayDimensions(
   };
 }
 
-/**
- * Fall back to the default player size only when the viewport is entirely
- * unknown (no Meta/ViewportResize event yet). This is not a "recovery"
- * heuristic for real recorded geometry — it never rewrites valid dims, no
- * matter how wide, narrow, or unusual the aspect ratio. See the Replayer
- * construction in ReplayPlayer for why viewport "correction" was removed:
- * the 2026-07 ultra-wide replay bugs were caused by demo mode's fetch
- * redaction faking numbers at view time, not by malformed stored geometry.
- */
 export function resolveReplayDisplayDimensions(
   dims: ReplayViewportDimensions | null,
 ): ReplayViewportDimensions {

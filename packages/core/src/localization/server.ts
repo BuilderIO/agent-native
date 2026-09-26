@@ -152,9 +152,6 @@ export function getLocaleInitScript(options: LocaleInitScriptOptions = {}) {
     options.preference ?? { locale: "system" },
     supportedLocales,
   );
-  // Translations are deliberately absent here: this script is render-blocking in
-  // <head>, and the provider already receives the same catalog through loader
-  // data as `initialMessages`. Adding them back doubles every localized payload.
   const payload = {
     locale: safeLocale,
     preference: safePreference,

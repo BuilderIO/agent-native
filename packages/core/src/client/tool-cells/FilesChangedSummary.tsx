@@ -1,9 +1,3 @@
-/**
- * FilesChangedSummary — aggregates all edit/write tool calls in a turn and
- * renders a compact "path  +N -M" summary row per file.  Click a row to expand
- * to that file's diff.  Derived purely from ContentPart structuredMeta.
- */
-
 import { memo, useMemo, useState } from "react";
 
 import { AnimatedCollapse } from "../chat/tool-call-display.js";
@@ -12,7 +6,6 @@ import { EditCell } from "./EditCell.js";
 import { WriteCell } from "./WriteCell.js";
 
 interface FilesChangedSummaryProps {
-  /** All content parts in the current assistant turn. */
   parts: ContentPart[];
 }
 
@@ -48,9 +41,6 @@ function editLineDelta(
   const oldLines = oldText ? oldText.split("\n") : [];
   const newLines = newText ? newText.split("\n") : [];
 
-  // Simple count: compare total lines per side.  For a real diff the
-  // edit cell already shows the full diff, so this approximation is fine
-  // for the summary bar.
   const base = Math.min(oldLines.length, newLines.length);
   const added = newLines.length - base;
   const removed = oldLines.length - base;
@@ -91,8 +81,6 @@ function extractFileEntries(parts: ContentPart[]): FileEntry[] {
     }
   }
 
-  // Deduplicate: last edit/write per file path wins for the summary row,
-  // but keep the expanded view as-is.
   const seen = new Map<string, number>();
   const deduped: FileEntry[] = [];
   for (const entry of entries) {

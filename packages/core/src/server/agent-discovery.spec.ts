@@ -1089,8 +1089,6 @@ describe("agent discovery", () => {
 
   describe("singular/plural handle resolution", () => {
     it("resolves the Plan app when a caller asks for 'plans'", async () => {
-      // The Plan app labels itself "Plans" in its own sidebar, nav state, and
-      // skills, so the model naturally delegates to agent="plans".
       await expect(findAgent("plans", "brain")).resolves.toMatchObject({
         id: "plan",
       });
@@ -1135,7 +1133,6 @@ describe("agent discovery", () => {
             },
       );
 
-      // "report" matches exactly; only the ambiguous variant lookup is refused.
       await expect(findAgent("report")).resolves.toMatchObject({
         id: "report",
       });

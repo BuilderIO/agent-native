@@ -33,23 +33,6 @@ function sameHostedOrigin(
   }
 }
 
-/**
- * The share/account bridge for local-first plans.
- *
- * A local plan lives in local SQL + repo MDX with no login. To SHARE it, the
- * user connects an account (lazy account creation) and the plan is published to
- * a hosted Agent-Native instance, which can then be shared via the core sharing
- * actions (share-resource / set-resource-visibility).
- *
- * Auth/token contract (see server/lib/plan-publish.ts):
- *   - Reads the hosted base URL + bearer token written by `agent-native connect`
- *     (env vars or ~/.agent-native/plan-publish.json).
- *   - When no token is available, returns `{ needsAuth: true, connectCommand,
- *     authUrl }` instead of throwing, so the client can trigger lazy account
- *     creation. The agent/UI surfaces the connect command.
- *   - When authed, uploads the plan to the hosted `import-visual-plan-source`
- *     action (same MDX payload contract) and returns `{ url, hostedPlanId }`.
- */
 export default defineAction({
   description:
     "Publish a local Agent-Native Plan to the connected hosted instance so it can be shared. Local plans are private/no-login by default; call this when the user wants to share. If no account is connected yet, this returns a structured needsAuth result with the connect command instead of failing.",
@@ -72,19 +55,12 @@ export default defineAction({
       "Publish a local plan to the connected hosted instance for sharing, or report that an account must be connected first.",
   },
   run: async (args) => {
-    // Publishing exports + forwards the full plan and writes back the hosted
-    // link, so it must be gated to an editor/owner — never a viewer-share or
-    // public-link reader (who could otherwise exfiltrate a plan they don't own
-    // or repoint the owner's published link). Mirrors update-visual-plan.
     await assertPlanEditor(args.planId);
-    // Load the local plan (scoped by the current owner / local identity).
     const bundle = await loadPlanBundle(args.planId);
 
     const hostedUrl = resolvePlanHostedUrl();
     const auth = resolvePlanPublishAuth();
     if (!auth) {
-      // Not connected yet — let the client trigger lazy account creation.
-      // Do NOT throw: this is an expected branch in the local-first flow.
       return {
         needsAuth: true as const,
         connectCommand: planConnectCommand(hostedUrl),
@@ -95,8 +71,6 @@ export default defineAction({
       };
     }
 
-    // Build the source-control friendly MDX payload — the same contract the
-    // hosted import-visual-plan-source action consumes.
     const [mdx, sqlAssets] = await Promise.all([
       exportPlanContentToMdxFolder({
         content: bundle.plan.content,
@@ -108,10 +82,6 @@ export default defineAction({
       loadPlanAssetsForExport(bundle.plan.id),
     ]);
 
-    // Merge SQL-backed assets with any assets already emitted by the export
-    // (which handles assetId-based refs). The export produces the "assets/"
-    // object from assetId-resolved refs; loadPlanAssetsForExport catches any
-    // SQL assets not referenced in blocks (edge case: orphaned asset rows).
     const combinedAssets = { ...sqlAssets, ...(mdx["assets/"] ?? {}) };
 
     const existingHostedPlanId =
@@ -159,8 +129,6 @@ export default defineAction({
     }
 
     if (response.status === 401 || response.status === 403) {
-      // Token is present but rejected — treat as needing (re)connection rather
-      // than a hard failure so the client can re-run the connect flow.
       return {
         needsAuth: true as const,
         connectCommand: planConnectCommand(hostedUrl),
@@ -260,8 +228,6 @@ export default defineAction({
       hostedPlanUrl: url,
       planId: args.planId,
       hostedUrl: auth.url,
-      // The hosted copy starts private unless a visibility was requested above;
-      // invite-specific sharing is still managed on the hosted plan.
       requestedVisibility: args.visibility ?? "private",
     };
   },

@@ -97,35 +97,12 @@ const EXISTING_LAYER_PAINT_TYPES: DesignPaintType[] = [
   "pattern",
 ];
 
-// Stable identity for a fill-layer row's own DesignColorPicker, independent
-// of both the layer's position (which shifts under a preceding row's
-// reorder/removal) and its CSS content (rewritten by every edit, including a
-// paint-type switch). See the layerKeysRef sync below.
 let layerKeyCounter = 0;
 function nextLayerKey(): string {
   layerKeyCounter += 1;
   return `fill-layer-${layerKeyCounter}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/**
- * The four `backgroundImage`/`backgroundSize`/`backgroundRepeat`/
- * `backgroundPosition` prop values fed to the base fill row's `<ColorInput>`.
- * SVG shape fills use `fill` instead of the CSS background stack; text can
- * use gradients clipped to its glyphs.
- *
- * Factored out (rather than inlined ternaries in the JSX below) as a
- * regression guard: `ColorInput.onImageFillLayerChange` builds its commit
- * patch from whatever it computes internally from these four props (see
- * `imageFillChangePatch` in fill-gradient-helpers.ts). Previously only
- * `backgroundImage` was passed here, so ColorInput treated every sibling
- * layer as having no size/repeat/position of its own — switching this base
- * swatch to Image then rebuilt backgroundSize/backgroundRepeat/
- * backgroundPosition as a single-entry list against the real N+1-layer
- * backgroundImage stack, corrupting every existing layer's size/repeat/
- * position via CSS background-layer-list cycling (e.g. an existing "cover"
- * silently became "auto"). All four must always be sourced together, exactly
- * like PageProperties' background row in EditPanel.tsx.
- */
 export function baseFillLayerSourceProps(
   styles: Record<string, string>,
   isVectorFillElement: boolean,
@@ -165,7 +142,6 @@ export function shouldUseTextFill(
       const normalizedLayer = layer.trim().toLowerCase();
       if (isMixedValue(layer) || !normalizedLayer || normalizedLayer === "none")
         return false;
-      // CSS repeats the shorter comma-list to align the properties by layer.
       const clip =
         backgroundClipLayers.length > 0
           ? backgroundClipLayers[index % backgroundClipLayers.length]
@@ -199,16 +175,7 @@ export function FillProperties({
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
-  /** Document-wide palette (see `extractDocumentColorPalette`), already
-   * capped/ordered by frequency. Merged with the current selection's own
-   * colors below so a real, always-populated "Document colors" row is
-   * available even before any file content has been scanned. */
   documentColorPalette?: string[];
-  /**
-   * Persistence context for the code-backed Shader paint type (GLSL source
-   * saved into the screen HTML). Threaded into the fill picker so its
-   * Shader tab opens the GlslShaderPanel.
-   */
   glslShaderContext?: GlslShaderPanelContext;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
@@ -232,8 +199,6 @@ export function FillProperties({
     ...element.computedStyles,
     backgroundImage: authoredStyleValue(element, "backgroundImage") ?? "",
   };
-  // A DOM control can own text and a real box fill at once. Keep Typography
-  // on the selection, but let Fill edit the visible background paint.
   const isTextFillElement = shouldUseTextFill(element, styles);
   const isVectorFillElement = isVectorShapeElement(element);
   const fillProperty = isTextFillElement
@@ -241,12 +206,6 @@ export function FillProperties({
     : isVectorFillElement
       ? "fill"
       : "backgroundColor";
-  // Stash for a hidden layer's real pre-hide backgroundSize (e.g. a custom
-  // cover/contain/percentage) so re-showing it restores that value instead
-  // of permanently discarding it for "auto" — the same React-state stash
-  // pattern effects-properties.tsx uses for hidden shadow/blur effects (see
-  // `hiddenEffectStash` there), keyed by element + layer index so unrelated
-  // elements/layers never collide.
   const [hiddenFillSizeStash, setHiddenFillSizeStash] = useState<
     Record<string, string>
   >({});
@@ -272,18 +231,6 @@ export function FillProperties({
       open ? key : current === key ? null : current,
     );
   };
-  // Per-layer row identity, keyed to survive content edits but NOT survive a
-  // reorder/removal at a different position. key={index} alone (this row's
-  // earlier fix for the content-derived-key remount bug) attaches the row's
-  // uncontrolled DesignColorPicker instance to a position rather than a
-  // layer, so removing or reordering a preceding row leaves an open
-  // picker's local paint-type/gradient/selected-stop state attached to
-  // whatever layer now occupies that position. reorderFillLayers,
-  // removeLayer, and the "+" add handler below explicitly keep this array
-  // in lockstep with the same splice/insert they apply to the CSS layers -
-  // the resync below only reseeds it (fresh ids, positionally) when the
-  // selected element changes, or the count drifts out of sync with those
-  // tracked mutations (e.g. an external/agent-driven style edit).
   const layerKeysRef = useRef<{ elementKey: string; keys: string[] }>({
     elementKey: "",
     keys: [],
@@ -375,8 +322,6 @@ export function FillProperties({
   }
   const layerKeys = layerKeysRef.current.keys;
 
-  // The native CSS wrapper preserves the original paint, including zero alpha,
-  // across reload. Plain zero-alpha paint remains distinct from a hidden fill.
   const handleFillVisibilityToggle = () => {
     onStyleChange(
       fillProperty,
@@ -386,12 +331,6 @@ export function FillProperties({
     );
   };
 
-  // Reorder fill layers by dragging: permute all four index-aligned parallel
-  // arrays (image/size/repeat/position) together and commit them as one patch
-  // so stacking order changes in a single history step. Prefer onStylesChange
-  // (single call) when available; otherwise fall back to four sequential
-  // onStyleChange calls, matching the commit-path convention used elsewhere
-  // in this component (see commitStylePatch).
   const reorderFillLayers = (from: number, to: number) => {
     const patch = reorderFillLayerArrays(
       {
@@ -420,24 +359,12 @@ export function FillProperties({
     reorderFillLayers,
   );
 
-  // Document colors: the selected element's own colors lead the row (so the
-  // colors most relevant to what's currently selected are immediately
-  // visible), followed by the real document-wide palette collected across
-  // every file in the design (see `extractDocumentColorPalette` /
-  // `documentColorPalette`, computed once in EditPanel and passed down —
-  // this is the actual "every distinct color used in the file" behavior;
-  // previously this row only ever showed the 4 lines below, mislabeled as
-  // document colors).
   const selectionHexes = selectionColorValues(element)
     .map((c) => {
       const parsed = parseCssColor(c.value);
       return parsed ? rgbaToHex(parsed) : null;
     })
     .filter((h): h is string => Boolean(h));
-  // Deduplicate (selectionColorValues already dedupes by raw CSS value, but
-  // hex normalisation may collapse additional entries e.g. rgb vs #hex; the
-  // document-wide palette is also normalized/deduped on its own, but may
-  // still repeat one of the selection's own colors).
   const seenHex = new Set<string>();
   const documentColors = [...selectionHexes, ...documentColorPalette].filter(
     (h) => {
@@ -585,7 +512,6 @@ export function FillProperties({
       ) : hasVisibleFill ? (
         <div className="space-y-2">
           {hasBaseFill ? (
-            /* design row: [swatch+hex trigger (flex-1)] [eye] [remove] */
             <InspectorPaintRow>
               <InspectorGridCell span={20}>
                 <ColorInput
@@ -604,15 +530,6 @@ export function FillProperties({
                           onStyleChange(fillProperty, v, { phase: "cancel" })
                       : undefined
                   }
-                  // Pass the real layer stack (not "") so that switching this
-                  // swatch's paint type to gradient/image composes a new
-                  // layer on top of any existing backgroundImage layers
-                  // (rendered as their own rows below) instead of clobbering
-                  // them — ColorInput derives its add/replace-layer logic
-                  // from this prop. The size/repeat/position siblings must
-                  // come along too (same as PageProperties' background row in
-                  // EditPanel.tsx) — see `baseFillLayerSourceProps` above for
-                  // why all four are sourced together.
                   {...baseFillLayerProps}
                   open={openFillPickerKey === `${fillStashKey}:base`}
                   onOpenChange={(open) =>
@@ -628,8 +545,6 @@ export function FillProperties({
                       ? undefined
                       : (v) => onStyleChange("backgroundBlendMode", v)
                   }
-                  // SVG fills can be gradients, but they are one native paint,
-                  // not an entry in the CSS background layer stack.
                   supportsLayeredFills={!isVectorFillElement}
                   singlePaint={isVectorFillElement}
                   onBackgroundImageChange={
@@ -661,14 +576,6 @@ export function FillProperties({
                             );
                           }
                   }
-                  // Layer-index-aware: ColorInput merges the edited image
-                  // into the correct backgroundImage/backgroundSize/
-                  // backgroundRepeat/backgroundPosition index and hands back
-                  // the full four-property patch here, already preserving
-                  // every other stacked gradient/image layer (see
-                  // `imageFillChangePatch`) — commit it as-is instead of
-                  // rebuilding a single-layer patch that would silently wipe
-                  // those siblings.
                   onImageFillLayerChange={
                     isVectorFillElement || isTextFillElement
                       ? undefined
@@ -689,8 +596,6 @@ export function FillProperties({
                       element.tagName,
                     fillProperty,
                   ].join(":")}
-                  // Code-backed GLSL Shader paint type — text fills can't
-                  // host a shader canvas, so only container fills get it.
                   glslShaderContext={
                     isVectorFillElement || isTextFillElement
                       ? undefined
@@ -750,18 +655,6 @@ export function FillProperties({
                   : parseGradientLayer(layer);
                 const layerKey = layerKeys[index];
                 const pickerKey = `${fillStashKey}:${layerKey}`;
-                // Hidden state itself lives in the real, persisted
-                // backgroundSize marker (see withLayerSizeMarker) rather than
-                // React state, so it survives deselect/reselect. Opacity
-                // still reflects the gradient's own stop opacities for
-                // display, but no longer drives hide/show — a layer can be a
-                // fully-opaque gradient and still be hidden via zero-size.
-                // The layer's *original* size (a custom cover/contain/
-                // percentage) can't be recovered from the marker itself once
-                // overwritten, so it's separately stashed in component state
-                // for the round trip (see hiddenFillSizeStash below) —
-                // same pattern as effects-properties.tsx's hiddenEffectStash
-                // for hidden shadow/blur effects.
                 const hidden = isLayerHiddenBySize(backgroundSizeLayers[index]);
                 const opacity = gradient
                   ? (gradient.opacity ?? 100)
@@ -786,16 +679,6 @@ export function FillProperties({
                   nextLayers[index] = nextLayer;
                   commitBackgroundImageChange(joinCssLayers(nextLayers), meta);
                 };
-                // Remove one fill layer by index. Mirrors reorderFillLayers:
-                // all four index-aligned parallel arrays (image/size/repeat/
-                // position) must be spliced together and committed as one
-                // patch (see removeFillLayerAtIndex), or the arrays fall out
-                // of alignment for every layer after the removed index (each
-                // remaining layer's size ends up paired with the next
-                // layer's repeat/position). The previous version only
-                // filtered backgroundImage and backgroundSize, silently
-                // leaving backgroundRepeat and backgroundPosition
-                // unfiltered/misaligned.
                 const removeLayer = () => {
                   const patch: Record<string, string> = removeFillLayerAtIndex(
                     {
@@ -849,11 +732,6 @@ export function FillProperties({
                 const sizeStashKey = `${fillStashKey}:fill-size:${layerKey}`;
                 const setLayerHidden = (nextHidden: boolean) => {
                   if (nextHidden) {
-                    // Stash the real pre-hide size (a custom cover/contain/
-                    // percentage — see withLayerSizeMarker) so re-showing
-                    // can restore it instead of permanently discarding it
-                    // for "auto". Skip stashing if the layer is somehow
-                    // already hidden (nothing real to preserve).
                     const current = alignCssLayerValues(
                       backgroundSizeLayers,
                       backgroundLayers.length,
@@ -896,16 +774,7 @@ export function FillProperties({
                 };
 
                 return (
-                  /* design row: [grip] [swatch+label+opacity% trigger (flex-1)] [eye] [remove] */
                   <InspectorPaintRow
-                    // Keyed by a stable per-layer id (see layerKeysRef
-                    // above), not by position and not by the layer's own CSS
-                    // content: a content-derived key remounts this row's
-                    // DesignColorPicker on every edit (dropping its open
-                    // popover/paint-type selection/gradient-editor state),
-                    // and a plain positional key transfers that same state
-                    // onto whichever layer now occupies this position after
-                    // a reorder or a preceding row's removal.
                     key={layerKey}
                     draggable
                     {...fillDrag.getRowProps(index)}
@@ -1065,19 +934,6 @@ export function FillProperties({
                             ),
                           );
                         }}
-                        // Editing an existing image layer's URL/fit
-                        // through its own row popover previously had no
-                        // `onImageFillChange` wired at all, so it fell
-                        // through to `emitPaintValue(imageFillToCss(...))`
-                        // — a single-property `background` SHORTHAND
-                        // string (e.g. `url(...) center / cover no-repeat`)
-                        // written into `backgroundImage` alone, which is
-                        // invalid CSS for that longhand and left
-                        // backgroundSize/backgroundRepeat/backgroundPosition
-                        // untouched. Merge into this layer's own index
-                        // across all four parallel arrays instead (same
-                        // helper the base-row fix uses — see
-                        // `imageFillChangePatch` in panel-primitives.tsx).
                         onImageFillChange={
                           isTextFillElement
                             ? undefined

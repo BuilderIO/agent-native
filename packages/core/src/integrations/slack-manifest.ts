@@ -13,14 +13,6 @@ export interface SlackAgentManifestUrls {
   interactivityRequestUrl: string;
 }
 
-/**
- * Build the canonical Slack app manifest for Agent-Native.
- *
- * Slack app capabilities are controlled by the app configuration, not by an
- * individual workspace's OAuth install. Keeping this manifest in core gives
- * self-hosted apps one exact, versioned configuration for Agent View, writable
- * DMs, channel mentions, contextual messages, and interactive run controls.
- */
 export function buildSlackAgentManifest(urls: SlackAgentManifestUrls) {
   return {
     _metadata: { major_version: 2, minor_version: 1 },

@@ -121,8 +121,6 @@ describe("editor chrome selection overlays", () => {
         handleBox.y + handleBox.height / 2,
       );
       await page.mouse.down();
-      // The 200px preview viewport ends before this point. Pointer capture is
-      // the only way for the child document to receive the rest of the drag.
       await page.mouse.move(handleBox.x + 220, handleBox.y + 100, {
         steps: 12,
       });

@@ -99,7 +99,6 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
 ];
 const TAR_LISTING_MAX_BUFFER = 100 * 1024 * 1024;
 const localPackageTarballs = new Map<string, string>();
-/** VCS/editor files that don't count as "not empty" for an in-place scaffold. */
 const IN_PLACE_ALLOWLIST = new Set([
   ".git",
   ".gitignore",
@@ -112,12 +111,6 @@ const IN_PLACE_ALLOWLIST = new Set([
   "Thumbs.db",
 ]);
 
-/**
- * Tagged error for input that fails CLI-level validation (repo names, app
- * names, etc.). The Sentry `beforeSend` hook in cli/index.ts drops events
- * whose top-level exception type is `ValidationError` so we don't pollute
- * Sentry with expected user-input rejections.
- */
 export class ValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -125,10 +118,6 @@ export class ValidationError extends Error {
   }
 }
 
-/**
- * Move the primitive-first and chat on-ramps to the top of the list so they
- * line up with clack's default highlight.
- */
 function onRampFirst(templates: TemplateMeta[]): TemplateMeta[] {
   return moveTemplatesToFront(templates, ["headless", "chat"]);
 }
@@ -145,7 +134,6 @@ function moveTemplatesToFront(
   return [...preferred, ...templates.filter((t) => !preferredSet.has(t.name))];
 }
 
-/** Primitive-first scaffold option appended to standalone pickers. */
 const HEADLESS_OPTION = {
   name: "headless",
   label: "Headless",
@@ -159,75 +147,40 @@ const COMMUNITY_OPTION = {
 };
 
 export interface CreateAppOptions {
-  /** Pre-select these templates in the picker. Comma-separated string or array. */
   template?: string;
-  /** Scaffold a single standalone app (old behavior). Skips workspace creation. */
   standalone?: boolean;
-  /** Internal: skip pnpm install at the end (for tests). */
   noInstall?: boolean;
-  /**
-   * Internal: always scaffold a workspace and skip the start-shape prompt.
-   * Used by the deprecated `create-workspace` alias, whose contract is an
-   * unconditional workspace scaffold.
-   */
   forceWorkspace?: boolean;
-  /**
-   * Internal: scaffold into the current directory instead of a new subfolder.
-   * Set when the name argument is `.`/`./` (see `createApp`).
-   */
   inPlace?: boolean;
 }
 
-/**
- * Main entry for `agent-native create [name]`.
- *
- * Default behavior: ask for a starting shape, with Chat and first-party
- * templates creating a workspace at <name>/. Use --standalone for the
- * single-app standalone flow.
- *
- * If run *inside* an existing workspace, falls through to the add-app
- * flow that scaffolds one new app under apps/<name>/.
- */
 export async function createApp(
   name?: string,
   opts?: CreateAppOptions,
 ): Promise<void> {
   const clack = await import("@clack/prompts");
 
-  // `create .` (or `./`) means "scaffold into the current folder" — derive the
-  // project name from the folder's basename, like create-react-app / npm init.
   if (name === "." || name === "./") {
     name = path.basename(process.cwd());
     opts = { ...opts, inPlace: true };
   }
 
-  // Reject an invalid provided name before any interactive prompt so bad input
-  // fails fast instead of blocking on the start-shape picker below.
   if (name !== undefined) {
     assertValidProjectName(name, clack);
   }
 
-  // If we're already inside a workspace, the meaning of `create <name>` is
-  // "add a new app to this workspace". Delegate to add-app.
   const workspace = detectWorkspace(process.cwd());
   if (workspace) {
     await addAppToWorkspace(name, opts);
     return;
   }
 
-  // Standalone escape hatch — behaves like the old single-app flow.
   if (opts?.standalone) {
     await createStandaloneApp(name, opts, clack);
     return;
   }
 
-  // When exactly one template is specified explicitly, treat it as a
-  // standalone scaffold (script-friendly, matches historic behavior).
-  // Use `--template a,b` to opt into the workspace flow with the multi-select
-  // picker. Bare `create` asks for the starting shape first.
   const parsed = parseTemplateList(opts?.template);
-  // Headless can't live in a workspace, so reject it when more than one
-  // template is requested or when workspace semantics are forced.
   if (
     parsed.includes("headless") &&
     (parsed.length > 1 || opts?.forceWorkspace)
@@ -237,22 +190,12 @@ export async function createApp(
     );
     process.exit(1);
   }
-  // A single explicit template scaffolds a standalone app, unless the caller
-  // forces workspace semantics (the deprecated `create-workspace` alias), in
-  // which case the template is preselected in the workspace picker below.
   if (parsed.length === 1 && !opts?.forceWorkspace) {
     await createStandaloneApp(name, opts, clack);
     return;
   }
 
-  // No template specified: ask what shape to start from before diving into
-  // "which templates?". The on-ramp choice implies the project structure, so
-  // we don't ask a separate "workspace or standalone?" question — Chat and
-  // Template creates a workspace, while Community and Headless scaffold a
-  // single standalone app.
   if (parsed.length === 0) {
-    // The deprecated `create-workspace` alias forces workspace semantics, so
-    // it must skip the start-shape prompt and scaffold a workspace directly.
     if (opts?.forceWorkspace) {
       await createWorkspaceInteractive(name, opts, clack);
       return;
@@ -263,9 +206,6 @@ export async function createApp(
       return;
     }
     if (shape === "chat") {
-      // Chat is the default workspace on-ramp. Keep the minimal chat app in
-      // the same workspace shape as every other first-party app so the next
-      // documented step, `add-app`, works immediately.
       await createWorkspaceInteractive(
         name,
         { ...opts, template: shape },
@@ -278,26 +218,13 @@ export async function createApp(
       await createStandaloneApp(name, { ...opts, template }, clack);
       return;
     }
-    // shape === "template" → full app(s) in a workspace.
     await createWorkspaceInteractive(name, opts, clack);
     return;
   }
 
-  // Multiple explicit templates: create a workspace with them.
   await createWorkspaceInteractive(name, opts, clack);
 }
 
-/**
- * Top-level on-ramp shown by the bare `create <name>` command (no flags). The
- * choice made here implies the project structure, so we deliberately avoid a
- * separate "workspace or standalone?" question:
- *   - "template" → full app(s) in a workspace (the multi-select picker)
- *   - "chat"     → a minimal Chat app in a workspace with Dispatch
- *   - "community" → a single standalone app from a public GitHub repository
- *   - "headless" → a single standalone action-first app with no UI shell
- * Headless cannot be a workspace member. Use `--standalone --template chat`
- * when a standalone Chat app is the intended shape.
- */
 async function promptStartShape(
   clack: typeof import("@clack/prompts"),
 ): Promise<"template" | "chat" | "community" | "headless"> {
@@ -402,11 +329,6 @@ function communityScaffoldOptions(
   };
 }
 
-/**
- * Validate a project name supplied on the command line. Mirrors the rule in
- * `promptNameIfMissing` so an invalid name is rejected before any interactive
- * prompt runs (the sub-flows re-validate, which is a harmless no-op).
- */
 function assertValidProjectName(
   name: string,
   clack: typeof import("@clack/prompts"),
@@ -418,18 +340,6 @@ function assertValidProjectName(
     process.exit(1);
   }
 }
-/**
- * Resolve where a scaffold writes and guard the target. A named project writes
- * to a new sibling subfolder that must not already exist; `create .` writes
- * into the current directory, which must be empty apart from benign VCS/editor
- * files (a pre-existing repo is allowed).
- *
- * For an in-place scaffold we do NOT return the current directory: we build
- * into a private staging directory and `finalizeScaffold` copies the result
- * in afterward. Staging keeps the whole scaffold atomic — a mid-scaffold
- * failure's cleanup can only ever delete the staging dir, never the user's
- * current directory (including its `.git`).
- */
 function resolveScaffoldTarget(
   name: string,
   inPlace: boolean | undefined,
@@ -457,10 +367,6 @@ function resolveScaffoldTarget(
   return targetDir;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Workspace creation (new default)
- * ───────────────────────────────────────────────────────────────────────── */
-
 async function createWorkspaceInteractive(
   name: string | undefined,
   opts: CreateAppOptions | undefined,
@@ -485,10 +391,6 @@ async function createWorkspaceInteractive(
     "About workspaces",
   );
 
-  // Dispatch is the workspace control plane (shared secrets, messaging,
-  // approvals, cross-app routing) and is always scaffolded — the picker
-  // only shows the optional apps. If the user explicitly passed
-  // `--template=...`, those entries get unioned with dispatch.
   const optionalPicks =
     preselected.length > 0
       ? preselected.filter((t) => t !== "dispatch")
@@ -527,9 +429,6 @@ async function createWorkspaceInteractive(
       }
       appNames.add(appName);
       scaffoldedApps.push(appName);
-      // Distinguish download vs local copy in the spinner so a multi-second
-      // GitHub fetch doesn't look like a frozen "Scaffolding..." message.
-      // Mirrors the local-vs-remote decision inside scaffoldAppTemplate.
       const willDownload =
         templateName !== "headless" &&
         (isCommunityTemplateSelection(templateName) ||
@@ -588,7 +487,6 @@ async function createWorkspaceInteractive(
       );
       rewriteNetlifyToml(appDir, appName, "workspace");
       renameGitignore(appDir);
-      // Each app owns its own .claude / .agents symlinks.
       setupAgentSymlinks(appDir);
     }
 
@@ -600,10 +498,6 @@ async function createWorkspaceInteractive(
     );
   } catch (err: any) {
     s.stop("Failed to scaffold workspace.");
-    // Remove the partially-scaffolded workspace so a retry of `agent-native
-    // create <name>` doesn't trip the "Directory already exists" guard. For an
-    // in-place scaffold `targetDir` is the private staging dir, so this never
-    // touches the user's current directory.
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
@@ -611,10 +505,6 @@ async function createWorkspaceInteractive(
 
   finalizeScaffold(targetDir, opts?.inPlace);
 
-  // Show the user the tree we just built so the workspace/app distinction is
-  // visible, not just described. First-time users routinely expect their
-  // workspace name to be the app — seeing apps/<template>/ subdirectories
-  // makes the structure concrete.
   const treeLines = [
     `  ${name}/                    ← your workspace`,
     ...scaffoldedApps.map(
@@ -676,12 +566,6 @@ function workspaceAppNameForTemplateSelection(templateName: string): string {
   return appName;
 }
 
-/**
- * Detect whether pnpm is on PATH. End-user machines often have npm/yarn but
- * not pnpm; the workspace scaffold uses pnpm workspaces, so we surface a
- * specific install hint in the outro when it's missing rather than letting
- * the user hit `zsh: command not found: pnpm`.
- */
 function hasPnpm(): boolean {
   try {
     execFileSync("pnpm", ["--version"], { stdio: "ignore" });
@@ -704,8 +588,6 @@ async function scaffoldWorkspaceRoot(
   rewriteCoreDependencyVersions(targetDir);
   renameGitignore(targetDir);
 
-  // Inject the catalog from this repo's pnpm-workspace.yaml so templates'
-  // `catalog:` version references resolve in the scaffolded workspace.
   const catalog = loadCatalog();
   if (Object.keys(catalog).length > 0) {
     const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
@@ -732,10 +614,8 @@ async function scaffoldWorkspaceRoot(
   rewriteCoreDependencyVersions(corePackageDir);
   setupAgentSymlinks(corePackageDir);
 
-  // Ensure apps/ exists (even if empty).
   fs.mkdirSync(path.join(targetDir, "apps"), { recursive: true });
 
-  // Root-level agent instructions apply before an agent descends into an app.
   linkWorkspaceRootSkills(targetDir);
   setupAgentSymlinks(targetDir);
   ensureGuardedScaffold(targetDir);
@@ -784,18 +664,6 @@ function linkWorkspaceRootSkills(targetDir: string): void {
   }
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Adding an app into an existing workspace
- * ───────────────────────────────────────────────────────────────────────── */
-
-/**
- * Entry for `agent-native add-app [name]`. Called from inside a workspace.
- * Shows the multi-select picker (excluding already-installed apps) and
- * scaffolds each selected template under apps/<name>/.
- *
- * When `name` is provided with `--template foo`, scaffolds exactly one app
- * named <name> using template foo (non-interactive).
- */
 export async function addAppToWorkspace(
   name?: string,
   opts?: CreateAppOptions,
@@ -815,7 +683,6 @@ export async function addAppToWorkspace(
 
   const installed = listInstalledApps(workspace.workspaceRoot);
 
-  // Non-interactive path: name + single --template
   const preselected = parseTemplateList(opts?.template);
   if (preselected.includes("headless")) {
     clack.cancel(
@@ -863,8 +730,6 @@ async function scaffoldOneAppIntoWorkspace(
   templateName: string,
   clack: typeof import("@clack/prompts"),
 ): Promise<void> {
-  // Dispatch is the one reserved-route exception: the canonical workspace
-  // control-plane app intentionally owns /dispatch.
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
   });
@@ -957,10 +822,6 @@ async function scaffoldOneAppIntoWorkspace(
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Standalone creation (escape hatch)
- * ───────────────────────────────────────────────────────────────────────── */
-
 async function createStandaloneApp(
   name: string | undefined,
   opts: CreateAppOptions | undefined,
@@ -972,7 +833,6 @@ async function createStandaloneApp(
 
   const targetDir = resolveScaffoldTarget(name, opts?.inPlace, clack);
 
-  // Standalone is single-select — pick one template.
   let template =
     opts?.template && !opts.template.includes(",") ? opts.template : undefined;
   if (!template) {
@@ -1010,8 +870,6 @@ async function createStandaloneApp(
     s.stop("App created!");
   } catch (err: any) {
     s.stop("Failed to create app.");
-    // `targetDir` is the private staging dir for an in-place scaffold, so this
-    // only ever removes the staging copy, never the user's current directory.
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
@@ -1061,12 +919,6 @@ function standaloneTemplatePromptOptions() {
   ];
 }
 
-/**
- * Remove a partially-scaffolded target directory after a scaffold failure so a
- * retry doesn't hit the "Directory already exists" guard. Best-effort — the
- * underlying failure is what we want surfaced, so we swallow rm errors and
- * skip if the directory is somehow already gone.
- */
 function cleanupOnFailure(targetDir: string): void {
   try {
     if (fs.existsSync(targetDir)) {
@@ -1077,15 +929,6 @@ function cleanupOnFailure(targetDir: string): void {
   }
 }
 
-/**
- * Land a finished scaffold in its final home and initialize git. A named
- * scaffold is already in place, so this only inits git. An in-place scaffold
- * (`create .`) was built in `scaffoldDir` (a staging dir); copy only the files
- * that don't already exist into the current directory so pre-existing files
- * (`.git`, `README.md`, `.gitignore`, editor configs) are preserved, then drop
- * the staging dir. Git init/commit is skipped when the scaffold lands inside a
- * repo so we never write an unexpected commit into the user's history.
- */
 function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
   if (!inPlace) {
     tryGitInitUnlessRepo(scaffoldDir);
@@ -1101,21 +944,10 @@ function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
 }
 
 function tryGitInitUnlessRepo(dir: string): void {
-  // Only "git says there is no repository here" earns an init. A discovery
-  // failure has to fall through to doing nothing.
   if (discoverEnclosingRepo(dir).state !== "outside") return;
   tryGitInit(dir);
 }
 
-/**
- * The variables that bind git to a particular repository.
- *
- * Deliberately narrower than git's `local_repo_env`: that list also clears
- * `GIT_CONFIG*`, because git is entering a different repository and the
- * caller's `-c` overrides were scoped to the old one. Here the caller is
- * configuring the scaffold that is about to exist, so `init.defaultBranch`,
- * `core.hooksPath` and `commit.gpgsign` have to survive.
- */
 const GIT_REPO_LOCATION_ENV = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
@@ -1134,17 +966,6 @@ const GIT_REPO_LOCATION_ENV = [
   "GIT_WORK_TREE",
 ];
 
-/**
- * Env with any inherited repository context dropped.
- *
- * Whatever launched the process — a hook, a `rebase --exec`, a `receive-pack`
- * quarantine — may have pinned git to its own repository. Inheriting that makes
- * discovery answer about that repository rather than the directory being
- * scaffolded, and makes an init write into it. Picking the variables off one at
- * a time invites the next gap, so mirror the list git clears for exactly this
- * reason. The discovery controls are deliberately not in it: where the search
- * stops really is the caller's to configure.
- */
 function envWithoutRepoOverrides(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of GIT_REPO_LOCATION_ENV) delete env[key];
@@ -1156,20 +977,6 @@ type RepoDiscovery =
   | { state: "outside" }
   | { state: "unknown"; reason: string };
 
-/**
- * Whether `dir` sits inside a repository, as git itself resolves it.
- *
- * Matching a `.git` entry by hand looks equivalent and is not: discovery also
- * turns on symlinked paths, filesystem boundaries, `GIT_CEILING_DIRECTORIES`
- * and `GIT_DISCOVERY_ACROSS_FILESYSTEM`. Running git is free here, since the
- * only alternative to finding a repo is shelling out to `git init` anyway.
- *
- * "No repository" and "could not tell" are separate answers on purpose. Git
- * exits 128 for a checkout it refuses — dubious ownership, a corrupt gitfile —
- * as readily as for a genuinely repo-less directory, and reading the first as
- * the second is how a guard against nested repositories comes to create one.
- * `LC_ALL` is pinned so the message they are told apart by is not translated.
- */
 function discoverEnclosingRepo(dir: string): RepoDiscovery {
   const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
     cwd: dir,
@@ -1188,12 +995,6 @@ function discoverEnclosingRepo(dir: string): RepoDiscovery {
   return { state: "unknown", reason: stderr || `git exited ${result.status}` };
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Shared scaffolding helpers
- * ───────────────────────────────────────────────────────────────────────── */
-
-/** Where a scaffolded template's bytes came from, recorded so
- *  `agent-native template sync` can reproduce them later. */
 export interface ScaffoldTemplateResolution {
   templateRef?: string;
   templateSource?: "github" | "bundled" | "local-checkout";
@@ -1223,14 +1024,6 @@ export interface ScaffoldProvenance extends ScaffoldTemplateResolution {
   shape?: "workspace" | "standalone";
 }
 
-/**
- * Scaffold a single app template into `targetDir`. Resolves:
- *   - "headless" / legacy "blank" → bundled action-first template
- *   - "community:user/repo[#ref]" → download and validate the whole repo
- *   - legacy "github:user/repo[#ref]" and clean GitHub HTTPS URLs → community
- *   - first-party template name → use a bundled copy or download its subdir
- *     from BuilderIO/agent-native
- */
 async function scaffoldAppTemplate(
   targetDir: string,
   template: string,
@@ -1238,7 +1031,6 @@ async function scaffoldAppTemplate(
 ): Promise<ScaffoldTemplateResolution> {
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
-  // Normalize legacy / renamed aliases.
   let resolved = normalizeTemplateName(template);
 
   if (resolved === "headless") {
@@ -1308,9 +1100,6 @@ async function scaffoldAppTemplate(
     );
   }
 
-  // If running from the framework monorepo with a local templates/ dir, use
-  // that. Otherwise download from GitHub. This keeps `agent-native create`
-  // fast during framework development.
   const sourceTemplate = templateSourceName(resolved);
   const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
@@ -1328,8 +1117,6 @@ async function scaffoldAppTemplate(
   return { templateSource: "github", templateRef };
 }
 
-/** A template dir inside the installed core package ships with the CLI;
- *  anything above it belongs to a framework checkout. */
 function localTemplateSourceKind(
   localTemplate: string,
 ): "bundled" | "local-checkout" {
@@ -1345,12 +1132,6 @@ function templateSourceName(name: string): string {
   return name;
 }
 
-/**
- * Prefer a nearby templates/<name> or src/templates/<name> directory. This
- * covers the framework checkout, the dist/templates copy bundled into
- * published CLI packages, and source templates included in package files;
- * packages that do not bundle a template fall back to GitHub.
- */
 function findLocalTemplate(name: string): string | undefined {
   return findLocalTemplateFrom(path.resolve(__dirname), name);
 }
@@ -1575,10 +1356,6 @@ function showCommunityTemplateTrustNote(
   if (message) clack.note(message, "Community template — review before use");
 }
 
-/**
- * Find a local packages/<name> directory (for framework development).
- * Returns undefined when running as a published npm package.
- */
 function findLocalPackage(name: string): string | undefined {
   let dir = path.resolve(__dirname);
   for (let i = 0; i < 10; i++) {
@@ -1593,11 +1370,6 @@ function findLocalPackage(name: string): string | undefined {
   return undefined;
 }
 
-/**
- * Pack a local framework package before linking it into a generated app.
- * Raw file: dependencies retain workspace-only catalog references, while a
- * packed artifact has the publish-ready manifest that consumers receive.
- */
 function localPackageTarball(packageDir: string): string {
   const cached = localPackageTarballs.get(packageDir);
   if (cached) return cached;
@@ -1609,8 +1381,6 @@ function localPackageTarball(packageDir: string): string {
   );
   const npmCacheDir = path.join(packDir, "npm-cache");
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  // npm prints one notice per packed corpus file; piping that output through
-  // execFileSync's default buffer makes local linking fail as the corpus grows.
   execFileSync(
     npm,
     ["pack", "--ignore-scripts", "--pack-destination", packDir],
@@ -1706,11 +1476,6 @@ function collectLocalPackageBuildOutputs(
   }
 }
 
-/**
- * Local framework packages publish compiled entrypoints only. Build a clean
- * checkout before packing it so generated apps never receive a tarball whose
- * package.json points at absent dist files.
- */
 function ensureLocalPackageBuildOutputs(packageDir: string): void {
   const packageJsonPath = path.join(packageDir, "package.json");
   const packageJson = JSON.parse(
@@ -1827,11 +1592,6 @@ function resolvePublishedWorkspaceSpecifier(
   }
 }
 
-/**
- * Scaffold internal workspace packages required by the selected templates.
- * Deduplicates so each package is only copied once even if multiple
- * templates need it.
- */
 async function scaffoldRequiredPackages(
   templateNames: string[],
   workspaceRoot: string,
@@ -1857,9 +1617,6 @@ async function scaffoldRequiredPackages(
       await downloadGitHubSubdir(REPO, `packages/${pkgName}`, targetDir);
     }
 
-    // The copied package may have published framework packages as workspace:*
-    // deps. Convert them to published ranges because these package-backed
-    // modules are npm dependencies, not scaffolded workspace members.
     const pkgJsonPath = path.join(targetDir, "package.json");
     if (fs.existsSync(pkgJsonPath)) {
       try {
@@ -1888,10 +1645,6 @@ async function scaffoldRequiredPackages(
             }
           }
         }
-        // These packages' `exports` maps point at `./dist/*`, and `dist/` is
-        // gitignored (never committed), so a scaffolded workspace must build
-        // it on install. pnpm always runs `prepare` for workspace packages,
-        // unlike `postinstall`, so this is the reliable hook.
         if (
           pkg.scripts &&
           typeof pkg.scripts.build === "string" &&
@@ -1904,9 +1657,6 @@ async function scaffoldRequiredPackages(
     }
   }
 
-  // Add a postinstall script to build workspace packages so their dist/
-  // directories exist even when downloaded from GitHub (where dist/ is
-  // gitignored).
   if (needed.size > 0) {
     const rootPkgPath = path.join(workspaceRoot, "package.json");
     if (fs.existsSync(rootPkgPath)) {
@@ -1936,13 +1686,6 @@ const GUARDED_VERIFICATION_MARKER = "Guarded verification";
 const GUARDED_VERIFICATION_GUIDANCE =
   "- Guarded verification: run `pnpm agent-native:doctor`; fix findings before done.\n";
 
-/**
- * Keep the portable guard contract attached to every app/workspace created by
- * the CLI, including community templates whose package.json was not authored
- * by this repository. The scanners stay versioned in @agent-native/core; a
- * generated project only receives the small command/config/instructions
- * surface needed to run them locally and in hosted builds.
- */
 function ensureGuardedScaffold(appDir: string): void {
   const packagePath = path.join(appDir, "package.json");
   if (!fs.existsSync(packagePath)) return;
@@ -1969,8 +1712,6 @@ function ensureGuardedScaffold(appDir: string): void {
   }
   const scripts = existingScripts ?? {};
 
-  // Keep an existing project-specific `doctor` script intact while providing
-  // a collision-free framework entry point that every generated project has.
   const existingNativeDoctor = scripts["agent-native:doctor"];
   scripts["agent-native:doctor"] =
     typeof existingNativeDoctor === "string" &&
@@ -1982,9 +1723,6 @@ function ensureGuardedScaffold(appDir: string): void {
     scripts.doctor = AGENT_NATIVE_DOCTOR;
   }
 
-  // Community templates may use vite/next/another build command instead of
-  // `agent-native build`, so attach the strict check to the package lifecycle.
-  // Agent-Native builds already run doctor and get strictness from the config.
   if (
     typeof scripts.build === "string" &&
     !/\bagent-native\s+build\b/.test(scripts.build) &&
@@ -2018,8 +1756,6 @@ function ensureGuardedScaffold(appDir: string): void {
     !Array.isArray(manifest.doctor)
       ? (manifest.doctor as Record<string, unknown>)
       : {};
-  // An explicit false remains an intentional, reviewable opt-out. Missing
-  // configuration is strict so a hosted build cannot publish a finding.
   if (typeof doctor.failOnBuild !== "boolean") doctor.failOnBuild = true;
   manifest.doctor = doctor;
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
@@ -2042,10 +1778,6 @@ function ensureGuardedScaffold(appDir: string): void {
   }
 }
 
-/**
- * Post-process a standalone scaffold: replace placeholders, strip
- * workspace:* deps, set up agent symlinks, etc.
- */
 function postProcessStandalone(
   name: string,
   targetDir: string,
@@ -2079,14 +1811,6 @@ function postProcessStandalone(
 
   renameGitignore(targetDir);
 
-  // No monorepo-only files to drop for standalone scaffolds.
-  // DEVELOPING.md is intentionally kept: it documents local run commands,
-  // DATABASE_URL defaults, and other local-run instructions that are equally
-  // valid for standalone apps.
-
-  // Resolve workspace:* and catalog: deps for standalone projects.
-  // catalog: references only resolve inside a pnpm workspace with a catalog
-  // defined in pnpm-workspace.yaml — standalone scaffolds don't have one.
   const catalog = loadCatalog();
   let hasNodePty = false;
   const pkgPath = path.join(targetDir, "package.json");
@@ -2136,10 +1860,6 @@ function postProcessStandalone(
     }
   }
 
-  // Write pnpm-workspace.yaml for pnpm v11 compatibility. pnpm v11 no longer
-  // reads the pnpm field in package.json, so allowBuilds and overrides must
-  // live here. Merge into any existing file (e.g. from the default template)
-  // without creating duplicate section headers.
   const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
   try {
     const existing = fs.existsSync(wsPath)
@@ -2239,19 +1959,11 @@ function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
       paths["@/*"] ??= ["./app/*"];
       paths["@shared/*"] ??= ["./shared/*"];
     }
-    // baseUrl is deprecated/errors in TS 6 (TS5101/TS5102) and removed in TS 7
-    // (tsc, which CI runs). paths already resolve relative to this tsconfig,
-    // and the "*": ["./*"] entry replaces baseUrl's bare-specifier resolution,
-    // so never emit baseUrl into scaffolds.
     delete tsconfig.compilerOptions.baseUrl;
     tsconfig.compilerOptions.paths = paths;
     fs.writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
   } catch {}
 }
-
-/* ─────────────────────────────────────────────────────────────────────────
- * Prompting helpers
- * ───────────────────────────────────────────────────────────────────────── */
 
 async function promptNameIfMissing(
   name: string | undefined,
@@ -2318,12 +2030,8 @@ async function promptTemplatePicker(
           : t.hint,
     }));
 
-  // If there's nothing left to pick, the caller gets an empty selection —
-  // they decide how to handle it.
   if (options.length === 0) return [];
 
-  // Default pre-selection: what the user passed via --template, falling
-  // back to caller defaults, then to "chat" when available.
   const defaults =
     preselected.length > 0
       ? preselected.filter((p) => options.some((o) => o.value === p))
@@ -2366,15 +2074,6 @@ function listInstalledApps(workspaceRoot: string): string[] {
     .map((e) => e.name);
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Workspace detection
- * ───────────────────────────────────────────────────────────────────────── */
-
-/**
- * Walk up from startDir looking for a package.json with
- * `agent-native.workspaceCore` set. Returns the workspace root and core
- * package name, or null if not inside a workspace.
- */
 export function detectWorkspace(
   startDir: string,
 ): { workspaceRoot: string; workspaceCoreName: string } | null {
@@ -2453,10 +2152,6 @@ export {
   REPO as _REPO,
   TEMPLATES_DIR as _TEMPLATES_DIR,
 };
-
-/* ─────────────────────────────────────────────────────────────────────────
- * Download / copy helpers
- * ───────────────────────────────────────────────────────────────────────── */
 
 function validateRepoName(repo: string): void {
   const parts = repo.split("/");
@@ -2597,8 +2292,6 @@ function materializeArchiveSymlinks(
     }
   };
 
-  // Resolve deeper links first so links such as `.claude/skills` see the
-  // regularized skill directories they point at.
   for (const relativeLinkPath of [...links.keys()].sort(
     (a, b) => b.length - a.length,
   )) {
@@ -2665,11 +2358,6 @@ async function downloadAndExtract(
   } = {},
 ): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
-  // --fail-with-body so curl exits non-zero on HTTP 4xx/5xx instead of writing
-  // the error body (HTML/JSON) to disk where tar then fails with the opaque
-  // "Unrecognized archive format" message.
-  // Keep this asynchronous: a synchronous curl blocks the event loop, which
-  // makes the create command's spinner look frozen during the GitHub fetch.
   const tarball = await execFileBuffer(
     "curl",
     [
@@ -2738,7 +2426,6 @@ function isCanonicalAgentSymlinkListing(line: string): boolean {
   );
 }
 
-/** Resolves to the ref that actually succeeded so callers can record it. */
 async function downloadGitHubSubdir(
   repo: string,
   subdir: string,
@@ -3274,17 +2961,6 @@ function githubTarballUrl(
   return `https://codeload.github.com/${repo}/tar.gz/refs/${kind === "tag" ? "tags" : "heads"}/${encodeURIComponent(ref)}`;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Text / filesystem helpers
- * ───────────────────────────────────────────────────────────────────────── */
-
-/**
- * Merge key-value entries into named sections of a pnpm-workspace.yaml string
- * without creating duplicate section headers. For each section:
- *   - If the section already exists, new entries are injected after its header.
- *   - If the section is absent, a new block is appended at the end.
- * Entries already present (by key) are skipped.
- */
 function mergeWorkspaceYamlSections(
   yaml: string,
   sections: Record<string, Record<string, string>>,
@@ -3337,12 +3013,6 @@ function mergeWorkspaceYamlListItems(
   return result;
 }
 
-/**
- * Load the pnpm workspace catalog.
- * First tries the build-time snapshot at dist/catalog.json (works when
- * running as a published npm package). Falls back to parsing the monorepo
- * pnpm-workspace.yaml (works during local framework development).
- */
 function loadCatalog(): Record<string, string> {
   try {
     // Build-time snapshot generated by finalize-build.mjs
@@ -3351,8 +3021,6 @@ function loadCatalog(): Record<string, string> {
       return JSON.parse(fs.readFileSync(snapshotPath, "utf-8"));
     }
 
-    // Fallback: parse pnpm-workspace.yaml from the monorepo root
-    // From dist/cli/ or src/cli/: 4 levels up → packages/core → packages → repo root
     const repoRoot = path.resolve(__dirname, "../../../..");
     const wsPath = path.join(repoRoot, "pnpm-workspace.yaml");
     if (!fs.existsSync(wsPath)) return {};
@@ -3422,10 +3090,6 @@ function fixPackageJsonName(
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     pkg.name = name;
     const appTitle = appTitleForScaffold(name);
-    // When the user picked a custom name (e.g. `add-app todo --template=chat`)
-    // the template's displayName would otherwise leak into the workspace apps
-    // grid as the new app's label. Overwrite it so the app shows up as "Todo"
-    // instead of the source template's branding.
     if (templateName && name !== templateName) {
       pkg.displayName = appTitle;
     }
@@ -3578,21 +3242,6 @@ function getCoreDependencyVersion(): string {
     if (localCore) return localPackageTarball(localCore);
   }
 
-  // Pin to the exact core version running this CLI rather than the npm
-  // `latest` dist-tag. `latest` can drift forward after `create` runs (a
-  // stale/cached CLI invocation, or simply time passing before `npm
-  // install`), installing a newer core release whose internal toolkit
-  // dependency no longer matches the toolkit range this CLI just wrote into
-  // the scaffold via getOwnPackageDependencyVersion() — reintroducing the
-  // exact duplicate/mismatched-toolkit class of bug this pinning exists to
-  // prevent. For the common case — `npx @agent-native/core@<version> create`
-  // against the public registry — this exact version is guaranteed
-  // installable, since npx just fetched it. Private/offline mirrors with a
-  // retention window narrower than "every historical version" are a known
-  // gap; `getCorePackageVersion()` returning undefined (e.g. malformed own
-  // package.json) falls back to `latest` rather than failing scaffolding
-  // outright. Local file deps stay opt-in so scaffolded repos remain
-  // portable by default.
   return getCorePackageVersion() ?? "latest";
 }
 
@@ -3602,9 +3251,6 @@ function getDispatchDependencyVersion(): string {
     if (localDispatch) return pathToFileURL(localDispatch).href;
   }
 
-  // Unlike toolkit, core's own package.json does not declare
-  // @agent-native/dispatch as a dependency, so there is no published
-  // compatible range to read here — "latest" is the best available signal.
   return "latest";
 }
 
@@ -3642,14 +3288,6 @@ function getAgentKitDependencyVersion(): string {
   );
 }
 
-/**
- * Toolkit is versioned and published independently of core, so its npm
- * `latest` dist-tag can briefly point to an incompatible release relative to
- * the core version currently running this CLI. The published core
- * `package.json` already carries the exact compatible range changesets
- * resolved at release time — read it from there instead of trusting
- * `latest`, which is only safe for pinning `core` itself.
- */
 function getOwnPackageDependencyVersion(depName: string): string {
   try {
     const ownPkgPath = path.join(__dirname, "../../package.json");
@@ -3730,20 +3368,6 @@ function getCorePackageVersion(): string | undefined {
   }
 }
 
-/**
- * Git refs to try, in priority order, when downloading templates from the
- * framework repo. The release tag scheme has shifted over time:
- *
- *   - ≤ 0.7.83: single repo-wide tag `v<version>` (legacy).
- *   - ≥ 0.8.0:  changesets per-package tags
- *               `@agent-native/core@<version>` (current).
- *
- * Published CLIs intentionally use only immutable version tags. Falling back
- * to mutable `main` can copy a template that imports exports not present in
- * the installed core package, leaving a generated app broken at SSR startup.
- * Local framework development uses the checkout's templates and packages
- * before this downloader runs, so it does not need a mutable fallback.
- */
 function getGitHubTemplateRefCandidates(): string[] {
   const version = getCorePackageVersion();
   const candidates: string[] = [];
@@ -3904,10 +3528,6 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
-    // Tolerate escaped quotes inside the command. Every template's build
-    // command now contains `\"` (the release-migration step's CONTEXT test),
-    // and a naive [^"]* stops at the first one — which silently dropped the
-    // NETLIFY_DATABASE_URL_UNPOOLED override for the four templates that use it.
     const originalCommand = content.match(
       /^\s*command = "((?:[^"\\]|\\.)*)"$/m,
     )?.[1];
@@ -3925,11 +3545,6 @@ function rewriteNetlifyToml(
     const releaseDatabasePrefix = usesUnpooledDatabase
       ? 'DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" '
       : "";
-    // Migrate at RELEASE, never on the request path. On serverless "migrate on
-    // first use" means migrate on every cold start; a production incident
-    // traced a multi-hour outage to schema introspection running concurrently
-    // on requests. Generated for every app so a fresh `create` + Netlify
-    // connect just works, with no flag to remember.
     const releaseMigrations =
       ' && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then ' +
       releaseDatabasePrefix +
@@ -4212,9 +3827,6 @@ function copyDir(
     const srcPath = path.join(src, entry.name);
     if (shouldSkipScaffoldEntry(entry.name, srcPath)) continue;
     const destPath = path.join(dest, entry.name);
-    // Preserve anything already at the destination (in-place scaffold merges
-    // into a directory the user may already own). Directories still recurse so
-    // new files land inside a pre-existing folder.
     if (skipExisting && !entry.isDirectory() && fs.existsSync(destPath)) {
       continue;
     }
@@ -4264,9 +3876,6 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   ) {
     return true;
   }
-  // `.generated/bridge` is committed source, not a build artifact: the design
-  // app imports it at module load, so skipping it yields a workspace that 500s
-  // on every page. Everything else under `.generated` is regenerated at dev time.
   if (pathParts?.at(-2) === ".generated") {
     return name !== "bridge";
   }

@@ -42,15 +42,10 @@ import {
 
 /** String leaves: green in both modes. */
 const STRING_CLASS = "text-emerald-700 dark:text-emerald-300";
-/** Number leaves: blue in both modes. */
 const NUMBER_CLASS = "text-blue-700 dark:text-blue-300";
-/** Boolean leaves: violet in both modes. */
 const BOOLEAN_CLASS = "text-violet-700 dark:text-violet-300";
-/** `null`/`undefined` leaves: muted (theme-aware plan var). */
 const NULL_CLASS = "text-plan-muted italic";
-/** Object keys: a stable, saturated accent that reads in both modes. */
 const KEY_CLASS = "text-rose-700 dark:text-rose-300";
-/** Structural punctuation (braces, brackets, commas, colons). */
 const PUNCT_CLASS = "text-plan-muted";
 
 const JSON_EXPLORER_DEPTH_PRESETS = [
@@ -112,7 +107,6 @@ function isNonEmptyContainer(
     : Object.keys(value).length > 0;
 }
 
-/** One-line summary for a collapsed container, devtools style. */
 function containerSummary(value: JsonValue[] | JsonObject): string {
   if (Array.isArray(value)) {
     const count = value.length;
@@ -122,7 +116,6 @@ function containerSummary(value: JsonValue[] | JsonObject): string {
   return `{…} ${count} ${count === 1 ? "key" : "keys"}`;
 }
 
-/** Render a leaf (primitive) value with its type color. */
 function LeafValue({ value }: { value: string | number | boolean | null }) {
   if (value === null) {
     return <span className={NULL_CLASS}>null</span>;
@@ -133,31 +126,20 @@ function LeafValue({ value }: { value: string | number | boolean | null }) {
   if (typeof value === "number") {
     return <span className={NUMBER_CLASS}>{String(value)}</span>;
   }
-  // boolean
   return <span className={BOOLEAN_CLASS}>{String(value)}</span>;
 }
 
 interface JsonNodeProps {
-  /** Stable id used by the root surface to derive aggregate expansion state. */
   nodeId: string;
-  /** The object key or array index label for this node (root has none). */
   label?: string | number;
   value: JsonValue;
   depth: number;
-  /** Depth beyond which nodes start collapsed. */
   collapsedDepth: number;
-  /** Global or parent expand/collapse pulse — overrides per-node seed when changed. */
   forceOpen: JsonTreePulse | null;
   onContainerStateChange?: (nodeId: string, open: boolean | null) => void;
-  /** True when this node is followed by a sibling (renders a trailing comma). */
   trailingComma?: boolean;
 }
 
-/**
- * A single tree node. Containers (object/array) get their own collapse state,
- * seeded from `collapsedDepth` and re-seeded whenever the global expand/collapse
- * "pulse" (`forceOpen`) flips. Leaves render inline with their type color.
- */
 function JsonNode({
   nodeId,
   label,
@@ -169,8 +151,6 @@ function JsonNode({
   trailingComma,
 }: JsonNodeProps) {
   const seededOpen = forceOpen?.open ?? depth < collapsedDepth;
-  // `forceOpen` is the global pulse: when the user hits expand/collapse all we
-  // flip every node, but per-node toggles still win afterward.
   const [openState, setOpenState] = useState<{
     forceOpen: JsonTreePulse | null;
     open: boolean;
@@ -351,8 +331,6 @@ export function JsonExplorerSurface({
   const parsed = useMemo(() => parseJson(data.json), [data.json]);
   const collapsedDepth =
     data.collapsedDepth ?? JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH;
-  // `pulse` carries a boolean (expand/collapse) plus a nonce so repeated clicks
-  // of the same action still re-fire the reseed in each node.
   const [pulse, setPulse] = useState<{ open: boolean; nonce: number } | null>(
     null,
   );
@@ -441,8 +419,6 @@ export function JsonExplorerSurface({
       >
         {parsed.ok ? (
           <JsonNode
-            // Remount the whole tree when the global pulse fires so every node
-            // re-seeds from the new open/closed state cleanly.
             key={pulse?.nonce ?? 0}
             nodeId="$"
             value={parsed.value as JsonValue}
@@ -466,16 +442,6 @@ export function JsonExplorerSurface({
   );
 }
 
-/* ── Edit (panel form) ─────────────────────────────────────────────────────── */
-
-/**
- * Panel editor for a `json-explorer` block: a monospace textarea bound to the
- * raw `json`, a "Format" button that pretty-prints via `JSON.parse` →
- * `JSON.stringify(_, null, 2)` (guarded — shows an INLINE error, never
- * `window.alert`), an auto-expand depth picker/input, and a `title` input.
- * Renders BARE content (no `<section>`); the registry's panel surface supplies
- * the popover chrome.
- */
 export function JsonExplorerEdit({
   data,
   onChange,

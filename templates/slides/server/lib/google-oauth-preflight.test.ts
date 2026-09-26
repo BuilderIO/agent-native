@@ -5,7 +5,6 @@ import {
   clearGoogleOAuthPreflightCache,
 } from "./google-oauth-preflight.js";
 
-/** Base64 of the protobuf payload Google puts in `authError`. */
 function authError(code: string, message = "Something went wrong."): string {
   const body = `\n${String.fromCharCode(code.length)}${code}\u0012${String.fromCharCode(message.length)}${message}`;
   return Buffer.from(body, "utf8").toString("base64");

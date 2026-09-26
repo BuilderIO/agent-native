@@ -1,27 +1,7 @@
 import { z } from "zod";
 
-/**
- * Plan content model.
- *
- * Design contract (read before editing):
- * - The MODEL emits lean, semantic structured content. The RENDERER owns ALL
- *   visual quality (flex layout, fonts, density, theme, spacing, the wobble).
- * - "SEMANTIC wireframes, SPATIAL board." Wireframe INTERNALS (the kit tree)
- *   carry NO geometry — they are pure flex laid out by the renderer. The BOARD
- *   level (artboard placement, annotation placement, connector routing) KEEPS
- *   geometry, because spatial composition legitimately needs positions.
- * - Node/block names mirror component names (Artboard, Annotation, Connector,
- *   Section, and the screen primitives) so the JSON round-trips cleanly to MDX
- *   later. JSON stays the runtime model now; MDX export/import is a follow-on.
- * - A LEGACY region-based wireframe shape is kept as a renderer FALLBACK for
- *   old / imported plans. New generation never emits regions, but the renderer
- *   must still render them. Do NOT delete it; do NOT lossily migrate old plans.
- */
-
-/** Bumped to 2 for the kit-tree wireframe model. Parsing accepts version >= 1. */
 export const PLAN_CONTENT_VERSION = 2;
 
-/** Minimum content version the parser/migrator will attempt to read. */
 export const PLAN_CONTENT_MIN_VERSION = 1;
 
 export type PlanBlockType =
@@ -132,14 +112,6 @@ export type PlanImplementationMapBlock = PlanBlockBase & {
   };
 };
 
-/* -------------------------------------------------------------------------- */
-/* Wireframe — declarative KIT TREE (no coordinates, no raw HTML)             */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Surface preset. Drives the artboard footprint/aspect in the renderer.
- * Kills the desktop/mobile default bias: a popover wireframe stays a popover.
- */
 export type PlanWireframeSurface =
   | "desktop"
   | "mobile"
@@ -150,15 +122,8 @@ export type PlanWireframeSurface =
 export type PlanVisualCanvasMode = "wireframe" | "design";
 export type PlanVisualFrame = "auto" | "show" | "hide";
 
-/** Tone keyword reused across screen primitives. The renderer maps to color. */
 export type PlanWireframeTone = "default" | "accent" | "warn" | "ok" | "muted";
 
-/**
- * Names of the kit primitives. These are component-like (MDX-friendly). The
- * renderer maps each to a flex kit component. Layout is ALWAYS flex; row/col/
- * sidebar/main set the flex direction. Real labels/dates live in props; pure
- * placeholder text only via `lines` / valueless `text`.
- */
 export type PlanWireframeElName =
   | "screen"
   | "browserBar"
@@ -190,30 +155,17 @@ export type PlanWireframeElName =
   | "box"
   | "divider";
 
-/**
- * A single node in the wireframe kit tree. `el` is the primitive name; the
- * remaining props are the union of every primitive's props (kept permissive so
- * the model can compose freely). `children` nests other nodes. `id` is a stable
- * node id used by node-addressable patch ops (auto-assigned on create).
- *
- * NOTE: there is intentionally NO x/y/width/height here — wireframe internals
- * are geometry-free and laid out by the renderer with flex.
- */
 export type PlanWireframeNode = {
-  /** Stable id for node-addressable patches; auto-assigned when absent. */
   id?: string;
   el: PlanWireframeElName;
   children?: PlanWireframeNode[];
 
-  // Generic content props
-  /** Real text content (title/text/btn/chip/pill/navItem/section labels, etc.). */
   text?: string;
   value?: string;
   label?: string;
   placeholder?: string;
   title?: string;
 
-  // Styling-by-intent (semantic only; renderer owns actual color/size)
   tone?: PlanWireframeTone;
   color?: PlanWireframeTone;
   weight?: "normal" | "medium" | "bold";
@@ -228,22 +180,16 @@ export type PlanWireframeNode = {
   area?: boolean;
   shape?: "square" | "circle";
 
-  // Numeric / structured props
   count?: number;
   prio?: number;
-  /** Number of placeholder lines for `lines`. */
   n?: number;
-  /** Relative widths (0-100) for placeholder `lines`. */
   widths?: number[];
-  /** Icon hint for `fab` / `iconSquare`. */
   icon?: string;
 
-  // taskRow specifics
   note?: string;
   due?: string;
   dueTone?: PlanWireframeTone;
 
-  // Collection props (chips, kv)
   items?: Array<{
     label: string;
     active?: boolean;
@@ -257,28 +203,12 @@ export type PlanWireframeBlock = PlanBlockBase & {
   type: "wireframe";
   data: {
     surface: PlanWireframeSurface;
-    /** `design` renders full-fidelity branded HTML/CSS instead of a sketch. */
     renderMode?: PlanVisualCanvasMode;
     caption?: string;
-    /** Outer surface frame. `auto` lets the host choose the right default. */
     frame?: PlanVisualFrame;
-    /**
-     * Neutral, textless loading register. The renderer drops borders, the sketch
-     * outline, and color, rendering soft placeholder geometry only — a real
-     * skeleton loader, not a sketch of boxes.
-     */
     skeleton?: boolean;
-    /**
-     * PRIMARY content: a self-contained HTML mockup of the screen (sanitized
-     * fragment — no document/script/style tags). Write semantic HTML + layout
-     * utility classes; the RENDERER owns the surface aspect, the dark/light
-     * theme, the hand-drawn font, and the rough sketch overlay. Emit content,
-     * never pixels/coordinates. When `html` is set, `screen` is ignored.
-     */
     html?: string;
-    /** Optional scoped CSS for the html mockup (sanitized fragment). */
     css?: string;
-    /** LEGACY kit-tree screen. Kept as a fallback; new plans emit `html`. */
     screen?: PlanWireframeNode[];
   };
 };
@@ -338,10 +268,6 @@ export type PlanLegacyWireframeBlock = PlanBlockBase & {
  */
 export type PlanSketchWireframeBlock = PlanLegacyWireframeBlock;
 
-/* -------------------------------------------------------------------------- */
-/* Diagram                                                                    */
-/* -------------------------------------------------------------------------- */
-
 export type PlanDiagramNode = {
   id: string;
   label: string;
@@ -359,18 +285,10 @@ export type PlanDiagramEdge = {
 export type PlanDiagramBlock = PlanBlockBase & {
   type: "diagram";
   data: {
-    /**
-     * Preferred authoring path for architecture/code diagrams. This is an inert,
-     * scoped fragment rendered by the plan viewer with theme + sketch/clean
-     * style hooks. Legacy node graphs remain supported below for old plans and
-     * simple previews.
-     */
     html?: string;
     css?: string;
-    /** `design` forces clean HTML/CSS rendering without the sketch overlay. */
     renderMode?: PlanVisualCanvasMode;
     caption?: string;
-    /** Outer surface frame. `auto` lets the host choose the right default. */
     frame?: PlanVisualFrame;
     nodes?: PlanDiagramNode[];
     edges?: PlanDiagramEdge[];
@@ -386,14 +304,9 @@ export type PlanDiagramBlock = PlanBlockBase & {
 /** @deprecated Back-compat alias for `PlanDiagramBlock`. */
 export type PlanSketchDiagramBlock = PlanDiagramBlock;
 
-/* -------------------------------------------------------------------------- */
-/* Image                                                                      */
-/* -------------------------------------------------------------------------- */
-
 export type PlanImageBlock = PlanBlockBase & {
   type: "image";
   data: {
-    /** Prefer an asset id over a raw url so media stays portable. */
     assetId?: string;
     url?: string;
     alt: string;
@@ -438,11 +351,6 @@ export type PlanQuestionOption = {
   id: string;
   label: string;
   detail?: string;
-  /**
-   * Authored recommendation only. A reviewer's actual selection does NOT live
-   * here — responses belong in plan_comments / events, never in the canonical
-   * plan body.
-   */
   recommended?: boolean;
   wireframe?: PlanWireframeBlock["data"];
   diagram?: PlanDiagramBlock["data"];
@@ -494,7 +402,6 @@ export type PlanApiEndpointBlock = PlanBlockBase & {
     description?: string;
     auth?: string;
     deprecated?: boolean;
-    /** Diff state for the whole route (added/removed/renamed endpoint). */
     change?: "added" | "modified" | "removed" | "renamed";
     params?: Array<{
       name: string;
@@ -502,9 +409,7 @@ export type PlanApiEndpointBlock = PlanBlockBase & {
       type?: string;
       required?: boolean;
       description?: string;
-      /** Diff state for this parameter. */
       change?: "added" | "modified" | "removed" | "renamed";
-      /** Prior value when change === "modified" (e.g. the old type). */
       was?: string;
     }>;
     request?: { contentType?: string; example?: string };
@@ -512,7 +417,6 @@ export type PlanApiEndpointBlock = PlanBlockBase & {
       status: string;
       description?: string;
       example?: string;
-      /** Diff state for this response. */
       change?: "added" | "modified" | "removed" | "renamed";
     }>;
   };
@@ -521,7 +425,6 @@ export type PlanApiEndpointBlock = PlanBlockBase & {
 export type PlanOpenApiSpecBlock = PlanBlockBase & {
   type: "openapi-spec";
   data: {
-    /** Raw OpenAPI 3 / Swagger 2 document text (JSON in v1). */
     spec: string;
     title?: string;
   };
@@ -534,7 +437,6 @@ export type PlanDataModelBlock = PlanBlockBase & {
       id: string;
       name: string;
       note?: string;
-      /** Diff state for the whole table (added/removed/renamed entity). */
       change?: "added" | "modified" | "removed" | "renamed";
       fields: Array<{
         name: string;
@@ -544,9 +446,7 @@ export type PlanDataModelBlock = PlanBlockBase & {
         nullable?: boolean;
         default?: string;
         note?: string;
-        /** Diff state for this field. */
         change?: "added" | "modified" | "removed" | "renamed";
-        /** Prior value when change === "modified" (e.g. the old type). */
         was?: string;
       }>;
     }>;
@@ -559,14 +459,8 @@ export type PlanDataModelBlock = PlanBlockBase & {
   };
 };
 
-/**
- * A line-anchored note attached to one side of a `diff` block, mirroring the
- * `annotated-code` annotation shape.
- */
 export interface DiffAnnotation {
-  /** Which side the line ref targets; defaults to "after". */
   side?: "before" | "after";
-  /** 1-based line ref against that side's text: "13" or "13-15". */
   lines: string;
   label?: string;
   note: string;
@@ -643,11 +537,6 @@ export type PlanBlock =
   | PlanJsonExplorerBlock
   | PlanAnnotatedCodeBlock;
 
-/* -------------------------------------------------------------------------- */
-/* Board / canvas — SPATIAL; geometry KEPT here on purpose                    */
-/* -------------------------------------------------------------------------- */
-
-/** Anchor side for an annotation arrow pointing at an artboard. */
 export type PlanAnnotationPlacement =
   | "top"
   | "right"
@@ -671,26 +560,17 @@ export type PlanAnnotationStyle = {
   width?: number;
 };
 
-/**
- * A wireframe placed on the spatial board. Geometry (position/order) is KEPT
- * here — only the wireframe INTERNALS (its kit tree) are geometry-free.
- */
 export type PlanArtboard = {
   id: string;
   label?: string;
   surface?: PlanWireframeSurface;
-  /** Reference to a wireframe block rendered in this artboard. */
   blockId?: string;
-  /** Inline wireframe data (kit tree) when not referencing a block. */
   wireframe?: PlanWireframeBlock["data"];
-  /** Legacy region data, for old/imported boards. */
   legacyWireframe?: PlanLegacyWireframeBlock["data"];
-  /** Spatial placement on the board. */
   x?: number;
   y?: number;
   width?: number;
   height?: number;
-  /** Manual ordering hint for grip-reorder. */
   order?: number;
 };
 
@@ -700,20 +580,14 @@ export type PlanArtboard = {
  */
 export type PlanCanvasFrame = PlanArtboard;
 
-/** A designer note placed on the board. Plain text layers, optional arrow. */
 export type PlanAnnotation = {
   id: string;
-  /** Semantic markup kind. Omitted legacy annotations render as notes. */
   type?: PlanAnnotationType;
   title?: string;
   text: string;
-  /** Optional routed points for callouts/arrows/free placement. */
   points?: PlanAnnotationPoint[];
-  /** Semantic style hints only; the renderer owns actual colors. */
   style?: PlanAnnotationStyle;
-  /** Artboard this annotation points at, if any. */
   targetId?: string;
-  /** Which side of the target the arrow anchors to. */
   placement?: PlanAnnotationPlacement;
   x?: number;
   y?: number;
@@ -729,14 +603,12 @@ export type PlanCanvasNote = {
   arrowToFrameId?: string;
 };
 
-/** A connector between two artboards (board-level routing keeps geometry). */
 export type PlanConnector = {
   from: string;
   to: string;
   label?: string;
 };
 
-/** A grouping of artboards on the board, with a title/subtitle. */
 export type PlanBoardSection = {
   id: string;
   title?: string;
@@ -752,27 +624,14 @@ export type PlanCanvasViewport = {
   };
 };
 
-/* -------------------------------------------------------------------------- */
-/* Prototype — functional top review surface                                  */
-/* -------------------------------------------------------------------------- */
-
 export type PlanPrototypeScreen = {
   id: string;
   title?: string;
   summary?: string;
   surface?: PlanWireframeSurface;
   renderMode?: PlanVisualCanvasMode;
-  /**
-   * A bounded semantic HTML fragment. Prototype HTML may use the renderer's
-   * safe Alpine-like directives (`x-data`, `x-model`, `x-for`, `x-text`,
-   * `x-show`, `:class`, `@click`, `@keydown.enter`) for real local
-   * interactions. Use `data-goto="screen-id"` only for true screen/route
-   * changes; never include scripts.
-   */
   html: string;
-  /** Scoped CSS for full-fidelity prototype screens. */
   css?: string;
-  /** Optional metadata for exports/back-compat; the live viewer does not render this as chrome. */
   state?: Array<{
     id?: string;
     label: string;
@@ -785,10 +644,6 @@ export type PlanPrototypeTransition = {
   from: string;
   to: string;
   label?: string;
-  /**
-   * Human-readable trigger hint, such as "click Continue" or
-   * "select a task row". Runtime screen navigation still uses `data-goto`.
-   */
   trigger?: string;
 };
 
@@ -805,19 +660,11 @@ export type PlanContent = {
   version: number;
   title?: string;
   brief?: string;
-  /**
-   * Opt-in "Sync to Notion" mode. When true, the document editor restricts the
-   * slash menu to Notion-Flavored-Markdown-representable blocks and badges any
-   * already-present incompatible blocks. Absent/false means normal mode (all
-   * block types allowed). See `shared/notion-compat.ts`.
-   */
   notionSync?: boolean;
   prototype?: PlanPrototype;
   canvas?: {
-    /** `design` changes the top canvas tab from Wireframes to Design. */
     mode?: PlanVisualCanvasMode;
     title?: string;
-    /** Captured brand/design source context used by /plan-design. */
     design?: {
       designMd?: string;
       brandKit?: Record<string, unknown>;
@@ -829,24 +676,16 @@ export type PlanContent = {
         summary?: string;
       }>;
     };
-    /** Optional initial viewport persisted by source-sync exports. */
     viewport?: PlanCanvasViewport;
     sections?: PlanBoardSection[];
-    /** Artboards placed on the board (spatial). */
     frames: PlanArtboard[];
-    /** Connectors between artboards. */
     flow?: PlanConnector[];
-    /** Designer annotations on the board. */
     annotations?: PlanAnnotation[];
     /** @deprecated Legacy note shape; renderer fallback. */
     notes?: PlanCanvasNote[];
   };
   blocks: PlanBlock[];
 };
-
-/* -------------------------------------------------------------------------- */
-/* Patch ops                                                                  */
-/* -------------------------------------------------------------------------- */
 
 export type PlanContentPatch =
   | {
@@ -855,11 +694,6 @@ export type PlanContentPatch =
       brief?: string;
     }
   | {
-      /**
-       * Persist the artifact's visual treatment for every viewer. `design`
-       * disables sketch rendering and preserves authored HTML/CSS; it is not
-       * the same as the viewer-local clean/sketchy preference.
-       */
       op: "set-visual-render-mode";
       renderMode: PlanVisualCanvasMode;
     }
@@ -876,20 +710,11 @@ export type PlanContentPatch =
       patch: Partial<Omit<PlanPrototypeScreen, "id">>;
     }
   | {
-      /**
-       * Surgically edit a prototype screen's `html` via find/replace snippets.
-       * This mirrors `patch-wireframe-html` so agents can patch one live state
-       * without regenerating every screen.
-       */
       op: "patch-prototype-html";
       screenId: string;
       edits: Array<{ find: string; replace: string; all?: boolean }>;
     }
   | {
-      /**
-       * Update inline CSS for one full-fidelity design element identified by
-       * `data-design-id` or `data-plan-design-id`.
-       */
       op: "update-design-element-style";
       elementId: string;
       frameId?: string;
@@ -902,7 +727,6 @@ export type PlanContentPatch =
       block: PlanBlock;
     }
   | {
-      /** Generic shallow merge into a block (title/summary/data). */
       op: "update-block";
       blockId: string;
       patch: {
@@ -913,7 +737,6 @@ export type PlanContentPatch =
       };
     }
   | {
-      /** Replace the entire top-level block list. */
       op: "replace-blocks";
       blocks: PlanBlock[];
     }
@@ -932,35 +755,22 @@ export type PlanContentPatch =
       caption?: string | null;
     }
   | {
-      /**
-       * Surgically edit a diagram block's `html` via find/replace snippets.
-       * Use this for one label, SVG path, or small layout change without
-       * regenerating the entire diagram payload.
-       */
       op: "patch-diagram-html";
       blockId: string;
       edits: Array<{ find: string; replace: string; all?: boolean }>;
     }
   | {
-      /** Patch a single wireframe kit-tree node by its stable node id. */
       op: "update-wireframe-node";
       blockId: string;
       nodeId: string;
       patch: Partial<Omit<PlanWireframeNode, "id" | "el" | "children">>;
     }
   | {
-      /** Replace a wireframe block's full screen kit tree. */
       op: "replace-wireframe-screen";
       blockId: string;
       screen: PlanWireframeNode[];
     }
   | {
-      /**
-       * Surgically edit a wireframe block's `html` mockup via find/replace
-       * snippets, so one element/text/color can change without regenerating the
-       * whole frame. Each `find` must be present; a `find` that matches more than
-       * once needs `all: true`. The result is re-sanitized.
-       */
       op: "patch-wireframe-html";
       blockId: string;
       edits: Array<{ find: string; replace: string; all?: boolean }>;
@@ -983,12 +793,6 @@ export type PlanContentPatch =
       op: "append-block";
       block: PlanBlock;
       afterBlockId?: string;
-      /**
-       * Append into a container child instead of the top-level body. A `tabs`
-       * parent addresses a tab by `tabBlockId`/`tabId`; a `columns` parent
-       * addresses a column by `columnBlockId`/`columnId`. Omit for a top-level
-       * append.
-       */
       parent?:
         | {
             tabBlockId: string;
@@ -1004,28 +808,14 @@ export type PlanContentPatch =
       blockId: string;
     }
   | {
-      /** Toggle the per-plan "Sync to Notion" setting (a top-level scalar). */
       op: "set-notion-sync";
       value: boolean;
     };
 
-/* -------------------------------------------------------------------------- */
-/* Zod schemas                                                                */
-/* -------------------------------------------------------------------------- */
-
 const idSchema = z.string().trim().min(1).max(120);
 
-/**
- * Shared diff-state enum reused by file-tree entries, data-model entities and
- * fields, and api-endpoint routes/params/responses so every block expresses the
- * same vocabulary for added/modified/removed/renamed.
- */
 const diffChangeSchema = z.enum(["added", "modified", "removed", "renamed"]);
 
-/**
- * Shared 1-based line-ref schema (e.g. "3" or "3-5") reused by `annotated-code`
- * and `diff` annotations so both validate line refs identically.
- */
 const annotationLinesSchema = z
   .string()
   .trim()
@@ -1156,11 +946,6 @@ const WIREFRAME_MAX_NODES = 400;
 const PLAN_BLOCK_MAX_DEPTH = 40;
 const PLAN_BLOCK_MAX_VISITS = 5_000;
 
-/**
- * Recursive node schema, bounded in depth and total node count. Props are kept
- * permissive so the model can compose primitives freely, but every string is a
- * real-content field with a sane max length (no raw HTML / CSS smuggling).
- */
 const wireframeNodeSchema: z.ZodType<PlanWireframeNode> = z.lazy(() =>
   z
     .object({
@@ -1305,15 +1090,6 @@ export const wireframeDataSchema = z
   })
   .strict();
 
-/**
- * Compact ADVERTISED-ONLY stand-in for `wireframeDataSchema`. Only the
- * `screen` field changes: it's the same legacy per-node kit-tree schema also
- * reachable through `planBlockSchema`'s `wireframe` block type (see
- * `agentPlanBlockSchema`), reused here because `canvas.frames` (artboards)
- * and the `update-canvas-frame` content patch can ALSO carry an inline
- * wireframe outside of `blocks`. New wireframes should set `html` (semantic
- * HTML) instead — `screen` kit trees are legacy-compatibility only.
- */
 export const agentWireframeDataSchema = wireframeDataSchema.extend({
   screen: z
     .array(z.record(z.string(), z.unknown()))
@@ -1360,11 +1136,6 @@ const legacyWireframeDataSchema = z.object({
   regions: z.array(wireframeRegionSchema).max(80).default([]),
 });
 
-/**
- * Compact ADVERTISED-ONLY stand-in for `legacyWireframeDataSchema`. Only
- * `regions` changes — this is an old region-based wireframe fallback; new
- * work should use the `wireframe` block/field (semantic HTML) instead.
- */
 const agentLegacyWireframeDataSchema = legacyWireframeDataSchema.extend({
   regions: z
     .array(z.record(z.string(), z.unknown()))
@@ -1436,8 +1207,6 @@ const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z
 export const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
   .object({
     assetId: z.string().trim().min(1).max(200).optional(),
-    // Accepts absolute URLs and relative `assets/<filename>` paths produced by
-    // exportPlanContentToMdxFolder for the MDX round-trip.
     url: z
       .string()
       .trim()
@@ -1465,10 +1234,6 @@ export const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
     message: "Image block requires an assetId or url.",
   });
 
-// Generous max lengths so a long question title/label never hard-fails a
-// publish (which forces the agent to retry and leaves an empty embed behind).
-// These are well above any realistic title/label; the renderer truncates
-// visually as needed.
 const planQuestionOptionSchema: z.ZodType<PlanQuestionOption> = z.object({
   id: idSchema,
   label: z.string().trim().min(1).max(2000),
@@ -1495,13 +1260,6 @@ export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
     submitLabel: z.string().trim().max(400).optional(),
   });
 
-/**
- * Rich-text stores Markdown as runtime text. A fully escaped one-line payload
- * ("### Heading\\n\\nBody") renders as one giant heading, so reject that shape at
- * the shared schema instead of persisting a document that only looks valid.
- * Escapes are still fine when they occur alongside real line breaks, such as
- * an intentional `\\n` inside a code example.
- */
 const planMarkdownSchema = z
   .string()
   .max(100_000)
@@ -1844,11 +1602,6 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
   ]),
 ) as z.ZodType<PlanBlock>;
 
-/**
- * Every `PlanBlock` `type` literal, kept in sync with the discriminated union
- * above. Reused by `agentPlanBlockSchema` (the compact advertised stand-in)
- * so the enum can never silently drift from the real block types.
- */
 export const PLAN_BLOCK_TYPES = [
   "rich-text",
   "callout",
@@ -1876,23 +1629,6 @@ export const PLAN_BLOCK_TYPES = [
   "annotated-code",
 ] as const satisfies readonly PlanBlock["type"][];
 
-/**
- * Compact ADVERTISED-ONLY stand-in for `planBlockSchema`. The real union's
- * per-type `data` shapes (wireframe kit trees, diagram nodes/edges,
- * api-endpoint params, data-model entities/fields, diff/annotated-code line
- * refs, ...) serialize to tens of KB of JSON Schema once embedded in an
- * action's tool definition — see the `actions` skill and
- * `agent-native.json`'s "compact agent schemas" note. Plan's own workflow
- * already mandates calling `get-plan-blocks` / `list-plan-components` before
- * authoring blocks, so re-teaching every field shape inline is redundant
- * documentation that costs real context on every request.
- *
- * Pass this as `defineAction`'s `agentInputSchema` (never as the real
- * `schema`) so the model only sees a `type` enum plus a pointer to the
- * lookup tool; runtime validation still runs the full `planBlockSchema` via
- * `planContentSchema` / `planContentPatchSchema`, so an invalid `data` shape
- * still fails loudly with the real, actionable zod error.
- */
 export const agentPlanBlockSchema = z.object({
   id: idSchema.describe(
     "Stable block id (short, unique within the plan) — required.",
@@ -1928,14 +1664,6 @@ export const agentPlanBlockSchema = z.object({
     ),
 });
 
-/**
- * Terser sibling of `agentPlanBlockSchema` for the `replace-block` /
- * `replace-blocks` / `append-block` content-patch ops. Those ops already sit
- * next to `content` (which carries the full per-type gloss on `blocks[].type`)
- * in the same action's advertised schema, so repeating the ~900-character
- * enum description 3 more times would only burn context for no new
- * information — a short cross-reference is enough here.
- */
 const agentPlanBlockSchemaTerse = z.object({
   id: idSchema.describe(
     "Stable block id (short, unique within the plan) — required.",
@@ -1978,10 +1706,6 @@ const annotationStyleSchema: z.ZodType<PlanAnnotationStyle> = z.object({
   width: z.number().min(1).max(12).optional(),
 });
 
-/**
- * Named so `agentArtboardSchema` below can `.extend()` it with a compact
- * `wireframe` field instead of duplicating every other key.
- */
 const artboardObjectSchema = z.object({
   id: idSchema,
   label: z.string().trim().max(180).optional(),
@@ -1996,10 +1720,6 @@ const artboardObjectSchema = z.object({
   order: z.number().optional(),
 });
 
-/**
- * Compact ADVERTISED-ONLY stand-in for `artboardSchema` (a canvas frame).
- * `wireframe`/`legacyWireframe` swap in their compact stand-ins.
- */
 export const agentArtboardSchema = artboardObjectSchema.extend({
   wireframe: agentWireframeDataSchema.optional(),
   legacyWireframe: agentLegacyWireframeDataSchema.optional(),
@@ -2201,8 +1921,6 @@ export function exceedsPlanBlockDepth(input: unknown): boolean {
       if (visits > PLAN_BLOCK_MAX_VISITS) return true;
       if (!block || typeof block !== "object") continue;
       const type = (block as { type?: unknown }).type;
-      // Both container blocks nest their children one level deeper: `tabs` under
-      // `data.tabs[].blocks`, `columns` under `data.columns[].blocks`.
       if (type !== "tabs" && type !== "columns") continue;
 
       const data = (block as { data?: unknown }).data;
@@ -2228,9 +1946,6 @@ export function exceedsPlanBlockDepth(input: unknown): boolean {
 }
 
 function preflightPlanContentInput(input: unknown): unknown {
-  // MCP clients whose tool schema incorrectly types `content` as a string will
-  // JSON-encode the object before sending. Parse it back here so callers don't
-  // have to double-encode.
   if (typeof input === "string") {
     try {
       input = JSON.parse(input);
@@ -2252,15 +1967,6 @@ function preflightPlanContentInput(input: unknown): unknown {
   };
 }
 
-/**
- * Inner object schema behind `planContentSchema`'s preprocess/superRefine
- * wrapper, extracted so `agentPlanContentSchema` below can `.extend()` it
- * with a compact `blocks` field instead of duplicating every other key.
- */
-/**
- * Named so `agentPlanContentSchema` below can `.extend()` it with a compact
- * `frames` field instead of duplicating every other canvas key.
- */
 const canvasSchema = z.object({
   mode: visualCanvasModeSchema.optional(),
   title: z.string().trim().max(180).optional(),
@@ -2293,10 +1999,6 @@ const planContentObjectSchema = z.object({
   blocks: z.array(planBlockSchema).max(200).default([]),
 });
 
-/**
- * Compact ADVERTISED-ONLY stand-in for `canvasSchema`. Only `frames` changes:
- * each frame's `wireframe` swaps in the compact `agentWireframeDataSchema`.
- */
 const agentCanvasSchema = canvasSchema.extend({
   frames: z
     .array(agentArtboardSchema)
@@ -2307,13 +2009,6 @@ const agentCanvasSchema = canvasSchema.extend({
     ),
 });
 
-/**
- * Compact ADVERTISED-ONLY stand-in for `planContentSchema`, for use as
- * `defineAction`'s `agentInputSchema`. Identical top-level shape — only
- * `blocks` and `canvas` swap in their compact stand-ins. Runtime validation
- * of `content` always goes through the real `planContentSchema` (see the
- * `actions` skill: `agentInputSchema` never weakens validation).
- */
 export const agentPlanContentSchema = planContentObjectSchema.extend({
   canvas: agentCanvasSchema.optional(),
   blocks: z
@@ -2409,25 +2104,11 @@ export const planContentSchema: z.ZodType<PlanContent> = z
 
 export type PlanContentInput = z.input<typeof planContentSchema>;
 
-/* -------------------------------------------------------------------------- */
-/* Migration / parsing                                                        */
-/* -------------------------------------------------------------------------- */
-
 const OLD_BLOCK_TYPE_ALIASES: Record<string, PlanBlockType> = {
-  // sketch-wireframe was the region-based shape → keep it as legacy-wireframe
-  // so the renderer fallback still draws old/imported plans (never lose data).
   "sketch-wireframe": "legacy-wireframe",
   "sketch-diagram": "diagram",
 };
 
-/**
- * The `decision` block was retired (it duplicated a `callout` with `tone:
- * "decision"` plus a `columns`/list comparison). Any stored decision block is
- * migrated on load into a decision-tone `callout` whose markdown body carries the
- * question and the options (recommended one flagged), so existing plans keep
- * loading and rendering instead of failing the (now decision-less) schema. The
- * block id/title/summary are preserved.
- */
 function decisionBlockToCallout(
   block: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -2449,11 +2130,6 @@ function decisionBlockToCallout(
   return { ...rest, type: "callout", data: { tone: "decision", body } };
 }
 
-// Backfill the structural fields a nested child block needs to satisfy
-// planBlockSchema. A columns/tabs child authored via the `columns=`/`tabs=`
-// attribute form skips the id/data backfill the `<Column>`/`<Tab>` MDX path
-// does, so without this a single malformed nested block fails the WHOLE
-// document at parse time (surfaced to publishers as a 422). Degrade gracefully.
 function backfillNestedBlock(raw: unknown): unknown {
   const migrated = migrateBlock(raw);
   if (!migrated || typeof migrated !== "object") return migrated;
@@ -2470,12 +2146,9 @@ function migrateBlock(raw: unknown): unknown {
   if (type && OLD_BLOCK_TYPE_ALIASES[type]) {
     block.type = OLD_BLOCK_TYPE_ALIASES[type];
   }
-  // Retired `decision` block → decision-tone `callout` (see helper above).
   if (block.type === "decision") {
     return decisionBlockToCallout(block);
   }
-  // Recurse into tabs children, backfilling tab/child ids + child data so a
-  // partially-authored or attribute-form tab degrades gracefully.
   if (block.type === "tabs" && block.data && typeof block.data === "object") {
     const data = block.data as Record<string, unknown>;
     if (Array.isArray(data.tabs)) {
@@ -2492,9 +2165,6 @@ function migrateBlock(raw: unknown): unknown {
       }
     }
   }
-  // Recurse into columns children, backfilling column/child ids + child data so
-  // an attribute-form `<Columns columns={[...]}/>` (which skips the `<Column>`
-  // id/data backfill) degrades gracefully instead of failing the whole document.
   if (
     block.type === "columns" &&
     block.data &&
@@ -2518,17 +2188,10 @@ function migrateBlock(raw: unknown): unknown {
   return block;
 }
 
-/**
- * Upgrade/normalize an old/raw plan content shape to the current model BEFORE
- * validation. Old region-based wireframes are preserved as `legacy-wireframe`
- * blocks (renderer fallback) — never lossily converted to empty kit trees.
- * Returns a best-effort normalized object; callers still validate via zod.
- */
 export function migratePlanContent(raw: unknown): unknown {
   if (!raw || typeof raw !== "object") return raw;
   const content = cloneJson(raw) as Record<string, unknown>;
 
-  // Version: missing/old → leave numeric and let the parser accept >= min.
   if (typeof content.version !== "number") {
     content.version = PLAN_CONTENT_MIN_VERSION;
   }
@@ -2537,15 +2200,8 @@ export function migratePlanContent(raw: unknown): unknown {
     content.blocks = content.blocks.map(migrateBlock);
   }
 
-  // Visual-question option wireframes: nested old diagram/region data is left
-  // as-is for region wireframes (schema rejects them for the new `wireframe`
-  // field, which is acceptable — questions are transient intake, not the body).
   return content;
 }
-
-/* -------------------------------------------------------------------------- */
-/* Patch schemas                                                              */
-/* -------------------------------------------------------------------------- */
 
 const wireframeNodePatchSchema = z
   .object({
@@ -2600,10 +2256,6 @@ const wireframeNodePatchSchema = z
     message: "Patch must include at least one wireframe node field.",
   });
 
-/**
- * Named so the compact `agentCanvasFramePatchSchema` below can `.extend()` it
- * instead of duplicating every other key.
- */
 const canvasFramePatchObjectSchema = z.object({
   label: z.string().trim().max(180).optional(),
   surface: wireframeSurfaceSchema.optional(),
@@ -2622,10 +2274,6 @@ const canvasFramePatchSchema = canvasFramePatchObjectSchema.refine(
   { message: "Patch must include at least one canvas frame field." },
 );
 
-/**
- * Compact ADVERTISED-ONLY stand-in for `canvasFramePatchSchema` —
- * `wireframe`/`legacyWireframe` swap in their compact stand-ins.
- */
 const agentCanvasFramePatchSchema = canvasFramePatchObjectSchema.extend({
   wireframe: agentWireframeDataSchema.optional(),
   legacyWireframe: agentLegacyWireframeDataSchema.optional(),
@@ -2686,12 +2334,6 @@ const prototypeScreenPatchSchema = z
     message: "Patch must include at least one prototype screen field.",
   });
 
-/**
- * Raw (uncast) discriminated union behind `planContentPatchSchema`, kept as a
- * named const so `agentPlanContentPatchSchema` below can walk `.options` and
- * swap only the block-carrying ops for the compact `agentPlanBlockSchema`
- * instead of duplicating this whole discriminated union.
- */
 const planContentPatchUnion = z.discriminatedUnion("op", [
   z
     .object({
@@ -2888,29 +2530,9 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
 
 export const planContentPatchesSchema = z.array(planContentPatchSchema).max(80);
 
-/**
- * Compact ADVERTISED-ONLY placeholder for editing an existing legacy kit-tree
- * wireframe node/screen in-place (`update-wireframe-node` /
- * `replace-wireframe-screen`). These ops only touch OLD kit-tree wireframes —
- * new wireframes use `patch-wireframe-html` on semantic HTML instead — so the
- * advertised shape is an opaque record/array plus a pointer to the lookup
- * tool, not the full ~30-field node schema repeated per op.
- */
 const AGENT_WIREFRAME_NODE_PATCH_DESCRIPTION =
   "Legacy kit-tree node field patch — do not use for new html-based wireframes; prefer patch-wireframe-html. Call get-plan-blocks for the node field shape.";
 
-/**
- * Compact ADVERTISED-ONLY stand-in for `planContentPatchSchema`, for use as
- * part of `defineAction`'s `agentInputSchema`. Same `op` branches as the
- * real union — only the ops that carry a deep block/wireframe union swap in
- * their compact stand-ins:
- * - `replace-block` / `append-block` / `replace-blocks`: `agentPlanBlockSchema`
- * - `update-canvas-frame`: `agentCanvasFramePatchSchema` (compact `wireframe`)
- * - `update-wireframe-node` / `replace-wireframe-screen`: opaque legacy
- *   kit-tree placeholders (see above)
- * Runtime validation of `contentPatches` always goes through the real
- * `planContentPatchesSchema`.
- */
 const agentPlanContentPatchOptions = planContentPatchUnion.options.map(
   (option) => {
     const opLiteral = (option.shape as { op: { value: string } }).op.value;
@@ -2959,12 +2581,6 @@ export const agentPlanContentPatchesSchema = z
       "replace-block / replace-blocks / append-block.",
   );
 
-/**
- * Model-facing patch vocabulary for edits to an existing hosted plan. Full
- * block/content replacement remains valid at runtime for the browser editor
- * and explicit callers, but advertising it to an agent makes it too easy to
- * resend the whole document and hit the provider's streamed-JSON limit.
- */
 const AGENT_INCREMENTAL_PATCH_EXCLUDED_OPS = new Set([
   "set-prototype",
   "replace-block",
@@ -3109,9 +2725,6 @@ export function applyPlanContentPatches(
         return {
           ...block,
           ...(patch.title ? { title: patch.title } : {}),
-          // markdown is the only source of truth for rich-text blocks; any
-          // legacy Tiptap/ProseMirror `doc` is intentionally dropped here so it
-          // can never become a second source of truth.
           data: {
             markdown: patch.markdown ?? block.data.markdown,
           },
@@ -3214,8 +2827,6 @@ export function applyPlanContentPatches(
             `Block ${patch.blockId} has no html mockup to patch (it is a kit-tree wireframe).`,
           );
         }
-        // Re-parse so the html refine (no script/style/etc.) re-sanitizes the
-        // result — a patch can never smuggle active content in.
         return planBlockSchema.parse({
           ...block,
           data: {
@@ -3337,8 +2948,6 @@ export function applyPlanContentPatches(
       next.blocks = result.blocks;
     }
     if (patch.op === "set-notion-sync") {
-      // Keep the field absent (not `false`) when off, so plans that never opt in
-      // stay byte-identical to their pre-feature shape on round-trip.
       if (patch.value) next.notionSync = true;
       else delete next.notionSync;
     }
@@ -3759,7 +3368,6 @@ function escapeHtmlAttribute(value: string) {
     .replace(/>/g, "&gt;");
 }
 
-/** Compact a snippet for find/replace error messages. */
 function truncateSnippet(value: string): string {
   const trimmed = value.replace(/\s+/g, " ").trim();
   return trimmed.length > 80 ? `${trimmed.slice(0, 80)}…` : trimmed;
@@ -3850,7 +3458,6 @@ function updateBlockRecursive(
   return { blocks: nextBlocks, changed };
 }
 
-/** Walk a wireframe kit tree and update the node whose id matches. */
 function updateWireframeNode(
   nodes: PlanWireframeNode[],
   nodeId: string,
@@ -3971,15 +3578,10 @@ export function createPlanBlockId(prefix: string): string {
   return `${safePrefix || "block"}-${random}`;
 }
 
-/** Stable id for a wireframe kit-tree node. */
 export function createWireframeNodeId(el: string): string {
   return createPlanBlockId(`wf-${el}`);
 }
 
-/**
- * Ensure every node in a wireframe kit tree has a stable id (auto-assign on
- * create where absent). Returns a new tree; does not mutate the input.
- */
 export function ensureNodeIds(nodes: PlanWireframeNode[]): PlanWireframeNode[] {
   return nodes.map((node) => ({
     ...node,

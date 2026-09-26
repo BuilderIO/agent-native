@@ -39,7 +39,6 @@ const BASE_BODY = [
   card("c", "Gamma"),
 ].join("");
 
-/** Tags every current node so a rebuilt node is distinguishable from a kept one. */
 async function stampIdentity(page: Page): Promise<void> {
   await page.evaluate(() => {
     document
@@ -131,7 +130,6 @@ async function replaceSelectedSubtree(
   await page.waitForTimeout(50);
 }
 
-/** Ids of `an-main`'s direct children, in live DOM order. */
 async function mainChildOrder(page: Page): Promise<(string | null)[]> {
   return page.evaluate(() =>
     Array.from(
@@ -142,7 +140,6 @@ async function mainChildOrder(page: Page): Promise<(string | null)[]> {
   );
 }
 
-/** Records the `sourceId` of every element-select the bridge posts upward. */
 async function captureSelections(page: Page): Promise<void> {
   await page.evaluate(() => {
     const seen: string[] = [];
@@ -567,9 +564,6 @@ describe("replace-document-content morphs instead of rebuilding the body", () =>
     { timeout: 30_000 },
     async () => {
       await withBridgedPage(BASE_BODY, async (page) => {
-        // The bridge adopts the first patch's head as its baseline, because a
-        // freshly built srcdoc already carries it. Establish that baseline
-        // before asserting on a head that actually changes.
         await replaceDocument(page, documentHtml(BASE_BODY));
         await stampIdentity(page);
         const before = await identityOf(page, "c");
@@ -649,13 +643,6 @@ describe("replace-document-content morphs instead of rebuilding the body", () =>
 
 const ALPINE = readFileSync("node_modules/alpinejs/dist/cdn.min.js", "utf8");
 
-/**
- * Reproduces the srcdoc's own script order, which the bridge depends on: a
- * deferred Alpine in `<head>` and the bridge inline at the end of `<body>`, so
- * the bridge captures source ownership before Alpine renders anything.
- * Attaching the bridge after Alpine (what `addScriptTag` would do) marks
- * Alpine's own output as source-owned and is not a configuration that ships.
- */
 async function withAlpinePage(
   body: string,
   run: (page: Page) => Promise<void>,
@@ -779,8 +766,6 @@ describe("morphing an Alpine-managed tree", () => {
 
         await replaceDocument(page, documentHtml(ALPINE_BODY("after")));
 
-        // Alpine keeps the same element after a morph, so it never re-renders:
-        // anything the morph deletes here stays deleted.
         expect(
           await page.evaluate(() => ({
             count: document.querySelector(
@@ -1001,8 +986,6 @@ describe("morph findings from the second review round", () => {
 
         await replaceDocument(page, documentHtml(BASE_BODY, managed("blue")));
 
-        // New nodes are prepended, so a surviving stale block would win the
-        // cascade — a duplicate here is not cosmetic.
         expect(
           await page.evaluate(() =>
             Array.from(
@@ -1037,7 +1020,6 @@ describe("morph findings from the second review round", () => {
             ).__identity = 7;
           });
 
-          // The Group action wraps the selection in a new parent.
           await replaceDocument(
             page,
             documentHtml(
@@ -1132,9 +1114,6 @@ describe("morph findings from the third review round", () => {
 
         await replaceDocument(page, documentHtml(boundBody("p-8")));
 
-        // Two review comments pulled in opposite directions here — skip the
-        // attribute and the authored edit is lost, overwrite it and Alpine's
-        // output is. Merging is the only answer that satisfies both.
         expect(
           await page.evaluate(() => {
             const el = document.querySelector(
@@ -1161,8 +1140,6 @@ describe("morph findings from the third review round", () => {
           ),
         );
 
-        // Preserving runtime output must not also preserve content the user
-        // deleted; Alpine never re-renders the element it still holds.
         expect(
           await page.locator('[data-agent-native-node-id="an-other"]').count(),
         ).toBe(0);
@@ -1188,8 +1165,6 @@ describe("morph findings from the third review round", () => {
           );
           await page.waitForTimeout(300);
 
-          // Alpine's own MutationObserver initialises added nodes, so the
-          // morph does not need to call initTree itself.
           expect(
             await page.evaluate(
               () =>
@@ -1211,8 +1186,6 @@ describe("morph findings from the third review round", () => {
       try {
         const page = await browser.newPage();
         await page.setContent(documentHtml(BASE_BODY, head("red")));
-        // The srcdoc build bakes the head it rendered, so the first in-place
-        // patch has a real baseline and can retire a changed unmarked node.
         await page.addScriptTag({
           content: hydratedEditorChromeBridgeScript(
             `<style>.card{padding:4px}</style>${head("red")}`,
@@ -1259,8 +1232,6 @@ describe("morph findings from the fourth review round", () => {
 
         await replaceDocument(page, documentHtml(BASE_BODY, head("blue")));
 
-        // Recreating it would cancel an async script still loading, and the
-        // innerHTML-built replacement never executes.
         expect(
           await page.evaluate(
             () =>
@@ -1286,8 +1257,6 @@ describe("morph findings from the fourth review round", () => {
       await withBridgedPage(body("old"), async (page) => {
         await replaceDocument(page, documentHtml(body("new")));
 
-        // A template's children live in .content, so a childNodes walk sees an
-        // empty element and silently drops every edit inside an x-for body.
         expect(
           await page.evaluate(
             () =>
@@ -1309,8 +1278,6 @@ describe("morph findings from the fifth review round", () => {
       const browser = await chromium.launch({ headless: true });
       try {
         const page = await browser.newPage();
-        // Served as real HTML, not addScriptTag: the truncation only happens
-        // in the parser, which is exactly how the srcdoc injects the bridge.
         await page.route("**/screen", (route) =>
           route.fulfill({
             contentType: "text/html",
@@ -1325,7 +1292,6 @@ describe("morph findings from the fifth review round", () => {
           documentHtml('<p data-agent-native-node-id="an-p">changed</p>'),
         );
 
-        // A truncated bridge installs no message listener at all.
         expect(
           await page.evaluate(
             () =>
@@ -1358,8 +1324,6 @@ describe("morph findings from the fifth review round", () => {
             ),
           );
 
-          // The attribute write moves defaultValue, so the form guard has to run
-          // before it or a dirty control silently ignores the source edit.
           expect(
             await page.evaluate(
               () => (document.querySelector("input") as HTMLInputElement).value,
@@ -1427,8 +1391,6 @@ describe("morph findings from the sixth review round", () => {
 
           await replaceDocument(page, documentHtml(body("")));
 
-          // display was authored AND overridden by x-show. Treating the name as
-          // source-owned drops the override and un-hides the element.
           expect(await read()).toBe("none");
         },
       );
@@ -1528,8 +1490,6 @@ describe("morph findings from the sixth review round", () => {
         await replaceDocument(page, documentHtml(body("newfallback")));
         await page.waitForTimeout(200);
 
-        // The fallback is pre-hydration content; Alpine owns the child list,
-        // so reconciling it in appends beside the rendered value.
         expect(
           await page.evaluate(
             () =>
@@ -1889,14 +1849,6 @@ describe("repeat-template paint replay", () => {
   );
 });
 
-// Peer-reported gap: a same-parent sibling reorder written WITHOUT
-// forceFullDocument (runLayerMove's applyFileContentUpdate calls) only
-// reaches the live DOM through this scoped path when a and b are both
-// selection-scoped candidates; the moment the active selection is some OTHER
-// node entirely, the scoped branch above patches only that node's own
-// subtree and returns before ever calling morphRuntimeBody — so a and b's
-// new sibling order is silently dropped from the live iframe even though the
-// write "applied".
 describe("a same-parent reorder without forceFullDocument", () => {
   it(
     "is dropped from the live DOM when the active selection is an unrelated sibling",
@@ -1905,10 +1857,6 @@ describe("a same-parent reorder without forceFullDocument", () => {
       await withBridgedPage(BASE_BODY, async (page) => {
         expect(await mainChildOrder(page)).toEqual(["a", "b", "c"]);
 
-        // c is selected (unrelated to the a/b reorder below) and the write
-        // does not force a full-document replace — exactly what
-        // runLayerMove's applyFileContentUpdate(..., { refreshPreview:
-        // false }) sends today for a panel-drag sibling reorder.
         await replaceDocumentWithSelection(
           page,
           documentHtml(
@@ -1921,9 +1869,6 @@ describe("a same-parent reorder without forceFullDocument", () => {
           false,
         );
 
-        // This assertion documents the bug: a real sibling reorder in the
-        // written document never reaches the live DOM because the scoped
-        // morph only touched c's own (unchanged) subtree and returned.
         expect(await mainChildOrder(page)).toEqual(["a", "b", "c"]);
       });
     },

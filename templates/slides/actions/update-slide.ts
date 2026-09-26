@@ -17,7 +17,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { normalizeSlidePaddingForWrite } from "../app/lib/normalize-slide-padding.js";
-import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
+import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   createDeckVersionSnapshot,
@@ -406,11 +406,6 @@ export default defineAction({
             );
           }));
 
-      // An explicit slideId from view-screen or get-deck is a valid target
-      // even when it is not the tab's current canvas. A content hash is the
-      // read's target revision, so text matches alone must not override it.
-      // Only reject an unversioned target that is provably stale because it
-      // came from the current selection.
       if (
         currentSlideId &&
         currentSlideId !== slideId &&
@@ -428,21 +423,9 @@ export default defineAction({
       }
     }
 
-    // ─── Read-modify-write under the shared per-deck lock ───────────────────
-    //
-    // Previously this action read the deck, edited a slide in memory, and wrote
-    // the whole `decks.data` blob back with no locking — so a concurrent writer
-    // (another update-slide, add-slide, or the browser's patch-deck) touching a
-    // different slide of the same deck could be clobbered (last-write-wins on
-    // the whole blob). Holding the SAME lock used by patch-deck/add-slide
-    // serialises these writes so different-slide edits never overwrite each
-    // other. The editor round-trip (fit check) runs AFTER the lock is released
-    // so it never stalls concurrent writers for seconds.
     const rmw = await withDeckLock(deckId, async () => {
       const db = getDb();
 
-      // Read SQL deck for the slide-existence check and to compute the new
-      // slide HTML that we persist back into decks.data.
       const [row] = await db
         .select({
           id: schema.decks.id,
@@ -497,22 +480,8 @@ export default defineAction({
         );
       }
 
-      // ─── Apply the edit to the slide content in decks.data ────────────────
-      //
-      // The agent edits the canonical slide HTML stored in `decks.data` (SQL is
-      // the source of truth). The change is delivered live to any open editor
-      // by the framework's normal change-sync: `notifyClients` invalidates the
-      // deck query, the editor refetches, and reconciles the newer slide HTML
-      // into the live view — gated on the deck's `updatedAt` so a lagging poll
-      // never reverts an in-progress human edit, and (for the Yjs-backed inline
-      // editor) applied through the editor's real content pipeline so new block
-      // structure renders and merges with concurrent typing via the Yjs CRDT.
       let applied = false;
       let notFound = false;
-      // Per-edit outcomes for the `edits` batch (e.g. "insert-after:0" means
-      // that edit's marker matched nothing and it silently no-opped). Stays
-      // undefined for the legacy fullContent/find paths, which have no
-      // per-edit breakdown to report.
       let editResults: string[] | undefined;
       const previousContent = String(slide.content ?? "");
       const validateNextContent = (
@@ -598,20 +567,10 @@ export default defineAction({
         if (isAgentCaller) delete slide.layoutWarningDismissed;
       }
 
-      // Animation targets are paths into the persisted HTML. A content edit
-      // can keep every path valid while changing which visual element lives at
-      // that path, so preserving the old list would reveal the wrong content.
-      // patch-deck is the explicit escape hatch when content and animations
-      // are intentionally revised together.
       if (applied && Array.isArray(slide.animations) && !styleOnly) {
         delete slide.animations;
       }
 
-      // ─── Persist to SQL ───────────────────────────────────────────────────
-      //
-      // The fresh `updatedAt` (on both the deck JSON and the row) is the signal
-      // an open editor uses to tell an intentional external edit apart from a
-      // stale poll echo — only a newer timestamp is reconciled into the view.
       if (applied) {
         const shouldResolveCreativeContext =
           Boolean(existingContext) ||
@@ -773,18 +732,6 @@ export default defineAction({
       };
     });
 
-    // ─── Non-write exits must THROW, not return ───────────────────────────
-    //
-    // Returning any value — `{ ok: false }` included — is indistinguishable
-    // from a successful write to everything above this action. `isError` is
-    // set only from the runner's catch, so a returned no-op is stamped
-    // `completedSideEffect: true` and the journal later replays it to a
-    // resumed run under "Already completed (do NOT re-run these — their side
-    // effects already happened)". It is also invisible to the repeat
-    // breakers, which is how one production thread ran 20 consecutive
-    // identical "text not found" calls without one firing. Throwing is the
-    // only channel that says "the deck was not modified", and it is already
-    // this file's idiom for the stale-hash rejection above.
     if (rmw.notFound) {
       fail(
         `Nothing was written: text not found in slide: "${find!.slice(0, 60)}". Current slide contentHash is ${rmw.contentHash}; call get-deck with this slideId and rebase the patch against the current HTML.`,
@@ -805,9 +752,6 @@ export default defineAction({
       );
     }
 
-    // Best-effort presence: light the agent up on this slide in open editors
-    // and drop a lingering "AI edited" highlight. Never blocks or fails the
-    // write (touchAgentSlidePresence swallows its own errors).
     if (applied) {
       touchAgentSlidePresence({
         deckId,
@@ -816,9 +760,6 @@ export default defineAction({
       });
     }
 
-    // Extend the SSE payload with the changed slideId + agent actor so the
-    // client can attribute the edit. Backwards-compatible: consumers reading
-    // only { type, deckId } are unaffected.
     const agentChangeId = deckVersionChangeGroupFromAction(ctx);
     await notifyClients(deckId, {
       slideId,

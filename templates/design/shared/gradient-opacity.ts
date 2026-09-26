@@ -2,12 +2,6 @@ import { parseCssColor } from "./color-utils";
 
 export function splitCssLayers(value: string): string[] {
   const trimmed = value.trim();
-  // CSS-wide keywords represent the property's default/inherited value as a
-  // whole; they are not real comma-stack layers and cannot legally be
-  // preserved beside a new gradient/image (`url(...), initial` invalidates
-  // the entire declaration). Shorthand-authored page backgrounds commonly
-  // surface as `initial` through CSSStyleDeclaration, so normalize these to
-  // an empty editable layer stack before adding a real fill.
   if (
     !trimmed ||
     trimmed === "none" ||
@@ -35,7 +29,6 @@ export function splitCssLayers(value: string): string[] {
   return layers;
 }
 
-/** Keep the original stop alpha in valid CSS so a zero-opacity fill can recover. */
 export function gradientStopWithFillOpacity(
   color: string,
   opacity = 100,
@@ -117,8 +110,6 @@ export function gradientFillInterpolation(
   colors: string[],
   opacity = 100,
 ): string {
-  // color-mix is a modern color, which otherwise changes the gradient's default
-  // interpolation from legacy sRGB to Oklab while merely adjusting opacity.
   return opacity !== 100 && colors.every((color) => parseCssColor(color))
     ? "in srgb"
     : "";

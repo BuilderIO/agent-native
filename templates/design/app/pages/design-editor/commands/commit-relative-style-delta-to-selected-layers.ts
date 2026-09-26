@@ -340,8 +340,6 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
         ) ??
         projection.nodes.find((candidate) => candidate.id === target.node.id);
       if (!node) return;
-      // §6.4 — relative-delta commits (mixed-value arrow steps) route
-      // through the same breakpoint scoping as absolute commits.
       let targetNextContent = nextContent;
       let targetProjection = projection;
       for (const [writeProperty, value] of Object.entries(styles)) {
@@ -367,8 +365,6 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
     });
     if (nextContent === baseContent) return;
     appliedAny = true;
-    // Same flash-free full-document routing (and same persist caveat) as
-    // commitStylesToSelectedLayers above.
     const publication = applyFileContentUpdate(fileId, nextContent, {
       forcePreviewFullDocument: fileId === activeFile?.id,
     });

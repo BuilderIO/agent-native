@@ -372,11 +372,6 @@ async function persistSchema(input: {
         options: field.options,
         referencedObjectType: field.referencedObjectType,
       }).slice(0, 8_000),
-      // `authority` is derived from `storagePolicy` above, not discovered
-      // separately, so a local-authoritative override survives the same way
-      // storagePolicy's own override does. Fields without a declared
-      // `attributeType` (every provider-discovered field HubSpot/Salesforce
-      // don't map yet) fall back to `text`, matching the column default.
       ...crmAttributeColumnsFor(field, storagePolicy),
       updatedAt: now,
     };

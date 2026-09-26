@@ -69,12 +69,6 @@ import {
 } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
-/**
- * Editor deep link so external agents can surface "Open design". Passing
- * `screenId` lands the open-route redirect on the overview canvas focused on
- * that screen (see `resolveOpenPath` in server/plugins/core-routes.ts) rather
- * than the bare design.
- */
 function designDeepLink(designId: string, screenId?: string): string {
   return buildDeepLink({
     app: "design",
@@ -109,8 +103,6 @@ const GENERATION_VIEWPORT_LABELS: Record<GenerationViewport, string> = {
   tablet: "Tablet",
   desktop: "Desktop",
 };
-// Widest → narrowest. The widest requested device seeds the primary/base
-// frame; only the narrower devices become breakpoint frames.
 const DEVICE_WIDTH_ORDER: readonly GenerationViewport[] = [
   "desktop",
   "tablet",
@@ -127,10 +119,6 @@ function widestGenerationDevice(
   );
 }
 
-// Devices used when the caller omits `devices`: the requested primary form
-// factor as the base plus Mobile, unless the primary already is Mobile. The
-// default (desktop primary) therefore yields a Desktop base + Mobile
-// breakpoint, matching the two-screen default.
 function devicesForPrimaryViewport(
   primaryViewport: GenerationViewport,
 ): GenerationViewport[] {
@@ -139,10 +127,6 @@ function devicesForPrimaryViewport(
     : [primaryViewport, "mobile"];
 }
 
-// Breakpoint frames = every requested device NARROWER than the primary
-// (widest) one, ascending by width. The primary/widest width is never emitted,
-// so a single-device request produces an empty set (one frame, no sub-frames)
-// and no redundant frame ever lands at the base canvas width.
 function breakpointSetForDevices(devices: readonly GenerationViewport[]) {
   const primaryWidth =
     GENERATION_VIEWPORT_SIZES[widestGenerationDevice(devices)].width;
@@ -206,20 +190,6 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-// Same-process mutex guarding the generation-session read-modify-write below.
-// generate-screens' own tool description explicitly recommends fanning out
-// parallel generate-design calls per returned frame ("fan out calls to
-// generate-design for each returned frame"). Without this lock, two
-// concurrent calls for the same designId both read the same pre-update
-// session, each only marks its own frame done, and whichever writeAppState
-// lands second silently discards the first call's frame-done update —
-// application state has no CAS/versioning primitive (unlike designs.data's
-// mutateDesignData), so a plain read-then-write here is a classic lost-update
-// race. This mirrors the same-process serialization
-// server/lib/design-data-mutation.ts uses (withDesignDataLock) for the
-// designs.data column. Cross-process races remain (no CAS primitive exists
-// for application state), but same-process fan-out from one agent turn is
-// the realistic, explicitly-encouraged case this closes.
 const generationSessionLocks = new Map<string, Promise<unknown>>();
 
 function withGenerationSessionLock<T>(
@@ -764,7 +734,6 @@ const generateDesignAction = defineAction({
     const db = getDb();
     const now = new Date().toISOString();
 
-    // Path traversal guard on all filenames
     for (const file of files) {
       if (
         file.filename.includes("..") ||
@@ -783,7 +752,6 @@ const generateDesignAction = defineAction({
       fileType: string;
     }> = [];
 
-    // Get existing files for this design
     const existingFiles = await db
       .select()
       .from(schema.designFiles)
@@ -798,9 +766,6 @@ const generateDesignAction = defineAction({
       );
     }
 
-    // Validate row existence and designs.data before writing files. The final
-    // mutation still re-reads the latest revision after file work; this
-    // preflight prevents malformed JSON from orphaning new files.
     await mutateDesignData({
       designId,
       mutate: (current) => current,
@@ -809,31 +774,17 @@ const generateDesignAction = defineAction({
 
     const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
 
-    // Stamp missing data-agent-native-node-id attributes before persisting so
-    // every generated screen is born fully addressable by id-keyed editor
-    // operations (move/select/style), instead of depending on a client-side
-    // backfill the first time a human opens the screen.
     const annotatedFiles = files.map((file) => ({
       ...file,
       content: annotateScreenHtmlForPersist(file.content, file.fileType),
     }));
 
-    // Gate every NEW file up front so a rejected file cannot orphan the ones
-    // written before it. Existing files take the edit transition inside
-    // writeInlineSourceFile, which still allows repairing a malformed screen.
     const integrityWarnings: Array<{ filename: string; message: string }> = [];
     for (const file of annotatedFiles) {
       if ((file.fileType ?? "html") !== "html") continue;
       const existing = existingByName.get(file.filename);
-      // A row changing type into HTML is new HTML, not an edit: the edit
-      // transition validates against the row's CURRENT type, so a css→html
-      // candidate would skip the HTML checks and still be stored as HTML below.
       const becomesHtml =
         existing !== undefined && (existing.fileType ?? "html") !== "html";
-      // Blocking applies to new files and type transitions. An existing HTML row
-      // takes the lenient edit transition instead, so a legacy-malformed screen
-      // stays repairable — but its advisories are still reported, or the same
-      // content would warn as a new file and save silently as a regeneration.
       let advisory: ReturnType<typeof assertDesignHtmlCreateIntegrity>;
       if (!existing || becomesHtml) {
         advisory = assertDesignHtmlCreateIntegrity({
@@ -842,10 +793,6 @@ const generateDesignAction = defineAction({
           filename: file.filename,
         });
       } else {
-        // `inspectDesignHtmlDocumentIntegrity` only sets `.advisory` when
-        // valid:true; an invalid existing file's issues live in `.detail`
-        // instead, so `.advisory ?? []` was silently dropping them — the
-        // opposite of the comment above promising they are still reported.
         const inspected = inspectDesignHtmlDocumentIntegrity(file.content);
         advisory = inspected.valid
           ? (inspected.advisory ?? [])
@@ -859,14 +806,10 @@ const generateDesignAction = defineAction({
       }
     }
 
-    // Populated when a per-file write is rejected below (conflict or
-    // integrity failure); surfaced in the return payload so a partial batch
-    // is reported as partial, never silently read back as complete.
     const fileErrors: Array<{ filename: string; message: string }> = [];
     for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
       if (existing) {
-        // Publish agent presence so live editors see "AI is generating" in place.
         agentEnterDocument(existing.id);
         agentUpdateSelection(existing.id, {
           generatingFile: file.filename,
@@ -875,17 +818,6 @@ const generateDesignAction = defineAction({
 
         try {
           try {
-            // `file.content` here is LLM-generated content produced upstream of
-            // this action call, so there can be a large async window (the full
-            // generation time) between whenever this file's content was last
-            // known and this write. Read the LIVE base (collab text when
-            // present, else the SQL row) right before persisting and carry its
-            // versionHash through to writeInlineSourceFile, which re-reads the
-            // live text immediately before its own applyText/DB write and
-            // rejects if it no longer matches — closing the race window where a
-            // concurrent editor/agent write lands mid-generation. See
-            // insert-design-native-asset.ts and insert-asset.ts for the
-            // identical pattern.
             const workspaceFile: SourceWorkspaceFile = {
               id: existing.id,
               designId: existing.designId,
@@ -906,9 +838,6 @@ const generateDesignAction = defineAction({
               expectedVersionHash: live.versionHash,
             });
 
-            // writeInlineSourceFile only persists content/updatedAt; keep
-            // fileType in sync separately when the caller changed it (e.g.
-            // html -> jsx), matching the original update behavior.
             const nextFileType = file.fileType ?? "html";
             if (nextFileType !== (existing.fileType ?? "html")) {
               await withDesignSourceMutationTransaction(
@@ -929,28 +858,12 @@ const generateDesignAction = defineAction({
             agentLeaveDocument(existing.id);
           }
         } catch (error) {
-          // Only the two rejection reasons the tool description above
-          // promises — a version-hash conflict and an HTML-integrity
-          // rejection — are reported per-file. Anything else (a DB/provider
-          // failure from the read, the write, or the follow-up fileType
-          // update) is not a caller-diagnosable rejection of THIS file's
-          // content; swallowing it here would report a transient
-          // infrastructure failure as an ordinary "resend this file"
-          // outcome, or hide that the content write actually succeeded and
-          // only the fileType update failed. Rethrow so it fails the whole
-          // call loud instead.
           if (
             !(error instanceof SourceWorkspaceEditConflictError) &&
             !isDesignHtmlIntegrityError(error)
           ) {
             throw error;
           }
-          // A legitimate optimistic-concurrency conflict or an HTML-integrity
-          // rejection on THIS file must not discard files earlier in this
-          // batch that already committed durably, and must not disappear
-          // either — record it as a distinct, loud failure so the caller can
-          // tell "saved" from "failed" and retry just this file, instead of a
-          // later read seeing a mixed batch with no marker explaining why.
           fileErrors.push({
             filename: file.filename,
             message: error instanceof Error ? error.message : String(error),
@@ -964,7 +877,6 @@ const generateDesignAction = defineAction({
           fileType: file.fileType ?? "html",
         });
       } else {
-        // Create new file
         const fileId = nanoid();
         await withDesignSourceMutationTransaction(designId, (tx) =>
           tx.insert(schema.designFiles).values({
@@ -981,7 +893,6 @@ const generateDesignAction = defineAction({
           }),
         );
 
-        // Publish agent presence for the new file before seeding.
         agentEnterDocument(fileId);
         agentUpdateSelection(fileId, {
           generatingFile: file.filename,
@@ -993,9 +904,6 @@ const generateDesignAction = defineAction({
           agentLeaveDocument(fileId);
         }
 
-        // Update the in-memory map so a second entry with the same filename
-        // in the same `files` array hits the UPDATE branch instead of
-        // inserting a duplicate row.
         existingByName.set(file.filename, {
           id: fileId,
           designId,
@@ -1017,9 +925,6 @@ const generateDesignAction = defineAction({
       }
     }
 
-    // Merge with existing data so tweak definitions survive content updates.
-    // The data column is a free-form JSON blob; we own these keys here and
-    // leave anything else intact.
     let placedFrames:
       | Array<{
           fileId: string;
@@ -1036,9 +941,6 @@ const generateDesignAction = defineAction({
       ...tweak,
       type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
     }));
-    // An explicit `devices` list wins over primaryViewport; otherwise derive
-    // the device set from primaryViewport so the default stays Desktop base +
-    // Mobile breakpoint. The widest resolved device seeds the primary frame.
     const resolvedDevices =
       devices && devices.length > 0
         ? devices
@@ -1096,15 +998,11 @@ const generateDesignAction = defineAction({
           ...getOverviewScreenFileIds(existingFiles),
           ...getOverviewScreenFileIds(savedFiles),
         ]);
-        // Frames placed by an earlier call: never moved, and counted as
-        // occupied so a new screen is never dropped on top of one.
         const preExistingFrameIds = new Set(
           prevData.canvasFrames && typeof prevData.canvasFrames === "object"
             ? Object.keys(prevData.canvasFrames as Record<string, unknown>)
             : [],
         );
-        // Resize targets before measuring occupancy so later generated frames
-        // clear the geometry the explicit device request will actually leave.
         if (devices && devices.length > 0) {
           for (const file of savedFiles) {
             const current = merged.canvasFrames[file.id];
@@ -1123,9 +1021,6 @@ const generateDesignAction = defineAction({
             }
           }
         }
-        // generate-screens encodes each target's device viewport in its
-        // canvasFrame. Persist that dimension before occupancy math so mixed
-        // batches do not fall back to the unrelated 1280x2560 default.
         const nextScreenMetadata =
           prevData.screenMetadata &&
           typeof prevData.screenMetadata === "object" &&
@@ -1146,8 +1041,6 @@ const generateDesignAction = defineAction({
               ? (rawMetadata as Record<string, unknown>)
               : {};
           const frame = merged.canvasFrames[file.id];
-          // Explicit devices resize existing frames above, so their final
-          // frame dimensions must win over stale persisted metadata.
           const width =
             devices && devices.length > 0
               ? typeof frame?.width === "number" && frame.width > 0
@@ -1266,9 +1159,6 @@ const generateDesignAction = defineAction({
           const frame = merged.canvasFrames[id];
           if (frame) occupiedRects.push(rectOf(frame, id));
         }
-        // Keep arg placements for files we're not regenerating; the regenerated
-        // ones are (re)placed below, so rebuild their entries here rather than
-        // carry a pre-relocation position that would fail the isApplied check.
         const regeneratedFileIds = new Set(savedFiles.map((file) => file.id));
         const generationFrames = merged.placedFrames.filter(
           (placed) => !regeneratedFileIds.has(placed.fileId),
@@ -1276,7 +1166,6 @@ const generateDesignAction = defineAction({
         for (const placed of generationFrames) {
           occupiedRects.push(rectOf(placed.frame, placed.fileId));
         }
-        // Relocate target: right of every occupied (rotation-aware) rect.
         let nextX = occupiedRects.reduce(
           (right, rect) =>
             Math.max(right, rect.x + rect.width + GENERATED_FRAME_GAP),
@@ -1301,10 +1190,6 @@ const generateDesignAction = defineAction({
           const height = current.height ?? viewport.height;
           let x = current.x ?? nextX;
           let y = current.y ?? 0;
-          // Bump a new screen clear of everything if its requested/default spot
-          // overlaps (e.g. a second screen defaulting to the same origin). The
-          // candidate carries its own rotation so a rotated placement is tested
-          // by its real footprint, not its unrotated rectangle.
           let candidateRect = rectOf(
             {
               x,
@@ -1381,12 +1266,6 @@ const generateDesignAction = defineAction({
         mergedData.canvasFrames = merged.canvasFrames;
         mergedData.screenMetadata = nextScreenMetadata;
         placedFrames = generationFrames;
-        // An explicit `devices` request is authoritative: replace the design's
-        // breakpoint set with the derived one (or drop it for a single device),
-        // so regenerating e.g. as [mobile,tablet,desktop] can't silently retain
-        // a stale narrower set. Without explicit devices, only seed a default
-        // set when none exists — a plain content regen never clobbers the
-        // user's own breakpoints.
         if (devices && devices.length > 0) {
           if (generatedBreakpointSet.length > 0) {
             mergedData.breakpointSet = {
@@ -1456,9 +1335,6 @@ const generateDesignAction = defineAction({
             );
           },
         );
-        // For an explicit `devices` request, verify the persisted breakpoint
-        // widths actually match the requested set (not merely that some set
-        // exists), so a partial/stale write is retried rather than accepted.
         const currentBreakpointWidths = (
           Array.isArray(
             (current.breakpointSet as { breakpoints?: unknown })?.breakpoints,
@@ -1485,13 +1361,8 @@ const generateDesignAction = defineAction({
       },
     });
 
-    // designs.data/updatedAt are helper-owned. Keep the optional static column
-    // behavior without writing another whole data snapshot or regressing the
-    // helper's monotonic updatedAt revision.
     const promptTitle = derivePromptTitle(prompt);
     if (promptTitle !== "Untitled" && promptTitle !== "Untitled Design") {
-      // Keep an agent-created shell's placeholder from surviving generation,
-      // without racing over a real title the user or title helper already set.
       await db
         .update(schema.designs)
         .set({ title: promptTitle })
@@ -1537,9 +1408,6 @@ const generateDesignAction = defineAction({
       context,
     );
 
-    // Land on the overview canvas focused on the first renderable screen
-    // rather than the bare design (which used to drop into the editor's
-    // default single-screen preview instead of the canvas).
     const firstRenderableSavedFile = savedFiles.find((file) => {
       const source = files.find(
         (candidate) => candidate.filename === file.filename,
@@ -1556,11 +1424,7 @@ const generateDesignAction = defineAction({
       savedFiles,
       placedFrames,
       fileCount: savedFiles.length,
-      // Non-blocking: a well-formed screen with no Tailwind runtime renders
-      // unstyled, which reads as a layout bug rather than a missing runtime.
       ...(integrityWarnings.length > 0 ? { warnings: integrityWarnings } : {}),
-      // Per-file conflicts/rejections caught above: these files were NOT
-      // saved and still need a retry, unlike everything in `savedFiles`.
       ...(fileErrors.length > 0 ? { fileErrors } : {}),
       ...creativeContextProvenance,
     };
@@ -1581,9 +1445,6 @@ const generateDesignAction = defineAction({
   },
 });
 
-// Keep rich Zod validation for every runtime caller, but present a lean
-// string-JSON schema to native LLM tools. Anthropic models are prone to empty
-// object calls against this action's deeply nested array/object schema.
 export default {
   ...generateDesignAction,
   tool: {

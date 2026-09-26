@@ -35,13 +35,6 @@ export type SessionReplayIframeMessage =
   | SessionReplayIframeStartMessage
   | SessionReplayIframeStopMessage;
 
-/**
- * `srcdoc` HTML came from the immediate parent, so that parent already owns the
- * document being rendered. Server-rendered extension URLs are stricter: only a
- * parent on the render URL's origin may activate recording. That supports
- * custom app domains without allowing an external embed host to make an opaque
- * extension frame disclose its DOM through rrweb's postMessage transport.
- */
 export function isTrustedSessionReplayIframeParentOrigin(
   parentOrigin: string,
   frameHref: string,

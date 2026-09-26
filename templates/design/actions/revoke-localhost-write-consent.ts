@@ -29,8 +29,6 @@ export default defineAction({
 
     const db = getDb();
 
-    // Select the scoped grant before deleting it so the result is explicit even
-    // when the delete matches no row.
     const scope = and(
       eq(schema.designLocalhostWriteGrants.designId, designId),
       eq(schema.designLocalhostWriteGrants.connectionId, connectionId),

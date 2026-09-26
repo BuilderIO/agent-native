@@ -1,26 +1,3 @@
-/**
- * Agents bundle — loads AGENTS.md and .agents/skills/ from the template.
- * The legacy singular .agent/skills/ directory is also accepted as an alias.
- *
- * This is the single source of truth the framework's agent uses to mirror what
- * Claude Code / Codex / any other agent would see when running locally in the
- * repo. The filesystem is the canonical source; this module is just a loader
- * that works both in dev (direct fs read) and production (content bundled at
- * build time via the `virtual:agents-bundle` Vite plugin).
- *
- * Resolution order inside `loadAgentsBundle()`:
- *   1. Virtual module (`virtual:agents-bundle`) — inlined at build time by the
- *      framework's Vite plugin. This is the ONLY path that works on edge
- *      runtimes (Cloudflare Workers) where `readFileSync` doesn't exist.
- *   2. Filesystem fallback — `process.cwd()/AGENTS.md` +
- *      `process.cwd()/.agents/skills/` (or legacy `.agent/skills/`). Only reliable in local dev and Node
- *      production (`agent-native start`); not on Netlify/Vercel/CF at runtime.
- *   3. Configuration and filesystem failures propagate so a broken bundle is
- *      visible instead of being mistaken for an app with no instructions.
- *
- * Result is cached in module scope so it's only computed once per cold start.
- */
-
 import {
   DEFAULT_SKILL_SCOPE,
   isRuntimeVisibleScope,
@@ -38,74 +15,27 @@ export {
 export interface SkillMeta {
   name: string;
   description: string;
-  /**
-   * Audience for the skill. Defaults to `both` when the SKILL.md frontmatter
-   * omits `scope`. An unrecognized value parses to `invalid`, which is hidden
-   * from the runtime agent everywhere (prompt block + docs-search) exactly
-   * like `dev`. `dev`-scoped skills are likewise hidden from the runtime agent.
-   */
   scope: SkillScope;
 }
 
 export interface Skill {
   meta: SkillMeta;
-  /** Contents of SKILL.md (the entry file of the skill). */
   content: string;
-  /**
-   * Filesystem path to the skill directory, relative to the template root
-   * (e.g. `.agents/skills/create-deck`). The agent can read any file here via
-   * bash in dev — skills are folders, not single files, and may contain
-   * supporting assets, scripts, or additional markdown.
-   */
   dir: string;
-  /**
-   * Files inside the skill directory (relative to the skill dir), excluding
-   * `SKILL.md`. Lets the agent know what else is available without a separate
-   * `ls` call. Empty array if the skill is single-file.
-   */
   extraFiles: string[];
-  /**
-   * Text content of eligible sub-files (progressive-disclosure references),
-   * keyed by the same skill-dir-relative path used in `extraFiles`. Only
-   * populated for text extensions under the per-file/per-skill caps in
-   * `readSkillsDir` — files that exist but were skipped for size still show
-   * up in `extraFiles`, just not here. This is what makes reference content
-   * actually readable by the runtime agent (via docs-search); it is never
-   * injected into a prompt.
-   */
   files: Record<string, string>;
 }
 
 export interface AgentsBundle {
-  /**
-   * Legacy alias for the runtime instruction file. Empty when an explicitly
-   * configured runtime file is missing.
-   */
   agentsMd: string;
-  /** Contents of the runtime agent's selected instruction file. */
   runtimeAgentsMd: string;
-  /** Contents of the development agent's selected instruction file. */
   developmentAgentsMd: string;
-  /**
-   * Contents of the workspace core's AGENTS.md, if the app is inside an
-   * enterprise monorepo with a `workspaceCore` configured. Empty string
-   * otherwise. Sits between the framework system prompt and the template's
-   * AGENTS.md in the instruction stack.
-   */
   workspaceAgentsMd?: string;
-  /**
-   * Map from skill name → skill content. Contains skills merged from the
-   * workspace core layer (if present) and the template layer. On name
-   * collision, the template's version wins so apps can override a shared
-   * enterprise skill by dropping a same-named file under
-   * `.agents/skills/<name>/`.
-   */
   skills: Record<string, Skill>;
 }
 
 export interface AgentsBundleReadOptions {
   instructions?: AgentNativeInstructionsConfig;
-  /** Additional skill roots supplied by a local host, such as installed plugins. */
   additionalSkillDirs?: string[];
 }
 
@@ -127,18 +57,6 @@ export function resolveAgentInstructionPaths(
 
 let cached: AgentsBundle | null = null;
 
-/**
- * Parse the YAML frontmatter at the top of a skill file.
- * Only pulls out `name`, `description`, and `scope` — deliberately simple, no
- * YAML lib.
- * Handles:
- *   - Inline: `description: Some text`
- *   - Folded scalar: `description: >-\n  multi\n  line` → "multi line"
- *   - Literal scalar: `description: |\n  multi\n  line` → "multi\nline"
- *
- * `sourceLabel` only names the file in the invalid-scope log; pass it wherever
- * a path is known so a typo is traceable to the SKILL.md that carries it.
- */
 export function parseSkillFrontmatter(
   content: string,
   sourceLabel?: string,
@@ -160,7 +78,6 @@ export function parseSkillFrontmatter(
 
     let value: string;
     if (isFolded || isLiteral) {
-      // Collect subsequent indented lines (at least one leading space).
       const block: string[] = [];
       let j = i + 1;
       while (j < lines.length) {
@@ -174,7 +91,6 @@ export function parseSkillFrontmatter(
         block.push(next.replace(/^\s+/, ""));
         j++;
       }
-      // Trim trailing blank lines
       while (block.length > 0 && block[block.length - 1] === "") block.pop();
       value = isFolded
         ? block.filter((l) => l !== "").join(" ")
@@ -203,33 +119,13 @@ const TEMPLATE_SKILLS_DIRS = [
   path.join(".agent", "skills"),
 ] as const;
 
-/**
- * Extensions eligible to have their content inlined into `Skill.files`.
- * Binary/asset sub-files (images, scripts, etc.) are always listed in
- * `extraFiles` but never read into memory.
- */
 const READABLE_SUBFILE_EXTENSIONS = new Set([".md", ".txt", ".json"]);
-/**
- * Per-file and per-skill caps on inlined reference content. This content is
- * bundled into the virtual module (and therefore the server bundle) for
- * every deployment target, so it must stay small even though it's never
- * added to a prompt — only fetched on demand via docs-search. Measured
- * against this repo's skills (largest single sub-file ~20KB, largest
- * per-skill sub-file total ~83KB), these caps have generous headroom.
- */
 const MAX_SUBFILE_BYTES = 64 * 1024;
 const MAX_SKILL_FILES_BYTES = 256 * 1024;
 
-/**
- * Paths to a workspace-core's agent resources, for merging into a template's
- * bundle. All fields optional — pass null for any missing piece.
- */
 export interface WorkspaceAgentsSource {
-  /** Absolute path to the workspace core's skills/ directory. */
   skillsDir: string | null;
-  /** Absolute path to the workspace core's AGENTS.md. */
   agentsMdPath: string | null;
-  /** Root dir (used to compute `dir` paths for workspace-core skills). */
   rootDir: string;
 }
 
@@ -254,13 +150,6 @@ function readInstructionFile(cwd: string, relativePath: string): string {
   return fs.readFileSync(realPath, "utf-8");
 }
 
-/**
- * Read one skills directory into a `Record<string, Skill>`. Extracted so
- * both the template and workspace-core paths can reuse it. `dirPrefix` is
- * the display path that will be reported to the agent (e.g.
- * `.agents/skills/<name>` for templates, or
- * `<workspace-shared-package>/.agents/skills/<name>` for the workspace layer).
- */
 function readSkillsDir(
   skillsDir: string,
   rootForRelative: string,
@@ -282,7 +171,7 @@ function readSkillsDir(
         path.relative(rootForRelative, skillFile).replace(/\\/g, "/"),
       );
       const name = meta.name ?? entry.name;
-      if (skipExistingNames && out[name]) continue; // Template wins
+      if (skipExistingNames && out[name]) continue;
 
       const extraFiles: string[] = [];
       const files: Record<string, string> = {};
@@ -357,14 +246,6 @@ function readNestedSkillsDir(
   }
 }
 
-/**
- * Read AGENTS.md + all skills directly from the filesystem rooted at `cwd`.
- * Optionally also reads a workspace-core's AGENTS.md and skills directory
- * and merges them in (template wins on name collisions). Used by both the
- * Vite plugin (at build time) and the runtime fallback (in dev / Node prod).
- *
- * Synchronous — the Vite plugin's load hook calls it inline during the build.
- */
 export function readAgentsBundleFromFs(
   cwd: string,
   workspaceSource: WorkspaceAgentsSource | null = null,
@@ -389,10 +270,6 @@ export function readAgentsBundleFromFs(
     } catch {}
   }
 
-  // Merge skills: template first (so its entries are authoritative), then
-  // workspace-core with skipExistingNames=true so same-named skills don't
-  // overwrite the template's. `.agents/skills` is canonical; `.agent/skills`
-  // is accepted as a legacy alias and does not override canonical skills.
   const skills: Record<string, Skill> = {};
   for (const relSkillsDir of TEMPLATE_SKILLS_DIRS) {
     try {
@@ -415,7 +292,6 @@ export function readAgentsBundleFromFs(
     try {
       readNestedSkillsDir(skillsDir, cwd, skills);
     } catch (error) {
-      // Optional host-provided skills must not make the coding session fail.
       console.warn(
         "[agents-bundle] Failed to load optional host-provided skills",
         { skillsDir, error },
@@ -424,8 +300,6 @@ export function readAgentsBundleFromFs(
   }
 
   return {
-    // Keep the old field useful for callers that only know about the runtime
-    // bundle. Audience-aware consumers should use the explicit fields.
     agentsMd: runtimeAgentsMd,
     runtimeAgentsMd,
     developmentAgentsMd,
@@ -434,20 +308,9 @@ export function readAgentsBundleFromFs(
   };
 }
 
-/**
- * Load the agents bundle. Returns a cached result on subsequent calls.
- * Tries the virtual module first (works everywhere, including edge), then
- * falls back to filesystem reads from `process.cwd()` — which, when a
- * workspace core is present, also merges in the workspace core's skills
- * and AGENTS.md.
- */
 export async function loadAgentsBundle(): Promise<AgentsBundle> {
   if (cached) return cached;
 
-  // 1. Try the Vite-emitted virtual module. This is the path that works on
-  //    every deployment target because the content is inlined at build time.
-  //    The Vite plugin itself is responsible for merging workspace-core
-  //    content into the bundle it emits.
   try {
     // @ts-expect-error — virtual module is resolved at build time by our
     // Vite plugin; nothing exists at this path on disk.
@@ -460,8 +323,6 @@ export async function loadAgentsBundle(): Promise<AgentsBundle> {
     // Virtual module not available — fall through to filesystem.
   }
 
-  // 2. Filesystem fallback — works in dev / Node prod. If a workspace core
-  //    is present in the ancestor chain, merge its skills + AGENTS.md in.
   let workspaceSource: WorkspaceAgentsSource | null = null;
   try {
     const { getWorkspaceCoreExports } =
@@ -494,38 +355,12 @@ export async function loadAgentsBundle(): Promise<AgentsBundle> {
   return cached;
 }
 
-/**
- * Generate the `<skills>` block to inject into the system prompt.
- *
- * Skills are folders at `.agents/skills/<name>/` (or legacy
- * `.agent/skills/<name>/`) containing a `SKILL.md` entry file plus any number
- * of supporting files (additional markdown, examples, images, scripts). This
- * block lists what's available and how to read them.
- *
- * In dev mode the agent has bash access and reads skills via `cat` — exactly
- * like running `claude` locally in the repo. In production mode the agent has
- * no bash; templates that need skill content at runtime should inline the
- * critical parts directly in `AGENTS.md`.
- */
-/**
- * Skills visible to the agent-native RUNTIME agent. Excludes `scope: dev`
- * skills (those are for the human's coding agent only) and skills whose scope
- * could not be read. Skills with no scope, `scope: runtime`, or `scope: both`
- * are all included. Use this anywhere the runtime agent's view of skills is
- * built (prompt block + docs-search) so a dev-scoped skill is invisible to the
- * runtime agent everywhere.
- */
 export function getRuntimeSkills(bundle: AgentsBundle): Skill[] {
   return Object.values(bundle.skills).filter((skill) =>
     isRuntimeVisibleScope(skill.meta.scope),
   );
 }
 
-/**
- * Skills visible to development/coding agents. Excludes `scope: runtime`
- * skills that are intended only for the deployed in-app agent. An `invalid`
- * scope stays visible here on purpose — this is the audience that can fix it.
- */
 export function getDevelopmentSkills(bundle: AgentsBundle): Skill[] {
   return Object.values(bundle.skills).filter(
     (skill) => skill.meta.scope !== "runtime",
@@ -549,12 +384,6 @@ function subfileSlugSuffix(relPath: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/**
- * Slug docs-search resolves a skill sub-file (reference) content by. Kept in
- * sync with the `skill-<name>--<subpath-slug>` docs it emits in
- * `scripts/docs/search.ts` so the prompt hint always points at something the
- * agent can actually read.
- */
 export function skillSubfileDocsSlug(
   skillName: string,
   relPath: string,
@@ -630,7 +459,6 @@ export function generateDevelopmentSkillsPromptBlock(
   );
 }
 
-/** For tests — reset the module cache. */
 export function __resetAgentsBundleCache(): void {
   cached = null;
 }

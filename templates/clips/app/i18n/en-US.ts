@@ -1424,11 +1424,6 @@ const messages = {
     styleBlur: "Blur",
     styleSolid: "Solid",
     helpTitle: "Using redaction",
-    /**
-     * First, and on its own: everything else here is about drawing boxes, and
-     * a box on its own hides nothing. Someone who reads only one line of this
-     * help should read this one.
-     */
     helpLead:
       "Nothing is hidden until you press Burn in. Until then the box is only drawn on top, and the video underneath still shows everything.",
     helpDrawTerm: "Cover something",
@@ -1448,18 +1443,8 @@ const messages = {
     helpStylesTerm: "Blur or Solid",
     styleBlurHint:
       "Blur: a smear of colour generated over the area. Nothing of what was underneath is used to make it, so there is nothing in it to recover.",
-    /**
-     * "Can sometimes" is deliberate, and as far as this should go. Pixelation
-     * is a repeatable average, so guesses can be pixelated the same way and
-     * compared — public tools do it. Whether it works on a given clip depends
-     * on the text being short, the rendering reproducible, and the blocks small
-     * against the glyphs; ours are frame width / 40, coarse enough that this is
-     * hard. Nobody can tell which case they are in while drawing a box, and
-     * Solid costs nothing, so the advice is flat.
-     */
     styleSolidHint:
       "Solid: fills the area with one colour. As safe as Blur — neither is built from what it covers — so pick whichever reads better on the clip.",
-    /** The whole judgement, in one line, for someone who does not want it. */
     helpWhenInDoubt: "Either style hides the area completely.",
     goTo: "Go to this redaction",
     remove: "Delete redaction {{number}}",

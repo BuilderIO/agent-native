@@ -1,24 +1,3 @@
-/**
- * Granular field-level update for a form.
- *
- * Accepts a list of per-field operations (upsert / remove / reorder) and
- * applies them server-side via read-modify-write against the CURRENT row, so
- * concurrent edits to DIFFERENT fields both survive instead of the later
- * client overwriting the earlier one with its stale full-array snapshot.
- *
- * The read-modify-write runs under a per-form in-process lock (same pattern
- * as `patch-deck` in the slides template) so two concurrent callers (e.g. the
- * form-builder autosave and an agent edit) are serialized instead of racing
- * on the same row — without the lock, the second writer's read would miss
- * the first writer's not-yet-committed update and silently clobber it.
- * The database compare-and-swap below also covers requests on different
- * instances, retrying granular operations against the latest row after a
- * conflict.
- *
- * The UI form builder uses this action for all incremental edits.
- * The legacy `update-form --fields <json>` path remains available for agents
- * and bulk imports that want to replace the whole fields array at once.
- */
 import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
@@ -36,11 +15,6 @@ import { formFieldSchema } from "../shared/field-schema.js";
 import type { FormField } from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
-// ---------------------------------------------------------------------------
-// Per-form write lock — mirrors `withDeckLock` in
-// templates/slides/actions/patch-deck.ts so concurrent client and agent
-// writes to the same form's fields are serialised in-process.
-// ---------------------------------------------------------------------------
 const LOCK_KEY = "__formsFieldPatchLocks" as const;
 type GlobalWithLocks = typeof globalThis & {
   [LOCK_KEY]?: Map<string, Promise<unknown>>;
@@ -66,11 +40,6 @@ export function withFormLock<T>(
   return next;
 }
 
-// Discriminated on `op`, not a plain union. A plain union collapses every
-// branch failure into a bare `ops.0: Invalid input`, which tells a model
-// nothing about which property it got wrong, so it re-sends the same op
-// until the repeated-error breaker ends the turn. Discriminating reports
-// the real path instead, e.g. `ops.0.field.type`.
 const fieldOpSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("upsert"),
@@ -104,11 +73,6 @@ export default defineAction({
     "Apply granular field operations (upsert/remove/reorder) to a form using a server-side read-modify-write merge. Concurrent edits to different fields both survive. Before adding or restyling a field, read the form with `get-form` and follow its theme and the other fields' label, required, and help-text conventions so the new field matches its siblings.",
   schema: z.object({
     id: z.string().describe("Form ID"),
-    // Declared as the real array, never `string | array`. A JSON string still
-    // works (`coerceGatewayStringifiedArgs` parses it because the declared type
-    // is `array`), but the parsed ops are then checked against `fieldOpSchema`.
-    // The old `z.string()` branch skipped that check entirely, so a malformed
-    // op reached `applyFieldOps` and only failed later in `assertValidFields`.
     ops: z
       .array(fieldOpSchema)
       .describe(
@@ -138,7 +102,6 @@ export default defineAction({
           });
         }
 
-        // Parse current fields from the DB row.
         let currentFields: FormField[];
         try {
           currentFields = normalizePersistedFields(
@@ -150,13 +113,11 @@ export default defineAction({
           });
         }
 
-        // Apply ops server-side so concurrent edits on different fields both land.
         const nextFields = applyFieldOps(
           currentFields,
           ops as Parameters<typeof applyFieldOps>[1],
         );
 
-        // Validate the result before persisting.
         assertValidFields(nextFields);
         if (existing.status === "published") {
           assertPublishableForm(nextFields);

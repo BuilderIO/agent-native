@@ -261,8 +261,6 @@ describe("what gets written back", () => {
   });
 
   it("carries a field it has never heard of through untouched", () => {
-    // set-recording-trims writes back what parseEdits returns, so anything a
-    // newer client added has to survive an older tab moving a cut.
     const stored = JSON.stringify({
       version: 1,
       trims: [],
@@ -329,10 +327,6 @@ describe("which split markers are worth drawing", () => {
 });
 
 describe("lastKeptMs", () => {
-  // A trimmed tail is the case that matters: the removed footage is still in
-  // the file, and a redaction drawn to the end of the *edited* video stops
-  // where the edit stops — so a player resting in the tail shows original
-  // content after the clip has apparently finished.
   it("pulls the end back to where a trimmed tail begins", () => {
     expect(lastKeptMs(10_000, [{ startMs: 7_000, endMs: 10_000 }])).toBe(7_000);
   });

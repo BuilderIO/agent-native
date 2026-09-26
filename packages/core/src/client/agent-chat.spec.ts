@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// We need to set up a minimal window/postMessage before importing
 const parentPostMessageSpy = vi.fn();
 const selfPostMessageSpy = vi.fn();
 const windowListeners = new Map<
@@ -500,8 +499,6 @@ describe("sendToAgentChat", () => {
       approvedToolCalls: ["publish-release:{}"],
     });
 
-    // builder.submitChat has no field for the keys and Builder holds none of
-    // this app's grants; the paused run belongs to the embedded AgentSidebar.
     expect(sendToBuilderChatMock).not.toHaveBeenCalled();
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
 
@@ -752,9 +749,6 @@ describe("sendToAgentChat", () => {
         approvedToolCalls: ["publish-release:{}"],
       });
 
-      // Neither host transport can carry the keys: the direct follow-up API
-      // takes text only, and the wrapper's sendHostChat forwards only the
-      // message. The paused run lives in this app's own chat.
       expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
       expect(parentPostMessageSpy).not.toHaveBeenCalled();
       expect(sendToBuilderChatMock).not.toHaveBeenCalled();
@@ -884,8 +878,6 @@ describe("sendToAgentChat", () => {
       approvedToolCalls: ["publish-release:{}"],
     });
 
-    // A direct embed's chat is this app's own chat, which owns the paused
-    // run; the parent is the MCP host, which has no field for the keys.
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
     expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
     expect(sendToBuilderChatMock).not.toHaveBeenCalled();

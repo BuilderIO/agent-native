@@ -495,8 +495,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
         "iframe[data-design-preview-iframe]",
       );
       expect(after).toBe(before);
-      // srcdoc intentionally stays keyed to the existing browsing context;
-      // the live offset effect updates the document/bridge in place.
       expect(after!.srcdoc).toContain("translate:4096px 4096px");
       const liveOffsetStyle = after!.contentDocument?.querySelector(
         "style[data-agent-native-content-offset]",
@@ -827,9 +825,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
         content={content}
         contentKey={contentKey}
         screenId="screen-a"
-        // A non-1 overview scale (like a zoomed-out overview frame) is the
-        // case that goes stale: at 100% there is nothing to distinguish a
-        // missed re-push from the baked default.
         zoom={31}
         deviceFrame="none"
         interactMode={false}
@@ -882,11 +877,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
         scaleY: 0.31,
       });
 
-      // A content-key change swaps in a brand-new document (new iframe, new
-      // bridge instance) without touching `zoom` — the same shape as a live
-      // frame's bridge re-registering. `zoom` never changes here, so the old
-      // effect (missing `readyIframeDocumentIdentity` from its deps) has no
-      // other signal telling it to re-push the scale for the new document.
       await act(async () =>
         root.render(
           render(
@@ -944,13 +934,9 @@ describe("DesignCanvas live embedded-frame offset", () => {
       );
       expect(iframe?.srcdoc).not.toContain('data-test="state-latest"');
 
-      // Same-screen edit echoes stay bridge-only in Edit mode to avoid an
-      // iframe reload/flash.
       await act(async () => root.render(render(withState, false)));
       expect(iframe?.srcdoc).not.toContain('data-test="state-latest"');
 
-      // Interact omits that bridge, so its rebuilt document must consume the
-      // latest persisted source immediately.
       await act(async () => root.render(render(withState, true)));
       const interactIframe = container.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
@@ -958,8 +944,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
       expect(interactIframe?.srcdoc).toContain('data-test="state-latest"');
       expect(interactIframe?.srcdoc).toContain(":hover{opacity:.5!important}");
 
-      // Returning to Edit must retain Interact's authoritative persisted
-      // baseline rather than restoring the stale pre-edit snapshot.
       await act(async () => root.render(render(withState, false)));
       const refreshedEditIframe = container.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
@@ -1088,16 +1072,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
-  // Regression: embedded (overview) screens run both the editor-chrome bridge
-  // (contains a literal "$&" in its escapeIdent helper) and
-  // appendContentSizeReporter, which used a plain-string second argument to
-  // String.replace("</body>", ...). String.replace treats "$&" in a string
-  // replacement as "insert the matched text", so it spliced a stray
-  // "</body>" into the middle of editor-chrome-bridge's own script and the
-  // HTML parser closed that <script> tag right there — truncating the bridge
-  // before it ever created the selection/hover overlays. Only reproduces
-  // embedded (isEmbeddedFrame) + editable (editMode, not interactMode),
-  // since that's the only combination that includes both scripts.
   it("does not truncate the editor-chrome bridge script when embedded", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -1133,14 +1107,10 @@ describe("DesignCanvas live embedded-frame offset", () => {
       );
       const srcdoc = iframe?.srcdoc ?? "";
 
-      // The literal closer in the screen's own script stays intact, and the
-      // generated bridge follows that script rather than being nested inside it.
       expect(srcdoc).toContain(sourceScript);
       expect(
         srcdoc.indexOf("agent-native:editor-chrome-ready"),
       ).toBeGreaterThan(srcdoc.indexOf(sourceScript));
-      // The bridge's own closing handshake must survive intact, proving its
-      // <script> tag was never prematurely closed partway through.
       expect(srcdoc).toContain("agent-native:editor-chrome-ready");
       expect(srcdoc).toContain("agent-native:editor-chrome-ready-probe");
       expect(srcdoc).toContain("data-agent-native-content-size-bridge");

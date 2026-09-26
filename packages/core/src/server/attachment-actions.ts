@@ -1,43 +1,19 @@
-/**
- * Core `read-attachment` agent tool.
- *
- * Large text pastes, CSVs, JSON files, and code files are truncated to
- * 60 K chars when injected into the model context. This action lets the agent
- * read the full content in offset/limit slices from the durable resource
- * stored at attach-time.
- *
- * Storage: text-y attachments are persisted as `agent_scratch` resources
- * keyed  `attachments/<threadId>/<sanitised-name>` under the owner's scope.
- * The maximum stored size per attachment is 20 MB.
- */
-
 import type { ActionEntry } from "../agent/production-agent.js";
 import { resourceGet, resourcePut, resourceList } from "../resources/store.js";
 import { getRequestUserEmail } from "./request-context.js";
 
-const MAX_ATTACHMENT_RESOURCE_BYTES = 20 * 1024 * 1024; // 20 MB
-const DEFAULT_SLICE_LIMIT = 8_000; // chars returned by default per call
+const MAX_ATTACHMENT_RESOURCE_BYTES = 20 * 1024 * 1024;
+const DEFAULT_SLICE_LIMIT = 8_000;
 
-/**
- * Derive a deterministic resource path for a text attachment stored inside a
- * thread scope.
- */
 function attachmentResourcePath(
   threadId: string,
   name: string,
   index: number,
 ): string {
-  // Sanitise the name: keep alphanum, dot, dash, underscore; replace anything
-  // else with '_'. Append the index to avoid collisions between same-named
-  // files in the same thread.
   const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
   return `attachments/${threadId}/${index}-${safe}`;
 }
 
-/**
- * Determine whether a MIME type or filename represents a text-like attachment
- * that should be stored as a durable resource for paginated reads.
- */
 export function isTextLikeMimeType(contentType: string | undefined): boolean {
   if (!contentType) return false;
   const ct = contentType.toLowerCase().split(";")[0].trim();
@@ -57,14 +33,6 @@ export function isTextLikeFilename(name: string | undefined): boolean {
   );
 }
 
-/**
- * Persist text-ish attachments from a chat turn as thread-scoped resources
- * so the agent can later read them in slices via `read-attachment`.
- *
- * Silently skips attachments that aren't text-like or have no text content.
- * Returns a map from attachment index → stored resource id for use in the
- * truncation-notice injected into the model context.
- */
 export async function persistTextAttachmentsAsResources(opts: {
   attachments: Array<{
     type?: string;
@@ -111,7 +79,6 @@ export async function persistTextAttachmentsAsResources(opts: {
           createdBy: "user",
           visibility: "agent_scratch",
           threadId: opts.threadId,
-          // 7-day TTL — long enough for multi-session threads.
           expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
         },
       );
@@ -121,8 +88,6 @@ export async function persistTextAttachmentsAsResources(opts: {
         totalChars: text.length,
       });
     } catch (err) {
-      // Best-effort: if storage fails the agent still gets the truncated
-      // context and the read-attachment call will return a not-found error.
       console.warn(
         "[agent-native] persistTextAttachmentsAsResources failed:",
         err instanceof Error ? err.message : String(err),
@@ -195,7 +160,6 @@ export function createCoreAttachmentActionEntries(): Record<
           return { error: "name is required" };
         }
 
-        // Determine threadId — from input or from turn-scoped run context.
         let threadId = String(input.threadId || "").trim();
         if (!threadId) {
           try {
@@ -215,24 +179,20 @@ export function createCoreAttachmentActionEntries(): Record<
           };
         }
 
-        // Search the owner's resources for an attachment matching the name.
         try {
           const prefix = `attachments/${threadId}/`;
           const metas = await resourceList(ownerEmail, prefix, {
             includeAgentScratch: true,
           });
 
-          // Find by name suffix match (the path ends with <index>-<safe-name>).
           const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
           const matching = metas.filter((m) => m.path.endsWith(`-${safeName}`));
 
-          // If no exact match, try a partial search on the raw name.
           const candidates =
             matching.length > 0
               ? matching
               : metas.filter((m) => {
                   const basename = m.path.split("/").pop() || "";
-                  // Strip the leading index prefix (<digits>-)
                   const withoutIndex = basename.replace(/^\d+-/, "");
                   return withoutIndex
                     .toLowerCase()
@@ -245,8 +205,6 @@ export function createCoreAttachmentActionEntries(): Record<
             };
           }
 
-          // Use the first match (most recent upsert wins when there are
-          // multiple same-name attachments in the same thread).
           const meta = candidates[0];
           const resource = await resourceGet(meta.id);
           if (!resource) {

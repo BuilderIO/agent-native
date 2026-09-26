@@ -1,9 +1,3 @@
-/**
- * A2A auth policy helpers shared by discovery, the JSON-RPC gate, and task
- * handlers. Serverless providers do not always expose `NODE_ENV=production`
- * consistently at runtime, so production-like A2A checks also look at the
- * provider flags those platforms set in deployed functions.
- */
 import { getAppConfig } from "../app-config/index.js";
 
 export function isA2AProductionRuntime(): boolean {
@@ -34,27 +28,12 @@ export function shouldAdvertiseJwtA2AAuth(): boolean {
   return hasConfiguredA2ASecret() || isA2AProductionRuntime();
 }
 
-/**
- * True only when unsigned internal self-dispatch is acceptable: no A2A_SECRET
- * is configured AND we can positively identify a local/dev runtime. Everything
- * else — production, or any UNRECOGNIZED deployed/networked host — must fail
- * closed and require A2A_SECRET. `loopback` should be whether the inbound
- * request arrived over the loopback interface (127.0.0.1/::1); callers that
- * cannot determine the peer address pass `false`.
- *
- * NODE_ENV alone is deliberately NOT a trust grant: a self-hosted deployment
- * that doesn't set NODE_ENV=production and isn't recognized by
- * `isA2AProductionRuntime()` (a bare Docker/VPS/K8s pod) must still fail
- * closed unless the request actually came from loopback or the explicit
- * opt-in flag is set.
- */
 export function isTrustedLocalRuntime(opts: { loopback: boolean }): boolean {
   if (isA2AProductionRuntime()) return false;
   if (getAppConfig().a2a.allowUnsignedInternal) return true;
   return opts.loopback === true;
 }
 
-/** True if a socket peer address is a loopback/local address. */
 export function isLoopbackAddress(addr: string | undefined | null): boolean {
   if (!addr) return false;
   const a = addr.trim();

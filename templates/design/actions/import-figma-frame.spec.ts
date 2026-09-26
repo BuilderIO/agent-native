@@ -821,8 +821,6 @@ describe("import-figma-frame", () => {
       new Error("SSRF blocked: private address"),
     );
 
-    // The SSRF diagnosis names the blocked host and resolved private address,
-    // so it stays in the server log; the caller gets fixed safe copy.
     await expect(
       action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any),
     ).rejects.toThrow(/Could not fetch an image from Figma/i);

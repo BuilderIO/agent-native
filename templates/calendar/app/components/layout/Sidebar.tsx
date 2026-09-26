@@ -209,7 +209,6 @@ function MiniCalendar({
   const { data: settings } = useSettings();
   const weekStartsOn = getWeekStartsOn(settings?.weekStart);
 
-  // Sync viewMonth when selectedDate changes without undoing explicit month navigation.
   useEffect(() => {
     setViewMonth((currentMonth) =>
       isSameMonth(currentMonth, selectedDate)
@@ -378,7 +377,6 @@ function GoogleConnectSidebarButton() {
   );
 }
 
-/** A conic-gradient dot indicating "multiple colors" (by-type mode). */
 function MultiColorDot({ className }: { className?: string }) {
   const colors = Object.values(EVENT_CATEGORY_COLORS).slice(0, 4);
   const pct = 100 / colors.length;
@@ -394,7 +392,6 @@ function MultiColorDot({ className }: { className?: string }) {
   );
 }
 
-/** Popover color picker for a single-color selection */
 function ColorPickerPopover({
   color,
   onColorChange,
@@ -745,12 +742,6 @@ export function Sidebar({
     if (!item.google) return personVisible;
     const explicitGoogleVisible =
       googleCalendarVisibility[item.google.canonicalKey];
-    // Google's own "selected" default is about which calendars Google shows
-    // in its own UI, not whether this person's overlay events should show
-    // here. For a merged row, a peer the owner deliberately added must not
-    // default to hidden just because that default hasn't been overridden —
-    // only an explicit toggle (present in `googleCalendarVisibility`) should
-    // hide it.
     const googleVisible =
       explicitGoogleVisible ??
       (item.person ? true : item.google.primary || item.google.selected);
@@ -865,7 +856,6 @@ export function Sidebar({
         }
         className={cn(
           "calendar-app-sidebar",
-          // Match calendar's lg mobile breakpoint (shared sidebar defaults to md).
           "max-lg:!fixed max-lg:inset-y-0 max-lg:start-0 max-lg:z-50 lg:!static",
           open
             ? "translate-x-0"

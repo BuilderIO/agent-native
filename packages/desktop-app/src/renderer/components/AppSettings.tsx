@@ -80,7 +80,6 @@ interface AppSettingsProps {
 }
 
 type WorkspaceSsoAppConfig = AppConfig & {
-  /** Explicit opt-in for a non-built-in app that implements Agent-Native SSO. */
   workspaceSso?: boolean;
 };
 
@@ -605,9 +604,6 @@ export default function AppSettings({
     const unsubscribe = identity.onStatusChange((status) => {
       if (!active) return;
       setIdentityStatus(status);
-      // Eligibility comes from the verified email, so signing in while
-      // Settings is already open has to re-resolve it — otherwise the beta
-      // control stays hidden until Settings is reopened.
       loadEnvironmentLane();
     });
     return () => {
@@ -623,8 +619,6 @@ export default function AppSettings({
       : undefined;
     if (!setLane) return;
     setEnvironmentLane(await setLane(beta ? "beta" : "production"));
-    // Every mounted webview is already pointed at the old origin, so the
-    // shell reloads rather than trying to move them in place.
     window.location.reload();
   }, []);
 
@@ -1606,8 +1600,6 @@ export default function AppSettings({
   );
 }
 
-// ─── Add app flow ─────────────────────────────────────────────
-
 export function AddAppDialog({
   onSave,
   onCreated,
@@ -2015,8 +2007,6 @@ export function AddAppDialog({
     </div>
   );
 }
-
-// ─── Inline edit form ─────────────────────────────────────────────
 
 export function AppEditForm({
   app,

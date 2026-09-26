@@ -93,10 +93,6 @@ export function parseConnectAgentCard(
   };
 }
 
-/**
- * Starts the existing app-side identity handoff. The app remains the session
- * client; no wildcard cookie or shared bearer is introduced.
- */
 export function buildIdentityConnectUrl(appUrl: string): string {
   const url = appPathUrl(appUrl, "/_agent-native/identity/login");
   url.searchParams.set("prompt", "none");
@@ -141,9 +137,6 @@ export async function fetchMarketplaceApps(
   const verified = await Promise.allSettled(
     candidates.map(async (app) => {
       const card = await fetchConnectAgentCard(app.url);
-      // Capabilities come from the target card, not the catalog pointer. Keep
-      // only the capability this client actually verified before rendering a
-      // Connect affordance.
       return card.connect ? { ...app, capabilities: ["connect"] } : null;
     }),
   );

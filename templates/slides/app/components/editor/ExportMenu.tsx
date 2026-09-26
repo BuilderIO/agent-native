@@ -42,33 +42,14 @@ import {
   useGoogleSlidesExportAvailability,
 } from "@/lib/google-slides-export-availability-client";
 
-/** Google Slides' File → Import dialog, primed to ask for a file. */
 const GOOGLE_SLIDES_IMPORT_URL =
   "https://docs.google.com/presentation/u/0/?usp=import";
 
-/**
- * The importer stamps this on every slide it writes, and `parseSlideHtml` in
- * actions/export-pptx.ts branches on the same marker: those slides carry the
- * source file's own geometry, which the server emits as real `custGeom` vector
- * shapes. dom-to-pptx has no custGeom at all and rasterizes them to PNGs.
- */
 const IMPORTED_SLIDE_MARKER = 'data-imported-pptx="true"';
 
-/**
- * Objects whose geometry only exists once a browser has laid the slide out:
- * `freezeSlideElementForFreeform` and the text-box tool mint
- * `data-slide-object-id` client-side, while every object the importer emits
- * also carries `data-pptx-element-kind`. The server has no layout engine to
- * measure the former, so it refuses those slides rather than reflowing them.
- */
 const BROWSER_AUTHORED_OBJECT =
   "[data-slide-object-id]:not([data-pptx-element-kind]), .fmd-freeform-object";
 
-/**
- * Whether the vector-capable server exporter can render this deck losslessly.
- * Structural edits clear `sourceImport`, but the imported-slide marker remains
- * on slides whose geometry still came from the source file.
- */
 export function canExportPptxFromServer(
   deck:
     | { sourceImport?: unknown; slides: { content?: string }[] }
@@ -95,9 +76,7 @@ interface ExportMenuProps {
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   onShareLink?: () => void;
   onShareTeam?: () => void;
-  /** Render the export actions inside an existing dropdown menu. */
   inline?: boolean;
-  /** Keep export status visible when the containing menu closes. */
   hideExportDialog?: boolean;
   onExportStatusChange?: (status: ExportStatus) => void;
 }
@@ -119,10 +98,6 @@ export type ExportStatus =
       title: string;
       description?: string;
       openUrl: string;
-      /**
-       * Defaults to "open the exported deck". The download fallback overrides
-       * it: that link opens an empty importer, not the user's deck.
-       */
       openLabel?: string;
     }
   | { state: "error"; message: string };
@@ -239,8 +214,6 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
   ) {
     const t = useT();
     const { getDeck, flushDeckSave } = useDecks();
-    // Inline content is only mounted while the parent menu is open, so mounting
-    // is itself the signal there; the standalone menu tracks its own open state.
     const [menuOpen, setMenuOpen] = useState(false);
     const queryClient = useQueryClient();
     const googleSlidesExport = useGoogleSlidesExportAvailability(
@@ -316,8 +289,6 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     };
 
     const exportPptxFromServer = async () => {
-      // The server exports the persisted deck, so an unflushed edit would be
-      // missing from the file the user just asked for.
       await flushDeckSave(deckId);
       const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
         method: "POST",
@@ -342,9 +313,6 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       runExport(
         "pptx",
         async () => {
-          // An imported deck's shapes survive only on the server path. Falling
-          // back to the browser exporter on failure would hand back rasterized
-          // silhouettes of the same deck without saying so.
           if (canExportPptxFromServer(getDeck(deckId))) {
             await exportPptxFromServer();
             return;
@@ -393,14 +361,6 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       if (!hasSlides || !onExportGoogleSlides) return;
       if (!beginExport("google-slides")) return;
       try {
-        // The connect step is a top-level navigation to Google. When Google
-        // refuses the request itself the user leaves the editor and never
-        // comes back, so a known-broken integration must not start the flow.
-        //
-        // Enforced on the probe rather than on `googleSlidesExport`: that
-        // value is still the optimistic default until the first status
-        // response lands, so a click right after opening the menu would
-        // otherwise sail past a verdict the badge has not received yet.
         const availability =
           await fetchGoogleSlidesExportAvailability(queryClient);
         if (!availability.available) {
@@ -425,12 +385,6 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           });
           return;
         }
-        // Nothing reached Drive. The deck was downloaded instead, and this
-        // link opens an empty importer - labelling its button "Export to
-        // Google Slides" is what made this read as a silent failure. Re-ask
-        // the server whether the integration is usable at all so a repeat
-        // attempt is badged up front rather than dead-ending the same way; a
-        // transient Drive blip re-checks clean and stays enabled.
         invalidateGoogleSlidesExportAvailability(queryClient);
         updateExportStatus({
           state: "ready",

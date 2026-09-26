@@ -1,24 +1,3 @@
-/**
- * Routes for signed, content-only recap PNG images.
- *
- *   POST /_agent-native/recap-image
- *     Auth: `Authorization: Bearer <token>` — accepts the SAME tokens the MCP /
- *     action surface accepts: a legacy `sessions` bearer (desktop/native) OR a
- *     connect-minted MCP OAuth access token (the `agent-native connect` token,
- *     audience-bound to this app's `{origin}/mcp` resource). A
- *     normal browser session cookie is also accepted. Rejects unauthenticated
- *     callers with 401.
- *     Body: raw `image/png` bytes, or JSON `{ "pngBase64": "..." }`. Capped at
- *     ~5 MB. Stores the PNG and returns `{ imageUrl: "<origin>/_agent-native/
- *     recap-image/<token>.png" }`.
- *
- *   GET /_agent-native/recap-image/<token>.png
- *     ANONYMOUS (no auth) so GitHub's camo image proxy can fetch it into a
- *     private-repo PR comment. Returns the stored PNG with a strict
- *     `Content-Type: image/png` and a long immutable cache header. 404 on an
- *     unknown/malformed token. Only ever serves opaque image bytes — no plan
- *     data leaks through this route.
- */
 import {
   defineEventHandler,
   getHeader,
@@ -56,14 +35,6 @@ function isPngBuffer(buf: Buffer): boolean {
   );
 }
 
-/**
- * Resolve a session for the upload route. Reuses the SAME acceptance the MCP /
- * action surface uses:
- *   1. `getSession(event)` — browser cookie, ACCESS_TOKEN, and legacy bearer
- *      (`sessions` table) tokens.
- *   2. A connect-minted MCP OAuth access token, verified through the same
- *      canonical helper used by custom binary routes.
- */
 async function resolveUploadSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
@@ -72,23 +43,11 @@ async function resolveUploadSession(
   return getMcpOAuthBearerSession(event);
 }
 
-/**
- * Extract PNG bytes from the request. Supports raw `image/png` bytes and JSON
- * `{ pngBase64 }`. Returns `null` on a malformed/oversized/non-PNG payload.
- */
 async function readPngFromRequest(event: H3Event): Promise<Buffer | null> {
   const rawBody = await readRawBody(event, false).catch(() => undefined);
   if (!rawBody || rawBody.byteLength === 0) return null;
   if (rawBody.byteLength > RECAP_IMAGE_MAX_BYTES) return null;
 
-  // h3 v2's `readRawBody(event, false)` resolves a bare `Uint8Array`, not a Node
-  // `Buffer`. Normalize once so the downstream Buffer-only operations behave:
-  // `isPngBuffer`'s `Buffer#equals` THROWS on a Uint8Array (no such method), and
-  // `saveRecapImage`'s `png.toString("base64")` SILENTLY mis-encodes it (a bare
-  // Uint8Array ignores the encoding arg and returns comma-joined digits). Either
-  // sinks the upload — the thrown TypeError surfaced as a 500, so the recap CLI
-  // saw `!res.ok`, returned a null imageUrl, and the PR comment lost its inline
-  // thumbnail. Copying into a Buffer is cheap for a ~5 MB-capped screenshot.
   const raw = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody);
 
   const contentType = (getHeader(event, "content-type") || "").toLowerCase();
@@ -114,11 +73,9 @@ async function readPngFromRequest(event: H3Event): Promise<Buffer | null> {
     return isPngBuffer(bytes) ? bytes : null;
   }
 
-  // Default: treat the raw body as PNG bytes (image/png or unspecified).
   return isPngBuffer(raw) ? raw : null;
 }
 
-/** POST /_agent-native/recap-image — authenticated upload. */
 async function handleUpload(event: H3Event): Promise<unknown> {
   const session = await resolveUploadSession(event);
   if (!session?.email) {
@@ -150,10 +107,7 @@ async function handleUpload(event: H3Event): Promise<unknown> {
   }
 }
 
-/** GET/HEAD /_agent-native/recap-image/<token>.png — anonymous, content-only. */
 async function handleServe(event: H3Event, segment: string): Promise<unknown> {
-  // Require the strict `<hex>.png` shape — no directory traversal, no
-  // alternate extensions, no extra path segments.
   const match = /^([0-9a-f]+)\.png$/i.exec(segment);
   const token = match?.[1]?.toLowerCase() ?? "";
   if (!isValidRecapImageToken(token)) {
@@ -167,8 +121,6 @@ async function handleServe(event: H3Event, segment: string): Promise<unknown> {
     return { error: "Not found" };
   }
 
-  // Strict image/png on read regardless of what was stored, plus a long
-  // immutable cache and a cross-origin policy so the camo proxy can fetch it.
   const headers: Record<string, string> = {
     "Content-Type": RECAP_IMAGE_CONTENT_TYPE,
     "Cache-Control": RECAP_IMAGE_CACHE_CONTROL,
@@ -187,12 +139,6 @@ async function handleServe(event: H3Event, segment: string): Promise<unknown> {
   return new Response(body, { headers });
 }
 
-/**
- * Combined handler for the recap-image routes. Mount as a PREFIX handler at
- * `/_agent-native/recap-image`; the framework strips the mount prefix, so:
- *   - `event.url.pathname === "/"`           → POST upload (authenticated)
- *   - `event.url.pathname === "/<token>.png"` → GET/HEAD serve (anonymous)
- */
 export function createRecapImageHandler() {
   return defineEventHandler(async (event: H3Event) => {
     const segment =

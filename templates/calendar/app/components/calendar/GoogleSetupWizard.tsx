@@ -120,7 +120,6 @@ export function GoogleSetupWizard() {
       const text = await file.text();
       const json = JSON.parse(text);
 
-      // Google's downloaded JSON has the credentials nested under "web" or "installed"
       const creds = json.web || json.installed || json;
       const id = creds.client_id;
       const secret = creds.client_secret;
@@ -148,7 +147,6 @@ export function GoogleSetupWizard() {
 
       setSaved(true);
       await fetchStatus();
-      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setError(
@@ -187,7 +185,6 @@ export function GoogleSetupWizard() {
       setClientId("");
       setClientSecret("");
       await fetchStatus();
-      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setError(

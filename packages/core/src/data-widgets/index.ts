@@ -285,9 +285,6 @@ export function isDataWidgetResult(value: unknown): value is DataWidgetResult {
 export const DATA_WIDGET_MAX_ROWS = 50;
 export const DATA_WIDGET_MAX_CHART_POINTS = 200;
 
-// Widget rows arrive as tool-call arguments the model decodes token by token, so an
-// uncapped table costs minutes of wall clock before anything renders. Clamp server-side
-// rather than rejecting: the model has already paid for the tokens by the time we see them.
 export function clampDataWidgetRows(
   result: DataWidgetResult,
 ): DataWidgetResult {

@@ -16,30 +16,6 @@ import {
   IconVideo,
   IconVideoOff,
 } from "@tabler/icons-react";
-/**
- * ConferencingSelector — choose how a booking's video meeting is set up.
- *
- * Renders a grid of options (no conferencing, Google Meet, Zoom, custom
- * link). Each option is fully styled with the consumer's shadcn
- * primitives. The Zoom option does NOT accept a pasted personal meeting
- * URL — the user connects their Zoom account via OAuth instead, and the
- * app auto-creates a meeting per booking. See `connect-video` action.
- *
- * Shadcn primitives expected in the consumer: button, input, label,
- * badge. Icons from `@tabler/icons-react`.
- *
- * Props:
- *   - `value`        — current conferencing config { type, url? }
- *   - `onChange`     — called with the next config (call instantly — the
- *                      caller owns persistence, typically optimistic)
- *   - `zoomStatus`   — 'connected' | 'disconnected' | 'not-configured'
- *                      drives the Connect Zoom button / installed chip
- *   - `onConnectZoom` — optional callback that starts the OAuth flow; if
- *                      omitted, the button is hidden (useful for preview)
- *   - `googleConnected` — whether Google Meet is available (depends on
- *                         Google Calendar credential)
- *   - `onConnectGoogle` — optional, same shape as onConnectZoom
- */
 import { useId, type ComponentType } from "react";
 
 import { useSchedulingT } from "../../i18n.js";
@@ -48,7 +24,6 @@ export type ConferencingType = "none" | "google_meet" | "zoom" | "custom";
 
 export interface ConferencingValue {
   type: ConferencingType;
-  /** Used for `custom` — the meeting URL. Ignored for `zoom` (OAuth-created). */
   url?: string;
 }
 
@@ -61,7 +36,6 @@ export interface ConferencingSelectorProps {
   googleStatus?: ProviderStatus;
   onConnectZoom?: () => void;
   onConnectGoogle?: () => void;
-  /** Hide the label above the grid (for use inside a card with its own title). */
   hideLabel?: boolean;
 }
 

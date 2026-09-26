@@ -30,13 +30,6 @@ const positionLocks: Map<string, Promise<unknown>> = globalRef[LOCK_KEY]!;
 
 const MAX_DATABASE_POSITION = 2_147_483_647;
 
-/**
- * Return the next canonical position after a database aggregate result.
- * PostgreSQL may return integer aggregates as strings, and older callers
- * accidentally persisted negative values such as -11 and -111. Those rows
- * sort before the canonical non-negative range, so a negative maximum means
- * the next canonical position is zero without rewriting legacy data.
- */
 export function nextAppendPosition(max: unknown): number {
   const raw = max ?? -1;
   const normalized = typeof raw === "string" ? raw.trim() : raw;
@@ -59,7 +52,6 @@ export function nextAppendPosition(max: unknown): number {
   return next;
 }
 
-/** Allocate each position in a multi-row append through the same bounds check. */
 export function createAppendPositionAllocator(max: unknown): () => number {
   let previous = max;
   return () => {
@@ -69,7 +61,6 @@ export function createAppendPositionAllocator(max: unknown): () => number {
   };
 }
 
-/** Run `fn` serialized against any other call using the same `scopeKey`. */
 export function withPositionLock<T>(
   scopeKey: string,
   fn: () => Promise<T>,
@@ -85,14 +76,6 @@ export function withPositionLock<T>(
   return next;
 }
 
-/**
- * Lock scope for `documents.position` siblings under one owner + parent
- * (or one owner's root level when `parentId` is null/undefined). Every call
- * site that computes MAX(position) over `documents` scoped by
- * (ownerEmail, parentId) should share this key so concurrent inserts under
- * the same parent — regardless of which action/route triggers them — are
- * serialized against each other.
- */
 export function documentsPositionScope(
   ownerEmail: string,
   parentId: string | null | undefined,
@@ -100,18 +83,10 @@ export function documentsPositionScope(
   return `documents:${ownerEmail}:${parentId ?? "root"}`;
 }
 
-/**
- * Lock scope for `content_database_items.position` rows within one
- * database.
- */
 export function databaseItemsPositionScope(databaseId: string): string {
   return `contentDatabaseItems:${databaseId}`;
 }
 
-/**
- * Lock scope for `document_property_definitions.position` rows within one
- * database.
- */
 export function propertyDefinitionsPositionScope(databaseId: string): string {
   return `documentPropertyDefinitions:${databaseId}`;
 }

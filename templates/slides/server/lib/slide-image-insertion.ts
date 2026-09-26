@@ -56,11 +56,6 @@ function imageHtml(src: string, alt: string, style: string): string {
   return `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(alt)}" class="fmd-img-uploaded"${style ? ` style="${escapeAttribute(style)}"` : ""}>`;
 }
 
-/**
- * Server-safe counterpart to the editor's image replacement helper. It uses
- * deterministic string transforms because DOMParser is not available in the
- * server runtime that executes actions.
- */
 export function insertImageIntoSlideHtml(
   content: string,
   src: string,

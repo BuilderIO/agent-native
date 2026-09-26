@@ -3,19 +3,6 @@
 
 import { FileStore } from "../storage/file-store.js";
 
-/**
- * Create MCP tool handlers for Pinpoint.
- * These can be registered with an MCP server instance.
- *
- * ```ts
- * import { Server } from '@modelcontextprotocol/server';
- * import { createPinpointMCPTools } from '@agent-native/pinpoint/server';
- *
- * const server = new Server({ name: 'pinpoint', version: '1.0.0' }, { capabilities: { tools: {} } });
- * const tools = createPinpointMCPTools();
- * // Register tools with server...
- * ```
- */
 export function createPinpointMCPTools(options: { dataDir?: string } = {}) {
   const store = new FileStore(options.dataDir || "data/pins");
 

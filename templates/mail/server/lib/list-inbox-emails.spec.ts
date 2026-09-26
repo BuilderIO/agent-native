@@ -1,14 +1,3 @@
-/**
- * Tests for list-inbox-emails.ts — the shared Gmail listing core called by
- * both the `list-emails` agent action and the REST `listEmails` handler.
- *
- * Before this file existed, the two callers re-implemented Gmail
- * query-build + pagination + thread-scoping independently and drifted: the
- * REST handler filtered out snoozed threads and handled Gmail 429/quota
- * errors gracefully, the agent action did neither. These tests pin down the
- * merged (superset) behaviour so that regression can't creep back in for
- * either caller.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./google-auth.js", () => ({
@@ -35,7 +24,6 @@ function rawMessage(id: string, threadId: string, overrides: any = {}) {
   return { id, threadId, _accountEmail: OWNER, ...overrides };
 }
 
-/** Minimal EmailMessage-shaped stand-in for gmailToEmailMessage's output. */
 function emailFor(raw: any, overrides: any = {}) {
   return {
     id: raw.id,
@@ -214,7 +202,6 @@ describe("listInboxEmails", () => {
     expect(result.isQuotaError).toBe(true);
     expect(result.retryAfterSeconds).toBe(90);
     expect(result.message).toContain(OWNER);
-    // The 429 short-circuit must happen before the snooze lookup.
     expect(getSnoozedThreadIds).not.toHaveBeenCalled();
   });
 
@@ -244,13 +231,6 @@ describe("listInboxEmails", () => {
     expect(result.retryAfterSeconds).toBe(1);
   });
 
-  // Regression test for the "frequent 502s switching labels" report: the
-  // real cooldown error (google-api.ts's GmailQuotaCooldownError) carries a
-  // jargon-free message with none of "quota"/"429"/"rate limit" in it, so
-  // this must classify as a quota error via the `isQuotaError` flag alone.
-  // Before the fix, isGmailQuotaError regex-matched the message text, which
-  // never matched this wording — every account-wide cooldown fell through to
-  // a hard failure and the REST handler returned 502 instead of 429.
   it("classifies a jargon-free quota-cooldown message via isQuotaError, not message text", async () => {
     vi.mocked(listGmailMessages).mockResolvedValue({
       messages: [],

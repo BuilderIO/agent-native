@@ -326,11 +326,6 @@ export default defineAction({
         if (!replayPlanId) throw error;
         result = await importRecap(replayPlanId);
       }
-      // Apply requested visibility server-side so the recap is never left private
-      // (the import action always creates with visibility='private'). Route this
-      // through the shared visibility action instead of updating the row directly:
-      // when visibility is "org", that action also binds the current org onto
-      // older/unscoped plans so org-scoped recap links are actually readable.
       const planId = (result as { planId?: string } | null)?.planId;
       if (planId) {
         await assertAccess(

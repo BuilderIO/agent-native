@@ -78,8 +78,6 @@ export function DesignBottomToolbar({
   pinMode: boolean;
   drawMode: boolean;
   activeTool: DesignTool;
-  /** The shape the group button draws when pressed directly: the last one
-   *  picked, since activeTool has already fallen back to move after a draw. */
   shapeTool: ShapeTool;
   isOverview: boolean;
   hasActiveFile: boolean;
@@ -228,18 +226,11 @@ export function DesignBottomToolbar({
   }> = [
     {
       key: "move",
-      // Parent button is active whenever any of the move-group sub-tools is
-      // selected so the toolbar visually reflects hand and scale modes too.
       active:
         (activeTool === "move" && mode === "edit") ||
         activeTool === "hand" ||
         activeTool === "scale",
-      // The parent button represents the active move-group sub-tool. Expose
-      // that same identity to assistive technology and the tooltip instead of
-      // announcing every H/K activation as the Move tool.
       label: t(activeMoveGroupTool.labelKey),
-      // Mirror the active sub-tool icon so the parent button is always
-      // informative about the currently selected move-group tool.
       icon:
         activeTool === "hand" ? (
           <IconHandStop className="size-[18px]" />
@@ -248,9 +239,6 @@ export function DesignBottomToolbar({
         ) : (
           <IconPointer className="size-[18px]" />
         ),
-      // Keep the primary action aligned with the icon/label it presents. A
-      // Hand or Scale button should remain Hand or Scale when clicked rather
-      // than silently switching back to Move.
       onClick: handleActiveMoveGroupTool,
       options: [
         {

@@ -1,22 +1,4 @@
-/**
- * Tests for grant-localhost-write-consent action.
- *
- * Verifies that:
- * - The action reads bridgeToken from the connection row (not minting its own).
- * - It throws a clear error when the connection has no bridgeToken, telling the
- *   user to re-run `npx @agent-native/core@latest design connect`.
- * - It throws when the connection row is missing.
- * - It throws when the connection has no rootPath.
- * - It upserts a grant (insert on first call, update on second).
- * - The unrestricted bridgeToken is persisted server-side but never returned
- *   to the browser caller.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn().mockResolvedValue(undefined),
@@ -29,10 +11,6 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("nanoid", () => ({ nanoid: () => "fixed_grant_id" }));
-
-// ---------------------------------------------------------------------------
-// DB mock — wired per test via setupDb()
-// ---------------------------------------------------------------------------
 
 type ConnectionRow = {
   id: string;
@@ -61,16 +39,10 @@ function makeSelectChain(rows: unknown[]) {
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     select: (projection?: unknown) => {
-      // The action does two selects: first from designLocalhostConnections,
-      // then from designLocalhostWriteGrants. We distinguish by whether a
-      // projection object is passed (grants query projects `{ id }`, connection
-      // query uses `.select()` with no args).
       if (projection !== undefined) {
-        // Second call — designLocalhostWriteGrants
         const rows = mockExistingGrant ? [mockExistingGrant] : [];
         return makeSelectChain(rows);
       }
-      // First call — designLocalhostConnections
       const rows = mockConnection ? [mockConnection] : [];
       return makeSelectChain(rows);
     },
@@ -104,10 +76,6 @@ beforeEach(() => {
   updatedSet = null;
 });
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("grant-localhost-write-consent", () => {
   it("is available to the capability-scoped visual-edit editor", () => {
     expect(action.capabilityScopes).toEqual(["visual-edit"]);
@@ -128,7 +96,6 @@ describe("grant-localhost-write-consent", () => {
     });
 
     expect(result).not.toHaveProperty("bridgeToken");
-    // The server-side grant still retains the token write-local-file needs.
     expect(insertedValues?.bridgeToken).toBe("bridge_real_token_xyz");
   });
 

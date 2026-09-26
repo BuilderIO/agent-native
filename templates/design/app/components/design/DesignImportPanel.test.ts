@@ -146,7 +146,6 @@ describe("DesignImportPanel quota attribution", () => {
 
   it("reads the failure through the shared typed reader", () => {
     expect(source).toContain("readFigmaImportFailure(");
-    // The old ad-hoc property chain and message sniffing are gone.
     expect(source).not.toContain("rateLimitDetails.figmaPlanTier");
     expect(source).not.toMatch(/rate limit\|429\|quota/);
   });

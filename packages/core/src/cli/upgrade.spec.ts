@@ -66,7 +66,6 @@ function makeTempProject(layout: {
   return root;
 }
 
-/** Stand in for what `pnpm install` leaves behind for @agent-native/core. */
 function writeInstalledPackage(
   dir: string,
   version: string,
@@ -764,7 +763,6 @@ describe("runUpgrade", () => {
     expect(read("apps", "tasks").dependencies["@agent-native/core"]).toBe(
       "0.131.4",
     );
-    // Local links are not ours to repin.
     expect(read("apps", "tasks").dependencies["@agent-native/scheduling"]).toBe(
       "workspace:*",
     );
@@ -812,7 +810,6 @@ describe("runUpgrade", () => {
     );
     expect(code).toBe(1);
     expect(err.join("\n")).toContain(path.join("apps", "mail", "package.json"));
-    // Nothing was bumped behind a manifest nobody could check.
     const pkg = JSON.parse(
       fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     );

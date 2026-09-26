@@ -87,7 +87,6 @@ export default function TrashRoute() {
   const { data, isLoading, isError, isFetching, refetch } = useRecordings(args);
   const recordings = (data?.recordings ?? []) as RecordingSummary[];
 
-  // These actions are owned by other teams and ship with the template.
   const restore = useActionMutation<any, { id: string }>("restore-recording");
   const purge = useActionMutation<any, { id: string }>(
     "delete-recording-permanent",

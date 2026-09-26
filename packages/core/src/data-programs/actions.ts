@@ -269,9 +269,6 @@ export function createDataProgramActions(
       const defaultParams = program.defaultParams
         ? (JSON.parse(program.defaultParams) as Record<string, unknown>)
         : {};
-      // Viewer/org-scoped hash: the cached run for these params was produced
-      // under SOME caller's credentials and org grants, so only show it back
-      // to that same scope (see hashDataProgramParams doc).
       const hash = hashDataProgramParams(
         defaultParams,
         ctx?.userEmail,

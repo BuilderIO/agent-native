@@ -4,14 +4,6 @@ import {
   NON_STATIC_EXPORT_ELEMENT_SELECTOR,
 } from "@shared/xml-export-attributes";
 
-/**
- * Editor-chrome overlays that editor-chrome.bridge.ts appends inside the preview
- * iframe (the selection outline + resize handles, hover highlight, marquee,
- * spacing/measurement guides, and badges). They live in the iframe DOM, so image
- * exports must strip them from the clone — otherwise a download captures the
- * editor's selection outline instead of just the design. Keep this in sync with
- * the data-agent-native-* markers set in editor-chrome.bridge.ts.
- */
 export const EDITOR_CHROME_OVERLAY_SELECTOR = [
   "[data-agent-native-edit-overlay]",
   "[data-agent-native-edit-handle]",
@@ -46,9 +38,6 @@ export function buildStaticForeignObjectSvg(args: {
   const viewY = args.cropRect?.y ?? 0;
   const viewWidth = args.cropRect?.width ?? args.documentWidth;
   const viewHeight = args.cropRect?.height ?? args.documentHeight;
-  // Keep the foreignObject in full-document coordinates. A non-zero viewBox
-  // then clips the selected region without rebasing the DOM and breaking its
-  // absolute/sticky/ancestor layout. The foreignObject must cover that viewBox.
   const foreignWidth = Math.max(args.documentWidth, viewX + viewWidth);
   const foreignHeight = Math.max(args.documentHeight, viewY + viewHeight);
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -64,26 +53,8 @@ const MAX_EXPORT_SCALE = 4;
 const MAX_EXPORT_CANVAS_SIDE = 16_384;
 const MAX_EXPORT_CANVAS_PIXELS = 64 * 1024 * 1024;
 
-/**
- * A PDF page is rasterized once, then stretched to fill an exact physical
- * page size (see `createSinglePageRasterPdf`). Unlike a PNG/JPG/WEBP export
- * — where "1x" means "one raster pixel per CSS pixel" and is a reasonable
- * default for on-screen use — a 1x capture embedded at a fixed physical page
- * size (US Letter, A4, ad unit dimensions treated as inches) is only ~96
- * DPI, which reads as visibly blurry once printed or zoomed in a PDF viewer.
- * Enforce a print-quality floor for the PDF export path specifically,
- * regardless of the export panel's general-purpose default scale (1x).
- * Still respects an explicit higher user-selected scale (3x/4x).
- */
 export const PDF_MIN_PRINT_RASTER_SCALE = 2;
 
-/**
- * Resolve a crisp raster scale without asking the browser to allocate a canvas
- * it cannot reliably encode. The quick Share -> PNG path has no visible scale
- * picker, so use 2x there even on a 1x desktop display; explicit inspector
- * export settings still win. Large artboards are reduced only as much as
- * required by conservative cross-browser canvas limits.
- */
 export function resolveRasterExportScale(args: {
   width: number;
   height: number;
@@ -105,20 +76,10 @@ export function resolveRasterExportScale(args: {
   const areaLimit = Math.sqrt(
     MAX_EXPORT_CANVAS_PIXELS / Math.max(1, width * height),
   );
-  // Do not clamp back up to 0.1 after applying the safety limits: a gigantic
-  // imported canvas can require a smaller scale to stay within the same hard
-  // side/pixel budget. The one-pixel floor only prevents a zero-size canvas.
   const bounded = Math.min(normalized, sideLimit, areaLimit);
   return Math.max(1 / Math.max(width, height), bounded);
 }
 
-/**
- * `<template>` children live in a separate `content` DocumentFragment, so they
- * are invisible to `querySelectorAll` on the template's own tree — but
- * `XMLSerializer` still writes them out. Alpine puts every `x-for` / `x-if`
- * block behind a `<template>`, so skipping that fragment let `:class` reach
- * the file and made the whole SVG unparsable at the first list or conditional.
- */
 const ELEMENT_NODE = 1;
 
 function collectStaticExportScopes(root: ParentNode): ParentNode[] {
@@ -134,14 +95,6 @@ function collectStaticExportScopes(root: ParentNode): ParentNode[] {
   return scopes;
 }
 
-/**
- * Runtime HTML frameworks allow attribute syntaxes (`@click`, `:class`,
- * `x-bind:class`) which are legal in HTML but not legal XML QNames. A static
- * foreignObject snapshot has already resolved those directives and removes
- * scripts, so retaining the executable attributes adds no visual information
- * and can make the entire SVG unparsable. Remove framework directives plus any
- * other unbound/invalid XML attribute name from the CLONE only.
- */
 export function stripNonStaticXmlAttributes(root: Element): void {
   for (const scope of collectStaticExportScopes(root)) {
     scope
@@ -149,12 +102,6 @@ export function stripNonStaticXmlAttributes(root: Element): void {
       .forEach((element) => element.remove());
   }
   for (const scope of collectStaticExportScopes(root)) {
-    // The clone is built by the preview iframe's realm, so `instanceof
-    // Element` is false here for the `<html>` root and would skip its own
-    // attributes while sanitizing every descendant. A dark-mode root such as
-    // `<html :class="{ dark: isDark }">` is ordinary Alpine, and leaving that
-    // one attribute behind produces exactly the unparsable file this function
-    // exists to prevent. Compare nodeType, which carries no realm identity.
     const elements = [
       ...(scope.nodeType === ELEMENT_NODE ? [scope as Element] : []),
       ...Array.from(scope.querySelectorAll("*")),
@@ -218,9 +165,6 @@ export async function waitForExportReady(
   if (!view) return;
   const timeoutMs = options?.timeoutMs ?? 4000;
   const MIN_STABLE_FRAMES = 6;
-  // A plain document with no async style source cannot gain CSS later. Avoid
-  // imposing the CDN-oriented settle floor on every simple export while
-  // retaining it for Tailwind/script/stylesheet-backed previews.
   const minSettleMs = doc.querySelector(
     'link[rel~="stylesheet"],script[src],style[type="text/tailwindcss"]',
   )
@@ -251,8 +195,6 @@ export async function waitForExportReady(
       try {
         total += sheet.cssRules?.length ?? 0;
       } catch {
-        // Cross-origin stylesheets throw on cssRules access; their mere
-        // presence in styleSheets still counts as "loaded".
         total += 1;
       }
     }
@@ -276,7 +218,6 @@ export async function waitForExportReady(
   }
 }
 
-/** Build a real, fixed-artboard PDF rather than returning export instructions. */
 export async function createSinglePageRasterPdf(args: {
   dataUrl: string;
   width: number;
@@ -302,13 +243,6 @@ export interface RasterPdfPage {
   height: number;
 }
 
-/**
- * Build a multi-page PDF, one page per rasterized screen, each sized to its
- * own artboard dimensions (a US Letter one-pager and a 1080x1080 social
- * screen can coexist as separate pages, each at its own physical size).
- * Reuses the same `px_scaling` hotfix as `createSinglePageRasterPdf` so every
- * page's physical size matches its authored pixel dimensions exactly.
- */
 export async function createMultiPageRasterPdf(
   pages: readonly RasterPdfPage[],
 ): Promise<Blob> {
@@ -337,7 +271,6 @@ export async function createMultiPageRasterPdf(
   return pdf.output("blob");
 }
 
-/** Return the smallest document-space rectangle containing every valid item. */
 export function unionExportCropRects(
   rects: readonly ExportCropRect[],
 ): ExportCropRect | null {
@@ -362,10 +295,6 @@ export interface ExportCompositeFrame extends ExportCropRect {
   rotation?: number;
 }
 
-/**
- * Resolve the world-space bounds of selected screen frames, including rotation,
- * so a multi-frame clipboard image preserves the same spacing as the canvas.
- */
 export function getExportCompositeBounds(
   frames: readonly ExportCompositeFrame[],
 ): ExportCropRect | null {
@@ -396,12 +325,6 @@ export function getExportCompositeBounds(
   );
 }
 
-/**
- * Map a document-space rect onto pixel coordinates within a rendered canvas of
- * the given size, clamped to stay inside the canvas. `scale` must match the
- * scale passed to html2canvas. Returns null when the crop would be empty or
- * lands fully outside the canvas, so callers can fall back to the full render.
- */
 export function computeExportCropBox(
   sourceWidth: number,
   sourceHeight: number,

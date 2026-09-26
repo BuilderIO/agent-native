@@ -87,18 +87,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 function DbSyncBridge() {
-  // Invalidate react-query caches on DB changes (agent edits, other tabs,
-  // cron jobs). SQL chart queries can be expensive, so they stay on explicit
-  // refresh/filter semantics instead of joining the broad action fallback.
-  // Screen-refresh is handled automatically inside AgentSidebar.
   const queryClient = useQueryClient();
   useDbSync({
     queryClient,
     ignoreSource: TAB_ID,
     onEvent: notifyProviderCorpusJobSyncEvent,
     actionInvalidatePredicate: shouldInvalidateAnalyticsQueryForAction,
-    // These boot-time maintenance calls update their own local state and do
-    // not imply that every mounted Analytics query needs to restart.
     suppressActionInvalidationFor: [
       "ensure-demo-dashboards",
       "manage-agent-engine",
@@ -120,8 +114,6 @@ export function shouldInvalidateAnalyticsQueryForAction(query: {
   ) {
     return false;
   }
-  // The notifier refreshes for corpus-job events and only polls while a job is
-  // actively running. Unrelated actions must not restart its idle query.
   if (scope === "action" && name === "provider-corpus-jobs") return false;
   return true;
 }
@@ -140,8 +132,6 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
 
-  // Public, unauthenticated routes render SSR-first without the authenticated
-  // app chrome (sidebar/chat/command palette).
   const isPublicStatusPath =
     location.pathname === "/status" || location.pathname.startsWith("/status/");
 
@@ -162,9 +152,6 @@ export default function Root() {
   }
 
   return (
-    // defaultTheme="dark": analytics defaults to dark mode if no stored preference.
-    // toaster={null}: suppress AppProviders' built-in sonner; analytics renders
-    // both its styled Sonner and the legacy shadcn Toaster explicitly below.
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}

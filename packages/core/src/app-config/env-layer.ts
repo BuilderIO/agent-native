@@ -1,23 +1,5 @@
 import type { ZodType } from "zod";
 
-/**
- * Builds the environment-variable layer of the app config.
- *
- * Environment variables are declared shortcuts into the schema, not a parallel
- * namespace: a key exists only because some field carries `.meta({ env })`.
- * This module is the one place in the framework that turns those strings into
- * typed values, which is what lets every consumer read `getAppConfig()`
- * instead of parsing `process.env` at its own call site.
- */
-
-/**
- * A leaf field that declares one or more environment-variable aliases.
- *
- * `env` is ordered: the first key that is set wins. Several fields need this
- * because one concept accumulated many spellings over time — app identity has
- * eight — and collapsing them means declaring the precedence once here instead
- * of rebuilding a slightly different chain at each call site.
- */
 export interface EnvAlias {
   path: string[];
   env: string[];
@@ -32,12 +14,6 @@ interface ZodInternals {
   };
 }
 
-/**
- * Zod exposes no public API for peeling `.optional()` / `.default()` back off a
- * field, and we need the declared kind underneath to know how to parse a string
- * into it. `_zod.def` is that introspection surface; a zod major upgrade is the
- * moment to re-check this file.
- */
 function internals(schema: unknown): ZodInternals {
   return (schema as { _zod: ZodInternals })._zod;
 }
@@ -76,11 +52,8 @@ function readEnvMeta(node: unknown): string[] | undefined {
   return valid.length > 0 ? valid : undefined;
 }
 
-// Walking the schema is pure and the schema is a module constant, so the walk
-// happens once per schema rather than on every config read.
 const aliasCache = new WeakMap<ZodType, EnvAlias[]>();
 
-/** Every leaf in `schema` that declares an environment-variable alias. */
 export function collectEnvAliases(schema: ZodType): EnvAlias[] {
   const cached = aliasCache.get(schema);
   if (cached) return cached;
@@ -119,9 +92,6 @@ function parseEnvValue(raw: string, key: string, alias: EnvAlias): unknown {
     case "string":
     case "enum":
     case "literal":
-      // Every hand-rolled reader this replaces trimmed its value. Keeping that
-      // means a stray trailing space in a deploy UI does not become part of an
-      // app id or a URL.
       return raw.trim();
     case "boolean": {
       const normalized = raw.trim().toLowerCase();
@@ -140,9 +110,6 @@ function parseEnvValue(raw: string, key: string, alias: EnvAlias): unknown {
       return value;
     }
     case "array":
-      // Comma-separated, which is what every hand-rolled list reader in core
-      // already used. Blank entries are dropped so a trailing comma is not an
-      // empty allow-list entry.
       return raw
         .split(",")
         .map((entry) => entry.trim())
@@ -168,17 +135,6 @@ function assign(
   node[path[path.length - 1]] = value;
 }
 
-/**
- * Reads every declared alias out of `env` into a partial config object.
- *
- * A key that is unset, empty, or only whitespace is treated as absent. Several
- * hosting platforms surface an unset variable as `""`, and every reader this
- * replaces used `?.trim() ||` — so a blank value has always meant "fall through
- * to the next source", never "the configured value is blank".
- *
- * When a field declares several aliases, the first one with a value wins and
- * the rest are not consulted.
- */
 export function readEnvConfigLayer(
   schema: ZodType,
   env: Record<string, string | undefined>,

@@ -1813,10 +1813,6 @@ function cropFeedbackScreenshot(input: {
 
 type PlanAccessRole = "owner" | "viewer" | "commenter" | "editor" | "admin";
 
-/**
- * Status options available in the reviewer approval workflow.
- * "archived" is intentionally omitted — it lives in the kebab menu.
- */
 const APPROVAL_STATUSES: PlanStatus[] = [
   "draft",
   "review",
@@ -1835,18 +1831,9 @@ function statusBadgeClasses(status: PlanStatus): string {
   if (status === "in_progress") {
     return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400";
   }
-  // draft, review, archived — neutral
   return "";
 }
 
-/**
- * Compact status badge/chip for the plan detail toolbar.
- *
- * - Editors (owner/admin/editor): clicking the badge opens a DropdownMenu to
- *   transition the plan's status. The update is optimistic with rollback.
- * - Viewers / anonymous: the badge is inert (shows current status, no menu).
- * - Recaps: the parent must not render this component at all.
- */
 function PlanStatusControl({
   planId,
   status,
@@ -1863,7 +1850,6 @@ function PlanStatusControl({
   const handleSelect = useCallback(
     (newStatus: PlanStatus) => {
       if (newStatus === status) return;
-      // Optimistic: patch both the bundle cache and the list cache.
       const bundleKey = planBundleQueryKey(planId);
       const prevBundle = qc.getQueryData<PlanBundleWithHtml>(bundleKey);
       const prevActiveList = qc.getQueryData<PlanSummary[]>(
@@ -1884,7 +1870,6 @@ function PlanStatusControl({
         { planId, status: newStatus },
         {
           onError: () => {
-            // Roll back optimistic updates.
             if (prevBundle !== undefined)
               qc.setQueryData(bundleKey, prevBundle);
             if (prevActiveList !== undefined)
@@ -2056,13 +2041,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const [nativeMarkerVersion, setNativeMarkerVersion] = useState(0);
   const [commentVisibility, setCommentVisibility] =
     useState<CommentVisibility>("open");
-  // When a comment submit fails, stash the draft here so the popover can
-  // re-open with the user's text pre-filled (Issue 2a).
   const [failedCommentDraft, setFailedCommentDraft] =
     useState<CommentDraft | null>(null);
-  // Ref that signals the 3-second poll to pause while a comment mutation is
-  // in-flight. Prevents poll-driven cache replacement from evicting optimistic
-  // comments before the server write commits (Issue 4a).
   const { session, isLoading: sessionLoading } = useSession();
   const localPlanMode = Boolean(localPlanSlug);
   const routeSearchParams = useMemo(
@@ -2124,8 +2104,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       refetchInterval: false,
     },
   );
-  // Bridge bundles carry no comments; load comments.json from the colocated
-  // folder so they render and survive refresh in bridge mode too.
   const localPlanBridgeCommentsQuery = useQuery<LocalPlanBundle["comments"]>({
     queryKey: ["local-plan-bridge-comments", localPlanBridgeUrl],
     enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
@@ -2174,8 +2152,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     enabled: Boolean(session && !selectedId && !localPlanMode),
   });
   const plans = plansQuery.data ?? [];
-  // Identity for collaborative cursor labels. Only a signed-in user enables
-  // real-time multi-user prose editing; guests/anonymous keep single-user editing.
   const collabUser = useMemo<RichMarkdownCollabUser | null>(
     () =>
       session?.email
@@ -2187,7 +2163,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         : null,
     [session?.email, session?.name],
   );
-  // Redirect to sign-in, returning to wherever the guest currently is.
   const openSignIn = useCallback((returnOverride?: string) => {
     window.location.href = buildSignInReturnHref({
       returnTo: returnOverride ?? planReturnPathFromLocation(window.location),
@@ -2201,7 +2176,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }
     setCreateOpen(true);
   }, [openSignIn, session, sessionLoading]);
-  // Refetch once a session appears so account-scoped plans show up immediately.
   const wasSignedInRef = useRef(false);
   useEffect(() => {
     if (sessionLoading) return;
@@ -2405,14 +2379,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       selectedId,
     ],
   );
-  // Reflect a structural block edit (drag-to-columns, reorder) into the
-  // `get-visual-plan` cache IMMEDIATELY so the editor's authoritative content
-  // tracks the new layout instead of lagging the debounced (600ms) save. This
-  // keeps every reader of the plan content consistent with what the editor shows
-  // the moment the drop lands. The reconcile's own non-collab stale-poll guard is
-  // what actually stops a lagging refetch from reverting the layout, so this does
-  // NOT bump `updatedAt` — leaving the server's timestamp intact so a genuinely
-  // newer agent/external edit still wins.
   const writeBlocksOptimistically = useCallback(
     (blocks: PlanBlock[]) => {
       if (!selectedPlanQueryKey) return;
@@ -2432,9 +2398,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     },
     [queryClient, selectedPlanQueryKey],
   );
-  // Recaps are read-only review surfaces: text can't be edited inline (the agent
-  // owns the content), but highlighting + commenting stay available because those
-  // affordances key off `bundle`/`session`, not `canEditPlanContent`.
   const isRecap = bundle?.plan.kind === "recap";
   const effectivePlanAccessRole = bundle?.access?.role ?? null;
   const canEditLocalPlanContent =
@@ -2618,25 +2581,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const updatePlan = useUpdatePlan();
   const updateLocalPlan = useUpdateLocalPlan();
   const promoteLocalPlan = usePromoteLocalPlan();
-  // Stable ref so closures (e.g. message-event handler) always call the latest
-  // mutate without needing to be in a dependency array.
   const updatePlanMutateRef = useRef(updatePlan.mutate);
   updatePlanMutateRef.current = updatePlan.mutate;
-  // Separate mutation instance for comment-only writes (reply / resolve /
-  // reopen). Keeping it separate from the prose-autosave `updatePlan` instance
-  // means the autosave `isPending` state cannot bleed into comment button
-  // disabled states (Issue 3).
   const updateCommentMutation = useUpdatePlanComments();
-  // Local-files plans write comments to comments.json (no DB) via this action.
   const updateLocalCommentMutation = useUpdateLocalPlanComments();
   const deleteCommentMutation = useDeletePlanComment();
   const deletePlanMutation = useDeletePlan();
 
-  /**
-   * Archive or unarchive a plan from the overview. Optimistically updates the
-   * list-visual-plans cache so the card disappears/reappears immediately.
-   * Rolls back on error with a toast.
-   */
   const handleArchivePlan = useCallback(
     (planId: string, archive: boolean) => {
       const newStatus = archive ? "archived" : "draft";
@@ -2645,7 +2596,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       );
       const prevAll =
         queryClient.getQueryData<PlanSummary[]>(ALL_PLANS_QUERY_KEY);
-      // Optimistic update
       for (const listKey of [ACTIVE_PLANS_QUERY_KEY, ALL_PLANS_QUERY_KEY]) {
         queryClient.setQueryData(listKey, (old: PlanSummary[] | undefined) =>
           old?.map((p) => (p.id === planId ? { ...p, status: newStatus } : p)),
@@ -2655,7 +2605,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         { planId, status: newStatus },
         {
           onError: () => {
-            // Roll back
             if (prevActive !== undefined)
               queryClient.setQueryData(ACTIVE_PLANS_QUERY_KEY, prevActive);
             if (prevAll !== undefined)
@@ -2760,12 +2709,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     ],
   );
 
-  /**
-   * Persist question-form answers as an agent-targeted comment so
-   * share-link reviewers' answers are visible to get-plan-feedback even when
-   * no agent is attached on their machine.  Fire-and-forget: the existing
-   * sendToAgentChat fast-path runs first, and this is a best-effort backup.
-   */
   const persistQuestionFormAnswers = useCallback(
     (summary: string, planId: string | undefined) => {
       if (!planId) return;
@@ -3046,10 +2989,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     if (!selectedId) return undefined;
     const base = bundle?.plan.kind === "recap" ? "recaps" : "plans";
     const url = `${window.location.origin}${appPath(`/${base}/${selectedId}`)}`;
-    // Viral attribution: tag the shared/public plan link so signups arriving
-    // from it can be attributed even when `document.referrer` is empty. `via`
-    // is a non-PII owner id and is only set when the current viewer is the
-    // owner (the only person whose session userId is the plan owner's id).
     const ownerViaId =
       effectivePlanAccessRole === "owner" ? (session?.userId ?? null) : null;
     return withPlanShareAttribution(url, ownerViaId);
@@ -3063,9 +3002,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     session?.userId,
   ]);
 
-  // Viral attribution: read the `ref`/`via` the visitor arrived on (from a
-  // tagged share link) so funnel events carry the same attribution the
-  // framework first-touch cookie captured. Read once from the URL on mount.
   const shareAttribution = useMemo(
     () =>
       readPlanShareAttribution(
@@ -3074,8 +3010,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     [],
   );
 
-  // A logged-out visitor looking at a public plan/recap is the share funnel
-  // audience. Their CTAs (comment, sign in) route through `openSignIn`.
   const isLoggedOutPublicPlanView =
     !sessionLoading &&
     !session &&
@@ -3083,9 +3017,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     Boolean(selectedId) &&
     effectivePlanVisibility === "public";
 
-  // share_cta_click — fire alongside (never instead of) the real navigation.
-  // `track` is non-throwing, but guard anyway so analytics can never break a
-  // CTA. Only fires for the logged-out public-plan funnel audience.
   const fireShareCtaClick = useCallback(
     (cta: string) => {
       if (!isLoggedOutPublicPlanView) return;
@@ -3109,8 +3040,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     ],
   );
 
-  // share_view — fire once when a logged-out visitor views a public plan. The
-  // ref guard prevents double-fire across re-renders / StrictMode double-invoke.
   const shareViewFiredRef = useRef(false);
   useEffect(() => {
     if (!isLoggedOutPublicPlanView) return;
@@ -3899,7 +3828,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     documentStateRef.current = readNativeDocumentState();
     setNativeSelectionComment(null);
     if (commentMarkersVisible || pendingAnnotation || activeAnnotation) {
-      // Ordinary reading must not invalidate the document tree on every wheel frame.
       scheduleNativeMarkerUpdate();
     }
   };
@@ -4040,8 +3968,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest("[data-plan-interactive]")) return;
-    // Clear any previous selection comment tooltip on pointer-down so it
-    // doesn't linger while a new selection gesture starts.
     setNativeSelectionComment(null);
     if (!annotateMode) return;
     nativeCommentPointerRef.current = {
@@ -4057,10 +3983,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     if (target.closest("[data-plan-interactive]")) return;
     const reader = nativeReaderRef.current;
     if (!reader) return;
-    // Text-selection "Comment" affordance: show the floating button whenever
-    // the user finishes a selection inside the reader, even outside annotate
-    // mode. Click-to-place annotations (the else branch) remain annotate-mode
-    // only because they don't have a visible target without the full review UI.
     const selectionComment = readNativeSelectionComment();
     if (selectionComment) {
       event.preventDefault();
@@ -4123,9 +4045,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
 
   const patchStructuredContent = async (patch: PlanContentPatch) => {
     if (!bundle) return;
-    // For background autosave (replace-blocks) ops, suppress the global
-    // onError toast so the autosave loop's backoff+pill handles error state
-    // instead of spamming toast.error on every retry.
     const silentError = patch.op === "replace-blocks";
     try {
       if (localPlanMode) {
@@ -4159,8 +4078,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         silentError ? { onError: () => {} } : undefined,
       );
     } catch (error) {
-      // Re-throw so the autosave backoff loop in PlanContentRenderer can handle
-      // retries. The global onError toast was already suppressed above.
       throw error;
     }
   };
@@ -4499,8 +4416,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     toast.success(t("plansPage.reader.feedbackCopied"));
   };
 
-  // Route comment writes to the DB (hosted) or comments.json (local); both
-  // return the same bundle shape.
   const writeComments = async (
     comments: PlanCommentInput[],
     note: string,
@@ -4574,7 +4489,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const submitInlineComment = async (draft: CommentDraft) => {
     if (!canCommentPlan) return;
     if (!bundle || !pendingAnnotation || !selectedPlanQueryKey) return;
-    // Capture the current position before clearing (used to restore on failure).
     const capturedPosition = inlineCommentPosition;
     const anchor: PlanAnnotationAnchor = {
       ...pendingAnnotation,
@@ -4626,9 +4540,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     };
     clearPendingDocumentRestore();
     pendingDocumentRestoreRef.current = documentStateRef.current;
-    // Await the cancel so an in-flight sync refresh can't resolve *after* our
-    // optimistic write and revert it (the "comment lagged / didn't stick"
-    // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
@@ -4655,9 +4566,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
               : current,
         );
         clearPendingDocumentRestore();
-        // Restore the draft so the reviewer doesn't lose their typed text.
-        // Re-open the composer at the same anchor with the original draft
-        // pre-filled (Issue 2a).
         setFailedCommentDraft(draft);
         setPendingAnnotation(anchor);
         setInlineCommentPosition(
@@ -4716,8 +4624,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     if (!thread) {
       throw new Error("Comment thread is no longer available.");
     }
-    // Optimistic reply: insert into cache immediately so the UI updates
-    // before the server round-trip completes (Issue 3).
     const replyId = newCommentId();
     const now = new Date().toISOString();
     const optimisticReply: PlanCommentItem = {
@@ -4741,9 +4647,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       createdAt: now,
       updatedAt: now,
     };
-    // Await the cancel so an in-flight sync refresh can't resolve *after* our
-    // optimistic write and revert it (the "comment lagged / didn't stick"
-    // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
@@ -4767,13 +4670,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         ],
         "Human replied to visual plan feedback.",
       );
-      // Replace optimistic entry with the authoritative server response.
       if (selectedPlanQueryKey) {
         queryClient.setQueryData(selectedPlanQueryKey, updated);
       }
       toast.success(t("plansPage.comments.replyAdded"));
     } catch {
-      // Roll back the optimistic reply on error.
       queryClient.setQueryData(
         selectedPlanQueryKey,
         (current: PlanBundleWithHtml | undefined) =>
@@ -4794,13 +4695,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const fallbackAnchorJson = fallbackAnchor
       ? JSON.stringify(fallbackAnchor)
       : undefined;
-    // Optimistic status flip: update the cache immediately so the marker and
-    // popover update without waiting for the server round-trip (Issue 3).
     const prevBundle =
       queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
-    // Await the cancel so an in-flight sync refresh can't resolve *after* our
-    // optimistic write and revert it (the "comment lagged / didn't stick"
-    // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
@@ -4841,7 +4737,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         );
       })
       .catch(() => {
-        // Roll back the optimistic status change.
         if (prevBundle !== undefined) {
           queryClient.setQueryData(selectedPlanQueryKey, prevBundle);
         }
@@ -4867,9 +4762,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const prevBundle =
       queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
     const commentId = request.commentId;
-    // Await the cancel so an in-flight sync refresh can't resolve *after* our
-    // optimistic write and revert it (the "comment lagged / didn't stick"
-    // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
     queryClient.setQueryData(
       selectedPlanQueryKey,
@@ -5758,8 +5650,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     <GuestCommentCta
                       position={inlineCommentPosition}
                       onSignIn={() => {
-                        // share funnel: logged-out viewer of a public plan
-                        // clicking the "create account to comment" CTA.
                         fireShareCtaClick("comment_signin");
                         openSignIn(
                           window.location.pathname + window.location.search,
@@ -5974,10 +5864,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
 }
 
-// Shared copy for the rich access-management share popover. The public note
-// makes clear that anyone-with-link can view, but commenting on a public
-// plan/recap still needs an agent-native account (comments are attributed +
-// scoped). `noun` is "plan" or "recap" so recaps read as recaps everywhere.
 const buildShareVisibilityCopy = (
   t: ReturnType<typeof useT>,
   noun: string,
@@ -6156,14 +6042,6 @@ function PlanReportControl({
   );
 }
 
-/**
- * Share affordance for a plan. People with a session (logged in, or local dev
- * identity) get the full access-management popover immediately. People in
- * local/no-account mode get a "Create shareable link" step first: clicking it
- * publishes the plan to a hosted, shareable URL — creating a lazy account /
- * signing in along the way when the server reports `needsAuth` — and then
- * swaps in the same rich sharing menu.
- */
 function PlanShareControl({
   planId,
   planTitle,
@@ -6223,9 +6101,6 @@ function PlanShareControl({
     effectivePublishedUrl && hostedPlanOnCurrentOrigin && effectiveHostedPlanId
       ? effectiveHostedPlanId
       : planId;
-  // Viral attribution: the owner is the one publishing/managing the share here,
-  // so `via` is their non-PII session userId. `localShareUrl` is already tagged
-  // upstream; tag the hosted/public URL too so both paths self-attribute.
   const managedShareUrl =
     effectivePublishedUrl && hostedPlanOnCurrentOrigin
       ? withPlanShareAttribution(effectivePublishedUrl, session?.userId ?? null)
@@ -6279,8 +6154,6 @@ function PlanShareControl({
           });
           onShareSuccess?.();
           setAuthPrompt(null);
-          // Tag the freshly-minted public link so signups from it are
-          // attributed. The publisher is the owner, so `via` is their userId.
           copyPublishedUrl(
             withPlanShareAttribution(
               result.hostedPlanUrl ?? result.url,
@@ -6294,7 +6167,6 @@ function PlanShareControl({
     );
   }, [copyPublishedUrl, onShareSuccess, planId, publishPlan, session?.userId]);
 
-  // Logged-in / local-dev: manage shares for the plan in this app instance.
   if (canManageLocalShares) {
     if (!managedShareUrl) return null;
     const shareButton = (
@@ -6334,7 +6206,6 @@ function PlanShareControl({
     );
   }
 
-  // No account yet: publish-to-share step, anchored to the Share button.
   return (
     <Popover
       open={publishOpen}
@@ -6677,8 +6548,6 @@ function PlanSkeleton({ isRecap = false }: { isRecap?: boolean }) {
   const loadingLabel = isRecap
     ? t("plansPage.skeleton.loadingRecap")
     : t("plansPage.skeleton.loadingPlan");
-  // Recaps are document-only review surfaces that almost never use the top
-  // canvas, so skip the canvas placeholder for them while keeping it for plans.
   return (
     <div
       className="plan-content-surface h-full min-h-0 overflow-auto bg-plan-document text-plan-text"
@@ -7092,7 +6961,6 @@ function PlanLoadError({
   onRequestAccess: () => void;
   requestAccessPending?: boolean;
   accessRequestSent?: boolean;
-  /** The signed-in identity for THIS origin, or null when anonymous. */
   viewerEmail?: string | null;
 }) {
   const t = useT();
@@ -8276,9 +8144,6 @@ function PlanHistorySheet({
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
     null,
   );
-  // Version id pending a confirm before restore. Set from the per-row "Restore
-  // this version" action in the list so restore is reachable without first
-  // opening the detail preview.
   const [restoreCandidateId, setRestoreCandidateId] = useState<string | null>(
     null,
   );
@@ -8291,9 +8156,6 @@ function PlanHistorySheet({
   const versions = versionsQuery.data?.versions ?? [];
   const selectedVersion = versionQuery.data;
 
-  // Cache of fully-loaded version details by version id. Populated as the
-  // user browses individual versions; used to compute block-level diff
-  // summaries on the list view without any extra network calls.
   const versionDetailCache = useRef<Map<string, PlanVersionDetail>>(new Map());
 
   useEffect(() => {
@@ -8305,7 +8167,6 @@ function PlanHistorySheet({
     versionDetailCache.current = new Map();
   }, [planId]);
 
-  // Store the freshly loaded version detail in the cache whenever it arrives.
   useEffect(() => {
     if (versionQuery.data) {
       versionDetailCache.current.set(versionQuery.data.id, versionQuery.data);
@@ -8406,12 +8267,6 @@ function PlanHistorySheet({
                   <iframe
                     title={t("plansPage.history.previewTitle")}
                     srcDoc={selectedVersion.html}
-                    // Stored plan HTML is agent-authored and may carry
-                    // prompt-injected markup. Match the main document iframe
-                    // (search "allow-forms allow-scripts"): run scripts only in
-                    // an opaque origin — never allow-same-origin — so a malicious
-                    // snapshot cannot reach the app origin's cookies, DOM, or
-                    // actions.
                     sandbox="allow-forms allow-scripts"
                     className="h-[calc(100vh-142px)] w-full border-0 bg-background"
                   />
@@ -8456,18 +8311,12 @@ function PlanHistorySheet({
               ) : versions.length ? (
                 <div className="p-2">
                   {versions.map((version, index) => {
-                    // Compute a diff summary when both this version and its
-                    // predecessor have been loaded into the cache. Versions are
-                    // ordered newest-first, so index+1 is the older snapshot.
-                    // The oldest entry (no predecessor) shows "Initial version".
                     const cache = versionDetailCache.current;
                     const thisDetail = cache.get(version.id);
                     const olderVersion = versions[index + 1];
                     const olderDetail = olderVersion
                       ? cache.get(olderVersion.id)
                       : undefined;
-                    // Show a diff when: this version's detail is loaded AND
-                    // (it's the oldest OR the older neighbour's detail is loaded).
                     const isOldest = index === versions.length - 1;
                     const diffSummary =
                       thisDetail && (isOldest || olderDetail)
@@ -8699,8 +8548,6 @@ function CreatePlanDialog({
   const [promptText, setPromptText] = useState("");
   const [promptSeed, setPromptSeed] = useState("");
   const [promptSeedKey, setPromptSeedKey] = useState(0);
-  // Gate the composer when signed in but nothing can run the agent (guests get
-  // the sign-in path instead). Clears live when a key is added.
   const agentMissing = useAgentEngineConfigured(canCreate).missing;
   const composerLocked = !canCreate || agentMissing;
 
@@ -9489,15 +9336,10 @@ function AnnotationPopover({
     message: annotation.message,
     mentions: extractCommentMentions(annotation.message),
   });
-  // Reset edit state when the user opens a different comment pin.
   useEffect(() => {
     setEditing(false);
   }, [annotation.id]);
   useEffect(() => {
-    // Don't clobber in-progress edits when poll-driven annotation refreshes
-    // arrive (Issue 4b). Only sync the display message while NOT editing.
-    // When editing ends (editing flips false), this effect re-runs and picks
-    // up any fresh server state that arrived during the edit session.
     if (editing) return;
     setMessageDraft({
       message: annotation.message,
@@ -9523,7 +9365,6 @@ function AnnotationPopover({
     onSave(messageDraft.message.trim());
   };
 
-  // Escape key closes the popover.
   useEffect(() => {
     if (!onClose) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -9536,9 +9377,6 @@ function AnnotationPopover({
       window.removeEventListener("keydown", handleKeyDown, { capture: true });
   }, [onClose]);
 
-  // Pointer-down outside the popover closes it. Clicks on comment marker
-  // buttons (data-comment-marker) are intentionally allowed through so switching
-  // to another pin still works without double-clicking.
   useEffect(() => {
     if (!onClose) return;
     const handlePointerDown = (event: MouseEvent) => {
@@ -9804,7 +9642,6 @@ function AnnotationsPanel({
     }
   }, [filterTab, showResolvedComments]);
 
-  // Move focus into the panel when it opens.
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
@@ -9814,15 +9651,11 @@ function AnnotationsPanel({
     focusable?.focus();
   }, []);
 
-  // Escape closes the panel and attempts to return focus to the toolbar
-  // trigger that opened it (the "Plan actions" dots button).
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      // Only handle Escape if focus is inside this panel.
       if (!panelRef.current?.contains(document.activeElement)) return;
       onClose();
-      // Return focus to the toolbar dots-menu trigger if reachable.
       const trigger = document.querySelector<HTMLElement>(
         "[data-plan-actions-trigger]",
       );

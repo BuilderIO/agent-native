@@ -131,12 +131,6 @@ function TextResizeControls({
 
 type TypographyDetailsTab = "basics" | "details";
 
-/**
- * The tab bar's "Basics"/"Details" buttons are a real tab list (not the
- * static, non-interactive spans this replaced) — see the module-level note
- * near `TypographyDetailsPopover` for why the third "Variable" tab was
- * dropped instead of wired up.
- */
 function TypographyDetailsTabButton({
   label,
   active,
@@ -163,18 +157,6 @@ function TypographyDetailsTabButton({
   );
 }
 
-/**
- * Text decoration (underline/strikethrough) and case (none/uppercase/
- * lowercase/capitalize) live here, in the popover's "Details" tab, rather
- * than as a 5th always-visible row in the compact panel above — matching
- * Figma, which tucks these into the same type-details flyout instead of the
- * always-on compact type row. Deliberately NOT duplicating line-height /
- * letter-spacing here even though Figma's flyout also shows them: this
- * panel's compact row (see TypographyProperties below) already exposes both
- * as always-visible, directly-editable fields, so a second live-editable
- * copy of the exact same property here would be redundant clutter and an
- * easy source of two-inputs-fighting-the-same-value bugs, not a feature.
- */
 function TypographyDetailsPopover({
   resizeMode,
   onResizeModeChange,
@@ -380,7 +362,6 @@ function TypographyDetailsPopover({
   );
 }
 
-/** Text element properties */
 export function TypographyProperties({
   element,
   onStyleChange,
@@ -410,14 +391,6 @@ export function TypographyProperties({
           : displayFontFamilyName(option.value)),
     })),
   ]);
-  // Mixed-selection guards: a multi-selection with differing values injects
-  // the MIXED_VALUE sentinel string into these computedStyles fields (see
-  // mixedElementFromSelection/sameOrMixed). Parsing that sentinel with
-  // parseNumericValue/Number() silently yields 0/NaN-fallback instead of
-  // reflecting "differs across selection", which previously showed a
-  // fabricated 0 (size), 1.2 (line-height), or blank (tracking) rather than
-  // the Mixed state ScrubInput already knows how to render — same pattern as
-  // the rotation field above.
   const fontFamilyIsMixed = isMixedValue(styles.fontFamily);
   const fontWeightIsMixed = isMixedValue(styles.fontWeight);
   const fontSizeIsMixed = isMixedValue(styles.fontSize);
@@ -456,12 +429,6 @@ export function TypographyProperties({
     onStylesChange?.(changes, meta);
   };
 
-  // Text decoration (underline/strikethrough) reads through the bridge's
-  // clean `textDecorationLine` computed longhand (never the composite
-  // `textDecoration` shorthand string, which also carries style/color) but
-  // WRITES commit through the "textDecoration" property name — see
-  // nextTextDecorationLineValue's doc comment in typography-helpers.ts for
-  // why the longhand isn't on the persisted-source style allow-list.
   const underlineActive = isTextDecorationLineActive(
     styles.textDecorationLine,
     "underline",
@@ -476,19 +443,11 @@ export function TypographyProperties({
       nextTextDecorationLineValue(styles.textDecorationLine, line),
     );
   };
-  // Mixed-selection guard mirrors fontWeight/fontFamily above: an
-  // indeterminate case across the selection renders with none of the four
-  // options highlighted rather than guessing one element's value.
   const textCase = textTransformIsMixed
     ? "none"
     : optionValue(TEXT_CASE_OPTIONS, styles.textTransform, "none");
   const setTextCase = (value: string) => onStyleChange("textTransform", value);
 
-  // resolveFontFamilyFieldValue returns the MIXED_VALUE sentinel unchanged
-  // when the selection differs so the Select below can render it as an
-  // explicit disabled placeholder (matching fontWeight's pattern just below)
-  // instead of a normal, clickable option that could commit the literal
-  // string "Mixed" as a font-family value.
   const fontFamily = resolveFontFamilyFieldValue(styles.fontFamily);
   const fontFamilyOptions = sortFontFamilyOptions(
     fontFamilyIsMixed
@@ -524,10 +483,6 @@ export function TypographyProperties({
     value: option.value,
     label: t(`editPanel.fontWeights.${option.key}`),
   }));
-  // Non-mixed but not one of the nine standard notches (e.g. a variable-font
-  // weight like "550") needs the same synthesized-option treatment as an
-  // unknown font family — otherwise the Select's value matches no item and
-  // renders blank even though the real weight is still applied.
   const currentFontWeight = styles.fontWeight || "400";
   const fontWeightOptions =
     fontWeightIsMixed || isKnownFontWeight(currentFontWeight)
@@ -538,18 +493,6 @@ export function TypographyProperties({
         ];
   const textAlign = styles.textAlign || "left";
 
-  // M1 · Text resizing mode (auto-width / auto-height / fixed). the design
-  // editor's text nodes always expose this segment. Read authored
-  // (inlineStyles) values, not computed ones: an absolutely-positioned
-  // element's computed width/height always resolve to a real px value even
-  // when the author never set them, so "auto" and "a specific 200px" were
-  // indistinguishable before — every text node misread as "fixed". Falls
-  // back to the computed-style heuristic for older payloads that predate
-  // inlineStyles. Convention (matches DesignEditor primitive creation and
-  // setResizeMode below): auto-width = width unset/max-content + pre-wrap;
-  // auto-height = fixed width + height unset/auto; fixed = both fixed. A
-  // drag-created box (display:flex, explicit width+height, whiteSpace
-  // unset→normal) correctly falls through to "fixed".
   const authoredResizeWidth = authoredStyleValue(element, "width");
   const authoredResizeHeight = authoredStyleValue(element, "height");
   const authoredWhiteSpace = authoredStyleValue(element, "whiteSpace");
@@ -571,10 +514,6 @@ export function TypographyProperties({
       : !heightIsAuto && !widthIsAuto
         ? "fixed"
         : "auto-height";
-  // Fall back to the element's actual current on-screen size (not an
-  // arbitrary constant) when there's no real authored size yet — converting
-  // auto-width/auto-height text to "fixed" must preserve its current
-  // rendered size instead of visibly snapping it to a hardcoded default.
   const currentWidth = resolveFixedResizeDimension(
     styles.width,
     widthIsAuto,
@@ -601,18 +540,6 @@ export function TypographyProperties({
     }
   };
 
-  // M2 · Vertical text alignment (top / middle / bottom). For an auto-layout
-  // text container (display:flex) this maps to whichever flex property
-  // controls the vertical/cross axis — justifyContent when flex-direction is
-  // column, alignItems when row (the DesignEditor drag-created default; see
-  // primitive creation, which sets display:flex + alignItems:center with no
-  // explicit flex-direction, i.e. row). For any non-flex display,
-  // `verticalAlign` is a no-op: it only affects how an inline/inline-block/
-  // table-cell box sits relative to *sibling* line-box content, not how its
-  // own content sits within its own box — exactly the case for point text
-  // (inline-block). So instead of ever writing verticalAlign, convert the
-  // element to flex the same way a drag-created box is authored, then read/
-  // write through the row-axis property (alignItems) like that default.
   const display = (styles.display || "").toLowerCase();
   const isFlexText = display.includes("flex");
   const isColumnFlexText =
@@ -628,9 +555,6 @@ export function TypographyProperties({
         ? "bottom"
         : "top";
   const setVerticalAlign = (mode: "top" | "middle" | "bottom") => {
-    // Converting a non-flex element matches the drag-created fixed-size text
-    // box exactly: display:flex, default (row) flex-direction — so the
-    // vertical axis is alignItems, same as the pre-existing row case below.
     if (!isFlexText) onStyleChange("display", "flex");
     const cssValue =
       mode === "middle"

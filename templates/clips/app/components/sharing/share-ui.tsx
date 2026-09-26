@@ -42,10 +42,6 @@ import {
 import { useVisibleAvatarUrl } from "@/lib/use-visible-avatar-url";
 import { cn } from "@/lib/utils";
 
-// ---------------------------------------------------------------------------
-// Shared types + constants
-// ---------------------------------------------------------------------------
-
 export type Visibility = "private" | "org" | "public";
 export type Role = "viewer" | "commenter" | "editor" | "admin";
 export type ShareSettingsView = "people" | null;
@@ -95,10 +91,6 @@ export function copyToClipboard(value: string): Promise<boolean> {
   return writeClipboardText(value);
 }
 
-// ---------------------------------------------------------------------------
-// Keeping the share popover open across nested layers
-// ---------------------------------------------------------------------------
-
 const NESTED_LAYER_SELECTOR = [
   "[data-radix-popper-content-wrapper]",
   "[data-radix-menu-content]",
@@ -117,20 +109,12 @@ function isNestedLayerInteraction(target: EventTarget | null): boolean {
   if (target instanceof Element && target.closest(NESTED_LAYER_SELECTOR)) {
     return true;
   }
-  // Radix blocks body pointer events while a select/menu is open, so a click
-  // meant to close it resolves to the document rather than the element under
-  // the cursor. That interaction belongs to the nested layer, not the popover.
   return (
     typeof document !== "undefined" &&
     document.querySelector(OPEN_NESTED_LAYER_SELECTOR) !== null
   );
 }
 
-/**
- * Dropdown and select layers are portalled to the body, so Radix reads their
- * clicks and focus moves as "outside" the share popover and dismisses it. Spread
- * these on `PopoverContent` so only genuinely outside interactions close it.
- */
 export function nestedLayerDismissGuards(): {
   onPointerDownOutside: (
     event: CustomEvent<{ originalEvent: PointerEvent }>,
@@ -150,10 +134,6 @@ export function nestedLayerDismissGuards(): {
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Optimistic visibility mutation (resource-agnostic)
-// ---------------------------------------------------------------------------
 
 export function useResourceVisibilityMutation(
   resourceType: string,
@@ -200,10 +180,6 @@ export function useResourceVisibilityMutation(
   return { setResourceVisibility, isPending: setVisibility.isPending };
 }
 
-// ---------------------------------------------------------------------------
-// Compact section labels
-// ---------------------------------------------------------------------------
-
 export function ShareSectionLabel({
   children,
   className,
@@ -217,10 +193,6 @@ export function ShareSectionLabel({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Copy-to-clipboard action button (the URL itself is never rendered)
-// ---------------------------------------------------------------------------
 
 export function CopyButton({
   value,
@@ -297,10 +269,6 @@ export function CopyButton({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Avatar chip
-// ---------------------------------------------------------------------------
-
 export function Avatar({ label, org }: { label: string; org?: boolean }) {
   const { avatarRef, avatarUrl } = useVisibleAvatarUrl(org ? null : label);
 
@@ -308,8 +276,6 @@ export function Avatar({ label, org }: { label: string; org?: boolean }) {
     return (
       <span
         aria-hidden
-        // Muted reads darker than the surface in light mode, background does
-        // the same in dark mode, so the chip stays subtly recessed in both.
         className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground dark:bg-background"
       >
         <IconUsersGroup size={12} strokeWidth={1.75} />
@@ -327,11 +293,6 @@ export function Avatar({ label, org }: { label: string; org?: boolean }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Accordion row: a summary that expands its detail in place, so managing
-// access never takes the user out of the share popover.
-// ---------------------------------------------------------------------------
-
 export function AccessAccordionRow({
   icon,
   label,
@@ -345,7 +306,6 @@ export function AccessAccordionRow({
   label: ReactNode;
   meta?: ReactNode;
   disabled?: boolean;
-  /** Controlled so callers can show a different summary while expanded. */
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children?: ReactNode;
@@ -362,8 +322,6 @@ export function AccessAccordionRow({
     </>
   );
 
-  // With nothing to reveal, stay a static row rather than offer a chevron and
-  // hover affordance that expand into an empty panel.
   if (!children) {
     return (
       <div className="flex min-h-8 w-full items-center gap-2 px-1.5 py-1">
@@ -398,11 +356,6 @@ export function AccessAccordionRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// General access — inline dropdown, phrased as what the audience can do
-// ---------------------------------------------------------------------------
-
-/** Widest audience first, so the riskiest choice is never buried. */
 const ACCESS_ORDER: Visibility[] = ["public", "org", "private"];
 
 export function GeneralAccessSelect({
@@ -439,8 +392,6 @@ export function GeneralAccessSelect({
           shared trigger applies line-clamp to every direct span child. */}
       <SelectTrigger
         aria-label={t("shareUi.selectAccess")}
-        // The caret's trailing margin lines it up with the accordion row's
-        // caret, which sits inside a 28px box.
         className="h-8 w-full cursor-pointer justify-start gap-2 rounded-md border-0 bg-transparent px-1.5 py-1 text-sm shadow-none transition-colors hover:bg-muted/50 focus:ring-0 focus:ring-offset-0 [&>span]:flex-1 [&>span]:text-start [&>svg:last-child]:me-1"
       >
         <meta.Icon
@@ -457,8 +408,6 @@ export function GeneralAccessSelect({
             <SelectItem
               key={value}
               value={value}
-              // The shared SelectItem pins its check to the inline-start edge.
-              // Move it to the trailing edge so the option icon owns the left.
               className="ps-2 pe-8 [&>span:first-child]:start-auto [&>span:first-child]:end-2"
             >
               <span className="flex items-center gap-2">
@@ -478,10 +427,6 @@ export function GeneralAccessSelect({
   );
 }
 
-// ---------------------------------------------------------------------------
-// People with access — invite field, summary row, and full-list settings body
-// ---------------------------------------------------------------------------
-
 export function InvitePeopleField({
   resourceType,
   resourceId,
@@ -491,7 +436,6 @@ export function InvitePeopleField({
 }: {
   resourceType: string;
   resourceId: string;
-  /** Optional notification deep-link passed to `share-resource`. */
   resourceUrl?: string;
   sharesQuery: SharesQuery;
   onError?: (err: unknown) => void;
@@ -606,8 +550,6 @@ export function PeopleAccessSection({
   const [first, ...rest] = people;
   const [open, setOpen] = useState(false);
 
-  // Expanded, the trigger stops being a summary and becomes `first`'s own row,
-  // since the people below it are the remainder of the list.
   const firstShare = data?.shares.find((s) => s.principalId === first);
   const firstRole = firstShare
     ? (roleCopy?.[firstShare.role]?.label ??
@@ -669,7 +611,6 @@ export function PeopleAccessSettingsBody({
   canManage: boolean;
   roleCopy?: Partial<Record<Role, RoleCopy>>;
   onError?: (err: unknown, action: "permission" | "remove") => void;
-  /** Principal already shown in the summary row, so it is not listed twice. */
   excludePrincipalId?: string;
 }) {
   const t = useT();
@@ -693,8 +634,6 @@ export function PeopleAccessSettingsBody({
         principalType: s.principalType,
         principalId: s.principalId,
         role: nextRole,
-        // Re-granting an existing share only changes the role, so don't email
-        // the person again.
         notify: false,
       } as any,
       {

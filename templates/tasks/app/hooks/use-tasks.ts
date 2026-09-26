@@ -116,7 +116,6 @@ export function useTasks(opts?: {
   includeDone?: boolean;
   includeFields?: boolean;
 }) {
-  // Omit false so GET query params are not serialized as the string "false".
   const params = {
     ...(opts?.includeDone ? { includeDone: true } : {}),
     ...(opts?.includeFields ? { includeFields: true } : {}),

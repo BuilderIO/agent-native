@@ -159,8 +159,6 @@ export default defineAction({
             "none",
           );
         } else if (responseStatus === "needsAction") {
-          // A previous request may have completed the RSVP before its settings
-          // write failed. Finalize it without sending the RSVP a second time.
           providerWriteAttempted = true;
         } else {
           fail("Could not undo this action.", {

@@ -1,10 +1,3 @@
-/**
- * The intake turn is forced to emit only a questionnaire and stop, so the
- * continuation is the turn that actually writes HTML. Anything the user
- * supplied at kickoff — their words, their reference screenshot, their design
- * system — reaches generation only if this builder replays it.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { buildGenerationBriefContext } from "./use-question-flow.js";

@@ -1,13 +1,3 @@
-/**
- * Stop a meeting recording.
- *
- * Stamps the meeting's `actualEnd`, flips a still-`uploading` recording to
- * `ready`, writes a `recording-stop-*` app-state signal so the recorder UI
- * finalizes, and bumps the refresh signal.
- *
- * The actual MediaRecorder stop and chunked-upload finalize are UI gestures.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -91,10 +81,6 @@ export default defineAction({
       .limit(1);
     if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
 
-    // Only mark the transcript "ready" if a transcript actually exists —
-    // otherwise finalize-meeting has nothing to summarize and there would be
-    // no way for the UI to distinguish "notes coming" from "nothing was ever
-    // captured". Match finalize-meeting's own empty-transcript handling.
     let hasTranscript = false;
     let recordingVisibility: string | null | undefined;
     if (meeting.recordingId) {
@@ -156,10 +142,6 @@ export default defineAction({
       });
     }
 
-    // Public resources are intentionally link-only and therefore stay out of
-    // the signed-in Meetings/Shared lists. Calendar participants are the one
-    // known audience we can safely admit without making every public meeting
-    // discoverable, so grant them standard viewer access when the call ends.
     if (
       meeting.visibility === "public" &&
       (access.role === "owner" || access.role === "admin")

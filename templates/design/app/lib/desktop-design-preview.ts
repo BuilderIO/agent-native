@@ -74,9 +74,6 @@ export function resolveDesktopDesignPreviewConnectionId(
   url: string,
 ): string | null {
   const explicit = connectionId?.trim();
-  // Legacy URL screens predate connection metadata. Origin is a conservative
-  // compatibility fallback; current localhost/Fusion screens must pass their
-  // stable connection id so same-origin projects remain session-isolated.
   return explicit || connectionIdForUrl(url);
 }
 
@@ -149,12 +146,6 @@ function normalizeSnapshotBytes(value: unknown): Uint8Array | null {
   return null;
 }
 
-/**
- * Reports a focused URL-backed Interact surface to the desktop app. Browsers
- * without the desktop bridge continue using the iframe unchanged. Electron's
- * main process remains authoritative for eligibility, sender, URL, bounds,
- * session, and generation validation.
- */
 export function useDesktopDesignNativePreview(
   options: DesktopDesignNativePreviewOptions,
 ): DesktopDesignNativePreviewSnapshot | null {

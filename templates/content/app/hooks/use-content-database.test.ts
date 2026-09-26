@@ -268,11 +268,6 @@ describe("isContentDatabaseByIdQueryEnabled", () => {
   });
 
   it("pauses fetching for a still-known databaseId instead of requiring the caller to null it out", () => {
-    // A caller that wants to briefly hold off refetching (e.g. a deferred
-    // sidebar read) must be able to do so by passing `enabled: false` while
-    // keeping the same databaseId — nulling databaseId out instead would move
-    // the query to its disabled, uncached key and read as empty rather than
-    // paused. See DocumentSidebar.tsx's useDeferredFilesDatabaseId.
     expect(
       isContentDatabaseByIdQueryEnabled("files-db", { enabled: false }),
     ).toBe(false);

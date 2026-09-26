@@ -83,8 +83,6 @@ test.describe("drag feedback", () => {
     const dst = (await layerRow(page, "Box B").boundingBox())!;
     await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2);
     await page.mouse.down();
-    // A short first move starts the native drag; jumping straight to the
-    // target never leaves the source row and no dragover fires.
     await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2 + 8, {
       steps: 4,
     });

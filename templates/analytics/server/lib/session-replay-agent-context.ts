@@ -103,7 +103,6 @@ const MAX_DIAGNOSTIC_STACK_CHARS = 2_000;
 const MAX_DIAGNOSTIC_URL_CHARS = 500;
 const MAX_DIAGNOSTIC_ARG_CHARS = 500;
 const MAX_DIAGNOSTIC_ARGS = 10;
-/** Defensive server-side cap for a captured 5xx response-body snippet. */
 const MAX_DIAGNOSTIC_ERROR_BODY_CHARS = 2_048;
 const DEFAULT_DIAGNOSTIC_ENTRY_CAP = 200;
 const AGENT_CONTEXT_DIAGNOSTIC_ENTRY_CAP = 50;
@@ -123,7 +122,6 @@ type ReplayTimelineMarker = {
   detail: string | null;
 };
 
-/** Defensive server-side truncation; never trust client-side caps. */
 function boundedDiagnosticText(value: unknown, maxChars: number): string {
   const text = typeof value === "string" ? value : "";
   return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
@@ -258,11 +256,6 @@ function networkDiagnosticsEntry(
   };
 }
 
-/**
- * Keep priority entries (errors/failures) even when the total exceeds the
- * cap: take up to the full cap from the priority set first, fill remaining
- * space chronologically from the rest, then restore chronological order.
- */
 function boundDiagnosticsEntries<T extends { offsetMs: number }>(
   entries: T[],
   isPriority: (entry: T) => boolean,
@@ -288,12 +281,6 @@ function boundDiagnosticsEntries<T extends { offsetMs: number }>(
   };
 }
 
-/**
- * Strictly chronological pagination: entries are assumed to already reflect
- * the fromMs/toMs + level filtered population (that population defines the
- * totals agents page against). Sort chronologically, then skip `offset`
- * entries and take up to `cap`. No priority reshuffle — stable across pages.
- */
 function paginateDiagnosticsEntries<T extends { offsetMs: number }>(
   entries: T[],
   offset: number,
@@ -310,21 +297,11 @@ function paginateDiagnosticsEntries<T extends { offsetMs: number }>(
 }
 
 export interface SessionReplayDiagnosticsOptions {
-  /** Max console entries returned (default 200). */
   maxConsoleEntries?: number;
-  /** Max network entries returned (default 200). */
   maxNetworkEntries?: number;
-  /** Only include console entries with this level. */
   consoleLevel?: SessionReplayConsoleLevel;
-  /**
-   * Skip this many entries (per kind) before taking the page. Providing
-   * offset, fromMs, or toMs switches selection/ordering to strictly
-   * chronological pagination (no errors-first reshuffle) for stable paging.
-   */
   offset?: number;
-  /** Inclusive lower bound on offsetMs, applied before counting/slicing. */
   fromMs?: number;
-  /** Inclusive upper bound on offsetMs, applied before counting/slicing. */
   toMs?: number;
 }
 
@@ -366,8 +343,6 @@ export function buildSessionReplayDiagnostics(
         startedAt,
       );
       if (isPaginated) {
-        // Paginated mode: totals reflect the fromMs/toMs + level filtered
-        // population, since that's the denominator agents page against.
         if (window.fromMs !== undefined && entry.offsetMs < window.fromMs) {
           continue;
         }
@@ -383,8 +358,6 @@ export function buildSessionReplayDiagnostics(
         if (entry.level === "warn") consoleWarns += repeat;
         consoleEntries.push(entry);
       } else {
-        // Default mode: totals always reflect the full unfiltered
-        // population; consoleLevel only gates which entries are returned.
         const repeat = entry.repeat ?? 1;
         consoleTotal += repeat;
         if (entry.level === "error") consoleErrors += repeat;
@@ -473,11 +446,6 @@ export function buildSessionReplayDiagnostics(
   };
 }
 
-/**
- * Cap timeline markers while keeping error markers preferentially: reserve up
- * to TIMELINE_ERROR_MARKER_RESERVE slots for console/network error markers,
- * fill the rest chronologically, then restore chronological order.
- */
 function capReplayTimelineMarkers(
   markers: ReplayTimelineMarker[],
 ): ReplayTimelineMarker[] {
@@ -508,8 +476,6 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
 
     const tagged = diagnosticsEventTag(event);
     if (tagged) {
-      // Only error-level console events and failed requests become markers;
-      // routine logs/requests would flood the marker cap.
       if (tagged.tag === SESSION_REPLAY_CONSOLE_EVENT_TAG) {
         if (consoleLevel(tagged.payload.level) === "error") {
           markers.push({
@@ -528,8 +494,6 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         if (isFailedSessionReplayNetworkStatus(status)) {
           const method =
             boundedDiagnosticText(tagged.payload.method, 16) || "GET";
-          // External-agent timelines intentionally expose only a path label.
-          // Query strings commonly contain emails, tokens, and other secrets.
           const url = pathLabel(String(tagged.payload.url ?? ""));
           markers.push({
             timestamp,
@@ -609,9 +573,6 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
           String(event.data?.tag ?? "Custom event"),
           MAX_DIAGNOSTIC_MESSAGE_CHARS,
         ),
-        // Custom-event payloads are application-defined and can contain input
-        // values or secrets. The tag and timestamp are sufficient metadata for
-        // this sanitized external-agent timeline.
         detail: null,
       });
     }
@@ -665,9 +626,6 @@ export function resolveSessionReplayAgentAccess(
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recordingId,
   });
-  // Replay grants are always minted by an authenticated viewer. Fail closed
-  // for grants without that signed identity: access policy is viewer-scoped,
-  // so guessing from the ambient request could expose identities to agents.
   if (!result.ok || !result.viewerEmail) return null;
   return { viewerEmail: result.viewerEmail };
 }

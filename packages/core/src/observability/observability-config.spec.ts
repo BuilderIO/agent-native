@@ -35,9 +35,6 @@ describe("getObservabilityConfig", () => {
   });
 
   it("touches no store, so it is not a database read on every agent turn", async () => {
-    // Regression guard: this used to `getSetting("observability-config")` on
-    // the agent hot path, inside a catch that made an outage and "never
-    // configured" the same answer.
     const source = await import("node:fs").then((fs) =>
       fs.readFileSync("src/observability/traces.ts", "utf8"),
     );

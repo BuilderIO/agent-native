@@ -11,28 +11,19 @@ export const bookings = table("bookings", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull(),
-  /** JSON array of additional invitee email addresses */
   additionalGuestEmails: text("additional_guest_emails"),
   start: text("start").notNull(),
   end: text("end").notNull(),
   slug: text("slug").notNull(),
   eventTitle: text("event_title"),
   notes: text("notes"),
-  /** JSON object of custom field responses, keyed by field ID */
   fieldResponses: text("field_responses"),
-  /** Meeting link (Zoom, Google Meet, or custom) */
   meetingLink: text("meeting_link"),
-  /** The booking is confirmed, but the host still needs to attach its meeting link. */
   meetingLinkPending: boolean("meeting_link_pending").notNull().default(false),
-  /** Google Calendar event created for this booking, if any */
   googleEventId: text("google_event_id"),
-  /** Connected calendar account that owns the provider event, if any */
   calendarAccountId: text("calendar_account_id"),
-  /** Token for public cancel/reschedule link */
   cancelToken: text("cancel_token"),
-  /** Zoom may have created the meeting before the booking request failed. */
   zoomNeedsReview: boolean("zoom_needs_review").notNull().default(false),
-  /** Zoom provider identifiers are required to clean up a known meeting. */
   zoomMeetingId: text("zoom_meeting_id"),
   zoomAccountId: text("zoom_account_id"),
   status: text("status", { enum: ["confirmed", "cancelled"] })
@@ -49,13 +40,9 @@ export const bookingLinks = table("booking_links", {
   title: text("title").notNull(),
   description: text("description"),
   duration: integer("duration").notNull().default(30),
-  /** JSON array of additional duration options, e.g. [15, 30, 60] */
   durations: text("durations"),
-  /** JSON array of required co-hosts, excluding the owner */
   hosts: text("hosts"),
-  /** JSON array of custom field definitions */
   customFields: text("custom_fields"),
-  /** JSON conferencing config (type + optional URL) */
   conferencing: text("conferencing"),
   color: text("color"),
   isActive: boolean("is_active").notNull().default(true),

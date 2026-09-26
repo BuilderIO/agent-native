@@ -245,8 +245,6 @@ test.describe("reparenting rules", () => {
           return !!row && !!chip && row.contains(chip);
         });
 
-    // The control drag mutates the document, so the Space drag needs its own
-    // pristine design rather than the one the control already reparented.
     const controlId = await newDesign(page);
     await openEditor(page, controlId);
     await selectViaTree(page, "Chip 1");
@@ -271,8 +269,6 @@ test.describe("reparenting rules", () => {
     chip = (await node(page, "chip-1").boundingBox())!;
     outside = (await node(page, "frame-a").boundingBox())!;
 
-    // The retain-parent flag is set by a keydown listener on the IFRAME
-    // document; page.keyboard sends to the host, where it only pans.
     const previewBody = page
       .locator("iframe[data-design-preview-iframe]")
       .first()

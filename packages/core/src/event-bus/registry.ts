@@ -1,17 +1,7 @@
-/**
- * In-process registry of event definitions.
- *
- * Integrations and templates call `registerEvent()` at module load to declare
- * the event types they emit. The bus uses these definitions to validate
- * payloads, and the Automations UI lists them so users can build triggers.
- */
-
 import { z } from "zod";
 
 import type { EventDefinition } from "./types.js";
 
-// Pin to globalThis so multiple ESM graphs (dev-mode Vite + Nitro, symlinks,
-// dist/ vs src/) share a single registry. Same pattern as secrets/register.ts.
 const REGISTRY_KEY = Symbol.for("@agent-native/core/event-bus.registry");
 interface GlobalWithRegistry {
   [REGISTRY_KEY]?: Map<string, EventDefinition>;
@@ -20,12 +10,6 @@ const registry: Map<string, EventDefinition> = ((
   globalThis as unknown as GlobalWithRegistry
 )[REGISTRY_KEY] ??= new Map());
 
-/**
- * Register (or replace) an event definition.
- *
- * Subsequent registrations with the same `name` replace the previous
- * definition — later plugins can override built-in defaults.
- */
 export function registerEvent(def: EventDefinition): void {
   if (!def || typeof def.name !== "string" || !def.name) {
     throw new Error("registerEvent: def.name is required");
@@ -39,17 +23,14 @@ export function registerEvent(def: EventDefinition): void {
   registry.set(def.name, def);
 }
 
-/** Return all registered events in registration order. */
 export function listEvents(): EventDefinition[] {
   return Array.from(registry.values());
 }
 
-/** Look up a single registered event by name. */
 export function getEvent(name: string): EventDefinition | undefined {
   return registry.get(name);
 }
 
-/** Test helper — clears the registry between runs. */
 export function __resetEventRegistry(): void {
   registry.clear();
   registerBuiltInEvents();

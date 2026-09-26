@@ -242,7 +242,6 @@ function ConversationMessagePartView({
   );
 }
 
-// ─── Shiki syntax highlighter (lazy-loaded) ──────────────────────────────────
 type ShikiHighlighter = {
   codeToHtml: (
     code: string,
@@ -259,8 +258,6 @@ let _highlighterLoader: Promise<ShikiHighlighter> | null = null;
 function loadConversationHighlighter(): Promise<ShikiHighlighter> {
   if (!_highlighterLoader) {
     _highlighterLoader = (async () => {
-      // Use the JavaScript regex engine instead of Oniguruma WASM (~608 KB saved).
-      // forgiving:true degrades unsupported patterns gracefully instead of throwing.
       const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] =
         await Promise.all([
           import("shiki/core"),

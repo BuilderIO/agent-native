@@ -9,7 +9,6 @@ import { hasCapability } from "./design-source-capabilities";
 describe("resolveSourceCapabilities", () => {
   it("returns the disconnected fusion map for fusion sources (conservative default)", () => {
     const caps = resolveSourceCapabilities("fusion");
-    // branch/deployPreview/deploy must be unavailable when connection is unknown
     expect(hasCapability(caps, "branch")).toBe(false);
     expect(hasCapability(caps, "deployPreview")).toBe(false);
     expect(hasCapability(caps, "deploy")).toBe(false);

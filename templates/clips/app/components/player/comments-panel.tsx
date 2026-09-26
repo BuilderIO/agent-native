@@ -70,11 +70,6 @@ function makeTempId() {
   return `temp_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 }
 
-// The shape of the cached value depends on the route — the authenticated
-// player route caches `get-recording-player-data` ({ comments, ... }) while
-// the public share route caches a wrapped fetch response
-// ({ ok, status, data: { comments, ... } }). Both feed into this panel, so we
-// don't assume a shape — the parent passes lenses.
 type CommentsLens = {
   selectComments: (data: unknown) => Comment[] | undefined;
   applyComments: (data: unknown, next: Comment[]) => unknown;
@@ -125,7 +120,6 @@ export interface Comment {
   mentions?: CommentMentionDisplay[];
   videoTimestampMs: number;
   emojiReactionsJson: string;
-  /** Legacy persisted field; resolved comments render like regular comments. */
   resolved?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -191,43 +185,16 @@ export interface CommentsPanelProps {
   recordingId: string;
   comments: Comment[];
   currentMs: number;
-  /**
-   * Reads the player's live original-timeline position when a new root
-   * comment is submitted. Native media can be seeked while paused without
-   * emitting a parent `onTimeUpdate`, so the render-time value is not always
-   * current.
-   */
   getCurrentMs?: () => number;
   currentUserEmail?: string;
   currentUserName?: string;
   enableComments: boolean;
   canComment: boolean;
   onSeek: (ms: number) => void;
-  /**
-   * The React Query key whose cached value contains this panel's `comments`.
-   * Optimistic updates patch this key — passing the wrong one (or omitting
-   * it) means the chip / new-comment row won't appear until the next refetch.
-   */
   queryKey: readonly unknown[];
-  /**
-   * Optional lenses for selecting / replacing the comments array inside the
-   * cached value. Defaults match the authenticated `get-recording-player-data`
-   * shape (`{ comments, ... }`). The public share route wraps comments under
-   * `data.comments` and supplies its own lenses.
-   */
   selectComments?: CommentsLens["selectComments"];
   applyComments?: CommentsLens["applyComments"];
-  /**
-   * If provided, this callback is invoked instead of firing the comment /
-   * reaction mutation when the viewer is not signed in. Use it to surface a
-   * sign-in prompt on the public share page.
-   */
   onUnauthenticated?: (intent: "comment" | "react") => void;
-  /**
-   * Inline presentation keeps the conversation in the primary reading flow
-   * beneath the player for both signed-in and public viewers. The share
-   * presentation remains available for a quieter, contained activity panel.
-   */
   presentation?: "default" | "share" | "inline";
 }
 
@@ -257,8 +224,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
-  // Keep a local projection alongside the query cache so real recording
-  // mutations render immediately while the action request is in flight.
   const [visibleComments, setVisibleComments] = useState(comments);
   const visibleCommentsRef = useRef(visibleComments);
   const reactionStatesRef = useRef(new Map<string, ReactionState>());
@@ -322,8 +287,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
         state.confirmedToken = token;
       }
       if (token === state.latestToken && serverUsers) {
-        // Keep older requests tracked: the server action is a toggle and an
-        // older request can still commit after this response arrives.
         state.authoritativeUsers = serverUsers;
         state.authoritativeToken = token;
       }
@@ -406,7 +369,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
           ? {
               ...comment,
               ...projection,
-              // Reactions are maintained by their own mutation queue.
               emojiReactionsJson: comment.emojiReactionsJson,
             }
           : comment,
@@ -428,8 +390,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
       return;
     }
     if (ctx.type === "remove" && ctx.removed) {
-      // The query cache may have changed while deletion was in flight. Avoid
-      // restoring a stale snapshot; refetch the authoritative list instead.
       patchComments((list) =>
         list.filter(
           (comment) => !successfulDeletionIdsRef.current.has(comment.id),
@@ -646,7 +606,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
     },
   });
 
-  // Group by thread
   const threads = useMemo(() => {
     const map = new Map<string, Comment[]>();
     visibleComments.forEach((c) => {
@@ -654,13 +613,11 @@ export function CommentsPanel(props: CommentsPanelProps) {
       list.push(c);
       map.set(c.threadId, list);
     });
-    // Sort within threads by createdAt
     return Array.from(map.values()).map((list) =>
       list.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     );
   }, [visibleComments]);
 
-  // Sort threads by the first comment's videoTimestampMs
   const sortedThreads = useMemo(
     () =>
       threads.slice().sort((a, b) => {
@@ -702,8 +659,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
           ...mentionArgs(value, draftMentions),
           ...(currentUserName ? { authorName: currentUserName } : {}),
         };
-    // Clear composer state before firing the mutation so the UI feels instant —
-    // the optimistic cache patch in onMutate puts the comment in the list.
     if (target) {
       setReplyDraft("");
       setReplyMentions([]);
@@ -735,7 +690,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
     if (!canComment) return;
     setEditingId(comment.id);
     setEditDraft(comment.content);
-    // Persisted comment data only contains display-safe mention names.
     setEditMentions([]);
   }
 
@@ -1315,9 +1269,6 @@ function CommentCard({
   isReply?: boolean;
 }) {
   const t = useT();
-  // Local override forces a synchronous re-render the instant the user clicks
-  // an emoji — independent of React Query cache propagation. It's cleared as
-  // soon as the prop (server-confirmed) catches up to whatever we showed.
   const [localJson, setLocalJson] = useState<string | null>(null);
   useEffect(() => {
     setLocalJson(null);
@@ -1592,8 +1543,6 @@ export function relativeTime(
   const timestamp = new Date(iso).getTime();
   if (!Number.isFinite(timestamp)) return "";
 
-  // RelativeTimeFormat expects negative values for past dates. Keep the
-  // thresholds in one place so comment rows consistently use full unit names.
   const deltaSeconds = (timestamp - now) / 1000;
   const absoluteSeconds = Math.abs(deltaSeconds);
   if (absoluteSeconds < 60) {

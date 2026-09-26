@@ -1,11 +1,3 @@
-/**
- * Serve a recording thumbnail from the same origin as the public player.
- *
- * Thumbnail providers may return expiring or hotlink-protected URLs. Public
- * share pages already proxy video through `/api/video/:recordingId`; using the
- * same contract here keeps embeds and crawler previews reliable.
- */
-
 import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrlWithDns,
@@ -275,11 +267,6 @@ export default defineEventHandler(async (event: H3Event) => {
         return { error: "Recording has expired" };
       }
 
-      // Held while redactions are drawn but not burned in. The poster and the
-      // animated thumbnail are frames of the stored file, so they show exactly
-      // what the boxes are over — and this route is public, so without this
-      // they go to every viewer and every crawler. The burn clears both
-      // columns, so this lifts on its own.
       if (isHeldForRedaction(recording.editsJson, loaded.role)) {
         setResponseStatus(event, 409);
         return { error: REDACTION_HOLD_MESSAGE };

@@ -83,11 +83,6 @@ async function openLayerStack(
     const rect = element.getBoundingClientRect();
     return { x: rect.left + 165, y: rect.top + 165 };
   });
-  // Dispatch on the real bridge shield inside Chromium. A top-level
-  // page.mouse right-click is consumed by Chromium's iframe context-menu
-  // boundary in headless mode before the srcdoc listener sees it; this still
-  // exercises the actual contextmenu event, elementsFromPoint stack, iframe
-  // postMessage bridge, host menu, and selection path end-to-end.
   await stage.evaluate((_element, point) => {
     document.dispatchEvent(
       new MouseEvent("contextmenu", {
@@ -175,8 +170,6 @@ test("Select layer lists the exact visible unlocked hit stack and dismisses with
     );
     expect(orderedHits).toEqual(visibleLabels);
 
-    // Escape dismisses the submenu/menu and leaves the right-click top hit
-    // selected; it must not accidentally pick a different candidate.
     await page.keyboard.press("Escape");
     await expect(page.getByText("Select layer", { exact: true })).toBeHidden();
     await expect.poll(() => selectedTreeLabel(page)).toContain("Front sibling");

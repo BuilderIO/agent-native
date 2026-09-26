@@ -439,8 +439,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       "iframe[data-design-preview-iframe]",
     );
     expect(liveIframe?.hasAttribute("srcdoc")).toBe(false);
-    // A successful registration is not enough to release the running app: the
-    // cross-origin document must prove that the injected editor bridge booted.
     expect(liveIframe?.style.pointerEvents).toBe("none");
 
     await act(async () => {
@@ -1182,17 +1180,11 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     root = createRoot(container);
     await renderCanvas(false);
 
-    // The second registration is deliberately unresolved. Full view must
-    // still mount the one real live-edit URL immediately from the successful
-    // overview handoff, never an empty srcdoc that is replaced later.
     const focusedIframe = container.querySelector<HTMLIFrameElement>(
       "[data-design-preview-iframe]",
     );
     expect(focusedIframe?.getAttribute("src")).toContain("/live-edit?");
     expect(focusedIframe?.getAttribute("srcdoc")).toBeNull();
-    // No frozen copy is ever painted over the live frame, not even mid-swap:
-    // a snapshot that outlives a stalled swap is indistinguishable from a
-    // working screen.
     expect(
       container.querySelector("[data-live-edit-transition-fallback]"),
     ).toBeNull();
@@ -1213,9 +1205,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       focusedIframe,
     );
 
-    // A source write that forces a Vite full reload must keep the SAME live
-    // iframe (no remount, no state loss) and must not cover it with a
-    // snapshot while the replacement bridge comes back.
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -1386,10 +1375,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
 });
 
 describe("DesignCanvas localhost screens never render a source snapshot", () => {
-  // A viewer without a previewToken (public link, signed-out session, an inline
-  // browser with no cookies) used to get `externalSnapshotHtml` as srcdoc: a
-  // frozen copy that looks exactly like the running app but has no live DOM
-  // behind it, so selection, layers, and edits all silently addressed a corpse.
   it("loads the dev-server URL live when the viewer has no bridge entitlement", async () => {
     await act(async () => {
       root.render(
@@ -1498,8 +1483,6 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
       "[data-design-preview-iframe]",
     );
     expect(iframe?.hasAttribute("srcdoc")).toBe(false);
-    // The transition fallback may briefly paint the snapshot, but only as an
-    // inert aria-hidden layer — never as the editable document.
     expect(iframe?.getAttribute("srcdoc") ?? "").not.toContain(
       "Frozen snapshot",
     );

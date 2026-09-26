@@ -30,19 +30,9 @@ export interface AgentNativeProps extends Omit<
   AgentNativeFrameProps,
   "actions" | "commands" | "getContext"
 > {
-  /**
-   * Live browser-session tools. These can change as page state changes and are
-   * only callable while this tab is connected.
-   */
   actions?: AgentNativeClientActions;
-  /** Semantic app/page context layered over the built-in screen snapshot. */
   getContext?: AgentNativeHostContextGetter;
-  /**
-   * Built-in screen context. Defaults to visible text + route + selection.
-   * Pass false to disable, or { includeDomHtml: true } for a DOM fallback.
-   */
   screen?: boolean | AgentNativeScreenSnapshotOptions;
-  /** Extra/advanced host commands. */
   commands?: AgentNativeHostCommandHandlers;
   onRefresh?: AgentNativeCommandCallback;
   onNavigate?: AgentNativeCommandCallback;

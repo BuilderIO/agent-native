@@ -72,7 +72,6 @@ export function normalizeIdentityAuthority(raw: unknown): string | null {
   }
 }
 
-/** Exact first-party app origins. Never replace this with a suffix check. */
 export const CANONICAL_IDENTITY_SSO_APP_ORIGINS = {
   ...CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
 } as const;
@@ -130,11 +129,6 @@ function parseCustomRegistrations(
   }));
 }
 
-/**
- * Return the exact configured registry. Invalid custom entries are ignored;
- * they never broaden the canonical registry. A deployment can therefore roll
- * back custom registration by removing the env without changing code or data.
- */
 export function getIdentitySsoAppRegistry(
   env: NodeJS.ProcessEnv = process.env,
 ): IdentitySsoAppRegistration[] {
@@ -180,12 +174,6 @@ function isNetlifyPreviewOriginForApp(url: URL, appId?: string): boolean {
   );
 }
 
-/**
- * General redirect-origin validation. The authorize route additionally calls
- * `resolveIdentitySsoApp`, which enforces the exact registered callback.
- * Localhost remains available for development, but only with exact callback
- * path and client binding in the app resolver below.
- */
 export function isAllowedRedirectUri(rawRedirectUri: unknown): boolean {
   if (typeof rawRedirectUri !== "string") return false;
   const url = parseAbsoluteUrl(rawRedirectUri);
@@ -214,11 +202,6 @@ function exactCallbackMatches(
   );
 }
 
-/**
- * Resolve an app only when app id, client id, exact origin, and callback path
- * all agree. Loopback is the narrowly-scoped development exception and still
- * requires a valid app/client id pair plus the fixed callback path.
- */
 export function resolveIdentitySsoApp(
   appId: unknown,
   clientId: unknown,

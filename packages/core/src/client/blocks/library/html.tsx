@@ -31,9 +31,6 @@ function buildSrcDoc(
 ): string {
   const css = data.css ?? "";
   const body = sanitize ? sanitize(data.html, data.css) : data.html;
-  // The iframe is isolated from the host's `.dark` class and CSS variables, so
-  // bridge the current theme explicitly and expose the same semantic tokens that
-  // generated wireframe/diagram HTML already uses.
   return `<!doctype html><html data-theme="${theme}"><head><style>:root{color-scheme:light;--wf-paper:#fbfaf6;--wf-card:#ffffff;--wf-ink:#1f1f1d;--wf-muted:#6f6a63;--wf-line:#ded8ce;--wf-radius:12px;--plan-document:var(--wf-paper);--plan-block:var(--wf-card);--plan-text:var(--wf-ink);--plan-muted:var(--wf-muted);--plan-line:var(--wf-line)}:root[data-theme="dark"]{color-scheme:dark;--wf-paper:#201f1c;--wf-card:#2a2825;--wf-ink:#ece8e1;--wf-muted:#9a948b;--wf-line:#43403a;--plan-document:var(--wf-paper);--plan-block:var(--wf-card);--plan-text:var(--wf-ink);--plan-muted:var(--wf-muted);--plan-line:var(--wf-line)}html,body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;color:var(--wf-ink);background:var(--wf-paper)}*{box-sizing:border-box}${css}</style></head><body>${body}</body></html>`;
 }
 
@@ -64,7 +61,6 @@ function HtmlPreview({
   );
 }
 
-/** Read-only renderer: the sandboxed iframe preview plus an optional caption. */
 export function HtmlReadBlock({
   data,
   blockId,
@@ -79,14 +75,6 @@ export function HtmlReadBlock({
   );
 }
 
-/**
- * Custom editor: an "Edit source" toggle that flips between the live preview and
- * inline HTML + CSS textareas (ported from the plan `CustomHtmlBlock`). The
- * title is rendered by the registry's edit-mode section wrapper, so this only
- * renders the toggle + content. Edits commit the merged data via `onChange`,
- * which the app routes through its generic `update-block` patch (re-validated by
- * the app schema).
- */
 export function HtmlEditBlock({
   data,
   onChange,
@@ -234,12 +222,6 @@ export function HtmlEditBlock({
   );
 }
 
-/**
- * The standard HTML / Tailwind block spec. Both apps register this; the plan app
- * registers the matching React-free `{ schema, mdx }` server-side via
- * `html.config.ts`. `empty()` seeds a friendly starter fragment for slash
- * insertion.
- */
 export const htmlBlock = defineBlock<HtmlBlockData>({
   type: "custom-html",
   schema: htmlSchema,
@@ -247,8 +229,6 @@ export const htmlBlock = defineBlock<HtmlBlockData>({
   Read: HtmlReadBlock,
   Edit: HtmlEditBlock,
   placement: ["block"],
-  // Config-driven: the render (a sandboxed card) differs from its source, so edit
-  // the html/css/caption from a corner button + panel rather than always-inline.
   editSurface: "panel",
   label: "HTML / Tailwind",
   icon: IconCode,

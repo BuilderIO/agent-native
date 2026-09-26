@@ -19,8 +19,6 @@ describe("resolveFrameworkTools", () => {
     const resolved = resolveFrameworkTools(undefined);
 
     expect(resolved.disabledGroups.size).toBe(0);
-    // `undefined` (not "read") so `normalizeDatabaseToolsMode` keeps owning the
-    // default and this resolver cannot drift from it.
     expect(resolved.database).toBeUndefined();
     expect(resolved.extensions).toBe(false);
     for (const group of FRAMEWORK_TOOL_GROUPS) {
@@ -97,7 +95,6 @@ describe("resolveFrameworkTools", () => {
     });
 
     it("accepts old and new forms that agree, including boolean spellings", () => {
-      // `false` and `"off"` are the same mode, so this is not a conflict.
       expect(
         resolveFrameworkTools({
           databaseTools: false,
@@ -118,9 +115,6 @@ describe("resolveFrameworkTools", () => {
     });
 
     it("throws when the old and new forms disagree", () => {
-      // Silently preferring one would boot the app with a tool surface nobody
-      // chose, and the resulting "why can't the agent see db-query" is
-      // unexplainable from either call site.
       expect(() =>
         resolveFrameworkTools({
           databaseTools: false,
@@ -159,7 +153,6 @@ describe("filterFrameworkToolGroups", () => {
   };
 
   it("returns the input untouched when nothing is disabled", () => {
-    // Same reference: the default path must not pay to rebuild the registry.
     expect(filterFrameworkToolGroups(registry, new Set())).toBe(registry);
   });
 
@@ -197,14 +190,6 @@ describe("group membership resolves by name, not only by tag", () => {
     ).toEqual({});
   });
 
-  // The guard this file was missing. Every test above stamped `frameworkGroup`
-  // by hand, so the filter looked correct while the tag was reaching almost no
-  // real registry: it is written only by `mergeCoreSharingActions`, which runs
-  // against the ungated `httpActions`. Apps loading core kits through
-  // `loadActionsFromStaticRegistry` or their own actions directory therefore
-  // held untagged entries, and eight `frameworkTools` switches silently did
-  // nothing. Build the fixtures the way those apps do — no tag — so a
-  // regression here fails instead of passing on hand-tagged inputs.
   const untagged = Object.fromEntries(
     Object.keys(CORE_ACTION_GROUPS).map((name) => [
       name,
@@ -226,7 +211,6 @@ describe("group membership resolves by name, not only by tag", () => {
           `${name} survived \`${group}: false\``,
         ).toBe(false);
       }
-      // Only that group goes; the rest of the catalog is untouched.
       expect(Object.keys(filtered).length).toBe(
         Object.keys(untagged).length - names.length,
       );

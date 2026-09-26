@@ -154,7 +154,6 @@ export {
   getSessionReplayUrl,
   captureError,
   captureClientException,
-  // First-party, Sentry-style error capture (auto + manual API).
   AGENT_NATIVE_EXCEPTION_EVENT_NAME,
   addErrorBreadcrumb,
   captureException,

@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
-  // One entry per `select` when a test needs the candidate query and the
-  // out-of-scope probe to answer differently; otherwise every call sees `rows`.
   rowsByCall: [] as Record<string, unknown>[][],
   legacySettings: {} as Record<string, Record<string, unknown>>,
   projection: null as Record<string, unknown> | null,

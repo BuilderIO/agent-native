@@ -19,9 +19,6 @@ import { Sidebar } from "./Sidebar";
 
 const BARE_ROUTES = new Set(["/form-preview"]);
 
-// Routes whose page renders its own custom toolbar (with AgentToggleButton).
-// Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
-// there's no double-header.
 const NO_HEADER_PREFIXES = ["/forms/", "/extensions", "/response-insights"];
 
 interface LayoutProps {
@@ -45,9 +42,6 @@ export function Layout({ children }: LayoutProps) {
     requireActiveHandoff: true,
   });
 
-  // Bind chat to the currently-open form. The `/forms/:id` URL covers
-  // both the builder and the responses sub-page (`/forms/:id/responses`);
-  // either way we want both screens of the same form to share a chat.
   const formScope = useMemo(() => {
     const match = location.pathname.match(/^\/forms\/([^/]+)/);
     const formId = match?.[1];
@@ -58,9 +52,6 @@ export function Layout({ children }: LayoutProps) {
     return <>{children}</>;
   }
 
-  // Editor routes (/forms/:id, /forms/:id/responses) render their own
-  // toolbar with AgentToggleButton — skip the global Header to avoid
-  // a double-header.
   const showHeader =
     !NO_HEADER_PREFIXES.some((prefix) =>
       location.pathname.startsWith(prefix),

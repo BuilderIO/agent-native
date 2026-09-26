@@ -139,11 +139,6 @@ export interface InvokeAgentActionOptions extends ResolveAgentInvocationTargetOp
   runtime?: Partial<AgentInvocationRuntime>;
 }
 
-/**
- * Resolve an A2A invocation target from a direct URL or from the connected app
- * registry. ID/name resolution deliberately uses the same discovery path as
- * the in-agent `call-agent` script.
- */
 export async function resolveAgentInvocationTarget(
   target: string,
   options: ResolveAgentInvocationTargetOptions = {},
@@ -207,10 +202,6 @@ export async function resolveAgentInvocationTarget(
   return resolvedTarget;
 }
 
-/**
- * First-class headless A2A primitive: resolve an app/agent by id, name, or URL,
- * send a text prompt, and return the text response with target metadata.
- */
 export async function invokeAgent(
   options: InvokeAgentOptions,
 ): Promise<AgentInvocationResult> {
@@ -333,11 +324,6 @@ export async function invokeAgent(
   };
 }
 
-/**
- * Resolve another app and execute one explicitly exposed read-only action on
- * it. This is the fast A2A path for bounded data operations that do not need a
- * second model to plan or synthesize.
- */
 export async function invokeAgentAction(
   options: InvokeAgentActionOptions,
 ): Promise<AgentActionInvocationResult> {

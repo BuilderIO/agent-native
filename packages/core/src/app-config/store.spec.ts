@@ -248,8 +248,6 @@ describe("app identity", () => {
   });
 
   it("has no default, so credential scoping can still deny", () => {
-    // A default of "app" here would turn "no identity configured" into a grant
-    // lookup scoped to an app literally named `app`.
     expect(appConfigSchema.parse({}).app.id).toBeUndefined();
   });
 
@@ -304,9 +302,6 @@ describe("agent engine and model", () => {
   });
 
   it("rejects a malformed toggle instead of silently reading it as false", () => {
-    // Behavior change: `/^(1|true)$/i.test(...)` treated "maybe" as false, so a
-    // typo silently selected the opposite policy. It is now a startup error
-    // naming the key.
     process.env.AGENT_ENGINE_PREFER_BYO_KEY = "maybe";
     expect(() => getAppConfig()).toThrow(
       /AGENT_ENGINE_PREFER_BYO_KEY must be one of/,

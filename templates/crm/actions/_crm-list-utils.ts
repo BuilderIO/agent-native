@@ -1,17 +1,3 @@
-/**
- * Shared plumbing for the CRM list actions.
- *
- * Lists are Attio's workflow overlay: a list has its OWN attributes (stage,
- * owner, priority) whose values live on the ENTRY, not on the record. Entries
- * and entry values are local-authoritative on every backend — that is what lets
- * a pipeline work over a HubSpot or Salesforce mirror without a provider write.
- *
- * Entry attribute values are stored in `crm_record_fields` with `entryId` set;
- * `recordId` stays populated either way, so `entryId IS NULL` is the
- * record-vs-entry discriminator. Every value write goes through
- * `writeCrmRecordField`, which is what makes a stage change open a history row.
- */
-
 import type { ActionRunContext } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
@@ -65,11 +51,6 @@ export const MAX_LIST_ENTRY_FILTERS = 6;
 export const MAX_LIST_ENTRY_SORTS = 2;
 export const MAX_LIST_ATTRIBUTES = 100;
 
-/**
- * A list problem the caller must fix before retrying. Extends the attribute
- * writer's error so every "your input is wrong" failure out of the CRM write
- * path carries the same 422 contract.
- */
 export class CrmListError extends CrmAttributeValueError {
   constructor(code: string, message: string) {
     super(code, message);
@@ -83,7 +64,6 @@ export interface CrmOwnership {
   visibility: "private" | "org" | "public";
 }
 
-/** Who is making the write, in `crm_record_fields.actor_type` terms. */
 export function crmActorFrom(ctx?: ActionRunContext): {
   type: CrmActorType;
   id: string | null;
@@ -98,10 +78,6 @@ export function crmActorFrom(ctx?: ActionRunContext): {
   return { type, id: ctx?.userEmail ?? null };
 }
 
-// ---------------------------------------------------------------------------
-// Lists
-// ---------------------------------------------------------------------------
-
 export function crmApiSlug(value: string): string {
   const slug = value
     .trim()
@@ -112,11 +88,6 @@ export function crmApiSlug(value: string): string {
   return slug || "list";
 }
 
-/**
- * A slug that is free among the lists this caller can see. Uniqueness is
- * scoped, not global — the id is the key, `api_slug` is the stable human handle
- * and is immutable once assigned.
- */
 export async function uniqueCrmListSlug(
   db: CrmDb,
   connectionId: string,
@@ -202,10 +173,6 @@ export async function requireCrmListEntry(
   return entry;
 }
 
-// ---------------------------------------------------------------------------
-// List attributes
-// ---------------------------------------------------------------------------
-
 export interface CrmListAttribute extends CrmWritableAttribute {
   label: string;
   description: string | null;
@@ -214,12 +181,6 @@ export interface CrmListAttribute extends CrmWritableAttribute {
   options: CrmAttributeOption[];
 }
 
-/**
- * The list's own attributes. `target = "list"` with `target_id = listId`;
- * `object_type` mirrors `target_id` so the legacy
- * `(connection_id, object_type, field_name)` unique index keeps guarding one
- * attribute per list.
- */
 export async function loadCrmListAttributes(
   db: CrmDb,
   listId: string,
@@ -294,9 +255,6 @@ export async function loadCrmListAttributes(
 
   return rows
     .map((row) => {
-      // A list attribute is local-authoritative by construction. A provider
-      // storage policy here means the row was mis-seeded, not that the value is
-      // merely unwritable — say so instead of silently degrading the write.
       if (
         row.storagePolicy !== "local-authoritative" &&
         row.storagePolicy !== "derived-local" &&
@@ -336,26 +294,11 @@ export function indexAttributes(
   return new Map(attributes.map((attribute) => [attribute.apiSlug, attribute]));
 }
 
-// ---------------------------------------------------------------------------
-// Seeding a list from its parent object, and the one-time copy that gives a
-// new entry its first values.
-//
-// A list attribute is the list's OWN field: it is seeded from a record
-// attribute and each entry's first value is copied from the record once, at
-// insert. Nothing re-reads the record afterwards and nothing writes back — that
-// separation is what lets a pipeline run over a HubSpot or Salesforce mirror
-// without a provider write.
-// ---------------------------------------------------------------------------
-
-/** A parent-object attribute a list can seed from. Single-valued only: a
- * list's stage, amount, and date are single by construction, and a multi
- * source would not fit the seeded attribute's storage column. */
 export interface CrmObjectAttribute {
   id: string;
   apiSlug: string;
   label: string;
   attributeType: CrmAttributeType;
-  /** Raw `config_json`, copied verbatim so a currency keeps its code. */
   configJson: string;
   position: number;
 }
@@ -391,8 +334,6 @@ export async function loadCrmObjectAttributes(
   return rows
     .map((row) => ({
       id: row.id,
-      // `api_slug` is null on rows written by the adapters, which predate the
-      // typed surface; `field_name` is what their values are keyed by.
       apiSlug: row.apiSlug ?? row.fieldName,
       label: row.label,
       attributeType: row.attributeType,
@@ -404,33 +345,18 @@ export async function loadCrmObjectAttributes(
     );
 }
 
-/** What one attribute's initial value did, per entry. `applied: false` is
- * reported rather than dropped: "the record had no value" and "the record's
- * value does not fit this list" are different facts about an empty card. */
 export interface CrmEntryInitialValue {
   attribute: string;
-  /** The record attribute the value was read from. */
   from: string;
   applied: boolean;
   reason?: string;
 }
 
-/**
- * The values a BRAND-NEW entry starts with, copied once from the record's own
- * attributes that share the list attribute's slug and type.
- *
- * This is a snapshot at insert, not a binding. Nothing reads the record again,
- * and `update-crm-list-entry` never writes it back, so an entry and its record
- * diverge from here on — deliberately, because the record may be provider-owned
- * and a pipeline must never need a provider write.
- */
 export async function initialCrmEntryValues(input: {
   db: CrmDb;
   connectionId: string;
   record: { id: string; objectType: string };
   attributes: Map<string, CrmListAttribute>;
-  /** Slugs the caller set explicitly. Neither copied nor reported: a value the
-   * caller chose was not initialized from anything. */
   supplied?: ReadonlySet<string>;
 }): Promise<{
   values: Record<string, CrmValue>;
@@ -447,8 +373,6 @@ export async function initialCrmEntryValues(input: {
   ).filter((source) => {
     if (input.supplied?.has(source.apiSlug)) return false;
     const attribute = input.attributes.get(source.apiSlug);
-    // Same slug is not enough: a text `amount` on the object must not be copied
-    // into a currency `amount` on the list.
     return (
       !!attribute &&
       !attribute.multi &&
@@ -469,8 +393,6 @@ export async function initialCrmEntryValues(input: {
     .where(
       and(
         eq(schema.crmRecordFields.recordId, input.record.id),
-        // `entry_id IS NULL` is the record-vs-entry discriminator: another
-        // entry's value must never seed this one.
         isNull(schema.crmRecordFields.entryId),
         isNull(schema.crmRecordFields.activeUntil),
         inArray(
@@ -487,7 +409,6 @@ export async function initialCrmEntryValues(input: {
     const attribute = input.attributes.get(row.fieldName);
     if (!attribute) continue;
     const value = decodeCrmAttributeValue(attribute, row);
-    // Nothing to copy is not a failure and is not reported as one.
     if (value === null) continue;
     if (ATTRIBUTE_TYPE_SPECS[attribute.attributeType].usesOptions) {
       const enterable = attribute.options.some(
@@ -513,10 +434,6 @@ export async function initialCrmEntryValues(input: {
   return { values, initialValues };
 }
 
-// ---------------------------------------------------------------------------
-// Entry attribute values
-// ---------------------------------------------------------------------------
-
 interface StoredValueRow {
   stringValue: string | null;
   numberValue: number | null;
@@ -524,11 +441,6 @@ interface StoredValueRow {
   jsonValue: string | null;
 }
 
-/**
- * Decode a stored value using the attribute's declared storage column rather
- * than guessing from which column is non-null — a `false` checkbox and an empty
- * text field are otherwise indistinguishable.
- */
 export function decodeCrmAttributeValue(
   attribute: CrmListAttribute,
   row: StoredValueRow,
@@ -552,7 +464,6 @@ export function decodeCrmAttributeValue(
 
 export interface CrmEntryValues {
   values: Record<string, CrmValue>;
-  /** `activeFrom` of the current value — what a stage SLA is measured from. */
   valuesSince: Record<string, string>;
 }
 
@@ -603,18 +514,6 @@ export interface CrmEntryValueWrite {
   mode?: "insert" | "close-and-insert" | "update-in-place";
 }
 
-/**
- * Write entry attribute values through the bitemporal writer. A stage move is
- * exactly this call — the row it closes and the row it opens ARE the stage
- * history the board reports time-in-stage from.
- *
- * A `status` value is routed through the lifecycle rather than written
- * directly: the enterable set comes from the attribute's own options, and the
- * move is claimed against the value the decision was made from, so a stage
- * somebody else moved in between is refused instead of clobbered. Clearing a
- * status (`null`) is not a transition into anything and stays an ordinary
- * write — the way out of a retired stage must not itself be blocked.
- */
 export async function writeCrmListEntryValues(input: {
   db: CrmFieldWriteDb;
   recordId: string;
@@ -673,13 +572,6 @@ export async function writeCrmListEntryValues(input: {
   return writes;
 }
 
-// ---------------------------------------------------------------------------
-// Server-side filter / sort over entries
-//
-// Filters and sorts are pushed into SQL, never applied after the page is cut —
-// a client-side filter over one page silently returns the wrong rows.
-// ---------------------------------------------------------------------------
-
 export const CRM_ENTRY_FILTER_OPERATORS = [
   "eq",
   "neq",
@@ -717,7 +609,6 @@ export interface CrmEntrySort {
 type FieldKind = "text" | "number" | "boolean" | "json";
 
 interface ResolvedField {
-  /** Drizzle column reference, possibly on a joined `crm_record_fields` alias. */
   column: any;
   kind: FieldKind;
 }
@@ -771,11 +662,6 @@ export interface EntryJoin {
   on: SQL;
 }
 
-/**
- * Resolves a filter/sort field name to a column, adding one LEFT JOIN per
- * referenced list attribute. Bounded by the filter/sort caps, so the join count
- * is bounded too.
- */
 export class CrmEntryFieldResolver {
   readonly joins: EntryJoin[] = [];
   private readonly cache = new Map<string, ResolvedField>();
@@ -915,11 +801,6 @@ export function buildEntryFilter(
   return lte(column, value);
 }
 
-/**
- * ORDER BY terms for one sort key. The leading `(col is null)` term places
- * empty values last in PostgreSQL, where pagination over a page boundary must
- * not depend on the default NULL ordering.
- */
 export function buildEntryOrder(
   resolver: CrmEntryFieldResolver,
   sort: CrmEntrySort,

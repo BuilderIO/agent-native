@@ -1,24 +1,4 @@
 #!/usr/bin/env node
-/**
- * Assert, against the live fleet, that a cache MISS is still cacheable.
- *
- * Every other check in this repo reads source or build output. This one reads
- * production, because the regression it exists for was invisible to both:
- * `isSsrHtmlOrDataResponse` excluded every status >= 400, so not-found shells
- * shipped `cache-control: no-cache` and Netlify stored nothing. The same dead
- * URL cost a full cold render on every request — measured repeatedly at ~5s on
- * www.agent-native.com — and because Netlify runs one request per container,
- * those invocations drew from the account-wide concurrency pool every other
- * site shares. Source looked fine. Builds were green. Only production knew.
- *
- * The synthetic assertion is deliberately narrow: an unknown URL must not
- * answer with a cache-control that forbids storage. Selected real docs routes
- * additionally prove their status/content type and exact-URL cache reuse. The
- * check does NOT assert a latency number, which would page on cold starts and
- * ordinary network variance.
- *
- * Usage: node scripts/check-production-cache-contract.mjs [--env production|beta|all]
- */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -28,7 +8,6 @@ const REPO_ROOT = path.resolve(
   "..",
 );
 
-/** Directives that stop a shared cache from storing the response at all. */
 const UNCACHEABLE = ["no-store", "no-cache", "private"];
 const DEFAULT_CACHE_SETTINGS = new Set([
   "",
@@ -48,22 +27,12 @@ const DISABLED_CACHE_SETTINGS = new Set([
 ]);
 const CACHE_DURATION_RE = /^\d+\s*(s|sec|secs|seconds?|m|min|mins?|h|hours?)?$/;
 
-/**
- * Real pages probed alongside the synthetic miss. The synthetic probe proves an
- * unknown URL is storable; it requests a path no route can match, so it can
- * never see a per-route override on a page that DOES exist. That blind spot is
- * how #4158 shipped www.agent-native.com/apps pinned to max-age=30 +
- * stale-while-revalidate=30 — a 60s cache life, then a ~2.7s cold render for
- * whoever arrived next — while this check stayed green.
- */
 const REAL_PROBES_BY_HOST = {
   "www.agent-native.com": [
     { pathname: "/", contentType: "text/html" },
     { pathname: "/apps", contentType: "text/html", requireRepeatHit: true },
     {
       pathname: "/apps/_.data",
-      // Netlify serves prerendered React Router data as text/plain; SSR
-      // single-fetch responses use text/x-script.
       contentType: ["text/x-script", "text/plain"],
       requireRepeatHit: true,
     },
@@ -82,13 +51,6 @@ const REAL_PROBES_BY_HOST = {
 };
 const DEFAULT_REAL_PROBES = [{ pathname: "/", contentType: "text/html" }];
 
-/**
- * Floor on how long a real page stays answerable from storage. max-age is
- * freshness; stale-while-revalidate is what lets the CDN reply instantly while
- * it refreshes behind the request. A short max-age is fine on its own — it is a
- * short max-age paired with a short stale window that ends with a visitor
- * waiting on a cold origin, because both windows lapse together.
- */
 const MIN_EFFECTIVE_LIFETIME_SECONDS = 3600;
 
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -106,7 +68,6 @@ function parseEnvArg() {
   return value;
 }
 
-/** A single explicit host, so a deploy can check only the site it published. */
 function parseHostArg() {
   const index = process.argv.indexOf("--host");
   if (index === -1) return undefined;
@@ -144,10 +105,6 @@ function hasDeploymentWideCacheOverride() {
   );
 }
 
-/**
- * How long a shared cache can keep answering before a request must wait on the
- * origin: the fresh window plus the stale-while-revalidate window.
- */
 function effectiveLifetimeSeconds(policy) {
   const normalized = policy.toLowerCase();
   const fresh =
@@ -366,10 +323,6 @@ async function repeatUntilHit(observation, host, fetchImpl = fetch) {
   return { kind: "miss", observation: last };
 }
 
-/**
- * @param probe a real path probe, or null for the synthetic unknown-URL probe
- *   (storability only).
- */
 export async function probeUrl(host, probe, fetchImpl = fetch) {
   // The synthetic path is impossible to route; dynamic real pages use a unique
   // `index` key, which Netlify includes in the durable cache key. Static docs
@@ -510,8 +463,6 @@ export async function probeUrl(host, probe, fetchImpl = fetch) {
     }
     return probeResult(host, label, "ok", observation, detail);
   } catch (error) {
-    // Unreachable is a distinct outcome from misconfigured. Availability is
-    // the sibling monitor's job; an explicit deployment check still fails closed.
     return {
       ...probeResult(host, label, "unreachable", undefined),
       detail: error instanceof Error ? error.message : String(error),
@@ -557,8 +508,6 @@ async function main() {
   }
 
   if (skipped.length > 0) {
-    // Named, never silently folded into the pass count: a host this could not
-    // assert is not a host that passed.
     console.log(
       `\n${skipped.length} probe(s) not asserted (unreachable or throttled): ${skipped
         .map((r) => `${r.host}${r.label ? ` ${r.label}` : ""}`)

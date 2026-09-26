@@ -18,7 +18,6 @@ export function loader() {
   return withSsrHtmlContentType(redirect("/tasks"));
 }
 
-// Private app redirect retained at /home; / redirects to shared sign-in/signup.
 export default function IndexRedirect() {
   return null;
 }

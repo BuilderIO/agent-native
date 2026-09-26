@@ -1,14 +1,3 @@
-/**
- * Explicit share-grant lookup for the direct `/r/:id` recording page.
- *
- * Lives beside `recording-page-access.ts` rather than inside it so that module
- * stays free of database imports and their registration side effects. Every
- * surface that decides whether a viewer may open the authenticated recording
- * page — the player action and the public share endpoint that auto-redirects
- * into it — must use this helper, or the share page and the page it redirects
- * to will disagree and ping-pong.
- */
-
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -24,11 +13,8 @@ export interface RecordingShareGrantInput {
   role: RecordingPageAccessRole;
   visibility: RecordingVisibility;
   hasPassword: boolean;
-  /** Agent/MCP/A2A callers, which may open password-less public clips. */
   isAgentCaller?: boolean;
-  /** Omit to read the ambient request context. */
   userEmail?: string | null;
-  /** Omit to read the ambient request context. */
   orgId?: string | null;
 }
 

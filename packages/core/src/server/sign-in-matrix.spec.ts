@@ -63,10 +63,6 @@ interface JourneyRuntime {
   }) => { signInHref: string | null; resumeHref: string };
 }
 
-/**
- * The React auth document's client bundle imports the shared journey module;
- * assert the document carries that bundle and exercise the shared runtime.
- */
 function documentRuntime(
   basePath: string,
   opts: Parameters<typeof getOnboardingHtml>[0] = {},
@@ -87,28 +83,11 @@ interface Surface {
   id: number;
   name: string;
   basePath: string;
-  /** The route the visitor asked for, base path included. */
   protectedPath: string;
-  /** A same-origin path that belongs to a DIFFERENT app on this host. */
   siblingPath: string;
-  /**
-   * How this row's real end-to-end behaviour is covered ON TOP of the four
-   * invariants below, which every row asserts against the shipped runtime.
-   *
-   * `"browser"` means `pnpm qa:sign-in` boots this deploy and drives the real
-   * login document. Claim it only for a deploy that smoke actually starts —
-   * a row that says "browser" and is not in `BROWSER_DRIVEN_SURFACES` is a
-   * coverage claim nobody honours, which is the failure this file exists to
-   * make impossible.
-   */
   driver: "browser" | "request";
 }
 
-/**
- * The surfaces `scripts/qa-sign-in-matrix-smoke.ts` really boots: the root
- * deploy, the `/chatapp` deploy, and the root deploy inside a cross-origin
- * iframe. Kept here so a row cannot quietly promote itself to "browser".
- */
 const BROWSER_DRIVEN_SURFACES = new Set([1, 2, 3]);
 
 const SURFACES: Surface[] = [
@@ -218,12 +197,6 @@ const SURFACES: Surface[] = [
     basePath: "",
     protectedPath: "/database?table=todos",
     siblingPath: "/login",
-    // Request-level, deliberately: the smoke sets
-    // AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1, because otherwise the loopback
-    // auto-session signs its "anonymous" visitor in before the gate runs and
-    // every browser assertion silently tests nothing. So this row is NOT
-    // browser-driven, and saying otherwise would be the exact overclaim that
-    // let five previous fixes ship as "verified".
     driver: "request",
   },
   {
@@ -276,8 +249,6 @@ describe("sign-in matrix", () => {
           signInHref!,
           "http://an.invalid",
         ).searchParams.get("c")!;
-        // Opacity is why nesting is structurally impossible rather than
-        // guarded: nothing downstream can mistake this for a redirect target.
         expect(token).not.toMatch(/[/?:]|%2F/i);
         expect(journey.decodeContinuation(token)).toBe(protectedPath);
       },
@@ -293,8 +264,6 @@ describe("sign-in matrix", () => {
             continuation: token,
           }).resumeHref,
         ).toBe(protectedPath);
-        // The legacy grammar is consumed forever: generated apps in the wild
-        // hand-write it and cannot be upgraded.
         expect(
           journey.signInJourney({
             at: `${basePath}${SIGN_IN_ENTRY_PATH}?return=${encodeURIComponent(protectedPath)}`,
@@ -314,8 +283,6 @@ describe("sign-in matrix", () => {
           `${basePath}${SIGN_IN_LEGACY_ENTRY_PATH}`,
         ]) {
           const result = journey.signInJourney({ at: entry });
-          // Refusing to mint is what removes the "don't redirect to yourself"
-          // check from every call site.
           expect(result.signInHref).toBeNull();
           expect(result.resumeHref).toBe(home);
           expect(journey.normalizeAppPath(entry)).toBeNull();
@@ -337,9 +304,7 @@ describe("sign-in matrix", () => {
           siblingPath,
         ];
         for (const bad of forged) {
-          // Nothing can even mint a token for these.
           expect(journey.encodeContinuation(bad)).toBe("");
-          // …and a hand-written one is re-validated on the way out.
           const handRolled = Buffer.from(
             encodeURIComponent(bad),
             "utf8",
@@ -399,14 +364,11 @@ describe("sign-in matrix", () => {
     });
 
     it("surface 4: workspace return normalization never yields an auth entry path", () => {
-      // The hardcoded Dispatch route table is workspace routing, not return
-      // validation — it must leave real app routes alone…
       expect(normalizeOAuthReturnPath("/dispatch/apps")).toBe("/dispatch/apps");
       expect(normalizeOAuthReturnPath("/dispatch/dispatch")).toBe("/dispatch");
       expect(normalizeOAuthReturnPath("/dispatch/mail/inbox")).toBe(
         "/mail/inbox",
       );
-      // …and whatever it produces must still be a legal resume target.
       for (const ret of ["/dispatch/apps", "/dispatch/mail/inbox", "/x?y=1"]) {
         expect(normalizeAppPath(normalizeOAuthReturnPath(ret))).not.toBeNull();
       }
@@ -421,10 +383,6 @@ describe("sign-in matrix", () => {
           "Mozilla/5.0 Electron/32.0 agentnativedesktop/1.2",
         ),
       ).toBe(true);
-      // Both desktop surfaces complete sign-in outside the web cookie jar, but
-      // the continuation they carry is the same one every other surface uses.
-      // Agent-Native Desktop reloads in place, so its resume is the route it
-      // started on rather than the app root.
       const at = "/agent?tab=context";
       expect(
         signInJourney({ at, continuation: encodeContinuation(at) }).resumeHref,
@@ -432,7 +390,6 @@ describe("sign-in matrix", () => {
     });
 
     it("surface 7: the mobile web _session fallback preserves the return route", () => {
-      // The allowed cross-origin case: the workspace gateway loopback.
       const returned = appendSessionToOAuthReturnUrl(
         "http://127.0.0.1:8080/recordings/abc?x=1",
         "tok",
@@ -441,12 +398,9 @@ describe("sign-in matrix", () => {
       expect(parsed.pathname).toBe("/recordings/abc");
       expect(parsed.searchParams.get("x")).toBe("1");
       expect(parsed.searchParams.get("_session")).toBe("tok");
-      // Same-origin returns stay relative and keep their route; the WebView
-      // already holds the cookie there, so no bridge token is appended.
       expect(appendSessionToOAuthReturnUrl("/recordings/abc?x=1", "tok")).toBe(
         "/recordings/abc?x=1",
       );
-      // Foreign origins are not returnable at all.
       expect(
         appendSessionToOAuthReturnUrl("https://evil.example/pwned", "tok"),
       ).toBe("/");
@@ -471,8 +425,6 @@ describe("sign-in matrix", () => {
     });
 
     it("surface 9: a share link the visitor could reach anonymously is a valid resume target", () => {
-      // The bug this replaces collapsed anything unrecognised to "/", which
-      // dumped share-link visitors on an app home they had no access to.
       const share = "/clips/share/xY7?t=32";
       expect(normalizeAppPath(share, "/clips")).toBe(share);
       expect(
@@ -501,8 +453,6 @@ describe("sign-in matrix", () => {
     });
 
     it("surface 12: safeReturnPath still accepts every legacy provider return it used to", () => {
-      // Eight provider-OAuth call sites still use this; it is now a one-line
-      // delegate, so the back-compat proof is that its answers did not move.
       expect(safeReturnPath("/dispatch/sso/authorize?app=mail")).toBe(
         "/dispatch/sso/authorize?app=mail",
       );
@@ -528,7 +478,6 @@ describe("sign-in matrix", () => {
       const first = getOnboardingHtml();
       const second = getOnboardingHtml();
       expect(second).toBe(first);
-      // Nothing session-shaped may be baked into a hard-cached public document.
       expect(first).not.toMatch(/set-cookie/i);
       expect(first).not.toMatch(/an_session/);
     });
@@ -536,8 +485,6 @@ describe("sign-in matrix", () => {
 
   describe("base path reaches the login document", () => {
     it("bakes the configured base path in, rather than sniffing it", () => {
-      // The configured value is needed for a mounted auth document's asset
-      // URLs; the client still derives the request path after hydration.
       vi.stubEnv("APP_BASE_PATH", "/myapp");
       try {
         const html = getOnboardingHtml();
@@ -582,11 +529,6 @@ describe("sign-in matrix", () => {
     });
   });
 
-  /**
-   * A matrix nobody runs stops nothing, and the browser half is the part that
-   * gets dropped first when a pipeline is slow. These two assertions are the
-   * only things standing between "we have cross-surface coverage" and a claim.
-   */
   describe("the browser-driven half is real and runs", () => {
     const repoRoot = path.resolve(import.meta.dirname, "../../../..");
     const read = (rel: string) =>
@@ -597,7 +539,6 @@ describe("sign-in matrix", () => {
         (s) => s.id,
       );
       expect(claimed).toEqual([...BROWSER_DRIVEN_SURFACES]);
-      // …and the smoke really starts both deploys those rows describe.
       const smoke = read("scripts/qa-sign-in-matrix-smoke.ts");
       expect(smoke).toContain('for (const basePath of ["", "/chatapp"])');
       expect(smoke).toContain("runIframeSuite");

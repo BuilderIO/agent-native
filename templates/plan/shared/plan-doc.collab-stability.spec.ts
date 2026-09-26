@@ -64,7 +64,6 @@ import { describe, expect, it } from "vitest";
 import type { PlanBlock } from "./plan-content";
 import { blocksToProseJSON, proseJSONToBlocks } from "./plan-doc";
 
-/** Mirrors the `normalizeValue` closure in `PlanDocumentEditor`. */
 function normalizeValue(input: string): string {
   try {
     const parsed = JSON.parse(input) as PlanBlock[];
@@ -74,14 +73,6 @@ function normalizeValue(input: string): string {
   }
 }
 
-/**
- * Simulates `getMarkdown(editor)` at steady state — what the live plan editor
- * emits after a `setContent(blocksToProseJSON(blocks))` followed by no further
- * user edits. In the live editor, `getMarkdown` is
- * `proseJSONToBlocks(editor.getJSON(), blocksRef.current)`. At steady state
- * (right after seeding, before any edit), `editor.getJSON()` equals what
- * `blocksToProseJSON` produced — so this pure-function simulation is accurate.
- */
 function simulateGetMarkdownAtSteadyState(blocks: PlanBlock[]): string {
   return JSON.stringify(proseJSONToBlocks(blocksToProseJSON(blocks), blocks));
 }
@@ -157,21 +148,6 @@ describe("plan-doc collab-stability: normalizeValue is a fixed point", () => {
 });
 
 describe("plan-doc collab-stability: autosave echo recognition property", () => {
-  /**
-   * The most critical property for the reconcile's echo guard:
-   *
-   * `normalizeValue(getMarkdown_result)` must equal `getMarkdown_result` so
-   * the reconcile's `recentEmittedRef` ring hit (which stores `getMarkdown`
-   * output) also catches the `normalizedValue` path:
-   *   `recentEmittedRef.current.includes(normalizedValue)`
-   *
-   * In the live non-collab editor, at steady state:
-   *   - `getMarkdown(editor)` produces `S`
-   *   - autosave records `S` in the ring
-   *   - autosave saves these blocks to SQL; SQL returns them as `content.blocks`
-   *   - `value = JSON.stringify(content.blocks)` — same or normalizeValue-equivalent
-   *   - `normalizeValue(value)` must equal `S` so the ring catches it
-   */
   it("normalizeValue(simulateGetMarkdown(blocks)) === simulateGetMarkdown(blocks) at steady state", () => {
     const blocks: PlanBlock[] = [
       {
@@ -199,8 +175,6 @@ describe("plan-doc collab-stability: autosave echo recognition property", () => 
   });
 
   it("structured block IDs are preserved through normalizeValue (ring key stability)", () => {
-    // Block IDs in the normalized form must match what getMarkdown emits, so the
-    // reconcile's ring comparison works for structured + prose mixed content.
     const blocks: PlanBlock[] = [
       {
         id: "rt-a",
@@ -225,10 +199,6 @@ describe("plan-doc collab-stability: autosave echo recognition property", () => 
   });
 
   it("adjacent rich-text blocks merge in normalizeValue (ring key preserves first block ID)", () => {
-    // Two adjacent rich-text blocks are normalized into ONE in the first pass
-    // (the serializer design: contiguous prose = one run). The merged block keeps
-    // the first block's id, so ring comparisons for ANY value that started with
-    // those two adjacent blocks will use the first id.
     const blocks: PlanBlock[] = [
       {
         id: "rt-first",
@@ -243,33 +213,15 @@ describe("plan-doc collab-stability: autosave echo recognition property", () => 
     ];
     const normalized = normalizeValue(JSON.stringify(blocks));
     const parsed = JSON.parse(normalized) as PlanBlock[];
-    // After normalization the two adjacent prose blocks merge to one.
     expect(parsed).toHaveLength(1);
     expect(parsed[0].id).toBe("rt-first");
-    // And that merged form is a fixed point.
     const reNormalized = normalizeValue(normalized);
     expect(reNormalized).toBe(normalized);
   });
 });
 
 describe("plan-doc collab-stability: preconditions for single-doc Yjs collab", () => {
-  /**
-   * Both preconditions for single-doc collab now hold (the flag is ON):
-   *
-   * PRECONDITION MET: pure serialization stability (these tests).
-   * PRECONDITION MET: surgical Yjs apply path — the plan's `setContent` applies
-   *   external edits via `applyDocSurgically` (see the file-level comment and
-   *   `PlanDocumentEditor.surgical.spec.ts`, which exercises the live-editor
-   *   surgical path directly).
-   *
-   * These serialization tests remain the regression guard for the layer the
-   * surgical path depends on: if the round-trip ever stops being a fixed point,
-   * the reconcile's echo/already-in-sync equality checks break and collab churns.
-   */
   it("serialization is a necessary precondition for safe Yjs collab (regression guard)", () => {
-    // This test asserts the NECESSARY precondition: the pure serialization is stable.
-    // The SUFFICIENT precondition (surgical Yjs apply) is covered by
-    // PlanDocumentEditor.surgical.spec.ts, which needs a live editor + schema.
     const blocks: PlanBlock[] = [
       {
         id: "rt-1",
@@ -289,12 +241,9 @@ describe("plan-doc collab-stability: preconditions for single-doc Yjs collab", (
     const value = JSON.stringify(blocks);
     const canonical = normalizeValue(value);
     const recanonical = normalizeValue(canonical);
-    // Fixed-point check: once canonical, always canonical.
     expect(recanonical).toBe(canonical);
-    // All block IDs survive normalization.
     const parsed = JSON.parse(canonical) as PlanBlock[];
     expect(parsed.map((b) => b.id)).toEqual(["rt-1", "wireframe-1"]);
-    // The simulated getMarkdown output is already in canonical form.
     const emitted = simulateGetMarkdownAtSteadyState(
       JSON.parse(canonical) as PlanBlock[],
     );

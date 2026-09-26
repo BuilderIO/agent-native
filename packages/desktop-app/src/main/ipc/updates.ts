@@ -1,15 +1,3 @@
-// ---------- Auto-updates ----------
-//
-// In production, electron-updater pulls release metadata from the
-// `publish:` target in electron-builder.yml (currently the BuilderIO/agent-native
-// GitHub repo). We auto-download in the background, surface progress and
-// readiness to the renderer over IPC, and let the user trigger
-// quitAndInstall from a chat-first rail action / restart prompt. The app also
-// installs queued updates automatically on quit.
-//
-// Un-packaged development builds and locally packaged builds cannot install a
-// production release. Only explicitly marked release builds use the updater.
-
 import { IPC, type UpdateStatus } from "@shared/ipc-channels";
 import { DESKTOP_RELEASE_CHANNEL } from "@shared/release-channel";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";
@@ -29,9 +17,6 @@ const UPDATE_SUPPORT = resolveDesktopUpdateSupport(
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
-// electron-updater's feed request has no built-in timeout; without this, a
-// hung request would pin `updateCheckInFlight` forever and the periodic
-// check's `checkRunning` guard would never release.
 const UPDATE_CHECK_TIMEOUT_MS = 60_000;
 const DEFAULT_DESKTOP_UPDATE_FEED_URL =
   "https://www.agent-native.com/api/desktop-updates";
@@ -74,9 +59,6 @@ export interface UpdateCheckOptions {
   notifyOnResult?: boolean;
 }
 
-// Populated by `registerUpdatesIpc` during startup, before any of the
-// functions below can be invoked (autoUpdater events fire only after
-// registration, and the app menu isn't clickable until the app is ready).
 let deps: UpdatesIpcDeps | null = null;
 
 const UPDATE_CHECK_ERROR_MESSAGE =
@@ -99,12 +81,10 @@ function getDeps(): UpdatesIpcDeps {
   return deps;
 }
 
-/** Current cached update status, for callers outside the IPC surface (e.g. the app menu). */
 export function getCurrentUpdateStatus(): UpdateStatus {
   return currentUpdateStatus;
 }
 
-/** Remembers a user quit that Electron deferred while helpers are closing. */
 export function requestQuitAfterUpdatePreparation(): void {
   if (isPreparingDownloadedUpdate()) {
     quitRequestedDuringUpdatePreparation = true;
@@ -152,21 +132,11 @@ export async function installDownloadedUpdate(): Promise<void> {
     (currentUpdateStatus.state === "downloaded" ? currentUpdateStatus : null);
   quitRequestedDuringUpdatePreparation = false;
   updateInstallInFlight = true;
-  // Preparation can fail after one of the native helpers has already been
-  // detached. Mark restoration before entering that multi-step operation so
-  // both synchronous and asynchronous handoff failures recover the shell.
   updateHelpersNeedRestore = true;
   try {
-    // Native helpers can outlive the Electron window. Close them before
-    // Squirrel checks whether the old app is still running.
     await getDeps().prepareForUpdate?.();
-    // The updater owns quit only after preparation has completed and the
-    // installer handoff is about to happen. A normal user quit remains
-    // guarded while preparation is in flight.
     updateQuitOwned = true;
     quitRequestedDuringUpdatePreparation = false;
-    // isSilent=false so any installer UI shows; isForceRunAfter=true so the
-    // app relaunches after the update completes.
     autoUpdater.quitAndInstall(false, true);
   } catch (err) {
     updateInstallInFlight = false;
@@ -191,12 +161,10 @@ export async function installDownloadedUpdate(): Promise<void> {
   }
 }
 
-/** Whether the updater owns the next app quit lifecycle. */
 export function isInstallingDownloadedUpdate(): boolean {
   return updateQuitOwned;
 }
 
-/** Whether the updater is still preparing helpers before taking over quit. */
 export function isPreparingDownloadedUpdate(): boolean {
   return updateInstallInFlight && !updateQuitOwned;
 }
@@ -249,7 +217,6 @@ function withUpdateCheckTimeout<T>(promise: Promise<T>): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-/** Triggers (or awaits an in-flight) update check. */
 export async function checkForAppUpdates(
   options: UpdateCheckOptions = {},
 ): Promise<UpdateStatus> {
@@ -339,16 +306,10 @@ function showUpdateCheckResultNotification(status: UpdateStatus) {
   notification.show();
 }
 
-/**
- * Registers the auto-update IPC handlers, wires up `autoUpdater` event
- * listeners (production only), and starts the periodic update-check timer.
- */
 export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   deps = ipcDeps;
 
   if (UPDATE_SUPPORT.supported) {
-    // The public feed filters the shared repository's releases down to desktop
-    // assets, so npm and Clips releases never enter this updater.
     autoUpdater.setFeedURL({
       provider: "generic",
       url: DESKTOP_UPDATE_FEED_URL,
@@ -387,8 +348,6 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     });
 
     autoUpdater.on("update-downloaded", (info) => {
-      // On macOS this event precedes native Squirrel staging; publish only
-      // after the download promise resolves so the first relaunch can install.
       if (hasUpdateReadyToInstall()) return;
       pendingDownloadedUpdate = {
         state: "downloaded",

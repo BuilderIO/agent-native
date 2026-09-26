@@ -158,11 +158,6 @@ export function googleSlidesExportError(
   );
 }
 
-/**
- * Google Drive's PPTX export can omit image page elements that remain present
- * in the native Slides document. Read those native objects as a fidelity
- * fallback so a direct Google Slides import does not silently lose artwork.
- */
 async function fetchGoogleSlidesImageFallbacks(
   fileId: string,
   accessToken: string,

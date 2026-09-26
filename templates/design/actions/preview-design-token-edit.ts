@@ -2,19 +2,14 @@ import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   isSafeCssTokenValue,
   isSafeCssVarName,
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
 
-// ---------------------------------------------------------------------------
-// Token-edit patch schema
-// ---------------------------------------------------------------------------
-
 const tokenEditSchema = z.object({
-  /** The CSS custom property to update, e.g. "--primary-color". */
   cssVar: z
     .string()
     .startsWith("--")
@@ -23,7 +18,6 @@ const tokenEditSchema = z.object({
       "cssVar must be a valid CSS custom property name (-- followed by letters, digits, hyphens, or underscores).",
     )
     .describe("CSS custom property to edit"),
-  /** New value string, e.g. "#3B82F6" or "0.75rem". */
   value: z
     .string()
     .refine(
@@ -32,10 +26,6 @@ const tokenEditSchema = z.object({
     )
     .describe("New value for the token"),
 });
-
-// ---------------------------------------------------------------------------
-// Action — preview only, no DB writes
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:
@@ -54,7 +44,6 @@ export default defineAction({
   readOnly: true,
   http: { method: "POST" },
   run: async ({ designId, edits }) => {
-    // Requires at least viewer access
     const access = await resolveAccess("design", designId);
     if (!access) {
       throw new Error("Design not found");
@@ -62,7 +51,6 @@ export default defineAction({
 
     const design = access.resource;
 
-    // Load existing tweak definitions and selections from the design's data
     let designData: Record<string, unknown> = {};
     try {
       designData = design.data
@@ -87,15 +75,11 @@ export default defineAction({
           >)
         : {};
 
-    // Build the merged selection map with the requested edits applied.
-    // If the edit targets a known tweak cssVar we set by tweakId; otherwise
-    // we include the raw var in the payload so the client can apply it directly.
     const cssVarToTweakId = new Map<string, string>();
     for (const t of tweaks) {
       if (t.cssVar) cssVarToTweakId.set(t.cssVar, t.id);
     }
 
-    // Merged selections: existing + requested edits
     const mergedSelections: Record<string, string | number | boolean> = {
       ...existingSelections,
     };
@@ -105,15 +89,12 @@ export default defineAction({
       if (tweakId) {
         mergedSelections[tweakId] = value;
       } else {
-        // Not a known tweak — include as a direct CSS var override
         directOverrides[cssVar] = value;
       }
     }
 
-    // Resolve the full tweak set with the merged selections
     const resolvedFromTweaks = resolveTweaksToCssVars(tweaks, mergedSelections);
 
-    // Merge in any direct overrides (CSS vars not backed by a tweak definition)
     const tweakValues: Record<string, string> = {
       ...resolvedFromTweaks,
       ...directOverrides,
@@ -121,9 +102,7 @@ export default defineAction({
 
     return {
       designId,
-      /** Full `tweak-values` postMessage payload — push this into the iframe. */
       tweakValues,
-      /** The specific edits that were previewed, for confirmation display. */
       previewedEdits: edits,
     };
   },

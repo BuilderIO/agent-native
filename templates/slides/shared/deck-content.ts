@@ -11,11 +11,6 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-/**
- * The linked design system id can live on the row's own column or, for a
- * deck saved before that column existed, inside its JSON `data`. Callers must
- * check both, so this is the one place that order is decided.
- */
 export function resolveDeckDesignSystemId(
   row: { designSystemId?: string | null },
   data: unknown,

@@ -39,8 +39,6 @@ function waitForRetry(delayMs: number) {
 }
 
 function canRunUpdateChecks() {
-  // Dev and local release builds are for testing the current checkout. Do not
-  // replace them with the published auto-update channel.
   return !import.meta.env.DEV && !__CLIPS_DESKTOP_LOCAL_BUILD__;
 }
 
@@ -53,8 +51,6 @@ async function runCheckAttempt(staged: string | null) {
   if (!staged) setStatus({ state: "checking" });
   const update = await check();
   if (!update) {
-    // The endpoint answering "current" while a newer bundle sits staged is a
-    // contradiction, not a reason to drop the download. Keep it staged.
     if (!staged) setStatus({ state: "not-available" });
     return;
   }
@@ -63,12 +59,6 @@ async function runCheckAttempt(staged: string | null) {
   const notes = update.body ?? undefined;
   setStatus({ state: "available", version, notes });
 
-  // Download ONLY — do not install here. On macOS `install` swaps the .app
-  // bundle on disk while this process keeps running, which invalidates the
-  // running process's Screen Recording (TCC) grant and breaks capture until
-  // relaunch. We defer the swap to `installAndRestart()` so a downloaded-but-
-  // not-yet-installed update leaves the running app fully functional; the
-  // user records normally until they choose to restart.
   let total = 0;
   let downloaded = 0;
   await update.download((event) => {
@@ -90,10 +80,6 @@ async function runCheckAttempt(staged: string | null) {
 async function runCheck() {
   if (checkInFlight) return checkInFlight;
 
-  // A staged update keeps checking on the normal cadence. Stopping here is what
-  // made "Restart to update" land on a binary that was already out of date and
-  // immediately ask to restart again — every check runs against the *running*
-  // version, so it re-offers the staged version until a newer one ships.
   const stagedStatus =
     cachedStatus.state === "downloaded" ? cachedStatus : null;
   const staged = stagedStatus?.version ?? null;
@@ -113,10 +99,6 @@ async function runCheck() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      // A staged bundle is already on disk and `pendingUpdate` still points at
-      // it. Reporting the check failure here would replace the Restart banner
-      // with an error card that has no way back to it, and would make the next
-      // successful check re-download the same version from scratch.
       setStatus(stagedStatus ?? { state: "error", message });
     } finally {
       checkInFlight = null;
@@ -141,8 +123,6 @@ function startUpdateLoop() {
   if (started) return;
   started = true;
   if (!canRunUpdateChecks()) return;
-  // Check 3s after launch (let the popover finish first paint), hourly while
-  // Clips stays open, and when the user returns after at least 15 minutes.
   setTimeout(() => void runCheck(), 3000);
   setInterval(() => void runCheck(), UPDATE_CHECK_INTERVAL_MS);
   window.addEventListener("focus", maybeCheckForUpdate);
@@ -167,11 +147,6 @@ export function useUpdateStatus(): UpdateStatus {
 }
 
 export async function installAndRestart(): Promise<void> {
-  // Perform the deferred bundle swap now, then relaunch onto the new binary.
-  // Installing immediately before relaunch keeps the window where the on-disk
-  // bundle no longer matches the running process as short as possible — the
-  // process is torn down by the native restart right after, so capture never
-  // runs against a swapped-out bundle.
   if (pendingUpdate) {
     await pendingUpdate.install();
   }
@@ -184,12 +159,6 @@ export async function installAndRestart(): Promise<void> {
   await relaunch();
 }
 
-/**
- * True once an update has been downloaded and is waiting for the user to
- * restart. The recording flow uses this to explain a post-download capture
- * failure as "restart to finish updating" instead of a misleading "grant
- * permissions" message — see `app.tsx` recError routing.
- */
 export function isUpdatePendingRestart(): boolean {
   return cachedStatus.state === "downloaded";
 }
@@ -198,11 +167,6 @@ export function canCheckForUpdates(): boolean {
   return canRunUpdateChecks();
 }
 
-/**
- * Manual retry entry point. Used by the UpdateBanner's error state to let
- * users re-attempt after a signature-verification / download / network
- * failure. Runs a full check + download pass, same as the periodic loop.
- */
 export function retryUpdateCheck(): Promise<void> {
   if (!canRunUpdateChecks()) return Promise.resolve();
   return runCheck();

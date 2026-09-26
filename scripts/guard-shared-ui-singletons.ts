@@ -92,11 +92,6 @@ function dependencyName(line: string): string | null {
   return match ? unquote(match[1] ?? "") : null;
 }
 
-/**
- * Reads the importer locators from pnpm-lock.yaml instead of comparing declared
- * semver ranges. A locator includes peer suffixes, so two separately resolved
- * instances with the same published version still fail this check.
- */
 export function parsePnpmLockImporterResolutions(
   lockfile: string,
 ): Map<string, ImporterResolutions> {

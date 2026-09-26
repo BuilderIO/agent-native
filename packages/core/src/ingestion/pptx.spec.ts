@@ -268,11 +268,6 @@ describe("parsePptxPresentation", () => {
   });
 
   it("inherits a title run's color from the master's own title placeholder shape, not the master's generic txStyles boilerplate", async () => {
-    // Reproduces a real Google Slides export: the title run has no rPr
-    // solidFill at all, the layout has no placeholder shapes (blank custom
-    // layout), and the master's <p:txStyles><p:titleStyle> is a black
-    // boilerplate stub — the real default (white) lives on the master's own
-    // <p:sp><p:ph type="title"> shape's <a:lstStyle>, which must win.
     const slideXml = `
       <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
         <p:cSld><p:spTree>
@@ -300,8 +295,6 @@ describe("parsePptxPresentation", () => {
     const run = presentation.slides[0]?.texts.find(
       (text) => text.content === "The Path Forward",
     );
-    // Not black (the txStyles boilerplate) and not the endParaRPr's cursor
-    // color (#28E2FA) — the master placeholder shape's own white default.
     expect(run?.color).toBe("#FFFFFF");
   });
 
@@ -376,8 +369,6 @@ describe("parsePptxPresentation", () => {
         (cell) => cell.paragraphs[0]?.runs[0]?.content,
       ),
     ).toEqual(["A1", "B1"]);
-    // The hMerge continuation cell is dropped — its content is already
-    // represented by the spanning cell's colSpan.
     expect(element?.table?.rows[1]).toHaveLength(1);
     expect(element?.table?.rows[1][0]?.colSpan).toBe(2);
     expect(element?.table?.rows[1][0]?.paragraphs[0]?.runs[0]?.content).toBe(
@@ -512,11 +503,6 @@ describe("parsePptxPresentation", () => {
     );
 
     const element = presentation.slides[0]?.elements[0];
-    // Group box is 200x100 at the origin (pivot at 100,50), rotated 90°
-    // clockwise. The child's own un-rotated center (25,10) is 75 left and 40
-    // above the pivot; swept 90° clockwise it lands 40 right and 75 above the
-    // pivot — center (140,-25) — not just spun in place around its own
-    // center (which is what summing rotation degrees alone would produce).
     expect(element?.x).toBeCloseTo(115, 5);
     expect(element?.y).toBeCloseTo(-35, 5);
     expect(element?.width).toBeCloseTo(50, 5);
@@ -525,13 +511,6 @@ describe("parsePptxPresentation", () => {
   });
 
   it("scales a connector/line shape's own width by the enclosing group's chExt-to-ext ratio instead of leaving it at its unscaled child-space size", async () => {
-    // `a:chExt` (like `a:ext`) carries `cx`/`cy` attributes, not `x`/`y`.
-    // Reading it with the `x`/`y` point reader silently produced a 0 child
-    // extent, which fell back to an identity scale for every group whose
-    // placed size (`a:ext`) differs from its child coordinate space
-    // (`a:chExt`) — most visibly on a `p:cxnSp` connector/divider line,
-    // whose width came out at its full unscaled child-space size and
-    // overflowed the slide canvas.
     const presentation = await parsePptxPresentation(
       await buildMinimalPptxBuffer(`
         <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -560,20 +539,12 @@ describe("parsePptxPresentation", () => {
     );
 
     const element = presentation.slides[0]?.elements[0];
-    // Group scales child-space (500x200) down to its placed size (400x200):
-    // scaleX 0.8, scaleY 1. The connector's own child-space width (500) must
-    // scale by 0.8 to 400 — not pass through unscaled.
     expect(element?.x).toBeCloseTo(100, 5);
     expect(element?.width).toBeCloseTo(400, 5);
     expect(element?.height).toBeCloseTo(0, 5);
   });
 
   it("normalizes an absolute-point line spacing (a:spcPts) into a font-size-relative ratio instead of leaving it as a raw point count", async () => {
-    // Our own PPTX export writes absolute-point line spacing (dom-to-pptx's
-    // spcPts), so re-importing an exported deck hits this exact shape: a
-    // 52pt line spacing on 52pt text is single spacing (ratio ~1), not a
-    // ~52x line-height that would push the paragraph thousands of px off
-    // the slide.
     const presentation = await parsePptxPresentation(
       await buildMinimalPptxBuffer(`
         <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -616,16 +587,10 @@ describe("parsePptxPresentation", () => {
     );
 
     const paragraph = presentation.slides[0]?.elements[0]?.paragraphs?.[0];
-    // 150% of the font's own line height (~1.2em), not 1.5em.
     expect(paragraph?.lineSpacing).toBeCloseTo(1.8, 5);
   });
 
   it("clamps an implausibly tight spcPts/font-size ratio instead of rendering overlapping lines", async () => {
-    // Real repro from a round-tripped export: our own export wrote
-    // spcPts="989" (9.89pt) on 57.99pt title text — a ratio of ~0.17, which
-    // stacks a wrapped second line almost directly on top of the first
-    // instead of below it. No real deck design intends line spacing this
-    // tight; this is an export measurement bug, not authored intent.
     const presentation = await parsePptxPresentation(
       await buildMinimalPptxBuffer(`
         <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -649,10 +614,6 @@ describe("parsePptxPresentation", () => {
   });
 
   it("divides an absolute spcPts by the renderer's default font size when the run declares none, instead of emitting the raw point count", async () => {
-    // Without a declared `sz`, html-converter puts DEFAULT_PPTX_FONT_SIZE_PT
-    // (18pt) on the paragraph. Falling through with the raw point count made
-    // an 18pt line spacing read as an 18x ratio, clamped to the 3x ceiling —
-    // a triple-height line box on text that is exactly single-spaced.
     const presentation = await parsePptxPresentation(
       await buildMinimalPptxBuffer(`
         <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -968,7 +929,6 @@ describe("parsePptxPresentation", () => {
       }),
     );
 
-    // theme1.xml is the notes master's theme in every Google Slides export.
     expect(presentation.theme?.colors).toContain("#00FFFF");
     expect(presentation.theme?.colors).not.toContain("#058DC7");
   });
@@ -1110,7 +1070,6 @@ describe("parsePptxPresentation", () => {
       "\n",
       "FOR SOCIAL MEDIA",
     ]);
-    // The break inherits its neighbour's size, or it collapses the line it makes.
     expect(runs?.[1]?.fontSize).toBe(24);
   });
 
@@ -1156,8 +1115,6 @@ describe("parsePptxPresentation", () => {
     );
 
     const rows = presentation.slides[0]?.elements[0]?.table?.rows;
-    // Outer edges take the style's left/right/top/bottom; the rules shared
-    // between two cells take insideV/insideH.
     expect(rows?.[0]?.[0]?.borders).toEqual({
       left: { color: "#111111", widthEmu: 19050 },
       right: { color: "#9E9E9E", widthEmu: 9525 },
@@ -1170,7 +1127,6 @@ describe("parsePptxPresentation", () => {
       top: { color: "#9E9E9E", widthEmu: 9525 },
       bottom: { color: "#111111", widthEmu: 19050 },
     });
-    // `firstRow="1"` opts the header row into the style's firstRow fill.
     expect(rows?.[0]?.[0]?.fill).toBe("#DDEEFF");
     expect(rows?.[1]?.[0]?.fill).toBeUndefined();
   });
@@ -1193,8 +1149,6 @@ describe("parsePptxPresentation", () => {
       widthEmu: 28575,
       dash: "dashed",
     });
-    // The style's insideH rule must not come back for a side the cell
-    // explicitly switched off.
     expect(cell?.borders?.bottom).toBeUndefined();
     expect(cell?.borders?.top).toEqual({ color: "#111111", widthEmu: 19050 });
   });
@@ -1232,7 +1186,6 @@ describe("parsePptxPresentation", () => {
 
     const paragraph = presentation.slides[0]?.elements[0]?.paragraphs?.[0];
     expect(paragraph?.runs[0]?.fontSize).toBe(36);
-    // 100% single spacing (1.2) reduced by the 10% PowerPoint already baked in.
     expect(paragraph?.lineSpacing).toBe(1.08);
   });
 
@@ -1259,8 +1212,6 @@ describe("parsePptxPresentation", () => {
         await buildPptxBufferWithParts({
           slides: [textSlideXml("Kept"), textSlideXml("Lost")],
           files: {
-            // The deck still lists both slides, but rId2 is unresolvable — the
-            // shape that used to drop a slide with no error at all.
             "ppt/_rels/presentation.xml.rels": pptxRelsXml([
               { id: "rId1", type: "slide", target: "slides/slide1.xml" },
               {
@@ -1300,9 +1251,6 @@ describe("parsePptxPresentation", () => {
   });
 
   it("reads a connector's headEnd/tailEnd decorations", async () => {
-    // Real `a:ln` from a chevron timeline: each rule terminates in a round dot
-    // at both ends, and dropping the two `End` elements is the whole reason
-    // the imported deck drew bare lines where the source has dotted ones.
     const presentation = await parsePptxPresentation(
       await buildMinimalPptxBuffer(`
         <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -1334,9 +1282,6 @@ describe("parsePptxPresentation", () => {
   });
 
   it("reads a custGeom path's commands in document order, not grouped by tag name", async () => {
-    // The command sequence is the whole shape: a tree built without
-    // `preserveOrder` groups the two `a:lnTo`s together and would replay this
-    // outline as move/line/line/curve, which is a different shape.
     const presentation = await parsePptxPresentation(
       await buildMinimalPptxBuffer(`
         <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -1391,9 +1336,6 @@ describe("parsePptxPresentation", () => {
   });
 
   it("drops a custGeom path it cannot fully read rather than emitting a shorter outline", async () => {
-    // `x="wd2"` is a guide reference, not a number. A path missing one of its
-    // segments is not a simpler shape, it is a wrong one, so the whole
-    // geometry is dropped and the shape falls back to its plain box.
     const presentation = await parsePptxPresentation(
       await buildMinimalPptxBuffer(`
         <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -1448,8 +1390,6 @@ describe("parsePptxPresentation", () => {
       `),
     );
 
-    // The `pin` guide is a formula, not a value — reproducing it would mean
-    // shipping OOXML's whole guide language, so it is left out.
     expect(presentation.slides[0]?.elements[0]?.shapeAdjustments).toEqual({
       adj1: 8786043,
       adj2: 12102207,
@@ -1487,7 +1427,6 @@ describe("parsePptxPresentation", () => {
   });
 });
 
-/** A 1×1 transparent PNG — real bytes, so `loadPptxImage` produces a browser-renderable image. */
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
@@ -1574,14 +1513,6 @@ function themeXml(name: string, accent1: string): string {
     </a:theme>`;
 }
 
-/**
- * A real slide → slideLayout → slideMaster → theme package with every part
- * overridable, so a test can put a background, a decorative shape or a picture
- * on the layout/master the way a real template does. `ppt/theme/theme1.xml`
- * is deliberately a *different* palette than the master's own theme2 — that is
- * exactly the Google Slides shape where theme1 belongs to the notes master.
- */
-/** A 2x2 table whose `a:tblPr` references the style in `tableStylesXml()` below — the shape a Google Slides export writes, where the cells carry no line properties at all and every rule lives in the deck's table style. */
 function tableStyleSlideXml(cellProperties = ""): string {
   const cell = (text: string, properties = "") =>
     `<a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>${text}</a:t></a:r></a:p></a:txBody><a:tcPr marT="91425">${properties}</a:tcPr></a:tc>`;
@@ -1605,7 +1536,6 @@ function tableStyleSlideXml(cellProperties = ""): string {
   `.trim();
 }
 
-/** Distinct outer (`#111111`) and interior (`#9E9E9E`) rules so a cell that mixed the two up is visible in the assertion, plus a `firstRow` header fill. */
 function tableStylesXml(): string {
   const line = (color: string, width: number) =>
     `<a:ln w="${width}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:prstDash val="solid"/></a:ln>`;
@@ -1726,7 +1656,6 @@ async function buildMinimalPptxBuffer(slideXml: string): Promise<Uint8Array> {
   return zip.generateAsync({ type: "uint8array" });
 }
 
-/** Same shape as `buildMinimalPptxBuffer`, but with a theme + slide master wired up so `schemeClr`/placeholder-default-color resolution has something real to resolve against. */
 async function buildPptxBufferWithMaster(
   slideXml: string,
 ): Promise<Uint8Array> {
@@ -1802,7 +1731,6 @@ async function buildPptxBufferWithMaster(
   return zip.generateAsync({ type: "uint8array" });
 }
 
-/** Two slides, each on its own layout → master → theme chain, with different `accent1` colors — reproduces a presentation combining more than one template, where the deck's first master must not leak into the second slide's color resolution. */
 async function buildPptxBufferWithTwoMasters(
   slide1Xml: string,
   slide2Xml: string,
@@ -1959,7 +1887,6 @@ function pptxRelsXml(
     </Relationships>`;
 }
 
-/** A single slide → (blank) slideLayout → slideMaster → theme chain, with the master's own `<p:sp><p:ph type="title">` placeholder shape carrying a real `<a:lstStyle>` default distinct from its `<p:txStyles><p:titleStyle>` boilerplate — reproduces the real Google Slides export structure where the layout has no placeholders of its own and the master's placeholder *shape* (not its generic txStyles) is where a placeholder run's real inherited color lives. */
 async function buildPptxBufferWithLayoutAndMaster(
   slideXml: string,
 ): Promise<Uint8Array> {
@@ -2064,7 +1991,6 @@ async function buildPptxBufferWithLayoutAndMaster(
   return zip.generateAsync({ type: "uint8array" });
 }
 
-/** Same slide → slideLayout → slideMaster → theme chain as `buildPptxBufferWithLayoutAndMaster`, but the layout itself defines two distinct, non-overlapping `<a:xfrm>` placeholder shapes (title, body) — reproduces the geometry side of placeholder inheritance the way that helper reproduces the color side. */
 async function buildPptxBufferWithLayoutPlaceholderGeometry(
   slideXml: string,
 ): Promise<Uint8Array> {

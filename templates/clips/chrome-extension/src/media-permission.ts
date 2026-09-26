@@ -60,9 +60,6 @@ export class MediaPermissionRequiredError extends Error {
     super(mediaPermissionRequiredMessage(device));
     this.name = "MediaPermissionRequiredError";
     this.device = device;
-    // `cause` is set here rather than through the Error options bag: the
-    // extension's TS lib target predates it, and the original NotAllowedError
-    // is what makes the Sentry report diagnosable.
     if (options && "cause" in options) {
       (this as { cause?: unknown }).cause = options.cause;
     }
@@ -86,7 +83,6 @@ export function isMediaPermissionDeniedError(error: unknown): boolean {
   );
 }
 
-// Wraps a getUserMedia() call made where Chrome cannot prompt.
 export async function requireMediaPermission<T>(
   device: MediaPermissionDevice,
   request: () => Promise<T>,
@@ -99,8 +95,6 @@ export async function requireMediaPermission<T>(
   }
 }
 
-// Rebuilds the typed error on the receiving side of a message reply, so a
-// missing grant stays branchable instead of decaying into a message string.
 export function mediaPermissionErrorFromResponse(response: {
   errorCode?: string;
   errorDevice?: string;
@@ -147,9 +141,6 @@ export async function writeCachedMediaPermission(
   });
 }
 
-// Device labels are exposed only while the origin holds a live grant, so this
-// separates a cached grant Chrome still honors from one it revoked — without the
-// prompt that neither the popup nor the offscreen document can show.
 export async function hasGrantedDeviceLabels(
   device: MediaPermissionDevice,
 ): Promise<boolean> {

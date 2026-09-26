@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-// Coerce string form/CLI values ("true"/"false"/"1"/"0"/"yes"/"no"/"on"/"off")
-// to booleans
 export const booleanParam = z.preprocess((value) => {
   if (typeof value !== "string") return value;
   const normalized = value.trim().toLowerCase();

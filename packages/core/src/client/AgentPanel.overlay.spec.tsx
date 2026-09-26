@@ -295,10 +295,6 @@ describe("AgentPanel sibling overlay handoff", () => {
         );
     });
 
-    // "timeout" defers via setTimeout, not requestAnimationFrame — using
-    // the animation-frame default here would leave the share popover
-    // unmounted and this assertion failing, the same silent no-op reported
-    // for the sidebar Share menu item.
     expect(frames).toHaveLength(0);
 
     await act(async () => {

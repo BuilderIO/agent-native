@@ -342,8 +342,6 @@ describe("Slides canvas interaction adapter", () => {
       committed: true,
       gesture: { canvasDelta: { x: 20, y: 20 } },
     });
-    // Releasing at the already-previewed pointer does not run a second
-    // preview, so DOM-backed adapters cannot flash or mutate twice on drop.
     expect(preview).toHaveBeenCalledTimes(1);
     expect(commit).toHaveBeenCalledTimes(1);
   });

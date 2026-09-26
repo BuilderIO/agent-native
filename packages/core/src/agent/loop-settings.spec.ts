@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// In-memory settings store keyed by the helper + scope id, so we can assert
-// org/user isolation without a real DB.
 const orgStore = new Map<string, Record<string, unknown>>();
 const userStore = new Map<string, Record<string, unknown>>();
 
@@ -37,7 +35,6 @@ vi.mock("../settings/index.js", () => ({
   ),
 }));
 
-// Role lookup for canUpdate; tests set the row to return.
 let roleRows: Array<{ role: string }> = [];
 let roleQueryThrows = false;
 const execute = vi.fn(async (_q: { sql: string; args: unknown[] }) => {
@@ -202,7 +199,6 @@ describe("readAgentLoopSettings scope resolution", () => {
     vi.stubEnv("AGENT_MAX_ITERATIONS", "12");
     orgStore.set(orgK("org1", AGENT_LOOP_SETTINGS_KEY), { unrelated: true });
     const s = await readAgentLoopSettings({ orgId: "org1" });
-    // No stored maxIterations -> defaultMaxIterations and env source.
     expect(s.maxIterations).toBe(12);
     expect(s.defaultMaxIterations).toBe(12);
     expect(s.source).toBe("env");
@@ -210,13 +206,11 @@ describe("readAgentLoopSettings scope resolution", () => {
   });
 
   it("keeps source=scope (not env) when a row stores maxIterations even with the env set", async () => {
-    // The stored value wins; source must reflect where it came from, not env.
     vi.stubEnv("AGENT_MAX_ITERATIONS", "12");
     orgStore.set(orgK("org1", AGENT_LOOP_SETTINGS_KEY), { maxIterations: 42 });
     const s = await readAgentLoopSettings({ orgId: "org1" });
     expect(s.maxIterations).toBe(42);
     expect(s.source).toBe("org");
-    // The env still informs the surfaced default even though it is not used.
     expect(s.defaultMaxIterations).toBe(12);
   });
 });

@@ -8,7 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import { injectHiddenLayerExportStyle } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -26,7 +26,6 @@ export default defineAction({
     const row = access.resource;
     const db = getDb();
 
-    // Fetch all design files
     const files = await db
       .select()
       .from(schema.designFiles)
@@ -56,9 +55,6 @@ export default defineAction({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
-        // Layers toggled hidden in the editor are only suppressed by the live
-        // editor bridge; inject the same display:none rule so the client-side
-        // PDF render (html2canvas over this HTML) doesn't reveal them.
         content:
           f.fileType === "html" && f.content
             ? injectHiddenLayerExportStyle(f.content)

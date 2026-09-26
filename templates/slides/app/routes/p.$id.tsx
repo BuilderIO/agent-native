@@ -50,13 +50,6 @@ type LoaderData =
       restricted?: { id: string; basePath: string };
     };
 
-/**
- * Loose shape of the persisted deck JSON. Each slide is `Partial` because
- * decks created across many template versions may be missing newer fields
- * (\`transition\`, \`animations\`, \`splitByParagraph\`) and older decks may also
- * lack \`id\` / \`content\`. \`toSharedDeckSlide\` validates and fills in
- * defaults at runtime; the type just documents what consumers can expect.
- */
 type DeckData = {
   title?: string;
   slides?: Array<Partial<SharedDeckSlide>>;
@@ -104,16 +97,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   );
   const basePath = getConfiguredAppBasePath();
 
-  // Access is checked on the deck, not the URL shape: `/p/<id>` (presentation)
-  // and `/deck/<id>` (editor) share the same rules. SSR renders impersonally (no
-  // session is read server-side, so this public page can be CDN-cached for
-  // everyone), so we serve only PUBLIC decks here and resolve restricted access
-  // on the client. Querying by id alone distinguishes "deck does not exist"
-  // (real 404) from "deck exists but isn't public" — for the latter we route the
-  // viewer to the auth-guarded `/deck/<id>` editor, where the real per-user
-  // access check runs (viewer-with-access sees it; everyone else gets the
-  // standard sign-in / no-access handling). This never loops: `/deck` is
-  // protected and never bounces back to `/p`.
   const db = getDb();
   const [deck] = await db
     .select({
@@ -182,7 +165,6 @@ export default function PublicDeckRoute() {
     }
   }, [restricted]);
 
-  // Redirecting to the guarded editor to resolve per-user access client-side.
   if (restricted) return null;
   if (data.deck === null) {
     return (

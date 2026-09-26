@@ -47,28 +47,18 @@ const TEST_FILE_RE = /\.(spec|test)\.tsx?$/;
 const TS_FILE_RE = /\.tsx?$/;
 const PRAGMA_RE = /\/\/\s*config-ok:/i;
 
-/**
- * The four resolvers, plus the places that legitimately compose an environment
- * for something else (a child process, a generated worker bundle, a deploy
- * target). These own env reading; everything else consumes their output.
- */
 const RESOLVER_FILES = [
   "app-config/env-layer.ts",
   "app-config/store.ts",
   "server/deploy-environment.ts",
   "server/credential-provider.ts",
   "server/request-context.ts",
-  // Build/deploy tooling composes env for a child, rather than reading config.
   "deploy/",
   "vite/",
   "cli/",
   "scripts/",
 ];
 
-/**
- * Platform facts: set by the host, never by an app. These are not app
- * configuration, so they do not belong in the schema and reading them is fine.
- */
 const PLATFORM_KEYS = new Set([
   "NODE_ENV",
   "PORT",
@@ -105,7 +95,6 @@ const PLATFORM_KEYS = new Set([
 
 const PLATFORM_PREFIXES = ["AWS_", "npm_", "GITHUB_", "VITEST", "NETLIFY_"];
 
-/** Replaced entry points. Deprecated, still exported, must not gain callers. */
 const DEPRECATED_CALLS = [
   {
     name: "setPrivateBlobPublicUploadFallbackEnabled",

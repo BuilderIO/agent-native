@@ -192,10 +192,6 @@ async function readSessionIdentity(
   throw new Error("Sign-in did not create a usable session.");
 }
 
-/**
- * Check whether the stored credential is still a valid native parent session.
- * Child app sessions are intentionally not interchangeable with this token.
- */
 export async function validateNativeSession(
   token: string | null,
   baseUrl = NATIVE_AUTH_BASE_URL,
@@ -212,13 +208,6 @@ export async function validateNativeSession(
   return null;
 }
 
-/**
- * Validate the Keychain-backed parent once when the native shell starts. The
- * AsyncStorage marker detects an install whose app data was deleted while its
- * Keychain item survived. A stale parent is cleared only after Dispatch
- * returns an authentication failure; transport failures keep it available for
- * the next retry.
- */
 export async function bootstrapNativeSession({
   baseUrl = NATIVE_AUTH_BASE_URL,
 }: {
@@ -261,7 +250,6 @@ async function resolveGoogleAuthUrl(baseUrl: string): Promise<string> {
   try {
     payload = (await response.json()) as { error?: unknown; url?: unknown };
   } catch (error) {
-    // Use the status-based fallback below when the endpoint is not JSON.
     console.warn("[mobile auth] Google auth-url response was not valid JSON", {
       reason: error instanceof Error ? error.message : "unknown error",
     });
@@ -299,11 +287,6 @@ async function clearNativeOAuthContext(): Promise<void> {
   ]);
 }
 
-/**
- * Sign the native parent into Google. The browser owns Google's UI; the
- * callback is state-validated before its one-time session is stored under the
- * parent key. Child WebViews never receive the parent bearer.
- */
 export async function signInWithGoogle({
   baseUrl = NATIVE_AUTH_BASE_URL,
 }: {
@@ -370,11 +353,6 @@ async function readMagicLinkResponse(
   }
 }
 
-/**
- * Request and complete a parent magic-link sign-in. The verified browser
- * session is bridged through the existing single-use desktop exchange; no
- * child app page is opened and the bearer is stored only under the parent key.
- */
 export async function signInWithMagicLink({
   email,
   baseUrl = NATIVE_AUTH_BASE_URL,
@@ -477,8 +455,6 @@ async function postPasswordAuth(
   try {
     payload = (await response.json()) as NativeAuthResponse;
   } catch (error) {
-    // The status below remains the source of truth when the server did not
-    // return JSON.
     console.warn("[mobile auth] auth response was not valid JSON", {
       reason: error instanceof Error ? error.message : "unknown error",
     });
@@ -515,8 +491,6 @@ export async function authenticateWithPassword({
     await postPasswordAuth("sign-up", normalizedEmail, password, baseUrl);
   }
 
-  // Registration intentionally completes with the same login response shape
-  // so the parent stores exactly one session credential for both paths.
   const payload = await postPasswordAuth(
     "sign-in",
     normalizedEmail,

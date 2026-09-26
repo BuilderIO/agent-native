@@ -97,8 +97,6 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function stopNativeInteraction(e: Event): void {
-    // A fling's wheel events are not cancelable; cancelling one logs a browser
-    // Intervention per event and scrolls anyway.
     if (e.cancelable) e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
@@ -123,9 +121,6 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onWheel(e: WheelEvent): void {
-    // Zoom forwards whatever the pan flag says: the flag only arrives by
-    // postMessage and a document swap strands it, while the zoom bridge cancels
-    // ctrl/meta wheel here regardless — so gating it makes the gesture vanish.
     var zoomIntent = !!(e.ctrlKey || e.metaKey);
     if (!wheelEnabled && !zoomIntent) return;
     stopNativeInteraction(e);
@@ -255,8 +250,6 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function shouldLetEditorChromeHandleSpace(): boolean {
-    // The gesture shim runs before editor chrome; an active reorder needs the
-    // later listener to see Space so it can preserve the dragged layer's parent.
     return (
       !spaceKeyForwardingEnabled &&
       editingSafetyEnabled &&
@@ -327,11 +320,6 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
     if (e.data.type === "embedded-canvas-gesture-mode") {
       wheelEnabled = !!e.data.wheelEnabled;
       spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
-      // Live-updatable so entering/leaving Interact does not change this
-      // script's text. The host keys its bridge registration on a hash of the
-      // script, so baking the mode in meant every Interact toggle minted a new
-      // key, forced a re-register, and left the canvas on "Preparing editable
-      // preview..." until that round trip finished.
       if (typeof e.data.editingSafetyEnabled === "boolean") {
         var nextEditingSafetyEnabled = e.data.editingSafetyEnabled;
         if (editingSafetyEnabled && !nextEditingSafetyEnabled) {
@@ -377,11 +365,6 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onWindowBlur(): void {
-    // Moving focus from an iframe gesture into the parent canvas can blur the
-    // child window while the top-level Design window is still active. The
-    // parent separately sends embedded-canvas-pan-cancel on a real top-level
-    // blur; this local guard handles page/tab hiding without killing that
-    // intentional in-app focus transfer.
     if (document.visibilityState === "hidden") cancelActivePan();
   }
 

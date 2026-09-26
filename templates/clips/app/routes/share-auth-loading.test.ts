@@ -320,9 +320,6 @@ describe("authenticated recording route loading", () => {
   it("opens the comments panel on the public share page for ?panel=comments links", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // The signed-in recording route supports a ?panel=comments deep link
-    // (used by search results and the command menu); the public share route
-    // rendered the same param unread and always defaulted to "transcript".
     expect(shareRoute).toContain(
       'const panelParam = searchParams.get("panel")',
     );
@@ -334,10 +331,6 @@ describe("authenticated recording route loading", () => {
     expect(effect).toContain('if (panelParam === "comments") {');
     expect(effect).toContain("selectCommentsPanel();");
 
-    // A share whose owner disabled comments after the link was shared must
-    // land back on transcript - the comments tab and its content are both
-    // conditionally rendered on recording.enableComments, so leaving `panel`
-    // set to "comments" here would strand the Tabs value on nothing.
     expect(effect).toContain(
       'setPanel((current) => (current === "comments" ? "transcript" : current));',
     );
@@ -346,11 +339,6 @@ describe("authenticated recording route loading", () => {
   it("does not re-select comments every time the viewer changes tabs", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // `panel` must not be a dependency of the deep-link effect: if it were,
-    // switching to Transcript/Agent would re-run the effect, and
-    // `panelParam === "comments"` (still true, since it's read from the URL)
-    // would immediately call selectCommentsPanel() again, trapping the
-    // viewer on the deep link for the whole share session.
     const effectStart = shareRoute.indexOf(
       "if (recording && !recording.enableComments) {",
     );
@@ -365,10 +353,6 @@ describe("authenticated recording route loading", () => {
   it("re-runs the comments deep link when navigating between shares", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // Without `shareId` in the effect's dependency array, navigating from
-    // /share/A?panel=comments to /share/B?panel=comments would not re-run the
-    // effect when both recordings have the same enableComments value, leaving
-    // the new share on whatever `panel` the previous share was left at.
     const effectStart = shareRoute.indexOf(
       "if (recording && !recording.enableComments) {",
     );
@@ -385,9 +369,6 @@ describe("authenticated recording route loading", () => {
   it("preserves ?panel in the sign-in continuation URL for public shares", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // Anonymous viewers who open a ?panel=comments share and then sign in
-    // must return to the comments panel, not lose it because shareReturnTo
-    // only forwarded attribution and `at`.
     expect(shareRoute).toContain(
       "buildShareContinuationQuery(attribution, startAt, panelParam)",
     );
@@ -402,8 +383,6 @@ describe("authenticated recording route loading", () => {
   it("sends signed-in viewers to the app shell instead of the marketing page", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // appPath("/") is the public marketing shell (see root.tsx), never a
-    // valid signed-in destination - every home link must gate on session.
     expect(shareRoute).toContain(
       'const homeHref = session ? appPath("/home") : appPath("/");',
     );
@@ -416,8 +395,6 @@ describe("authenticated recording route loading", () => {
 
     expect(shareRoute.match(/homeHref=\{homeHref\}/g)).toHaveLength(6);
 
-    // The brand/logo link is a "go to the marketing site" affordance, not
-    // back-navigation, so it stays ungated on session for every viewer.
     expect(shareRoute).toContain(
       'to={appPath("/")}\n              aria-label={t("navigation.brand")}',
     );

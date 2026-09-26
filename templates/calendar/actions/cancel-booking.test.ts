@@ -19,10 +19,6 @@ import action from "./cancel-booking";
 
 describe("cancel-booking", () => {
   it("requires human approval before an agent can send the cancellation email and delete the event", () => {
-    // toolCallable only blocks the sandboxed tools-iframe bridge — it does not
-    // remove this action from the agent's own tool list. needsApproval is the
-    // gate that actually stops the agent chat loop from cancelling a booking
-    // (and emailing the guest) on its own.
     expect(action.needsApproval).toBe(true);
   });
 

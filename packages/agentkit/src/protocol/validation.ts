@@ -2028,11 +2028,6 @@ export interface ParseAgentEventSequenceOptions {
   path?: string;
 }
 
-/**
- * Validates a complete replay batch before a consumer advances its cursor.
- * Returning only after the entire batch is contiguous prevents a later event
- * from making an earlier missing event permanently unreachable.
- */
 export function parseAgentEventSequence(
   value: unknown,
   options: ParseAgentEventSequenceOptions = {},
@@ -2854,7 +2849,6 @@ export function createAgentProtocolEnvelope<TPayload>(
   };
 }
 
-/** Narrows a message part after validating it at a transport boundary. */
 export function parseAgentMessagePart(
   value: unknown,
   path = "part",

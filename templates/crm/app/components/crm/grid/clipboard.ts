@@ -1,12 +1,3 @@
-/**
- * TSV that survives a round trip through Sheets and Excel.
- *
- * Both quote a cell containing a tab, newline, or quote character and double
- * embedded quotes inside it. Splitting on `\t` and `\n` without honouring that
- * silently shreds one pasted cell into several — which lands wrong values in
- * the wrong columns and looks like a successful paste.
- */
-
 const NEEDS_QUOTING = /[\t\n\r"]/;
 
 export function encodeTsvCell(value: string): string {
@@ -18,10 +9,6 @@ export function encodeTsv(rows: string[][]): string {
   return rows.map((row) => row.map(encodeTsvCell).join("\t")).join("\n");
 }
 
-/**
- * Parse TSV into a rectangle of raw cell strings. Ragged input stays ragged —
- * padding here would invent empty values the source never had.
- */
 export function decodeTsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -78,7 +65,6 @@ export function decodeTsv(text: string): string[][] {
     cell += char;
     index += 1;
   }
-  // A trailing newline ends the last row; anything else leaves a pending cell.
   if (cell !== "" || row.length > 0 || rows.length === 0) endRow();
   return rows;
 }

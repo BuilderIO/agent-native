@@ -36,9 +36,7 @@ export interface EngineModelGroup {
   label: string;
   models: string[];
   configured: boolean;
-  /** Provider-owned connection state shown at the far edge of the row. */
   statusLabel?: string;
-  /** Marks a configured local subscription so setup CTAs can stay hidden. */
   isSubscription?: boolean;
 }
 
@@ -63,11 +61,6 @@ export interface ComposerBuilderConnectFlow {
   agentNativeProvisioningEnabled?: boolean;
   accountExists?: boolean;
   start: (options?: { provisionAccount?: boolean }) => void;
-  /**
-   * Re-read status. Returns true when a read actually started, which is what
-   * lets a Connect click arriving before the first read resolves be held
-   * rather than dropped. A runtime that omits it keeps the old behavior.
-   */
   retry?: () => boolean | void;
 }
 
@@ -317,8 +310,6 @@ export function ComposerRuntimeAdaptersProvider({
   adapters: ComposerRuntimeAdapters;
   children: ReactNode;
 }) {
-  // Consumers key effects off this value; a fresh identity per render re-runs
-  // every one of them (app-state reads, event subscriptions) on each render.
   const value = useMemo(
     () => ({
       ...fallbackAdapters,

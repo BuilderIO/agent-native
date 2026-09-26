@@ -24,8 +24,6 @@ function isStrictBuilderHost(origin: string | null): boolean {
   if (!origin) return false;
   try {
     const hostname = new URL(origin).hostname.toLowerCase();
-    // The hosted Dispatch shell also lives under Builder's domain; its app
-    // iframe is an ordinary workspace embed, not a visual-editor session.
     if (
       hostname === "agent-workspace.builder.io" ||
       hostname === "beta.agent-workspace.builder.io"
@@ -70,17 +68,6 @@ function hasBuilderPreviewParams(): boolean {
 let builderFrameDetected = false;
 let builderParentOrigin: string | null = null;
 
-/**
- * For Builder-owned editor hosts the parent origin alone is sufficient. The
- * hosted Dispatch shell is also under `*.builder.io`, so it is excluded above.
- * For localhost we still require the legacy `?builder.*` query params, because
- * "parent is localhost" can mean anything in dev. The params check existed
- * historically as a belt-and-suspenders signal, but Builder's Interact mode
- * tunnels straight to the iframe URL without appending them, so requiring them
- * everywhere caused `isInBuilderFrame()` to return false for real Builder
- * editor sessions and `HomeChatPanel` submissions silently fell through to
- * `agentNative.submitChat` (which Builder ignores).
- */
 function detectBuilderParentOrigin(): string | null {
   const frameOrigin = getFrameOrigin();
   if (frameOrigin) {
@@ -105,8 +92,6 @@ export function getBuilderParentOrigin(): string | null {
   return detectedOrigin ?? builderParentOrigin;
 }
 
-// Capture the initial Builder signal before client-side routing can remove its
-// query markers from a top-level Electron webview.
 if (typeof window !== "undefined") {
   builderFrameDetected =
     getBuilderParentOrigin() !== null || hasBuilderPreviewParams();
@@ -116,9 +101,6 @@ export function isInBuilderFrame(): boolean {
   if (typeof window === "undefined") return false;
   if (builderFrameDetected) return true;
 
-  // Electron webviews run the preview as a top-level page, so there is no
-  // parent frame to inspect. Builder still marks those URLs with builder.*
-  // preview params, and sendToBuilderChat will use the console relay.
   builderFrameDetected =
     getBuilderParentOrigin() !== null || hasBuilderPreviewParams();
   return builderFrameDetected;
@@ -148,11 +130,6 @@ export interface BuilderChatMessage {
   submit?: boolean;
   mode?: "act" | "plan";
   requestMode?: "act" | "plan";
-  /**
-   * Origin an embedder already verified for itself. `getBuilderParentOrigin()`
-   * needs `?builder.*` params to trust a loopback parent, which a handshake-based
-   * embed never carries — without this the message falls back to `"*"`.
-   */
   targetOrigin?: string;
 }
 
@@ -174,8 +151,6 @@ export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
   if (hasParentFrame) {
     window.parent.postMessage(payload, targetOrigin);
   } else {
-    // Builder's Electron/webview relay watches console output for top-level
-    // previews that have no parent frame to receive postMessage.
     try {
       console.log(
         "BUILDER_PARENT_MESSAGE:" +
@@ -187,41 +162,15 @@ export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
   return true;
 }
 
-// Detect "build/create/make/scaffold a new app/agent" style prompts.
-// Within agent-native, "agent" and "app" are synonyms — every agent-native
-// app is an agent, so users phrase build requests either way.
 const BUILD_APP_OR_AGENT_RE =
   /\b(?:build|create|make|scaffold|generate)\b[^.!?\n]*?\b(?:agent[-\s]native\s+)?(?:workspace\s+)?(?:app|agent)\b/i;
 
-/**
- * Returns true if `text` looks like a "build me an app/agent" request that
- * should hand off to the code-writing agent (Builder, local code agent, etc.)
- * rather than be answered by the embedded app's domain agent.
- *
- * Conservative: requires both an imperative build verb AND an explicit
- * "app" / "agent" target word in the same sentence. "Build me a tool",
- * "build a recurring job", "create a destination" do not match — they
- * don't end in "app"/"agent" so they stay on the local agent. "Build me
- * an email app" / "create me an email agent" do match — the target
- * word is "app" / "agent", not "email".
- */
 export function isBuildAppOrAgentRequest(text: string | undefined): boolean {
   const t = (text ?? "").trim();
   if (!t) return false;
   return BUILD_APP_OR_AGENT_RE.test(t);
 }
 
-/**
- * If the user typed a "build me an app/agent" prompt while running inside
- * the Builder.io webview/iframe, hand the prompt up to the parent Builder
- * chat via `builder.submitChat`. Returns true when delegated.
- *
- * Why: Builder is the code-writing agent. When a workspace app (Dispatch,
- * Mail, etc.) is mounted inside Builder's webview and the user asks the
- * embedded chat to "build an app", the user almost certainly means the
- * already-open Builder chat session — not a separate Builder agent run
- * spawned through `start-workspace-app-creation`.
- */
 export function tryDelegateBuildRequestToBuilder(
   text: string | undefined,
 ): boolean {

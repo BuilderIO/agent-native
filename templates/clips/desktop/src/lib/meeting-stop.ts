@@ -4,7 +4,6 @@ interface StopMeetingBeforeTranscriptFlushOptions {
   flushTranscript: () => Promise<void>;
 }
 
-/** Persist the terminal meeting state before waiting on transcript work. */
 export async function stopMeetingBeforeTranscriptFlush({
   stopRecording,
   waitForHistory,

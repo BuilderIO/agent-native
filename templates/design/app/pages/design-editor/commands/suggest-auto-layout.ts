@@ -105,9 +105,6 @@ export function runSuggestAutoLayout({
       };
     });
   const suggestion = inferAutoLayoutSuggestion({
-    // Child measurements are parent-relative, so the container's own local
-    // content box begins at 0,0 even when the container is positioned in its
-    // parent. This prevents outer-canvas placement from becoming padding.
     container: {
       id: container.id,
       x: 0,

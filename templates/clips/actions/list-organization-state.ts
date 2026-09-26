@@ -1,13 +1,3 @@
-/**
- * Return a summary of the active organization — org row, members, spaces,
- * and personal-library folders. Useful for orienting the agent at the start
- * of a session when the user asks "who's in my org?" or "what spaces do I
- * have?".
- *
- * Usage:
- *   pnpm action list-organization-state
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   organizations,
@@ -69,11 +59,6 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    // Personal scope - no membership anywhere, or the caller just deleted
-    // their last organization - is a supported state, not a read failure.
-    // Throwing here reached the UI as a load error next to the
-    // create-organization card that already renders the same state correctly.
-    // An organization the caller may not read still errors.
     const activeOrganizationId =
       args.organizationId ?? (await getActiveOrganizationId());
     if (!activeOrganizationId) return emptyOrganizationState(ownerEmail);

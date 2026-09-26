@@ -17,7 +17,6 @@ import {
 } from "../server/lib/design-system-defaults.js";
 import getDesignSystem from "./get-design-system.js";
 
-/** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",

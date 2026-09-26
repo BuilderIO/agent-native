@@ -68,59 +68,21 @@ const REPO_ROOT = path.resolve(
 
 const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-blob-predicate\b/;
 
-/**
- * All first-party source. Deliberately NOT narrowed to `server/` or `actions/`.
- *
- * The bug this guard exists for lived in
- * `packages/core/src/chat-threads/store.ts` — a store module under none of
- * those directories. A directory-shaped scope would have reported a clean pass
- * on the exact line it was written to catch, which is the same blind spot
- * `guard:no-boot-data-work` had. The predicate below is specific enough (a SQL
- * LIKE against a known-heavy column, with a literal pattern) that scanning
- * broadly costs nothing; missing the one file that matters costs everything.
- */
 const IN_SCOPE = /^(packages|templates|apps)\//;
 const SKIPPED = /(\.spec\.|\.test\.|\/__tests__\/|\/dist\/|\/node_modules\/)/;
 
-/**
- * Column names that hold a value big enough to be TOASTed. Deliberately a name
- * list rather than schema analysis: the guard runs on a diff, and a name like
- * `thread_data` or `config` is the reliable signal available at that level.
- * Small columns a list legitimately filters on — title, preview, name, slug,
- * email — are absent on purpose.
- */
 const HEAVY_COLUMN = String.raw`(?:\w*_)?(?:thread_?data|content|body|payload|config|layout|spec|tracks|snapshot|blob|html|markdown|messages|metadata|tool_?results|evidence_?json|options_?json|edits_?json|chapters_?json|json_?value|properties|data)`;
 
-/**
- * `<heavy column> [NOT] LIKE/ILIKE '<literal>'` in raw SQL.
- *
- * Requires a quoted literal on the right-hand side. A `?` / `$1` placeholder is
- * a user search term and is intentionally not matched. The pattern is captured
- * so an INTERPOLATED template (`LIKE '%${term}%'`) can be excluded below — that
- * is a dynamic search term wearing a literal's punctuation.
- */
 const RAW_SQL_LITERAL_MATCH = new RegExp(
-  // `\)?` catches the common wrapped form, `LOWER(documents.content) LIKE '…'`,
-  // which is strictly worse than the bare column: it materialises a lowercased
-  // copy of the detoasted blob per row on top of the fetch.
   String.raw`\b${HEAVY_COLUMN}\b\s*\)?\s*(?:NOT\s+)?I?LIKE\s*(['"\`][^'"\`]*)`,
   "i",
 );
 
-/**
- * Drizzle form: `like(table.heavyColumn, "literal")` / `notLike(...)`.
- * A variable second argument (a bound search term) is not matched.
- */
 const DRIZZLE_LITERAL_MATCH = new RegExp(
   String.raw`\b(?:not)?i?like\s*\(\s*[\w.]*\b${HEAVY_COLUMN}\b\s*,\s*(['"\`][^'"\`]*)`,
   "i",
 );
 
-/**
- * A quoted pattern containing `${` is built from a variable, so it is a search
- * term rather than a fixed marker — the same reason a `?` placeholder is
- * allowed. Flagging it would put the guard in the way of legitimate search.
- */
 const INTERPOLATED = /\$\{/;
 
 const added = requireAddedLines(REPO_ROOT, "guard-no-blob-column-predicate");
@@ -135,7 +97,7 @@ for (const [absPath, lineNumbers] of added) {
   try {
     lines = readFileSync(absPath, "utf8").split("\n");
   } catch {
-    continue; // deleted or renamed since the diff was computed
+    continue;
   }
 
   for (const lineNumber of lineNumbers) {

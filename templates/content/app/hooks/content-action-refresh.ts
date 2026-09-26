@@ -350,8 +350,6 @@ export function contentActionInvalidatePredicate(
       queryTargetsDocument(query, targetId) &&
       (query.isActive ? query.isActive() : targetId === documentId)
     ) {
-      // Mounted Page surfaces can belong to a collection preview rather than
-      // the route. Keep inactive cached Pages out of the refresh fan-out.
       return events.some(
         (event) =>
           event.source === "action" &&

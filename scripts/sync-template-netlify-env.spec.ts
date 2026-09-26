@@ -22,9 +22,6 @@ describe("isAllowedHostedTemplateEnvKey", () => {
   it("allows the browser-restricted Google Picker configuration", () => {
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_API_KEY")).toBe(true);
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_APP_ID")).toBe(true);
-    // Google OAuth credentials must never sync from a template's local .env to
-    // a hosted site: local holds a dev client, hosted runs the shared production
-    // one. Syncing them took beta sign-in down fleet-wide on 2026-08-20.
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_SIGN_IN_CLIENT_ID")).toBe(
       false,
     );

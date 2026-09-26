@@ -7,12 +7,6 @@ import {
   type JsonExplorerData,
 } from "./json-explorer.config.js";
 
-/**
- * Minimal `BlockAttrReader` over a plain attribute bag, mirroring the runtime
- * `createAttrReader` value-domain narrowing (string-vs-number-vs-object). Lets
- * the test assert the `toAttrs` → `fromAttrs` round-trip without spinning up the
- * full MDX serialize/parse pipeline.
- */
 function reader(attrs: Record<string, unknown>): BlockAttrReader {
   const read = (name: string) => attrs[name];
   return {
@@ -32,7 +26,6 @@ function reader(attrs: Record<string, unknown>): BlockAttrReader {
   };
 }
 
-/** Re-decode data from the attribute bag `toAttrs` produced. */
 function roundTrip(data: JsonExplorerData): JsonExplorerData {
   const attrs = jsonExplorerMdx.toAttrs(data) as Record<string, unknown>;
   return jsonExplorerMdx.fromAttrs(reader(attrs), "");
@@ -85,8 +78,6 @@ describe("json-explorer block config", () => {
       2,
     );
     const data: JsonExplorerData = { json };
-    // No title/collapsedDepth attributes are emitted, so the decode yields
-    // `title: undefined` / `collapsedDepth: undefined`.
     expect(roundTrip(data)).toEqual({
       json,
       title: undefined,
@@ -103,8 +94,6 @@ describe("json-explorer block config", () => {
   });
 
   it("preserves the json text exactly even when it is invalid JSON", () => {
-    // The block stores raw text as the source of truth; the config must NOT
-    // validate or reformat it (the reader parses defensively at render time).
     const data: JsonExplorerData = { json: "{ not valid json," };
     expect(jsonExplorerSchema.parse(data)).toEqual(data);
     expect(roundTrip(data)).toEqual({

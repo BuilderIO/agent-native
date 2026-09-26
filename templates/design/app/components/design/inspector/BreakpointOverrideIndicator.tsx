@@ -8,12 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export interface BreakpointOverrideIndicatorProps {
-  /** True when the active breakpoint has an override for this property. */
   overridden: boolean;
-  /**
-   * The width (px) the override is scoped to — used only for the tooltip
-   * copy ("Overridden at 810px"). Required whenever `overridden` is true.
-   */
   maxWidthPx?: number | null;
   onReset?: () => void;
   className?: string;

@@ -18,7 +18,6 @@ function u32(n: number): number[] {
   return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
 }
 
-/** Build a box: 4-byte size, 4-byte type, payload. */
 function box(type: string, payload: number[]): number[] {
   const size = 8 + payload.length;
   return [...u32(size), ...Array.from(enc.encode(type)), ...payload];
@@ -61,14 +60,12 @@ describe("isFragmentedMp4Head", () => {
   });
 
   it("returns false when classic mp4 binary data contains the bytes 'mvex' inside mvhd", () => {
-    // A regular MP4 whose mvhd payload happens to contain the byte sequence
-    // 0x6d766578 ("mvex") — a false positive the old raw-scan code would hit.
     const ftyp = box("ftyp", [
       ...Array.from(enc.encode("isom")),
       ...u32(0),
       ...Array.from(enc.encode("mp42")),
     ]);
-    const mvexBytes = Array.from(enc.encode("mvex")); // 6d 76 65 78
+    const mvexBytes = Array.from(enc.encode("mvex"));
     const moov = box("moov", box("mvhd", [...u32(0), ...mvexBytes, ...u32(0)]));
     expect(isFragmentedMp4Head(new Uint8Array([...ftyp, ...moov]))).toBe(false);
   });
@@ -93,7 +90,6 @@ describe("readTopLevelBoxes", () => {
 
 describe("parseAvcCodec", () => {
   it("builds avc1.PPCCLL from an avcC box", () => {
-    // avcC payload: version=1, profile=0x4d, compat=0x40, level=0x1f
     const avcc = box("avcC", [0x01, 0x4d, 0x40, 0x1f, 0xff]);
     expect(parseAvcCodec(new Uint8Array(avcc))).toBe("avc1.4d401f");
   });
@@ -109,7 +105,7 @@ describe("parseInitSegment", () => {
     const stsd = box("stsd", [...box("avc1", avcc), ...box("mp4a", [])]);
     const moov = box("moov", stsd);
     const ftyp = box("ftyp", [...Array.from(enc.encode("isom")), ...u32(0)]);
-    const bytes = new Uint8Array([...ftyp, ...moov, 0xaa, 0xbb]); // trailing media
+    const bytes = new Uint8Array([...ftyp, ...moov, 0xaa, 0xbb]);
 
     const parsed = parseInitSegment(bytes);
     expect(parsed).not.toBeNull();
@@ -130,7 +126,6 @@ describe("parseInitSegment", () => {
 
   it("returns null when moov is truncated", () => {
     const ftyp = box("ftyp", u32(0));
-    // Declare a moov larger than the bytes provided.
     const truncatedMoov = [
       ...u32(999),
       ...Array.from(enc.encode("moov")),
@@ -152,8 +147,6 @@ describe("findMoofOffset", () => {
   });
 
   it("ignores a spurious 'moof' inside mdat payload", () => {
-    // "moof" appears as raw bytes inside media data — must not be treated as a
-    // box boundary (no mfhd child follows).
     const mdat = box("mdat", [...Array.from(enc.encode("moof")), 1, 2, 3, 4]);
     expect(findMoofOffset(new Uint8Array(mdat))).toBe(-1);
   });
@@ -163,7 +156,6 @@ describe("findMoofOffset", () => {
   });
 });
 
-/** A `trak` with the version-0 layout Clips recordings use. */
 function trak(trackId: number, timescale: number, kind: string): number[] {
   const tkhd = box("tkhd", [
     ...u32(0), // version 0 + flags
@@ -200,7 +192,6 @@ function tfdtBox(base: number, version: 0 | 1): number[] {
   return box("tfdt", [...u32(0), ...u32(base)]);
 }
 
-/** A `moof` with an `mfhd` and one `traf` per (trackId, decode time) pair. */
 function moof(
   trafs: { trackId: number; base: number; version?: 0 | 1 }[],
 ): number[] {
@@ -302,9 +293,6 @@ describe("fragmentPtsSeconds", () => {
   });
 
   it("does not fall back to another track's timescale", () => {
-    // A fragment for a track absent from the init segment: answering with the
-    // wrong timescale would be off by 80x here and send a seek nowhere near
-    // its target, so it must report "unknown" instead.
     const orphan = new Uint8Array(moof([{ trackId: 9, base: 180_000 }]));
     expect(fragmentPtsSeconds(orphan, 0, tracks)).toBeNull();
   });

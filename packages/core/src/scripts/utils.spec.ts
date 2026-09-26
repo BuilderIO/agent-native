@@ -206,8 +206,6 @@ describe("isValidProjectPath", () => {
 
 describe("fail", () => {
   it("raises a typed contract error so the message survives the action route", () => {
-    // A bare `throw new Error(...)` is replaced by a generic 500 there; only a
-    // contract error is declared safe to echo to HTTP callers.
     const error = (() => {
       try {
         fail("Meeting not found");
@@ -221,7 +219,6 @@ describe("fail", () => {
     expect(error).toMatchObject({
       message: "Meeting not found",
       errorCode: "action_failed",
-      // 400, not 409: a refusal must not read as retryable to a browser query.
       statusCode: 400,
     });
   });

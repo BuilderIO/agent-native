@@ -1,4 +1,3 @@
-// ── Imports ──────────────────────────────────────────────────────────────────
 import {
   generateTabId,
   AgentChatSurface,
@@ -1198,9 +1197,6 @@ type RequestDesignAccessResult = {
 // DOM — already accounts for it; see chromeInsetLeft below.
 const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
 
-// Stable empties for per-screen DesignCanvas props. A fresh [] each render
-// re-runs every live canvas's replay effect, which reposts the whole editor
-// state into its iframe.
 const NO_SELECTORS: string[] = [];
 const NO_SELECTOR_GROUPS: string[][] = [];
 const NO_MOTION_TRACKS: MotionTrackWire[] = [];
@@ -1294,7 +1290,6 @@ function readRenderedLayerInfo(
       };
     } catch (error) {
       if (error instanceof DOMException && error.name === "SecurityError") {
-        // Cross-origin previews fall through to the bridge measurement below.
         continue;
       }
       throw error;
@@ -1303,20 +1298,12 @@ function readRenderedLayerInfo(
   return null;
 }
 
-// ── Route wrapper — remounts editor state per design id ──────────────────────
-/**
- * React Router reuses the same route component when only `:id` changes. Key
- * the stateful editor by design id so pending refs, collaboration docs, tools,
- * selections, and per-screen caches from one design can never leak into the
- * next design during client-side navigation.
- */
 export default function DesignEditorRoute() {
   const { id } = useParams<{ id: string }>();
   return <DesignEditor key={id ?? "missing-design"} />;
 }
 
 function DesignEditor() {
-  // ── Session, route params, design identity ─────────────────────────────────
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
   const canUploadDesignMedia =
@@ -1336,10 +1323,6 @@ function DesignEditor() {
   const requestLocalhostWriteRef = useRef<RequestLocalhostWrite | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  // Long overview sessions (pan/zoom/select/undo across many screens) build
-  // up a very large native `performance.measure` buffer from React/Radix dev
-  // instrumentation (see performance-buffer-guard.ts) — bound it so a long
-  // session's JS heap doesn't grow from that alone.
   usePerformanceBufferGuard();
   const initialEditorUrlRef = useRef<{
     designId: string | undefined;
@@ -1376,24 +1359,13 @@ function DesignEditor() {
   }, [searchParams]);
   const queryClient = useQueryClient();
   const browserTabId = getBrowserTabId();
-  /**
-   * Shell mode: the host drives the whole canvas over `design:init` and nothing
-   * is persisted, so there is no design row to read and no session to hold.
-   */
   const shellMode = id === SHELL_DESIGN_ID;
-  // The shell route is host-embedded by definition and carries no embed session,
-  // so every `embedded` behaviour below would otherwise read as a standalone
-  // Design page and put our own chrome and agent inside Builder's.
   const embedded = shellMode || isEmbedAuthActive();
   const isVisualEditSurface = location.pathname.startsWith("/visual-edit/");
   const isLiveCanvasShareLink =
     isVisualEditSurface && searchParams.get("share") === "1";
   const embedChromeRequested = isEmbedChromeRequested();
-  // The shell keeps our rails and hands the host only the chat, so it must not
-  // depend on `embedChrome` surviving in the URL Builder builds.
   const hostOwnsChrome = embedded && !shellMode && !embedChromeRequested;
-  // Framed by a host that supplies the chat but not the canvas chrome: our
-  // rails stay, our agent surface does not.
   const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
     isBuilderHostEmbed(),
   );
@@ -1405,8 +1377,6 @@ function DesignEditor() {
   const postHostChatSlotRect = useCallback(() => {
     if (!hostEmbeddedEditor) return;
     const box = hostChatSlotRef.current?.getBoundingClientRect();
-    // A hidden panel measures 0x0. That is "not on screen", so the host hides
-    // its chat instead of pinning it to a degenerate box.
     const rect =
       box && box.width > 0 && box.height > 0
         ? {
@@ -1421,8 +1391,6 @@ function DesignEditor() {
       getBuilderParentOrigin() ?? "*",
     );
   }, [hostEmbeddedEditor]);
-  // A callback ref, not an effect: the slot unmounts with the whole sidebar,
-  // and switching panels only changes its box, which the observer already sees.
   const attachHostChatSlot = useCallback(
     (node: HTMLDivElement | null) => {
       hostChatSlotRef.current = node;
@@ -1502,8 +1470,6 @@ function DesignEditor() {
   );
   const [shellInput, setShellInput] = useState<ShellDesignInput | null>(null);
 
-  // ── Tool, mode, zoom, camera, and view state ───────────────────────────────
-  // Editor state
   const [mode, setMode] = useState<EditorMode>("edit");
   const [overviewInteractScreenId, setOverviewInteractScreenId] = useState<
     string | null
@@ -1513,17 +1479,10 @@ function DesignEditor() {
     overviewInteractScreenIdRef.current = overviewInteractScreenId;
   }, [overviewInteractScreenId]);
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
-  // Drawing drops activeTool back to move (Figma parity), so the shape group
-  // button cannot read its own identity off it.
   const [shapeTool, setShapeTool] = useState<ShapeTool>("rect");
-  // The frame tool draws a top-level SCREEN or a plain FRAME container. Made
-  // explicit because deciding it from where the drag started is unguessable.
   const [frameToolDraws, setFrameToolDraws] = useState<"screen" | "frame">(
     "frame",
   );
-  // The persisted pin round-trips through the server, but content measurement
-  // fires as soon as the iframe loads. Without a synchronous local pin the
-  // frame grows to the device floor and snaps back once metadata lands.
   const locallyPinnedHeightIdsRef = useRef<Set<string>>(new Set());
   const activeToolRef = useRef(activeTool);
   useEffect(() => {
@@ -1532,13 +1491,6 @@ function DesignEditor() {
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [screenZoom, setScreenZoom] = useState(FOCUSED_SCREEN_ZOOM);
-  // MultiScreenCanvas owns overview pan, so every external reveal/fit request
-  // (including a screen that was just created) travels through this bounded
-  // camera command rather than remounting the canvas or imperatively reaching
-  // into its DOM. Keeping the command state with the rest of the editor view
-  // state also lets creation handlers issue the reveal in the same React
-  // commit that selects the optimistic file, avoiding a one-frame flash at the
-  // old camera position.
   const [cameraCommand, setCameraCommand] = useState<{
     fitBounds: FrameBounds;
     nonce: number;
@@ -1570,18 +1522,11 @@ function DesignEditor() {
     memberSourceIds?: readonly string[];
     worldBounds: FrameBounds;
   } | null>(null);
-  // Per-screen zoom memory for single-screen mode: remembers each screen's
-  // last zoom level (keyed by file id) so re-entering a screen restores where
-  // the user left off instead of always resetting to FOCUSED_SCREEN_ZOOM. A
-  // ref (not state) since this is a passive cache read by enterSingleScreen,
-  // not something that should trigger a render on its own.
   const screenZoomByIdRef = useRef<Map<string, number>>(new Map());
   const [explicitOverviewCanvasZoom, setExplicitOverviewCanvasZoom] = useState<
     number | null
   >(null);
   const [deviceFrame] = useState<DeviceFrameType>("none");
-  // Responsive Interact device box. Kept separate from `zoom` (the canvas
-  // camera) because this scales a literal device viewport, not the canvas.
   const [interactDeviceName, setInteractDeviceName] = useState(
     DEFAULT_INTERACT_DEVICE_PRESET.name,
   );
@@ -1592,23 +1537,15 @@ function DesignEditor() {
   const [interactZoom, setInteractZoom] = useState(100);
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
   useEffect(() => {
-    // An overview-origin Interact view keeps its frame id while the focused
-    // canvas remains on the same mounted MultiScreenCanvas tree.
     if (viewMode !== "single" || mode !== "interact") {
       setOverviewInteractScreenId(null);
     }
   }, [mode, viewMode]);
   const viewModeRef = useRef<"single" | "overview">("overview");
-  // Trusted parent origin captured from the first validated inbound message.
-  // Used to restrict outgoing postMessage calls that carry user data so they
-  // are never broadcast to an arbitrary embedding page.
   const parentOriginRef = useRef<string | null>(null);
-  // ── Selection and pending live-edit state ──────────────────────────────────
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
-  // The host's chat is the only chat here, so a canvas selection has to reach
-  // its composer to be usable as context.
   const hostSelectionChipRef = useRef<string | null>(null);
   useEffect(() => {
     if (!hostEmbeddedEditor) return;
@@ -1623,17 +1560,8 @@ function DesignEditor() {
     hostSelectionChipRef.current = chip;
     sendBuilderSelectionContext(describeSelectionForHost(selectedElement));
   }, [hostEmbeddedEditor, selectedElement]);
-  // Committed selection for synchronous reads in the echo-loop guard. Synced
-  // during render (not an effect) so it has no lag on any setSelectedElement path.
   const selectedElementRef = useRef(selectedElement);
   selectedElementRef.current = selectedElement;
-  // Vector-edit mode (P5 integration): active while the user is editing a
-  // committed pen path's anchors/handles on the overview canvas. `path` is
-  // the LIVE working copy (path-local coordinates, matching pen-path.ts);
-  // `originCanvas` is recomputed from the owning screen's current frame
-  // geometry on every render (see vectorEditOverlayState below) rather than
-  // stored here, so dragging/resizing the screen frame while editing doesn't
-  // leave the overlay pinned to a stale position. null when not editing.
   const [vectorEditingState, setVectorEditingState] = useState<{
     screenId: string;
     nodeId: string;
@@ -1765,10 +1693,6 @@ function DesignEditor() {
       >
     >
   >((next) => {
-    // Cross-screen moves reserve this shared request slot until their
-    // acknowledgement. Most competing commands use a direct request value,
-    // so reject those before React queues state rather than making the caller
-    // appear successful while its iframe operation is silently dropped.
     if (typeof next !== "function" && next) {
       const pendingTransactionId =
         runtimeStructurePendingTransactionRef.current;
@@ -2096,10 +2020,6 @@ function DesignEditor() {
     },
     [],
   );
-  // A handoff the host only prefilled. Its edits stay pending until a host turn
-  // settles, which is the one signal that the prompt was actually run.
-  // "awaiting-start" until the host reports generating: a turn that was already
-  // running when Apply was clicked would otherwise settle and be read as ours.
   const stagedSourceHandoffRef = useRef<"idle" | "awaiting-start" | "running">(
     "idle",
   );
@@ -2175,22 +2095,9 @@ function DesignEditor() {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [pendingLayerStateReplayRequest]);
-  // ── Text editing, hover, sidebar, and layers-panel state ───────────────────
   const [textEditingState, setTextEditingState] = useState<TextEditingState>({
     active: false,
   });
-  // T23: overview mode renders many DesignCanvas iframes simultaneously (one
-  // per screen, plus the board), and ALL of them share the single global
-  // textEditingState above. Each iframe posts its own text-editing-state
-  // messages independently, so a stale/out-of-order active:false from a
-  // BACKGROUND screen (e.g. its own edit session ending slightly late) could
-  // clobber the currently-active screen's active:true state, breaking style
-  // panel range-routing (handleStyleChange/handleStylesChange key off
-  // textEditingState.active) for the screen the user is actually editing.
-  // Track which screen AND element last reported active:true and ignore an
-  // active:false that doesn't come from that same session. Screen alone is not
-  // an identity: two text nodes on one surface (board creation A, then B) let
-  // A's late active:false clear B's live session.
   const activeTextEditingSessionRef = useRef<{
     screenId: string;
     sourceId?: string;
@@ -2226,9 +2133,6 @@ function DesignEditor() {
     string | null
   >(null);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
-  // Screen that owns the committed selection. node ids/selectors are only
-  // unique within a screen, so the echo guard uses this to reject stale
-  // intent-less echoes arriving from a different screen. Render-synced.
   const activeFileIdRef = useRef(activeFileId);
   activeFileIdRef.current = activeFileId;
   const [contentRenderRevision, setContentRenderRevision] = useState(0);
@@ -2249,15 +2153,9 @@ function DesignEditor() {
     useState<CodeWorkbenchActiveFile | null>(null);
   const initialSearchCommandAppliedForIdRef = useRef<string | null>(null);
   const initialUrlSelectionHydratedForIdRef = useRef<string | null>(null);
-  // Figma's 56px workspace rail (plus its 1px divider) and 280px Layers/Pages
-  // pane place the content divider at x=337. Keep that total while honoring
-  // the resizable 220–420px content range, with 320px reserved for Agent chat.
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
-  // Cmd/Ctrl+\ hides the sidebars while leaving the bottom tools available.
   const [uiHidden, setUiHidden] = useState(false);
-  // The standard visual-edit embed owns the canvas chrome; only host-framed
-  // embeds use the compact floating controls.
   const minimalUiByDefault =
     embedded && !hostOwnsChrome && !embedChromeRequested;
   const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
@@ -2276,8 +2174,6 @@ function DesignEditor() {
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const suppressProjectMenuReturnFocusRef = useRef(false);
-  // Refs to the resizable sidebar containers keep the splitter responsive
-  // between React renders while the live width state drives dependent layout.
   const leftSidebarContentRef = useRef<HTMLDivElement | null>(null);
   const rightSidebarContentRef = useRef<HTMLDivElement | null>(null);
   const [layersSearchQuery, setLayersSearchQuery] = useState("");
@@ -2324,9 +2220,6 @@ function DesignEditor() {
   const invalidateRenderedElementInfo = useCallback(() => {
     renderedElementInfoByLayerKeyRef.current.clear();
     renderedElementInfoRevisionRef.current += 1;
-    // The preview bridge acknowledges a content morph with its follow-up
-    // element-select message. Rehydrate only from that post-morph boundary;
-    // a microtask here can observe the old iframe DOM and poison the cache.
     renderedInfoRehydratePendingRef.current = true;
   }, []);
   const rehydrateRenderedInfoAfterPreview = useCallback(() => {
@@ -2352,11 +2245,6 @@ function DesignEditor() {
     lockedIds: new Set(),
     hiddenIds: new Set(),
   });
-  // L4: codeLayerOwnerByNodeId itself is computed later (it depends on
-  // codeLayerModelsByFile), but changeSelectedZIndex is defined earlier in
-  // this component and needs to look up the selected node's owning file/tree
-  // at call time (always after the component has fully rendered at least
-  // once). Mirrors the effectiveCodeLayerStateRef pattern just above.
   const codeLayerOwnerByNodeIdRef = useRef<
     Map<
       string,
@@ -2369,7 +2257,6 @@ function DesignEditor() {
       }
     >
   >(new Map());
-  // ── Overview selection, layer lock/hide, clipboard state ───────────────────
   const [overviewSelectedScreenIds, setOverviewSelectedScreenIds] = useState<
     string[]
   >([]);
@@ -2381,14 +2268,7 @@ function DesignEditor() {
   const pendingOverviewScreenSelectionRef = useRef<string | null>(null);
   const pendingOverviewLayerSelectionRef = useRef<string | null>(null);
   const lastOverviewSelectedScreenIdsRef = useRef<string[]>([]);
-  // PF10: last marquee-selection signature, so a mousemove tick that hits the
-  // exact same set of elements as the previous tick can bail before doing any
-  // projection/canonicalization work.
   const lastMarqueeSelectionSignatureRef = useRef<string | null>(null);
-  // Whether anything is currently selected, tracked centrally so the empty
-  // marquee/click clear path can decide whether a deselect is actually needed
-  // regardless of HOW the current selection was made (iframe click, layers
-  // panel, agent, undo/redo, keyboard, etc.). Kept in sync via the effect below.
   const hasActiveSelectionRef = useRef(false);
   useEffect(() => {
     hasActiveSelectionRef.current =
@@ -2399,27 +2279,9 @@ function DesignEditor() {
       hasSelection: hasActiveSelectionRef.current,
     });
   }, [selectedElement, selectedLayerIdsState]);
-  // Tracks the nodeId of the most recently created TEXT primitive across one
-  // handleCreatePrimitive → handlePrimitiveCreated round-trip. Cleared after
-  // use. Lets handlePrimitiveCreated trigger begin-text-edit without needing
-  // the primitive kind in its signature.
   const pendingTextEditNodeIdRef = useRef<string | null>(null);
-  // Overview text creation stays one atomic history transaction from the
-  // empty inserted node through the final contenteditable commit. The exact
-  // before/created snapshots are freshness guards: any intervening peer/user
-  // edit makes finalization fail closed instead of rewriting unrelated undo.
   const pendingTextCreationHistoryRef =
     useRef<PendingTextCreationHistory | null>(null);
-  // T6: tracks the screen/node of a newly-created TEXT primitive whose
-  // begin-text-edit retry loop (scheduleBeginTextEditForScreen) is still
-  // in flight, plus that loop's cancel function. Used so:
-  //  (a) the retry loop can be cancelled immediately once the bridge reports
-  //      the edit session ended (Escape/blur), instead of continuing to
-  //      force-reopen it for the rest of the ~4.2s window, and
-  //  (b) once the loop settles (whether via an observed "active"/"done"
-  //      status, an early cancel, or exhausting every retry), an empty node
-  //      that never got real content typed into it gets removed instead of
-  //      persisting as an invisible empty layer.
   const pendingEmptyTextEditRef = useRef<{
     screenId: string | null;
     nodeId: string;
@@ -2541,42 +2403,19 @@ function DesignEditor() {
   const menuClipboardFilesRef = useRef<File[]>([]);
   const menuClipboardReadIdRef = useRef(0);
   const [hasPropsClipboard, setHasPropsClipboard] = useState(false);
-  // Item 2d: CanvasContextMenu's "Copy animation" / "Paste animation" —
-  // a small same-tab clipboard ref, mirroring copiedStylePropsRef's pattern.
-  // No system-clipboard round-trip (unlike node copy/paste): a
-  // MotionAnimationClip isn't something a user would ever paste from
-  // outside the app, so a ref + boolean-for-render is enough.
   const copiedLayerAnimationRef = useRef<MotionAnimationClip | null>(null);
   const [hasAnimationClipboard, setHasAnimationClipboard] = useState(false);
   const copiedLayerEntriesRef = useRef<CanvasLayerClipboardEntry[]>([]);
   const copiedLayerHtmlRef = useRef<string | null>(null);
-  // Screen-level clipboard (U6): a whole-screen copy stores a snapshot here
-  // instead of a layer entry, so paste can create a new screen file.
   const copiedScreenEntriesRef = useRef<DesignClipboardPayload["screens"]>([]);
-  // Last internal HTML marker and user-facing plain text this tab wrote to the
-  // system clipboard. Keeping both lets Design preserve lossless cross-tab
-  // paste without mistaking a newer external copy for stale in-memory layers.
   const lastWrittenClipboardMarkerRef = useRef<string | null>(null);
   const lastWrittenClipboardPlainTextRef = useRef<string | null>(null);
-  // Synchronous per-file content lineage for repeated paste/undo cycles. A
-  // save acknowledgement may clear the generic pending-local map before the
-  // React query/collab mirrors have rendered its content, leaving a brief
-  // stale-base gap. Keep this mirror current for both local applications and
-  // authoritative host-sync snapshots; the latter replaces, rather than
-  // clears, the known content so there is never an undefined gap.
   const latestClipboardMutationContentRef = useRef<
     Map<string, ClipboardContentLineage>
   >(new Map());
   const clipboardPasteUndoStackRef = useRef<ContentHistoryChange[]>([]);
   const clipboardPasteRedoStackRef = useRef<ContentHistoryChange[]>([]);
-  // Cascade offset for repeated keyboard pastes so successive clones don't stack
-  // pixel-perfectly on top of each other. Reset on each fresh copy/cut.
   const pasteCascadeRef = useRef(0);
-  // U7: absolutely-positioned duplicates (Cmd+D) land exactly in place (zero
-  // offset) rather than cascading, matching Figma. If the user then drags the
-  // duplicated selection, the move delta is recorded here (rootNodeIds + dx/dy)
-  // so the *next* Cmd+D on that same selection repeats the same delta instead
-  // of landing on top of it again.
   const lastDuplicateTransformRef = useRef<{
     rootNodeIds: string[];
     dx: number;
@@ -2585,29 +2424,15 @@ function DesignEditor() {
   const copiedStylePropsRef = useRef<Record<string, string> | null>(null);
   const hasSelectedElement = Boolean(selectedElement);
 
-  // ── Motion dock state (§6.3) ────────────────────────────────────────────────
-  // The MotionDock is mounted below the canvas and shown when motionDockOpen.
-  // Tracks and durationMs are local state; edits autosave via applyMotionEdit.
   const [motionDockOpen, setMotionDockOpen] = useState(false);
   const [motionDockMounted, setMotionDockMounted] = useState(false);
   const motionDockUnmountTimerRef = useRef<number | null>(null);
   const motionDockOpenAnimationFrameRef = useRef<number | null>(null);
   const [motionTimelineId, setMotionTimelineId] = useState<string | null>(null);
   const [motionTracks, setMotionTracks] = useState<MotionDockTrack[]>([]);
-  // Default duration for a brand-new timeline (no saved motion_timeline row
-  // yet). 2000ms gives a more typical starting canvas than 1000ms once a
-  // track/keyframe is first added; explicit user duration changes
-  // (handleMotionDurationChange) and hydration from a saved timeline
-  // (activeMotionTimeline.durationMs) always take precedence over this.
   const [motionDurationMs, setMotionDurationMs] = useState(2000);
-  // Timeline-level default easing, hydrated from the motion_timeline row and
-  // round-tripped through autosave so a save never clobbers it back to "ease".
   const [motionDefaultEase, setMotionDefaultEase] = useState<string>("ease");
   const [motionPlayhead, setMotionPlayhead] = useState(0);
-  // Live playhead mirror written by MotionDock on every rAF tick / scrub frame
-  // (motionPlayhead state only updates at commit points to avoid 60fps
-  // re-renders). Auto-keyframe reads this so an inspector edit made mid-
-  // playback keys at the ACTUAL current playhead, not the last committed time.
   const motionLivePlayheadRef = useRef<number | null>(null);
   const [motionAutoKeyframeEnabled, setMotionAutoKeyframeEnabled] =
     useState(false);
@@ -2619,9 +2444,6 @@ function DesignEditor() {
   const motionAutosaveRevisionRef = useRef(0);
   const motionAutosaveFailedRevisionRef = useRef<number | null>(null);
   const motionAutosaveTimerRef = useRef<number | null>(null);
-  // Fires the currently-scheduled debounced motion autosave immediately.
-  // Set alongside the debounce timer; invoked on file switch so edits in the
-  // debounce window are persisted instead of dropped.
   const motionAutosaveFlushRef = useRef<(() => void) | null>(null);
   const lastScheduledMotionAutosaveRevisionRef = useRef(0);
   const previousMotionFileIdRef = useRef<string | null>(null);
@@ -2710,7 +2532,6 @@ function DesignEditor() {
     },
     [clearMotionAutosaveTimer],
   );
-  // ── Shader fill preview state ──────────────────────────────────────────────
   const [shaderFillPreview, setShaderFillPreview] = useState<{
     selector?: string;
     nodeId?: string;
@@ -2721,57 +2542,22 @@ function DesignEditor() {
     postShaderFillPreviewClearToPreviewIframes();
   }, []);
 
-  // ── Breakpoint preview state (§6.4) ─────────────────────────────────────────
-  // Active breakpoint width for the current design (pixels). Controls which
-  // side-by-side frame is focused. undefined = no frame selected (overview mode).
   const [activeBreakpointWidthState, setActiveBreakpointWidthState] = useState<
     number | undefined
   >(undefined);
   const [responsiveEditScope, setResponsiveEditScope] =
     useState<ResponsiveEditScope>("cascade-smaller");
   const responsiveEditScopeRef = useRef<ResponsiveEditScope>("cascade-smaller");
-  // BP-DEEP item 5 — latest-ref mirror of activeBreakpointWidthState so
-  // click-to-target handlers (handleOverviewScreenPick, the global Escape
-  // handler) can read the CURRENT value without listing it as a useCallback
-  // dep — those handlers are passed down as MultiScreenCanvas/DesignCanvas
-  // props and would otherwise be recreated (defeating the memo comparisons
-  // documented on ScreenProps/screensPropsAreEqual) every time the user
-  // switches breakpoints, i.e. on nearly every click-to-target gesture.
   const activeBreakpointWidthStateRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     activeBreakpointWidthStateRef.current = activeBreakpointWidthState;
     invalidateRenderedElementInfo();
   }, [activeBreakpointWidthState, invalidateRenderedElementInfo]);
-  // Item 9 — dedupe marker for the agent→UI `design-active-breakpoint:<id>`
-  // consumption effect below: the `breakpointId` (or the literal "auto") this
-  // tab most recently applied, whether it got there via the poll-driven
-  // effect OR via this tab's OWN setActiveBreakpointMutation write (every
-  // local breakpoint-bar handler seeds this ref immediately, before the
-  // mutation even resolves). Without this, the UI's own write would bump
-  // targeted app-state counter, the effect would read back the exact value this tab
-  // just wrote, and needlessly re-run every local state setter on every local
-  // breakpoint chip click — this ref short-circuits that echo. Mirrors the
-  // "ignoreSource" convention `useDbSync({ ignoreSource: getBrowserTabId() })`
-  // applies at the framework level (see app/root.tsx), scoped to this one key
-  // instead of a whole browser tab, since this key legitimately needs to
-  // accept OTHER tabs'/the agent's writes, just not echo its own.
   const lastAppliedActiveBreakpointIdRef = useRef<string | null>(null);
 
-  // ── Interaction-state forced preview (phase 2) ───────────────────────────────
-  // Mirrors EditPanel's own InteractionStatePanel selection (Default/Hover/…)
-  // so DesignEditor can force the canvas preview — see
-  // `shared/interaction-states.ts`'s "Forced-preview mechanism" doc comment
-  // and the `state-preview` bridge message it drives. `null` = Default (no
-  // forced preview). EditPanel owns the UI/selector state itself and only
-  // notifies via `onInteractionStateChange`; this mirror is what lets
-  // handleStyleChange/handleStylesChange (below) and the state-preview
-  // derivation route based on the CURRENT active state without EditPanel
-  // needing to pass it back on every style commit.
   const [activeInteractionStateState, setActiveInteractionStateState] =
     useState<InteractionState | null>(null);
 
-  // ── Design state selection (§6.4 / §8) ───────────────────────────────────────
-  // null = Default (live) view; a string id = one of the design_state rows.
   const [selectedStateId, setSelectedStateId] = useState<string | null>(null);
   const [reviewFileId, setReviewFileId] = useState<string | null>(null);
   const [reviewFindings, setReviewFindings] = useState<A11yFinding[]>([]);
@@ -2779,22 +2565,13 @@ function DesignEditor() {
   const [reviewAuditedAt, setReviewAuditedAt] = useState<string | null>(null);
   const [reviewAuditError, setReviewAuditError] = useState<string | null>(null);
 
-  // Two ways in: the legacy `design_host=builder` preview, and the shell route,
-  // which carries no such param. Builder waits on `appReady` before sending the
-  // preview URL, so gating on the param alone left the shell permanently
-  // unsynced.
   const builderHostProtocolActive = isBuilderDesignEmbed || hostEmbeddedEditor;
   useEffect(() => {
     if (!builderHostProtocolActive) return;
-    // Announce ready to Builder. The trusted origin is not yet known at this
-    // point so we use "*" — this message carries no user data.
     window.parent.postMessage({ type: "agentNative.appReady" }, "*");
 
     function handleDesignHostMessage(event: MessageEvent) {
-      // The host is the embedder, so anything else — a sibling frame, a popup —
-      // is not it, even from an allowed origin.
       if (event.source !== window.parent) return;
-      // Only accept messages from builder.io origins
       const origin = event.origin ?? "";
       try {
         const hostname = new URL(origin).hostname.toLowerCase();
@@ -2814,16 +2591,11 @@ function DesignEditor() {
       if (!data || typeof data.type !== "string") return;
 
       if (data.type === "design:init") {
-        // Capture the trusted parent origin on the first validated message so
-        // outgoing postMessage calls that carry user data can restrict the
-        // target instead of broadcasting to "*".
         if (!parentOriginRef.current) {
           parentOriginRef.current = origin;
         }
         rememberBuilderHostOrigin(origin);
         const { previewUrl, routes, context } = data.data ?? {};
-        // The origin arrives from the parent now rather than a signed claim, so
-        // it is only trusted if it looks like a Builder preview host.
         if (typeof previewUrl === "string" && isBuilderPreviewUrl(previewUrl)) {
           setBuilderPreviewUrl(previewUrl);
           const nextShellInput: ShellDesignInput = {
@@ -2839,9 +2611,6 @@ function DesignEditor() {
             builderOrgId: context?.builderOrgId,
             contentId: context?.contentId ?? undefined,
           };
-          // The host resends `design:init` on unrelated changes. Replacing this
-          // state with an equivalent object rebuilds the design, which the canvas
-          // reads as a new document and remounts every frame mid-session.
           setShellInput((current) => {
             if (
               current &&
@@ -2849,9 +2618,6 @@ function DesignEditor() {
             ) {
               return current;
             }
-            // Edits describe elements in the previous branch's running app, so
-            // handing them to the new branch's agent would apply them to the
-            // wrong source.
             if (current && shellContextChanged(current, nextShellInput)) {
               clearPendingLiveEditStateRef.current();
             }
@@ -2884,8 +2650,6 @@ function DesignEditor() {
 
       if (data.type === "design:chatState") {
         const next = data.data?.state;
-        // Fires once per turn, not per file write: the agent edits source while
-        // generating, so the container has rebuilt by the time it settles.
         if (
           next === "generating" &&
           stagedSourceHandoffRef.current === "awaiting-start"
@@ -2900,11 +2664,7 @@ function DesignEditor() {
           reloadRunningAppPreviewFrames();
           if (stagedSourceHandoffRef.current === "running") {
             stagedSourceHandoffRef.current = "idle";
-            // Released on failure too, or the only control left in the shell
-            // stays disabled with nothing to retry with.
             setApplyingViaHost(false);
-            // The reload discarded the inline overrides either way, so keeping
-            // the edits only helps when the run failed and Apply can retry.
             if (next === "idle") clearPendingLiveEditStateRef.current();
           }
         }
@@ -2924,11 +2684,6 @@ function DesignEditor() {
     if (hasSelectedElement) focusDesignInspectorForSelection();
   }, [focusDesignInspectorForSelection, hasSelectedElement]);
 
-  // The splitter updates the target container immediately and mirrors every
-  // move into React state so width-dependent Inspector layout changes are
-  // visible during the gesture. The panel's `transition-[width]` class is
-  // suspended during the drag so easing cannot lag behind the pointer, then
-  // restored afterward for normal panel-open/close animation.
   const startSidebarResize = useCallback(
     (side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) =>
       runStartSidebarResize(
@@ -2946,7 +2701,6 @@ function DesignEditor() {
       ),
     [activeLeftPanel, leftSidebarWidth, rightSidebarWidth],
   );
-  // Undo/redo state driven by Y.UndoManager
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const undoManagerRef = useRef<Y.UndoManager | null>(null);
@@ -2962,28 +2716,12 @@ function DesignEditor() {
       direction: "commit" | "undo" | "redo",
     ) => void
   >(() => {});
-  // Figma-parity undo/redo selection restore for the overview CONTENT history
-  // (contentUndoStackRef/contentRedoStackRef above): a parallel stack, index-
-  // aligned 1:1 with its matching content stack, holding the selection
-  // snapshot to restore for that entry. Kept as a SEPARATE array (rather than
-  // widening ContentHistoryEntry itself) because that union type is
-  // constructed inline at ~10 call sites across this file — recordContentHistoryEntry
-  // is the one shared funnel all of them already go through, so it can push
-  // here without every call site needing to pass a selection snapshot itself.
-  // Every push/pop/splice/slice against contentUndoStackRef/contentRedoStackRef
-  // has a mirrored operation here so the two stacks never drift out of index
-  // alignment.
   const contentUndoSelectionStackRef = useRef<
     (GeometryHistorySelection | undefined)[]
   >([]);
   const contentRedoSelectionStackRef = useRef<
     (GeometryHistorySelection | undefined)[]
   >([]);
-  // Figma-parity redo selection restore for this stack — see
-  // ContentHistorySelectionAfterMap's doc comment for why this is a WeakMap
-  // keyed by entry object rather than a second index-aligned array. Never
-  // cleared explicitly: entries fall out on their own once nothing in
-  // contentUndoStackRef/contentRedoStackRef references them any more.
   const contentHistorySelectionAfterRef =
     useRef<ContentHistorySelectionAfterMap>(new WeakMap());
   const localContentUndoStackRef = useRef<ContentHistoryChange[]>([]);
@@ -2992,19 +2730,8 @@ function DesignEditor() {
   const suppressContentHistoryRef = useRef(false);
   const geometryUndoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const geometryRedoStackRef = useRef<GeometryHistoryEntry[]>([]);
-  // Figma-parity undo/redo selection restore (see GeometryHistorySelection):
-  // synchronous mirrors of the selection state, kept current every render
-  // (like activeFileIdForUndoRef just above) so a commit/undo/redo handler
-  // can read "what's selected right now" without needing selection state in
-  // its own dependency array. selectedLayerIdsStateRef mirrors
-  // selectedLayerIdsState (single-screen DOM/code layers, or overview
-  // in-frame layers); overviewSelectedScreenIdsRef mirrors
-  // overviewSelectedScreenIds (top-level screen/frame selection).
   const selectedLayerIdsStateRef = useRef<string[]>([]);
   const overviewSelectedScreenIdsRef = useRef<string[]>([]);
-  // U12: screen create/duplicate history — undo soft-deletes the created
-  // file (reusing performDeleteFiles), redo recreates it with the same
-  // filename/content/fileType via createFileMutation.
   const fileCreationUndoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const fileCreationRedoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const pendingDuplicateGeometriesRef = useRef<Map<string, FrameGeometry>>(
@@ -3028,9 +2755,6 @@ function DesignEditor() {
   >(null);
   const historyOrderRef = useRef<(UndoRedoOrderKind | "selection")[]>([]);
   const redoOrderRef = useRef<(UndoRedoOrderKind | "selection")[]>([]);
-  // Figma parity (ground-truth Round 4): a plain selection change (no
-  // document edit) is its own undo-stack entry — see SelectionHistoryEntry's
-  // doc comment (history.ts) for the full contract.
   const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);
   const selectionRedoStackRef = useRef<SelectionHistoryEntry[]>([]);
   const clearRedoStacks = useCallback(() => {
@@ -3072,11 +2796,6 @@ function DesignEditor() {
     pendingHistoryDirectionsRef.current = [];
     pendingHistoryDrainScheduledRef.current = false;
   }, []);
-  // Figma-parity undo/redo selection restore: snapshots "what's selected
-  // right now" from the ref mirrors above (always current — see their doc
-  // comment) into a plain GeometryHistorySelection. Reads refs only, so this
-  // never needs to be a useCallback — every call returns a fresh, independent
-  // snapshot safe to stash on a history entry.
   const historySourceReaderRef = useRef<(screenId: string) => string>(() => {
     throw new Error("History source reader is not initialized");
   });
@@ -3092,12 +2811,6 @@ function DesignEditor() {
       (screenId) => historySourceReaderRef.current(screenId),
     );
   };
-  // Restores a previously captured selection snapshot via the existing
-  // setters — DesignEditor owns all of this selection state, so no canvas
-  // component needs to change for the restore to reflect on screen (the
-  // overview canvas/layers panel/inspector all read these same states).
-  // Linked component history also restores the active file and its layers in
-  // single-screen mode; overview-only selection remains scoped to overview.
   const restoreSelectionSnapshot = useCallback(
     (selection: GeometryHistorySelection | undefined) => {
       if (!selection) return;
@@ -3106,15 +2819,6 @@ function DesignEditor() {
         if (selection.activeFileId) setActiveFileId(selection.activeFileId);
         return;
       }
-      // Restoring a single in-screen element's selection re-selects it
-      // inside that screen's iframe, which echoes back through the bridge
-      // as an ordinary element-select a frame later (same echo a real
-      // layers-panel click produces — see shouldIgnoreOverviewLayerCreationEcho's
-      // doc comment). A panel click arms these refs before the echo can
-      // arrive so runScreenElementSelect ignores it; without arming them
-      // here too, that echo lands as a genuine (and spurious) selection
-      // change — always clearing overviewSelectedScreenIds regardless of
-      // what this restore just set it to — right after every undo/redo.
       const restoredLayerId =
         selection.selectedLayerIds.length === 1
           ? selection.selectedLayerIds[0]
@@ -3232,24 +2936,6 @@ function DesignEditor() {
             selectionRedoStackRef.current.length > 0)),
     );
   }, []);
-  // Figma parity (ground-truth Round 4): wraps the five pure-selection
-  // command entry points (layers-panel click, canvas click, marquee,
-  // Escape-to-deselect, select-all) so a selection change with no document
-  // edit becomes its own undo-stack entry, exactly like a drag or a paste
-  // already does for content/geometry. `run` is forced through flushSync so
-  // the ref mirrors above (selectedLayerIdsStateRef/
-  // overviewSelectedScreenIdsRef, updated inline during render — see their
-  // own doc comment) already reflect the command's result the instant this
-  // returns; without it, captureCurrentSelection() right after `run()` would
-  // still read the PRE-command value, since React otherwise leaves the
-  // state updates a plain call makes for a later render.
-  //
-  // Deliberately NOT wired into any edit command (group/duplicate/paste/
-  // delete/drag/etc.) — those already carry their own selectionBefore/After
-  // on their own content/geometry history entry, and recording a second
-  // "selection" entry for the same gesture would make every such edit cost
-  // two undo steps instead of one.
-  //
   const pushSelectionHistoryEntry = useCallback(
     (before: GeometryHistorySelection, after: GeometryHistorySelection) => {
       if (selectionHistorySnapshotsEqual(before, after)) return;
@@ -3301,8 +2987,6 @@ function DesignEditor() {
     },
     [clearRedoStacks, restoreSelectionSnapshot, syncUndoRedoState],
   );
-  // A live marquee keeps this start snapshot until its final report. Any
-  // non-marquee selection is a new interaction boundary and must retire it.
   const marqueeSelectionHistoryBeforeRef =
     useRef<GeometryHistorySelection | null>(null);
   const marqueeSelectedElementBeforeRef = useRef<ElementInfo | null>(null);
@@ -3322,13 +3006,6 @@ function DesignEditor() {
     },
     [pushSelectionHistoryEntry],
   );
-  // A live marquee drag reports a changed hit-set on every mousemove tick
-  // (see layer-marquee-selection-change.ts's PF10 dedup comment), so
-  // wrapping every one of those calls in recordSelectionHistoryAroundChange
-  // recorded one undo step per tick instead of Figma's "one drag = one undo
-  // step". MultiScreenCanvas.tsx's marquee now tags exactly one call per
-  // gesture `final: true` (the mouseup report); keep only the first and final
-  // snapshots on this path while interim updates stay live and unflushed.
   const recordMarqueeSelectionHistoryAroundChange = useCallback(
     (
       run: () => void,
@@ -3362,10 +3039,6 @@ function DesignEditor() {
         marqueeSelectedElementBeforeRef.current = null;
         lastMarqueeSelectionSignatureRef.current = null;
       }
-      // Only an actual marquee drag spans multiple calls needing
-      // coalescing (see coalesceMarqueeSelectionHistory's doc comment); a
-      // drill-in/pick click (source: "pointer") reported through this same
-      // handler is one complete change like any other selection command.
       if (intent.source !== "marquee") {
         recordSelectionHistoryAroundChange(run);
         return;
@@ -3417,18 +3090,7 @@ function DesignEditor() {
     syncUndoRedoState();
   }, [pendingLiveNonStyleEdits, syncUndoRedoState]);
   const recordContentHistoryEntry = useCallback(
-    (
-      entry: ContentHistoryEntry,
-      // Figma-parity undo selection restore: a gesture whose own content
-      // write ALSO moves live selection onto something new before this runs
-      // (alt-drag duplicate reselects the clone the instant the bridge
-      // creates it, at gesture start — well before this persist at gesture
-      // end) cannot rely on captureCurrentSelection() below, which only
-      // ever sees whatever is selected RIGHT NOW. Overrides just the layer
-      // ids captured for this entry with the gesture's own pre-write
-      // snapshot; overviewSelectedScreenIds/activeFileId still come live.
-      selectedLayerIdsOverride?: string[],
-    ) => {
+    (entry: ContentHistoryEntry, selectedLayerIdsOverride?: string[]) => {
       const changes = getContentHistoryChanges(entry).filter(
         hasContentHistoryChange,
       );
@@ -3460,12 +3122,6 @@ function DesignEditor() {
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         changes.length === 1 ? changes[0] : { changes },
       ];
-      // Figma-parity undo/redo selection restore: index-aligned with the push
-      // just above — see contentUndoSelectionStackRef's doc comment. A
-      // gesture that knows its own result (group, frame, duplicate, paste)
-      // separately stamps contentHistorySelectionAfterRef for redo once this
-      // call returns — see ContentHistorySelectionAfterMap's doc comment for
-      // why that isn't a second slot right here.
       const selection = captureCurrentSelection();
       contentUndoSelectionStackRef.current = [
         ...contentUndoSelectionStackRef.current.slice(
@@ -3495,7 +3151,6 @@ function DesignEditor() {
     },
     [clearRedoStacks, syncUndoRedoState],
   );
-  // ── Local content history (undo/redo checkpoints) ──────────────────────────
   const recordLocalContentHistoryEntry = useCallback(
     (change: ContentHistoryChange) => {
       if (change.before === change.after) return;
@@ -3512,14 +3167,6 @@ function DesignEditor() {
     },
     [clearRedoStacks, syncUndoRedoState],
   );
-  // Passive mirror of a Yjs-tracked single-mode edit into the local fallback
-  // stack (see U3): the Yjs UndoManager is destroyed on every view-mode
-  // switch/zoom, losing its whole undo stack with no trace. handleUndo only
-  // consults this fallback once the Yjs stack has nothing left, so recording
-  // it here never causes a double-undo of the same edit. Consecutive edits to
-  // the same file within the same "session" (no intervening undo/redo) are
-  // coalesced into one entry so the fallback's granularity roughly matches
-  // Yjs's own captureTimeout-merged steps instead of one entry per keystroke.
   const recordLocalContentHistoryChangeFallback = useCallback(
     (change: ContentHistoryChange) => {
       if (
@@ -3541,10 +3188,6 @@ function DesignEditor() {
     },
     [],
   );
-  // Two phases on purpose. The caller needs `isCreationCommit` to choose the
-  // content it publishes, but consuming the pending record before that
-  // publication was accepted threw the creation's history away on a refused
-  // write — and the typed text with it. `confirm` is what consumes it.
   const prepareTextCreationFinalization = useCallback(
     (
       fileId: string,
@@ -3605,10 +3248,6 @@ function DesignEditor() {
     (change: ContentHistoryChange) => {
       if (change.before === change.after) return;
       const record = () => {
-        // Overview owns a shared chronological history across every screen.
-        // Putting an agent replacement only in the single-screen fallback makes
-        // it invisible to Cmd+Z while the user remains on the all-screens canvas
-        // (the state in which the reported replacement happened).
         if (contentHistoryScopeForViewMode(viewModeRef.current) === "global") {
           recordContentHistoryEntry(change);
           return;
@@ -3664,10 +3303,6 @@ function DesignEditor() {
     historyOrderRef.current = [];
     redoOrderRef.current = [];
   }, [clearPendingHistoryDirections]);
-  // U12: record a screen create/duplicate as an undoable entry. Always pushed
-  // to the undo stack (screen creation is only meaningful in overview mode's
-  // shared chronological history) and clears the redo stack like any other
-  // new action.
   const recordFileCreationHistoryEntry = useCallback(
     (entry: FileCreationHistoryEntry) => {
       const previous =
@@ -3692,7 +3327,6 @@ function DesignEditor() {
     },
     [clearRedoStacks, syncUndoRedoState],
   );
-  // ── Save refs: selection, frame geometry, tweaks, annotations ──────────────
   const persistedSelectionStateRef = useRef<string | null>(null);
   const persistedSelectionContextRef = useRef<string | null>(null);
   const pendingPersistedSelectionWriteRef = useRef<{
@@ -3716,14 +3350,8 @@ function DesignEditor() {
   const frameGeometryMutationChainRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
-  // Item 11 (URL sync): debounce timer for the URL-state write effect below,
-  // so continuous zoom/drag ticks coalesce into one history.replaceState
-  // instead of one per tick. See that effect's doc comment.
   const urlSyncTimerRef = useRef<number | null>(null);
   const urlSyncScreenIdRef = useRef<string | null>(null);
-  // U9: last handleGeometryCommit timestamp, used to detect a rapid burst of
-  // commits (keyboard nudge auto-repeat) so they coalesce into one undo entry
-  // and one debounced server write instead of one of each per tick.
   const lastGeometryCommitAtRef = useRef(0);
   const lastGeometryCommitSourceRef = useRef<"pointer" | "keyboard" | null>(
     null,
@@ -3732,21 +3360,13 @@ function DesignEditor() {
     lastGeometryCommitAtRef.current = 0;
     lastGeometryCommitSourceRef.current = null;
   }, []);
-  // Localhost write-consent dialog state. When the agent wants to write a local
-  // file and no valid grant exists for the active connection, we show the dialog
-  // with a pending payload; the user clicks "Allow writes" to mint a grant.
   const [localhostWriteConsentOpen, setLocalhostWriteConsentOpen] =
     useState(false);
   const [localhostWriteConsentPayload, setLocalhostWriteConsentPayload] =
     useState<LocalhostWriteConsentPayload | null>(null);
-  // Active localhost connection id for the consent dialog.
   const [localhostConsentConnectionId, setLocalhostConsentConnectionId] =
     useState<string>("");
-  // Tracks whether an "Apply to source" write is in progress.
   const [applyToSourcePending, setApplyToSourcePending] = useState(false);
-  // Shared visual-editor annotate overlays. drawMode owns the send toolbar,
-  // while pinMode temporarily routes canvas clicks to comment pins that queue
-  // into the same agent submission.
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const overviewCommentPinNonceRef = useRef(0);
@@ -3756,10 +3376,6 @@ function DesignEditor() {
   } | null>(null);
   const [repromptDraftRequest, setRepromptDraftRequest] =
     useState<RepromptDraftRequest | null>(null);
-  // Overview and focused canvases retain separate annotation batches. Each
-  // counter is bumped only for a deliberate close or a confirmed send; they
-  // must not share a signal, or closing a focused-screen batch would also
-  // erase preserved overview-board work while that overlay is hidden.
   const [overviewAnnotationResetSignal, setOverviewAnnotationResetSignal] =
     useState(0);
   const [focusedAnnotationResetSignal, setFocusedAnnotationResetSignal] =
@@ -3780,7 +3396,6 @@ function DesignEditor() {
     },
     [],
   );
-  // ── Prompt, export, and Figma hydration state ──────────────────────────────
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
   const [pngExporting, setPngExporting] = useState(false);
@@ -3809,7 +3424,6 @@ function DesignEditor() {
     }
     lastOverviewSelectedScreenIdsRef.current = [...overviewSelectedScreenIds];
   }, [overviewSelectedScreenIds, viewMode]);
-  // ── Generation lifecycle ───────────────────────────────────────────────────
   const [hasPendingGeneration, setHasPendingGeneration] = useState(false);
   const [generationChatTabId, setGenerationChatTabId] = useState<string | null>(
     null,
@@ -3831,10 +3445,6 @@ function DesignEditor() {
         pendingPersistedSelectionWriteRef.current = null;
         persistedSelectionStateRef.current = null;
         persistedSelectionContextRef.current = null;
-        // Check ownership independently for every mirror. Another editor tab
-        // can update the global fallback after this tab wrote its scoped key;
-        // using only the scoped owner as permission to clear both keys would
-        // erase that newer tab's context during our unmount.
         for (const key of keys) {
           // coercion-ok: absent client state means there is nothing to clear.
           const current = await readClientAppState(key).catch(() => null);
@@ -3851,9 +3461,6 @@ function DesignEditor() {
       })();
     };
   }, [isSignedIn]);
-  // When generation stalls we keep the original prompt + files around so the
-  // user can retry with one click instead of re-typing. Cleared as soon as the
-  // user kicks off a new run (retry or fresh prompt).
   const [retryablePrompt, setRetryablePrompt] =
     useState<RetryablePrompt | null>(null);
   const generationOutputReadyRef = useRef(false);
@@ -3881,11 +3488,6 @@ function DesignEditor() {
     }
   }, []);
   const staleToastShownRef = useRef(false);
-  /**
-   * Model this design's generation started with. The pending-generation blob
-   * holds the same values, but five paths clear it — three while the intake
-   * questions are still on screen — so the continuation cannot rely on it.
-   */
   const generationModelRef = useRef<{
     model?: string;
     engine?: string;
@@ -3913,9 +3515,6 @@ function DesignEditor() {
   }, [id]);
   const markGenerationStale = useCallback(() => {
     clearGenerationCompleteTimer();
-    // Capture the original prompt before clearing so the user can retry without
-    // re-typing it. The full pending payload (model/engine/effort) is preserved
-    // so the retry runs with identical settings.
     rememberPendingGenerationForRetry();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
@@ -4044,17 +3643,12 @@ function DesignEditor() {
     [clearGenerationCompleteTimer, id, trackAgentGeneration],
   );
 
-  // Question flow — full-canvas overlays driven by the agent. Ref first, blob
-  // as the reload fallback (the ref is gone then, the blob may survive).
   const getQuestionFlowModelSelection = useCallback(
     () =>
       generationModelRef.current ??
       readPendingGeneration(id, { allowUntimestamped: true }),
     [id],
   );
-  // The intake turn carries the prompt, screenshots, and design system, but is
-  // forced to stop after asking questions. The continuation is what actually
-  // generates, so it has to carry them again or the design is built blind.
   const getQuestionFlowGenerationBrief = useCallback(() => {
     const pending = readPendingGeneration(id, { allowUntimestamped: true });
     if (!pending) return null;
@@ -4113,10 +3707,6 @@ function DesignEditor() {
     pendingQuestionsVisible,
   ]);
 
-  // ── Identity, review comments, pending local file contents ─────────────────
-  // Current user info for collaborative presence. The avatar (if the user has
-  // uploaded one) is plumbed through so peers see the user's face on cursors,
-  // selection rings, edit highlights, and the presence bar.
   const currentUserAvatarUrl = useAvatarUrl(session?.email);
   const currentUser: CollabUser | undefined = useMemo(
     () =>
@@ -4139,7 +3729,6 @@ function DesignEditor() {
     window.location.href = buildSignInHrefForDesignIntent("save");
   }, []);
 
-  // Data fetching
   useEffect(() => {
     if (!id || !sessionResolved) return;
     const pending = readPendingGeneration(id);
@@ -4234,7 +3823,6 @@ function DesignEditor() {
     t,
   ]);
 
-  /** Rebuilt from the host payload; there is no row behind it to fetch. */
   const shellDesign = useMemo(
     () => (shellInput ? buildShellDesign(shellInput).design : null),
     [shellInput],
@@ -4370,9 +3958,6 @@ function DesignEditor() {
       visualEditSnapshotPublicationState,
     ],
   );
-  // `/visual-edit/:id` edits shared Localhost screens in the browser DOM.
-  // Viewer/commenter changes remain pending handoffs; source writes still
-  // require `canEditDesign`.
   const canEditLiveScreens =
     isVisualEditSurface &&
     !visualEditAccessLost &&
@@ -4516,8 +4101,6 @@ function DesignEditor() {
         );
       }
       clearPendingLocalFileContent(fileId, expectedContent);
-      // The optimistic bytes a text creation was inserted into are gone, so its
-      // owner will never hold that node: fail the creation now, not on a clock.
       failPendingTextCapture(fileId);
     },
     [clearPendingLocalFileContent, id, queryClient],
@@ -4554,10 +4137,7 @@ function DesignEditor() {
     return () => window.clearTimeout(timer);
   }, [id, hasPendingGeneration, markGenerationStale]);
 
-  // ── Action mutations ───────────────────────────────────────────────────────
   const updateFileMutation = useActionMutation("update-file", {
-    // runSaveFileContent owns get-design: it writes the persisted bytes into
-    // the cache and refetches all file content only when it has to.
     skipActionQueryInvalidation: true,
     onSuccess: () => {
       void queryClient.invalidateQueries({
@@ -4575,9 +4155,6 @@ function DesignEditor() {
   const deleteFileMutation = useActionMutation("delete-file");
   const updateDesignMutation = useActionMutation("update-design");
   const updateDesignAsync = updateDesignMutation.mutateAsync;
-  // Every enqueued data save has already written its result into the
-  // get-design cache. The default invalidation would refetch every file's
-  // content after each frame move; failures still invalidate explicitly.
   const saveDesignDataAsync = useActionMutation("update-design", {
     skipActionQueryInvalidation: true,
   }).mutateAsync;
@@ -4592,18 +4169,11 @@ function DesignEditor() {
   const exportZipMutation = useActionMutation("export-zip");
   const applyMotionEditMutation = useActionMutation("apply-motion-edit");
   const applyMotionEdit = applyMotionEditMutation.mutate;
-  // U-motion-empty: apply-motion-edit's schema rejects a 0-track payload (a
-  // track array must have >= 1 entry), so deleting the last track/keyframe
-  // cannot go through the normal autosave path. remove-motion-timeline is the
-  // dedicated inverse — it deletes the motion_timeline row AND strips the
-  // managed <style data-agent-native-motion> block from the HTML so a reload
-  // doesn't resurrect the just-deleted animation.
   const removeMotionTimelineMutation = useActionMutation(
     "remove-motion-timeline",
   );
   const removeMotionTimeline = removeMotionTimelineMutation.mutate;
   const motionAutosavePending = applyMotionEditMutation.isPending;
-  // §6.4 breakpoint mutations — wired to MultiScreenCanvas + BreakpointBar
   const addBreakpointMutation = useActionMutation("add-breakpoint");
   const removeBreakpointMutation = useActionMutation("remove-breakpoint");
   const updateBreakpointMutation = useActionMutation("update-breakpoint");
@@ -4646,34 +4216,22 @@ function DesignEditor() {
   // usable while decluttering the board.
   const [breakpointFramesHidden, setBreakpointFramesHidden] = useState(false);
 
-  // §6.1 — promote a selection into a reusable component instance.
-  // §6.1 — jump to a component instance's source (selects the root + navigates).
   const openComponentSourceMutation = useActionMutation(
     "open-component-source",
   );
-  // Figma's "Go to main component" — resolves/navigates to the earliest known
-  // instance of the selected component (see go-to-main-component.ts's design
-  // note: this codebase has no separate component-definition markup).
   const goToMainComponentMutation = useActionMutation("go-to-main-component");
-  // Figma's "Detach instance" (⌥⌘B) — strips the component-instance linkage
-  // from the selected node, leaving its current markup as plain elements.
   const detachComponentInstanceMutation = useActionMutation(
     "detach-component-instance",
   );
   const [componentSwapPickerRequest, setComponentSwapPickerRequest] =
     useState(0);
 
-  // Board file migration — lazy, idempotent, triggers on design open when
-  // designs.data.boardFileId is absent.
   const migrateBoardObjectsMutation = useActionMutation(
     "migrate-board-objects-to-file",
   );
 
-  // §6.6 — "Make it real" migration flow (migrate-inline-design-to-app).
-  // The mutation stays unconditional; the dialog gates on isSignedIn.
   const migrateMutation = useActionMutation("migrate-inline-design-to-app");
 
-  // Dialog open/close state for the "Make this a real app" flow.
   const [makeRealDialogOpen, setMakeRealDialogOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [autoLayoutSuggestionPreview, setAutoLayoutSuggestionPreview] =
@@ -4694,8 +4252,6 @@ function DesignEditor() {
     string | null
   >(null);
 
-  // Result payload returned by migrate-inline-design-to-app on success.
-  // `null` = not yet migrated; populated once the Builder agent accepts the job.
   const [migrationResult, setMigrationResult] =
     useState<DesignMigrationResult | null>(null);
 
@@ -4708,7 +4264,6 @@ function DesignEditor() {
   );
   const [codingHandoffLoading, setCodingHandoffLoading] = useState(false);
   const [, setPatchProof] = useState<PatchProofState | null>(null);
-  // ── File-content save queue (outbox) ───────────────────────────────────────
   const pendingFileSavesRef = useRef<Record<string, FileContentSaveRequest>>(
     {},
   );
@@ -4836,7 +4391,6 @@ function DesignEditor() {
 
   const createFileSaveOutboxEntry = useCallback(
     (pending: FileContentSaveRequest) => {
-      // The shell has no design row, so a queued save would retry forever.
       if (!id || shellMode) return null;
       return createDesignSaveOutboxEntry({
         designId: id ?? "",
@@ -5020,7 +4574,6 @@ function DesignEditor() {
 
   const sendFileContentSaveKeepalive = useCallback(
     (pending: FileContentSaveRequest) => {
-      // Keep pagehide mirrors behind the same source-version guard as normal saves.
       const collabLive = pending.syncCollab === false;
       if (!shouldSendKeepalive(true, collabLive)) return;
       runFileContentSaveKeepalive(
@@ -5056,11 +4609,6 @@ function DesignEditor() {
     window.addEventListener("pagehide", handlePageHide);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
-      // Component cleanup is also used for normal client-side navigation.
-      // Drain each debounce slot into the existing per-file promise chain so
-      // route changes cannot drop the last edit. A real document unload has
-      // already fired pagehide above; its keepalive uses the same operation
-      // source/revision and is therefore safely idempotent with this save.
       flushPendingFileContentSavesOnCleanup(
         pendingFileSavesRef.current,
         Object.values(fileSaveTimersRef.current),
@@ -5072,7 +4620,6 @@ function DesignEditor() {
     };
   }, [saveFileContent, sendFileContentSaveKeepalive]);
 
-  // ── Tweaks: definitions, selections, CSS vars, and the save queue ──────────
   const {
     cssVarValues,
     flushPendingTweakSave,
@@ -5095,7 +4642,6 @@ function DesignEditor() {
   });
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
-  // ── Share URL, prompt popovers, title editing ──────────────────────────────
   const systemsEnabled = useDesignSystemWorkflows();
   const {
     designSystems,
@@ -5331,10 +4877,6 @@ function DesignEditor() {
     updateDesignMutation,
   ]);
 
-  // H3: shared keydown handler for both title-rename <Input> instances
-  // (toolbar + inspector header). Guards against IME composition so an
-  // Enter that confirms a composed character (e.g. Japanese/Chinese input)
-  // doesn't also commit the rename — only a "real" Enter keystroke should.
   const handleTitleInputKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.nativeEvent.isComposing || e.keyCode === 229) return;
@@ -5366,7 +4908,6 @@ function DesignEditor() {
       setPendingLocalFileContentsRevision((revision) => revision + 1);
     }
   }, [serverFiles]);
-  // ── Design data: files, snapshots, derived geometry ────────────────────────
   const pendingLocalFileContentsSnapshot = useMemo(
     () => new Map(pendingLocalFileContentsRef.current),
     [pendingLocalFileContentsRevision],
@@ -5389,7 +4930,6 @@ function DesignEditor() {
       }),
     [id, pendingLocalFileContentsSnapshot, serverFiles],
   );
-  // Hashing every screen is only needed when a linked component edit is sent.
   const getComponentExpectedFiles = useCallback(
     () =>
       files
@@ -5417,8 +4957,6 @@ function DesignEditor() {
   );
   const [pendingNodeRewriteProposals, setPendingNodeRewriteProposals] =
     useState<NodeRewriteProposal[]>([]);
-  // Keyed on the id list, not `files`: every save and refetch replaces `files`,
-  // and the effect below reads app state for every screen.
   const proposalFileIdsKey = files.map((file) => file.id).join("\u0000");
   const proposalFileIds = useMemo(
     () => (proposalFileIdsKey ? proposalFileIdsKey.split("\u0000") : []),
@@ -5483,11 +5021,6 @@ function DesignEditor() {
     () => new Set(pendingNodeRewriteByFile.keys()),
     [pendingNodeRewriteByFile],
   );
-  // Document-wide color palette source for EditPanel's Fill section — every
-  // file's id/content in the current design, not just the active one. Kept
-  // as its own memo (rather than passing `files` directly) so EditPanel
-  // (memo'd) only re-renders for this prop when file id/content actually
-  // changes, not on every unrelated `files` identity change upstream.
   const documentColorFiles = useMemo<DocumentColorSourceFile[]>(
     () => files.map((file) => ({ id: file.id, content: file.content })),
     [files],
@@ -5578,18 +5111,14 @@ function DesignEditor() {
   const designSourceTypeRef = useRef(designSourceType);
   designSourceTypeRef.current = designSourceType;
 
-  // ── Layout grids ──────────────────────────────────────────────────────────
   const layoutGrids = useMemo(
     () => getLayoutGrids(designDataJson),
     [designDataJson],
   );
-  /** The grid step the ACTIVE screen's bridge quantizes in-iframe gestures to.
-   *  Content px, not board px: the bridge writes `style.left` directly. */
   const activeScreenLayoutGridStep =
     activeFileId && layoutGrids[activeFileId]
       ? layoutGrids[activeFileId].size
       : 1;
-  /** Flips visibility for every grid that exists; snapping is unaffected. */
   const handleToggleLayoutGrids = useCallback(() => {
     const frameIds = Object.keys(layoutGrids);
     if (frameIds.length === 0) return;
@@ -5618,13 +5147,9 @@ function DesignEditor() {
       ),
     [id, queryClient, updateDesignMutation],
   );
-  // The toggle above calls this from a callback, not during render, so a ref
-  // breaks the declaration-order cycle between them.
   const handleLayoutGridChangeRef = useRef(handleLayoutGridChange);
   handleLayoutGridChangeRef.current = handleLayoutGridChange;
 
-  // Keep a ref in sync so debounced timer callbacks can read the freshest
-  // designDataJson without closing over a stale snapshot from render time.
   const designDataJsonRef = useRef(designDataJson);
   const screenContentNaturalHeightByIdRef = useRef<Record<string, number>>({});
   const [screenContentNaturalHeights, setScreenContentNaturalHeights] =
@@ -5682,20 +5207,11 @@ function DesignEditor() {
       return changed ? next : current;
     });
   }, [canvasFrameGeometryById]);
-  // Freshest live geometry for the geometry-undo freshness guard. Read from a
-  // ref (not a render-time closure) so undo/redo compare against the geometry a
-  // concurrent peer/agent may have just written, not the value captured when
-  // handleUndo's callback was memoized.
   const liveFrameGeometryRef = useRef(canvasFrameGeometryById);
   useEffect(() => {
     liveFrameGeometryRef.current = canvasFrameGeometryById;
   }, [canvasFrameGeometryById]);
 
-  // ── Board file ─────────────────────────────────────────────────────────────
-  // The board is a reserved design_file (filename "__board__.html") whose id is
-  // stored in designs.data.boardFileId.  On design open, if boardFileId is absent,
-  // we trigger migrate-board-objects-to-file (lazy + idempotent) which creates
-  // the board file and migrates any legacy boardObjects.
   const boardFileId = useMemo(() => {
     const raw = (designDataJson as Record<string, unknown>).boardFileId;
     return typeof raw === "string" && raw.length > 0 ? raw : undefined;
@@ -5703,12 +5219,10 @@ function DesignEditor() {
   const boardFileIdRef = useRef(boardFileId);
   boardFileIdRef.current = boardFileId;
 
-  // Trigger migration on design open when boardFileId is absent.
   const migrateBoardTriggeredRef = useRef<string | null>(null);
   useEffect(() => {
-    // Nothing to migrate for a design that only exists in memory.
     if (!id || !canEditDesign || shellMode) return;
-    if (boardFileId) return; // already migrated
+    if (boardFileId) return;
     if (migrateBoardTriggeredRef.current === id) return;
     migrateBoardTriggeredRef.current = id;
     migrateBoardObjectsMutation.mutate({ designId: id } as any, {
@@ -5726,26 +5240,11 @@ function DesignEditor() {
     queryClient,
   ]);
 
-  /**
-   * Generate belongs to an empty design, not to the empty-state placeholder:
-   * drawing anything creates a file, the placeholder disappears, and the
-   * option went with it. It stays until the design actually has something in
-   * it, and hands off to the agent rather than reopening the prompt popover.
-   */
   const openGenerateInAgent = useCallback(() => {
     setRetryablePrompt(null);
-    // The agent-panel:open listener above already opens the panel and puts the
-    // caret in the composer; going through it keeps one focus path instead of
-    // a second copy that drifts.
     window.dispatchEvent(new Event("agent-panel:open"));
   }, []);
 
-  /**
-   * The New Design button creates the row and lands here, so the "what do you
-   * want" question is asked in the editor — the agent rail holds the ask while
-   * the drawing tools stay on the bottom bar, so either answer is one gesture
-   * away. The flag is stripped on the first ask so a reload does not reopen it.
-   */
   const arrivedFromNewDesign = initialSearchParams.get("new") === "1";
   const newDesignAskedRef = useRef(false);
   useEffect(() => {
@@ -5844,7 +5343,6 @@ function DesignEditor() {
     (screen) =>
       resolveOverviewScreenSourceType(screen, designSourceType) === "localhost",
   );
-  // Viral attribution is kept on the regular share URL, including live canvases.
   const editorShareUrl = useMemo(() => {
     if (!id || typeof window === "undefined") return undefined;
     return withShareLinkAttribution(
@@ -5955,32 +5453,17 @@ function DesignEditor() {
     ],
   );
 
-  // The board file's current HTML content — sourced from the files array (which
-  // includes pending local writes).  undefined when boardFileId is not yet set.
   const boardFileContent = useMemo(() => {
     if (!boardFileId) return undefined;
     const boardFile = files.find((file) => file.id === boardFileId);
     return typeof boardFile?.content === "string" ? boardFile.content : "";
   }, [boardFileId, files]);
 
-  // Camera/layout operations need the bounds of what the user can actually
-  // see on the board, not the 131,072px logical iframe used for hit testing.
-  // An empty board intentionally contributes no bounds.
   const boardContentBounds = useMemo(
     () => getBoardSurfaceContentBounds(boardFileContent),
     [boardFileContent],
   );
 
-  // Self-heal persisted board content whose NESTED children carry left/top
-  // values poisoned by the board-surface offset (near-65536-multiple values
-  // written by the historic nest-on-drop coordinate bugs — see
-  // normalizePoisonedBoardNestedCoords in shared/board-file.ts). Those
-  // children render tens of thousands of px outside their parent (visually
-  // vanished) and the corruption round-trips reload, so repair the content
-  // on load/adopt and persist the fix through the normal save path. The
-  // helper is idempotent (normalized output is never re-flagged), so this
-  // effect settles after one write; it also catches poison arriving later
-  // from a peer still running pre-fix code.
   useEffect(() => {
     if (!boardFileId || !boardFileContent || !canEditDesign) return;
     const normalized = normalizePoisonedBoardNestedCoords(boardFileContent);
@@ -5991,9 +5474,6 @@ function DesignEditor() {
     });
   }, [boardFileContent, boardFileId, canEditDesign, queueFileContentSave]);
 
-  // Logical canvas-space bounding box of the board iframe. The board is an
-  // invisible editing layer behind screen frames, not a finite artboard, so keep
-  // it at the canvas-safe maximum instead of clipping it to the screen union.
   const boardFrameGeometry = useMemo((): FrameGeometry | undefined => {
     if (!boardFileId) return undefined;
     const origin = -BOARD_SURFACE_SIZE / 2;
@@ -6005,7 +5485,6 @@ function DesignEditor() {
     };
   }, [boardFileId]);
 
-  // ── Frame-geometry persistence ─────────────────────────────────────────────
   const createFrameGeometryOutboxEntry = useCallback(
     (dataOperations: readonly DesignDataOperation[], revision: number) => {
       if (!id || shellMode) return null;
@@ -6115,9 +5594,6 @@ function DesignEditor() {
       );
       const projectedHeight =
         (widthPx * (screen.height ?? 2560)) / (screen.width ?? 1280);
-      // The server already reserves the source-aspect projection. Persist only
-      // the larger measured case, retaining its maximum so content shrinkage
-      // cannot make a later row overlap a screen that was placed below it.
       if (
         measuredHeight <=
         Math.max(projectedHeight, existingHeight ?? 0) + 1
@@ -6461,10 +5937,6 @@ function DesignEditor() {
           clearRedoStacks,
           designDataJsonRef,
           geometryUndoStackRef,
-          // geometry-commit.ts only knows the base UndoRedoOrderKind union
-          // (it never pushes "selection") — narrow the shared ref's type
-          // for this one call site rather than widening that file's own
-          // (out-of-ownership) type.
           historyOrderRef: historyOrderRef as React.RefObject<
             UndoRedoOrderKind[]
           >,
@@ -6505,16 +5977,11 @@ function DesignEditor() {
     ],
   );
 
-  // §6.6 — "Make this a real app" handler.
-  // Opens the dialog; actual migration fires when the user confirms.
   const handleOpenMakeReal = useCallback(() => {
     setMigrationResult(null);
     setMakeRealDialogOpen(true);
   }, []);
 
-  // Fires when the user clicks "Start migration" in the dialog.
-  // Calls migrate-inline-design-to-app, then on success flips sourceType to
-  // "fusion" in the design data blob so gated panels light up.
   const handleConfirmMakeReal = useCallback(
     async () =>
       runConfirmMakeReal({
@@ -6605,16 +6072,11 @@ function DesignEditor() {
           .catch(warnChangesWillRetry);
         return;
       }
-      // Do not consume the normal pending entry: pagehide can place the page
-      // in bfcache. The keepalive protects a real unload, while a restored
-      // page still gets the ordinary mutation/settlement path.
       persistFrameGeometrySave(pending, true);
     };
     window.addEventListener("pagehide", handlePageHide);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
-      // Preserve the final drag/resize snapshot across client-side route or
-      // design changes instead of cancelling the debounce on unmount.
       flushPendingFrameGeometrySave();
     };
   }, [
@@ -6702,10 +6164,6 @@ function DesignEditor() {
     ) ??
     files[0];
 
-  // Set active file to the primary screen when data loads, and recover when
-  // the active screen is deleted remotely/by the agent. Leaving a stale id in
-  // state attaches Yjs presence and viewport state to a file that no longer
-  // exists even though the rendered `activeFile` has fallen back visually.
   useEffect(() => {
     const nextActiveFileId = resolveAvailableActiveFileId({
       activeFileId,
@@ -6722,8 +6180,6 @@ function DesignEditor() {
   const activePendingSource = activeFile
     ? pendingLocalFileContentsRef.current.get(activeFile.id)
     : undefined;
-  // Metadata migration overlays are render bytes, not evidence that SQL
-  // advanced. Keep the existing ordinary user-edit overlay priority.
   const activeReconcileFile =
     activePendingSource &&
     activePendingSource.identityMigrationSourceContent === undefined
@@ -6739,32 +6195,14 @@ function DesignEditor() {
     hasActiveFile: Boolean(activeFile),
   });
   activeFileIdForUndoRef.current = activeFile?.id ?? null;
-  // Kept current every render (mirrors activeFileIdForUndoRef just above) so
-  // handleGeometryCommit/recordContentHistoryEntry/recordLocalContentHistoryEntry
-  // can snapshot "what's selected right now" for undo/redo restore without
-  // needing selection state in their own useCallback dependency arrays.
   selectedLayerIdsStateRef.current = selectedLayerIdsState;
   overviewSelectedScreenIdsRef.current = overviewSelectedScreenIds;
 
-  // ── Breakpoints ────────────────────────────────────────────────────────────
-  // §6.4 — The design's breakpoint definitions (id/label/width), parsed once
-  // from designs.data.breakpointSet for the breakpoint bar and edit-scope
-  // routing. Stable empty array when the design has no breakpoints yet.
   const designBreakpoints = useMemo(
     () => deriveDesignBreakpoints(designDataJson),
     [designDataJson],
   );
 
-  // §6.4 — BreakpointBar chip handlers (single-screen bar + overview compact
-  // bar). Chip clicks switch the editing viewport width AND persist the edit
-  // scope through set-active-breakpoint so the agent and UI stay in sync.
-  // Declared here (rather than alongside the other BreakpointBar handlers
-  // further down) so handleEscapeHotkey (BP-DEEP item 5, defined earlier in
-  // this component) and handleOverviewScreenPick can both reference it
-  // without a temporal-dead-zone ReferenceError — this is the ONLY
-  // breakpoint handler any other callback needs to close over; the
-  // add/remove-breakpoint ones stay where they were, next to the JSX that
-  // uses them.
   const handleBreakpointBarSelect = useCallback(
     (widthPx: number | undefined, selectedBreakpointId?: string) => {
       // Selection and bridge events from a breakpoint iframe can be followed
@@ -6778,9 +6216,6 @@ function DesignEditor() {
       const bp = designBreakpoints.find((b) => b.widthPx === widthPx);
       const breakpointId =
         selectedBreakpointId ?? (widthPx !== undefined && bp ? bp.id : "auto");
-      // Item 9 — seed the dedupe ref BEFORE the mutation resolves so the
-      // app-state poll tick this write eventually triggers is a no-op echo,
-      // not a redundant re-apply of a value we already set locally.
       lastAppliedActiveBreakpointIdRef.current = breakpointId;
       persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
     },
@@ -6907,9 +6342,6 @@ function DesignEditor() {
     };
   }, [localhostConsentStateVersion, canEditDesign, id]);
 
-  // §6.4 — The active screen's primary-frame width (the BASE editing
-  // context). Overrides written at a narrower active breakpoint apply below
-  // the next-wider frame; the base frame is the widest candidate.
   const activeScreenBaseWidthPx = useMemo<number | null>(() => {
     if (!activeFile?.id) return null;
     const metadataByFileId = getDesignDataRecord(
@@ -6922,9 +6354,6 @@ function DesignEditor() {
       : null;
   }, [activeFile?.id, designDataJson]);
 
-  // §6.4 Framer cascade — the upper viewport bound (px) that edits made at
-  // the ACTIVE breakpoint should be scoped below, or null when the active
-  // frame is the widest context (base editing). See breakpointUpperBoundPx.
   const activeBreakpointUpperBoundPx = useMemo<number | null>(() => {
     if (activeBreakpointWidthState == null) return null;
     return breakpointUpperBoundPx(
@@ -6961,7 +6390,6 @@ function DesignEditor() {
     setReviewAuditLoading(false);
   }, [activeFile?.id, reviewFileId]);
 
-  // ── Overview screens, zoom basis, URL-driven commands ──────────────────────
   const selectedScreenIds = useMemo(
     () =>
       getSelectedScreenIdsForEditorState({
@@ -7068,12 +6496,6 @@ function DesignEditor() {
   const activeScreenExternalSnapshotHtml = activeFile?.id
     ? liveScreenSnapshotsById[activeFile.id]?.html
     : undefined;
-  // Board-zoom-corruption fix: the zoom SCALE basis is resolved separately
-  // from `activeOverviewScreenId` (which keeps its historical semantics for
-  // source/bridge wiring above) so the board file — or any non-screen active
-  // file — can never become the basis and flip the scale onto its 320/1280
-  // double-fallback while explicitOverviewCanvasZoom stays pinned. See
-  // resolveOverviewZoomBasisScreenId's doc comment.
   const overviewScreenIdList = useMemo(
     () => overviewScreens.map((screen) => screen.id),
     [overviewScreens],
@@ -7109,11 +6531,6 @@ function DesignEditor() {
     overviewZoomScaleRef.current = overviewZoomScale;
   }, [overviewZoomScale]);
 
-  // Defensive invalidation: if a basis-identity change would turn the pinned
-  // explicit canvas zoom into an out-of-range displayed zoom, drop the pin so
-  // the derivation re-anchors instead of surfacing a garbage percentage. A
-  // normal screen-to-screen basis change (sane label shift, camera untouched)
-  // never trips this — see shouldResetExplicitOverviewZoomOnBasisChange.
   const overviewZoomBasisIdRef = useRef<string | null>(
     overviewZoomBasisScreenId,
   );
@@ -7174,21 +6591,6 @@ function DesignEditor() {
     },
     [],
   );
-  // Fix-wave: resolve the target view from `viewMode` React state directly,
-  // not `viewModeRef.current`. The ref is a useEffect-synced mirror (see the
-  // `viewModeRef.current = viewMode` effect above) — useEffect runs AFTER
-  // commit, so any zoom trigger that can fire synchronously in the same tick
-  // as (or a tick before the next paint after) a view-mode change risked
-  // reading a one-render-stale ref value and routing the zoom write to the
-  // WRONG view's zoom state entirely (this was the "Zoom to 50%" → overview
-  // bug). `setZoom` is a plain useCallback depending on `viewMode`, so it's
-  // always recreated with the current value the instant `viewMode` changes —
-  // there is no window where a caller can observe a stale target view.
-  // viewModeRef itself is left in place for the many *other* consumers deep
-  // in canvas/gesture handlers that read it off the render path (e.g. native
-  // event listeners) where a state dependency isn't practical; those are
-  // audited separately and each pairs a synchronous ref write with its
-  // setViewMode call.
   const setZoom = useCallback(
     (update: SetStateAction<number>) => {
       setZoomForView(viewMode, update);
@@ -7196,13 +6598,6 @@ function DesignEditor() {
     [setZoomForView, viewMode],
   );
 
-  // Record the active screen's zoom into the per-screen memory map on every
-  // change made through setZoom/setZoomForView while in single-screen mode
-  // (pinch/scroll zoom, zoom-in/out controls, the zoom field, etc. all funnel
-  // through setScreenZoom, which is what `screenZoom` reflects here) — so
-  // enterSingleScreen can restore it later. Effect-based rather than wrapping
-  // every setScreenZoom call site: it uniformly captures every path that
-  // changes screenZoom while a screen is focused, current or future.
   useEffect(() => {
     if (viewMode !== "single" || !activeFileId) return;
     screenZoomByIdRef.current.set(activeFileId, screenZoom);
@@ -7256,9 +6651,6 @@ function DesignEditor() {
     ],
   );
 
-  // Direct links are read-only navigation too: viewers must be able to restore
-  // the requested screen, view, and zoom even though tool activation remains
-  // guarded inside applyDesignEditorCommand.
   useEffect(() => {
     if (!id) return;
     if (initialSearchCommandAppliedForIdRef.current === id) return;
@@ -7309,7 +6701,6 @@ function DesignEditor() {
     id,
   ]);
 
-  // ── Screen creation ────────────────────────────────────────────────────────
   const optimisticallyInsertCreatedFile = useCallback(
     (args: {
       fileId: string;
@@ -7334,8 +6725,6 @@ function DesignEditor() {
             ? args.result.updatedAt
             : now,
       };
-      // Queued history replay drains in a microtask, before React can publish
-      // the query-cache update through the rendered files projection.
       historyFilesRef.current = historyFilesRef.current.some(
         (file) => file.id === args.fileId,
       )
@@ -7532,17 +6921,6 @@ function DesignEditor() {
     ],
   );
 
-  // Figma's Frame tool (F/A) size-preset list in EditPanel: clicking a preset
-  // creates a new screen at exactly that width/height. Reuses
-  // handleCreateScreenFrame's create+select+revert-tool machinery — only the
-  // geometry differs (a preset-sized frame placed just past the current
-  // content's bounds, rather than a drag-drawn rectangle). MultiScreenCanvas
-  // owns overview pan/scroll internally (no onPanChange prop is exposed), so
-  // there's no real "visible viewport center in world space" available here;
-  // placing the new frame adjacent to the existing content bounds (the same
-  // fallback the initial per-screen grid placement uses) is the closest
-  // honest approximation without plumbing a new pan-reporting API out of
-  // MultiScreenCanvas.
   const handleCreateScreenFromPreset = useCallback(
     (preset: { name: string; width: number; height: number }) => {
       const frames = getAllScreenFrameEntries({
@@ -7553,9 +6931,6 @@ function DesignEditor() {
         includeResponsivePreviews: true,
       });
       const bounds = getFrameGroupBounds(frames);
-      // 56px matches the overview grid's own screen-to-screen gap
-      // (MultiScreenCanvas's SCREEN_GAP) so a preset frame reads as part of
-      // the same layout rhythm instead of a mismatched offset.
       const gap = 56;
       const geometry = bounds
         ? {
@@ -7576,7 +6951,6 @@ function DesignEditor() {
     ],
   );
 
-  // Collaborative editing for the active file
   const { ydoc, awareness, isSynced, activeUsers, agentPresent, agentActive } =
     useCollaborativeDoc({
       docId:
@@ -7587,23 +6961,6 @@ function DesignEditor() {
       user: currentUser,
     });
 
-  // ── Overview presence (Task 1) ──────────────────────────────────────────────
-  //
-  // In single-screen mode the collab doc above already drives selection rings +
-  // recent-edit highlights over the one active iframe. Overview (MultiScreenCanvas)
-  // has no single active collab doc, so we open a SEPARATE, presence-only
-  // subscription here. Design decisions:
-  //
-  //  • Subscription model: a SINGLE subscription for the most-relevant file —
-  //    `activeFileId` (which in overview defaults to the selected/first screen
-  //    and is advanced to the worked file by the agent's view-screen / navigate
-  //    actions). We deliberately do NOT open one subscription per visible frame:
-  //    an overview board can hold many screens, and N polling docs would be
-  //    wasteful. Actions publish agent presence to the FILE id (see
-  //    edit-design.ts / apply-visual-edit.ts → agentEnterDocument(file.id)), so
-  //    this one doc surfaces the agent's `selection` + `recentEdits` for the file
-  //    it is editing.
-  //  • Only mounts in overview so we never run two live docs for the same file.
   const overviewPresenceFileId =
     viewMode === "overview"
       ? (activeFileId ?? overviewScreens[0]?.id ?? null)
@@ -7621,27 +6978,16 @@ function DesignEditor() {
     user: currentUser,
   });
 
-  // ── Collaboration sync (Yjs) ───────────────────────────────────────────────
-  // Track collab-sourced content for the active file.
-  // When Y.Doc is synced and has content, use it as the source of truth
-  // instead of the DB-fetched content so live remote edits appear instantly.
   const [collabContent, setCollabContent] = useState<string | null>(null);
   const [collabContentFileId, setCollabContentFileId] = useState<string | null>(
     null,
   );
   const previousDesignIdForHistoryRef = useRef<string | null>(null);
   const prevActiveFileIdRef = useRef<string | null>(null);
-  // Raw SQL content and timestamp last reconciled into this preview. Together
-  // they distinguish an unchanged poll from a new write in the same millisecond.
   const lastAppliedFileUpdatedAtRef = useRef<string | null>(null);
   const lastAppliedFileContentRef = useRef<string | null>(null);
-  // Prepare every persisted screen, including nonactive overview screens,
-  // before the first interactive frame. Projections and iframe source use
-  // the identical prepared bytes above; the queued CAS retains the raw base.
   useLayoutEffect(() => {
     for (const file of serverFiles) {
-      // A synced active document with a baseline publishes only the source
-      // chosen by seed/adopt; an unchanged SQL poll must not replace peer text.
       if (
         viewMode === "single" &&
         isSynced &&
@@ -7674,16 +7020,12 @@ function DesignEditor() {
     ydoc,
   ]);
 
-  // The last content this client itself wrote into the Y.Doc (inline-style
-  // edits) — so the reconcile/observe doesn't treat our own echo as external.
   const lastLocalContentRef = useRef<string | null>(null);
   const latestActiveContentRef = useRef<string | null>(null);
   const livePreviewContentRef = useRef<{
     fileId: string;
     content: string;
   } | null>(null);
-  // Freshest known DB `updatedAt` for the active file, kept in a ref so the
-  // Yjs observe handler can advance the reconcile watermark without re-subscribing.
   const documentFileUpdatedAtRef = useRef<string | null>(null);
   const documentFileContentRef = useRef<string | null>(null);
   const collabContentRef = useRef<string | null>(null);
@@ -7703,9 +7045,6 @@ function DesignEditor() {
     syncUndoRedoState();
   }, [clearLocalUndoRedoStacks, id, syncUndoRedoState]);
 
-  // Reset per-file reconcile state when switching files.
-  // Keep undo/redo content + geometry stacks intact: overview mode needs one
-  // chronological history across all screens, board edits, and frame geometry.
   useEffect(() => {
     if (viewMode === "overview") {
       prevActiveFileIdRef.current = activeFileId;
@@ -7736,7 +7075,6 @@ function DesignEditor() {
     return clearStaleAgentCollabRecovery;
   }, [clearStaleAgentCollabRecovery]);
 
-  // Seed collab content from Y.Doc once synced
   useEffect(
     () =>
       runSeedCollabContent({
@@ -7769,7 +7107,6 @@ function DesignEditor() {
     ],
   );
 
-  // Keep the freshest DB `updatedAt` in a ref the observe handler can read.
   useEffect(() => {
     documentFileUpdatedAtRef.current = activeReconcileFile?.updatedAt ?? null;
     documentFileContentRef.current = activeReconcileFile?.content ?? null;
@@ -7780,8 +7117,6 @@ function DesignEditor() {
     collabContentFileIdRef.current = collabContentFileId;
   }, [collabContent, collabContentFileId]);
 
-  // Observe Y.Text changes for live updates from remote editors (peers + the
-  // agent's in-process applyText). This is the instant peer-to-peer path.
   useEffect(
     () =>
       runObserveCollabText({
@@ -7818,10 +7153,6 @@ function DesignEditor() {
     ],
   );
 
-  // Create / recreate the UndoManager whenever the active file's ydoc changes.
-  // Tracks only LOCAL_EDIT_ORIGIN so remote peers' and agent edits are never
-  // undone by this user's Cmd+Z. captureTimeout=800ms coalesces rapid slider
-  // drags into a single undo step.
   useEffect(() => {
     if (!ydoc || !isSynced) {
       undoManagerRef.current?.destroy();
@@ -7859,14 +7190,6 @@ function DesignEditor() {
       clearRedoStacks();
       syncUndoRedoState();
     };
-    // Figma-parity redo selection restore: yjs never reuses a StackItem
-    // across a round trip — undoing pops one off undoStack and pushes a
-    // FRESH item (blank meta) onto redoStack for the inverse transaction,
-    // and vice versa on redo (see forwardYjsUndoStackItemMeta's doc
-    // comment). Without this, a selection stamped by stampYjsUndoSelection /
-    // stampYjsUndoSelectionAfter would work for exactly one undo and vanish
-    // on the matching redo. This fires after yjs has already pushed the new
-    // item, so it's on top of the opposite stack here.
     const handleStackItemPopped = (event: {
       stackItem: { meta: Map<unknown, unknown> };
       type?: "undo" | "redo";
@@ -7905,14 +7228,6 @@ function DesignEditor() {
     };
   }, [clearRedoStacks, ydoc, isSynced, syncUndoRedoState]);
 
-  // Reconcile authoritative external DB content (agent edit / peer-via-SQL) into
-  // the live preview. This is the robustness fallback the Yjs observe path can't
-  // guarantee on its own: a collab poll can be missed or paused (e.g. the tab
-  // was backgrounded, or refetchInterval is off for a normal agent edit), but
-  // get-design still refetches via the action-change invalidate. Driven by
-  // `updatedAt`: only content genuinely newer than what the preview reflects is
-  // adopted, so a lagging poll can never revert live edits. Source actions
-  // publish the corresponding Yjs operations through the server.
   useEffect(
     () =>
       runAdoptDbFileContent({
@@ -7951,35 +7266,26 @@ function DesignEditor() {
     ],
   );
 
-  // Set awareness local state to include which file the user is viewing
   useEffect(() => {
     if (awareness && activeFileId) {
       awareness.setLocalStateField("activeFileId", activeFileId);
     }
   }, [awareness, activeFileId]);
 
-  // ── Presence, canvas refs, overlay rect resolution ─────────────────────────
-  // Presence kit — others + setPresence for cursor/selection broadcasting.
   const { others, setPresence } = usePresence(
     awareness,
     ydoc?.clientID ?? null,
   );
 
-  // Canvas container ref for cursor overlay coordinate mapping.
   const canvasContextMenuRef = useRef<CanvasContextMenuHandle | null>(null);
   const [canvasLayerHitCandidates, setCanvasLayerHitCandidates] = useState<
     CanvasLayerHitCandidate[]
   >([]);
-  // L12: imperative handle so Cmd+R and the canvas context-menu Rename item
-  // can start the layers panel's real inline rename editor on the selected
-  // layer (see beginRename in LayersPanel.tsx).
   const layersPanelRef = useRef<LayersPanelHandle | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const visibleCanvasRectRef = useRef<(() => VisibleCanvasRect | null) | null>(
     null,
   );
-  /** Read by primitive creation, which runs far above where the colour is
-   *  derived. */
   const canvasBackgroundRef = useRef<string | null>(null);
   const { resolvedTheme } = useTheme();
   const activeEditorDragRef = useRef(false);
@@ -7997,11 +7303,6 @@ function DesignEditor() {
   const [layerStructurePreviewByFileId, setLayerStructurePreviewByFileId] =
     useState<Record<string, LayerStructurePreview>>({});
 
-  // Live handle to the active DesignCanvas preview iframe. DesignCanvas owns the
-  // <iframe> internally (tagged data-design-preview-iframe) and does not forward
-  // its ref, so we resolve the element lazily from the DOM at read time. The
-  // MotionDock reads `.current` only when scrubbing, so this always returns the
-  // currently-mounted iframe even after content swaps recreate the element.
   const canvasIframeRef = useMemo<React.RefObject<HTMLIFrameElement | null>>(
     () => ({
       get current() {
@@ -8146,10 +7447,6 @@ function DesignEditor() {
     if (!activeEditorDragRef.current) return false;
     activeEditorDragRef.current = false;
     if (typeof document === "undefined") return true;
-    // Stamped here, at the real Escape keydown, not at message-delivery time:
-    // the bridge orders this against its own commit timestamp (both Date.now,
-    // a wall clock shared across documents) to tell "Escape predates the
-    // mouseup" from "Escape came after the drag already finished".
     const pressedAt = Date.now();
     document
       .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
@@ -8212,11 +7509,6 @@ function DesignEditor() {
     [canvasIframeRef],
   );
 
-  // PF5: rAF-coalesce cursor presence broadcasts. Pointer moves can fire far
-  // more often than a frame (high-polling-rate mice, trackpads), and each
-  // setPresence call was triggering a fresh awareness broadcast + local
-  // subscriber re-render (see packages/core presence.ts PF1). Latest-wins:
-  // only the most recent pointer position within a frame is sent.
   const pendingCursorRef = useRef<{ x: number; y: number } | null>(null);
   const cursorRafRef = useRef<number | null>(null);
   useEffect(() => {
@@ -8227,8 +7519,6 @@ function DesignEditor() {
     };
   }, []);
 
-  // Broadcast pointer position (normalized to canvas container) and
-  // selected element selector so peers can see where the user is working.
   const handleCanvasPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const container = canvasContainerRef.current;
@@ -8249,15 +7539,9 @@ function DesignEditor() {
     [setPresence],
   );
 
-  // Clicking the empty grey canvas background (the area around the framed
-  // preview) deselects the current element in single-screen mode. Overview
-  // mode has its own marquee-based empty-click deselect in MultiScreenCanvas,
-  // so we only act here when NOT in overview.
   const handleCanvasBackgroundClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
-      // Overview mode has its own marquee-based empty-click deselect in
-      // MultiScreenCanvas; only handle single-screen here.
       if (viewModeRef.current === "overview") return;
       const target = e.target as HTMLElement | null;
       if (target?.closest(".design-canvas-iframe-wrapper")) return;
@@ -8272,52 +7556,11 @@ function DesignEditor() {
       setHoveredElement(null);
       setHoveredElementScreenId(null);
       setSelectedLayerIdsState([]);
-      // Mirror the marquee/Escape clear path: the selection highlight for an
-      // in-screen element is drawn inside the iframe by the bridge, so clearing
-      // only host state leaves that highlight visible. Bump the bridge
-      // clear-selection signal too (the single-screen canvas reads this via
-      // clearSelectionRequest={overviewClearSelectionRequest}).
       setOverviewClearSelectionRequest((request) => request + 1);
     },
     [],
   );
 
-  // Block canvas pointer events while any Radix popover is open over the editor.
-  // Portaled Radix popovers render into document.body and visually overlap the
-  // canvas iframe, but the iframe has its own event context so it still receives
-  // pointer events that pass through the popover layer. This shield prevents
-  // unintended drag/style edits triggered by clicks intended for the inspector.
-  //
-  // Stuck-shield fix (two independent causes, both fixed here):
-  //
-  // 1. Detection staleness: Radix's Portal container for a given trigger is
-  //    created ONCE and reused across opens — only its CONTENTS (and its own
-  //    data-state attribute) change on subsequent opens/closes, the wrapper
-  //    node itself is not removed from document.body. Selecting a
-  //    DropdownMenuItem (as opposed to Escape, which does tear the wrapper
-  //    out of the DOM) closes the menu via that reused-wrapper path, so a
-  //    body-only, subtree:false observer never fires again after the FIRST
-  //    popover interaction. Fixed by watching the whole subtree and
-  //    data-state attribute changes, so a close-via-reused-wrapper is
-  //    detected exactly like a close-via-removal.
-  //
-  // 2. False-positive source: `[data-radix-popper-content-wrapper]` is not
-  //    specific to menus/popovers — Radix's Tooltip primitive uses the same
-  //    Popper machinery and stamps the identical wrapper attribute (see
-  //    TooltipContent in packages/toolkit/src/ui/tooltip.tsx, which adds
-  //    `data-agent-native-tooltip="true"` on its own Content node
-  //    specifically so callers like this one can tell tooltips apart from
-  //    real menus/popovers). The zoom control's trigger button is wrapped in
-  //    both a Tooltip AND a DropdownMenu (renderZoomControl): closing the
-  //    dropdown by selecting an item can leave the hover-triggered tooltip's
-  //    own portal open (or briefly re-open on the same tick), which this
-  //    selector cannot distinguish from a real open menu — so the shield
-  //    stayed up for as long as the mouse lingered over the trigger.
-  //    Fixed by excluding wrappers whose only open content is a tooltip.
-  //
-  // The open/closed decision itself is the shared isRadixOverlayOpen
-  // predicate (finding 7) — updateIframePointerEvents below uses the exact
-  // same predicate so the two shields can't drift apart again.
   const [inspectorPopoverOpen, setInspectorPopoverOpen] = useState(false);
   useEffect(() => {
     const ATTR = "data-radix-popper-content-wrapper";
@@ -8338,16 +7581,10 @@ function DesignEditor() {
     return () => observer.disconnect();
   }, []);
 
-  // Broadcast selected element selector via presence so peers can render a ring.
   useEffect(() => {
     setPresence({ selection: selectedElement?.selector ?? null });
   }, [selectedElement?.selector, setPresence]);
 
-  // PF7: rAF-throttle viewport presence broadcasts. `zoom` can change on
-  // every wheel/pinch tick during a live zoom gesture (see PF2 in
-  // use-pinch-zoom.ts), so without coalescing this effect fired a
-  // setPresence call per tick. Latest-wins, same pattern as the cursor
-  // broadcast above (PF5).
   const viewportRafRef = useRef<number | null>(null);
   useEffect(() => {
     return () => {
@@ -8374,23 +7611,10 @@ function DesignEditor() {
     };
   }, [activeFileId, zoom, setPresence]);
 
-  // ── Remote selection rings + lingering edit highlights on the canvas ────────
-  //
-  // The agent (and human peers) publish selection descriptors + recentEdits into
-  // awareness. Both are resolved by locating the target element INSIDE the active
-  // screen's iframe, then transforming the iframe-local rect into parent-viewport
-  // coordinates. The iframe sits inside a `transform: scale(zoom)` wrapper, so its
-  // on-screen size differs from its internal layout size; we derive the scale from
-  // `boundingRect.width / iframe.clientWidth` (robust to any wrapper transform)
-  // instead of reading the zoom value directly. Cross-origin/unmounted iframes
-  // return null (the ring/highlight is silently skipped).
-
-  // Map an iframe-local DOMRect (element or Range) to the parent viewport.
   const mapIframeRectToViewport = useCallback(
     (iframe: HTMLIFrameElement, rect: DOMRect): DOMRect | null => {
       const frameRect = iframe.getBoundingClientRect();
       if (frameRect.width === 0 || frameRect.height === 0) return null;
-      // Effective on-screen scale of the iframe's internal coordinate system.
       const layoutWidth = iframe.clientWidth || frameRect.width;
       const layoutHeight = iframe.clientHeight || frameRect.height;
       const scaleX = layoutWidth ? frameRect.width / layoutWidth : 1;
@@ -8405,10 +7629,6 @@ function DesignEditor() {
     [],
   );
 
-  // Resolve a CSS selector to a viewport rect inside a specific iframe. The
-  // iframe is the coordinate anchor, so the same logic serves both the
-  // single-screen preview iframe and each overview frame iframe (see the
-  // overview resolvers below, which pass the frame the agent is editing).
   const resolveSelectorRectInIframe = useCallback(
     (iframe: HTMLIFrameElement | null, selector: string): DOMRect | null => {
       if (!iframe) return null;
@@ -8433,7 +7653,6 @@ function DesignEditor() {
     [mapIframeRectToViewport],
   );
 
-  // Resolve a text quote to a viewport rect by walking a specific iframe body.
   const resolveTextQuoteRectInIframe = useCallback(
     (iframe: HTMLIFrameElement | null, quote: string): DOMRect | null => {
       const needle = quote.trim();
@@ -8477,27 +7696,23 @@ function DesignEditor() {
     [mapIframeRectToViewport],
   );
 
-  // Resolve a CSS selector to a viewport rect inside the active screen iframe.
   const resolveSelectorRect = useCallback(
     (selector: string): DOMRect | null =>
       resolveSelectorRectInIframe(canvasIframeRef.current, selector),
     [canvasIframeRef, resolveSelectorRectInIframe],
   );
 
-  // Resolve a text quote to a viewport rect by walking the iframe body's text.
   const resolveTextQuoteRect = useCallback(
     (quote: string): DOMRect | null =>
       resolveTextQuoteRectInIframe(canvasIframeRef.current, quote),
     [canvasIframeRef, resolveTextQuoteRectInIframe],
   );
 
-  // resolveRect for RemoteSelectionRings — descriptor is a CSS selector string.
   const resolveSelectionRect = useCallback(
     (descriptor: string): DOMRect | null => resolveSelectorRect(descriptor),
     [resolveSelectorRect],
   );
 
-  // resolveRect for RecentEditHighlights — dispatch on descriptor kind.
   const resolveRecentEditRect = useCallback(
     (edit: AttributedRecentEdit): DOMRect | null => {
       const d = edit.descriptor;
@@ -8507,7 +7722,6 @@ function DesignEditor() {
       if (d.kind === "text" && typeof d.quote === "string") {
         return resolveTextQuoteRect(d.quote);
       }
-      // "paths" and whole-"doc" descriptors have no canvas region here.
       return null;
     },
     [resolveSelectorRect, resolveTextQuoteRect],
@@ -8515,9 +7729,6 @@ function DesignEditor() {
 
   const recentEdits = useRecentEdits(others);
 
-  // Re-key the presence array on zoom so the overlays recompute their rects when
-  // the canvas zooms (the container itself doesn't resize, so the overlays'
-  // ResizeObserver wouldn't otherwise fire). Cheap: a new array reference only.
   const othersForOverlays = useMemo<OtherPresence[]>(
     () => others.slice(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -8529,13 +7740,6 @@ function DesignEditor() {
     [recentEdits, zoom],
   );
 
-  // ── Synthesized AI cursor (Task 3) ──────────────────────────────────────────
-  //
-  // The agent publishes a selection/recentEdit but no cursor. Derive a moving
-  // cursor for it from whatever region currently resolves, normalized against
-  // the canvas container the same way human cursors are (see
-  // handleCanvasPointerMove) so LiveCursorOverlay places it correctly. The 120ms
-  // CSS transition in the overlay animates it smoothly between edit targets.
   const othersWithAgentCursor = useMemo<OtherPresence[]>(() => {
     const container = canvasContainerRef.current;
     if (!container) return othersForOverlays;
@@ -8544,9 +7748,7 @@ function DesignEditor() {
       return othersForOverlays;
     }
     return othersForOverlays.map((other) => {
-      // Only synthesize when the agent has no real cursor of its own.
       if (!other.isAgent || other.presence.cursor) return other;
-      // Prefer the agent's active selection; fall back to its latest recentEdit.
       let rect: DOMRect | null = null;
       const selection = other.presence.selection as
         | string
@@ -8573,7 +7775,6 @@ function DesignEditor() {
         }
       }
       if (!rect) return other;
-      // Normalize the rect's center to container fractions (matches human cursors).
       const cx = rect.left + rect.width / 2 - containerRect.left;
       const cy = rect.top + rect.height / 2 - containerRect.top;
       return {
@@ -8596,24 +7797,11 @@ function DesignEditor() {
     zoom,
   ]);
 
-  // ── Overview presence overlays (Task 1) ─────────────────────────────────────
-  //
-  // Element-level rings + recent-edit highlights over the overview board. The
-  // agent's descriptors are published on the overview presence doc above and
-  // resolved INSIDE the frame the agent is editing. Because we resolve against
-  // the frame iframe's `getBoundingClientRect()` (via mapIframeRectToViewport),
-  // the board pan/zoom transform is already baked into the returned viewport
-  // coords — RemoteSelectionRings / RecentEditHighlights convert those to
-  // container-relative against the same `canvasContainerRef`, so we do NOT
-  // duplicate MultiScreenCanvas's transform math.
   const { others: overviewOthers } = usePresence(
     overviewAwareness,
     overviewYdoc?.clientID ?? null,
   );
 
-  // Find the overview frame iframe for a given file id. Frames tag their iframe
-  // with `data-screen-iframe-id` = screen id (or `<id>::bp-<width>` for an
-  // active breakpoint), so match the exact id or the breakpoint-prefixed form.
   const getOverviewFrameIframe = useCallback(
     (fileId: string | null): HTMLIFrameElement | null => {
       if (!fileId) return null;
@@ -8632,8 +7820,6 @@ function DesignEditor() {
     [boardFileId, canvasContainerRef],
   );
 
-  // Overview resolvers: the agent's presence rides on `overviewPresenceFileId`,
-  // so resolve every descriptor inside that file's frame iframe.
   const resolveOverviewSelectionRect = useCallback(
     (descriptor: string): DOMRect | null =>
       resolveSelectorRectInIframe(
@@ -8657,7 +7843,6 @@ function DesignEditor() {
       if (d.kind === "text" && typeof d.quote === "string") {
         return resolveTextQuoteRectInIframe(iframe, d.quote);
       }
-      // "paths" and whole-"doc" descriptors have no single canvas region.
       return null;
     },
     [
@@ -8668,11 +7853,6 @@ function DesignEditor() {
     ],
   );
 
-  // Show only the agent's presence in overview (human peers edit inside their
-  // own focused screen; the board treatment is about surfacing agent work). Re-
-  // key on the overview zoom so rings recompute when the board zooms — the
-  // container itself doesn't resize, so the overlays' ResizeObserver wouldn't
-  // otherwise fire (same trick as the single-screen `othersForOverlays`).
   const overviewAgentOthers = useMemo<OtherPresence[]>(
     () => overviewOthers.filter((o) => o.isAgent),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -8685,8 +7865,6 @@ function DesignEditor() {
     [overviewRecentEdits, overviewCanvasZoom],
   );
 
-  // ── Follow collaborator, screen content, runtime snapshots ─────────────────
-  // Follow mode — clicking an avatar in the toolbar follows that participant.
   const [followingEmail, setFollowingEmail] = useState<string | null>(null);
   const followingId = useMemo(() => {
     if (!followingEmail) return null;
@@ -8714,7 +7892,6 @@ function DesignEditor() {
       const email = user?.email ?? "agent@system";
       const lc = email.trim().toLowerCase();
       if (followingEmail?.trim().toLowerCase() === lc) {
-        // Already following — stop.
         setFollowingEmail(null);
         stopFollowing();
       } else {
@@ -8724,12 +7901,6 @@ function DesignEditor() {
     [followingEmail, stopFollowing],
   );
 
-  // Resolve the content to render: prefer collab content only after the
-  // per-file reconcile state has reset for the current active file. Otherwise a
-  // file switch can render one frame with the previous file's Yjs text.
-  // Always resolve to a string — a non-string source (e.g. a collab value that
-  // is not yet a plain string, or a not-yet-loaded file) must never reach the
-  // many `content.trim()` / projection callers below, which would crash render.
   const activeCollabFileReady =
     viewMode === "single" && activeFileId === prevActiveFileIdRef.current;
   const pendingActiveFileContent = activeFile?.id
@@ -8814,10 +7985,6 @@ function DesignEditor() {
             lastLocalContent: lastLocalContentRef.current,
           }),
           fileContentById,
-          // Same-tick freshness (see the param's doc on getFreshScreenContent):
-          // applyFileContentUpdate writes these refs synchronously, while the
-          // files-derived map above only refreshes on the next render. The
-          // save outbox is also authoritative while reconciliation lags.
           pendingContent:
             latestFileSaveForUnloadRef.current[screenId]?.content ??
             pendingLocalFileContentsRef.current.get(screenId)?.content ??
@@ -8846,8 +8013,6 @@ function DesignEditor() {
     },
     [getUnprojectedScreenContent, id],
   );
-  // Projects every screen, so it runs only while the dialog is open. The last
-  // count stays put for the dialog's close animation.
   const lastDurableLockedLayerCountRef = useRef(0);
   const durableLockedLayerCount = useMemo(
     () =>
@@ -8885,12 +8050,6 @@ function DesignEditor() {
 
   historySourceReaderRef.current = getProjectionContentForScreen;
 
-  // PF6: per-screen embeddedFrame cache. Previously renderScreenContent built
-  // a fresh embeddedFrame object literal on every call, which happens once
-  // per rendered screen on every MultiScreenCanvas render (including drag/
-  // resize gestures on frames that aren't the one being resized). Cache by
-  // screen id + rounded dimensions so unrelated screens/renders reuse the
-  // same object identity and DesignCanvas's own memoization can bail.
   const embeddedFrameCacheRef = useRef<
     Map<string, { key: string; value: DesignCanvasEmbeddedFrame }>
   >(new Map());
@@ -9011,16 +8170,6 @@ function DesignEditor() {
     },
     [],
   );
-  // Per-screen stable identity for DesignCanvas's onRuntimeLayerSnapshot prop
-  // (mirrors the embeddedFrameCacheRef pattern above). The overview map below
-  // previously passed a fresh `(snapshot) => handleScreenRuntimeLayerSnapshot(
-  // screen.id, snapshot)` arrow on every render for every rendered screen;
-  // since handleScreenRuntimeLayerSnapshot itself never changes identity
-  // (empty deps), a bound function per screenId can be created once and
-  // reused forever. DesignCanvas lists onRuntimeLayerSnapshot as a dependency
-  // of its window "message" listener effect, so an unstable per-render
-  // identity here was tearing down and re-adding that listener on every
-  // MultiScreenCanvas render.
   const runtimeLayerSnapshotCallbacksRef = useRef<
     Map<string, (snapshot: RuntimeLayerSnapshot) => void>
   >(new Map());
@@ -9076,13 +8225,6 @@ function DesignEditor() {
         });
         return false;
       }
-      // U20: URL-backed/localhost ("live snapshot") screen edits never went
-      // through applyFileContentUpdate/applyLocalContentUpdate (the 3 call
-      // sites all write here directly), so no undo/redo entry was ever
-      // recorded for them. Record the same shape of ContentHistoryChange
-      // used everywhere else; handleUndo/handleRedo route replay for this
-      // fileId back through this same function (see the matching check in
-      // both) instead of the regular DesignFile.content path.
       if (options.recordHistory !== false) {
         const change = { fileId: screenId, before: existing.html, after: html };
         if (viewModeRef.current === "overview") {
@@ -9106,7 +8248,6 @@ function DesignEditor() {
       t,
     ],
   );
-  // ── Pending live-edit recorders ────────────────────────────────────────────
   const recordPendingVisualStyleEdit = useCallback(
     (
       screenId: string,
@@ -9312,17 +8453,13 @@ function DesignEditor() {
             rowEnd: number;
           };
         }>;
-        /** Markup this change introduced; the subject does not exist in the
-         * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
         remintCollidingNodeIds?: boolean;
-        /** The inserted markup replaced this subject as one live gesture. */
         replaced?: true;
         replacementSelector?: string;
         replacementSourceId?: string;
         replacementElementInfo?: ElementInfo;
         replacementSnapshotHtml?: string;
-        /** This change DELETED the subject; it has no anchor. */
         removed?: true;
       },
     ) => {
@@ -9460,7 +8597,6 @@ function DesignEditor() {
     activeFile?.id !== undefined
       ? getProjectionContentForScreen(activeFile.id)
       : activeContent;
-  // ── Code-layer projection and selection ────────────────────────────────────
   const pageStyles = useMemo(
     () => getBodyInlineStyles(activeContent),
     [activeContent],
@@ -9474,28 +8610,17 @@ function DesignEditor() {
       }),
     [activeFile?.id, activeProjectionContent, codeLayerSourceForScreen],
   );
-  /**
-   * The active screen's live-DOM projection, or null when the screen carries
-   * its own source. Mirrors the eligibility rule `codeLayerModelsByFile` uses
-   * to decide which tree the Layers panel renders, so selection resolution and
-   * the panel agree on one set of node ids.
-   */
   const activeRuntimeCodeLayerProjection = useMemo(() => {
     const fileId = activeFile?.id;
     if (!fileId) return null;
     const snapshot = runtimeLayerSnapshotsById[fileId];
     if (!snapshot) return null;
-    // Derived locally rather than from `designSourceType`/`overviewScreenById`,
-    // which are declared further down this component and would be in the
-    // temporal dead zone here.
     const eligible = shouldUseRuntimeLayerProjection({
       screen: overviewScreens.find((screen) => screen.id === fileId),
       fallbackSourceType:
         normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
         normalizeDesignSourceType(designDataJson.sourceMode as unknown) ??
         "inline",
-      // Eligibility follows the persisted route URL, not the projection
-      // content, which may already be a live snapshot.
       content: files.find((file) => file.id === fileId)?.content ?? "",
     });
     if (!eligible) return null;
@@ -9547,10 +8672,6 @@ function DesignEditor() {
     const fileId = activeFile?.id ?? null;
     if (previousMotionFileIdRef.current === fileId) return;
     previousMotionFileIdRef.current = fileId;
-    // Flush any pending debounced motion autosave for the PREVIOUS file so
-    // edits made inside the debounce window aren't silently dropped on
-    // screen/file switch. The flush closure captured the previous file's id
-    // and content, so it saves to the right file.
     const flushPendingMotionAutosave = motionAutosaveFlushRef.current;
     motionAutosaveFlushRef.current = null;
     if (flushPendingMotionAutosave) flushPendingMotionAutosave();
@@ -9609,33 +8730,18 @@ function DesignEditor() {
     ],
   );
   const selectedElementLayerId = selectedCodeLayerNode?.id ?? null;
-  // Shared node-id resolution for the current selection's motion tracks —
-  // used by "Copy animation" (item 2d), motionKeyframeState (item 11), and
-  // the keyframe-diamond toggle (item 12) so all three agree on the same
-  // (targetNodeId, tracks) pairing.
   const selectedMotionTargetNodeId =
     selectedCodeLayerNode?.dataAttributes[
       "data-agent-native-node-id"
     ]?.trim() ??
     selectedElement?.sourceId ??
     null;
-  // Item 2d: "Copy animation" is only sensible (Figma-parity) when the
-  // current selection already animates something — an untracked node has
-  // nothing for copyLayerAnimation to snapshot.
   const selectedElementHasMotionTrack = useMemo(() => {
     if (!selectedMotionTargetNodeId) return false;
     return motionTracks.some(
       (track) => track.targetNodeId === selectedMotionTargetNodeId,
     );
   }, [motionTracks, selectedMotionTargetNodeId]);
-  // Item 11 — EditPanel's motionKeyframeState prop: hasTimeline is true once
-  // the active screen has ANY motion tracks (Figma shows the diamond rail
-  // for every keyframeable field as soon as the layer joins a timeline, not
-  // just for properties it already animates); keyframedProperties lists just
-  // the CSS property names of tracks targeting THIS node (drives each
-  // diamond's outline-vs-filled state). motionTracks is already scoped to
-  // activeFile.id (reset/rehydrated per file — see the file-switch effect
-  // above), so no extra per-screen filtering is needed here.
   const motionKeyframeState = useMemo(() => {
     if (motionTracks.length === 0) return undefined;
     const keyframedProperties = selectedMotionTargetNodeId
@@ -9670,10 +8776,6 @@ function DesignEditor() {
 
   const handleDesignStateSelect = useCallback(
     (stateId: string | null, row?: DesignStatePreviewRow) => {
-      // Same hazard as replacePreviewContent's guard, on the one host push
-      // that bypasses it: restoring "no state" posts `activeContent`, which on
-      // a localhost screen is the route URL. Refuse the whole interaction —
-      // entering a state preview here has no way back out.
       if (isStandaloneHttpUrl(activeContent)) {
         toast.error(t("designEditor.toasts.designStateLiveScreen"), {
           duration: 5000,
@@ -9748,10 +8850,6 @@ function DesignEditor() {
   );
   const canEditActiveVisualScreen =
     canEditDesign || canEditLiveScreen(activeFile?.id ?? activeFileId);
-  // P4: arms DesignCanvas's single-screen click-to-place overlay only while
-  // focused on a single screen with an active creation tool selected —
-  // `null` in every other case disables pointer capture (see
-  // getSingleScreenCreationTool's doc comment for the full tool mapping).
   const activeSingleScreenCreationTool = getSingleScreenCreationTool({
     activeTool,
     viewMode,
@@ -9762,12 +8860,6 @@ function DesignEditor() {
     return DESIGN_CAPABILITY_NAMES.filter((name) => hasCapability(caps, name));
   }, [designSourceType]);
 
-  // Full-app-building linkage (see shared/full-app.ts). Non-null only for
-  // designs created via the "Full app" creation mode — drives FusionAppBanner
-  // and the fusion preview URL fallback below. Flag-independent on read: once
-  // a design has this data (created while the flag was on), the banner and
-  // canvas wiring keep working even if the flag is later flipped off, so
-  // existing full-app designs never regress.
   const fusionApp = useMemo(
     () => readFusionApp(designDataJson),
     [designDataJson],
@@ -9787,21 +8879,12 @@ function DesignEditor() {
     if (!tweaksEnabled) setShowTweakPrompt(false);
   }, [activeInspectorTab, tweaksEnabled]);
 
-  // Builder-hosted preview URL for fusion-source designs. Prefers the flat
-  // `fusionUrl` written by the "Make it real" migration; falls back to the
-  // full-app-building `fusionApp.previewUrl` linkage so container dev-server
-  // screens render the same way once the container reports a preview URL.
-  // Threaded into DesignCanvas so the fusion preview renders (and so the
-  // bridge trust check can validate the frame's origin against it).
   const designFusionUrl = useMemo(() => {
     const raw = (designDataJson as { fusionUrl?: unknown }).fusionUrl;
     if (typeof raw === "string" && raw) return raw;
     return fusionApp?.previewUrl;
   }, [designDataJson, fusionApp]);
 
-  // §6.1 — open a component instance's source. open-component-source selects the
-  // component root in the editor and emits a navigate app-state; for real-app
-  // (localhost / fusion) sources it also resolves the external file location.
   const handleComponentSourceJump = useCallback(
     ({ nodeId }: { nodeId: string; componentName: string }) => {
       if (!id || !nodeId) return;
@@ -9819,17 +8902,6 @@ function DesignEditor() {
     [id, activeFileId, openComponentSourceMutation],
   );
 
-  // Stable identity for the single-screen-mode DesignCanvas's
-  // onRuntimeLayerSnapshot prop, mirroring getRuntimeLayerSnapshotCallback
-  // above for the overview per-screen map. That inline call site previously
-  // built a fresh `(snapshot) => { if (!activeFile?.id) return;
-  // handleScreenRuntimeLayerSnapshot(activeFile.id, snapshot); }` arrow on
-  // every render; since DesignCanvas lists onRuntimeLayerSnapshot as a
-  // dependency of its window "message" listener effect, that unstable
-  // identity was tearing down and re-adding the listener on every render
-  // while in single-screen mode. Scoped to activeFile?.id (rather than a
-  // per-screenId cache) since single-screen mode only ever has one active
-  // screen at a time.
   const handleActiveRuntimeLayerSnapshot = useCallback(
     (snapshot: RuntimeLayerSnapshot) => {
       if (!activeFile?.id) return;
@@ -9845,8 +8917,6 @@ function DesignEditor() {
     [activeFile?.id, handleScreenRuntimeVerificationSnapshot],
   );
 
-  // The selected node id, when it already is a recognised component instance —
-  // unlocks the contextual Component section at the top of the Design tab.
   const selectedComponentNodeId = useMemo(() => {
     if (selectedCodeLayerNode && isComponentInstance(selectedCodeLayerNode)) {
       return bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode);
@@ -9865,8 +8935,6 @@ function DesignEditor() {
     }
     return undefined;
   }, [activeCanvasSourceType, selectedCodeLayerNode, selectedElement]);
-  // Keep canonical mains available to the Component section's read/source
-  // controls while withholding instance-only actions from those selections.
   const selectedInstanceActionNodeId = useMemo(() => {
     if (!selectedCodeLayerNode) return undefined;
     return isComponentInstanceForInstanceActions(selectedCodeLayerNode)
@@ -9990,8 +9058,6 @@ function DesignEditor() {
     };
   }, [clearShaderFillPreview]);
 
-  // A friendly default name for the create-component dialog, derived from the
-  // selected element's layer name / tag.
   const defaultComponentName = useMemo(() => {
     if (selectedCodeLayerNode?.layerName)
       return selectedCodeLayerNode.layerName;
@@ -10061,10 +9127,6 @@ function DesignEditor() {
       path: selectedComponentLocalSourceAnchor?.path ?? "",
     },
     {
-      // read-local-file is editor-only (assertAccess('design', id, 'editor')
-      // server-side) and reads through the owner's local bridge. Anonymous
-      // public viewers on /visual-edit/:id never have editor access, so
-      // without this gate every component selection fired a guaranteed 401.
       enabled: Boolean(
         id && selectedComponentLocalSourceAnchor && canEditDesign,
       ),
@@ -10112,20 +9174,11 @@ function DesignEditor() {
     selectedComponentLiteralProps,
   ]);
 
-  // Outer HTML of the selection — backs the inline/Alpine "Inspect code" view.
   const selectedElementOuterHtml = useMemo(() => {
     if (!selectedElement?.selector) return null;
     return getElementOuterHtml(activeContent, selectedElement.selector);
   }, [activeContent, selectedElement?.selector]);
 
-  // ── Motion tracks and keyframes ────────────────────────────────────────────
-  // §6.3 — the motion-dock target: the selected element's literal
-  // `data-agent-native-node-id` (the value the motion compiler + preview bridge
-  // match on, NOT the hashed projection id) plus a friendly label. Single-screen
-  // mode auto-stamps every selectable node with this attribute (see the
-  // ensureCodeLayerNodeIdsInHtml effect), so a selection reliably resolves to a
-  // stable node id here. `null` when nothing animatable is selected — the dock
-  // then disables its "Add track" affordance.
   const motionSelectedTarget = useMemo<{
     nodeId: string;
     label: string;
@@ -10151,13 +9204,6 @@ function DesignEditor() {
     });
   }, []);
 
-  // U14: drop any motion track whose targetNodeId was just deleted from the
-  // DOM and, when a track was actually pruned, mark motion dirty so the
-  // autosave/remove-motion-timeline path persists the cleanup (otherwise the
-  // stale managed CSS + timeline row reappear on reload). Reads fresh state
-  // through the functional updater so a stale `motionTracks` closure can't
-  // resurrect a track; the dirty mark inside the updater is idempotent (a
-  // StrictMode double-invoke only re-bumps the deduped autosave revision).
   const pruneMotionTracksByNodeId = useCallback(
     (nodeIdsToRemove: Set<string>) => {
       setMotionTracks((current) => {
@@ -10188,11 +9234,6 @@ function DesignEditor() {
     [markMotionTracksDirty],
   );
 
-  // Serialisable subset of the dock's tracks for the DesignCanvas motion-preview
-  // bridge. Strips the UI-only `label` field. Only populated while the dock is
-  // open so a closed dock never leaves preview overrides on the canvas; an empty
-  // array makes DesignCanvas send `motion-preview-clear`. Scrubbing previews
-  // these tracks live in the iframe; autosave only runs for track/duration edits.
   const motionTracksWire = useMemo<MotionTrackWire[]>(() => {
     if (!motionDockOpen || motionTracks.length === 0) return [];
     return motionTracks.map(({ label: _label, ...track }) => track);
@@ -10219,10 +9260,6 @@ function DesignEditor() {
         ]?.trim();
       if (!targetNodeId) return;
 
-      // Prefer the LIVE playhead (updated by MotionDock on every rAF/scrub
-      // frame) so an edit made mid-playback keys at the true current position;
-      // fall back to the committed motionPlayhead when no live value exists
-      // (e.g. the dock hasn't reported one yet).
       const activePlayhead = motionLivePlayheadRef.current ?? motionPlayhead;
       let changed = false;
       setMotionTracks((current) => {
@@ -10251,20 +9288,6 @@ function DesignEditor() {
     ],
   );
 
-  // Item 12 — EditPanel's keyframe-diamond toggle. `cssProperty` is always
-  // one of MOTION_PROPERTY_PRESETS's identifiers (see MotionKeyframeCssProperty
-  // in inspector/MotionKeyframeDiamond.tsx). Two cases, matching Figma:
-  //   - No track yet for (node, property): create one via
-  //     createMotionTrackFromPreset (seeded from the preset's from/to pair),
-  //     then upsert a keyframe AT the current playhead sampling the
-  //     element's live computed value — so the new track both compiles
-  //     (valid t=0/t=1 pair) and immediately reflects what's on screen.
-  //   - Track exists: toggle a keyframe at the playhead — remove it if one
-  //     already sits there (within MOTION_KEYFRAME_TIME_EPSILON), else add
-  //     one sampling the current value (matches applyMotionAutoKeyframe's
-  //     upsert semantics for the "add" half).
-  // One state update (one history step via markMotionTracksDirty), same as
-  // every other track mutation in this file.
   const handleToggleMotionKeyframe = useCallback(
     (cssProperty: string) =>
       runToggleMotionKeyframe(
@@ -10295,10 +9318,6 @@ function DesignEditor() {
 
   const inspectCodeData = useMemo<InspectCodeData | undefined>(() => {
     if (!selectedElement) return undefined;
-    // Inline/Alpine: the design HTML is the source — show the element's HTML.
-    // Localhost React selections also carry bridge provenance. A relative path
-    // is displayed as reported but does not become an editor deep link; only a
-    // runtime-reported absolute path is eligible for that action.
     return inspectCodeDataForElement(selectedElement, selectedElementOuterHtml);
   }, [selectedElement, selectedElementOuterHtml]);
 
@@ -10414,13 +9433,6 @@ function DesignEditor() {
     ],
   );
 
-  // H2: Cmd+Alt+K — Figma's "create component" hotkey. Unlike the inspector's
-  // create-component button (which opens a naming dialog via EditPanel's
-  // internal createComponentOpen state), the hotkey creates immediately using
-  // the same friendly default name shown in that dialog, mirroring Figma's
-  // no-prompt keyboard flow. No-ops without a selection or when the selection
-  // is already a component (same gating as the inspector's onCreateComponent
-  // prop below).
   const handleCreateComponentHotkey = useCallback(() => {
     if (
       !canEditDesign ||
@@ -10476,13 +9488,6 @@ function DesignEditor() {
   const hoveredChildScreenId = hoveredElementIsScreenRoot
     ? null
     : hoveredElementScreenId;
-  // ── Projection caches and content-update appliers ──────────────────────────
-  // PF9: cache non-active-screen projections by content identity. Hover
-  // (handleScreenElementHover) calls this on every pointermove over a
-  // non-active screen's iframe; without caching that's a full HTML parse
-  // per move. Keyed by screenId -> {contentRef, projection} so an unchanged
-  // content string (same reference — content strings are only replaced, not
-  // mutated, elsewhere in this file) reuses the prior projection.
   const nonActiveProjectionCacheRef = useRef<
     Map<string, { contentRef: string; projection: CodeLayerProjection }>
   >(new Map());
@@ -10495,9 +9500,6 @@ function DesignEditor() {
       const content = getProjectionContentForScreen(screenId);
       const cache = nonActiveProjectionCacheRef.current;
       if (screenId === activeFile?.id) {
-        // Seed the same cache while this file is active. When selection moves
-        // to another screen, the old active screen can then become non-active
-        // without paying for a fresh full HTML projection on that click.
         cache.set(screenId, {
           contentRef: content,
           projection: activeCodeLayerProjection,
@@ -10543,23 +9545,11 @@ function DesignEditor() {
       selector?: string | null,
       options: { forceFullDocument?: boolean } = {},
     ): PreviewContentReplaceResult => {
-      // A localhost screen's `design_files.content` IS its route URL, so any
-      // caller that treats stored/collab content as a document (the collab
-      // seed, the SQL reconcile passes, undo/redo replay) can hand this
-      // callback the bare URL. The bridge would parse it as a document and
-      // replace the running app with the text "http://localhost:8210/" — a
-      // wrong-but-plausible state with no error anywhere. Skip it here, the one
-      // point every host push funnels through. This is deliberately distinct
-      // from an unavailable bridge: rebuilding a live screen from its route
-      // marker cannot help and can strand bridge registration after reload.
       if (isStandaloneHttpUrl(nextContent)) {
         return "skipped-live-route";
       }
       const replaceContent = (window as any).__designCanvasReplaceContent;
       if (typeof replaceContent !== "function") return "unavailable";
-      // Fanning out to the primary frame and each breakpoint is the linked
-      // replacer's job (linked-screen-preview.ts) — doing it again here pushes
-      // the same document to every frame twice.
       const replaced = replaceContent(
         nextContent,
         selector ?? selectedCanvasSelector,
@@ -10584,19 +9574,6 @@ function DesignEditor() {
     ],
   );
 
-  // BUG-UNDO-LIVE-SNAPSHOT: undo/redo replay for a live-snapshot
-  // (localhost/fusion) screen only ever called updateLiveScreenSnapshotContent,
-  // which just swaps liveScreenSnapshotsById — that state has no independent
-  // renderer for a LIVE iframe (src points at the running app; it is never
-  // re-rendered from `content`), so the visible DOM silently kept whatever the
-  // last direct style/structure edit left it at while the model quietly
-  // reverted underneath. Mirrors applyLocalContentUpdate's
-  // forcePreviewFullDocument handling (the "holistic flash pipeline") a few
-  // lines up: push the reverted/reapplied HTML into the live iframe via the
-  // same whole-document bridge patch, falling back to a full contentRenderRevision
-  // reload only when the live patch can't run. Only meaningful for the
-  // currently active screen — replacePreviewContent always targets whichever
-  // DesignCanvas has registerRuntimeBridge set, which tracks activeFile.
   const syncLiveScreenSnapshotPreview = useCallback(
     (screenId: string, html: string) => {
       if (screenId !== activeFile?.id) return;
@@ -10622,9 +9599,6 @@ function DesignEditor() {
       return Boolean(
         deleteElement(
           selector ?? selectedCanvasSelector,
-          // Candidates default to the CURRENT selection's aliases, which are
-          // only the right fallbacks when `selector` describes that same
-          // element. A caller deleting a different node must pass its own.
           candidates ?? selectedCanvasSelectorCandidates,
           requestId,
         ),
@@ -11122,7 +10096,6 @@ function DesignEditor() {
     ],
   );
 
-  // ── Component instances and review feedback routing ────────────────────────
   const handleComponentPropApplied = useMemo(
     () =>
       createPersistedContentHostSyncHandler({
@@ -11141,14 +10114,6 @@ function DesignEditor() {
     [],
   );
 
-  // Instance-only operations (Figma's Go to main component / Swap instance /
-  // Detach instance), reachable from the canvas context menu and — for
-  // detach — the Cmd+Alt+B hotkey. The searchable Swap instance picker itself
-  // lives in the Component inspector section (component-section.tsx, which
-  // already wires its own detach/swap/go-to-main mutations and calls
-  // onComponentPropApplied on success). Go-to-main and detach call their
-  // actions here; Swap opens that canonical picker directly so both entry
-  // points share one catalog and mutation path.
   const handleGoToMainComponentMenuAction = useCallback(() => {
     if (!id || !selectedInstanceActionNodeId) return;
     goToMainComponentMutation.mutate(
@@ -11214,10 +10179,6 @@ function DesignEditor() {
     ],
   );
 
-  // Open the inspector's canonical searchable picker directly. Keeping one
-  // picker avoids two catalogs drifting while still matching Figma's
-  // immediate context-menu behavior (the click opens choices; it doesn't
-  // merely tell the user where to look).
   const handleSwapInstanceMenuAction = useCallback(() => {
     if (!id || !selectedInstanceActionNodeId) return;
     setUiHidden(false);
@@ -11238,13 +10199,6 @@ function DesignEditor() {
         typeof result?.fileId === "string" &&
         typeof result.patchedContent === "string"
       ) {
-        // apply-a11y-fix persisted the patched content server-side before
-        // returning it, so adopting it here is a persisted-content host sync:
-        // route through the bridge's in-place replace instead of the
-        // refreshPreview srcdoc rebuild (white flash) — see
-        // getPersistedContentHostSyncOptions' doc comment. The fix result
-        // carries no server timestamp, so adopt its returned source without
-        // inventing one.
         applyFileContentUpdate(
           result.fileId,
           result.patchedContent,
@@ -11262,8 +10216,6 @@ function DesignEditor() {
   const resolvedReviewPanelProps = useMemo<
     Omit<ReviewPanelProps, "className"> | undefined
   >(() => {
-    // The Builder shell has no persisted Design action surface, so exposing
-    // Run audit there only produces the shell's "API is disabled" error.
     if (!designReviewPanelEnabled || !id || !activeFile || shellMode) {
       return undefined;
     }
@@ -11386,9 +10338,6 @@ function DesignEditor() {
       }
       const boardTarget = targetId === null;
       if (targetId || boardTarget) {
-        // Review is editing context on the infinite canvas. Selecting a thread
-        // reveals its screen there; it must not revive the removed focused
-        // non-Interact view.
         viewModeRef.current = "overview";
         setViewMode("overview");
         setActiveFileId(boardTarget ? (boardFileId ?? null) : targetId);
@@ -11466,7 +10415,6 @@ function DesignEditor() {
     ],
   );
 
-  // ── Primitive creation and vector (pen) editing ────────────────────────────
   const handleCreatePrimitive = useCallback(
     (
       screenId: string,
@@ -11512,23 +10460,6 @@ function DesignEditor() {
     ],
   );
 
-  // T6: once a begin-text-edit retry loop for a newly-created text node
-  // settles (observed active/done, cancelled early via Escape/blur, or
-  // exhausted every retry), remove the node if it never received any real
-  // text content. The bridge only posts a text-content-change update when
-  // content actually CHANGES, so a node the user never typed into (or
-  // Escaped out of immediately) would otherwise persist forever as an
-  // invisible empty layer with nothing to select or clean it up.
-  /**
-   * Drops a text node the user never typed into. Returns why it did or did not
-   * act: "node-absent" and "content-unavailable" are races worth one retry
-   * (the insert may not have reached `getScreenContent` yet), while
-   * "kept-has-content" and "removed" are settled answers. Reporting these
-   * separately is the point — every one of them used to be a bare `return`,
-   * so an empty text box that survived because its screen content had not
-   * propagated was indistinguishable from one deliberately kept, and the box
-   * stayed on the canvas invisibly forever.
-   */
   const removeEmptyTextNodeIfUntouched = useCallback(
     (
       screenId: string | null,
@@ -11565,8 +10496,6 @@ function DesignEditor() {
         refreshPreview: false,
         recordHistory: !finalizedCreation.historyHandled,
       });
-      // A write that never published leaves the node exactly where it was, so
-      // the creation record has to survive for the retry.
       if (publication.status !== "accepted") return "remove-failed";
       finalizedCreation.confirm();
       setSelectedLayerIdsState((current) =>
@@ -11585,12 +10514,6 @@ function DesignEditor() {
     ],
   );
 
-  /** Cleanup for an untouched text node, retried past the insert→content
-   *  propagation gap. "Not resolvable yet" is not an answer: a board's FIRST
-   *  primitive is created before that file's content reaches the client map,
-   *  and one attempt that read nothing used to leave the node on the canvas
-   *  forever with nothing left to remove it. Only a settled answer — removed,
-   *  or kept because it has content — ends the retries. */
   const removeEmptyTextNodeWithRetry = useCallback(
     (screenId: string | null, nodeId: string) => {
       const attempt = (remaining: number) => {
@@ -11656,10 +10579,6 @@ function DesignEditor() {
     ],
   );
 
-  // T6: stop the begin-text-edit retry loop as soon as the bridge reports THIS
-  // creation's editing session ended (Escape, blur, or a real commit) instead
-  // of force-reopening it for the rest of the retry window. The identity match
-  // is load-bearing — see endedTextEditMatchesPendingCreation.
   useEffect(() => {
     const pending = pendingEmptyTextEditRef.current;
     if (!endedTextEditMatchesPendingCreation(pending, textEditingState)) return;
@@ -11670,12 +10589,6 @@ function DesignEditor() {
     textEditingState.sourceId,
   ]);
 
-  /**
-   * Called by MultiScreenCanvas when a draft primitive is committed in empty
-   * canvas space (outside all screen frames).  Appends the primitive to the
-   * board file content via the shared handleCreatePrimitive path so the bridge
-   * engine handles persistence identically to in-screen elements.
-   */
   const handleBoardDrawPrimitive = useCallback(
     (
       primitive: CanvasPrimitiveInsert,
@@ -11700,8 +10613,6 @@ function DesignEditor() {
             ? result.nodeId
             : primitive.nodeId;
       if (nodeId) {
-        // Without the caller's tool intent a board pen commit lands on Move,
-        // which disarms the Pen mid-path — a screen insert keeps it.
         handlePrimitiveCreated(boardFileId, nodeId, options);
       }
 
@@ -11714,15 +10625,6 @@ function DesignEditor() {
     [boardFileId, canEditDesign, handleCreatePrimitive, handlePrimitiveCreated],
   );
 
-  /**
-   * P4: DesignCanvas's single-screen click-to-place creation overlay
-   * (`activeCreationTool`/`onCreatePrimitive` below) commits through this
-   * same `handleCreatePrimitive`/`handlePrimitiveCreated` pair overview
-   * drawing already uses — `createPrimitiveInsertFromSpec` just translates
-   * the overlay's screen-content-space spec into the shared
-   * `CanvasPrimitiveInsert` shape first. Pen commits keep Pen active unless
-   * the overlay supplies explicit tool intent or flushes after a tool change.
-   */
   const handleSingleScreenCreatePrimitive = useCallback(
     (spec: CreatePrimitiveSpec) => {
       if (!activeFile || !canEditDesign) return false;
@@ -11767,19 +10669,6 @@ function DesignEditor() {
     [activeFile?.id, applyFileContentUpdate, canEditDesign, getScreenContent],
   );
 
-  /**
-   * P5/vector-edit: commits the working PenPath from MultiScreenCanvas's
-   * `vectorEdit` overlay back onto its owning screen. `"preview"` phases
-   * (live anchor/handle drag) only update `vectorEditingState.path` — the
-   * overlay renders straight off that in-memory path, so nothing needs to
-   * touch the iframe/content until the gesture actually settles. `"commit"`
-   * phases (mirroring the same preview/commit gesture-signal convention as
-   * ScrubInput/DesignColorPicker's onChangeComplete) additionally write the
-   * new `d` + data-an-pen-nodes back into the owning screen's HTML through
-   * the existing applyFileContentUpdate persistence path, so a single mouse
-   * drag becomes exactly one saved edit (and one undo/history entry) rather
-   * than one per intermediate frame.
-   */
   const handleVectorEditChange = useCallback(
     (nextPath: PenPath, phase: "preview" | "commit") => {
       const current = vectorEditingState;
@@ -11902,18 +10791,6 @@ function DesignEditor() {
     [activeFile?.id, applyFileContentUpdate, getScreenContent, t],
   );
 
-  /**
-   * P5/vector-edit: the VectorEditOverlayState prop threaded to
-   * MultiScreenCanvas. `originCanvas` is recomputed on every render from the
-   * owning screen's CURRENT frame geometry (see getScreenFrameOriginCanvas)
-   * rather than cached in vectorEditingState, so dragging/resizing the
-   * screen frame mid-edit can't leave the overlay pinned to a stale
-   * position. `null` whenever not editing or the origin can't be resolved
-   * (e.g. the owning screen was deleted mid-edit) — MultiScreenCanvas
-   * doesn't render the overlay in that case.
-   */
-  // A click outside the overlay lands in the screen or board iframe and only
-  // changes the selection, so the edit session must follow the selection.
   useEffect(() => {
     if (
       vectorEditingState &&
@@ -11950,7 +10827,6 @@ function DesignEditor() {
     vectorEditingState,
   ]);
 
-  // ── Canvas tool handlers ───────────────────────────────────────────────────
   const handleOverviewScreenSelectionChange = useCallback(
     (ids: string[]) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
@@ -12014,14 +10890,6 @@ function DesignEditor() {
   const handleMoveTool = useCallback(() => {
     if (!canEditDesign) return;
     blurActiveDesignEditableTarget();
-    // Toolbar dual-active fix: every other tool-switch handler
-    // (handleFrameTool/handleShapeTool/handleTextTool/handlePenTool) wraps
-    // its setActiveTool call in flushSync so the toolbar's active/pressed
-    // classes commit synchronously with the click. This one didn't, so a
-    // rapid V-after-Rectangle press could paint the new tool "pressed" while
-    // React hadn't yet flushed the re-render that clears the previous tool's
-    // "active" class, leaving both visually active until an unrelated
-    // re-render (e.g. the next click) caught it up.
     flushSync(() => {
       setActiveTool("move");
       setMode("edit");
@@ -12035,12 +10903,6 @@ function DesignEditor() {
     blurActiveDesignEditableTarget();
     flushSync(() => {
       setActiveTool("frame");
-      // Figma parity (F): while a single screen is focused, arm the
-      // single-screen click-to-place overlay so the frame tool draws a
-      // nested container <div> in THIS screen instead of yanking the user
-      // out to overview (same pattern as handleTextTool/handleShapeTool).
-      // From overview (or with no focused screen), stay in overview where a
-      // frame gesture on empty canvas creates a screen.
       if (viewModeRef.current === "single" && activeFile) {
         setMode("edit");
         setDrawMode(false);
@@ -12057,12 +10919,6 @@ function DesignEditor() {
     });
   }, [activeFile, canEditDesign]);
 
-  // T14/P4: text/shape/pen tools used to always force a jump to overview —
-  // that's still correct when the user is already IN overview (or has no
-  // screen focused yet), but when a single screen is already focused these
-  // tools should arm single-screen click-to-place instead of yanking the
-  // user out to overview to draw. Overview mode itself is left completely
-  // alone below (same flushSync/setViewMode("overview") as before).
   const handleTextTool = useCallback(() => {
     if (!canEditDesign) return;
     blurActiveDesignEditableTarget();
@@ -12113,9 +10969,6 @@ function DesignEditor() {
     handleShapeTool("rect");
   }, [handleShapeTool]);
 
-  // H1: Figma muscle-memory shape-tool shortcuts (L = line, Shift+L = arrow,
-  // O = ellipse), wired through the same handleShapeTool used by the shape
-  // toolbar dropdown (see the shapeOptions onSelect callbacks above).
   const handleLineTool = useCallback(() => {
     handleShapeTool("line");
   }, [handleShapeTool]);
@@ -12128,8 +10981,6 @@ function DesignEditor() {
     handleShapeTool("ellipse");
   }, [handleShapeTool]);
 
-  // PF8: hoisted MultiScreenCanvas onActiveToolChange — was an inline arrow
-  // created fresh every render.
   const handleOverviewActiveToolChange = useCallback(
     (tool: MultiScreenCanvasTool) => {
       setActiveTool(tool === "rectangle" ? "rect" : (tool as DesignTool));
@@ -12158,11 +11009,6 @@ function DesignEditor() {
     });
   }, [activeFile, canEditDesign]);
 
-  // Figma parity (H): the hand tool used to unconditionally force a jump to
-  // overview, same bug handleFrameTool/handleTextTool/handleShapeTool/
-  // handlePenTool already fix — arming the hand tool while a single screen is
-  // focused should just arm single-screen panning there, not yank the user
-  // out to overview. Overview mode itself is left completely alone below.
   const handleHandTool = useCallback(() => {
     blurActiveDesignEditableTarget();
     setActiveTool("hand");
@@ -12176,27 +11022,8 @@ function DesignEditor() {
     setViewMode("overview");
   }, [activeFile]);
 
-  // Figma parity: holding Space arms a TEMPORARY hand tool (grab cursor, drag
-  // pans) — stash the current tool and setActiveTool("hand"); releasing
-  // restores the stashed tool exactly. Deliberately does NOT route through
-  // handleHandTool: that handler resets drawMode/pinMode and can force a jump
-  // to overview, none of which Figma's space-hold does (space-panning must
-  // work while drawing/annotating/pin-commenting too, and must never yank a
-  // focused single screen out to overview) — this effect only swaps
-  // activeTool. `spacePanActive` is ALSO threaded to DesignCanvas as its own
-  // prop (distinct from `handToolActive`) so single-screen mode's pan
-  // gesture wiring doesn't have to infer "space-armed" from activeTool alone.
   const [spacePanActive, setSpacePanActive] = useState(false);
   const spacePanStashedToolRef = useRef<DesignTool | null>(null);
-  // Figma parity (unique-paths): a preview iframe's own document only gets
-  // Space's native keydown/keyup when IT holds keyboard focus — the pointer
-  // down that starts an on-canvas object drag does not always move focus
-  // there (e.g. a drag the host is also tracking for cross-screen drop, see
-  // editor-chrome.bridge.ts's postCrossScreenDrag), so Space landing on the
-  // HOST window mid-drag must not be swallowed into arming the hand/pan tool
-  // (that would hijack the gesture) — forward it into every preview iframe
-  // instead so the bridge's own reorder gesture can still suppress
-  // reparenting, exactly as if its own listener had seen the key.
   const broadcastSpaceHeldToIframes = useCallback((held: boolean) => {
     if (typeof document === "undefined") return;
     document
@@ -12208,14 +11035,6 @@ function DesignEditor() {
         );
       });
   }, []);
-  // Whether keydown armed iframe forwarding for THIS Space hold, tracked
-  // independently of activeEditorDragRef's CURRENT value — a drag that ends
-  // (mouseup) before Space is released clears activeEditorDragRef first, so
-  // checking it again at keyup would take the temporary-pan branch instead
-  // and never send the matching held:false, leaving every preview iframe's
-  // bridgeSpaceKeyPressed stuck true for the NEXT gesture. Keyup (and blur)
-  // must undo exactly what keydown did, regardless of what else changed
-  // mid-hold.
   const spaceForwardArmedRef = useRef(false);
   useEffect(() => {
     if (embedded || (pendingQuestions && pendingQuestions.length > 0)) return;
@@ -12227,15 +11046,11 @@ function DesignEditor() {
       if (isNativeKeyboardActivationTarget(event.target)) return;
       if (isDesignHotkeyEditableTarget(event.target)) return;
       if (canEditDesignRef.current) {
-        // A view pan is allowed for viewers; only the iframe reorder modifier
-        // requires edit access.
         const armKeydown = resolveSpaceForwardTransition(
           "keydown",
           spaceForwardArmedRef.current,
           Boolean(activeEditorDragRef.current),
         );
-        // An armed hold still belongs to forwarding after mouseup, even when
-        // a duplicate keydown has no new broadcast to send.
         if (armKeydown.armed) {
           event.preventDefault();
           spaceForwardArmedRef.current = true;
@@ -12269,17 +11084,10 @@ function DesignEditor() {
       if (stashedTool === null) return;
       spacePanStashedToolRef.current = null;
       setSpacePanActive(false);
-      // Guard against tool changes mid-hold: only restore the stashed tool
-      // if the tool is still "hand" (i.e. nothing else re-armed a different
-      // tool while space was held) — otherwise leave whatever the user
-      // explicitly picked mid-hold alone.
       setActiveTool((current) => (current === "hand" ? stashedTool : current));
       event.preventDefault();
     };
 
-    // Also release the temporary hand tool (or forwarded Space) if the
-    // window loses focus mid-hold (e.g. Cmd+Tab away) so neither gets stuck
-    // armed with no matching keyup.
     const handleWindowBlur = () => {
       const releaseBlur = resolveSpaceForwardTransition(
         "blur",
@@ -12313,11 +11121,6 @@ function DesignEditor() {
     };
   }, [embedded, pendingQuestions, broadcastSpaceHeldToIframes]);
 
-  // PICK-RACE: a native (non-React-state) ref tracking whether Shift is
-  // currently physically held, same pattern as spacePanStashedToolRef above.
-  // handleOverviewScreenPick (below) reads this to tell a shift-click
-  // multi-select toggle apart from a plain single-screen pick — see its
-  // usage for the full race this closes.
   const shiftKeyHeldRef = useRef(false);
   useEffect(() => {
     const handleShiftKeyDown = (event: KeyboardEvent) => {
@@ -12377,9 +11180,6 @@ function DesignEditor() {
 
   const handleDrawTool = useCallback(() => {
     if (!activeFile || !canEditDesign) return;
-    // Annotation is a viewport-level overlay in overview, so it deliberately
-    // stays on the all-screens board. Switching to single view here used to
-    // unmount every overview iframe and produced a blank/flashy target.
     setActiveTool("draw");
     setMode("annotate");
     setSelectedElement(null);
@@ -12392,9 +11192,6 @@ function DesignEditor() {
     setPinMode(false);
     setActiveTool("move");
     setMode("edit");
-    // Deliberate discard (X button or a confirmed Send) — see
-    // overviewAnnotationResetSignal's docblock. Entering a focused screen can
-    // hide this overlay, but must not clear its separate board-wide batch.
     setOverviewAnnotationResetSignal((signal) => signal + 1);
   }, []);
 
@@ -12442,8 +11239,6 @@ function DesignEditor() {
     if (files.length > 0) resetAgentGenerating();
   }, [files.length, resetAgentGenerating]);
 
-  // ── Tweaks, composer mirroring, asset insert ───────────────────────────────
-
   const handleTweakPromptSubmit = useCallback(
     (
       prompt: string,
@@ -12476,7 +11271,6 @@ function DesignEditor() {
     ],
   );
 
-  // Expose selection state for agent context
   useEffect(
     () =>
       runPublishAgentSelectionContext({
@@ -12533,43 +11327,11 @@ function DesignEditor() {
     ],
   );
 
-  // R69: once the composer sends this selection as context, the chip must
-  // stay cleared — not silently reappear. The composer's own clear-on-send
-  // (AssistantChat's addToQueue) only clears its local + published context
-  // state; it can't know to stop this effect from re-asserting the SAME
-  // selection, which re-fires on every get-design poll during the resulting
-  // agent run (selectedCodeLayerNode gets a new reference as the file
-  // content changes) even though selectedElement itself never changed. Track
-  // the identity of the selection we most recently published; if the shared
-  // context store no longer has our key for that same identity (i.e. a send
-  // cleared it) we must not republish until the user actually selects
-  // something else. Selecting a new element (or re-selecting after
-  // deselecting) always clears sentSelectionIdRef via the identity check
-  // below, so the attachment reattaches normally for the next edit.
-  //
-  // IMPORTANT: this effect must NOT depend on the live `items` array from
-  // useAgentChatContext(). setAgentChatContextItem always publishes a brand
-  // new array reference (even for byte-identical content), so an effect that
-  // both reads that array in its deps AND unconditionally calls
-  // setAgentChatContextItem would re-fire itself every commit — an infinite
-  // render loop (caught live: "Maximum update depth exceeded" in overview
-  // mode). Instead, only the narrow "was our key removed" check reads the
-  // store, via a ref updated by a SEPARATE effect above whose only job is
-  // bookkeeping (it never calls setAgentChatContextItem itself, so it cannot
-  // feed back into this one).
   const mirroredSelectionIdRef = useRef<string | null>(null);
   const mirroredExcerptRef = useRef<string | null>(null);
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
 
-  // Bookkeeping only — mirrors "does the shared composer context still carry
-  // our key" into a ref for the effect below to read. This is intentionally
-  // NOT a dependency of that effect (see its comment): this effect only ever
-  // writes a ref, never calls setAgentChatContextItem or any other state
-  // setter, so it can run on every store change without feeding back into a
-  // re-render loop. Declared (and thus run) before the mirror effect so a
-  // send that lands in the same commit as an unrelated content change is
-  // already reflected in the ref by the time the mirror effect reads it.
   const composerContextItemsForBookkeeping =
     useAgentChatContext(isSignedIn).items;
   useEffect(() => {
@@ -12701,10 +11463,6 @@ function DesignEditor() {
       },
       onShaderFillPreviewClear: clearShaderFillPreview,
       onShaderFillApplied: (fileId, content, updatedAt) => {
-        // In-place replace, never a forced srcdoc rebuild — a rebuild is a
-        // real iframe reload (white flash) of the screen the user is looking
-        // at right as the "applied" toast fires. See
-        // getPersistedContentHostSyncOptions' doc comment.
         applyFileContentUpdate(
           fileId,
           content,
@@ -12741,7 +11499,6 @@ function DesignEditor() {
     ],
   );
 
-  // ── Element select, hover, and context menu ────────────────────────────────
   const handleScreenElementSelect = useCallback(
     (
       screenId: string,
@@ -12789,9 +11546,6 @@ function DesignEditor() {
         );
         rehydrateRenderedInfoAfterPreview();
       };
-      // Only a genuine user pick is a selection-only undo step. The
-      // selection command may also persist an infrastructure node id, but
-      // that write is recordHistory:false and must not add a second edit step.
       if (!isUserOriginatedSelectionIntent(intent)) {
         run();
         return;
@@ -12865,8 +11619,6 @@ function DesignEditor() {
     (info: ElementInfo, intent?: ElementSelectionIntent) => {
       const screenId = activeFile?.id ?? activeFileId;
       if (screenId) {
-        // Same echo-loop guard as handleIframeElementSelect: the focused
-        // single-screen canvas routes through here too.
         if (
           !intent &&
           isSupersededSelectionEcho(info, selectedElementRef.current)
@@ -12893,11 +11645,6 @@ function DesignEditor() {
     ],
   );
 
-  // Iframe→host selection boundary with an echo-loop guard. The bridge echoes
-  // mirrored selections back with no `intent` (user gestures always carry one);
-  // on rapid clicks these race and the selection "dances". Drop an intent-less
-  // echo that differs from the committed selection or comes from another screen;
-  // matching echoes still pass so the inspector payload populates.
   const handleIframeElementSelect = useCallback(
     (
       screenId: string,
@@ -12979,14 +11726,6 @@ function DesignEditor() {
 
   const handleScreenElementHover = useCallback(
     (screenId: string, info: ElementInfo | null) => {
-      // PERF9-WHEEL: while a MultiScreenCanvas wheel/pinch camera gesture is
-      // in flight, hover updates are dropped entirely. The gesture start
-      // mutes the canvas content layers, which fires a hover-clear (and any
-      // later boundary crossing while the world moves under the cursor fires
-      // more) — each one a hoveredElement setState and therefore a full-tree
-      // render exactly while the pan needs the main thread. Hover state
-      // stays stale for the gesture (same contract as a space-drag pan) and
-      // recomputes from the next real pointer event after settle.
       if (isWheelCameraGestureActive()) return;
       const projection = getCodeLayerProjectionForScreen(screenId);
       const nextHovered = info
@@ -12994,11 +11733,6 @@ function DesignEditor() {
           ? canonicalizeElementInfoFromProjection(projection, info)
           : info
         : null;
-      // PF9: equality-bail. Hover fires on every pointermove over an iframe;
-      // only the identity of the hovered element matters for anything this
-      // file reads downstream (the hover ring's selector), not its transient
-      // boundingRect, so re-hovering the same element shouldn't trigger a
-      // state update / re-render.
       setHoveredElement((prev) => {
         if (prev === nextHovered) return prev;
         if (
@@ -13074,15 +11808,6 @@ function DesignEditor() {
     window.dispatchEvent(event);
   }, []);
 
-  // Space-pan release forwarded from the preview iframe (bridge's
-  // "design-hotkey-up" message — see editor-chrome.bridge.ts). The bridge's
-  // keydown forwarding above reaches the space-pan effect's window keydown
-  // listener as a synthetic event via handleIframeHotkey, but that helper only
-  // ever synthesizes "keydown"; releasing Space needs the matching "keyup" so
-  // the temporary hand tool armed by holding Space over the iframe actually
-  // lets go when the key is released there. Only listens for the one message
-  // type this bridges (Space release); anything else forwarded through the
-  // ordinary design-hotkey/onIframeHotkey path is unaffected.
   useEffect(() => {
     if (embedded || (pendingQuestions && pendingQuestions.length > 0)) return;
     const handleForwardedSpaceKeyUp = (event: MessageEvent) => {
@@ -13143,10 +11868,6 @@ function DesignEditor() {
       const screenId = candidate.screenId ?? activeFile?.id ?? activeFileId;
       if (!screenId) return;
       handleScreenElementSelect(screenId, candidate.info, undefined, {
-        // The Select layer submenu is selection-only. In particular, choosing
-        // a local React runtime host must never stamp wrapper source or make
-        // any structural/source mutation merely because it was behind another
-        // layer at the pointer location.
         persistPendingNodeId: false,
         breakpointWidthPx: candidate.breakpointWidthPx,
       });
@@ -13242,20 +11963,11 @@ function DesignEditor() {
     [activeFile?.id, activeFileId, openRepromptComposer],
   );
 
-  // ── Style commit ───────────────────────────────────────────────────────────
-  // Hug/Fill resolve to a px width only inside the iframe, so the inspector
-  // has no current number until the bridge measures one. Reacting to the
-  // value rather than hooking each write path covers inspector commits,
-  // agent edits and undo alike.
   const measureTargetSelector =
     selectedElement && sizeNeedsMeasurement(selectedElement.computedStyles)
-      ? // The canonical source selector cannot address a live/localhost
-        // document — that is a different node-id namespace.
-        (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
+      ? (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
       : null;
   const measureTargetScreenId = activeFile?.id ?? "";
-  // Keyed on the sizes themselves: switching an element between two keywords
-  // leaves the selector identical, and a failed measurement must retry.
   const measureTargetKey = measureTargetSelector
     ? [
         measureTargetScreenId,
@@ -13311,7 +12023,6 @@ function DesignEditor() {
       options: {
         runtimeApplied?: boolean;
         elementInfo?: ElementInfo;
-        /** Pre-gesture values, for the pending-edit revert stack. */
         originalStyles?: Record<string, string>;
         preserveSelection?: boolean;
         routePath?: string;
@@ -13472,20 +12183,6 @@ function DesignEditor() {
   );
   commitStylesToSelectedLayersRef.current = commitStylesToSelectedLayers;
 
-  // Mixed-value arrow-step parity (item 7): when a multi-selection's property
-  // shows "Mixed" (each node holds a different value) and the user arrow-steps
-  // it, Figma nudges every node by the SAME relative delta from ITS OWN
-  // current value — not by stamping one shared absolute value onto all of
-  // them (which is what commitStylesToSelectedLayers above does, and is
-  // correct for the ordinary same-value case). This variant reads each
-  // target's own current value from its elementInfo.computedStyles
-  // (populated by selectedLayerTargets — see the SelectedLayerTarget memo),
-  // applies the unit-aware delta (applyRelativeDeltaToStyleValue), and writes
-  // that per-node absolute value instead of a shared one.
-  //
-  // Mirrors commitStylesToSelectedLayers's file-grouping/projection-patch
-  // structure exactly; the only difference is resolving `value` per-target
-  // instead of once for the whole call.
   const commitRelativeStyleDeltaToSelectedLayers = useCallback(
     (
       property: string | string[],
@@ -13564,14 +12261,6 @@ function DesignEditor() {
     [activeFile?.id],
   );
 
-  // Item 14 — `meta.breakpointReset` contract (see StyleChangeMeta's doc
-  // comment): clear property's override AT maxWidthPx instead of writing a
-  // new value. Resolves which persistence layer holds the override (a
-  // max-width-scoped Tailwind class vs a managed `@media` declaration — see
-  // getBreakpointOverrideState) and clears just that one, one history step.
-  // Returns true when it handled the commit (caller must return without
-  // falling through to the normal write path); false when there was nothing
-  // to clear (e.g. a stale reset click after the override already changed).
   const handleClearBreakpointOverride = useCallback(
     (property: string, maxWidthPx: number): boolean => {
       if (!canEditDesign || !activeFile?.id || !selectedElement?.sourceId) {
@@ -13633,22 +12322,6 @@ function DesignEditor() {
     ],
   );
 
-  // Interaction-states phase 2 — see StyleChangeMeta's `interactionState` doc
-  // comment on EditPanel.tsx for the full contract. Routes a style commit
-  // made while a non-default interaction state is active (EditPanel's
-  // InteractionStatePanel) through the managed
-  // `<style data-agent-native-states>` block instead of the element's normal
-  // inline style / class: `upsertStateStyles` writes the real
-  // `[data-agent-native-node-id="X"]:hover { … }` rule, then
-  // `duplicateStatePreviewRules` regenerates the twin
-  // `[data-an-state-preview="hover"]` rule the forced-preview mechanism reads
-  // (see shared/interaction-states.ts's module doc). Both steps are folded
-  // into the content string passed to ONE `applyFileContentUpdate` call so
-  // the whole commit is a single history/undo step, exactly like any other
-  // single style commit. Only meaningful for a single-element, source-backed
-  // selection (a stable `sourceId`) — returns false (caller falls through to
-  // the normal path) otherwise, same gating EditPanel itself already applies
-  // before attaching `meta.interactionState` in the first place.
   const previewInteractionStateStyles = useCallback(
     (state: InteractionState, styles: Record<string, string>) => {
       if (!selectedElement) return;
@@ -13752,9 +12425,6 @@ function DesignEditor() {
         refreshPreview: false,
         forcePreviewFullDocument: true,
       });
-      // Any pointer-drag/color-picker preview ticks used a temporary CSSOM
-      // override in the live iframe. The persisted managed rule now owns the
-      // value, so remove only the properties committed by this gesture.
       previewInteractionStateStyles(
         state,
         Object.fromEntries(entries.map(([property]) => [property, ""])),
@@ -13869,12 +12539,6 @@ function DesignEditor() {
     );
   }, [selectedElement]);
 
-  // Typography hotkeys — Figma's Cmd+U (toggle underline) and Cmd+Shift+X
-  // (toggle strikethrough). Use the inspector's style commit path
-  // and toggleTextDecorationLine's read/write split in
-  // edit-panel/typography-properties.tsx: reads the clean computed longhand
-  // `textDecorationLine`, commits through the shorthand "textDecoration"
-  // property name (see nextTextDecorationLineValue's doc comment).
   const handleToggleUnderlineHotkey = useCallback(() => {
     if (!canEditActiveVisualScreen || !selectedElement) return;
     const nextValue = nextTextDecorationLineValue(
@@ -14009,12 +12673,6 @@ function DesignEditor() {
     ],
   );
 
-  // Item 13 — EditPanel's breakpointContext prop (Framer-style responsive
-  // override indicators). `undefined` when there's no configured breakpoint
-  // set or no resolvable base width — EditPanel treats that as "feature off"
-  // and renders exactly as before. Memoized on activeContent's identity (a
-  // stable per-render string, not a fresh ref read) since EditPanel forwards
-  // this straight into per-field override lookups on every render.
   const breakpointContext = useMemo(() => {
     if (designBreakpoints.length === 0 || activeScreenBaseWidthPx == null) {
       return undefined;
@@ -14054,10 +12712,6 @@ function DesignEditor() {
     ) => {
       if (!activeFile?.id) return;
       if (metadata?.phase === "preview") {
-        // Resize gestures mutate the iframe DOM on every pointermove. Mirror
-        // that payload into the Inspector immediately without creating a
-        // source patch or history entry; the bridge's final commit remains
-        // the single persistence boundary on pointerup.
         if (elementInfo) {
           setSelectedElement((current) =>
             current
@@ -14074,14 +12728,6 @@ function DesignEditor() {
         }
         return;
       }
-      // The gesture already moved the live DOM, so this never needs the
-      // runtime push. Which screens queue a pending edit instead of writing
-      // source is commitVisualStyles' single decision — inline/fusion screens
-      // are SQL-backed and persist immediately (breakpoint-aware, one history
-      // step); localhost screens queue for the Apply pass.
-      // A repeat's rows share one source element, so the gesture only moved
-      // the row it was on: let the runtime push reach the rest, and aim the
-      // write at the template body rather than that one clone.
       const gestureTarget = styleWriteTarget({
         selector,
         selectedElement: elementInfo,
@@ -14189,7 +12835,6 @@ function DesignEditor() {
     ],
   );
 
-  // ── Visual structure and text-content handlers ─────────────────────────────
   const handleVisualStructureChange = useCallback(
     (
       selector: string,
@@ -14222,8 +12867,6 @@ function DesignEditor() {
             rowEnd: number;
           };
         }>;
-        /** Markup this change introduced; the subject does not exist in the
-         * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
         replaced?: true;
         replacementSelector?: string;
@@ -14280,12 +12923,6 @@ function DesignEditor() {
     [codeLayerSourceForScreen, files, getScreenContent],
   );
 
-  // U14: paste/duplicate re-stamp data-agent-native-node-id on the clone but
-  // previously never remapped motion tracks, so a duplicated/pasted animated
-  // layer silently lost its animation (the compiled CSS still targeted the
-  // OLD node id). Clones any track whose targetNodeId is in nodeIdMap onto
-  // the new id. Only meaningful when targetFileId's timeline is the one
-  // currently loaded into motionTracks state (tracks aren't kept per-file).
   const remapMotionTracksForClone = useCallback(
     (nodeIdMap: Map<string, string>, targetFileId: string) => {
       if (nodeIdMap.size === 0) return;
@@ -14687,8 +13324,6 @@ function DesignEditor() {
             rowEnd: number;
           };
         }>;
-        /** Markup this change introduced; the subject does not exist in the
-         * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
         replaced?: true;
         replacementSelector?: string;
@@ -14959,9 +13594,6 @@ function DesignEditor() {
     ],
   );
 
-  // A text creation whose owner canvas never became ready still owes its node
-  // what was typed; this is the host-side writer for that text. Registered once
-  // and read through a ref, so no render leaves a creation without one.
   const pendingTextHostCommitRef = useRef({
     commitText: handleScreenTextContentChange,
   });
@@ -14981,7 +13613,6 @@ function DesignEditor() {
     [],
   );
 
-  // ── Clipboard copy and paste ───────────────────────────────────────────────
   const getSelectedLayerSnapshots = useCallback(
     (
       selectedElementOverride?: ElementInfo | null,
@@ -15045,14 +13676,10 @@ function DesignEditor() {
       : [];
   }, [activeFile?.id]);
 
-  // Whole-screen clipboard entries (U6). Only meaningful when there are no
-  // layer-level entries — a layer copy always takes precedence on paste.
   const getCanvasScreenClipboardEntries = useCallback(() => {
     return copiedScreenEntriesRef.current ?? [];
   }, []);
 
-  // Adopts a marker payload found in the live rich clipboard into this tab's
-  // in-memory clipboard refs (see U4).
   const adoptDesignClipboardPayload = useCallback(
     (
       payload: DesignClipboardPayload,
@@ -15073,9 +13700,6 @@ function DesignEditor() {
     [],
   );
 
-  // Reads the rich system clipboard when available. The internal marker lives
-  // in text/html so text/plain remains useful when pasting into Slack, docs,
-  // code editors, and other non-Design destinations.
   const refreshClipboardFromSystemClipboard = useCallback(async () => {
     const result = await readDesignClipboardPayloadFromSystem();
     if (
@@ -15173,10 +13797,6 @@ function DesignEditor() {
     ],
   );
 
-  // Pastes copied whole-screen snapshots (U6) as new screen files, offset
-  // from their original canvas position so they don't stack exactly on top
-  // of the source screen. Mirrors handleDuplicateScreen's create-file +
-  // queueFrameGeometrySave pattern.
   const pasteCopiedScreens = useCallback(
     (
       screens: DesignClipboardScreenEntry[],
@@ -15382,9 +14002,6 @@ function DesignEditor() {
     ],
   );
 
-  // One prompt for every path that can leave image placeholders behind: the
-  // clipboard paste and the import panel both land here, so they cannot drift
-  // into two different explanations of the same state.
   const showPastedImagesNotice = useCallback(
     ({ count, fileIds }: { count: number; fileIds: string[] }) => {
       if (figmaPasteImageNoticeDismissed()) return;
@@ -15488,9 +14105,6 @@ function DesignEditor() {
       const root = svgDocument.documentElement;
       root.setAttribute("data-agent-native-node-id", nodeId);
       root.setAttribute("data-agent-native-layer-name", "Pasted SVG");
-      // Clipboard SVGs are one selectable artwork layer. The dedicated marker
-      // lets the inspector and iframe bridge route paint to an unambiguous
-      // direct shape without broadening authored inline SVG classification.
       root.setAttribute("data-an-primitive", "pasted-svg");
       root.setAttribute(
         "style",
@@ -15565,8 +14179,6 @@ function DesignEditor() {
         handlePastedSvg(svg, sourceScreenId);
         return;
       }
-      // Same judgement the parent-document listener makes in runEditorPaste,
-      // on strings the bridge relayed because the event never left the iframe.
       const relayed = {
         getData: (type: string) =>
           type === "text/html"
@@ -15583,10 +14195,6 @@ function DesignEditor() {
     [canEditDesign, handlePastedSvg, importFigmaClipboardIntoDesign, t],
   );
 
-  // Reads a File as a data URL, wrapped as a Promise so multi-file paste can
-  // await each read in turn instead of racing several FileReader.onload
-  // callbacks against the same base-content snapshot (see U8's original
-  // single-file version for the non-Promise baseline this replaced).
   const readFileAsDataUrl = useCallback((file: File) => {
     return new Promise<string>((resolve) => {
       const reader = new FileReader();
@@ -15629,33 +14237,6 @@ function DesignEditor() {
     [uploadImageFileForHtml],
   );
 
-  // U8: OS image paste (screenshot copied to clipboard, image copied from the
-  // Finder/Files app, etc.) previously did nothing — clipboardData.items only
-  // carries a text/html/plain payload for our own layer/screen copies, so
-  // getFigmaClipboardContent and the marker parse both miss and the paste
-  // event fell through with no handler. Uploads each pasted image through the
-  // framework image upload action and inserts the hosted URL as a new <img>
-  // layer, avoiding base64 data URLs in persisted design HTML.
-  //
-  // Multi-file paste: pasting several image files (e.g. multi-select in the
-  // Finder, copy-all from a folder) previously only inserted the FIRST one —
-  // handleEditorPaste's `.find()` dropped the rest silently. Every file here
-  // is inserted in turn, cascading with the same pasteCascadeRef stagger a
-  // repeated single-image paste already uses, so a multi-file paste reads as
-  // N distinct, slightly-offset layers instead of one.
-  //
-  // Overview screen targeting: previously an overview paste always landed on
-  // the shared board file regardless of what was selected/where the paste
-  // anchor was. Now the anchor point (the single selected screen's center, or
-  // best-effort viewport-center when nothing/multiple things are selected —
-  // same fallback the old center computation used) is hit-tested against real
-  // screen frame geometries (findScreenFrameAtCanvasPoint); a hit inserts INTO
-  // that screen at screen-LOCAL coordinates (canvas point minus the frame's
-  // own x/y origin, mirroring the coordinate transform
-  // appendCanvasPrimitiveToHtml/cloneHtmlLayerAtPosition callers rely on —
-  // every screen file's own HTML is authored in screen-content-local space,
-  // not shared canvas space). No hit falls back to the board file exactly as
-  // before.
   const handlePastedImageFiles = useCallback(
     (
       files: File[],
@@ -15847,11 +14428,6 @@ function DesignEditor() {
     [handlePastedImageFiles, handlePastedSvg],
   );
 
-  // MultiScreenCanvas (overview mode): canvasPoint is shared-board/canvas
-  // space; frameId (when present) is the screen under the drop point, so the
-  // point is converted to that screen's local coordinates the same way the
-  // overview paste path already does (canvasPoint minus the frame's own
-  // origin). No frameId means the board itself is the target.
   const handleOverviewDropFiles = useCallback(
     (files: File[], target: { canvasPoint: Point; frameId?: string }) => {
       if (!boardFileId) return;
@@ -15878,9 +14454,6 @@ function DesignEditor() {
     ],
   );
 
-  // DesignCanvas (single-screen mode): screenContentPoint is already in the
-  // active screen's own local content space, so it inserts directly at that
-  // point — no frame-origin conversion needed.
   const handleSingleScreenDropFiles = useCallback(
     (
       files: File[],
@@ -15922,13 +14495,6 @@ function DesignEditor() {
     ],
   );
 
-  // Same gate as useDesignHotkeys below, and for the same reason: `embedded`
-  // is not it — the host-embedded editor that keeps our rails also keeps every
-  // other shortcut, so gating paste on `embedded` made Cmd+V there a no-op
-  // with nothing shown. Only a host that owns the chrome owns the keyboard.
-  // The question flow is likewise not a reason to drop the listener: bare-letter
-  // tool shortcuts fight its inputs, a paste does not — runEditorPaste's own
-  // editable-target guard already leaves those inputs alone.
   useEffect(() => {
     if (hostOwnsChrome) return;
     document.addEventListener("paste", handleEditorPaste, true);
@@ -15981,14 +14547,6 @@ function DesignEditor() {
     ],
   );
 
-  // Figma's Shift+Cmd+R — "Paste to replace": the current selection's node
-  // is swapped out for the clipboard's node in place, as a single history
-  // step. Distinct from handlePasteOverSelection (Cmd+Shift+V), which pastes
-  // ALONGSIDE the selection as new offset layers and never removes anything.
-  // Scoped to the common single-target/single-source case (exactly one
-  // selected node, exactly one internal-clipboard entry) — a multi-selection
-  // or multi-node clipboard replace has no unambiguous 1:1 pairing, so this
-  // no-ops rather than guessing.
   const handlePasteToReplace = useCallback(
     async (menuClipboardFiles?: File[]) => {
       const replace = (externalLayerHtml?: string) =>
@@ -16095,7 +14653,6 @@ function DesignEditor() {
     ],
   );
 
-  // ── Delete, group, frame, and semantic handoff ─────────────────────────────
   const handleDeleteSelection = useCallback(
     () =>
       runDeleteSelection({
@@ -16227,7 +14784,6 @@ function DesignEditor() {
     [overviewScreens, runtimeLayerSnapshotsById, t],
   );
 
-  // Wrap the current multi-layer selection into a new group container.
   const handleGroupSelection = useCallback(
     () =>
       runGroupSelection({
@@ -16295,12 +14851,6 @@ function DesignEditor() {
     ],
   );
 
-  // Figma's Cmd+Alt+G — "Frame selection": wrap the selection in a frame
-  // container, distinct from plain Group (Cmd+G). Reuses the same wrapNodes
-  // substrate handleGroupSelection uses (so multi-parent/stale-id validation
-  // stays identical), but: (1) allows a SINGLE selected layer (Figma frames
-  // one element too, unlike group which needs 2+); the shared wrap intent
-  // records the frame identity while this command supplies the visible name.
   const handleFrameSelection = useCallback(
     () =>
       runFrameSelection({
@@ -16336,13 +14886,8 @@ function DesignEditor() {
     ],
   );
 
-  // ── Layout geometry: align, distribute, tidy, auto-layout ──────────────────
-  // Address the live element by the node's own CSS selectors: `node.id` is a
-  // projection hash (`html:…`) and the stamped `data-agent-native-node-id`
-  // attribute is an `an-…` hash, so a DOM query by node id never matches.
   const liveElementForNode = useCallback(
     (node: CodeLayerNode): HTMLElement | null => {
-      // alignAvailability measures during render, and this route is SSR'd.
       if (typeof document === "undefined") return null;
       const iframe = document.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
@@ -16360,8 +14905,6 @@ function DesignEditor() {
       for (const selector of selectors) {
         if (!selector) continue;
         try {
-          // Only a selector that resolves to exactly one element identifies
-          // this node; a repeated class or tag would measure its first twin.
           const found = doc.querySelectorAll<HTMLElement>(selector);
           if (found.length === 1) return found[0]!;
         } catch {
@@ -16373,9 +14916,6 @@ function DesignEditor() {
     [],
   );
 
-  // Layout geometry only: offsetLeft and clientWidth ignore CSS transforms and
-  // sit in the containing block's padding box, the space a `left`/`top` commit
-  // resolves in. getBoundingClientRect folds transform, scale, and border in.
   const liveBoxesForNode = useCallback(
     (
       node: CodeLayerNode,
@@ -16388,8 +14928,6 @@ function DesignEditor() {
       const parent = el.parentElement;
       const offsetParent = el.offsetParent;
       const size = { width: el.offsetWidth, height: el.offsetHeight };
-      // Parent-relative offset, or null when no layout parent chain gives one
-      // (display:none and position:fixed both report a null offsetParent).
       const self =
         offsetParent && parent
           ? offsetParent === parent
@@ -16404,9 +14942,6 @@ function DesignEditor() {
           : null;
       return {
         self,
-        // Bounds only when the DOM parent IS the containing block: otherwise
-        // the commit resolves `left`/`top` against a further ancestor than
-        // the box we aligned to, landing the node somewhere else entirely.
         parent:
           parent &&
           offsetParent === parent &&
@@ -16424,9 +14959,6 @@ function DesignEditor() {
     [liveBoxesForNode],
   );
 
-  // A rendered node's live verdict is final, refusal included: the authored
-  // box cannot tell whether the parent is the containing block, so it is only
-  // a fallback for a node with no live element at all.
   const measureAlignParentBox = useCallback(
     (node: CodeLayerNode, parentNode: CodeLayerNode) => {
       const boxes = liveBoxesForNode(node);
@@ -16458,9 +14990,6 @@ function DesignEditor() {
 
   const rectFromCodeLayerNode = useCallback(
     (node: CodeLayerNode): AlignableRect => {
-      // Only px is authored geometry. `left:50%` parsed as 50px reads as a
-      // near-origin child and suppresses the live measurement that would have
-      // placed it correctly.
       const authoredX = authoredPxLength(node.style.left);
       const authoredY = authoredPxLength(node.style.top);
       const authoredWidth = authoredPxLength(node.style.width);
@@ -16486,9 +15015,6 @@ function DesignEditor() {
     [rectLiveFallbackForNode],
   );
 
-  // Resolves the in-screen DOM-node ids currently selected in the ACTIVE
-  // file, filtered the same way handleGroupSelection/handleFrameSelection
-  // already do (excludes screen/file rows and stale cross-file ids).
   const getActiveFileSelectedNodeIds = useCallback(
     (content: string): string[] => {
       if (!activeFile?.id) return [];
@@ -16508,11 +15034,6 @@ function DesignEditor() {
     [activeFile?.id, codeLayerSourceForScreen, files, selectedLayerIdsState],
   );
 
-  // Applies a Map of nodeId -> {x, y} as one batched left/top style commit:
-  // repeated applyVisualEdit calls threaded through a single accumulating
-  // `content` string, persisted with exactly one applyLocalContentUpdate call
-  // so the whole batch is one undo step (mirrors handleGroupSelection's
-  // chaining pattern for wrapNodes above).
   const commitNodePositions = useCallback(
     (
       baseContent: string,
@@ -16526,11 +15047,6 @@ function DesignEditor() {
       let content = baseContent;
       let appliedAny = false;
       for (const [nodeId, position] of positions) {
-        // Nodes recovered via rectFromCodeLayerNode's live-DOM fallback (no
-        // authored left/top/width/height) are typically still position:static
-        // — writing left/top alone would have no visual effect. Ensure the
-        // node is positioned first, same as the bridge's ensurePositionable
-        // does for drag-commits, so the align actually moves it.
         const projection = buildCodeLayerProjection(content, { source });
         const node = projection.nodes.find((n) => n.id === nodeId);
         if (node && !isAbsoluteCodeLayerNode(node)) {
@@ -16581,16 +15097,9 @@ function DesignEditor() {
     [activeFile?.id, applyLocalContentUpdate, codeLayerSourceForScreen],
   );
 
-  // The inspector's Flow control owns the same conversion Shift+A does, so it
-  // reflows the children too — writing display:grid/flex alone leaves them
-  // absolutely positioned and the new layout never renders.
   const handleApplyLayoutFlow = useCallback(
     (nodeId: string | null, containerStyles: Record<string, string>) => {
       const content = getFreshActiveContent();
-      // A merged multi-selection has no single sourceId, so the inspector
-      // cannot name its targets: resolve them from the selection itself, and
-      // hand a selection that reaches beyond this file to the style path
-      // rather than reflowing only the half that lives here.
       const selectedNodeIds = content
         ? getActiveFileSelectedNodeIds(content)
         : [];
@@ -16633,8 +15142,6 @@ function DesignEditor() {
     ],
   );
 
-  // Figma parity: turning auto layout off must leave a freeform container.
-  // display:block alone re-stacks the children and they stop being draggable.
   const handleDisableAutoLayout = useCallback(
     (nodeId: string) => {
       if (!canEditDesign) return;
@@ -16679,9 +15186,6 @@ function DesignEditor() {
     ],
   );
 
-  // Item 3: Figma's Alignment row — moves the selection itself. Wired to
-  // EditPanel's onAlignSelection prop (its 6 alignment buttons) and to
-  // useDesignHotkeys' Alt+A/D/W/S/H/V bindings.
   const handleAlignSelection = useCallback(
     (edge: DesignHotkeyAlignEdge) =>
       runAlignSelection(
@@ -16723,9 +15227,6 @@ function DesignEditor() {
     ],
   );
 
-  // The inspector's six alignment buttons disable on the same verdict
-  // runAlignSelection refuses on, so the row is never an affordance that
-  // no-ops or aligns a lone top-level frame against nothing.
   const alignAvailability = useMemo(
     () =>
       alignSelectionAvailability({
@@ -16753,9 +15254,6 @@ function DesignEditor() {
     ],
   );
 
-  // Item 4: Figma's Ctrl+Alt+H/V — distribute the selection evenly along an
-  // axis. Overview screens are first-class; in-screen layers reuse the same
-  // batched-commit machinery as alignment above.
   const handleDistributeSelection = useCallback(
     (axis: DesignHotkeyDistributeAxis) =>
       runDistributeSelection(
@@ -16791,23 +15289,10 @@ function DesignEditor() {
     ],
   );
 
-  /**
-   * On-canvas footprint of a screen including the breakpoint frames drawn to
-   * its right, so packing/tidy reserves the space they actually occupy.
-   * Breakpoint frames render inside the screen's own container and never appear
-   * in `canvasFrames`, so packing against the base geometry alone dropped every
-   * new breakpoint on top of the next screen.
-   *
-   * Widths are exact (`widthPx * primaryScale`); the height falls back to the
-   * renderer's own pre-measurement aspect projection, since measured breakpoint
-   * iframe heights live inside MultiScreenCanvas.
-   */
   const getScreenGroupFootprint = useCallback(
     (
       screenId: string,
       geometry: CanvasFrameGeometry,
-      /** Widths to assume instead of the screen's current ones — used right
-       *  after an add-breakpoint mutation, before the query round-trips. */
       breakpointWidthsOverride?: readonly number[],
     ): { x: number; y: number; width: number; height: number } => {
       const x = geometry.x ?? 0;
@@ -16816,9 +15301,6 @@ function DesignEditor() {
       const height = geometry.height ?? 0;
       const screen = overviewScreens.find((item) => item.id === screenId);
       if (!screen) return { x, y, width, height };
-      // Culling's own geometry, so packing cannot disagree with it. The AABB
-      // matters: a rotated group reaches past its unrotated box, and the
-      // collision test below is axis-aligned.
       return getResponsiveScreenCullGeometry(
         {
           id: screenId,
@@ -16839,23 +15321,12 @@ function DesignEditor() {
     [overviewScreens],
   );
 
-  /**
-   * Re-packs the whole board when breakpoint frames have grown a screen's
-   * footprint into its neighbour. Adding a breakpoint widens every screen at
-   * once, and nothing previously moved, so the new frames rendered straight over
-   * the next screen. Runs only on an actual collision (so a deliberately
-   * arranged, non-overlapping board is left alone), and commits through
-   * handleGeometryCommit, which makes it one undo step.
-   */
   const reflowOverviewScreensForBreakpoints = useCallback(
     (breakpointWidths: readonly number[]) => {
       if (!canEditDesignRef.current) return;
       const before = getCanvasFrameGeometry(designDataJsonRef.current);
       const candidates: ReflowCandidate[] = overviewScreens.map(
         (screen, index) => {
-          // Screens laid out by getInitialFrameGeometry have no canvasFrames
-          // entry yet; carry the resolved geometry so the write-back below can
-          // create one instead of dropping their computed move.
           const geometry = {
             ...getInitialFrameGeometry(index, {
               width: screen.width ?? 1280,
@@ -16892,9 +15363,6 @@ function DesignEditor() {
     [getScreenGroupFootprint, handleGeometryCommit, overviewScreens],
   );
 
-  // Item 4: Figma's Ctrl+Alt+T — Tidy up: arrange the selection into a
-  // compact grid with uniform gaps (see computeTidyPositions' doc comment for
-  // the exact packing heuristic chosen).
   const handleTidyUp = useCallback(
     () =>
       runTidyUp({
@@ -17041,8 +15509,6 @@ function DesignEditor() {
       setAutoLayoutSuggestionPreview(null);
       return;
     }
-    // One persistence call = one content-history entry, even though the pure
-    // proposal compiler performed ordering + layout + sizing internally.
     applyLocalContentUpdate(result.content, {
       forcePreviewFullDocument: true,
     });
@@ -17057,19 +15523,6 @@ function DesignEditor() {
     t,
   ]);
 
-  // Item 5: Figma's Shift+A — Add auto layout.
-  //  (a) single selected in-screen ELEMENT that is a container: convert it
-  //      to display:flex with inferred direction/gap/padding, committed as
-  //      one style patch (AutoLayoutMatrix then lights up automatically).
-  //  (b) multi-selection of in-screen sibling layers: wrap them in a new flex
-  //      container via the same wrapNodes substrate handleGroupSelection/
-  //      handleFrameSelection use, passing autoLayout: true so the wrapper is
-  //      created with display:flex/gap in the same call.
-  //  (c) exactly one selected overview SCREEN: convert the authored body (or
-  //      one fragment root) for inline HTML/Alpine. Local React screens route
-  //      compiler-provenanced roots through the semantic coding-agent handoff;
-  //      multiple screens remain unsupported because screens cannot safely be
-  //      nested without a first-class screen-container model.
   const handleAddAutoLayout = useCallback(
     () =>
       runAddAutoLayout({
@@ -17116,7 +15569,6 @@ function DesignEditor() {
     ],
   );
 
-  // ── UI toggles, ungroup, reparent, cut, screen deletion ────────────────────
   const handleToggleMinimalUi = useCallback(() => {
     setMinimalUi((current) => !current);
     setUiHidden(false);
@@ -17139,21 +15591,11 @@ function DesignEditor() {
       window.removeEventListener(DESIGN_HISTORY_OPEN_EVENT, openHistory);
   }, []);
 
-  // Figma's Shift+C — Show/Hide comments. The state is passed through every
-  // mounted DesignCanvas so both focused and overview comment pins disappear
-  // without unmounting/recreating their preview iframe.
   const [commentsHidden, setCommentsHidden] = useState(false);
   const handleToggleComments = useCallback(() => {
     setCommentsHidden((current) => !current);
   }, []);
 
-  // Unwrap the currently selected single-container layer.
-  // L16: loop over every selected container (not just the first) so a
-  // multi-select ungroup releases all of them in one action, and select the
-  // union of released children afterwards (read back from the post-unwrap
-  // projection) instead of clearing the selection entirely — mirrors what
-  // Figma does: ungrouping leaves the former children selected so the user
-  // can immediately keep working with them.
   const handleUngroupSelection = useCallback(
     () =>
       runUngroupSelection({
@@ -17183,18 +15625,6 @@ function DesignEditor() {
     ],
   );
 
-  /**
-   * Handle a primitive being drag-dropped onto another primitive in the
-   * MultiScreenCanvas overview (CONTRACT: onPrimitiveReparent prop).
-   *
-   * Same-screen: applies a moveNode intent then, for an "inside" (absolute
-   * container) drop, rebases the moved node's absolute coordinates relative
-   * to the target rectangle. For a "before"/"after" auto-layout flow-insert,
-   * skips the absolute rebase and strips positioning instead so the node
-   * becomes a real flow child at the resolved sibling index — mirroring
-   * handleCrossScreenElementDrop's targetDropMode branch below. Cross-screen
-   * uses moveNodeBetweenDocuments and persists both files.
-   */
   const handleOverviewPrimitiveReparent = useCallback(
     (arg0: {
       sourceNodeId: string;
@@ -17238,21 +15668,6 @@ function DesignEditor() {
     ],
   );
 
-  /**
-   * Cross-screen element drag-drop handler (CONTRACT: onCrossScreenElementDrop
-   * prop on MultiScreenCanvas).
-   *
-   * The bridge in the source screen's iframe posts phase:"end" with the
-   * selector / sourceNodeId of the dragged element.  MultiScreenCanvas maps
-   * the board point to a target screen, optionally runs a hit-test in the
-   * target iframe to resolve an anchorNodeId and placement, then calls this
-   * handler.  We resolve both screens' content, identify the node by its
-   * data-agent-native-node-id (falling back to a projection lookup by selector
-   * when only the selector is available), call moveNodeBetweenDocuments with
-   * the anchor from the hit-test (or top-level "inside" fallback), persist
-   * both files, switch the active screen to the target, and select the moved
-   * node — keeping viewMode "overview" throughout.
-   */
   const handleCrossScreenElementDrop = useCallback(
     (arg0: {
       sourceSelector: string;
@@ -17348,8 +15763,6 @@ function DesignEditor() {
             const selectedElementBelongsToSource =
               selectedElementSourceScreenId !== undefined &&
               selectedElementSourceScreenId === arg0.sourceScreenId;
-            // Removing the source can legitimately clear its pre-drop
-            // selection before the two saves settle.
             const selectedMovedSource =
               selectedElement !== null &&
               selectedElementBelongsToSource &&
@@ -17470,9 +15883,6 @@ function DesignEditor() {
         toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
         return false;
       }
-      // Never swallow this: a rejected insert leaves nothing on screen and
-      // nothing in the pending list, so a silent return is indistinguishable
-      // from the drop never having happened.
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure insert rejected", { reason });
       }
@@ -17562,9 +15972,6 @@ function DesignEditor() {
           Math.floor(Number(details.requestId)) === request.requestId;
       if (!requestMatches) return;
       if (details.applied === false) {
-        // A same-slot runtime reorder changed no DOM. Do not turn its
-        // acknowledgement into an inserted pending edit whose undo would
-        // delete the pre-existing element.
         setRuntimeStructureDeleteRequest((current) =>
           current?.transactionId === request.transactionId ? null : current,
         );
@@ -17918,7 +16325,6 @@ function DesignEditor() {
         setRuntimeStructureInsertRequest((current) =>
           current?.transactionId === transactionId ? null : current,
         );
-        // Retry the destination compensation only after source restoration.
         if (disposition === "discard") {
           if (transactionId) {
             discardPendingLiveStructureTransaction(transactionId);
@@ -18059,12 +16465,6 @@ function DesignEditor() {
   );
 
   const handleCutSelection = useCallback(async () => {
-    // Copy first (populates the internal clipboard ref even if the async
-    // navigator.clipboard write is blocked — handleCopySelection swallows that
-    // error and still returns true) then remove the element so a subsequent
-    // paste can re-insert it. U15: if copy captured NOTHING at all (returns
-    // false), abort the delete — otherwise the element would be gone with no
-    // way to paste it back.
     const copied = await handleCopySelection();
     if (!copied) return;
     handleDeleteSelection();
@@ -18074,17 +16474,7 @@ function DesignEditor() {
     (
       filesToDelete: DesignFile[],
       options?: {
-        // U12 fix: undoFileCreation pushes the just-undone create onto the
-        // file-creation REDO stack, then calls this function to soft-delete
-        // the same file it just pushed for. Without this flag the filename-
-        // keyed prune below (which exists to drop a redo entry when its file
-        // is hard-deleted directly, NOT via undo) would immediately remove
-        // the entry undoFileCreation just pushed, leaving redo permanently
-        // empty after every screen-create/duplicate undo.
         skipFileCreationRedoPrune?: boolean;
-        // A screen deletion is a normal editor operation, not
-        // an irreversible special case. Capture the complete rows + frame
-        // geometry and add one grouped undo entry after every delete succeeds.
         recordDeletionHistory?: boolean;
         preserveHistory?: boolean;
         onMutationSettled?: (
@@ -18115,10 +16505,6 @@ function DesignEditor() {
           files,
           geometryRedoStackRef,
           geometryUndoStackRef,
-          // delete-files.ts only knows the base UndoRedoOrderKind union (it
-          // never pushes "selection") — narrow the shared refs' type for
-          // this one call site rather than widening that file's own
-          // (out-of-ownership) type.
           historyOrderRef: historyOrderRef as React.RefObject<
             UndoRedoOrderKind[]
           >,
@@ -18190,8 +16576,6 @@ function DesignEditor() {
     [canEditDesign, files, id, performDeleteFiles, queryClient, t],
   );
 
-  // MultiScreenCanvas consumes arrow keys in the capture phase while a frame
-  // is selected, and an in-screen element selection keeps its screen there.
   const handleOverviewNudgeSelection = useCallback(() => {
     if (
       overviewSelectionTargetsElement({
@@ -18205,20 +16589,10 @@ function DesignEditor() {
     return true;
   }, [files, selectedElement, selectedLayerIdsState]);
 
-  // Delete selected screens immediately and record the rows as one grouped
-  // history entry so Cmd+Z can recreate every selected screen.
-  // Always returns false to MultiScreenCanvas so it never performs its own
-  // synchronous local frame-geometry delete ahead of the file mutation.
   const handleDeleteOverviewSelection = useCallback(
     (selectedIds: string[]) => {
       if (!canEditDesign) return false;
       if (fileHistoryMutationPendingRef.current) return false;
-      // BUG-DELETE-OVERVIEW-COLLISION: MultiScreenCanvas consumes Delete in
-      // the capture phase whenever a frame is selected, and an in-screen
-      // element selection keeps its screen there — so deleting one node in a
-      // screen offered to delete the whole screen and the editor's own
-      // onDelete hotkey never ran. Route to the element delete instead; the
-      // Screen deletion is only for a real frame selection.
       if (
         overviewSelectionTargetsElement({
           selectedElement,
@@ -18261,7 +16635,6 @@ function DesignEditor() {
     ],
   );
 
-  // ── Props/animation clipboard, transforms, nudge ───────────────────────────
   const handleCopyProps = useCallback(() => {
     if (!selectedElement) return;
     copiedStylePropsRef.current = {
@@ -18294,10 +16667,6 @@ function DesignEditor() {
     handleStylesChange(styles);
   }, [canEditActiveVisualScreen, handleStylesChange, selectedElement]);
 
-  // Item 2d — "Copy animation" (Figma-parity, Copy/Paste-as submenu): snapshot
-  // the selected node's motion tracks as a clip, detached from its node id
-  // (copyLayerAnimation), so "Paste animation" can stamp it onto a different
-  // selection.
   const handleCopyAnimation = useCallback(() => {
     if (!selectedMotionTargetNodeId) return;
     const clip = copyLayerAnimation(motionTracks, selectedMotionTargetNodeId);
@@ -18306,10 +16675,6 @@ function DesignEditor() {
     setHasAnimationClipboard(true);
   }, [motionTracks, selectedMotionTargetNodeId]);
 
-  // Item 2d — "Paste animation": stamp the copied clip onto the current
-  // selection (replacing any tracks it already has for the clip's
-  // properties), then persist through the same motion-tracks-dirty autosave
-  // path as every other track mutation.
   const handlePasteAnimation = useCallback(() => {
     if (!canEditDesign) return;
     const clip = copiedLayerAnimationRef.current;
@@ -18322,26 +16687,15 @@ function DesignEditor() {
     markMotionTracksDirty();
   }, [canEditDesign, markMotionTracksDirty, selectedMotionTargetNodeId]);
 
-  // Figma's Shift+H / Shift+V — flip the selection horizontally/vertically.
-  // Mirrors EditPanel's own flip buttons exactly (rotation section): toggle
-  // the CSS `scale` property (a value distinct from `transform`, so it
-  // composes independently of any existing rotation) between 1/-1 on the
-  // relevant axis via the same "sx sy" string format, through the standard
-  // single-property style-commit path so it lands in one undo step.
   const parseSelectionScaleValue = useCallback(
     (value: string | undefined): [number, number] => {
       const trimmed = (value ?? "").trim();
-      // Empty/"none" both mean "no scale applied" (1, 1) — must be checked
-      // before splitting, since "".split(/\s+/) yields [""] and Number("")
-      // is 0 (finite), which would silently read as a zero scale below.
       if (!trimmed || trimmed === "none") return [1, 1];
       const parts = trimmed
         .split(/\s+/)
         .filter((token) => token !== "")
         .map(Number);
       const sx = Number.isFinite(parts[0]) ? parts[0]! : 1;
-      // CSS `scale` single-value semantics: one value scales both axes, so a
-      // genuinely single-token value (e.g. "2") falls back to sy = sx, not 1.
       const sy = Number.isFinite(parts[1]) ? parts[1]! : sx;
       return [sx, sy];
     },
@@ -18393,12 +16747,6 @@ function DesignEditor() {
     [canEditDesign, handleStylesChange, selectedElement],
   );
 
-  // Figma's Ctrl+C — eyedropper: sample a color from anywhere on screen and
-  // apply it to the current selection's fill (shape/frame) or text color
-  // (text node), via the standard style-commit path. A one-shot action, not
-  // a tool — see useDesignHotkeys' onEyedropper doc comment. No-ops with a
-  // subtle toast when the selection is missing or the browser doesn't
-  // support the EyeDropper API (Firefox/Safari as of this writing).
   const handleEyedropper = useCallback(() => {
     if (!canEditDesign || !selectedElement) return;
     if (!hasEyeDropperSupport()) {
@@ -18415,18 +16763,6 @@ function DesignEditor() {
     })();
   }, [canEditDesign, handleStyleChange, selectedElement, t]);
 
-  // L4: bring/send forward/backward/front/back. Previously this only ever
-  // wrote a z-index style (and promoted static->relative), which visually
-  // painted the element above/below IN-FLOW siblings that never got a
-  // z-index of their own (z-index only competes within the same stacking
-  // context, so "send to back" at z-index:0 could still paint above a
-  // same-level sibling that had no z-index at all) and never touched the
-  // panel/DOM order — so the layers panel never reflected the new stacking.
-  // Reimplemented as real DOM reorders among siblings via moveNode edits,
-  // consistent with the panel/paint contract: last DOM child = topmost row
-  // in the panel = topmost painted. Falls back to the old z-index-only
-  // behavior only when the element isn't resolvable as a reorderable code
-  // layer (e.g. no sibling info available).
   const changeSelectedZIndex = useCallback(
     (mode: "forward" | "front" | "backward" | "back") => {
       if (!canEditDesign && selectedLayerIdsState.length === 1) {
@@ -18515,10 +16851,6 @@ function DesignEditor() {
     ],
   );
 
-  // Hide the in-iframe selection outline during keyboard nudges so it doesn't
-  // chase the element, restoring it once the burst settles. The re-armed
-  // settle timer is the authoritative restore (~800ms, matching the nudge
-  // coalesce window); an arrow keyup restores sooner when the host has focus.
   const selectionChromeHiddenRef = useRef(false);
   const selectionChromeSettleTimerRef = useRef<number | undefined>(undefined);
   const restoreSelectionChrome = useCallback(() => {
@@ -18626,11 +16958,6 @@ function DesignEditor() {
     ],
   );
 
-  // ── Undo and redo ──────────────────────────────────────────────────────────
-  // Handle undo: pop from UndoManager, then queue SQL persist.
-  // The Y.Text observer already calls setCollabContent when the doc changes,
-  // but undo/redo transactions use the UndoManager as origin so we must also
-  // advance lastLocalContentRef and trigger the debounced save here.
   const applyDesignDataHistoryChanges = useCallback(
     (changes: readonly ContentHistoryChange[], direction: "undo" | "redo") => {
       const operations = changes.flatMap(
@@ -18985,7 +17312,6 @@ function DesignEditor() {
     [dispatchHistory],
   );
 
-  // ── Zoom, view transitions, and mode changes ───────────────────────────────
   const handleZoomIn = useCallback(() => {
     trace("tool", "zoom-in", {});
     setZoom((z) => getNextZoomStepUp(z));
@@ -18995,15 +17321,6 @@ function DesignEditor() {
     setZoom((z) => getNextZoomStepDown(z));
   }, [setZoom]);
 
-  // Figma's Shift+1/Shift+2: fit ALL content (or just the selection) into the
-  // current canvas viewport. MultiScreenCanvas now owns the actual fit
-  // camera move via its `cameraCommand` prop — it computes zoom+pan itself
-  // (via the shared getCameraForBounds, against its own live viewport size)
-  // and applies it through the same imperative-transform + debounced-commit
-  // path wheel/pinch zoom uses, so there's no extra render storm and no need
-  // for this component to know the real pan offset. This just resolves the
-  // world-space bounds to fit and bumps a nonce; passing the same nonce
-  // twice, or null bounds, is a no-op on the receiving end.
   const handleZoomToFit = useCallback(() => {
     viewModeRef.current = "overview";
     setViewMode("overview");
@@ -19090,10 +17407,6 @@ function DesignEditor() {
     );
     const boardTarget = boardTargets[boardTargets.length - 1];
 
-    // A Board layer is a precise target even when one or more Screen frames
-    // are also selected. Its live rect is iframe-local, so only a matching
-    // Board world-bounds snapshot can drive this fit; stale/missing geometry
-    // must not fall through to the all-content camera.
     if (boardTarget && boardFileId) {
       const currentSelectors = [
         boardTarget.elementInfo.runtimeSelector,
@@ -19194,14 +17507,9 @@ function DesignEditor() {
         flushSync(update);
       }) as typeof transition;
     } catch {
-      // Some engines throw synchronously; fall back to an immediate update.
       update();
       return;
     }
-    // A second transition started before the previous one settles aborts the
-    // first, rejecting these promises with InvalidStateError. Swallow them so
-    // rapid interactions (selection, mode switches) don't spam the console with
-    // unhandled rejections.
     transition?.ready?.catch(() => {});
     transition?.finished?.catch(() => {});
     transition?.updateCallbackDone?.catch(() => {});
@@ -19216,8 +17524,6 @@ function DesignEditor() {
     return activeFileId && fileIds.has(activeFileId) ? [activeFileId] : [];
   }, [activeFileId, files]);
 
-  // `nextMode` is a mode the user explicitly picked on the way out of a
-  // focused screen (see handleModeChange); without it the mode is derived.
   const enterOverviewFromZoom = useCallback(
     (nextMode?: EditorMode) => {
       if (viewModeRef.current === "overview") return;
@@ -19230,10 +17536,6 @@ function DesignEditor() {
       runEditorViewTransition(() => {
         setDrawMode(nextMode === "annotate");
         setPinMode(false);
-        // The infinite canvas IS the editing view, so Interact never survives
-        // the trip back to overview — that pairing was the old third state.
-        // Annotate is a tool overlay on the same canvas, not a view, so it
-        // stays.
         setMode(
           (currentMode) =>
             nextMode ?? (currentMode === "annotate" ? "annotate" : "edit"),
@@ -19291,9 +17593,6 @@ function DesignEditor() {
       runEditorViewTransition,
     ],
   );
-  // Interact presents the screen in a responsive device box with its own
-  // chrome bar inside the center canvas. The rails stay mounted, while
-  // embedded hosts keep their own chrome and are left alone.
   const responsiveInteractActive =
     mode === "interact" && viewMode === "single" && !!activeFile && !embedded;
   const handleInteractDeviceChange = useCallback((name: string) => {
@@ -19303,8 +17602,6 @@ function DesignEditor() {
       setInteractDeviceSize({ width: preset.width, height: preset.height });
     }
   }, []);
-  // Typing a dimension is what makes a size "custom" — the preset it no longer
-  // matches would otherwise keep claiming the device dropdown.
   const handleInteractWidthChange = useCallback((width: number) => {
     setInteractDeviceSize((size) => ({ ...size, width }));
     setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
@@ -19314,24 +17611,7 @@ function DesignEditor() {
     setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
   }, []);
 
-  // BP-DEEP v2 item 2 — edge-triggered zoom-out-to-overview. See
-  // shouldPopToOverviewOnZoomOut's doc comment: the pop must only fire when
-  // the user crosses the threshold from above while already in single view,
-  // never on the zoom value restored by entering single view (that
-  // level-triggered version was the "Interact flashes then bounces back to
-  // overview" bug). The ref holds the last zoom observed in settled
-  // single-view state and resets to null whenever single view isn't active,
-  // so the first observation after entry can never pop.
   const lastSettledSingleZoomRef = useRef<number | null>(null);
-  // Fix-wave: an explicit destination zoom (a "Zoom to 50/100/200%" preset or
-  // a typed zoom-% commit) is a deliberate "go to exactly this zoom" action,
-  // not a continuous zoom-out gesture — it must never trigger the Figma-style
-  // pop-to-overview heuristic above, even when it crosses
-  // OVERVIEW_ZOOM_THRESHOLD from above (e.g. 100% -> "Zoom to 50%"). Only
-  // stepped zoom-out (handleZoomOut / scroll / pinch, all of which change
-  // `zoom` without touching this ref) should ever pop. Set immediately before
-  // the zoom write and consumed (reset) the next time this effect runs, so it
-  // only ever suppresses the one update it was set for.
   const suppressOverviewPopForExplicitZoomRef = useRef(false);
   useEffect(() => {
     if (!activeFile || viewMode !== "single" || mode !== "edit") {
@@ -19412,15 +17692,10 @@ function DesignEditor() {
       overviewInteractScreenId,
     ],
   );
-  // Closing the responsive view returns to the infinite canvas. Dropping to
-  // Edit while still in single view was the forbidden third state: a focused
-  // screen with no device chrome and no canvas around it.
   const handleExitResponsiveInteract = useCallback(() => {
     setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
     handleModeChange("edit");
   }, [handleModeChange]);
-  // Frame-button entry uses the shared pending-edit guard. Re-clicking the
-  // focused screen leaves through the same close path as Escape and Close.
   const handleOverviewFrameAction = useCallback(
     (screenId: string) => {
       if (overviewInteractScreenIdRef.current === screenId) {
@@ -19431,15 +17706,6 @@ function DesignEditor() {
     },
     [handleExitResponsiveInteract, handleModeChange],
   );
-  // Escape is the standard "leave this mode" convention users try first, and
-  // Interact had no keyboard path back to Edit at all — only the bar's Close
-  // button. This listens on `window` in the default bubble phase, same as
-  // useDesignHotkeys elsewhere, so a Radix layer (the device Select, zoom
-  // Popover) still gets first refusal: its own document-level Escape
-  // handling stops the event before it reaches here, matching
-  // DesignColorPicker.escape.test.tsx's documented ordering. It intentionally
-  // does not reuse useDesignHotkeys, which stays disabled in Interact so the
-  // running prototype keeps owning every other shortcut.
   useEffect(() => {
     if (!responsiveInteractActive) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -19449,9 +17715,6 @@ function DesignEditor() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [responsiveInteractActive, handleExitResponsiveInteract]);
-  // Fit against the actual center canvas, not window.innerWidth: both rails
-  // remain mounted in Interact, so window-level math can place a wide device
-  // partly behind them. ResizeObserver also refits after either rail moves.
   useEffect(() => {
     if (!responsiveInteractActive) return;
     const container = canvasContainerRef.current;
@@ -19497,8 +17760,6 @@ function DesignEditor() {
 
   const handleViewModeToggle = useCallback(() => {
     if (viewModeRef.current === "overview") {
-      // The toggle swaps between the only two views there are: the infinite
-      // canvas (editing) and the responsive interactive view.
       handleModeChange("interact");
       return;
     }
@@ -19521,11 +17782,6 @@ function DesignEditor() {
       setCreatedOverviewLayerSelection(null);
       setOverviewSelectedScreenIds([]);
       setSelectedLayerIdsState([]);
-      // Only two views exist: the infinite canvas (editing) and the responsive
-      // interactive view. Picking a screen from the Screens list means "go look
-      // at this running screen", so it lands in the responsive view — except
-      // for a host-embedded editor, where switching screens must not silently
-      // drop the user out of editing.
       if (hostEmbeddedEditor) {
         enterSingleScreen(screenId, { mode });
         return;
@@ -19542,7 +17798,6 @@ function DesignEditor() {
     ],
   );
 
-  // ── Review rewrite, pin tool, shortcuts dialog ─────────────────────────────
   const handleReviewNodeRewrite = useCallback(
     (proposal: NodeRewriteProposal) => {
       pendingOverviewScreenSelectionRef.current = null;
@@ -19649,8 +17904,6 @@ function DesignEditor() {
     }
     setCommentsHidden(false);
     setActiveInspectorTab("comments");
-    // Comment pins are an editing overlay on the infinite canvas, not a third
-    // focused view. If invoked from Interact, leave it before arming the pin.
     if (viewMode !== "overview") {
       enterOverviewFromZoom("annotate");
     }
@@ -19698,24 +17951,13 @@ function DesignEditor() {
     setKeyboardShortcutsOpen(true);
   }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen]);
 
-  // Capture phase, and deliberately outside the useDesignHotkeys gate below.
-  // Two reasons, each of which broke this chord on its own: a bubble-phase
-  // listener runs after the agent composer has already inserted "/" and opened
-  // its slash menu, and that gate switches off during responsive-interact and
-  // agent question flows — it disables editing shortcuts, and shortcut help
-  // is not an editing shortcut.
   useEffect(() => {
     if (embedded) return;
     const handleHelpHotkey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       if (!isShowKeyboardShortcutsHotkey(event)) return;
-      // preventDefault also keeps the bubble-phase useDesignHotkeys listener
-      // from toggling a second time on the same keystroke.
       event.preventDefault();
       event.stopPropagation();
-      // Swallowed above but not acted on: holding the chord auto-repeats
-      // keydown, and toggling per repeat would flap the panel open/closed.
-      // One physical press is one toggle.
       if (event.repeat) return;
       handleToggleKeyboardShortcuts();
     };
@@ -19726,7 +17968,6 @@ function DesignEditor() {
       });
   }, [embedded, handleToggleKeyboardShortcuts]);
 
-  // ── Editor hotkeys ─────────────────────────────────────────────────────────
   const handleEscapeHotkey = useCallback(() => {
     recordSelectionHistoryAroundChange(() =>
       runEscapeHotkey({
@@ -19776,15 +18017,6 @@ function DesignEditor() {
     viewMode,
   ]);
 
-  // T22: Enter with a selected TEXT layer in single mode begins inline
-  // editing on it (Figma: Enter drills into the selected layer), reusing the
-  // same begin-text-edit machinery a newly-created text primitive uses
-  // (scheduleBeginTextEditForScreen).
-  // Text-tag elements (TEXT_LAYER_TAGS in shared/code-layer.ts) and T-tool
-  // primitive text (a plain div marked data-an-primitive="text") both
-  // qualify — replicated here as a small inline check since those
-  // classification internals aren't exported; CodeLayerNode.tag/
-  // dataAttributes are public fields on the type.
   const SINGLE_MODE_TEXT_TAGS = useMemo(
     () =>
       new Set([
@@ -19828,14 +18060,6 @@ function DesignEditor() {
     },
     [],
   );
-  /**
-   * P5/vector-edit entry point. Only reachable while `viewMode === "overview"`
-   * — MultiScreenCanvas's `vectorEdit` overlay (the only place this state is
-   * rendered) doesn't exist in single-screen mode, so entering vector edit
-   * from a single-screen selection is deliberately deferred. Recognized
-   * paths and shapes consume Enter even when their geometry is unsupported,
-   * so the user sees the reason instead of an unrelated screen drill-in.
-   */
   const enterVectorEditForSelection = useCallback(
     (owner: { fileId: string; node: CodeLayerNode }): boolean => {
       const penNodesAttr = owner.node.dataAttributes["data-an-pen-nodes"];
@@ -19882,8 +18106,6 @@ function DesignEditor() {
           owner.fileId === boardFileId
             ? boardRenderOffset(element)
             : { x: 0, y: 0 };
-        // A pasted child path writes back only its own `d`, so it cannot
-        // re-base a scaled parent viewBox the way a drawn vector does.
         const editable =
           path &&
           svg &&
@@ -19968,9 +18190,6 @@ function DesignEditor() {
     ],
   );
 
-  // Fix: while any Radix popover/dropdown from the inspector panel is open, the
-  // design preview iframe underneath must not receive pointer events — otherwise
-  // clicks inside the picker pass through to the canvas and corrupt element fills.
   useEffect(() => {
     const getPreviewIframe = () =>
       document.querySelector(
@@ -19981,13 +18200,6 @@ function DesignEditor() {
     const updateIframePointerEvents = () => {
       const iframe = getPreviewIframe();
       if (!iframe) return;
-      // Same tooltip-vs-menu ambiguity as the inspectorPopoverOpen shield
-      // above (see its doc comment) — and, as of finding 7, the exact same
-      // isRadixOverlayOpen predicate, so the two shields can't diverge
-      // again. (Previously this path hand-duplicated a slightly different,
-      // buggier version that never checked a closed wrapper's own
-      // data-state, which could leave this iframe's pointer-events stuck at
-      // "none" after closing the zoom menu via item-select.)
       const wrappers = document.body.querySelectorAll(
         "[data-radix-popper-content-wrapper]",
       );
@@ -20014,18 +18226,11 @@ function DesignEditor() {
 
     return () => {
       observer.disconnect();
-      // Restore pointer events on unmount in case a popover was left open.
       const iframe = getPreviewIframe();
       if (iframe) iframe.style.pointerEvents = "";
     };
   }, []);
 
-  // Current Figma — N/Shift+N cycles frames in LAYERS-PANEL order, not raw
-  // `files` order. `files` also includes the board file and non-html support
-  // files (e.g. CSS), neither of which is a visible screen a user could tab
-  // onto in Figma; `overviewScreens` is the same html+non-board, panel-order
-  // list the layers panel and overview canvas already render from (see
-  // layerPanelFiles/overviewLayerPanelFiles and overviewScreens above).
   const handleCycleFile = useCallback(
     (backwards: boolean) => {
       if (!overviewScreens.length || !activeFile) return;
@@ -20040,11 +18245,6 @@ function DesignEditor() {
       if (!nextScreen) return;
       setActiveFileId(nextScreen.id);
       setSelectedElement(null);
-      // Figma always recenters the viewport on the newly-selected frame.
-      // DesignEditor doesn't track MultiScreenCanvas's live pan/zoom
-      // (see handleZoomToFit's comment), so there's no cheap "already in
-      // view" check available here; always follow, with generous padding so
-      // the freshly-selected frame doesn't hug the viewport edge.
       const frames = getAllScreenFrameEntries({
         overviewScreens,
         canvasFrameGeometryById: exportCanvasFrameGeometryById,
@@ -20063,10 +18263,6 @@ function DesignEditor() {
     [activeFile, exportCanvasFrameGeometryById, overviewScreens],
   );
 
-  // Current Figma — Tab/Shift+Tab traverse siblings within the selected
-  // layer's parent. Frame navigation has its own N/Shift+N bindings above;
-  // keeping these paths separate prevents Tab from unexpectedly leaving the
-  // layer hierarchy and jumping to another screen.
   const handleCycleSibling = useCallback(
     (backwards: boolean) => {
       const selectedId =
@@ -20094,10 +18290,6 @@ function DesignEditor() {
     [selectCodeLayerNodesForHotkey, selectedLayerIdsState],
   );
 
-  // Current Figma — Backslash selects the parent layer. A top-level code
-  // layer has no code-layer parent (its parent is the screen itself), so this
-  // deliberately no-ops there rather than forcing an unexpected view-mode
-  // transition just to approximate screen selection.
   const handleSelectParentLayer = useCallback(() => {
     const selectedId = selectedLayerIdsState[selectedLayerIdsState.length - 1];
     if (!selectedId) return;
@@ -20107,8 +18299,6 @@ function DesignEditor() {
       owner.node.parentId,
     );
     if (!parentOwner || parentOwner.fileId !== owner.fileId) return;
-    // The flat ownership map still resolves a top-level layer's parentId to
-    // the collapsed <html>/<body> shell node the layers panel never shows.
     if (!hasSelectableCodeLayerParent({ parentNode: parentOwner.node })) {
       return;
     }
@@ -20119,11 +18309,6 @@ function DesignEditor() {
     );
   }, [selectCodeLayerNodesForHotkey, selectedLayerIdsState]);
 
-  // L23: Cmd+A in single mode selects all top-level layers of the active
-  // screen instead of yanking the user into the screen overview and
-  // selecting every screen — that's surprising when the user is focused on
-  // editing one screen's layers. Overview-mode Cmd+A keeps its previous
-  // "select all screens" behavior.
   const handleSelectAllFrames = useCallback(() => {
     recordSelectionHistoryAroundChange(() => {
       const projection = activeFile
@@ -20194,8 +18379,6 @@ function DesignEditor() {
 
   const handleFindLayers = useCallback(() => {
     handleShowLayersPanel();
-    // The panel is unmounted while Show/Hide UI is active. Wait for React to
-    // reveal it before asking the existing search control to open and focus.
     window.requestAnimationFrame(() => layersPanelRef.current?.focusSearch());
   }, [handleShowLayersPanel]);
 
@@ -20218,8 +18401,6 @@ function DesignEditor() {
     shouldHandleEvent: shouldHandleEditorHotkey,
     canClaimBoundChords: canEditDesign || canEditLiveScreens,
     onMoveTool: canEditDesign ? handleMoveTool : undefined,
-    // F always means Frame; without forcing the mode it would reuse whichever
-    // sub-tool the dropdown last selected.
     onFrameTool: canEditDesign
       ? () => {
           setFrameToolDraws("frame");
@@ -20243,11 +18424,6 @@ function DesignEditor() {
         (viewMode === "overview" && selectedScreenIds.length === 1))
         ? () => void handleCopyAsPng()
         : undefined,
-    // Not gated on hasCanvasClipboard: this tab may not have copied anything
-    // itself yet, but the system clipboard can still carry a marker payload
-    // from a copy made in another tab/window (see U4). handlePasteSelection
-    // checks the live clipboard first and no-ops safely if there is nothing
-    // to paste from either source.
     onPaste: canEditDesign ? () => void handlePasteSelection() : undefined,
     onCut: canEditDesign ? handleCutSelection : undefined,
     onPasteOver: canEditDesign ? handlePasteOverSelection : undefined,
@@ -20259,8 +18435,6 @@ function DesignEditor() {
     onDuplicate: canEditActiveVisualScreen
       ? handleDuplicateSelection
       : undefined,
-    // Routes screen-vs-element itself; selecting a screen in the layers panel
-    // never reaches MultiScreenCanvas' capture-phase Delete.
     onDelete:
       canEditDesign || canEditSelectedLiveLayerRef.current
         ? () => {
@@ -20271,7 +18445,6 @@ function DesignEditor() {
             handleDeleteOverviewSelection(overviewSelectedScreenIds);
           }
         : undefined,
-    // Screen and element rows share the Layers panel's inline rename editor.
     onRename: () => {
       if (!canEditDesign && !canEditSingleSelectedLiveLayer) return;
       const layerId = getSingleSelectedRenamableLayerId();
@@ -20297,16 +18470,6 @@ function DesignEditor() {
     onBooleanSubtract: canEditDesign
       ? handleBooleanSubtractSelection
       : undefined,
-    // handleToggleHiddenForSelection/handleToggleLockedForSelection are
-    // declared later in this component (they depend on
-    // handleToggleLayerLocked/handleToggleLayerHidden, which in turn depend
-    // on codeLayerOwnerByNodeId — all defined below this hook call). A direct
-    // ternary reference here would be a temporal-dead-zone error since it
-    // reads the binding during THIS render; wrapping in an arrow function
-    // defers the lookup until the hotkey actually fires, by which point the
-    // component has finished rendering and the binding is assigned — same
-    // trick as onRename below, which already does this for a
-    // later-in-file-order handler.
     onToggleHidden:
       canEditDesign || canEditLiveScreens
         ? () => handleToggleHiddenForSelection()
@@ -20334,11 +18497,6 @@ function DesignEditor() {
       canEditDesign || canEditSelectedLiveLayerRef.current
         ? () => changeSelectedZIndex("back")
         : undefined,
-    // Interact owns the running app's keyboard behavior. The editor shell's
-    // canvas Escape handling (selection clearing, drawing/pin-mode exit,
-    // breakpoint targeting) must not fire underneath it — the separate
-    // Escape listener next to handleExitResponsiveInteract covers leaving
-    // Interact itself.
     onEscape: responsiveInteractActive ? undefined : handleEscapeHotkey,
     onEnter: handleEnterHotkey,
     onSelectParent: handleSelectParentLayer,
@@ -20349,7 +18507,6 @@ function DesignEditor() {
       handleNudgeSelection(direction, largeStep),
     onZoomIn: handleZoomIn,
     onZoomOut: handleZoomOut,
-    // Current Figma: Cmd+0 returns to 100%.
     onZoomReset: () => setZoom(100),
     onZoomToFit: handleZoomToFit,
     onZoomToSelection: () => {
@@ -20357,24 +18514,13 @@ function DesignEditor() {
         handleZoomToSelectionFit();
         return;
       }
-      // Single-screen mode: the selection is a DOM element inside the
-      // iframe, not a canvas-frame — true bounds-fit would need iframe-
-      // internal scroll math that's out of scope here, so keep the existing
-      // fixed zoom-in behavior for that surface.
       if (selectedElement) setZoom(150);
     },
-    // H2: Cmd+Alt+K — create component from the current selection.
     onCreateComponent: canEditDesign ? handleCreateComponentHotkey : undefined,
-    // Cmd+Alt+B — Detach instance. Only wired while the selection actually is
-    // a component instance, matching onOpacityChange's "absent handler is a
-    // no-op" convention just below.
     onDetachInstance:
       canEditDesign && selectedInstanceActionNodeId
         ? handleDetachInstanceMenuAction
         : undefined,
-    // H2: plain digit sequences — set selection opacity. The identity and
-    // text-editing guard prevent a partially typed percentage crossing layers
-    // or being applied while digits belong to text content.
     opacitySelectionKey,
     onOpacityChange: opacitySelectionKey
       ? ({ opacity }) => {
@@ -20393,9 +18539,6 @@ function DesignEditor() {
           }
         }
       : undefined,
-    // Cmd+U / Cmd+Shift+X — toggle underline/strikethrough. Only wired while
-    // a layer is selected, matching onOpacityChange's "absent handler is a
-    // no-op" convention.
     onToggleUnderline:
       canEditDesign && selectedElement
         ? handleToggleUnderlineHotkey
@@ -20416,8 +18559,6 @@ function DesignEditor() {
       : undefined,
     onTidyUp: canEditDesign ? handleTidyUp : undefined,
     onAddAutoLayout: canEditDesign ? handleAddAutoLayout : undefined,
-    // Show/Hide UI and Show/Hide comments are view-only chrome toggles, not
-    // editing actions, so they work regardless of canEditDesign.
     onToggleUi: handleToggleUi,
     onToggleMinimalUi: handleToggleMinimalUi,
     onToggleComments: handleToggleComments,
@@ -20425,7 +18566,6 @@ function DesignEditor() {
     onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
   });
 
-  // ── Generation retry, coding handoff, navigation guard ─────────────────────
   const startRetryGeneration = useCallback(
     async (
       promptState: NonNullable<typeof retryablePrompt>,
@@ -21004,7 +19144,6 @@ function DesignEditor() {
     ],
   );
 
-  // ── Export: HTML, ZIP, PNG, PDF, SVG, Figma ────────────────────────────────
   const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -21104,9 +19243,6 @@ function DesignEditor() {
             : selectedElement
           : null;
 
-      // In overview, Copy as PNG targets the one selected screen instead of
-      // whichever iframe happens to be first in DOM order. The download action
-      // still targets the active screen through canvasIframeRef.
       if (scope === "screens" && viewMode === "overview") {
         const screenId =
           selectedScreenIds.length === 1 ? selectedScreenIds[0] : null;
@@ -21170,9 +19306,6 @@ function DesignEditor() {
     ],
   );
 
-  /** Shared renderer for download and clipboard paths. Keeping capture, clone
-   * sanitization, overlay stripping, scale, and crop in one function prevents
-   * Copy as PNG from drifting visually from the existing PNG export. */
   const renderPngBlob = useCallback(
     async (arg0: {
       scope: PngCaptureScope;
@@ -21302,12 +19435,6 @@ function DesignEditor() {
     ],
   );
 
-  /** One PDF page per overview screen, each rasterized at its own authored
-   * width/height (see createMultiPageRasterPdf) instead of the single active
-   * artboard handleDownloadPdf captures. Mirrors handleDownloadPdf's busy-state
-   * guard and error handling — showRasterCaptureError's messaging is about the
-   * underlying raster capture step, which this shares with the single-page
-   * path, not the PDF assembly step. */
   const handleDownloadAllScreensPdf = useCallback(
     async () =>
       runDownloadAllScreensPdf({
@@ -21347,8 +19474,6 @@ function DesignEditor() {
     pngExportingRef.current = true;
     setPngExporting(true);
     try {
-      // Do not await this before clipboard.write: ClipboardItem accepts the
-      // pending Blob representation, preserving the initiating user gesture.
       const pngBlob = renderPngBlob({ scope: "screens" });
       await copyPngPromiseToClipboard(pngBlob);
       toast.success(t("designEditor.toasts.pngCopied"));
@@ -21396,10 +19521,6 @@ function DesignEditor() {
       return {
         document: doc,
         title: design?.title ?? activeFile?.filename ?? null,
-        // Selected-layer SVGs size themselves to their live bounding box.
-        // Whole-screen exports prefer stored screen geometry over the iframe's
-        // transient viewport so responsive/local-edit downloads keep the exact
-        // authored frame dimensions.
         width: selectedElementLayerId
           ? null
           : (geometry?.width ?? screen?.width ?? activeScreenBaseWidthPx),
@@ -21571,9 +19692,6 @@ function DesignEditor() {
         ? "screens"
         : "document";
 
-  /** Thumbnail for the inspector's export preview. Deliberately the same
-   *  renderer the export itself uses, at scale 1 since it paints into a ~7rem
-   *  box. Rejections propagate so the preview can show a failure. */
   const handleRenderExportPreview = useCallback(
     () =>
       renderPngBlob({ scope: inspectorRasterScope, settings: { scale: 1 } }),
@@ -21892,7 +20010,6 @@ function DesignEditor() {
     motionDockOpen,
     viewMode,
   ]);
-  // ── Code-layer models and effective layer state ────────────────────────────
   const activeCodeLayerTree = useMemo(
     () => buildCodeLayerTree(activeCodeLayerProjection),
     [activeCodeLayerProjection],
@@ -21921,21 +20038,12 @@ function DesignEditor() {
     new Map(),
   );
   const codeLayerModelsArrayRef = useRef<CodeLayerFileModel[]>([]);
-  // Until the idle fill below has projected a screen, it gets a Layers model
-  // only once something needs it: active or board file, projected on demand
-  // (hover, click), lock/hide state the canvas must honor, an expanded or
-  // previewed Layers row, a runtime snapshot, or a search across every
-  // screen. Coverage is per file, so a batch imported into the open design
-  // takes the same path as a cold open. See buildNeededLayerModels.
   const [coveredLayerModelFileIds, setCoveredLayerModelFileIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
   const layerModelsCoverAll = files.every((file) =>
     coveredLayerModelFileIds.has(file.id),
   );
-  // Null once every screen is covered: selection, expansion and search then
-  // no longer change which models exist, so they must not rerun the
-  // all-screens loop below.
   const layerModelDemand = useMemo(
     () =>
       layerModelsCoverAll
@@ -22030,8 +20138,6 @@ function DesignEditor() {
       const runtimeProjectionEligible = shouldUseRuntimeLayerProjection({
         screen: overviewScreenById.get(file.id),
         fallbackSourceType: designSourceType,
-        // Eligibility follows the persisted route URL, not `content`: the
-        // active projection content may already be an SSR HTML snapshot.
         content: file.content,
       });
       const runtimeProjection =
@@ -22102,9 +20208,6 @@ function DesignEditor() {
       contentLength: (fileId) => getProjectionContentForScreen(fileId).length,
       buildModel,
       namesUnbuiltLayer: (built) => {
-        // The render that switches the active file still projects the
-        // previous file's fresh content for it, so its stored bytes answer
-        // for it too.
         let activeStoredNodeIds: Set<string> | undefined;
         const ownedByActiveFile = (layerId: string) => {
           const activeId = activeFile?.id;
@@ -22181,8 +20284,6 @@ function DesignEditor() {
       do {
         const file = pending[next];
         if (!file) {
-          // Always a new set: files that landed behind `next` mid-fill are
-          // still uncovered, and the new identity reruns this effect for them.
           setCoveredLayerModelFileIds(
             (covered) => new Set([...covered, ...projected]),
           );
@@ -22212,12 +20313,6 @@ function DesignEditor() {
       }
     >();
     codeLayerModelsByFile.forEach((model) => {
-      // BUG-LAYER-STATE-RUNTIME-ONLY: model.runtimeOnly only says the Layers
-      // panel is DISPLAYING the runtime-derived tree for this screen — it
-      // says nothing about whether any given NODE actually lacks a
-      // resolvable source counterpart. See isCodeLayerNodeRuntimeOnly's doc
-      // comment for why every lock/hide/group/reparent call site downstream
-      // needs the narrower per-node signal instead.
       model.projection.nodes.forEach((node) => {
         owners.set(node.id, {
           fileId: model.fileId,
@@ -22454,9 +20549,6 @@ function DesignEditor() {
         }
         const value = override[kind];
         if (value === undefined) return;
-        // The optimistic override exists only until the connected source/HMR
-        // snapshot confirms the durable JSX metadata. Once source and preview
-        // agree, drop this axis so subsequent source edits remain authoritative.
         if (!fileIds.has(id) && sourceIds.has(id) === value) {
           const remaining = { ...override };
           delete remaining[kind];
@@ -22517,13 +20609,6 @@ function DesignEditor() {
     }
     return Array.from(new Set(selectors));
   }, [activeCodeLayerNodeById, activeFile?.id, hiddenLayerIds]);
-  // PF8: getLayerSelectorsForFile is called once per rendered screen (both
-  // in the hoisted renderScreenContent above and for the board-file props
-  // below), and previously allocated a brand-new array every call even when
-  // nothing relevant changed. Cache per id set, then per file, so unchanged
-  // calls return the same array and DesignCanvas's replay effect stays quiet.
-  // Every screen asks for both its locked and its hidden selectors; a cache
-  // keyed by file alone evicts one with the other on every render.
   const layerSelectorsCacheRef = useRef(
     new WeakMap<
       Set<string>,
@@ -22558,9 +20643,6 @@ function DesignEditor() {
     () => new Set(overviewScreens.map((screen) => screen.id)),
     [overviewScreens],
   );
-  // One bottom-to-top screen stack owns both canvas paint order (`geometry.z`)
-  // and the Layers file rows. LayersPanel reverses each sibling group for its
-  // topmost-first display, so feed it this canonical bottom-to-top sequence.
   const canonicalOverviewScreenIds = useMemo(
     () => getCanonicalScreenStack(overviewScreens, canvasFrameGeometryById),
     [canvasFrameGeometryById, overviewScreens],
@@ -22621,13 +20703,6 @@ function DesignEditor() {
     ],
   );
 
-  // ── Layer panel model and selection sync ───────────────────────────────────
-  // Board objects shown as top-level peer rows in the layers panel, right
-  // alongside the screen frames. Derived from the same code-layer model that
-  // feeds codeLayerOwnerByNodeId so a layer-row click resolves to the board
-  // file (sets it active + selects the element). buildCodeLayerProjection was
-  // the wrong source here: it produced different node ids that the owner map
-  // could not route, and returned no roots for the migrated board fragments.
   const boardElements = useMemo<LayersPanelNode[] | undefined>(() => {
     if (!boardFileId) return undefined;
     const model = codeLayerModelByFileId.get(boardFileId);
@@ -22647,8 +20722,6 @@ function DesignEditor() {
 
   const firstRunTemplatesQuery = useActionQuery(
     "list-design-templates",
-    // Without this the picker renders every row as the generic placeholder
-    // icon, which is the whole point of choosing a template visually.
     { includePreview: "true" },
     { enabled: canEditDesign && designIsEmpty },
   );
@@ -22670,13 +20743,8 @@ function DesignEditor() {
   const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(
     null,
   );
-  // A started conversation retires the whole first-run affordance. `designIsEmpty`
-  // alone is not enough: generation can be under way for a while before the
-  // first screen row exists.
   const [chatMessageCount, setChatMessageCount] = useState(0);
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
-  // The picked system is stored on the design and read by every later
-  // generation; keep the picker out of the composer chrome so chat stays dense.
   const applyTemplate = useActionMutation("create-design-from-template");
   const handleFirstRunTemplate = useCallback(
     async (templateId: string) => {
@@ -22716,11 +20784,6 @@ function DesignEditor() {
     ],
     [t],
   );
-  /**
-   * An empty design has nothing to explain, so the shared builder's generic
-   * "explain what I am looking at" crowds the three creation prompts out of
-   * the chip row on the one screen where creating is the only thing to do.
-   */
   const designAgentSuggestionConfig = useMemo(
     () => ({
       getSuggestions: (context: AgentDynamicSuggestionContext) =>
@@ -22844,17 +20907,6 @@ function DesignEditor() {
     [codeLayerOwnerByNodeId, selectedElementLayerId, selectedLayerIds],
   );
 
-  // Item 4 (deferred) — GlslShaderPanel's "Edit code" affordance
-  // (EditPanelProps.onEditCode → glslShaderContext.onEditCode). Opens the
-  // left Code panel focused on the active screen's file, reusing the SAME
-  // workbench navigation state the `navigate --leftPanel code --fileId <id>`
-  // action command drives: setting `activeLeftPanel` makes the panel visible
-  // immediately, and writing the URL's `panel`/`fileId` search params (via
-  // getDesignEditorStateUrlSearch, the same builder the URL-sync effect near
-  // `activeCodeFile` uses) seeds CodeWorkbench's initial-focus props
-  // (`activeFileId`/`activeFilename`, read from `routeCodeFileId`/
-  // `routeCodeFilename` — see those consts) so it opens the right file on
-  // first mount instead of falling back to whatever tab was last open.
   const handleShaderEditCode = useCallback(
     (_shaderId: string) => {
       const targetFileId = activeFile?.id ?? activeFileId;
@@ -22918,8 +20970,6 @@ function DesignEditor() {
     }
     const owner = codeLayerOwnerByNodeId.get(resolvedInitialRouteSelectionId);
     if (!owner) return;
-    // Interact owns the running app and must not hydrate a host-editor
-    // selection that switches the shell back to Edit on the focused screen.
     if (viewModeRef.current === "single") {
       initialUrlSelectionHydratedForIdRef.current = id;
       return;
@@ -22987,11 +21037,6 @@ function DesignEditor() {
     ) {
       return;
     }
-    // Do not let the URL mirror replace a direct screen/zoom route with the
-    // pre-command default while the initial navigation command is still
-    // waiting for the target file. The command owns the first synchronized
-    // selection and zoom; once activeFileId reaches that target, normal URL
-    // mirroring resumes.
     if (initialRouteScreen && currentScreenId !== initialRouteScreen.id) {
       return;
     }
@@ -23026,16 +21071,6 @@ function DesignEditor() {
       nextScreenId !== urlSyncScreenIdRef.current;
     urlSyncScreenIdRef.current = nextScreenId;
     if (nextSearch === location.search) return;
-    // Item 11 (URL sync): `zoom` is a dependency here, and zoom changes
-    // continuously (every wheel/pinch tick, not just on gesture-end) — every
-    // tick previously called `navigate(..., {replace:true})` synchronously,
-    // spamming history.replaceState and re-rendering every `useLocation()`
-    // consumer (this whole page, since DesignCanvas below isn't memoized)
-    // once per tick. Coalesce rapid-fire ticks into a single navigate call
-    // per short window instead of one per state change; the URL is a
-    // shareable-link mirror of UI state, not a live gesture-preview surface,
-    // so a small trailing delay is invisible to the user but eliminates the
-    // churn during continuous zoom/drag.
     if (urlSyncTimerRef.current !== null) {
       window.clearTimeout(urlSyncTimerRef.current);
       urlSyncTimerRef.current = null;
@@ -23165,10 +21200,6 @@ function DesignEditor() {
     selectedLayerTargets,
   ]);
 
-  /** The overview canvas keeps a layer's owning screen in `selectedScreenIds`
-   *  (z-order and "topmost screen" read it), so without this the screen's own
-   *  full-bleed SelectionBox stays mounted over the element and its drag
-   *  surface swallows the gesture — the frame moves instead of the layer. */
   const selectedLayerSelectorGroupsByScreen = useMemo(() => {
     const groupsByScreen: Record<string, string[][]> = {};
     selectedLayerTargets.forEach((target) => {
@@ -23196,11 +21227,6 @@ function DesignEditor() {
   const selectedScreenGeometry = useMemo<ScreenGeometrySelection | null>(() => {
     return getSelectedScreenGeometryForInspector({
       selectedInspectorElementCount: selectedInspectorElements.length,
-      // Inspector geometry is selection-driven, never active-file-driven.
-      // `selectedScreenIds` deliberately falls back to activeFile for agent
-      // context/navigation, but feeding that fallback into the inspector made
-      // a cleared selection immediately reappear as the active screen. That
-      // broke Figma's Escape semantics and made Page properties unreachable.
       selectedScreenIds:
         viewMode === "overview" ? overviewSelectedScreenIds : [],
       overviewScreens,
@@ -23344,31 +21370,14 @@ function DesignEditor() {
     ],
   );
 
-  /** Applies a typed or preset frame size/position from the inspector. Routed
-   *  through handleGeometryCommit so it lands in the same undo entry, viewport
-   *  metadata sync, and persist guard that a pointer resize uses. */
   const selectedScreenLayoutGrid = selectedScreenGeometry
     ? (layoutGrids[selectedScreenGeometry.id] ?? null)
     : null;
-  /**
-   * A screen whose source is a live URL keeps that URL as its authoritative
-   * content; the projection hands back a fetched snapshot that does have a
-   * <body>, so patching it would write a document over the route. Only inline
-   * screens own their markup.
-   */
   const selectedScreenOwnsItsMarkup = useMemo(() => {
     const screenId = selectedScreenGeometry?.id;
     if (!screenId) return false;
     return externalPreviewUrlForContent(getScreenContent(screenId)) === null;
   }, [getScreenContent, selectedScreenGeometry]);
-  /**
-   * One patch, one write. Fill/Stroke/Effects emit multi-property changes
-   * (a gradient sets image, size, repeat and position together); applying them
-   * one property at a time recomputes each from the same pre-event projection,
-   * so the last write drops the earlier ones.
-   */
-  // Preview ticks replace the current source; retain the gesture's starting
-  // source so committing an identical final preview still records one undo.
   const screenStylePreviewRef = useRef<
     Map<string, { before: string; after: string }>
   >(new Map());
@@ -23383,7 +21392,6 @@ function DesignEditor() {
       const content = getScreenContent(screenId);
       if (!content || externalPreviewUrlForContent(content) !== null) return;
       const preview = screenStylePreviewRef.current.get(screenId);
-      // Undo or an external edit ends the previous preview's history lineage.
       if (preview && preview.after !== content) {
         screenStylePreviewRef.current.delete(screenId);
       }
@@ -23402,7 +21410,6 @@ function DesignEditor() {
         screenId,
       );
       const nextBodyStyles = setBodyInlineStyles(content, patch);
-      // A URL-backed screen has no <body> to patch.
       if (nextBodyStyles === null) return;
       setScreenRootComputedStylesById((current) => ({
         ...current,
@@ -23524,22 +21531,14 @@ function DesignEditor() {
     },
     [selectedScreenGeometry?.id],
   );
-  /** Design-level canvas background (the surround, not a screen's body). */
-  // ── Canvas background, screen geometry, states panel ───────────────────────
   const persistedCanvasBackground = useMemo(
     () => getDesignCanvasBackground(designDataJson),
     [designDataJson],
   );
-  /** Live value while the colour picker is being dragged. Persisting every
-   *  preview tick round-trips through the query cache and back into the
-   *  controlled picker, which makes its handle jump mid-drag. */
   const [canvasBackgroundDraft, setCanvasBackgroundDraft] = useState<
     string | null
   >(null);
   const canvasBackground = canvasBackgroundDraft ?? persistedCanvasBackground;
-  /** The inspector must show a colour, not "none", for a canvas the user has
-   *  not set — and the only honest source for that is what the container is
-   *  currently painted with, which follows the editor theme. */
   const [themedCanvasBackground, setThemedCanvasBackground] = useState<
     string | null
   >(null);
@@ -23568,7 +21567,6 @@ function DesignEditor() {
         return;
       }
       if (meta?.phase === "preview") {
-        // Paint the canvas live, but do not touch persisted state yet.
         setCanvasBackgroundDraft(sanitizeCanvasBackground(value));
         return;
       }
@@ -23599,8 +21597,6 @@ function DesignEditor() {
       next: Partial<{ x: number; y: number; width: number; height: number }>,
     ) => {
       const before = getCanvasFrameGeometry(designDataJsonRef.current);
-      // Same fallback getSelectedScreenGeometryForInspector displays, or a
-      // screen with no canvasFrames entry gets fields whose edits do nothing.
       const screenIndex = overviewScreens.findIndex(
         (screen) => screen.id === screenId,
       );
@@ -23858,12 +21854,6 @@ function DesignEditor() {
     schedulePendingOverviewLayerSelectionClear,
     selectedLayerIdsState,
   ]);
-  /**
-   * A selected screen's own <body>, as an inspectable element. The frame's box
-   * comes from the board and its paint from that file's <body>; the document
-   * now fills the frame (see EMBEDDED_FRAME_FIT_STYLE), so painting the body
-   * paints the screen's actual rectangle and the two read as one object.
-   */
   const selectedScreenElement = useMemo(() => {
     const screenId = selectedScreenGeometry?.id;
     if (!screenId || !selectedScreenOwnsItsMarkup) return null;
@@ -24259,9 +22249,6 @@ function DesignEditor() {
             }),
           );
         } else if (lastRootTarget) {
-          // A source/runtime projection can briefly disagree on node ids while
-          // a live snapshot is settling. Keep the current single-screen
-          // selection rather than turning a body-only locate into deselection.
           setSelectedElement((current) => current);
         } else {
           setSelectedElement(null);
@@ -24359,9 +22346,6 @@ function DesignEditor() {
       ),
       selectedElementLayerId,
     ];
-    // Only clear selection when the element (or its file) becomes LOCKED.
-    // Hidden layers keep their selection so the layer panel still shows it,
-    // and unlocking a layer must not accidentally deselect it.
     const activeFileLocked =
       activeFile?.id && effectiveCodeLayerState.lockedIds.has(activeFile.id);
     const selectionBlocked =
@@ -24396,8 +22380,6 @@ function DesignEditor() {
     overviewScreens,
   ]);
 
-  // §6.4 / §8 — Breakpoints list for the StatesPanel, derived from
-  // designs.data.breakpointSet. Returns a stable empty array when none are set.
   const statesPanelBreakpoints = useMemo<
     Array<{ id: string; label: string; widthPx: number }>
   >(() => {
@@ -24436,7 +22418,6 @@ function DesignEditor() {
     return [];
   }, [designDataJson]);
 
-  // Active breakpoint id for the StatesPanel — "auto" when no frame is focused.
   const statesPanelActiveBreakpointId = useMemo<string>(() => {
     if (activeBreakpointWidthState == null) return "auto";
     const match = statesPanelBreakpoints.find(
@@ -24449,13 +22430,8 @@ function DesignEditor() {
     return defaultMatch?.id ?? "auto";
   }, [activeBreakpointWidthState, statesPanelBreakpoints]);
 
-  // PF8: hoisted EditPanel callback props. These were previously inline
-  // arrows created fresh on every DesignEditor render, which defeats any
-  // memoization EditPanel does internally on its own prop identities.
-
   const handleStatesPanelBreakpointSelect = useCallback(
     (breakpointId: string) => {
-      // "auto" = clear the active breakpoint (overview).
       if (breakpointId === "auto") {
         activeBreakpointWidthStateRef.current = undefined;
         setActiveBreakpointWidthState(undefined);
@@ -24478,13 +22454,7 @@ function DesignEditor() {
   );
 
   const handleStatesPanelAddBreakpoint = useCallback(() => {
-    // Delegate to the MultiScreenCanvas affordance by navigating to overview
-    // where the "+" button lives.
     if (viewMode !== "overview") {
-      // Keep the eager ref in lockstep with the state write — every other
-      // view switch in this file pairs these (see enterSingleScreen /
-      // enterOverviewFromZoom); leaving the ref stale here opens the same
-      // stale-viewModeRef window behind the zoom-preset-in-single-view bug.
       viewModeRef.current = "overview";
       setViewMode("overview");
     }
@@ -24493,8 +22463,6 @@ function DesignEditor() {
   const statesPanelProps = useMemo(() => {
     if (!id) return undefined;
     return {
-      // §6.4 / §8 — active state and breakpoint wired into the StatesPanel
-      // so selection is agent-visible.
       activeStateId: selectedStateId,
       activeBreakpointId: statesPanelActiveBreakpointId,
       breakpoints: statesPanelBreakpoints,
@@ -24514,7 +22482,6 @@ function DesignEditor() {
 
   const publishDesignTitle = design?.title?.trim() || "Untitled design";
 
-  // ── Preview, publish waitlist, gradient, interaction states ────────────────
   const handleOpenDesignPreview = useCallback(() => {
     if (activeScreenSnapshotOnly) return;
     let previewUrl = activeScreenPreviewUrl;
@@ -24596,40 +22563,12 @@ function DesignEditor() {
           activeFileId)
         : activeFileId
       : null;
-  // PF8: MultiScreenCanvas prop — a fresh array here every render would defeat
-  // React.memo(MultiScreenCanvas) even when the id itself is unchanged.
   const fullViewScreenIds = useMemo(
     () =>
       selectedElementFullViewScreenId ? [selectedElementFullViewScreenId] : [],
     [selectedElementFullViewScreenId],
   );
 
-  /**
-   * On-canvas gradient-edit handles (Figma parity) for a whole selected
-   * SCREEN FRAME's own background fill — the "page defaults" case in
-   * EditPanel (no DOM child selected, so EditPanel shows `pageStyles` and
-   * `handleStyleChange` defaults its selector to "body").
-   *
-   * Scope note / known gap: this only covers a single selected overview
-   * screen frame. It does NOT cover BOARD/DRAFT primitive fills — draft
-   * primitive selection (`selectedDraftIds`) is internal state inside
-   * MultiScreenCanvas and is not exposed as a prop, so DesignEditor has no
-   * id to key a draft's gradientEditTarget on. It also doesn't gate on
-   * "the fill color-picker popover is specifically open" — EditPanel/
-   * DesignColorPicker expose no popover-open or live-paint-type signal
-   * (StyleChangeMeta is just `{ phase }`, and the file-level
-   * `inspectorPopoverOpen` flag fires for ANY Radix popover in the editor,
-   * not specifically the color picker's gradient tab — using it here would
-   * make gradient handles spuriously appear while e.g. the export or
-   * alignment popovers are open). Instead this derives directly from the
-   * frame's OWN resolved background-image value: whenever the single
-   * selected screen's background is a linear-gradient, handles show;
-   * whenever it isn't (solid color, image, none), they don't. See the
-   * `gradientEditTarget` doc on MultiScreenCanvas and `GradientEditSessionTarget`
-   * in inspector/GradientEditor.tsx for the fuller contract this partially
-   * implements, and the follow-up note where this prop is passed below for
-   * the exact EditPanel/DesignColorPicker changes needed to close the gap.
-   */
   const singleSelectedOverviewScreenId =
     viewMode === "overview" &&
     !selectedElement &&
@@ -24659,18 +22598,6 @@ function DesignEditor() {
     singleSelectedOverviewScreenId,
   ]);
 
-  // Item 8 — in-screen gradient-edit handles: extends the derivation above
-  // to a real DOM element SELECTED INSIDE a screen (not a board/draft
-  // primitive or the screen-frame's own background, which the
-  // gradientEditTarget/pageStyles case above already covers — the screen
-  // ROOT element is excluded here via isScreenRootElementInfo the same way
-  // handleScreenElementSelect already treats it as the "page defaults"
-  // case). MultiScreenCanvas has no chrome for a node inside iframe
-  // content, so instead of an overlay target this resolves the owning
-  // screen id + node id and is forwarded into that screen's DesignCanvas
-  // as a `gradientEditTarget` PROP (see DesignCanvas's gradient-edit-target/
-  // gradient-edit-clear postMessage sync effect) so the editor-chrome
-  // bridge itself draws the handles over the in-iframe element.
   const inScreenGradientEditNodeId = useMemo(() => {
     if (!selectedElement || isScreenRootElementInfo(selectedElement))
       return null;
@@ -24722,11 +22649,6 @@ function DesignEditor() {
     inScreenGradientEditNodeId,
     inScreenGradientEditScreenId,
   ]);
-  // Preview/commit phases map onto the same gesture-coalescing conventions
-  // handleStyleChange already applies for drag-style edits (PF12 — preview
-  // ticks skip the expensive commit path via meta.phase; the same fallback
-  // "commit" default matches how bare handleStyleChange calls with no meta
-  // are already treated as an immediate commit elsewhere in this file).
   const handleInScreenGradientEditChange = useCallback(
     (nodeId: string, cssValue: string, phase: "preview" | "commit") => {
       if (
@@ -24739,18 +22661,6 @@ function DesignEditor() {
     },
     [handleStyleChange, inScreenGradientEditTarget],
   );
-  // Interaction-state forced preview (phase 2) — same screen/node resolution
-  // as inScreenGradientEditScreenId/NodeId above (the selected element's
-  // owning screen, whether in single-screen or overview mode), but gated on
-  // `activeInteractionStateState` (EditPanel's InteractionStatePanel
-  // selection) instead of a gradient fill. `null` whenever there's no
-  // non-default state active OR no single-element selection with a stable
-  // node id — EditPanel itself only shows the selector for a single
-  // selection, so a multi-selection/no-selection here just means "nothing to
-  // preview", not an error. Extracted as a standalone pure function
-  // (deriveStatePreviewTarget) so the derivation the postMessage pipeline
-  // depends on is directly unit-testable end-to-end without rendering the
-  // whole editor — see DesignEditor.interactionStates.test.ts.
   const pendingInspectorInteractionStateStyles = useMemo(() => {
     if (
       activeCanvasSourceType !== "localhost" ||
@@ -24815,12 +22725,6 @@ function DesignEditor() {
     selectedCanvasSelector,
     selectedCanvasSelectorCandidates,
   ]);
-  // EditPanel resets its own interaction-state selector back to Default (and
-  // calls this with `null`) whenever the SELECTION changes — see EditPanel's
-  // matching effect keyed on `selectedElementKey`. Storing the mirror here is
-  // enough to clear `statePreviewTarget` above on both a state change AND a
-  // selection change, without DesignEditor needing its own separate
-  // selection-change effect.
   const handleInteractionStateChange = useCallback(
     (next: InteractionState | null) => {
       setActiveInteractionStateState(next);
@@ -24834,7 +22738,6 @@ function DesignEditor() {
     activeLayerId && effectiveCodeLayerState.hiddenIds.has(activeLayerId),
   );
 
-  // Detect if the active screen is a localhost/local source so we can show a banner.
   const activeScreenIsLocalSource =
     Boolean(activeFile) && activeOverviewScreen?.sourceType === "localhost";
   const activeScreenRouteSourceFile = activeScreenIsLocalSource
@@ -24843,17 +22746,11 @@ function DesignEditor() {
         source: activeOverviewScreen?.source,
       })
     : undefined;
-  // Connection id for the active localhost screen — needed to mint write grants.
   const activeLocalhostConnectionId = activeScreenIsLocalSource
     ? ((activeOverviewScreen as { connectionId?: string } | undefined)
         ?.connectionId ?? "")
     : "";
 
-  // Fetch the connected roots used by every localhost screen. Besides the
-  // consent dialog, this lets React debug provenance such as /@fs/ absolute
-  // paths be reduced to safe project-relative source anchors before the
-  // semantic coding-agent handoff. The ref is read by gesture callbacks above
-  // without making root-path hydration part of their render identity.
   const { data: activeLocalhostConnectionResult } = useActionQuery<{
     connections?: Array<{
       id: string;
@@ -24945,18 +22842,6 @@ function DesignEditor() {
     selectedComponentLocalSource,
   ]);
 
-  /**
-   * Request consent to write a local file for the active localhost screen.
-   * If no valid grant exists, opens the consent dialog; once granted the
-   * caller should proceed to call write-local-file via the action surface.
-   *
-   * Only works when the active screen is localhost-backed and the current user
-   * has editor access. For non-localhost screens use the normal Ask-AI path.
-   *
-   * The files parameter is for display in the consent dialog only; the actual
-   * write must be performed by the caller via the write-local-file action.
-   */
-  // ── Localhost write and apply-to-source ────────────────────────────────────
   const requestLocalhostWrite = useCallback(
     (opts: {
       files: string[];
@@ -24964,17 +22849,11 @@ function DesignEditor() {
       onCancel?: () => void;
     }) => {
       if (!id || !canEditDesign) return;
-      // VE7: surface why the write can't proceed instead of silently no-oping
-      // when the active screen has no resolvable localhost connection.
       if (!activeLocalhostConnectionId) {
         toast.error(NO_LOCALHOST_CONNECTION_MESSAGE);
         return;
       }
 
-      // Prefer the connection's actual stored rootPath (a real folder path)
-      // for display in the consent dialog. Fall back to the resolved source
-      // file path, and only fall back to the raw connection id — which is an
-      // opaque UUID, not a folder — if neither is available.
       const rootPath =
         activeLocalhostConnectionRootPath ??
         activeScreenRouteSourceFile ??
@@ -24999,8 +22878,6 @@ function DesignEditor() {
   );
   requestLocalhostWriteRef.current = requestLocalhostWrite;
 
-  // Localhost workspace roots for the code workbench: one per distinct
-  // connection referenced by this design's localhost-backed screens.
   const workbenchLocalhostConnections = useMemo(() => {
     const seen = new Map<
       string,
@@ -25034,8 +22911,6 @@ function DesignEditor() {
     return [...seen.values()];
   }, [activeLocalhostConnectionResult?.connections, overviewScreens]);
 
-  // "Add screen" for a localhost-sourced design offers a route picker instead
-  // of a blank artboard — see AddLocalhostScreenDialog.
   const [addLocalhostScreenOpen, setAddLocalhostScreenOpen] = useState(false);
   const handleOpenAddLocalhostScreen = useCallback(
     () => setAddLocalhostScreenOpen(true),
@@ -25073,8 +22948,6 @@ function DesignEditor() {
     handleAddScreen();
   }, [designSourceType, handleAddScreen]);
 
-  // Consent round trip for code-workbench saves to local files: opens the
-  // shared write-consent dialog and retries the save once granted.
   const handleWorkbenchLocalWriteConsent = useCallback(
     (connectionId: string, retry: () => void, filePath?: string) => {
       if (!id || !canEditDesign) return;
@@ -25097,18 +22970,10 @@ function DesignEditor() {
     [canEditDesign, id, workbenchLocalhostConnections],
   );
 
-  /**
-   * Derive a relative file path from the active localhost screen.
-   * Prefers `sourceFile` (the build-output relative path recorded at connect
-   * time) over the URL pathname so the path maps to the actual file on disk.
-   * Returns undefined when no usable path can be determined.
-   */
   const activeLocalhostRelPath = useMemo<string | undefined>(() => {
     if (!activeScreenIsLocalSource) return undefined;
-    // Prefer the explicit sourceFile (e.g. "src/index.html").
     const sf = activeScreenRouteSourceFile;
     if (sf?.trim()) return sf.trim();
-    // Fall back to URL pathname (e.g. "/page.html" → "page.html").
     const url = activeOverviewScreen?.url;
     if (!url) return undefined;
     try {
@@ -25125,7 +22990,6 @@ function DesignEditor() {
 
   const activeLocalhostWriteExtension =
     (activeLocalhostRelPath?.match(/\.[^.]+$/) ?? [])[0]?.toLowerCase() ?? "";
-  /** True when the active localhost screen maps to an HTML/CSS file we can write. */
   const activeLocalhostRouteIsWritable =
     activeScreenIsLocalSource &&
     Boolean(activeLocalhostRelPath) &&
@@ -25145,31 +23009,11 @@ function DesignEditor() {
     persistedContent: activeContent,
     liveSnapshotHtml: activeLocalhostSourceSnapshotHtml,
   });
-  /**
-   * True when the active localhost screen resolves to a compiled framework
-   * route (.jsx/.tsx) — a real local source file exists, but we can't yet
-   * write back to it (no build-time source mapping for a raw text write).
-   * Used to show "Apply to source" as a disabled affordance with a tooltip
-   * instead of hiding it outright, so users understand why it's unavailable.
-   */
   const activeLocalhostRouteIsCompiledSource =
     activeScreenIsLocalSource &&
     Boolean(activeLocalhostRelPath) &&
     LOCALHOST_COMPILED_SOURCE_EXTENSIONS.has(activeLocalhostWriteExtension);
 
-  /**
-   * Strip editor-only node-id attributes from HTML source so they are not
-   * written back to the user's local file.
-   *
-   * Kept attributes (intentional user content):
-   *   - data-agent-native-layer-name  (human-readable display name)
-   *   - data-screen="…"               (prototype navigation)
-   *   - any other data-* not listed below
-   *
-   * Stripped attributes (editor plumbing only):
-   *   - data-agent-native-node-id     (stable selection id stamped by the editor)
-   *   - data-code-layer-id            (alternative layer id for localhost components)
-   */
   function stripEditorOnlyAttributes(html: string): string {
     if (typeof window === "undefined") return html;
     try {
@@ -25183,28 +23027,16 @@ function DesignEditor() {
           el.removeAttribute(attr);
         });
       }
-      // Serialise back.  Use outerHTML of <html> to preserve doctype-less
-      // fragments; for full documents prefer innerHTML wrapping.
       const doctype = doc.doctype
         ? new XMLSerializer().serializeToString(doc.doctype) + "\n"
         : "";
       const htmlEl = doc.documentElement;
       return doctype + htmlEl.outerHTML;
     } catch {
-      // If DOMParser fails (e.g. malformed HTML) fall back to the raw content.
       return html;
     }
   }
 
-  /**
-   * "Apply to source" — write the current editor content back to the local
-   * file via the bridge. Opens the consent dialog if no grant exists yet, then
-   * calls write-local-file with a clean version of the editor content (editor-
-   * only attribute stamps stripped).
-   *
-   * Only operates on HTML/CSS routes (gated by activeLocalhostRouteIsWritable).
-   * For non-HTML routes (React/JSX/TS), keep routing to the agent chat instead.
-   */
   const handleApplyToSource = useCallback(
     () =>
       runApplyToSource({
@@ -25231,8 +23063,6 @@ function DesignEditor() {
     ],
   );
 
-  // canGroup: 1+ DOM-node layers selected in the active screen (not file
-  // rows). Figma groups a single object too — the wrapper takes its bounds.
   const fileIdSet = new Set(files.map((f) => f.id));
   const selectedDomLayerIds = selectedLayerIds.filter(
     (id) => !id.startsWith("__") && !fileIdSet.has(id),
@@ -25258,25 +23088,11 @@ function DesignEditor() {
       selectedRuntimeLayerOwners.every(
         (owner) => owner?.fileId === selectedRuntimeLayerOwners[0]?.fileId,
       ));
-  // Figma parity: grouping doesn't care which canvas mode you're looking at
-  // it from — Cmd+G (handleGroupSelection wired unconditionally at
-  // canEditDesign in useDesignHotkeys) already works from overview, so
-  // gating just the context-menu item to viewMode === "single" only made
-  // the two entry points disagree about the same command.
-  // runGroupSelection itself has no viewMode dependency either.
   const canGroup =
     canEditDesign &&
     Boolean(activeFile) &&
     selectedDomLayerIds.length >= 1 &&
     selectedLayersUseCompatibleSourceBackend;
-  // canUngroup: one or more DOM-node layers selected (L16: handleUngroupSelection
-  // loops all selected containers), and EVERY selected layer must be a
-  // container with at least one element child. L3: code-layer's applyUnwrap
-  // now rejects leaf nodes (nothing to "release" as children — see the
-  // unsupported-status branch in shared/code-layer.ts applyUnwrap), so the
-  // menu item must be disabled when any selected leaf can't be ungrouped,
-  // instead of enabling Ungroup for any selection and surfacing a failure
-  // toast when it's clicked.
   const canUngroup =
     canEditDesign &&
     viewMode === "single" &&
@@ -25288,7 +23104,6 @@ function DesignEditor() {
       return Boolean(node) && node!.children.length > 0;
     });
 
-  // ── Layer move, rename, lock, and hide ─────────────────────────────────────
   const handleScreenLayerMove = useCallback(
     (intent: LayersPanelMoveIntent) => {
       const nextOrder = reorderCanonicalScreenStack({
@@ -25341,12 +23156,6 @@ function DesignEditor() {
     ],
   );
 
-  // L19: dropping a layer directly onto a file/screen row (which has no
-  // code-layer owner — it isn't a DOM node) appends it at the end of that
-  // screen's <body> instead of being silently rejected. Self-contained
-  // handler kept separate from the main anchor-based handleLayerMove body
-  // below (which is built entirely around resolving a code-layer anchor
-  // node) to avoid threading a "no anchor" mode through that large function.
   const handleLayerMoveToScreen = useCallback(
     (intent: LayersPanelMoveIntent, targetFileId: string) =>
       runLayerMoveToScreen(
@@ -25475,10 +23284,6 @@ function DesignEditor() {
     (layerId: string) => {
       const owner = codeLayerOwnerByNodeId.get(layerId);
       if (!owner) return;
-      // Match handleLayerSelectionChange: hover from the LayersPanel must
-      // follow the hovered layer's owning screen even when it isn't the
-      // active screen (overview mode shows layers from every screen), not
-      // just silently no-op like the previous same-file-only guard did.
       setHoveredElement(elementInfoFromCodeLayerNode(owner.node));
       setHoveredElementScreenId(owner.fileId);
     },
@@ -25582,9 +23387,6 @@ function DesignEditor() {
             : current;
         });
       }
-      // Keep zero-area measurements associated with the selected node so the
-      // style recorder can reject an invisible wrapper instead of queuing a
-      // pending edit that can never render.
       if (
         measured.boundingRect.width <= 0 ||
         measured.boundingRect.height <= 0
@@ -25686,10 +23488,6 @@ function DesignEditor() {
       selection: CanvasLayerMarqueeSelection[],
       intent: ElementSelectionIntent,
     ) => {
-      // A marquee gesture spans many calls (one per mousemove tick, plus one
-      // mouseup "final" report — see coalesceMarqueeSelectionHistory's doc
-      // comment); every other caller of this handler is a single, complete
-      // selection change. Route on the marquee-only `intent.final` field.
       recordMarqueeSelectionHistoryAroundChange(() => {
         runLayerMarqueeSelectionChange(
           {
@@ -25904,10 +23702,6 @@ function DesignEditor() {
     ],
   );
 
-  // LayersPanel and every LayerRow are memoized, and these callbacks reach
-  // each row. Handlers that change identity on unrelated editor renders
-  // (hover, zoom, each live frame booting) re-render the whole layer tree, so
-  // the panel gets stable forwarders to the latest handlers.
   const layerPanelHandlers = {
     onRename: handleLayerRename,
     onToggleLocked: handleToggleLayerLocked,
@@ -25963,13 +23757,6 @@ function DesignEditor() {
     };
   }, []);
 
-  // Figma's Cmd+Shift+H / Cmd+Shift+L: toggle hide/lock for the CURRENT
-  // selection — every selected layer/screen (selectedLayerIds already unifies
-  // overview screen selection and single-screen layer selection into one
-  // list), not just the single "active" one the context menu's toggle
-  // buttons show a label for. The new state mirrors what that active item is
-  // about to become (matches the context-menu label: Hide vs. Show / Lock vs.
-  // Unlock) so a mixed selection converges to one consistent state per press.
   const handleToggleHiddenForSelection = useCallback(() => {
     if (!canEditDesign && !canEditLiveScreens) return;
     const targets = selectedLayerIds.length > 0 ? selectedLayerIds : [];
@@ -26052,12 +23839,6 @@ function DesignEditor() {
 
   const getContextCanvasPoint = useCallback(
     ({ clientX, clientY }: { clientX: number; clientY: number }) => {
-      // In single-screen mode the iframe is inside a scale(zoom/100) wrapper
-      // that also centers the content. Using the iframe's own
-      // getBoundingClientRect() already incorporates centering/pan because the
-      // rect is measured in screen space after the CSS transform. Dividing by
-      // the zoom factor converts from post-scale screen-pixels back to the
-      // document coordinate space written into left/top by cloneHtmlLayerAtPosition.
       if (viewMode === "single") {
         const iframe = canvasContainerRef.current?.querySelector<HTMLElement>(
           "[data-design-preview-iframe]",
@@ -26070,8 +23851,6 @@ function DesignEditor() {
         });
         if (point) return point;
       }
-      // Overview mode: fall back to container-relative coords (overview uses its
-      // own coordinate mapping for paste; this value is a best-effort fallback).
       const rect = canvasContainerRef.current?.getBoundingClientRect();
       if (!rect) return { x: 120, y: 120 };
       return {
@@ -26096,14 +23875,11 @@ function DesignEditor() {
       setZoomInputValue(zoomLabel);
       return;
     }
-    // A typed zoom % is an explicit destination, not a zoom-out gesture — see
-    // suppressOverviewPopForExplicitZoomRef's doc comment.
     suppressOverviewPopForExplicitZoomRef.current = true;
     setZoom(clampZoom(next));
     setOpenZoomControl(null);
   }, [setZoom, zoomInputValue, zoomLabel]);
 
-  // ── Design tokens ──────────────────────────────────────────────────────────
   const handleTokensApplied = useCallback(
     (resolvedCssVars: Record<string, string>) => {
       if (!canEditDesign || !id) return;
@@ -26149,11 +23925,6 @@ function DesignEditor() {
     [canEditDesign, id, queryClient],
   );
 
-  // PF6: hoisted so MultiScreenCanvas's internal per-screen content memo
-  // (keyed in part on this callback's identity) doesn't recompute every
-  // screen's DesignCanvas on every unrelated DesignEditor render. Previously
-  // this was an inline arrow passed straight to the renderScreenContent prop,
-  // so it got a brand-new identity every render no matter what changed.
   type OverviewScreenRenderer = NonNullable<
     React.ComponentProps<typeof MultiScreenCanvas>["renderScreenContent"]
   >;
@@ -26162,7 +23933,6 @@ function DesignEditor() {
   >;
   type OverviewScreenRendererArgs = Parameters<OverviewScreenRenderer>;
   type OverviewBreakpointRendererArgs = Parameters<OverviewBreakpointRenderer>;
-  // ── Render callbacks — route-refresh boundary ──────────────────────────────
   const renderEditableScreenContent = useCallback(
     (
       screen: OverviewScreenRendererArgs[0],
@@ -26535,9 +24305,6 @@ function DesignEditor() {
             details,
           ) => {
             activateResponsiveScope();
-            // Return the result so the bridge gets a real applied/false/pending
-            // ack; without it a rejected drop could never roll back (undefined
-            // !== false read as applied).
             return handleScreenVisualStructureChange(
               screen.id,
               selector,
@@ -26738,12 +24505,6 @@ function DesignEditor() {
     [renderEditableScreenContent],
   );
 
-  // Runtime structure requests are delivered through each screen's
-  // DesignCanvas element. Keep the iframe document mounted while still
-  // invalidating the overview's React-element cache so a request created after
-  // the initial render reaches its live destination. Without this explicit
-  // key, a cached screen node can retain the old null request and a board to
-  // live drop appears to complete while the destination never changes.
   const overviewScreenContentRenderKey = [
     runtimeStructureMoveRequest?.requestId ?? "",
     runtimeStructureInsertRequest?.requestId ?? "",
@@ -26752,14 +24513,6 @@ function DesignEditor() {
     runtimeStructureRollbackRequest?.requestId ?? "",
   ].join("|");
 
-  // ── Board element handlers ─────────────────────────────────────────────────
-  // PF8: the board <DesignCanvas> callbacks below curry `boardFileId` into the
-  // shared `handleScreen*` handlers. Previously these were inline arrows
-  // built fresh on every MultiScreenCanvas render, which defeated
-  // React.memo(MultiScreenCanvas) even when nothing else changed. Hoisting
-  // them to useCallback keyed on boardFileId (already a stable useMemo
-  // string) keeps identity stable across unrelated re-renders and only
-  // changes when the board file itself changes.
   const handleBoardElementSelect = useCallback<
     NonNullable<
       React.ComponentProps<typeof MultiScreenCanvas>["onBoardElementSelect"]
@@ -26977,11 +24730,6 @@ function DesignEditor() {
     },
     [clearPendingOverviewLayerSelectionTimer, handleBreakpointBarSelect],
   );
-  /** The one add-breakpoint path; every entry point must route through it,
-   *  since the mutation is design-wide and widens every screen's row. Widths are
-   *  derived on resolve and unioned with what is persisted — capturing them at
-   *  call time makes concurrent adds under-measure the group. */
-  // ── Breakpoint bar handlers and review feedback apply ──────────────────────
   const addDesignBreakpoint = useCallback(
     (widthPx: number, label?: string) => {
       if (!id) return;
@@ -26991,9 +24739,6 @@ function DesignEditor() {
       );
       if (existingWidths.includes(widthPx)) return;
       const nextWidths = [...new Set([...existingWidths, widthPx])];
-      // Optimistic paint: patch the design query + ref in this click frame so
-      // overview frames / the breakpoint bar update before the mutation
-      // round-trips. Rollback on failure.
       const optimisticId = `optimistic-bp-${widthPx}`;
       const geometryBefore = cloneCanvasFrameGeometry(
         getCanvasFrameGeometry(designDataJsonRef.current),
@@ -27018,8 +24763,6 @@ function DesignEditor() {
         })
         .catch((error) => {
           rollback();
-          // Reflow may have already committed canvasFrames; restore pre-add
-          // geometry so a failed add does not leave a permanent board shift.
           const geometryAfter = getCanvasFrameGeometry(
             designDataJsonRef.current,
           );
@@ -27054,9 +24797,7 @@ function DesignEditor() {
       const priorWidthPx = activeBreakpointWidthState;
       const priorEditScope = responsiveEditScopeRef.current;
       if (clearedActive) {
-        // Removing the active breakpoint resets the edit scope to base.
         setActiveBreakpointWidthState(undefined);
-        // Item 9 — see handleBreakpointBarSelect's matching comment.
         lastAppliedActiveBreakpointIdRef.current = "auto";
         persistActiveBreakpoint("auto", priorEditScope);
       }
@@ -27074,8 +24815,6 @@ function DesignEditor() {
         .catch((error) => {
           rollback();
           if (clearedActive && removed && priorWidthPx !== undefined) {
-            // Restore the prior edit target so a failed remove does not leave
-            // edits scoped to base while the breakpoint reappears.
             setActiveBreakpointWidthState(priorWidthPx);
             lastAppliedActiveBreakpointIdRef.current = removed.id;
             persistActiveBreakpoint(removed.id, priorEditScope);
@@ -27098,9 +24837,6 @@ function DesignEditor() {
       t,
     ],
   );
-  // BP-DEEP v2 item 6 — "Change width" in the per-breakpoint "…" menu.
-  // The action updates the existing definition in place, so a width change
-  // cannot expose an intermediate add/remove state or lose the active id.
   const handleBreakpointChangeWidth = useCallback(
     (breakpointId: string, widthPx: number) => {
       if (!id) return;
@@ -27157,14 +24893,6 @@ function DesignEditor() {
     ],
   );
 
-  /**
-   * Adds a breakpoint to the DESIGN, not to one screen. A design has a single
-   * active breakpoint set in v1, so every screen renders the same widths — the
-   * old `(screenId, widthPx)` signature accepted a screen id it then ignored,
-   * which is why adding a breakpoint "to a frame" silently applied it to all of
-   * them. The parameter is gone so the call sites cannot imply scoping the
-   * action does not have.
-   */
   const handleOverviewAddBreakpoint = useCallback(
     (widthPx: number) => addDesignBreakpoint(widthPx),
     [addDesignBreakpoint],
@@ -27195,21 +24923,11 @@ function DesignEditor() {
       })();
       const bp = bpSet?.breakpoints.find((b) => b.widthPx === widthPx);
       const breakpointId = widthPx !== undefined && bp ? bp.id : "auto";
-      // Item 9 — see handleBreakpointBarSelect's matching comment.
       lastAppliedActiveBreakpointIdRef.current = breakpointId;
       persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
     },
     [id, designDataJson, persistActiveBreakpoint],
   );
-  // STEVE TEST BATCH 3 item 8b — overview breakpoint frame "…" menu (Remove /
-  // Change width) and full-view entry. Width-first, same convention as
-  // onAddBreakpoint/onActiveBreakpointChange above: MultiScreenCanvas has no
-  // per-screen breakpoint-id data (only widths, see ScreenFile.breakpointWidths),
-  // so these resolve widthPx back to a breakpoint id and delegate to the SAME
-  // handlers the inspector's BreakpointDeviceControl "…" menu already calls
-  // (handleBreakpointBarRemove / handleBreakpointChangeWidth) — one design-wide
-  // breakpoint set, so screenId is accepted but unused, same as
-  // handleOverviewAddBreakpoint.
   const handleOverviewRemoveBreakpoint = useCallback(
     (_screenId: string, widthPx: number) => {
       const bp = designBreakpoints.find((b) => b.widthPx === widthPx);
@@ -27226,13 +24944,6 @@ function DesignEditor() {
     },
     [designBreakpoints, handleBreakpointChangeWidth],
   );
-  // Full-view entry for one breakpoint: BreakpointPreviewRow's
-  // activateThisFrame already calls onActiveBreakpointChange (which sets
-  // activeBreakpointWidthState) BEFORE onEditBreakpoint fires (see the
-  // frame's onDoubleClick/full-view-button handlers), so the active
-  // breakpoint scope is already correct by the time this runs — this only
-  // needs to enter single-screen mode for the right file, exactly like the
-  // base frame's onEdit={enterSingleScreen}.
   const handleOverviewEditBreakpoint = useCallback(
     (screenId: string, _widthPx: number) => {
       handleOverviewFrameAction(screenId);
@@ -27261,18 +24972,12 @@ function DesignEditor() {
     submitReviewFeedback,
   ]);
 
-  // Hooks must not be called conditionally; keep navigate as an effect so the
-  // render phase stays pure. This branch is unreachable in practice because the
-  // design.$id.tsx route always supplies an id param.
   useEffect(() => {
     if (!id) void navigate("/home");
   }, [id, navigate]);
 
-  // ── Early returns and derived render values ────────────────────────────────
   if (!id) return null;
 
-  // A shell with no design yet is waiting for the host's `design:init`, not
-  // looking at a design that does not exist.
   if (
     designLoading ||
     (!design &&
@@ -27311,9 +25016,6 @@ function DesignEditor() {
 
   const questionFlowActive = pendingQuestionsVisible;
 
-  // ── Screen settings controls ──────────────────────────────────────────────
-  // Breakpoint targeting belongs with the selected screen's settings so the
-  // inspector keeps one home for viewport-specific edits.
   const deviceFrameControl = (
     <BreakpointDeviceControl
       breakpoints={designBreakpoints}
@@ -27654,7 +25356,6 @@ function DesignEditor() {
     </Tooltip>
   );
 
-  // ── Zoom control, signed-out actions, node-rewrite control ─────────────────
   const renderZoomControl = (controlId: "toolbar" | "inspector") => (
     <DropdownMenu
       open={openZoomControl === controlId}
@@ -27741,12 +25442,6 @@ function DesignEditor() {
           <DropdownMenuItem
             key={preset}
             onClick={() => {
-              // "Zoom to N%" is an explicit destination, not a zoom-out
-              // gesture — see suppressOverviewPopForExplicitZoomRef's doc
-              // comment. Without this, "Zoom to 50%" from the default 100%
-              // single-view zoom crosses OVERVIEW_ZOOM_THRESHOLD (60) and the
-              // edge-triggered pop-to-overview guard would kick the editor
-              // back to overview instead of zooming the focused screen.
               suppressOverviewPopForExplicitZoomRef.current = true;
               setZoom(preset);
             }}
@@ -27820,8 +25515,6 @@ function DesignEditor() {
     </>
   );
 
-  // The right rail resizes down to 240px, so labelled controls in this row must
-  // collapse to icons or they push the Share CTA past the panel edge.
   const rightToolbarCompact = rightSidebarWidth < 320;
   const pendingNodeRewriteLabel = t("designEditor.nodeRewrite.pendingReview", {
     count: pendingNodeRewriteProposals.length,
@@ -28040,7 +25733,6 @@ function DesignEditor() {
     </Popover>
   );
 
-  // ── Right sidebar actions ──────────────────────────────────────────────────
   const rightSidebarActions = (
     <div
       data-design-chrome-region="right-toolbar"
@@ -28232,12 +25924,6 @@ function DesignEditor() {
       }}
       canAnnotate={canEditDesign}
       onClose={handleExitResponsiveInteract}
-      // The docked bar sits in the canvas column, inset by the left rail's
-      // width — a wide rail plus a narrow window can squeeze that column
-      // enough to clip Close before anything else in the bar (see the
-      // pinned ResponsiveInteractExitButton rendered alongside the left
-      // rail below). The floating bar has no rail competing for width, so
-      // it keeps Close inline.
       showClose={floating}
       className={
         floating
@@ -28255,7 +25941,6 @@ function DesignEditor() {
           activeLeftPanel === "agent" ? 320 : 220,
         );
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
-  // These focused surfaces need a clear viewport beside the absolute rail.
   const leftChromeOverlayInset = leftSidebarVisible
     ? `calc(var(--design-chrome-rail-width) + ${activeLeftPanel ? leftContentWidth : 0}px)`
     : undefined;
@@ -28270,12 +25955,6 @@ function DesignEditor() {
     !initialGenerationChromeLimited &&
     !responsiveInteractActive &&
     (!minimalUi || minimalInspectorHasSelection);
-  // Both shells are absolutely-positioned overlays on top of the canvas
-  // surface (see the `left-shell`/`right-panel` chrome regions below), not
-  // flex siblings, so MultiScreenCanvas's own measured rect never shrinks
-  // for them — feed their widths in so its overview camera/fit math can
-  // center content in the space actually free of this chrome instead of
-  // rendering the first screen (and its frame label) underneath it.
   const chromeInsetLeft = leftSidebarVisible
     ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
     : 0;
@@ -28284,9 +25963,6 @@ function DesignEditor() {
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
   const routeCodeFilename =
     activeLeftPanel === "code" ? searchParams.get("filename") : null;
-  // Both inspector mounts (desktop rail, mobile sheet) take an identical prop
-  // set; only `width` differs. One shared object keeps a prop added here from
-  // silently reaching just one of them.
   const editPanelProps = {
     selectedElement,
     textEditingState,
@@ -28477,10 +26153,6 @@ function DesignEditor() {
       : selectedLayerId);
 
   return (
-    // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
-    // so flex-1 on the child doesn't resolve to the available height. h-full
-    // works because main itself has a definite height (flex-1 inside a
-    // flex-col page shell). Without this the canvas collapses to ~150px.
     <div
       data-design-editor
       className="relative flex h-full flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]"
@@ -28623,9 +26295,6 @@ function DesignEditor() {
                     browserTabId={browserTabId}
                     onComposerTextChange={handleComposerTextChange}
                     onMessageCountChange={setChatMessageCount}
-                    // After the suggestions and empty-state only: a template
-                    // and a suggestion are two ways to start, and neither is
-                    // worth offering once the conversation is under way.
                     emptyStateFooter={
                       showFirstRunStart ? (
                         <FirstRunStart
@@ -28846,10 +26515,6 @@ function DesignEditor() {
         {!hostOwnsChrome &&
           !responsiveInteractActive &&
           designBottomToolbarMode === "editor" &&
-          // Not gated on activeFile: a new design has no file rows at all, so
-          // waiting for one held the toolbar back on exactly the first load
-          // where a user needs it. The draw tools create the file they write
-          // to, and `design` is enough to know the editor is real.
           design &&
           !questionFlowActive && (
             <DesignBottomToolbar
@@ -28889,9 +26554,6 @@ function DesignEditor() {
 
         {/* ── Render: canvas ── */}
         {questionFlowActive ? (
-          /* Panel background, not canvas: these are the agent's own follow-up
-             questions, and on the canvas grey they read as an unrelated object
-             parked beside the chat rather than a continuation of it. */
           <div
             className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]"
             style={{ paddingLeft: leftChromeOverlayInset }}
@@ -28975,12 +26637,6 @@ function DesignEditor() {
             canZoomToSelection={Boolean(
               selectedElement || selectedScreenIds.length > 0,
             )}
-            // handleCopySelection (wired to onCopy/onCopyAsCode below) falls
-            // back to whole-screen clipboard snapshots when there's no deeper
-            // layer selection (see its "Whole-screen copy (U6)" branch), so a
-            // selected-screens-only selection is a real, supported copy
-            // target — not just an element selection (mirrors canDelete's
-            // pattern just below).
             canCopy={Boolean(
               selectedElement?.selector || selectedScreenIds.length > 0,
             )}
@@ -28992,7 +26648,6 @@ function DesignEditor() {
             canPasteOver={
               canEditDesign && hasCanvasClipboard && Boolean(activeFile)
             }
-            // Figma: Duplicate requires a selection, matching canDelete.
             canDuplicate={Boolean(
               canEditActiveVisualScreen &&
               (selectedElement || selectedScreenIds.length > 0),
@@ -29008,8 +26663,6 @@ function DesignEditor() {
               (canEditDesign || canEditSingleSelectedLiveLayer) &&
               Boolean(selectedElement)
             }
-            // Rename is only offered for a single selectable layer target;
-            // design-title rename lives in the title control, not this menu.
             canRename={
               (canEditDesign || canEditSingleSelectedLiveLayer) &&
               Boolean(getSingleSelectedRenamableLayerId())
@@ -29033,8 +26686,6 @@ function DesignEditor() {
             canPasteAnimation={
               canEditDesign && hasAnimationClipboard && Boolean(selectedElement)
             }
-            // Same handleCopySelection screen-fallback as canCopy above —
-            // onCopyAsCode is wired to the same handler.
             canCopyAsCode={Boolean(
               selectedElement?.selector || selectedScreenIds.length > 0,
             )}
@@ -29091,8 +26742,6 @@ function DesignEditor() {
                   );
                 }))
             }
-            // Figma instance-only cluster: only meaningful when the current
-            // selection IS a recognised component instance.
             isComponentInstance={
               canEditDesign && Boolean(selectedInstanceActionNodeId)
             }
@@ -29134,10 +26783,6 @@ function DesignEditor() {
             onBringToFront={() => changeSelectedZIndex("front")}
             onSendBackward={() => changeSelectedZIndex("backward")}
             onSendToBack={() => changeSelectedZIndex("back")}
-            // L12: start the layers panel's real inline rename editor on the
-            // single selected layer — canRename above already gates this item
-            // to exactly that case, so getSingleSelectedRenamableLayerId()
-            // should always resolve here.
             onRename={() => {
               const layerId = getSingleSelectedRenamableLayerId();
               if (layerId) layersPanelRef.current?.beginRename(layerId);
@@ -29240,11 +26885,6 @@ function DesignEditor() {
                   ref={canvasContainerRef}
                   data-design-canvas-container
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
-                  // Overrides the themed canvas colour rather than a background
-                  // shorthand, so every descendant reading the var follows.
-                  // A backdrop root must live outside the scaled world. Without
-                  // it, iframe backdrop filters inherit the shell's rounded clip
-                  // and Chrome sizes their masks in inverse-zoom coordinates.
                   style={
                     {
                       isolation: "isolate",
@@ -29540,10 +27180,6 @@ function DesignEditor() {
                         onScreenContentNaturalHeightChange={
                           handleOverviewScreenContentNaturalHeightChange
                         }
-                        // Screen-frame-only partial implementation — see the
-                        // gradientEditTarget derivation above for the BOARD/
-                        // DRAFT primitive gap and the exact EditPanel/
-                        // DesignColorPicker contract still needed to close it.
                         gradientEditTarget={gradientEditTarget}
                         vectorEdit={vectorEditOverlayState}
                         onCreatePrimitive={handleCreatePrimitive}
@@ -30077,11 +27713,6 @@ function DesignEditor() {
                           setHoveredElement(null);
                           setHoveredElementScreenId(null);
                           setSelectedLayerIdsState([]);
-                          // Also signal the iframe bridge so an in-screen
-                          // element's selection highlight (drawn inside the
-                          // iframe) is cleared, not just host state. Harmless
-                          // echo when this fires from the iframe's own
-                          // clear-selection message.
                           setOverviewClearSelectionRequest(
                             (request) => request + 1,
                           );
@@ -30152,8 +27783,6 @@ function DesignEditor() {
                               .toLowerCase();
                           const target = norm(screen);
                           if (!target) return;
-                          // Exact (normalized) filename match only — a substring match
-                          // could send "board" to "dashboard.html".
                           const match = files.find(
                             (f) => norm(f.filename) === target,
                           );
@@ -30298,8 +27927,6 @@ function DesignEditor() {
             minimalUi
               ? (nextOpen) => {
                   if (nextOpen) return;
-                  // Controlled by selection — dismiss clears selection so the
-                  // sheet can close on Escape / overlay click.
                   setSelectedElement(null);
                   setSelectedLayerIdsState([]);
                   setOverviewSelectedScreenIds([]);

@@ -2,10 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import MultiTabSource from "./MultiTabAssistantChat.tsx?raw";
 
-/**
- * The tab counter and the host callback share one prop name, and the explicit
- * handler is written after `{...props}` — so the spread cannot deliver it.
- */
 describe("MultiTabAssistantChat message count", () => {
   it("forwards the host callback instead of only counting tabs", () => {
     const handler = MultiTabSource.slice(

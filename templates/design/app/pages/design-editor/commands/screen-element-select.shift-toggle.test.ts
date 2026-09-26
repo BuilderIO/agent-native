@@ -11,18 +11,12 @@ import { withMeasuredGeometry } from "@/pages/design-editor/editor-helpers";
 
 import { runScreenElementSelect } from "./screen-element-select";
 
-// jsdom does not implement CSS.escape; withMeasuredGeometry needs it and our
-// test-only ids ("node-a"/"node-b") have no characters that need escaping.
 if (typeof CSS === "undefined" || !CSS.escape) {
   (globalThis as { CSS?: { escape: (value: string) => string } }).CSS = {
     escape: (value: string) => value,
   };
 }
 
-// Minimal-but-valid CodeLayerNode: only `id` needs to be distinct per node —
-// resolveCodeLayerTargetFromBridge matches by `node.id === sourceId` before
-// ever consulting tag/text/class scoring, so nothing else here is load-
-// bearing for selection resolution.
 function makeNode(id: string): CodeLayerNode {
   return {
     id,
@@ -155,9 +149,6 @@ describe("runScreenElementSelect — Shift+click toggles selection membership", 
     });
 
     expect(result).toEqual(["node-b"]);
-    // selectedCodeLayerNode (inspector/motion tools) derives from
-    // selectedElement — it must follow the remaining member (B), not stay
-    // pointed at A, the node this Shift+click just removed.
     const resolved = resolveSelectedCodeLayerNode({
       selectedElement,
       sourceProjection: { nodes } as unknown as CodeLayerProjection,
@@ -167,8 +158,6 @@ describe("runScreenElementSelect — Shift+click toggles selection membership", 
 
   it("measures the retargeted primary's live geometry instead of leaving elementInfoFromCodeLayerNode's zero rect (Shift+2 zoom-to-selection needs a real rect)", () => {
     const nodes = [makeNode("node-a"), makeNode("node-b")];
-    // withMeasuredGeometry (editor-helpers.ts) looks up the live preview
-    // iframe by screenId + selector — build a minimal stand-in for it.
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");
     iframe.setAttribute("data-screen-iframe-id", "screen-1");

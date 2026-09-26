@@ -86,9 +86,6 @@ async function syncGoogleSignInIdentity(
 }
 
 function oauthRedirectResponse(url: string) {
-  // h3 v2 sendRedirect returns an object the framework shim can stringify as
-  // "[object Object]" in production auth-url popups. Native Response stays a
-  // real 302 across the stack.
   return new Response(null, {
     status: 302,
     headers: { Location: url },
@@ -211,9 +208,6 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const requestedReturn =
       typeof q.return === "string" ? safeReturnPath(q.return) : "/home";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
-    // Use the named-arg overload — the positional form smuggled `flowId`
-    // into the `returnUrl` slot in earlier revisions, which broke desktop
-    // OAuth completion. See encodeOAuthState's docs.
     const state = encodeOAuthState({
       redirectUri,
       owner,
@@ -275,7 +269,6 @@ export const handleGoogleCallback = defineEventHandler(
         throw new Error("Desktop OAuth browser binding is invalid.");
       }
 
-      // Handle Google authorization errors (e.g. user denied access, invalid client)
       const googleError = query.error as string | undefined;
       if (googleError) {
         const errorDesc =
@@ -301,13 +294,11 @@ export const handleGoogleCallback = defineEventHandler(
         desktopVerifierHash,
       } = state;
 
-      // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
         event,
         stateOwner,
       );
 
-      // 2. Exchange code with Google (template-specific)
       const email = await exchangeCode(code, undefined, redirectUri, owner);
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
@@ -327,7 +318,6 @@ export const handleGoogleCallback = defineEventHandler(
         isNewUser = await syncGoogleSignInIdentity(email);
       }
 
-      // 2b. Auto-populate display name in settings if not set
       try {
         const client = await getClient(email);
         if (client) {
@@ -395,7 +385,6 @@ export const handleGoogleCallback = defineEventHandler(
         );
       }
 
-      // 4. Return platform-appropriate response
       return oauthCallbackResponse(event, email, {
         sessionToken,
         desktop,
@@ -534,7 +523,6 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         throw new Error("Desktop OAuth browser binding is invalid.");
       }
 
-      // Handle Google authorization errors (e.g. user denied access, invalid client)
       const googleError = query.error as string | undefined;
       if (googleError) {
         const errorDesc =

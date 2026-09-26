@@ -1,5 +1,3 @@
-// Public API for the org module.
-
 function lazyFunction<TModule, TKey extends keyof TModule>(
   load: () => Promise<TModule>,
   name: TKey,
@@ -169,8 +167,6 @@ export const createOrgPlugin: (typeof import("./plugin.js"))["createOrgPlugin"] 
       })) as (typeof import("./plugin.js"))["createOrgPlugin"];
 export const defaultOrgPlugin = createOrgPlugin();
 
-// Drizzle schema (re-exported so templates can write typed queries against
-// org tables without redefining the schema themselves).
 export {
   organizations,
   orgMembers,
@@ -211,8 +207,6 @@ export const deleteSCIMHandler = lazyFunction(
   "deleteSCIMHandler",
 );
 
-// Individual handlers — exported so templates can compose a custom org plugin
-// while still using the framework-provided handlers.
 export const getMyOrgHandler = lazyFunction(loadOrgHandlers, "getMyOrgHandler");
 export const createOrgHandler = lazyFunction(
   loadOrgHandlers,

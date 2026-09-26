@@ -37,7 +37,6 @@ import {
   resolveOwnerEngineApiKey,
 } from "./production-agent.js";
 
-/** Owner-scoped `app_secrets` rows, keyed by the provider env var. */
 function ownerSecrets(secrets: Record<string, string>) {
   readAppSecretMock.mockImplementation(async ({ key }: { key: string }) =>
     secrets[key] ? { value: secrets[key], last4: "-key", updatedAt: 1 } : null,
@@ -57,10 +56,6 @@ beforeEach(() => {
 
 describe("resolveOwnerEngineApiKey", () => {
   it("resolves the named engine's own key rather than the active setting's", async () => {
-    // The regression this guards: the saved `agent-engine` setting decides
-    // which provider `getOwnerActiveApiKey` reads, so a plugin configured for
-    // OpenAI used to receive the owner's Anthropic key — untagged, which meant
-    // `resolveEngine` handed a live Anthropic secret to OpenAI.
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
     ownerSecrets({
       ANTHROPIC_API_KEY: "sk-ant-owner",

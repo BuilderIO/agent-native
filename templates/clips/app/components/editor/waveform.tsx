@@ -7,31 +7,18 @@ import type { WaveformPeaks } from "@/lib/waveform-peaks";
 import { getTimelineTotalWidth } from "./timeline-geometry";
 
 export interface WaveformProps {
-  /** Peaks computed via `computePeaks()`. */
   peaks: WaveformPeaks | null;
-  /** Server-generated filmstrip sprite. Preferred over `frames` when present. */
   sprite?: FilmstripSprite | null;
-  /** Browser-extracted frame thumbnails — the fallback when there's no sprite. */
   frames?: FilmstripFrame[];
-  /** Width in px of the viewport (the scroll container). */
   width: number;
-  /** Height in px. */
   height?: number;
-  /** Horizontal zoom — 1 = fit; up to 50x per editor spec. */
   zoom?: number;
-  /** Current playhead in original ms. */
   playheadMs: number;
-  /** Total duration in ms. */
   durationMs: number;
-  /** Excluded ranges (original time) — drawn as striped overlays. */
   excludedRanges?: Array<{ startMs: number; endMs: number }>;
-  /** Transcript-backed activity ranges used when browser audio decoding fails. */
   activityRanges?: Array<{ startMs: number; endMs: number }>;
-  /** Click handler — returns the original ms at the click position. */
   onSeek?: (originalMs: number) => void;
-  /** Controlled horizontal scroll offset from the parent timeline shell. */
   scrollLeft?: number;
-  /** Called on scroll so the parent can sync ruler / chapter markers. */
   onScroll?: (scrollLeft: number, totalWidth: number) => void;
   className?: string;
 }
@@ -110,7 +97,6 @@ function drawPillBar(
   ctx.fill();
 }
 
-/** Canvas-rendered waveform. Supports up to 50x zoom with horizontal scroll. */
 export function Waveform({
   peaks,
   sprite,
@@ -130,13 +116,8 @@ export function Waveform({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // Zoom is the only source of overflow. At 1x the entire track fits the viewport.
   const totalWidth = getTimelineTotalWidth(width, zoom);
 
-  // A sprite has a fixed frame count, but the track needs however many cells
-  // fit at the video's aspect — otherwise cells go portrait and each thumbnail
-  // shows a narrow centre slice. Pick the cell count from the geometry, then
-  // map each cell to the sprite frame nearest its midpoint.
   const spriteCells = useMemo(() => {
     if (!sprite?.url || sprite.frameCount <= 0 || sprite.columns <= 0)
       return [];
@@ -171,7 +152,6 @@ export function Waveform({
     }
   }, [scrollLeft, totalWidth, width]);
 
-  // Re-draw whenever peaks, imagery, size, or excluded ranges change.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -194,11 +174,7 @@ export function Waveform({
       peaks.peaks.some((value) => Math.abs(value) > 0.0001),
     );
 
-    // Canvas background & audio visualization
     ctx.clearRect(0, 0, totalWidth, height);
-    // Frames say nothing about the audio, so the waveform draws either way.
-    // Over a filmstrip it sits on a scrim, which is what keeps pale bars
-    // legible against a bright frame.
     if (hasImagery) {
       const bandHeight = Math.min(height, Math.max(28, height * 0.62));
       ctx.fillStyle = WAVE_SCRIM;
@@ -208,7 +184,6 @@ export function Waveform({
       ctx.fillRect(0, 0, totalWidth, height);
     }
 
-    // Audio bars, centred on the track.
     const barWidth = 3;
     const barGap = 1.5;
     const step = barWidth + barGap;
@@ -249,7 +224,6 @@ export function Waveform({
         drawPillBar(ctx, x, topY, barWidth, barHeight);
       }
     } else {
-      // No decoded audio — fall back to transcript-backed activity.
       for (let i = 0; i < barCount; i++) {
         const x = i * step;
         const barMs = (i / Math.max(1, barCount)) * durationMs;
@@ -268,7 +242,6 @@ export function Waveform({
       }
     }
 
-    // Excluded ranges — dimmed striped overlay
     if (excludedRanges?.length) {
       for (const r of excludedRanges) {
         const xStart = (r.startMs / Math.max(durationMs, 1)) * totalWidth;
@@ -319,12 +292,8 @@ export function Waveform({
     if (!onSeek || e.button !== 0) return;
     const el = scrollRef.current;
     if (!el) return;
-    // A pointerdown on this element's own horizontal scrollbar still targets
-    // the element. Capturing there would turn the drag that pans a zoomed
-    // track into a scrub, leaving no way to reach the rest of the timeline.
     if (e.clientY - el.getBoundingClientRect().top >= el.clientHeight) return;
     scrubRef.current = { pointerId: e.pointerId, startX: e.clientX };
-    // Touch keeps the browser's native pan; a tap still seeks on pointerup.
     if (e.pointerType === "touch") return;
     el.setPointerCapture(e.pointerId);
     seekToEvent(e);
@@ -356,7 +325,6 @@ export function Waveform({
     onScroll?.(el.scrollLeft, totalWidth);
   };
 
-  // Playhead position
   const playheadX = useMemo(
     () => (playheadMs / Math.max(durationMs, 1)) * totalWidth,
     [playheadMs, durationMs, totalWidth],
@@ -386,8 +354,6 @@ export function Waveform({
                 style={{
                   width: `${100 / spriteCells.length}%`,
                   backgroundImage: `url(${sprite.url})`,
-                  // Percentage sizing maps one grid cell onto one element box,
-                  // so percentage positioning addresses cells exactly.
                   backgroundSize: `${sprite.columns * 100}% ${sprite.rows * 100}%`,
                   backgroundPosition: `${
                     sprite.columns > 1

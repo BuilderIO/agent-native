@@ -8,19 +8,6 @@ export interface InvitationBannerProps {
   className?: string;
 }
 
-/**
- * Top-of-app notice bar. Mounted in every template shell, so it owns the
- * org-level notices a member needs before they can make sense of what they're
- * looking at:
- *   - They're on the wrong deployment ({@link WorkspaceNotice}).
- *   - Pending org invitations (one-click Accept).
- *   - Domain-match orgs the user can auto-join because their email domain
- *     matches `organizations.allowed_domain` (one-click Join). Lets a new
- *     signup at e.g. `someone@builder.io` see and join the existing
- *     Builder.io org without going through the picker.
- *
- * Renders nothing when there's nothing to surface.
- */
 export function InvitationBanner({ className }: InvitationBannerProps) {
   return (
     <>
@@ -48,10 +35,6 @@ function InvitationRows({ className }: InvitationBannerProps) {
 
   const error = acceptInvitation.error || joinByDomain.error;
 
-  // While the join/accept request is in flight (and continuing until the
-  // refreshed org data unmounts this banner), surface a prominent in-place
-  // "Joining {orgName}…" state so the chat panel reflects the action instead
-  // of looking unchanged until the view abruptly swaps.
   const joiningOrgName = (() => {
     if (joiningOrgId) {
       return (

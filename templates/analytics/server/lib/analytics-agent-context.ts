@@ -45,7 +45,6 @@ const CATALOG_TOOL_NAMES = new Set([
   "list-data-dictionary",
   "search-bigquery-schema",
 ]);
-// Count SQL query tools plus source reads registered on their action definitions.
 const QUERY_TOOL_NAMES = new Set([
   "bigquery",
   "query-agent-native-analytics",

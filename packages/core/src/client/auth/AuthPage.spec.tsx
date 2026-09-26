@@ -272,8 +272,6 @@ describe("AuthPage", () => {
     const html = renderToString(<AuthPage {...props} />);
 
     expect(props.initialView).toBe("magicLink");
-    // The Create account / Sign in tabs are the only account chooser, and this
-    // view hides them on purpose: one email field registers and signs in.
     expect(html).toMatch(/id="auth-tabs"[^>]*\shidden=""/);
     expect(html).toContain("Sign in or create your account");
     expect(html).not.toContain("Create an account or sign in");

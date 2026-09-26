@@ -1,13 +1,3 @@
-/**
- * The CRM board: a list's entries, or an object's records, in one column per
- * option of a `status` attribute.
- *
- * Stage history is not a separate table. On a list board the current status
- * row's `active_from` arrives as `valuesSince[slug]`, and the option's
- * `target_days` comes with the attribute — so the SLA the cards show is
- * exactly what an action reading `crm_record_fields` would compute.
- */
-
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
@@ -69,10 +59,6 @@ import {
 } from "./board-model";
 import { toEntryFilters, type EntryFilter } from "./entry-filter";
 
-// ---------------------------------------------------------------------------
-// Action shapes
-// ---------------------------------------------------------------------------
-
 interface BoardAttributeOption {
   id: string;
   value: string;
@@ -130,53 +116,27 @@ interface RecordsResponse {
 
 const PAGE_LIMIT = 100;
 
-/**
- * Time in stage, compactly: "3d", "14d", "+5d". `Intl` owns the unit, so a
- * locale that does not abbreviate days still reads correctly (ar-SA renders
- * "١٤ ي") without a per-locale string of our own. The long sentence stays as
- * the row's `title`.
- */
 const DAY_UNIT: Intl.NumberFormatOptions = {
   style: "unit",
   unit: "day",
   unitDisplay: "narrow",
 };
 
-/**
- * Drop confirmation: the accent tint lands instantly on the card that just
- * committed, then eases back to rest. Board-local rather than a shared motion
- * token — nothing else in the app confirms a drop, and 900ms is far outside
- * the interaction scale the other surfaces share.
- *
- * It REPLACES the resting `bg-card` rather than being layered on top of it.
- * Two `bg-*` utilities on one element are decided by their order in the
- * generated stylesheet, not by the order they are written, and the theme
- * colour wins — so a flash appended to the class list silently paints nothing.
- */
 const CARD_REST_CLASS = "bg-card";
 const DROP_FLASH_CLASS = "bg-[hsl(var(--crm-accent)/0.12)] transition-none";
 
 export interface CrmBoardTarget {
   kind: "list" | "object";
-  /** The list id for a list target, the object type for an object target. */
   id: string;
-  /** Canonical record kind, for an object target. */
   recordKind?: string | undefined;
 }
 
 export interface CrmBoardProps {
   target: CrmBoardTarget;
   groupByAttributeId?: string | undefined;
-  /** The view's stored filter tree, applied server-side. */
   filter?: unknown;
   mode: "table" | "board";
-  /** Attribute ids the view shows, used to pick the card and money columns. */
   columnAttributeIds?: readonly string[];
-  /**
-   * Reports which status attribute the board resolved to group by, and which
-   * ones it could use. A saved board view must persist an explicit
-   * `groupByAttributeId`, so the toolbar needs the id the board fell back to.
-   */
   onGrouping?: (state: {
     statusAttributes: Array<{ id: string; label: string }>;
     groupAttributeId: string | null;
@@ -194,10 +154,6 @@ interface BoardData {
   refetch: () => void;
   commit: (move: { card: BoardCard; toValue: string }) => Promise<unknown>;
 }
-
-// ---------------------------------------------------------------------------
-// Shared derivation
-// ---------------------------------------------------------------------------
 
 function toBoardOptions(attribute: BoardAttribute | null): BoardOption[] {
   return (attribute?.options ?? []).map((option) => ({
@@ -251,10 +207,6 @@ function statusAttributesOf(
   return attributes.filter((attribute) => attribute.attributeType === "status");
 }
 
-// ---------------------------------------------------------------------------
-// List target
-// ---------------------------------------------------------------------------
-
 function useListBoard(props: CrmBoardProps, enabled: boolean): BoardData {
   const attributesQuery = useActionQuery<AttributesResponse>(
     "list-crm-attributes" as never,
@@ -267,9 +219,6 @@ function useListBoard(props: CrmBoardProps, enabled: boolean): BoardData {
     props.groupByAttributeId,
   );
 
-  // The filter is translated against the list's own attributes, so the entries
-  // call waits for them. One extra round trip on first paint; every later
-  // filter change hits the cached attribute query.
   let filters: EntryFilter[] = [];
   let filterError: unknown;
   try {
@@ -323,13 +272,9 @@ function useListBoard(props: CrmBoardProps, enabled: boolean): BoardData {
         title: entry.record.displayName,
         subtitle: entry.record.domain ?? entry.record.primaryEmail ?? null,
         owner: entry.record.ownerName ?? null,
-        // An entry move writes the entry, not the record.
         remoteRevision: null,
         groupValue: typeof raw === "string" && raw ? raw : BOARD_UNGROUPED,
         groupSince: entry.valuesSince[groupSlug] ?? null,
-        // Only a typed currency attribute counts here, never the legacy
-        // mirrored `crmRecords.amount` column: that field predates the
-        // attribute system and is not what a view's own columns name.
         amount: cardAmountFor(currencyAttribute, entry.values),
         currencyCode: currencyAttribute
           ? currencyCodeOf(currencyAttribute.config)
@@ -367,14 +312,6 @@ function useListBoard(props: CrmBoardProps, enabled: boolean): BoardData {
       ),
   };
 }
-
-// ---------------------------------------------------------------------------
-// Object target
-//
-// A record summary carries no attribute values, so a column is one filtered
-// `list-crm-records` call rather than one page grouped in the browser. Each
-// column is therefore a real server-side result, not a slice of one page.
-// ---------------------------------------------------------------------------
 
 function useObjectBoard(props: CrmBoardProps, enabled: boolean): BoardData {
   const attributesQuery = useActionQuery<AttributesResponse>(
@@ -451,8 +388,6 @@ function useObjectBoard(props: CrmBoardProps, enabled: boolean): BoardData {
           owner: record.owner ?? null,
           remoteRevision: record.remoteRevision,
           groupValue: bucket.value ?? BOARD_UNGROUPED,
-          // A record summary reports no `active_from` for the status value, so
-          // the SLA stays `unknown` rather than being derived from `updatedAt`.
           groupSince: null,
           amount: null,
           currencyCode: null,
@@ -492,10 +427,6 @@ function conditionsOf(filter: unknown): unknown[] {
   return Array.isArray(conditions) ? conditions : [];
 }
 
-// ---------------------------------------------------------------------------
-// Board
-// ---------------------------------------------------------------------------
-
 export function CrmBoard(props: CrmBoardProps) {
   const t = useT();
   const isList = props.target.kind === "list";
@@ -527,13 +458,9 @@ export function CrmBoard(props: CrmBoardProps) {
     () => boardColumns(cards, data.options),
     [cards, data.options],
   );
-  // One clock per rendered board so every card's age is measured consistently.
   const now = useMemo(() => new Date(), [cards]);
   const overruns = useMemo(() => boardOverruns(columns, now), [columns, now]);
 
-  // The confirmed card's id, held only long enough for the tint to land. It is
-  // set after the commit resolves, never on the optimistic paint: the flash
-  // means "this move is saved", so a move that later rolls back never flashes.
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
   useEffect(() => {
     if (!flashCardId) return;
@@ -646,13 +573,6 @@ function BoardNotice({
   );
 }
 
-/**
- * A column is 300px of nothing: no trough, no border, the page background. The
- * cards carry the only boundary on the board, which is what keeps a wide
- * pipeline from reading as a row of grey boxes. Its one visual state is
- * drag-over, and that rides the shared overlay so it cross-fades rather than
- * swapping a background.
- */
 function BoardColumnView({
   column,
   now,
@@ -681,8 +601,6 @@ function BoardColumnView({
         setIsOver(true);
       }}
       onDragLeave={(event) => {
-        // dragleave also fires crossing into a child, which would strobe the
-        // drop tint over every card the cursor passes.
         if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
           return;
         }
@@ -732,7 +650,6 @@ function BoardColumnView({
   );
 }
 
-/** The stage's own colour, and the board's only decorative motion. */
 function StageDot({ color }: { color?: string | undefined }) {
   return (
     <span
@@ -759,8 +676,6 @@ function ColumnTotals({
       </p>
     );
   }
-  // No summable amount means no total line at all. A "0" here would read as a
-  // real, empty pipeline stage.
   if (totals.sum === null) return null;
   return (
     <p className="flex flex-wrap items-baseline gap-x-1.5 text-xs text-content-tertiary">
@@ -805,9 +720,6 @@ function BoardCardView({
           },
         ];
   });
-  // The record/entry has no per-field provenance at this data layer, only who
-  // created it — so this is coarser than the grid's per-cell marker, but the
-  // same "quiet unless non-human" idiom applies.
   const provenance: CrmCellProvenance | undefined = card.actorType
     ? { actorType: card.actorType, readable: true }
     : undefined;
@@ -827,7 +739,6 @@ function BoardCardView({
       }}
       onDragEnd={() => setDragging(false)}
       onKeyDown={(event) => {
-        // Keyboard parity with the drag: a card can be moved without a mouse.
         if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           event.preventDefault();
           onMove(event.key === "ArrowLeft" ? -1 : 1);
@@ -924,18 +835,10 @@ function BoardCardView({
   );
 }
 
-/**
- * One card row's value, through the same per-type registry the grid and
- * record panel use — never a second ad hoc formatter. `null` means the value
- * is genuinely empty, so the row is omitted instead of showing a blank dash.
- */
 function cardAttributeNode(
   attribute: BoardCardAttribute,
   t: Translate,
 ): ReactNode | null {
-  // `BoardCardAttribute.attributeType` stays a plain string so board-model.ts
-  // does not have to import the app's attribute-type union; the registry
-  // itself is the source of truth for which strings are valid.
   const shape = attribute as unknown as CrmValueShape;
   const value = attribute.value as CrmAttributeValue;
   if (attribute.attributeType === "rating") {
@@ -963,11 +866,6 @@ function cardAttributeNode(
   return text || null;
 }
 
-/**
- * Time in stage, in the card footer's right slot. The compact form is what
- * fits; the full sentence stays reachable as the title, so "14d" never has to
- * carry the whole meaning on its own.
- */
 function SlaBadge({ sla }: { sla: ReturnType<typeof boardCardSla> }) {
   const t = useT();
   const formatters = useFormatters();
@@ -1063,10 +961,6 @@ function BoardTable({ columns, now }: { columns: BoardColumn[]; now: Date }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Formatting
-// ---------------------------------------------------------------------------
-
 const EMPTY_CELL = "—";
 
 type Translate = ReturnType<typeof useT>;
@@ -1082,7 +976,6 @@ function columnTitle(column: BoardColumn, t: Translate): string {
     : title;
 }
 
-/** Delegates to the one currency formatter in the shared registry. */
 function formatMoney(amount: number, currencyCode: string | null): string {
   return formatAttributeValue(
     {

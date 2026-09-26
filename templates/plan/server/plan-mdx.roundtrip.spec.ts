@@ -7,15 +7,6 @@ import {
   parsePlanMdxFolder,
 } from "./plan-mdx.js";
 
-/**
- * Deep round-trip / adversarial coverage for the MDX source-sync surface.
- *
- * Strategy: build a plan content with a given block, export to MDX, parse back,
- * and assert SEMANTIC equality of the round-tripped block data. Any divergence
- * is data loss/drift. We also probe byte-stability of repeated export, patch
- * targeting by stable id, and malformed/partial import handling.
- */
-
 async function roundTrip(content: PlanContent): Promise<PlanContent> {
   const parsed = planContentSchema.parse(content);
   const folder = await exportPlanContentToMdxFolder({
@@ -125,7 +116,6 @@ describe("plan MDX round-trip fidelity per block type", () => {
     const block = findBlock(result, "html-wf");
     expect(block?.type).toBe("wireframe");
     if (block?.type !== "wireframe") throw new Error("expected wireframe");
-    // These three assertions pin the core data-loss bug for new html wireframes.
     expect(block.data.html).toBe(
       '<div class="grid"><h1>Dashboard</h1><p>Welcome back</p></div>',
     );
@@ -719,7 +709,6 @@ describe("plan MDX round-trip fidelity per block type", () => {
     expect(block.data.submitLabel).toBe("Send");
     expect(block.data.questions[0]?.title).toBe("Pick a layout");
     expect(block.data.questions[0]?.options?.[0]?.recommended).toBe(true);
-    // The embedded wireframe option preview must survive the round-trip.
     expect(block.data.questions[0]?.options?.[0]?.wireframe?.html).toBe(
       "<div>grid preview</div>",
     );
@@ -1111,7 +1100,6 @@ describe("byte stability and malformed import handling", () => {
       "plan.mdx": `---\ntitle: "x"\nversion: 2\n---\n\n<RichText id="r">hi</RichText>\n`,
       "canvas.mdx": `Just some loose text, no board here.`,
     });
-    // No DesignBoard => canvas should be absent, not a crash.
     expect(parsed.canvas).toBeUndefined();
     expect(parsed.blocks.length).toBeGreaterThan(0);
   });
@@ -1174,7 +1162,6 @@ version: 2
       "plan.mdx": `---\ntitle: "x"\nversion: 2\n---\n\nSome intro prose.\n\n<RichText id="known">\n\nReal block\n\n</RichText>\n`,
     });
     expect(parsed.blocks.some((b) => b.id === "known")).toBe(true);
-    // The loose intro prose should be captured as a rich-text block.
     const proseBlock = parsed.blocks.find(
       (b) => b.type === "rich-text" && b.id !== "known",
     );
@@ -1425,16 +1412,10 @@ version: 2
     ).rejects.toThrow(/Duplicate block id/);
   });
 
-  // EDGE (low severity, documented): a single-line inline <RichText ...>...</RichText>
-  // not separated by blank lines parses as an MDX *text* element and is silently
-  // merged into the surrounding prose, losing its stable block id. Hand-authored
-  // or LLM-emitted MDX that puts a block on one line without blank-line padding
-  // silently loses the block boundary. This pins current behavior.
   it("EDGE: inline single-line RichText is swallowed into prose (block id lost)", async () => {
     const parsed = await parsePlanMdxFolder({
       "plan.mdx": `---\ntitle: "x"\nversion: 2\n---\n\nSome intro prose.\n\n<RichText id="known">Real block</RichText>\n`,
     });
-    // Documenting the lossy behavior: the explicit id "known" does NOT survive.
     expect(parsed.blocks.some((b) => b.id === "known")).toBe(false);
   });
 });

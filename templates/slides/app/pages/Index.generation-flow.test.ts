@@ -55,9 +55,6 @@ describe("new deck generation flow", () => {
   });
 
   it("carries the already-imported reference source into a retry", () => {
-    // The failed attempt keeps which upload became the reference deck, and the
-    // retry reuses it only while that same deck is still selected — otherwise
-    // the retry re-reads a file the reference deck already represents.
     expect(source).toContain("retryImportedReference: importedReferenceSource");
     expect(source).toContain(
       "setNewDeckRetryImportedReference(state.retryImportedReference)",
@@ -65,13 +62,9 @@ describe("new deck generation flow", () => {
     expect(source).toContain(
       "selection.referenceDeckId === carriedImportedReference.deckId",
     );
-    // A deleted reference deck must not keep its source excluded, or the run
-    // has neither the deck nor the file it was built from.
     expect(source).toContain(
       "!decks.some((deck) => deck.id === carriedImportedReference.deckId)",
     );
-    // A deck that is gone must also stop being passed as the reference, or it
-    // reads as one while loading nothing.
     expect(source).toContain(
       "...(carriedDeckMissing ? { referenceDeckId: null } : {})",
     );
@@ -218,9 +211,6 @@ describe("new deck generation flow", () => {
       "recoverFromGenerationSetupFailure(referenceHydration.message)",
     );
     expect(flow).toContain("referenceDocumentContext,");
-    // The agent must not be told to fetch a reference it was already handed:
-    // that instruction is what let a failed read surface only after the deck
-    // had been generated from nothing.
     expect(generationLibSource).toContain(
       "PDF, PPTX, and DOCX files were already read before this run",
     );
@@ -283,8 +273,6 @@ describe("new deck generation flow", () => {
       source.indexOf("const handleReferenceSkip"),
     );
 
-    // Whitespace-tolerant: passing the extended import timeout wraps the call
-    // across lines, and this asserts the call exists, not how it is formatted.
     expect(referenceImportFlow).toMatch(/callAction\(\s*"import-pptx"/);
     expect(referenceImportFlow).toContain(
       "timeoutMs: IMPORT_ACTION_TIMEOUT_MS",

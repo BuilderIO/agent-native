@@ -32,13 +32,9 @@ export type EmailMessage = {
   labelIds: string[];
   attachments?: Attachment[];
   accountEmail?: string;
-  /** Parsed List-Unsubscribe header info */
   unsubscribe?: {
-    /** HTTPS URL for unsubscribe page */
     url?: string;
-    /** mailto: address for unsubscribe */
     mailto?: string;
-    /** Whether RFC 8058 one-click unsubscribe is supported */
     oneClick?: boolean;
   };
 };
@@ -91,17 +87,11 @@ export type ComposeState = {
   replyToId?: string;
   replyToThreadId?: string;
   attachments?: ComposeAttachment[];
-  /** ID of the persistent draft email (for updating existing drafts) */
   savedDraftId?: string;
-  /** Backend that owns savedDraftId, so deletion remains unambiguous after disconnects. */
   savedDraftBackend?: "gmail" | "local";
-  /** Connected account that owns a Gmail savedDraftId. */
   savedDraftAccountEmail?: string;
-  /** Which connected account to send from (for multi-inbox reply) */
   accountEmail?: string;
-  /** When true, render inline in the thread view instead of the popout composer */
   inline?: boolean;
-  /** Queued draft row this compose tab came from, if any */
   queuedDraftId?: string;
   queuedDraftRequesterEmail?: string;
   queuedDraftContext?: string;
@@ -131,31 +121,22 @@ export type UserSettings = {
   avatar?: string;
   signature?: string;
   writingStyle?: string;
-  /** Show local common-phrase completions while composing on desktop. */
   autocompleteEnabled?: boolean;
   theme: "light" | "dark" | "system";
   density: "compact" | "comfortable" | "spacious";
   previewPane: "right" | "bottom" | "off";
   sendAndArchive: boolean;
-  /** Show the whole inbox instead of splitting it into pinned triage tabs. */
   combineInbox: boolean;
-  /** Show the All tab before the split inbox tabs. */
   showAllTab?: boolean;
-  /** Inbox row ordering, remembered between visits. */
   sortMode?: "newest" | "priority";
   aiSetupCompleted?: boolean;
   undoSendDelay: number;
   pinnedLabels?: string[];
   savedFilters?: SavedMailFilter[];
-  /** Display aliases for label tabs — maps label ID to custom short name */
   labelAliases?: Record<string, string>;
-  /** "show" = load all images, "block-trackers" = block known trackers only, "block-all" = block all remote images */
   imagePolicy?: "show" | "block-trackers" | "block-all";
-  /** Senders whose images are always loaded even when imagePolicy is "block-all" */
   trustedSenders?: string[];
-  /** Actions shown in the mobile bottom action bar (detail view). Order matters. */
   mobileActions?: MobileActionId[];
-  /** Email tracking preferences — opens and link clicks on sent messages */
   tracking?: { opens: boolean; clicks: boolean };
 };
 
@@ -172,7 +153,6 @@ export type EmailTrackingStats = {
   totalClicks: number;
 };
 
-/** Identifiers for actions available in the mobile bottom bar */
 export type MobileActionId =
   | "archive"
   | "aiFilter"
@@ -193,8 +173,6 @@ export type Alias = {
   updatedAt: string;
 };
 
-// ─── Automation types ─────────────────────────────────────────────────────────
-
 export type AutomationAction =
   | { type: "label"; labelName: string }
   | { type: "archive" }
@@ -214,8 +192,6 @@ export type AutomationRule = {
   createdAt: string;
   updatedAt: string;
 };
-
-// ─── Gmail filter types ──────────────────────────────────────────────────────
 
 export type GmailFilterCriteria = {
   from?: string;

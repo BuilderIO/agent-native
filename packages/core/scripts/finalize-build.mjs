@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Cross-platform post-TypeScript step: copies runtime templates + CSS into dist/.
-// Inline shell (rm -rf, cp -r, mkdir -p) breaks on Windows cmd.exe, which
-// blocks CI runs of the Clips Tauri workflow on windows-latest.
 import { randomBytes } from "node:crypto";
 import {
   readFileSync,
@@ -18,8 +15,6 @@ import { join, relative } from "node:path";
 
 import { materializeSourceCorpus } from "./materialize-source-corpus.mjs";
 
-// Prune any spec/test files that TypeScript emitted or template copying preserved.
-// They must never ship in the published package.
 function pruneSpecArtifacts(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -35,9 +30,6 @@ function pruneSpecArtifacts(dir) {
   }
 }
 
-// The published package excludes dist/**/*.map to keep installs small. Remove
-// the compiler trailers too, or Vite spends startup time trying to read maps
-// that the package intentionally does not ship.
 function stripSourceMapComments(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -115,13 +107,6 @@ if (existsSync("dist")) {
   }
 }
 
-// Two overlapping `pnpm --filter @agent-native/core run build` invocations
-// (e.g. concurrent `scripts/dev-lazy.ts` prebuilds) both land here and used
-// to `rmSync`/`cpSync` "dist/templates" directly, which could throw EEXIST
-// out of `cpSync` when one process's copy landed mid-walk of another's rm.
-// Build into a unique temp dir first, then swap it into place with the same
-// bounded, race-tolerant retry used for the source corpus in
-// materialize-source-corpus.mjs.
 const distTemplatesDir = "dist/templates";
 const templatesTempDir = `${distTemplatesDir}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
 const templateSwapMaxAttempts = 5;
@@ -131,10 +116,6 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-// src/templates always has content (default/, headless/, workspace-core/,
-// workspace-root/), so a non-empty dist/templates is proof some build --
-// ours or a concurrent one -- finished copying. No marker file is added so
-// dist/templates stays a byte-for-byte mirror of src/templates.
 function looksLikeMaterializedTemplates(dir) {
   if (!existsSync(dir)) return false;
   return readdirSync(dir).length > 0;
@@ -192,9 +173,6 @@ function copyCssTree(sourceDir, targetDir) {
 }
 copyCssTree("src/styles", "dist/styles");
 
-// Snapshot the pnpm catalog into dist/catalog.json so the CLI can inject it
-// into scaffolded workspaces even when running as a published npm package
-// (where the monorepo pnpm-workspace.yaml doesn't exist).
 const wsPath = join("..", "..", "pnpm-workspace.yaml");
 if (existsSync(wsPath)) {
   const content = readFileSync(wsPath, "utf-8");

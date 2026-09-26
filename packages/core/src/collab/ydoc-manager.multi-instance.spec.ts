@@ -4,21 +4,6 @@ import path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-/**
- * Multi-instance regression suite for the beta 409 storm on
- * POST /_agent-native/actions/update-file.
- *
- * Prod is many serverless instances behind one hostname, each with its own
- * in-memory Y.Doc cache over one shared database. `vi.resetModules()` between
- * imports gives each `instance` its own module state — its own cache and its
- * own db client — which is the only thing that distinguishes two Lambdas.
- * A real PGlite database is the shared truth; the rest of the collab suite mocks
- * SQL, and a mock cannot express "another process wrote this row".
- *
- * Without a version re-check on cache hits, half of a drag's saves were
- * rejected: the guard read the caller's base against whatever text the
- * receiving instance happened to load first.
- */
 type Manager = typeof import("./ydoc-manager.js");
 
 interface Instance {
@@ -29,7 +14,6 @@ interface Instance {
 let databaseDirectory: string;
 const instances: Instance[] = [];
 
-/** update-file's conflict guard for a syncCollab:true browser save. */
 function sourceContentHash(content: string): string {
   let hash = 2166136261;
   for (let index = 0; index < content.length; index += 1) {
@@ -63,9 +47,6 @@ describe("ydoc-manager across serverless instances", () => {
     const [a, b] = instances;
 
     await a.manager.applyText(docId, frame(0), "content", "seed");
-    // b caches the doc as it would after serving any earlier request. A cold
-    // instance reads the row and is correct by accident, so warming b first is
-    // the whole precondition.
     expect(await b.manager.getText(docId, "content")).toBe(frame(0));
 
     await a.manager.applyText(docId, frame(-18), "content", "agent");
@@ -81,7 +62,6 @@ describe("ydoc-manager across serverless instances", () => {
       await instance.manager.getText(docId, "content");
     }
 
-    // The browser's acked hash: the content it last saw the server persist.
     let ackedContent = frame(0);
     const rejected: number[] = [];
 
@@ -103,8 +83,6 @@ describe("ydoc-manager across serverless instances", () => {
       ackedContent = nextContent;
     }
 
-    // Pre-fix this was [2, 4, 6, 8, 10, 12] — every save that landed on the
-    // instance which never won a write, so never refreshed its cache.
     expect(rejected).toEqual([]);
     expect(await a.manager.getText(docId, "content")).toBe(frame(12 * -18));
     expect(await b.manager.getText(docId, "content")).toBe(frame(12 * -18));

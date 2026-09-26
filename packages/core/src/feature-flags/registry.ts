@@ -1,7 +1,5 @@
-/** Feature-flag definitions shared by the framework and individual apps. */
 export interface FeatureFlagDefinition {
   key: string;
-  /** Boolean flags are always default-off; explicit in operator metadata. */
   defaultValue?: false;
   displayName?: string;
   description?: string;
@@ -30,14 +28,12 @@ function normalizeDefinition(
   };
 }
 
-/** Define one app-local feature flag for registration at server startup. */
 export function defineFeatureFlag(
   definition: FeatureFlagDefinition,
 ): FeatureFlagDefinition {
   return Object.freeze(normalizeDefinition(definition));
 }
 
-/** Framework-owned labs flag available to every app's feature-flag plugin. */
 export const CONNECT_APPS_FLAG = defineFeatureFlag({
   key: "labs.connectApps",
   displayName: "Connect apps",
@@ -50,7 +46,6 @@ export const BUILDER_CREDIT_USAGE_REPORTING_FLAG = defineFeatureFlag({
   description: "Use Builder-reported credit usage and account limits in Usage.",
 });
 
-/** Define a small app-owned feature-flag registry. */
 export function defineFeatureFlags(
   definitions: readonly FeatureFlagDefinition[],
 ): readonly FeatureFlagDefinition[] {
@@ -67,7 +62,6 @@ export function defineFeatureFlags(
   );
 }
 
-/** Register definitions once at Nitro startup. Re-registering identical data is safe for HMR. */
 export function registerFeatureFlags(
   definitions: readonly FeatureFlagDefinition[],
 ): void {
@@ -99,7 +93,6 @@ export function getFeatureFlagDefinition(
   return registry.get(key) ?? null;
 }
 
-/** Test-only registry reset; not exported from package entrypoints. */
 export function _resetFeatureFlagRegistryForTests(): void {
   registry.clear();
 }

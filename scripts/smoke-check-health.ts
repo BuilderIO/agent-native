@@ -2,17 +2,6 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
-/**
- * Smoke-checks a deployed site against `/_agent-native/health`: strict
- * readiness, PostgreSQL, and schema (including Better Auth's tables).
- * A green Netlify deploy has shipped before while the app quietly ran on
- * database health or 500'd on Better Auth's jwks route — a status-only
- * `curl --fail` never saw either.
- *
- * Usage: smoke-check-health.ts --url <site url> [--canonical-host <host>] [--auth-routes] [--preview] [--allow-missing-health] [--check-assets] [--asset-path <path>]
- * Exit: 0 all checks passed, 1 a check failed (reason printed), 2 bad args.
- */
-
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 const TIMEOUT_MS = 30_000;
@@ -47,13 +36,6 @@ async function fetchWithTimeout(
   }
 }
 
-/**
- * Retries network errors and every non-2xx until the last attempt: a deploy
- * URL probed seconds after upload can answer 404 while Netlify is still
- * propagating it (the analytics beta run 33784386290 failed exactly that
- * way), and a cold function answers 5xx. The final attempt's response is
- * returned as-is so the caller classifies the real status.
- */
 async function fetchWithRetry(
   url: string,
   shouldRetryResponse: (response: Response) => boolean = (response) =>
@@ -137,10 +119,6 @@ async function checkHealth(
   }
   console.log(body ? JSON.stringify(body, null, 2) : text.slice(0, 2000));
 
-  // Prefer the most specific reason a parsed body can give — strict mode
-  // already turns "not ready" into a 503, so checking the status first would
-  // hide exactly the ready/db/schema detail this script exists to
-  // surface. Fall back to the raw status only when there is no body to read.
   if (!body) {
     if (response.status < 200 || response.status >= 300) {
       return {
@@ -155,21 +133,11 @@ async function checkHealth(
   if (body.db !== true)
     return { ok: false, reason: `health reports db=${body.db}` };
 
-  // `identityMismatch` is only ever true when the database was recorded for
-  // one app and a different one is now running against it — the exact
-  // wrong-database incident this check exists to catch. The other identity
-  // states (unrecorded/timeout/unreadable) mean the check could not confirm
-  // ownership either way, not that it confirmed there was none, so they warn
-  // instead of failing the deploy.
   const identity = body.database?.identity;
   const runningApp = body.database?.runningApp;
   if (body.database?.identityMismatch === true) {
     const recordedApp =
       identity?.state === "recorded" ? identity.app : "unknown";
-    // Health only sets this when BOTH identities are known and differ, so it
-    // is a confirmed wrong-database deployment — the 08-19..08-31 incident —
-    // and must fail the cutover. A runtime that cannot derive its own
-    // identity is reported below as a warning instead.
     return {
       ok: false,
       reason: `database identity mismatch: recorded for app "${recordedApp}", but "${runningApp ?? "unknown"}" is running against it`,
@@ -342,8 +310,6 @@ export function hasExpectedReferencedAssetContentType(
 ): boolean {
   const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
   if (expected === "stylesheet") return mediaType === "text/css";
-  // Keep this set aligned with the browser-executable JavaScript types used by
-  // the Design HTML integrity parser.
   return [
     "application/ecmascript",
     "application/javascript",
@@ -434,7 +400,6 @@ async function checkAuthRoutes(baseUrl: string): Promise<CheckResult> {
   if (!response) {
     return { ok: false, reason: `jwks network error: ${errorMessage(error)}` };
   }
-  // Not every template mounts Better Auth; 404 means it wasn't, not that it broke.
   if (response.status === 404) return { ok: true };
   if (response.status !== 200) {
     return { ok: false, reason: `jwks returned HTTP ${response.status}` };

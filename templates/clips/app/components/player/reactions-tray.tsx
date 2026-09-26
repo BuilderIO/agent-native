@@ -60,7 +60,7 @@ export function ReactionsTray({
   function fire(emoji: string) {
     if (disabled || savingEmoji === emoji) return;
     const id = ++idc;
-    const left = 10 + Math.random() * 80; // random horizontal variance within tray
+    const left = 10 + Math.random() * 80;
     setFloats((f) => [...f, { id, emoji, left }]);
     setTimeout(() => {
       setFloats((f) => f.filter((x) => x.id !== id));

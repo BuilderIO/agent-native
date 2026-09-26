@@ -14,18 +14,6 @@ import type {
 } from "../../shared/types.js";
 import { isFormFileValue, isSafeFormFileUrl } from "./file-upload-policy.js";
 
-// ---------------------------------------------------------------------------
-// Save-time validation
-// ---------------------------------------------------------------------------
-
-/**
- * Validate every integration URL on a FormSettings object before persistence.
- *
- * Rejects non-http(s) schemes, private IPs, cloud-metadata endpoints, and
- * known DNS-rebinding suffixes by routing each URL through `isBlockedToolUrl`.
- * Throws on the first violation so the form-author sees the reason
- * immediately. Defense-in-depth — `fireIntegrations` re-checks at fire time.
- */
 export function assertIntegrationUrlsAllowed(settings: FormSettings): void {
   const list = settings.integrations ?? [];
   for (const integration of list) {
@@ -45,15 +33,10 @@ interface SubmissionPayload {
   fields: FormField[];
   data: Record<string, unknown>;
   submittedAt: string;
-  /** Email of the submitter, when known (claimed by the client, not verified). */
   submitterEmail?: string | null;
-  /** Agent chat thread/session ids claimed by the client, when available. */
   chatSessionIds?: string[];
-  /** Active agent run id claimed by the client, when available. */
   activeRunId?: string | null;
-  /** Page URL where the feedback was submitted, when available. */
   pageUrl?: string | null;
-  /** Client surface (web/electron/tauri) the feedback came from, when known. */
   clientSurface?: string | null;
 }
 
@@ -65,7 +48,6 @@ export interface IntegrationDeliverySnapshot {
   payload: unknown;
 }
 
-/** Human-readable label for a client-surface token. */
 function clientSurfaceLabel(surface: string): string {
   switch (surface) {
     case "electron":
@@ -79,12 +61,6 @@ function clientSurfaceLabel(surface: string): string {
   }
 }
 
-/**
- * Friendly app name derived from a feedback page URL, so a reviewer can tell at
- * a glance which app the feedback came from. `plan.agent-native.com` → "Plan",
- * `analytics.agent-native.com` → "Analytics". Returns null when the host isn't a
- * recognizable per-app subdomain (the full URL still carries the page).
- */
 function appLabelFromUrl(pageUrl: string): string | null {
   try {
     const { hostname } = new URL(pageUrl);
@@ -100,11 +76,6 @@ function appLabelFromUrl(pageUrl: string): string | null {
   }
 }
 
-/**
- * Readable host+path label for a feedback page URL, used as the visible text of
- * the Slack link so the app/page is legible inline instead of hidden behind a
- * bare "open". The full (already client-scrubbed) URL stays the link target.
- */
 function pageLabelFromUrl(pageUrl: string): string {
   let label = pageUrl;
   try {
@@ -114,13 +85,8 @@ function pageLabelFromUrl(pageUrl: string): string {
     // fall back to the raw string below
   }
   if (label.length > 80) label = `${label.slice(0, 79)}…`;
-  // Escape Slack mrkdwn link-text control characters.
   return escapeSlackMrkdwn(label);
 }
-
-// ---------------------------------------------------------------------------
-// Format helpers
-// ---------------------------------------------------------------------------
 
 function isStoredFileReference(value: unknown): value is FormFileValue {
   return isFormFileValue(value) && isSafeFormFileUrl(value.url);
@@ -150,7 +116,6 @@ function formatSlackValue(value: unknown): string {
   return escapeSlackMrkdwn(formatIntegrationValue(value));
 }
 
-/** Build a flat label→value object from field definitions and submission data */
 function formatFields(
   fields: FormField[],
   data: Record<string, unknown>,
@@ -195,7 +160,6 @@ function formatDebugContext(submission: SubmissionPayload): string[] {
   return lines;
 }
 
-/** Slack Block Kit message */
 export function buildSlackPayload(submission: SubmissionPayload) {
   const submitterEmail = publicSubmitterEmail(submission.submitterEmail);
   const fieldLines = submission.fields
@@ -241,7 +205,6 @@ export function buildSlackPayload(submission: SubmissionPayload) {
   };
 }
 
-/** Discord webhook embed */
 function buildDiscordPayload(submission: SubmissionPayload) {
   const submitterEmail = publicSubmitterEmail(submission.submitterEmail);
   const discordFields = submission.fields
@@ -299,7 +262,6 @@ function buildDiscordPayload(submission: SubmissionPayload) {
   };
 }
 
-/** Google Sheets (Apps Script web app) — flat key/value pairs */
 export function buildGoogleSheetsPayload(submission: SubmissionPayload) {
   return {
     event: "form_submission",
@@ -317,7 +279,6 @@ export function buildGoogleSheetsPayload(submission: SubmissionPayload) {
   };
 }
 
-/** Generic webhook — full structured payload */
 function buildWebhookPayload(submission: SubmissionPayload) {
   return {
     event: "form_submission",
@@ -393,10 +354,6 @@ export async function deliverIntegrationDelivery(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Fire integrations
-// ---------------------------------------------------------------------------
-
 export type DeliveryStatus = "pending" | "succeeded" | "failed";
 export type DeliveryStatuses = Record<string, DeliveryStatus>;
 
@@ -412,7 +369,6 @@ interface FireIntegrationsOptions {
   ) => Promise<void> | void;
 }
 
-/** Fire enabled integrations, skipping destinations already delivered. */
 export async function fireIntegrations(
   integrations: FormIntegration[],
   submission: SubmissionPayload,
@@ -428,10 +384,6 @@ export async function fireIntegrations(
       if (options.deliveryStatus?.[destination] === "succeeded") return;
 
       let status: DeliveryStatus = "failed";
-      // SSRF guard — a form-author can persist any URL in their integration
-      // config. Anonymous submissions then trigger a server-side POST. Block
-      // private IPs, cloud-metadata endpoints, and non-http(s) schemes
-      // before the fetch fires.
       if (!isWebhookUrlAllowed(integration.url)) {
         console.warn(
           `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,

@@ -3594,16 +3594,6 @@ describe("VisualEditor markdown round-tripping", () => {
         container.querySelectorAll<HTMLElement>(".notion-editor > p"),
         (node) => node.textContent,
       );
-    // The seed → reconcile handoff inside useCollabReconcile is a chain of
-    // real (unfaked) setTimeout hops — never a fixed number of React ticks —
-    // so its wall-clock latency has no tight upper bound under load. Poll for
-    // the DOM it actually produces instead of sleeping a guessed duration:
-    // that keeps this fast when the machine is idle and merely patient (never
-    // silently wrong) when it is not. Confirmed against this exact test with
-    // an artificially widened reconcile retry interval: with a blind sleep it
-    // fails on stale content; with this poll it converges to the right
-    // content every time, proving the reconcile itself is not racy — only a
-    // fixed sleep waiting on it was.
     const waitForParagraphs = (expected: string[]) =>
       vi.waitFor(
         () => {
@@ -3613,9 +3603,6 @@ describe("VisualEditor markdown round-tripping", () => {
       );
 
     try {
-      // Match a real reload after an external version was previously live: seed
-      // the persisted Y.Doc through the actual VisualEditor, unmount the page,
-      // then mount a fresh editor whose SQL snapshot points somewhere else.
       act(() => {
         root.render(renderEditor(incoming, "2026-07-09T19:59:59.000Z"));
       });
@@ -3890,10 +3877,6 @@ describe("VisualEditor markdown round-tripping", () => {
   });
 
   it("rejects an empty preview remount emission when the render snapshot is also empty", () => {
-    // After a server restart, the preview can render an empty list snapshot for
-    // one tick while its retained per-document save controller still owns the
-    // previously confirmed rich body. The editor must not emit that lifecycle
-    // filler into the controller; Open page/unmount would flush it to SQL.
     expect(
       shouldPersistEffectivelyEmptyEditorUpdate({
         nextContent: "<empty-block/>",

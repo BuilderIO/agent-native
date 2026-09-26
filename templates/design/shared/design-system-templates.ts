@@ -22,11 +22,6 @@ export interface ProductionDesignSystemTemplate {
   customInstructions: string;
 }
 
-/**
- * Source-linked snapshots of established public design systems. Keep values
- * aligned with the version/source named on each entry; these are working
- * systems for generated designs, not lookalike palettes.
- */
 export const PRODUCTION_DESIGN_SYSTEM_TEMPLATES = [
   {
     id: "material-3",

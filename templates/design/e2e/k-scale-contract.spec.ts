@@ -435,7 +435,6 @@ test("K scaling preserves ordinary Frame proportions and Fill behavior across hi
       2,
     );
     expect(afterK.fixed.width).toBeCloseTo(before.fixed.width * scaleX, 0);
-    // Chromium's computed border widths truncate fractional CSS pixels.
     expect(
       Math.abs(afterK.fixed.height - before.fixed.height * scaleY),
     ).toBeLessThanOrEqual(1);
@@ -1322,7 +1321,6 @@ test("K opens the inspector Scale section, tracks the live factor, and applies a
     );
     await expect(factor).toBeHidden();
 
-    // The section scales one element, so a multi-selection must not show it.
     await layerRow(page, "Fixed child")
       .locator("[data-layer-row-button]")
       .click();

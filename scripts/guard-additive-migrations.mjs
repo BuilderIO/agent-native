@@ -91,11 +91,6 @@ const PRAGMA_RE = /^\s*(?:\/\/|--)\s*guard:allow-destructive-ddl\b/i;
 const BLOCKING_COLUMN_PRAGMA_RE =
   /^\s*(?:\/\/|--)\s*guard:allow-blocking-column-default\b/i;
 
-/**
- * The engine itself, not a migration list - its doc comments demonstrate
- * migration syntax (including conditional ALTER examples) and would be a
- * false-positive source if scanned as one.
- */
 const NOT_A_MIGRATION_LIST = new Set(["packages/core/src/db/migrations.ts"]);
 
 function findMigrationSourceFiles() {
@@ -116,7 +111,6 @@ function findMigrationSourceFiles() {
   });
 }
 
-/** Read a `` `...` `` template literal starting at the opening backtick. */
 function readTemplateLiteral(src, start) {
   let i = start + 1;
   while (i < src.length) {
@@ -130,7 +124,6 @@ function readTemplateLiteral(src, start) {
   return { text: src.slice(start + 1), end: src.length };
 }
 
-/** Every backtick-delimited literal in a file, with its absolute start offset. */
 function extractBacktickLiterals(src) {
   const out = [];
   let i = 0;
@@ -146,20 +139,9 @@ function extractBacktickLiterals(src) {
   return out;
 }
 
-/**
- * Only literals that look like an actual SQL statement are treated as
- * migration DDL — this is what keeps the scan from tripping over unrelated
- * template literals (log lines, error messages) that share these files
- * with the real migration entries.
- */
 const SQL_START_RE =
   /^\s*(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|SELECT|TRUNCATE|WITH|GRANT|REVOKE)\b/i;
 
-/**
- * Advance from an opening bracket to its match, skipping over string/
- * template literals and comments so a `[`/`]`/`{`/`}` inside SQL text (JSON
- * defaults, Postgres `ARRAY[...]`) can't miscount the nesting depth.
- */
 function findMatchingBracket(src, openIdx, openCh, closeCh) {
   let depth = 0;
   let i = openIdx;
@@ -227,7 +209,6 @@ function findMigrationRegions(src) {
   return regions;
 }
 
-/** Split a SQL blob into statements, respecting '...' strings and -- comments. */
 function splitStatements(sql) {
   const out = [];
   let buf = "";
@@ -269,16 +250,11 @@ function splitStatements(sql) {
 const DESTRUCTIVE_CHECKS = [
   { name: "DROP TABLE", re: /\bDROP\s+TABLE\b/i },
   { name: "DROP COLUMN", re: /\bDROP\s+COLUMN\b/i },
-  // DROP INDEX's own IF EXISTS is the one accepted safe-drop form; an
-  // optional CONCURRENTLY can sit between INDEX and IF EXISTS on Postgres.
   {
     name: "DROP INDEX without IF EXISTS",
     re: /\bDROP\s+INDEX\s+(?!(?:CONCURRENTLY\s+)?IF\s+EXISTS\b)/i,
   },
   { name: "TRUNCATE", re: /\bTRUNCATE\b/i },
-  // See the module doc comment: retyping TO boolean is the one recurring,
-  // reviewed exception (a lossless fix for a real INTEGER→BIGINT bug).
-  // Retyping to anything else still fails.
   {
     name: "ALTER COLUMN ... TYPE",
     re: /\bALTER\s+COLUMN\b[\s\S]*?\bTYPE\s+(?!boolean\b)\w/i,
@@ -316,12 +292,6 @@ function isPragmaed(lines, lineNumber, pragmaRe = PRAGMA_RE) {
   );
 }
 
-/**
- * Splits a comma-separated clause list at paren depth 0. Callers only ever
- * pass this function text that has already been through `maskSqlNoise`, so
- * string/identifier literals hold no real `(`/`)`/`,` characters any more —
- * this needs no quote-awareness of its own, only paren depth.
- */
 function splitTopLevelClauseRanges(text) {
   const ranges = [];
   let depth = 0;
@@ -339,18 +309,6 @@ function splitTopLevelClauseRanges(text) {
   return ranges;
 }
 
-// Blanks out the content of block comments, '...' string literals, and
-// "..." quoted identifiers to a same-length run of spaces (newlines
-// preserved), while keeping every delimiter (the comment markers, the
-// quote characters, and escaped '' / "" pairs) exactly where it was. This
-// is what lets every keyword regex below (NOT NULL, PRIMARY KEY, DEFAULT,
-// SERIAL, ...) search plain SQL text without also matching a column named
-// not_null, a comment mentioning DEFAULT, or a string literal containing
-// "PRIMARY KEY" — while the ALTER TABLE header parser can still see the
-// quotes themselves to find where a quoted, possibly space-containing
-// identifier ends. Because it's length-preserving, an offset computed
-// against the masked text always lands on the same character in the
-// original text.
 function maskSqlNoise(text) {
   let out = "";
   let i = 0;
@@ -394,36 +352,15 @@ function maskSqlNoise(text) {
   return out;
 }
 
-// A column with one of these gets a value on every existing row without an
-// explicit DEFAULT, so NOT NULL is safe: SERIAL/BIGSERIAL/SMALLSERIAL assign
-// the next sequence value, and GENERATED ... AS IDENTITY does the same.
 const SELF_FILLING_COLUMN_RE =
   /\b(?:SMALL|BIG)?SERIAL\b|\bGENERATED\s+(?:ALWAYS|BY\s+DEFAULT)\s+AS\s+IDENTITY\b/i;
 
-// Optional IF EXISTS / ONLY, then a possibly schema-qualified, possibly
-// double-quoted (with "" escapes) relation name, then an optional `*`
-// (explicit "include descendants") marker — the actual PostgreSQL grammar
-// for an ALTER TABLE header, so `ALTER TABLE ONLY "tenant orders" ADD ...`
-// strips its whole header instead of leaving `"tenant orders" ADD ...`
-// behind for the ADD-clause matcher to trip over.
 const ALTER_TABLE_HEADER_RE =
   /^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:"(?:[^"]|"")+"|[A-Za-z_]\w*)(?:\.(?:"(?:[^"]|"")+"|[A-Za-z_]\w*))*\s*\*?\s*/i;
 
-// Matches only an actual ADD-COLUMN clause. `COLUMN` is optional in real
-// PostgreSQL grammar, so when it's absent this also has to reject the
-// table-level forms that share the same "ADD <keyword>" shape — ADD
-// CONSTRAINT/CHECK/UNIQUE/PRIMARY KEY/FOREIGN KEY/EXCLUDE — none of which
-// name a column at all, let alone one that needs a default.
 const ADD_COLUMN_CLAUSE_RE =
   /^\s*ADD\s+(?:COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?\S|(?:IF\s+NOT\s+EXISTS\s+)?(?!(?:CONSTRAINT|CHECK|UNIQUE|PRIMARY|FOREIGN|EXCLUDE)\b)\S)/i;
 
-/**
- * A real, usable column default: `DEFAULT` is only ever a column-default
- * keyword here once the referential-action phrase `... SET DEFAULT` (from
- * `ON DELETE`/`ON UPDATE SET DEFAULT`) is stripped out, and `DEFAULT NULL`
- * is rejected outright — it backfills existing rows with NULL, which is
- * exactly what a `NOT NULL` addition cannot tolerate.
- */
 function hasUsableColumnDefault(maskedClause) {
   const withoutReferentialAction = maskedClause.replace(
     /\bSET\s+DEFAULT\b/gi,
@@ -434,15 +371,6 @@ function hasUsableColumnDefault(maskedClause) {
   return true;
 }
 
-/**
- * True for `GENERATED ALWAYS AS ( <expr> ) STORED` — a stored generated
- * column computes its value from the row's other columns, so it fills in
- * on every existing row the same way a DEFAULT would. Depth-matches the
- * parens (reusing the same helper the migration-array scanner uses below)
- * instead of a non-greedy regex, so a generation expression with its own
- * nested call — `COALESCE(a, b)`, `CONCAT(x, y)` — doesn't truncate the
- * match at the first `)` it contains.
- */
 function hasStoredGeneratedExpression(maskedClause) {
   const marker = /GENERATED\s+ALWAYS\s+AS\s*\(/i.exec(maskedClause);
   if (!marker) return false;
@@ -452,13 +380,6 @@ function hasStoredGeneratedExpression(maskedClause) {
   return /^\s*STORED\b/i.test(maskedClause.slice(closeIdx + 1));
 }
 
-/**
- * `ADD COLUMN ... NOT NULL` (or `PRIMARY KEY`, which implies NOT NULL) with
- * no DEFAULT and no self-filling type breaks on the first existing row —
- * and breaks any already-deployed code path that inserts without knowing
- * the new column exists. The additive fix is always available: make the
- * column nullable, or give it a DEFAULT, and backfill separately if needed.
- */
 function blockingAddColumnMatches(statementText) {
   if (!/\bALTER\s+TABLE\b/i.test(statementText)) return [];
   const maskedStatement = maskSqlNoise(statementText);

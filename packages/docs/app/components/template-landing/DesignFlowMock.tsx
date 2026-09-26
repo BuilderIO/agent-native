@@ -30,10 +30,8 @@
 import { IconDeviceMobile, IconLink } from "@tabler/icons-react";
 import { Fragment } from "react";
 
-/** Logical width of each screen, before `--df-scale`. The real 390 breakpoint. */
 const SCREEN_WIDTH = 390;
 
-/** On-screen height of a screen body. */
 const SCREEN_BODY_HEIGHT = 250;
 
 const SCREEN_ROWS = [
@@ -189,24 +187,14 @@ const FLOW_SCREENS = [
 ] as const;
 
 const DESIGN_FLOW_MOCK_CSS = [
-  // Inert artwork: the screens recreate clickable-looking controls, so the root
-  // refuses pointer input rather than trusting every rule below to stay free of
-  // an interactive affordance.
   ".design-flow-mock { position: relative; width: 100%; pointer-events: none; }",
   ".design-flow-mock, .design-flow-mock * { box-sizing: border-box; }",
 
-  // Chrome palette, mirroring the editor tokens in the hero mock so the three
-  // use-case pictures and the hero read as one product. `--df-link` is the
-  // Builder brand blue, the same bright value in both themes: prototype links
-  // are editor chrome drawn over designs whose colours do not follow the docs
-  // theme.
   ".design-flow-mock { --df-scale: 0.3; --df-frame-bg: hsl(0 0% 13%); --df-canvas-bg: hsl(0 0% 10%); --df-border: hsl(0 0% 24%); --df-divider: hsl(0 0% 22%); --df-fg: hsl(0 0% 90%); --df-fg-muted: hsl(0 0% 60%); --df-active-row: hsl(0 0% 20%); --df-link: #01c8f1; }",
   "html.light .design-flow-mock { --df-frame-bg: hsl(0 0% 100%); --df-canvas-bg: hsl(0 0% 92%); --df-border: hsl(0 0% 90%); --df-divider: hsl(0 0% 90%); --df-fg: hsl(0 0% 10%); --df-fg-muted: hsl(0 0% 45%); --df-active-row: rgba(38, 38, 38, 0.08); }",
 
   ".design-flow-mock-frame { display: flex; overflow: hidden; border: 1px solid var(--df-border); border-radius: 12px; background: var(--df-frame-bg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: var(--df-fg); }",
 
-  // Screens panel. The real panel is wider; at this size it keeps the section
-  // header and the rows, which is what says "these three are one flow".
   ".design-flow-mock .df-panel { display: flex; width: 120px; flex-shrink: 0; flex-direction: column; border-right: 1px solid var(--df-divider); }",
   ".design-flow-mock .df-panel-title { display: flex; height: 34px; flex-shrink: 0; align-items: center; padding: 0 10px; font-size: 11px; font-weight: 600; }",
   ".design-flow-mock .df-panel-row { display: flex; height: 26px; align-items: center; gap: 6px; margin: 0 6px; padding: 0 6px; border-radius: 5px; color: var(--df-fg-muted); font-size: 11px; font-weight: 500; }",
@@ -216,28 +204,18 @@ const DESIGN_FLOW_MOCK_CSS = [
 
   ".design-flow-mock .df-canvas { display: flex; flex: 1; min-width: 0; align-items: flex-start; justify-content: center; overflow: hidden; padding: 22px 16px 0; background: var(--df-canvas-bg); }",
 
-  // Screen frames. Square corners are intentional: the editor avoids a card
-  // radius because it would read as the design's own corner radius.
   `.design-flow-mock .df-screen { width: calc(${SCREEN_WIDTH}px * var(--df-scale)); flex-shrink: 0; }`,
   ".design-flow-mock .df-screen-label { display: flex; height: 20px; align-items: center; gap: 4px; padding-left: 2px; color: var(--df-fg-muted); font-size: 10px; font-weight: 500; }",
   `.design-flow-mock .df-screen-body { height: ${SCREEN_BODY_HEIGHT}px; overflow: hidden; background: var(--at-bg); box-shadow: inset 0 0 0 1px var(--df-border); }`,
   `.design-flow-mock .df-artboard { width: ${SCREEN_WIDTH}px; min-height: calc(${SCREEN_BODY_HEIGHT}px / var(--df-scale)); transform: scale(var(--df-scale)); transform-origin: top left; }`,
 
-  // Prototype link between two screens: the editor's hairline with an arrow
-  // head and the link glyph riding on top of it.
   ".design-flow-mock .df-link { position: relative; display: flex; width: 34px; flex-shrink: 0; align-items: center; justify-content: center; align-self: stretch; color: var(--df-link); }",
   ".design-flow-mock .df-link-line { position: absolute; left: 2px; right: 2px; top: 50%; height: 1.5px; background: var(--df-link); }",
   ".design-flow-mock .df-link-arrow { position: absolute; right: 0; top: 50%; width: 0; height: 0; transform: translateY(-50%); border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid var(--df-link); }",
   ".design-flow-mock .df-link-glyph { position: relative; display: flex; align-items: center; justify-content: center; padding: 2px; border-radius: 999px; background: var(--df-canvas-bg); }",
 
-  // The design. Monochrome with one bright neutral for emphasis, matching the
-  // hero artboards: a saturated palette here competed with the prototype links,
-  // which are the only thing in the picture that has to be noticed.
   ".design-flow-mock { --at-bg: #0c0c0e; --at-elevated: #16161a; --at-fg: #a9a9af; --at-fg-soft: rgba(169, 169, 175, 0.62); --at-line: rgba(169, 169, 175, 0.12); --at-line-strong: rgba(169, 169, 175, 0.26); --at-accent: #cdcdd1; --at-accent-on: #0c0c0e; }",
   "html.light .design-flow-mock { --at-bg: #f4f4f5; --at-elevated: #ffffff; --at-fg: #55555e; --at-fg-soft: rgba(85, 85, 94, 0.62); --at-line: rgba(85, 85, 94, 0.14); --at-line-strong: rgba(85, 85, 94, 0.28); --at-accent: #26262b; --at-accent-on: #f4f4f5; }",
-  // The design fills the whole visible board and its footer sits on the bottom
-  // edge the way it would on a phone, rather than ending part-way up and leaving
-  // an empty outlined strip under it.
   `.design-flow-mock .at { display: flex; min-height: calc(${SCREEN_BODY_HEIGHT}px / var(--df-scale)); flex-direction: column; background: var(--at-bg); color: var(--at-fg); }`,
 
   ".design-flow-mock .at-status { display: flex; height: 44px; flex-shrink: 0; align-items: center; justify-content: space-between; padding: 0 26px; color: var(--at-fg-soft); font-size: 15px; font-weight: 600; }",
@@ -260,8 +238,6 @@ const DESIGN_FLOW_MOCK_CSS = [
 
   ".design-flow-mock .at-card { display: flex; flex-direction: column; justify-content: space-between; aspect-ratio: 1.586 / 1; padding: 22px; border-radius: 22px; background: linear-gradient(135deg, var(--at-accent) 0%, var(--at-fg) 100%); color: var(--at-accent-on); }",
   ".design-flow-mock .at-card-top { display: flex; align-items: center; justify-content: space-between; }",
-  // The chip is drawn for the same reason as the barcode: a card image would be
-  // the only photographic thing in the flow.
   ".design-flow-mock .at-card-chip { width: 42px; height: 32px; border-radius: 6px; background: linear-gradient(180deg, rgba(12, 12, 14, 0.16) 0 30%, rgba(12, 12, 14, 0.34) 30% 36%, rgba(12, 12, 14, 0.16) 36% 62%, rgba(12, 12, 14, 0.34) 62% 68%, rgba(12, 12, 14, 0.16) 68% 100%); }",
   ".design-flow-mock .at-card-brand { font-size: 18px; font-weight: 700; letter-spacing: -0.03em; opacity: 0.8; }",
   ".design-flow-mock .at-card-number { font-size: 24px; font-weight: 600; letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }",
@@ -275,15 +251,9 @@ const DESIGN_FLOW_MOCK_CSS = [
 
   ".design-flow-mock .at-confirm { display: flex; flex-shrink: 0; flex-direction: column; align-items: center; gap: 14px; padding: 42px 26px 0; text-align: center; }",
   ".design-flow-mock .at-check { display: flex; width: 74px; height: 74px; align-items: center; justify-content: center; border-radius: 999px; background: var(--at-accent); }",
-  // Drawn rather than an icon font: inside a scaled artboard a two-stroke tick
-  // stays crisp at any zoom, and the glyph sizes would have to be unscaled.
   ".design-flow-mock .at-check-mark { width: 30px; height: 16px; margin-bottom: 8px; border-left: 5px solid var(--at-accent-on); border-bottom: 5px solid var(--at-accent-on); transform: rotate(-45deg); }",
   ".design-flow-mock .at-confirm-meta { max-width: 260px; color: var(--at-fg-soft); font-size: 16px; line-height: 1.45; }",
   ".design-flow-mock .at-ticket { display: flex; width: 100%; flex-direction: column; align-items: center; gap: 12px; margin-top: 8px; padding: 22px; border: 2px solid var(--at-line); border-radius: 22px; background: var(--at-elevated); }",
-  // Stripes stand in for a scannable code: a real barcode image would be the
-  // only photographic thing in an otherwise drawn design. The repeat is long and
-  // the bar widths uneven, because an even comb reads as a texture rather than
-  // as something a scanner could parse.
   ".design-flow-mock .at-ticket-code { width: 100%; height: 56px; background: repeating-linear-gradient(90deg, var(--at-fg) 0 3px, transparent 3px 5px, var(--at-fg) 5px 6px, transparent 6px 9px, var(--at-fg) 9px 13px, transparent 13px 15px, var(--at-fg) 15px 16px, transparent 16px 18px, var(--at-fg) 18px 19px, transparent 19px 23px, var(--at-fg) 23px 27px, transparent 27px 28px, var(--at-fg) 28px 30px, transparent 30px 34px, var(--at-fg) 34px 35px, transparent 35px 37px, var(--at-fg) 37px 41px, transparent 41px 43px, var(--at-fg) 43px 44px, transparent 44px 46px, var(--at-fg) 46px 49px, transparent 49px 53px, var(--at-fg) 53px 54px, transparent 54px 56px, var(--at-fg) 56px 60px, transparent 60px 63px); opacity: 0.85; }",
   ".design-flow-mock .at-ticket-label { color: var(--at-fg-soft); font-size: 14px; font-weight: 600; }",
 
@@ -294,13 +264,8 @@ const DESIGN_FLOW_MOCK_CSS = [
   ".design-flow-mock .at-primary { display: flex; width: 100%; height: 54px; align-items: center; justify-content: center; border-radius: 999px; background: var(--at-accent); color: var(--at-accent-on); font-size: 18px; font-weight: 700; }",
   ".design-flow-mock .at-secondary { color: var(--at-fg-soft); font-size: 16px; font-weight: 600; }",
 
-  // The screens are a fixed logical size, so their zoom steps down with the
-  // card: the use-case row narrows its media cell long before the page is
-  // anywhere near mobile. Stays last so it wins on source order.
   "@media (max-width: 1320px) { .design-flow-mock { --df-scale: 0.26; } .design-flow-mock .df-link { width: 26px; } .design-flow-mock .df-canvas { padding: 18px 10px 0; } }",
   "@media (max-width: 560px) { .design-flow-mock { --df-scale: 0.2; } .design-flow-mock .df-panel { width: 86px; } .design-flow-mock .df-link { width: 20px; } }",
-  // Below 480 the three linked screens and the panel cannot both fit in the
-  // media cell. The links are the picture, so the panel is what goes.
   "@media (max-width: 480px) { .design-flow-mock { --df-scale: 0.17; } .design-flow-mock .df-panel { display: none; } .design-flow-mock .df-link { width: 18px; } }",
 ].join("\n");
 

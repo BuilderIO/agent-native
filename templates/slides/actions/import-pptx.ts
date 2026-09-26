@@ -53,7 +53,6 @@ export interface ImportedImageFallback {
   crop?: ParsedImage["crop"];
 }
 
-/** Add source-native image objects that a Google Slides PPTX export omitted. */
 export function applyImageFallbacks(
   presentation: Awaited<ReturnType<typeof parsePptx>>,
   fallbacks: ImportedImageFallback[] = [],
@@ -131,9 +130,6 @@ export async function importPptxBufferToDeck(args: {
   if (!ownerEmail) throw new Error("no authenticated user");
   const themeFont = presentation.theme?.fonts?.[0];
 
-  // Check edit access before uploading any embedded images — uploads are
-  // a side effect with real storage cost, so an unauthorized caller must
-  // be rejected before that side effect happens, not after.
   const db = getDb();
   if (deckId) {
     await assertAccess("deck", deckId, "editor");
@@ -147,9 +143,6 @@ export async function importPptxBufferToDeck(args: {
   }
   assertPptxImagesRenderable(presentation.slides);
 
-  // Convert each parsed slide to its positioned scene graph, uploading every
-  // browser-renderable image so the imported deck keeps the source layering
-  // and media instead of collapsing to a one-image approximation.
   const uploadLimit = pLimit(4);
   const results = await Promise.all(
     presentation.slides.map((parsedSlide, i) =>
@@ -224,9 +217,6 @@ export async function importPptxBufferToDeck(args: {
 
   if (deckId) {
     return withDeckLock(deckId, async () => {
-      // Image uploads happen before this lock because they are independent of
-      // the deck row. Re-read inside the lock so the replacement is based on
-      // the latest deck data rather than the preflight snapshot.
       const [latestDeck] = await db
         .select()
         .from(schema.decks)
@@ -278,7 +268,6 @@ export async function importPptxBufferToDeck(args: {
     });
   }
 
-  // Create new deck
   const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const data = {
     title: deckTitle,

@@ -5,17 +5,6 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
 
 const IGNORE_AUTO_LAYOUT_KEY = process.platform === "darwin" ? "Control" : "s";
 
-/**
- * Figma parity (unique-paths-5): Ctrl/Cmd-drag overrides a flex/auto-layout
- * parent's normal reorder-only drag resistance, letting the child move (or
- * leave the row) freely. Reported bug: the drag instead got claimed by the
- * host's cross-screen reparent path the moment the pointer crossed the
- * screen's rendered edge, which has no ctrl-awareness at all — so the
- * child never actually left the flex row.
- *
- * Runs the real generated bridge in a real browser: flex layout and
- * getBoundingClientRect need a real layout engine, not happy-dom's stub.
- */
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
@@ -30,11 +19,6 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-// Mirrors e2e/global-setup.ts's FIXTURE_HTML shape: an outer flex-COLUMN
-// (`main`, normal document flow, not absolutely positioned) containing a
-// nested flex-ROW of two named buttons, plus a trailing flow sibling to
-// drop onto — the exact structure parity-unique-paths.spec.ts's real e2e
-// test drags against.
 const FIXTURE = `<!doctype html><html><body style="margin:0">
   <main style="display:flex;flex-direction:column;gap:16px;padding:24px">
     <div data-agent-native-node-id="row" data-agent-native-layer-name="Row"
@@ -69,11 +53,6 @@ describe("Ctrl-drag out of an auto-layout parent", () => {
       });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
 
-      // Select Alpha directly via the same postMessage the Layers panel
-      // uses (app/components/design/bridge/editor-chrome.bridge.ts's
-      // "select-element" handler) — a click here would hit container-first
-      // selection ("row" first, since nothing is selected yet), which this
-      // test does not need to exercise.
       await page.evaluate(() => {
         window.postMessage(
           {
@@ -211,13 +190,8 @@ describe("Ctrl-drag out of an auto-layout parent", () => {
       await page.mouse.down();
       await page.mouse.move(74, 70, { steps: 3 });
       await page.waitForTimeout(30);
-      // Establish a real freeform point before the modifier transition. The
-      // release remains stationary after Control, so onReorderUp must resolve
-      // the latched local override from this already-held background point.
       await page.mouse.move(250, 200, { steps: 10 });
       await page.keyboard.down("Control");
-      // The pointer is deliberately stationary after Control: the release
-      // handler must latch the local override itself before host ownership wins.
       await page.mouse.up();
       await page.keyboard.up("Control");
       await page.waitForTimeout(50);

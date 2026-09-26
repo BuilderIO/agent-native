@@ -1,12 +1,3 @@
-/**
- * Token usage tracking and cost monitoring.
- *
- * Every LLM call made by the framework records a row here so users can
- * see where their spend is going — chat vs automations vs background jobs
- * vs whatever else a template labels its prompts as.
- *
- * Cost is stored as "centicents" (1/100th of a cent) for integer precision.
- */
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
 import {
@@ -24,11 +15,6 @@ export {
   type UsageOrgScopeOptions,
 } from "./org-scope.js";
 
-/**
- * Per-million-token pricing in cents. Cache read is typically ~10% of
- * input; cache write (5m TTL) is ~125%. Pricing is best-effort — keep
- * this table in sync with Anthropic's published prices.
- */
 interface ModelPricing {
   input: number;
   output: number;
@@ -95,19 +81,14 @@ export function builderCreditsFromCostCents(cents: number): number {
 }
 
 const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
-  // ── Anthropic ──────────────────────────────────────────────────────────────
-  // claude-fable-5: $10/$50 per MTok (Mythos-class, launched 2026-06-09)
   {
     match: /fable-5/i,
     pricing: { input: 1000, output: 5000, cacheRead: 100, cacheWrite: 1250 },
   },
-  // claude-opus-4-8: $5/$25 standard mode (fast mode same as fable-5 $10/$50)
-  // Use standard-mode pricing as default; fast-mode is a separate model id.
   {
     match: /opus-4-8/i,
     pricing: { input: 500, output: 2500, cacheRead: 50, cacheWrite: 625 },
   },
-  // claude-opus-4-7 and older opus: ~$15/$75 per MTok
   {
     match: /opus/i,
     pricing: { input: 1500, output: 7500, cacheRead: 150, cacheWrite: 1875 },
@@ -116,23 +97,6 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     match: /haiku/i,
     pricing: { input: 100, output: 500, cacheRead: 10, cacheWrite: 125 },
   },
-  // ── OpenAI / Codex ──────────────────────────────────────────────────────────
-  // Short-context rates from OpenAI's published table (read 2026-08-25):
-  // https://developers.openai.com/api/docs/pricing#text-tokens
-  //
-  //            input   cached   cache write   output    (USD per MTok)
-  //   sol      $4.00   $0.40    $5.00         $20.00
-  //   terra    $2.00   $0.20    $2.50         $12.00
-  //   luna     $0.20   $0.02    $0.25         $1.20
-  //
-  // All three also have a long-context tier at roughly 2x these rates. This
-  // table tracks short context because a usage row does not preserve the
-  // request's context size, so the tier cannot be recovered at pricing time.
-  //
-  // Cache WRITES are billed, and above the full input rate. The previous
-  // version of this block set cacheWrite to 0 on the belief that OpenAI does
-  // not charge for them, and carried input/output rates matching neither
-  // column of the table above.
   {
     match: /gpt-5[.-]6-sol/i,
     pricing: { input: 400, output: 2000, cacheRead: 40, cacheWrite: 500 },
@@ -149,18 +113,14 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     match: /gpt-5/i,
     pricing: { input: 125, output: 1000, cacheRead: 12.5, cacheWrite: 0 },
   },
-  // ── Google Gemini ───────────────────────────────────────────────────────────
-  // Gemini 3 Pro / 3.1 Pro: ~$1.25/$10 per MTok (approximate; verify on billing)
   {
     match: /gemini-3[.-]1-pro/i,
     pricing: { input: 125, output: 1000, cacheRead: 31, cacheWrite: 0 },
   },
-  // Gemini 3.5 Flash / 3 Flash: ~$0.15/$0.60 per MTok
   {
     match: /gemini-3[.-][0-9]+-flash/i,
     pricing: { input: 15, output: 60, cacheRead: 4, cacheWrite: 0 },
   },
-  // Gemini 2.5 Pro/Flash (catch-all for older 2.5)
   {
     match: /gemini-2\.5-pro/i,
     pricing: { input: 125, output: 1000, cacheRead: 31, cacheWrite: 0 },
@@ -169,29 +129,22 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     match: /gemini-2\.5-flash/i,
     pricing: { input: 15, output: 60, cacheRead: 4, cacheWrite: 0 },
   },
-  // ── Groq ────────────────────────────────────────────────────────────────────
-  // Groq Llama 3.3 70B: $0.59/$0.79 per MTok
   {
     match: /llama-3\.3-70b/i,
     pricing: { input: 59, output: 79, cacheRead: 0, cacheWrite: 0 },
   },
-  // Groq Llama 3.1 8B instant: $0.05/$0.08 per MTok
   {
     match: /llama-3\.1-8b|llama3-8b/i,
     pricing: { input: 5, output: 8, cacheRead: 0, cacheWrite: 0 },
   },
-  // ── Mistral ─────────────────────────────────────────────────────────────────
-  // Mistral Large: ~$2/$6 per MTok
   {
     match: /mistral-large/i,
     pricing: { input: 200, output: 600, cacheRead: 0, cacheWrite: 0 },
   },
-  // Mistral Small/Medium: ~$0.2/$0.6 per MTok
   {
     match: /mistral-small|mistral-medium/i,
     pricing: { input: 20, output: 60, cacheRead: 0, cacheWrite: 0 },
   },
-  // default → sonnet pricing ($3/$15 per MTok)
   {
     match: /.*/,
     pricing: { input: 300, output: 1500, cacheRead: 30, cacheWrite: 375 },
@@ -212,29 +165,13 @@ export interface UsageRecord {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   model: string;
-  /** Category for this call — e.g. "chat", "automation", "job", "custom-agent". */
   label?: string;
-  /** Optional template/app name (e.g. "mail"). Falls back to app config identity. */
   app?: string;
-  /**
-   * Stable id of the thing this usage belongs to (e.g. a recap plan id). When
-   * set, any prior row(s) with the same (label, refId) are deleted before
-   * insert, so re-recording the same run overwrites instead of double-counting.
-   */
   refId?: string;
-  /**
-   * Precomputed cost in centicents (1/100¢). When provided, it is stored
-   * verbatim instead of being derived from tokens — e.g. to mirror a
-   * provider-reported dollar cost so two surfaces agree exactly.
-   */
   costCentsX100?: number;
-  /** Exact credits reported by the Builder gateway for this run, when available. */
   builderCreditsUsed?: number;
-  /** Engine selected for this call; nullable on historical and external usage rows. */
   engineName?: string;
-  /** Whether cost is provider-reported, estimated, or unavailable. */
   costSource?: UsageCostSource;
-  /** Defaults to the active request organization when omitted. */
   orgId?: string;
   runId?: string;
   threadId?: string;
@@ -285,7 +222,6 @@ export async function ensureUsageTable(): Promise<void> {
         )
       `;
 
-      // Additive columns for older deployments that pre-date the label/cache fields.
       const additions: Array<[string, string]> = [
         ["cache_read_tokens", `BIGINT NOT NULL DEFAULT 0`],
         ["cache_write_tokens", `BIGINT NOT NULL DEFAULT 0`],
@@ -305,19 +241,7 @@ export async function ensureUsageTable(): Promise<void> {
       ];
 
       {
-        // Hot path: the `token_usage` table and its index are virtually always
-        // already present in production. Issuing `CREATE TABLE`/`ALTER TABLE`/
-        // `CREATE INDEX` still takes a lock that, in a fresh background-worker
-        // process behind a concurrent connection on the shared Neon DB, can
-        // block ~indefinitely. The ensure* wrappers probe `information_schema`/
-        // `pg_indexes` first (plain reads, no lock) and run DDL ONLY for what is
-        // actually missing, bounded by a transaction-scoped `lock_timeout`. If a
-        // swallowed lock-timeout leaves the schema still missing they RE-PROBE
-        // and THROW rather than letting init memoize success against absent
-        // schema.
         await ensureTableExists("token_usage", createSql);
-        // Add columns on older deployments — guarded so the hot path (columns
-        // already present) skips the ACCESS EXCLUSIVE ALTER.
         for (const [col, def] of additions) {
           await ensureColumnExists(
             "token_usage",
@@ -325,12 +249,7 @@ export async function ensureUsageTable(): Promise<void> {
             `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS ${col} ${def}`,
           );
         }
-        // Older deployments created `created_at` as 32-bit `INTEGER`; on Postgres
-        // the `Date.now()` written per run by recordUsage() overflows int4. Widen
-        // it in place (no-op once done / on fresh BIGINT databases).
         await widenIntColumnsToBigInt("token_usage", ["created_at"]);
-        // Probe pg_indexes first (no lock) and skip the SHARE-locking CREATE
-        // INDEX when the index is already present.
         await ensureIndexExists(
           "idx_token_usage_owner_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
@@ -356,7 +275,6 @@ export async function ensureUsageTable(): Promise<void> {
         return;
       }
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -364,23 +282,6 @@ export async function ensureUsageTable(): Promise<void> {
   return _initPromise;
 }
 
-/**
- * Calculate cost in centicents (1/100th of a cent).
- *
- * `inputTokens` is the WHOLE prompt and INCLUDES the two cache counts — the
- * convention every engine emits, documented on the `usage` event in
- * `agent/engine/types.ts`. So the three are a PARTITION and each token is
- * priced exactly once: what was not cached at the full rate, what was read
- * from cache at the cache-read rate, what was written at the cache-write rate.
- *
- * Charging `inputTokens` at the full rate and then adding the cache counts on
- * top billed every cached token twice. On a long cached conversation that is
- * not a rounding error — the cache is most of the prompt, so a turn whose real
- * cost was $0.0054 was reported as $0.0478.
- *
- * Non-cache-aware callers pass 0 for the cache fields and get the full rate on
- * everything, which is correct for a provider with no prompt caching.
- */
 export function calculateCost(
   inputTokens: number,
   outputTokens: number,
@@ -389,9 +290,6 @@ export function calculateCost(
   cacheWriteTokens = 0,
 ): number {
   const p = pricingFor(model);
-  // An engine that still emits the exclusive convention would drive this
-  // negative and credit the bill. Clamping keeps the partition non-negative;
-  // the fix for a caller that trips it is that engine, not a wider clamp here.
   const uncachedInputTokens = Math.max(
     0,
     inputTokens - cacheReadTokens - cacheWriteTokens,
@@ -404,12 +302,6 @@ export function calculateCost(
   return rawCenticents > 0 ? Math.max(1, Math.round(rawCenticents)) : 0;
 }
 
-/**
- * Record token usage from an LLM call.
- *
- * Accepts an object with the full set of fields. A positional overload
- * remains for backward compatibility with the older 4-arg signature.
- */
 export async function recordUsage(record: UsageRecord): Promise<void>;
 export async function recordUsage(
   ownerEmail: string,
@@ -456,7 +348,6 @@ export async function recordUsage(
     sourceId,
   } = record;
 
-  // Skip no-op writes (e.g. a stream aborted before any tokens flowed)
   if (
     !inTok &&
     !outTok &&
@@ -481,9 +372,6 @@ export async function recordUsage(
   const resolvedRef = refId ?? "";
   const resolvedOrgId = orgId ?? getRequestOrgId() ?? null;
 
-  // Replace any prior usage for this (org, label, refId) so re-recording the
-  // same run — e.g. a recap regenerated on a PR re-push — overwrites instead
-  // of double-counting. No-op when refId is unset (the common per-call path).
   if (resolvedRef) {
     await client.execute({
       sql: `DELETE FROM token_usage
@@ -493,8 +381,6 @@ export async function recordUsage(
     });
   }
 
-  // Prefer an explicit precomputed cost (e.g. a provider-reported dollar cost);
-  // otherwise derive it from tokens via the pricing table.
   const resolvedCostSource =
     costSource ?? (costCentsX100 == null ? "estimated" : "reported");
   const costX100 =
@@ -539,9 +425,6 @@ export async function recordUsage(
     ],
   });
 
-  // Alert delivery is deliberately detached from the usage write. A provider
-  // or email outage must not make a successful model call fail, and the alert
-  // evaluator serializes its own work so the hot path stays one insert.
   void import("./alerts-store.js")
     .then(({ enqueueUsageAlertEvaluation }) => {
       return enqueueUsageAlertEvaluation({
@@ -554,7 +437,6 @@ export async function recordUsage(
     });
 }
 
-/** Total cost (in cents) charged against a user, across all time. */
 export async function getUserUsageCents(ownerEmail: string): Promise<number> {
   await ensureUsageTable();
   const client = getDbExec();
@@ -566,11 +448,8 @@ export async function getUserUsageCents(ownerEmail: string): Promise<number> {
   return total / 100;
 }
 
-// ─── Admin / UI queries ─────────────────────────────────────────────────
-
 export interface UsageSummaryOptions {
   ownerEmail: string;
-  /** Inclusive lower bound (ms since epoch). Defaults to 30 days ago. */
   sinceMs?: number;
 }
 
@@ -586,7 +465,6 @@ export interface UsageBucket {
 }
 
 export interface DailyBucket {
-  /** YYYY-MM-DD (UTC) */
   date: string;
   cents: number;
   cost: UsageCostAggregate;
@@ -614,7 +492,6 @@ export interface UsageRecentEntry {
 
 export interface UsageSummary {
   billing?: UsageBillingMode;
-  /** Legacy known-cost subtotal. Use totalCost to preserve unavailable spend. */
   totalCents: number;
   totalCost: UsageCostAggregate;
   totalCalls: number;
@@ -632,10 +509,6 @@ export interface UsageSummary {
 
 const DAY_MS = 86_400_000;
 
-/**
- * Produce an aggregated spend view for the Usage admin panel.
- * Scoped to the passed owner email; the UI always passes the session user.
- */
 export async function getUsageSummary(
   options: UsageSummaryOptions,
 ): Promise<UsageSummary> {
@@ -696,7 +569,6 @@ export async function getUsageSummary(
     client.execute(bucketSql("app")),
   ]);
 
-  // By-day aggregation stays in JS to avoid database-specific date functions.
   const dayRows = await client.execute({
     sql: `SELECT created_at, cost_cents_x100, cost_source FROM token_usage
       WHERE owner_email = ? AND created_at >= ?`,

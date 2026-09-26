@@ -7,7 +7,6 @@ export interface TriageReviewSnapshot {
   headSha?: string | null;
 }
 
-/** Reopen an item only when the provider evidence changed since the last poll. */
 export function hasTriageSourceChanged(
   existing: TriageReviewSnapshot | undefined,
   next: TriageReviewSnapshot,
@@ -32,9 +31,6 @@ export function statusAfterTriageSourceUpdate(
   return sourceChanged ? reviewStatus : (existingStatus ?? reviewStatus);
 }
 
-// `sourceChanged` ignores GitHub's updatedAt, but it also ignores comments, so
-// a needs_manual babysit decision has to be preserved explicitly or the next
-// poll flips it back to pr_observed and the Inbox status flaps.
 const STICKY_BABYSIT_STATES = new Set([
   "out-of-scope",
   "closed-or-draft",
@@ -47,7 +43,6 @@ function sameGitHubLogin(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
-/** Keep a babysit skip out of pr_observed until author or draft/open state can change the decision. */
 export function statusAfterPullRequestPoll(input: {
   existingStatus?: string;
   existingAuthor?: string;
@@ -66,9 +61,6 @@ export function statusAfterPullRequestPoll(input: {
       ? "pr_observed"
       : "merged";
   }
-  // The babysit layer found new human review work, which GitHub's title, body,
-  // and head SHA do not reflect. Without this a reopened item keeps its
-  // needs_manual status and never returns to the review window.
   if (input.babysitReopened) return "pr_observed";
   const sticky =
     (input.existingStatus === "needs_manual" ||

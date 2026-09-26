@@ -90,10 +90,6 @@ import { ReviewCommentMenu, ReviewReactionList } from "./ReviewDiscussionTools";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
 
-/**
- * Render a comment body, styling any `@mention` tokens that match the comment's
- * stored mentions. Raw HTML is never interpreted.
- */
 function commentMentionSpans(
   mentions: CommentMention[],
 ): InlineMarkdownProtectedSpan[] {
@@ -140,7 +136,6 @@ function renderCommentBody(content: string, mentions: CommentMention[]) {
   );
 }
 
-/** Mentions whose label still appears in the text, serialized for storage. */
 function mentionsJsonFor(
   text: string,
   mentions: MentionEntry[],
@@ -284,8 +279,6 @@ export function findPendingCommentOffset(
 
 type ThreadLayoutIdentity = { threadId: string; comments: readonly unknown[] };
 
-// Stable identities: a fresh `[]` default re-keys every downstream useMemo,
-// which rebuilds the anchor observers on every render.
 const NO_THREADS: CommentThread[] = [];
 const NO_SUGGESTIONS: ResourceSuggestion[] = [];
 const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
@@ -408,7 +401,6 @@ export function scrollToCommentAnchor(
 }
 
 export function preserveCommentReplyEscape(event: KeyboardEvent) {
-  // Radix handles document capture before the composer's own key handler.
   const target = event.target;
   if (
     event.key === "Escape" &&
@@ -1232,8 +1224,6 @@ export function CommentsSidebar({
     [],
   );
 
-  // Only the presence of a pending comment moves the lane; its draft text
-  // changes on every keystroke and must not re-key the anchor observers.
   const hasPendingComment = !!displayedPendingComment;
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;

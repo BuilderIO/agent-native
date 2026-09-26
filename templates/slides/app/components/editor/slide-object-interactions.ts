@@ -120,9 +120,6 @@ export function canDropSlideLayerInside(
   ) {
     return false;
   }
-  // TABLE, TBODY, TR, UL and friends accept only specific children. Appending
-  // anything else produces markup the parser silently reparents, so the layer
-  // lands somewhere the drop indicator never pointed.
   const requiredChildren = SLIDE_LAYER_REQUIRED_CHILDREN.get(target.tagName);
   if (!requiredChildren) return true;
   return source ? requiredChildren.has(source.tagName) : false;
@@ -145,11 +142,6 @@ export interface SlideObjectGeometry {
   height: number;
 }
 
-/**
- * An explicit object size is the user's decision. Generated slides routinely
- * cap text with `max-width` (and cards with `min-height`), which would clamp
- * the resize silently: the handles move while the text keeps wrapping.
- */
 export function setSlideObjectDimension(
   element: HTMLElement,
   property: "width" | "height",
@@ -223,12 +215,6 @@ export function createSlideObjectPlacementGeometry(
   };
 }
 
-/**
- * A line is a thin bar drawn at its true length between the two drag points,
- * then rotated to the drag angle around its own center. Reusing the
- * axis-aligned bounding box from `createSlideObjectPlacementGeometry` would
- * discard the drag direction and always yield a horizontal/vertical rect.
- */
 export function createSlideLinePlacementGeometry(
   start: { x: number; y: number },
   end: { x: number; y: number },
@@ -246,15 +232,6 @@ export function createSlideLinePlacementGeometry(
   };
 }
 
-/**
- * Clamps a newly placed shape's unrotated `left`/`top` so its *rendered*
- * bounding box stays inside the containing block, not its unrotated box.
- * A rotated bar's unrotated width/height (e.g. a line's full drag length)
- * can be far larger than its actual on-screen footprint, so clamping the
- * unrotated box directly would drag the shape's visual center away from
- * where the user placed it. With `rotation` omitted (or 0) this reduces to
- * the plain axis-aligned clamp used for every other shape.
- */
 export function clampSlideObjectPlacementPosition(
   geometry: SlideObjectGeometry,
   containerWidth: number,
@@ -480,11 +457,6 @@ function findSlideObjectContainingBlock(
   return fallback;
 }
 
-/**
- * Absolute offsets resolve against the nearest ancestor that establishes a
- * containing block, not necessarily the slide's autofit layer. Keep walking
- * past a static layer so measured and authored coordinates use the same root.
- */
 export function resolveSlideObjectContainingBlock(
   element: HTMLElement,
   slideLayer: HTMLElement,
@@ -492,7 +464,6 @@ export function resolveSlideObjectContainingBlock(
   return findSlideObjectContainingBlock(element.parentElement, slideLayer);
 }
 
-/** Resolve the CSS coordinate root for an object about to be added to a layer. */
 export function resolveSlideObjectInsertionContainingBlock(
   positioningLayer: HTMLElement,
 ): HTMLElement {
@@ -504,13 +475,6 @@ export interface SlideTextBoxCanvas {
   positioningLayer: HTMLElement;
 }
 
-/**
- * Text objects need the same persisted coordinate root as other freeform
- * objects. Markdown initially renders straight into `.slide-content`, so the
- * first placement promotes that live flow DOM into an fmd-slide before it is
- * saved. Copying the canvas layout values keeps the current visual alignment
- * when the raw HTML renderer owns it after the edit is committed.
- */
 export function ensureSlideTextBoxCanvas(
   editorRoot: HTMLElement,
 ): SlideTextBoxCanvas | null {
@@ -528,9 +492,6 @@ export function ensureSlideTextBoxCanvas(
   const slideContents = Array.from(
     editorRoot.querySelectorAll<HTMLElement>(".slide-content"),
   );
-  // A two-column Markdown slide renders one independent content root per
-  // column. Promoting only the first and serializing it would discard the
-  // other column, so decline until both roots have a shared raw-HTML canvas.
   if (slideContents.length !== 1) return null;
   const slideContent = slideContents[0];
   const canvas = slideContent?.closest<HTMLElement>("[data-slide-canvas]");
@@ -570,7 +531,6 @@ function isDarkColor(color: string) {
   return red * 0.2126 + green * 0.7152 + blue * 0.0722 < 140;
 }
 
-/** Choose rendered text before generic canvas shells, then keep the fallback legible. */
 export function getSlideTextBoxDefaultColor(
   target: HTMLElement | null,
   positioningLayer: HTMLElement,
@@ -654,8 +614,6 @@ function remintSlideObjectDomIds(
     const id = node.getAttribute("id");
     if (!id) continue;
     const remintedId = createSlideObjectDomId(occupiedIds);
-    // Duplicate source ids are already ambiguous. Keep internal references
-    // pointed at the first occurrence, matching document.getElementById().
     if (!idMap.has(id)) idMap.set(id, remintedId);
     node.id = remintedId;
   }
@@ -709,9 +667,6 @@ export function cloneSlideObject(element: HTMLElement): HTMLElement {
   removeTransientBuilderIds(clone);
   remintSlideObjectDomIds(clone);
   clone.setAttribute("data-slide-object-id", createSlideObjectId());
-  // Nested freeform objects are independently addressable after a clone. Each
-  // one needs a new persisted identity so selector-based edits cannot resolve
-  // to the corresponding element in the original object.
   clone
     .querySelectorAll<HTMLElement>("[data-slide-object-id]")
     .forEach((descendant) => {
@@ -729,11 +684,6 @@ function viewportScale(element: Element | null): { x: number; y: number } {
   };
 }
 
-/**
- * Which insets anchor an absolute object, whether set inline or by a slide
- * `<style>` rule. A positioned element resolves every inset to its used px, so
- * read them while static, where the specified `auto` survives.
- */
 function readAnchoredInsets(element: HTMLElement) {
   const position = element.style.getPropertyValue("position");
   const priority = element.style.getPropertyPriority("position");
@@ -754,11 +704,6 @@ function readAnchoredInsets(element: HTMLElement) {
   return anchors;
 }
 
-/**
- * Undo a viewport shift of an absolute object on the sides it is anchored to.
- * Generated badges often pin `right`/`bottom`; rewriting only `left` would
- * over-constrain them and stretch or jump the box instead.
- */
 function restoreViewportPosition(element: HTMLElement, before: DOMRect): void {
   const anchors = readAnchoredInsets(element);
   const after = element.getBoundingClientRect();
@@ -770,8 +715,6 @@ function restoreViewportPosition(element: HTMLElement, before: DOMRect): void {
       element.style.setProperty(side, `${Math.round(value + delta)}px`);
     }
   };
-  // Each edge moves by its own amount: an object stretched between both
-  // insets also changes size when its containing block does.
   const dLeft = (after.left - before.left) / scale.x;
   const dRight = (after.right - before.right) / scale.x;
   const dTop = (after.top - before.top) / scale.y;
@@ -782,12 +725,6 @@ function restoreViewportPosition(element: HTMLElement, before: DOMRect): void {
   if (anchors.bottom && dBottom) shift("bottom", dBottom);
 }
 
-/**
- * Positioning `element` makes it the containing block of absolute descendants
- * that resolved past it, so an object freed from a box earlier would jump by
- * the box's offset the moment the box itself is dragged. Returns the undo for a
- * cancelled promotion, which restores the element but not its descendants.
- */
 export function keepAbsoluteDescendantsInPlace(
   element: HTMLElement,
   position: () => void,
@@ -817,14 +754,6 @@ export function keepAbsoluteDescendantsInPlace(
     );
 }
 
-/**
- * An object dropped outside the generated box it came from has left that box.
- * As a DOM child the box would still clip it, carry it along when moved, and
- * delete it with itself, so re-home it under the innermost ancestor that still
- * contains its center, keeping it where it was dropped. The box also stops
- * reserving the object's old flow slot, so its own layout closes the gap
- * instead of keeping an invisible hole.
- */
 export function releaseSlideObjectFromLeftBoxes(
   element: HTMLElement,
   layer: HTMLElement,
@@ -867,11 +796,6 @@ export function releaseSlideObjectFromLeftBoxes(
   return true;
 }
 
-/**
- * Take an in-flow slide element out of layout without pulling the rest of the
- * slide with it. The shallow, hidden copy keeps its original flex/grid slot;
- * the live element can then become an independently movable canvas object.
- */
 export function freezeSlideElementForFreeform(
   element: HTMLElement,
   geometry: SlideObjectGeometry,
@@ -909,15 +833,10 @@ export function freezeSlideElementForFreeform(
   spacer.style.minHeight = "0";
   spacer.style.maxWidth = "none";
   spacer.style.maxHeight = "none";
-  // `geometry` is the already-laid-out border box. Letting the replacement
-  // flex item shrink that measured size a second time changes the autofit
-  // transform and makes the object jump as soon as it becomes absolute.
   spacer.style.flexGrow = "0";
   spacer.style.flexShrink = "0";
   spacer.style.flexBasis = "auto";
   spacer.style.alignSelf = layout.alignSelf;
-  // An inline placeholder cannot reserve a measured block's height. Preserve
-  // inline text flow with inline-block while retaining block/grid displays.
   spacer.style.display =
     layout.display === "inline" ? "inline-block" : layout.display;
 
@@ -929,8 +848,6 @@ export function freezeSlideElementForFreeform(
   element.style.width = `${geometry.width}px`;
   element.style.height = `${geometry.height}px`;
   element.style.boxSizing = "border-box";
-  // left/top describe the visible border box. Leaving flow margins on the
-  // absolute element would offset it from the measured pre-freeze rect.
   element.style.margin = "0";
   if (textPresentation) {
     const properties: Array<
@@ -974,7 +891,6 @@ export function preserveSlideObjectLayoutSpacer(element: HTMLElement): void {
   }
 }
 
-/** Preserve a flow element's measured slot after its content is deleted. */
 function preserveSlideElementLayoutSlot(element: HTMLElement): void {
   const computed = window.getComputedStyle(element);
   freezeSlideElementForFreeform(
@@ -997,7 +913,6 @@ function preserveSlideElementLayoutSlot(element: HTMLElement): void {
   element.remove();
 }
 
-/** Remove a freeform object and the invisible layout slot that anchors it. */
 export function removeSlideObjectAndLayoutSpacer(
   element: HTMLElement,
   { preserveLayoutSlot = false }: { preserveLayoutSlot?: boolean } = {},
@@ -1023,14 +938,6 @@ export function removeSlideObjectAndLayoutSpacer(
   element.remove();
 }
 
-/**
- * Whether Delete may remove this selected element from the slide content.
- *
- * Selection is intentionally broader than freeform object manipulation: an
- * AI-generated flow-layout div is still user content and must be removable.
- * The renderer's structural shells and the hidden spacer used to preserve a
- * moved object's original layout slot are not user content.
- */
 export function isDeletableSlideElement(element: HTMLElement): boolean {
   return (
     !element.classList.contains("fmd-layout-spacer") &&
@@ -1041,14 +948,6 @@ export function isDeletableSlideElement(element: HTMLElement): boolean {
   );
 }
 
-/**
- * Whether Delete should remove `element` even though it is not a freeform
- * canvas object or generic flow element.
- *
- * Images are handled specially because they are leaves: an image nested in a
- * card should be removed without swallowing the surrounding card. Generic
- * flow elements are covered by `isDeletableSlideElement`.
- */
 export function isDeletableFlowImage(element: HTMLElement): boolean {
   return (
     element.tagName === "IMG" ||
@@ -1056,17 +955,6 @@ export function isDeletableFlowImage(element: HTMLElement): boolean {
   );
 }
 
-/**
- * The persisted image object that owns `element`, if any.
- *
- * PPTX/PDF import wraps each picture in an absolutely positioned
- * `.fmd-pptx-image` div carrying the durable `data-slide-object-id`, with the
- * `<img>` (or an empty placeholder) inside it. Deleting the inner node alone
- * leaves that wrapper behind as an invisible object that still occupies its
- * slot and still round-trips through save. Matching on the image wrapper
- * specifically — rather than any positioned ancestor — keeps this from
- * swallowing a whole card or column that merely contains a picture.
- */
 export function findPersistedImageObject(
   element: HTMLElement,
   root: HTMLElement,
@@ -1095,7 +983,6 @@ export function resolveSlideClipboardElement(
   return selectedElement;
 }
 
-/** Convert a viewport click into the unscaled fmd-slide coordinate system. */
 export function clientPointToSlideCoordinates(
   clientX: number,
   clientY: number,
@@ -1134,12 +1021,6 @@ export function resizeSlideObject(
 
 const WIDTH_ONLY_RESIZE_HANDLES = new Set<ResizeHandle>(["e", "w"]);
 
-/**
- * A width-only handle on a text object should not pin a height: wrapped text
- * needs the box free to grow or shrink as its width changes. Corners and the
- * top/bottom handles are an explicit height drag (or, with Shift held,
- * derive one to preserve aspect ratio), so those keep a manual, fixed height.
- */
 export function isAutoHeightTextResize(
   element: HTMLElement,
   handle: ResizeHandle,
@@ -1222,7 +1103,6 @@ export function resizeSlideObjectMembers(
   return plan;
 }
 
-/** Scale a group's descendants in their own parent coordinate spaces. */
 interface SlideObjectGroupBounds {
   width: number;
   height: number;
@@ -1261,8 +1141,6 @@ export function scaleSlideObjectGroupMembers(
       return { element, plan: { geometry } };
     }
 
-    // Parent scaling maps a child's affine transform by S*M*S^-1, not by
-    // scaling its layout box alone; otherwise rotated/sheared members drift.
     const matrix = readSlideObjectTransformMatrix(start, transform);
     if (!matrix) return null;
     const [a, b, c, d, tx, ty] = matrix;
@@ -1306,9 +1184,7 @@ export function readSlideObjectZIndex(element: HTMLElement): number {
 }
 
 export interface SlideObjectZOrderChange {
-  /** z-index to assign to the moved element. */
   value: number;
-  /** Peers that must be shifted up to make room, when there was none below. */
   shiftPeers: { element: HTMLElement; value: number }[];
 }
 
@@ -1391,14 +1267,11 @@ function getSlideObjectZOrderPeers(
       return [];
     }
     const zIndex = readSlideObjectZIndex(peer);
-    // Negative layers are reserved for slide backgrounds. They must remain
-    // below editable objects, never be pulled up by send-to-back normalization.
     if (zIndex < 0) return [];
     return [{ element: peer, zIndex, order }];
   });
 }
 
-/** Persist the DOM order of a freeform stack after a Layers panel move. */
 export function persistSlideObjectZOrderFromDom(
   element: HTMLElement,
   container: HTMLElement,
@@ -1429,11 +1302,6 @@ export function persistSlideObjectZOrderFromDom(
   return changed;
 }
 
-/**
- * Compute the z-index change that puts `element` in front of / behind every
- * other freeform object inside `container`. Returns null when nothing needs
- * to change.
- */
 export function computeSlideObjectZOrder(
   element: HTMLElement,
   container: HTMLElement,
@@ -1495,8 +1363,6 @@ export function computeSlideObjectZOrder(
     return value === currentValue ? null : { value, shiftPeers: [] };
   }
 
-  // No room below zero, or an existing tie needs repair. Keep reserved negative
-  // layers untouched and give every editable peer a stable unique position.
   const orderedPeers = [...peers].sort(
     (left, right) => left.zIndex - right.zIndex || left.order - right.order,
   );
@@ -1509,8 +1375,6 @@ export function computeSlideObjectZOrder(
   };
 }
 
-/** Compute a stacking-order move for a multi-selection while preserving the
- * relative order of the selected layers. */
 export function computeSlideObjectZOrderForSelection(
   elements: readonly HTMLElement[],
   container: HTMLElement,
@@ -1605,13 +1469,6 @@ export function computeSlideObjectZOrderForSelection(
   return changes.size > 0 ? changes : null;
 }
 
-/**
- * Effective stacking index of a layer, or null when it has none.
- *
- * `auto` is not 0. Both paint in the same layer, but an `auto` sibling that
- * comes later in the DOM still paints above an explicit 0, so collapsing the
- * two is what let "send to back" report success while the layer stayed on top.
- */
 function readSlideLayerZIndex(element: HTMLElement): number | null {
   const raw = element.style.zIndex || window.getComputedStyle(element).zIndex;
   if (!raw || raw === "auto") return null;
@@ -1619,11 +1476,6 @@ function readSlideLayerZIndex(element: HTMLElement): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-/**
- * z-index only takes effect on a positioned box or a flex/grid item. A static
- * layer in a plain block parent needs `position: relative` first, or the index
- * it is handed is inert.
- */
 function ensureSlideLayerCanStack(
   element: HTMLElement,
   parent: HTMLElement,
@@ -1645,27 +1497,16 @@ function slideLayerSiblings(
       child !== element &&
       !isSlideCanvasShell(child) &&
       shouldStampBuilderId(child) &&
-      // Negative layers are reserved for slide backgrounds. They stay below
-      // every editable layer and must never be lifted by normalization.
       (readSlideLayerZIndex(child) ?? 0) >= 0,
   );
 }
 
-/**
- * Raise or lower `element` past its sibling layers by z-index.
- *
- * Arrange means stacking order, so this only ever writes z-index. It must not
- * reorder the DOM: `.fmd-slide` is a flex column, where moving a node changes
- * where the layer sits on the slide instead of what it paints over.
- */
 export function arrangeSlideLayerInParent(
   element: HTMLElement,
   target: SlideObjectZOrderTarget,
 ): boolean {
   const parent = element.parentElement;
   if (!parent) return false;
-  // A negative index marks a reserved slide background. Arranging it would
-  // lift it into the editable stack, where it would cover the slide.
   if ((readSlideLayerZIndex(element) ?? 0) < 0) return false;
   const siblings = slideLayerSiblings(element, parent);
   if (siblings.length === 0) return false;
@@ -1719,9 +1560,6 @@ export function arrangeSlideLayerInParent(
     return changed;
   }
 
-  // Reaching the back means clearing every sibling, including the ones still
-  // on `auto`. Park the element at 0 and give each sibling a unique positive
-  // slot in the order it already paints.
   const domOrder = new Map(
     Array.from(parent.children).map((child, index) => [child, index]),
   );
@@ -1749,7 +1587,6 @@ export interface SlideObjectMoveMember {
   start: SlideObjectGeometry;
 }
 
-/** CSS values captured before a gesture; every preview derives from this snapshot. */
 export interface SlideObjectTransformSnapshot {
   transform: string;
   transformOrigin: string;
@@ -1862,7 +1699,6 @@ function hasIndependentlyPositionedDescendant(element: HTMLElement): boolean {
   );
 }
 
-/** Promote selected leaves to a bordered container when its full content is selected. */
 export function resolveSlideObjectMoveRoots(
   elements: HTMLElement[],
   selectedIds: ReadonlySet<string>,
@@ -2181,8 +2017,6 @@ export function ungroupSlideObject(
     }
   }
   const groupZIndex = readSlideLayerZIndex(group);
-  // Ungrouping removes the wrapper's stacking context; move members to its
-  // outer stack slot and preserve their inner order in the DOM.
   for (const { element } of childGeometries) {
     parent.insertBefore(element, group);
     element.style.zIndex = groupZIndex === null ? "auto" : String(groupZIndex);
@@ -2423,8 +2257,6 @@ export function resizeTransformedSlideObject(
     minWidth: minSize,
     minHeight: minSize,
   });
-  // CSS transform-origin moves with a resized box, so preserve the rendered
-  // opposite anchor rather than just its untransformed layout coordinate.
   const originTokens = transform.transformOrigin.trim().split(/\s+/);
   const transformedPoint = (
     point: { x: number; y: number },
@@ -2786,10 +2618,6 @@ export function isValidSlideClipboardRoot(element: HTMLElement): boolean {
   return !SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN.has(element.tagName);
 }
 
-/**
- * Snapshot the movable members of a multi-selection, keyed by durable object id.
- * Elements that are not absolutely positioned cannot move and are excluded.
- */
 export function collectMovableSlideObjects(
   elements: HTMLElement[],
   getGeometry: (element: HTMLElement) => SlideObjectGeometry,
@@ -2811,7 +2639,6 @@ export function collectMovableSlideObjects(
   return members;
 }
 
-/** Apply one shared delta to every member, relative to its captured start. */
 export function applySlideObjectMoveDelta(
   members: SlideObjectMoveMember[],
   deltaX: number,
@@ -2831,9 +2658,7 @@ export type SlideAlignmentGuideOrientation = "vertical" | "horizontal";
 
 export interface SlideAlignmentGuide {
   orientation: SlideAlignmentGuideOrientation;
-  /** Position in the shared slide coordinate space. */
   position: number;
-  /** Visible span in the shared slide coordinate space. */
   start: number;
   end: number;
 }
@@ -2897,12 +2722,6 @@ function objectAnchorPositions(
   });
 }
 
-/**
- * Snap a proposed object/group delta to nearby peer or canvas anchors. The
- * moving geometry is the object itself for a single drag and the union bounds
- * for a group drag. The caller can bypass this transient behavior with the
- * platform modifier used by Figma (Cmd/Ctrl) without changing persisted data.
- */
 export function snapSlideObjectMove({
   moving,
   deltaX,
@@ -3181,10 +3000,6 @@ function writeSlideObjectClipboardLegacy(
   }
 }
 
-/**
- * Give layer copies a native marker so the paste event can identify which
- * clipboard source is newest. The in-memory copy remains the local fallback.
- */
 export async function writeSlideObjectClipboard(
   clipboardId: string,
   copied: CopiedSlideObjects,
@@ -3222,19 +3037,12 @@ export async function writeSlideObjectClipboard(
 
   if (richWriteError) throw richWriteError;
   if (clipboard?.writeText) {
-    // This path starts during the copy gesture when no rich API is available.
-    // A rejected rich write is thrown above so a later fallback cannot lose
-    // transient activation or overwrite a newer copy.
     await clipboard.writeText(text);
     return "text-only";
   }
   throw new Error("Clipboard writing is not supported");
 }
 
-/**
- * `storedForm` turns a copy into the HTML it has in the stored slide; without
- * it (a Markdown slide has no stored HTML) the rendered copy is used.
- */
 export function copySlideObjects(
   elements: HTMLElement[],
   storedForm?: (copy: HTMLElement) => string | null,
@@ -3246,8 +3054,6 @@ export function copySlideObjects(
         const clone = cloneSlideObject(element);
         const html = storedForm?.(clone);
         if (html != null) return html;
-        // Stamps only mean something to the render they came from; a paste
-        // after the slide re-renders would map them onto other elements.
         stripSourceStamps(clone);
         return clone.outerHTML;
       }),
@@ -3266,10 +3072,6 @@ function offsetInlinePx(
   element.style[property] = `${value + offset}px`;
 }
 
-/**
- * Rebuild pasted objects from stored HTML with fresh ids and a cascade offset,
- * so a paste never collides exactly with its source.
- */
 export function buildPastedSlideObjects(
   copied: CopiedSlideObjects,
   doc: Document,
@@ -3287,8 +3089,6 @@ export function buildPastedSlideObjects(
     const element = template.content.firstElementChild;
     if (!(element instanceof HTMLElement)) continue;
     remintSlideObjectDomIds(element, occupiedDomIds);
-    // Remint every persisted id (root + nested) the same way cloneSlideObject
-    // does, so a pasted object never resolves to its source via selector.
     element.setAttribute("data-slide-object-id", createSlideObjectId());
     element
       .querySelectorAll<HTMLElement>("[data-slide-object-id]")

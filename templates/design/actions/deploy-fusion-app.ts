@@ -1,15 +1,3 @@
-/**
- * deploy-fusion-app — reserve a hosting slug (if needed) and trigger a hosted
- * deploy of a fusion app's branch.
- *
- * On first deploy, derives a default `<slug>.builder.cloud` hosting slug from
- * the design title unless the caller passes one explicitly. Reservation
- * failures (slug already taken) surface clearly so the caller can retry with
- * a different slug. Persists the reserved slug, deployed URL, and last deploy
- * id/status on the fusion app linkage so get-fusion-deploy-status can poll
- * without re-resolving them.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
@@ -21,7 +9,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   FULL_APP_BUILDING,

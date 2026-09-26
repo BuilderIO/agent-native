@@ -9,17 +9,6 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runLayerMove, type LayerMoveArgs } from "./layer-move";
 
-/**
- * Peer-reported gap: reordering two SAME-parent siblings via the Layers
- * panel persists the new order, but the bridge's non-forced replace only
- * re-morphs whichever node the CURRENT selection resolves to and returns
- * without ever touching the rest of the body (see
- * document-morph.bridge.spec.ts's "a same-parent reorder without
- * forceFullDocument" — the same write with the selection on an unrelated
- * sibling never reaches the live DOM). This pins the call-level fix: a
- * structural sibling move must ask for the whole-document (still in-place,
- * keyed) morph.
- */
 const FIXTURE = `<body>
   <div data-agent-native-node-id="node-a" style="position:absolute;left:20px;top:20px;width:80px;height:80px"></div>
   <div data-agent-native-node-id="node-b" style="position:absolute;left:140px;top:20px;width:80px;height:80px"></div>

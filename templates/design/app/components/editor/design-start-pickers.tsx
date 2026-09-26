@@ -50,10 +50,7 @@ export interface PromptDesignSystemOption {
   title: string;
   description?: string | null;
   isDefault?: boolean;
-  /** The system's own palette, so the row can be picked by colour rather than
-   *  by reading a list of near-identical names. */
   colors?: string[];
-  /** False while a Builder-backed system has no indexed docCount yet. */
   ready: boolean;
 }
 
@@ -299,11 +296,6 @@ export function DesignSystemPickerControl({
   );
 }
 
-/**
- * Swatches come from the system's own stored tokens. Unparseable data still
- * belongs in the list — it just loses its colour row, which the option renders
- * as absent rather than guessing a palette.
- */
 export function designSystemPickerOptions(
   systems: Array<{
     id: string;

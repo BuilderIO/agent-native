@@ -13,7 +13,6 @@ import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import type { PlanFilesGrant } from "../index";
 
 export interface PlanFilesIpcDeps {
-  /** Rejects requests that don't come from the Plan app's own webview. */
   requirePlanFilesWebviewAccess: (
     event: IpcMainInvokeEvent,
   ) => DesktopPlanFilesResult | null;
@@ -38,10 +37,6 @@ export interface PlanFilesIpcDeps {
   clearPlanFilesGrant: (planId: string) => DesktopPlanFilesResult;
 }
 
-/**
- * Registers the Plan-app local-folder sync IPC handlers (get/choose/write/read/clear).
- * All access is gated to the Plan app's own webview via `requirePlanFilesWebviewAccess`.
- */
 export function registerPlanFilesIpc(deps: PlanFilesIpcDeps): void {
   const {
     requirePlanFilesWebviewAccess,

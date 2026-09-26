@@ -11,13 +11,10 @@ import { and, asc, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import getDesignSystem from "./get-design-system.js";
 import { getDesignSchema } from "./get-design.schema.js";
 
-// The editor re-reads get-design after saves, on sync events, and every second
-// while a generation runs. Count a signed-in viewer's view once per window,
-// not once per read. Per server instance; anonymous reads have no viewer key.
 const DESIGN_VIEW_TRACK_WINDOW_MS = 30 * 60 * 1000;
 const DESIGN_VIEW_TRACK_MAX_KEYS = 5000;
 const lastDesignViewTrackedAt = new Map<string, number>();
@@ -85,14 +82,6 @@ export default defineAction({
     }
 
     const row = access.resource;
-    // Fetch associated files in a stable order. This array feeds the overview
-    // canvas's screen stack and each screen's index within its layout group, so
-    // unordered rows (Postgres returns heap order, which an UPDATE can change)
-    // meant the same design could lay itself out differently on two loads.
-    // Note this is deterministic, not creation-ordered: files written in one
-    // batch share a `createdAt` to the millisecond and fall back to the id
-    // tiebreak. Nothing may depend on the index matching the order a generator
-    // wrote in — see the order-independence case in variant-lineup.test.ts.
     const baseFileFields = {
       id: schema.designFiles.id,
       filename: schema.designFiles.filename,

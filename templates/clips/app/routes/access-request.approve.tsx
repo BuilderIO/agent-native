@@ -43,9 +43,6 @@ export default function ApproveRecordingAccessRequestRoute() {
   const approvalTokenFromUrl = searchParams.get("token") ?? "";
   const approvalTokenStorageKey =
     recordingAccessApprovalSessionKey(recordingId);
-  // Only the URL token is knowable on the server, so reading storage in the
-  // initializer makes the first client render disagree with the server's and
-  // React re-renders the page from scratch. Adopt the stored token after mount.
   const [approvalToken, setApprovalToken] = useState(
     () => approvalTokenFromUrl ?? "",
   );
@@ -83,8 +80,6 @@ export default function ApproveRecordingAccessRequestRoute() {
     }
     setApprovalToken(approvalTokenFromUrl);
 
-    // The email link must contain the capability, but it should not remain in
-    // the address bar or be copied into the sign-in continuation URL.
     const params = new URLSearchParams(window.location.search);
     params.delete("token");
     const nextSearch = params.toString();

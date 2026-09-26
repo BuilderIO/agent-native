@@ -47,11 +47,6 @@ const FUNC_NAME_RE = new RegExp(
 const OPT_OUT_MARKER =
   /\/\/\s*guard:allow-unscoped-credential\b[^\n]*[—-]\s*\S/;
 
-/** Files that legitimately use the one-arg form because they ARE the
- * implementation under guard — the definition file itself. In an app this
- * file only ever exists inside `node_modules`, already excluded by
- * SKIP_DIRS, so this allowlist is effectively a no-op for app mode; kept
- * for parity with the source guard. */
 const FILE_ALLOWLIST = new Set(["packages/core/src/credentials/index.ts"]);
 
 interface ArgAnalysis {
@@ -59,11 +54,6 @@ interface ArgAnalysis {
   endIdx: number;
 }
 
-/**
- * Starting at openParenIdx (the index of the `(` after the function name),
- * walk forward, balancing nested parens / braces / brackets / strings, and
- * return the top-level comma count. Ported verbatim.
- */
 function analyzeArgs(
   contents: string,
   openParenIdx: number,

@@ -1,11 +1,3 @@
-/**
- * Lightweight inline CTA that nudges users to connect Builder.io for
- * higher-quality transcription. Renders nothing when Builder is already
- * connected.
- *
- * Drop this next to transcript displays in any template.
- */
-
 import { Button } from "@agent-native/toolkit/ui/button";
 import { IconBolt, IconLoader2 } from "@tabler/icons-react";
 
@@ -25,7 +17,6 @@ export function BuilderTranscriptionCta() {
     : null;
   const statusUnavailable = flow.hasFetchedStatus && !flow.statusResolved;
 
-  // Keep a retry path visible after an unreadable status response.
   if (configured || (configured === null && !statusUnavailable)) return null;
 
   return (
