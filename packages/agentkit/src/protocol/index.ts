@@ -612,6 +612,10 @@ export type AgentCapabilityId =
   | "widgets"
   | `x-${string}`;
 
+/**
+ * Capability status is explicit: unsupported is permanent for this protocol
+ * endpoint, while unavailable may recover without renegotiating the protocol.
+ */
 export type AgentCapabilityState =
   | "available"
   | "degraded"
@@ -1152,6 +1156,10 @@ export interface SubscribeToRunInput {
   threadId: ThreadId;
   runId: RunId;
   afterSequence?: number;
+  /**
+   * Cancels only this subscription. Implementations must stop iteration and
+   * release transport resources; they must not cancel the remote run.
+   */
   signal?: AbortSignal;
 }
 

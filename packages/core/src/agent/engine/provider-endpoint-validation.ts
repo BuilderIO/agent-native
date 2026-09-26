@@ -26,6 +26,14 @@ export function isLocalNetworkOllamaEndpoint(value: string): boolean {
   return false;
 }
 
+/**
+ * Validate a provider endpoint before a server-side model request can use it.
+ * `allowPrivate` is reserved for operator-owned deployment configuration; it
+ * must never be enabled for a user- or agent-supplied URL. `allowLocalOllama`
+ * additionally requires the caller to have established a trusted,
+ * self-hosted context. `isOllama` strips a trailing `/v1`, which the Ollama
+ * API does not use.
+ */
 export async function validateProviderBaseUrl(
   value: string,
   options: {
