@@ -2161,16 +2161,18 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     );
     const appPath = path.join(rootPath, "src/App.tsx");
     const before = fs.readFileSync(appPath, "utf8");
-    const after = before.replace(
-      'const initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];',
-      'const initialCards = [{ id: "v2", label: "V2" }, { id: "v3", label: "V3" }, { id: "v1", label: "V1 updated" }];',
-    );
+    const after = before
+      .replace(
+        'const initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];',
+        'const initialCards = [{ id: "v2", label: "V2" }, { id: "v3", label: "V3" }, { id: "v1", label: "V1 updated" }];',
+      )
+      .replace(">Go to next route</button>", ">Go to updated route</button>");
     if (after === before)
       throw new Error("React source edit did not match App.tsx");
     fs.writeFileSync(appPath, after);
-    await expect(frame.getByText("V1 updated", { exact: true })).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(
+      frame.getByRole("button", { name: "Go to updated route" }),
+    ).toBeVisible({ timeout: 15_000 });
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.locator("[data-design-editor]")).toBeVisible({
       timeout: 30_000,
