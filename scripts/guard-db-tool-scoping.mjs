@@ -79,6 +79,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:recording_playback_positions":
     "viewer playback state scoped through recordings",
   "clips:recording_reactions": "child rows scoped through recordings",
+  "clips:recording_agent_views":
+    "agent telemetry is scoped through authorized parent recordings",
   "clips:recording_tags": "child rows scoped through recordings",
   "clips:recording_views": "append-only child rows scoped through recordings",
   "clips:recording_viewers": "viewer link rows scoped through recordings",
