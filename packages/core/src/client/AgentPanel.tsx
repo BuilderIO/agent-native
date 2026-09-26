@@ -74,7 +74,7 @@ const loadMultiTabAssistantChat = () =>
     default: m.MultiTabAssistantChat,
   }));
 const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
-import { Link, useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
@@ -115,6 +115,7 @@ import { useFirstRunOnboardingGateOwnsSurface } from "./onboarding/first-run-sta
 import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
+import { RouterSidebarLink } from "./ui/AppSidebar.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { cn } from "./utils.js";
 
@@ -1581,13 +1582,13 @@ function AgentPanelInner({
               </DropdownMenuItem>
             ) : fullViewAction?.kind === "link" ? (
               <DropdownMenuItem asChild>
-                <Link
+                <RouterSidebarLink
                   to={fullViewAction.href}
                   aria-label={t("agentPanel.openFullView")}
                 >
                   <IconArrowsMaximize size={14} className="shrink-0" />
                   {t("agentPanel.openFullView")}
-                </Link>
+                </RouterSidebarLink>
               </DropdownMenuItem>
             ) : null}
             {(onCollapse && mode === "chat" && wideDrawerAction) ||
