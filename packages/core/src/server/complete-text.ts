@@ -166,11 +166,16 @@ export async function completeText(
 ): Promise<CompleteTextResult> {
   registerBuiltinEngines();
 
-  const { apiKey, apiKeyEnvVar } = await resolveCompletionApiKey(options);
+  const {
+    apiKey,
+    apiKeyEnvVar,
+    credentialProvenance: apiKeyProvenance,
+  } = await resolveCompletionApiKey(options);
   const engine = await resolveEngine({
     engineOption: options.engine,
     apiKey,
     apiKeyEnvVar,
+    apiKeyProvenance,
     model: options.model,
     appId: options.appId,
   });

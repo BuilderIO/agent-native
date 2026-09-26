@@ -76,6 +76,7 @@ import { MissingDeckAccessPane } from "@/components/editor/MissingDeckAccessPane
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -87,6 +88,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   clearSlideEditingActive,
   deckIdFromPathname,
@@ -125,6 +128,7 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
@@ -890,6 +894,10 @@ export default function DeckEditor() {
 
   // Hidden file input for direct upload
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const storageQuery = useSlideFileStorageStatus();
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
+  const [showUploadStorageSetup, setShowUploadStorageSetup] = useState(false);
 
   const deck = getDeck(id || "");
   const retryRecoveryStorageKey = id
@@ -1110,14 +1118,16 @@ export default function DeckEditor() {
       runError: attemptRunError,
       stopReason: attemptStopReason,
       timedOut: attemptTimedOut,
+      canContinueAfterStall: attemptCanContinueAfterStall,
+      abortStalledRun: abortStalledGeneration,
       submitAndConfirm: submitGenerationAttemptAndConfirm,
     },
     generating: newDeckGenerationSignal,
   } = useNewDeckGenerationSignal({
     attemptId: generationAttemptId,
+    outputId: id ?? null,
     tabId: generationAttemptTabId,
-    broadGenerating: generating,
-    submitStarted: generationRunStartedRef.current,
+    progressToken: slideCount,
   });
   const targetSlideCount =
     typeof generationContext?.targetSlideCount === "number" &&
@@ -1125,6 +1135,58 @@ export default function DeckEditor() {
     generationContext.targetSlideCount > 0
       ? generationContext.targetSlideCount
       : null;
+
+  useEffect(() => {
+    if (
+      !attemptTimedOut ||
+      !attemptCanContinueAfterStall ||
+      !wasNewDeckCreation.current ||
+      !generationAttemptId ||
+      !id ||
+      !generationAttemptTabId
+    ) {
+      return;
+    }
+    toast.error(t("deckEditor.generationStalled"), {
+      id: `slides-generation-stalled:${id}:${generationAttemptId}`,
+      description: t("deckEditor.generationStalledDescription"),
+      action: {
+        label: t("deckEditor.continueInChat"),
+        onClick: async () => {
+          if (!(await abortStalledGeneration())) return;
+          await submitGenerationAttemptAndConfirm(
+            t("deckEditor.continueGenerationPrompt"),
+            [
+              `Deck ID: ${id}`,
+              `Current slide count: ${slideCount}`,
+              targetSlideCount !== null
+                ? `Target slide count: ${targetSlideCount}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            {
+              generationAttemptId,
+              generationOutputId: id,
+              openSidebar: true,
+              targetTabId: generationAttemptTabId,
+            },
+          );
+        },
+      },
+    });
+  }, [
+    attemptTimedOut,
+    attemptCanContinueAfterStall,
+    abortStalledGeneration,
+    generationAttemptId,
+    generationAttemptTabId,
+    id,
+    slideCount,
+    t,
+    targetSlideCount,
+    submitGenerationAttemptAndConfirm,
+  ]);
 
   useEffect(() => {
     if (
@@ -1740,6 +1802,9 @@ export default function DeckEditor() {
     description: questionFlowDescription,
     skipLabel: questionFlowSkipLabel,
     submitLabel: questionFlowSubmitLabel,
+    isSubmissionBlocked: questionFlowSubmissionBlocked,
+    providerStatus: questionFlowProviderStatus,
+    retryProviderStatus: retryQuestionFlowProviderStatus,
     handleSubmit: handleQuestionSubmit,
     handleSkip: handleQuestionSkip,
     isSubmitting: questionFlowSubmitting,
@@ -2300,6 +2365,10 @@ export default function DeckEditor() {
       file: File,
       position?: SlideImageDropPosition,
     ) => {
+      if (!fileStorageConfigured) {
+        setShowUploadStorageSetup(true);
+        return;
+      }
       const startingSlide = currentSlideRef.current;
       if (!id || !startingSlide) return;
       const targetSlideId = startingSlide.id;
@@ -2444,6 +2513,7 @@ export default function DeckEditor() {
     },
     [
       getDeck,
+      fileStorageConfigured,
       id,
       t,
       updatePendingImagePreviews,
@@ -3966,6 +4036,9 @@ export default function DeckEditor() {
             skipLabel={questionFlowSkipLabel}
             submitLabel={questionFlowSubmitLabel}
             isSubmitting={questionFlowSubmitting}
+            isSubmissionBlocked={questionFlowSubmissionBlocked}
+            providerStatus={questionFlowProviderStatus}
+            onRetryProviderStatus={retryQuestionFlowProviderStatus}
           />
         )}
 
@@ -4010,6 +4083,21 @@ export default function DeckEditor() {
               </div>
             </div>
           ) : null)}
+
+        {deck.slides.length === 0 &&
+          !generatingSlideVisible &&
+          !showQuestionFlow && (
+            <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
+              <div className="m-auto w-full max-w-6xl">
+                <GeneratingSlidePreview
+                  aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
+                  thumbnail={false}
+                  busy={false}
+                />
+              </div>
+            </div>
+          )}
 
         {showCurrentSlideEditor && currentSlide && (
           <SlideEditor
@@ -4135,7 +4223,11 @@ export default function DeckEditor() {
             }}
             onUploadImage={(src) => {
               setReplaceImageSrc(src);
-              uploadInputRef.current?.click();
+              if (fileStorageConfigured) {
+                uploadInputRef.current?.click();
+              } else {
+                setShowUploadStorageSetup(true);
+              }
             }}
             onDropImage={uploadAndApplyImage}
             onDropImageUrl={dropImageUrlOnSlide}
@@ -4234,8 +4326,30 @@ export default function DeckEditor() {
         type="file"
         accept="image/*,.svg"
         onChange={handleDirectUpload}
+        disabled={!fileStorageConfigured}
         className="hidden"
       />
+
+      <Dialog
+        open={showUploadStorageSetup}
+        onOpenChange={setShowUploadStorageSetup}
+      >
+        <DialogContent className="max-w-lg">
+          {storageQuery.isLoading ? (
+            <div className="grid gap-3">
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : (
+            <UploadStorageGate
+              configured={fileStorageConfigured}
+              unavailable={storageQuery.isError}
+              onRetry={() => void storageQuery.refetch()}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Popovers & Dialogs */}
       <ImageGenPanel

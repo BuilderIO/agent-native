@@ -97,6 +97,8 @@ export interface InstructionUpdate {
 
 export interface OutputReviewListRow {
   runId: string;
+  orgId: string;
+  readOnly: boolean;
   threadId: string | null;
   ask: string;
   answer: string;
@@ -151,12 +153,29 @@ export interface OutputReviewThreadMessage {
 
 export interface OutputReviewDetail {
   runId: string;
+  orgId: string;
   app: AgentMcpAppPayload | null;
   messages: OutputReviewThreadMessage[];
   artifacts: HumanReviewArtifactRef[];
   summary: HumanReviewSummaryPayload | null;
   ask: string;
   answer: string;
+}
+
+export type ObservabilityReviewScope =
+  | { kind: "organization"; orgId: string }
+  | { kind: "all"; activeOrgId: string };
+
+export interface ObservabilityReviewThreadScope {
+  orgId: string;
+  threadId: string;
+}
+
+export function observabilityReviewThreadKey(
+  orgId: string,
+  threadId: string,
+): string {
+  return JSON.stringify([orgId, threadId]);
 }
 
 /** @deprecated Use OutputReviewListRow for list data. */

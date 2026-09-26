@@ -6,10 +6,16 @@ import { useLocation, useNavigate } from "react-router";
 
 import { readStoredDeckFilter, resolveDeckFilter } from "@/lib/deck-filter";
 import { TAB_ID } from "@/lib/tab-id";
+import {
+  templateLibraryNavigation,
+  templateLibraryPath,
+} from "@/lib/template-navigation";
 
 export interface NavigationState {
   view: string;
   deckId?: string;
+  templateId?: string;
+  search?: string;
   deckFilter?: "all" | "created-by-me";
   /** User-visible slide number. 1-based and matches the editor UI. */
   slideNumber?: number;
@@ -55,10 +61,17 @@ export function useNavigationState() {
           state.slideIndex = oneBased - 1;
         }
       }
+    } else if (path === "/templates" || path === "/templates/") {
+      Object.assign(state, templateLibraryNavigation(location.search));
     } else if (path.startsWith("/share/")) {
       state.view = "share";
     } else {
       const params = new URLSearchParams(location.search);
+      if (path === "/home") {
+        state.templateId = templateLibraryNavigation(
+          location.search,
+        ).templateId;
+      }
       state.deckFilter =
         resolveDeckFilter(params.get("createdBy"), readStoredDeckFilter()) ===
         "mine"
@@ -126,6 +139,8 @@ export function useNavigationState() {
       JSON.stringify({
         view: cmd.view,
         deckId: cmd.deckId,
+        templateId: cmd.templateId,
+        search: cmd.search,
         slideNumber: cmd.slideNumber,
         slideIndex: cmd.slideIndex,
       });
@@ -149,7 +164,9 @@ export function useNavigationState() {
     }).catch(() => {});
     let path = "/home";
 
-    if (cmd.deckId) {
+    if (cmd.view === "templates") {
+      path = templateLibraryPath(cmd.templateId, cmd.search);
+    } else if (cmd.deckId) {
       path = `/deck/${cmd.deckId}`;
       if (cmd.view === "present") {
         path += "/present";

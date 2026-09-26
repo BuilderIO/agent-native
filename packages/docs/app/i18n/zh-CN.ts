@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const zhCN = {
+  agentChat: {
+    setup: {
+      checkingProvider: "正在检查 AI 连接…",
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
+    common: { retry: "重试" },
+  },
   language: {
     label: "语言",
     system: "系统",
@@ -1650,19 +1657,19 @@ const zhCN = {
       s001: "Mail 模板屏幕截图",
       // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "用你的 AI 智能体管理收件箱",
+      heroTitle: "用 Jev 掌控你的收件箱",
       heroDescription:
-        "Mail 将优先级排序、上下文感知标签、线程摘要和后台规则引入一个键盘优先的 Gmail 收件箱，并有一个可以执行下一步的代理。",
+        "用日常语言告诉 Jev 哪些邮件重要。它会保留真人撰写的 GitHub 评论，将经理的邮件置顶，清理机器人通知，并根据你的纠正持续学习。",
       heroCta: "管理你的收件箱",
-      useCasesHeading: "让 Mail 占据第一关",
+      useCasesHeading: "由 Jev 驱动的智能收件箱",
       useCasesBody:
-        "显示紧急线索，按含义标记消息，并在您保持控制的同时保持重复的收件箱工作继续进行。",
-      useCase1Title: "看看今天需要什么",
+        "用日常语言设置规则。Jev 会优先处理重要联系人和对话，应用合适的标签，并在重复邮件到达时自动归档。",
+      useCase1Title: "保留真人回复，归档机器人通知",
       useCase1Body:
-        "邮件按紧急程度、截止日期和等待者对主题进行排名，然后向您提供收件箱摘要，其中包含下一步有用的操作。",
-      useCase2Title: "按含义标记消息",
+        "告诉 Jev 什么最重要：将 GitHub 人工 PR 评论保留在 Product，归档机器人通知，并把经理的邮件移到 Important。用提示词调整规则，也能通过反馈优化垃圾邮件过滤。",
+      useCase2Title: "为每封邮件自动添加合适标签",
       useCase2Body:
-        "代理可以应用发件人和对话上下文中的标签，因此研究、财务和客户线索很容易找到。",
+        "Jev 根据对话含义而不只是关键词来分类，让客户备注、收据和研究邮件都进入合适的位置。",
       useCase3Title: "自动化日常工作",
       useCase3Body:
         "设置规则以在后台标记或存档新邮件，然后随时查看运行历史记录。",
@@ -1682,9 +1689,9 @@ const zhCN = {
       feature5Title: "发送前检查",
       feature5Body:
         "让客服人员起草或修改回复，然后在回复离开您的收件箱之前对其进行审核和编辑。",
-      feature6Title: "多帐户搜索",
+      feature6Title: "越用越聪明的垃圾邮件过滤",
       feature6Body:
-        "跨连接的 Gmail 帐户进行搜索，并在一处使用相同的优先级、标签和代理工具。",
+        "将误过滤的邮件标记为需要，或举报不想要的邮件。Jev 会从每次纠正中学习，并将规则应用到类似邮件。",
       finalCtaHeading: "从下一封邮件开始",
       finalCtaBody: "打开一段对话，让你的 AI 智能体给你一份摘要或回复草稿。",
       finalCtaButton: "管理你的收件箱",

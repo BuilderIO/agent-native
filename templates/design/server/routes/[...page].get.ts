@@ -1,6 +1,7 @@
 import {
   AGENT_ACCESS_PARAM,
   getConfiguredAppBasePath,
+  verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 import {
@@ -15,7 +16,10 @@ import {
   setResponseHeader,
 } from "h3";
 
-import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
+import {
+  DESIGN_AGENT_CONTEXT_ENDPOINT,
+  DESIGN_AGENT_RESOURCE_KIND,
+} from "../../shared/agent-readable.js";
 
 const ssrHandler = createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
@@ -58,7 +62,14 @@ export default defineEventHandler(async (event) => {
   const designId = designIdFromPath(requestUrl.pathname);
   if (!designId) return response;
 
-  const token = queryString(getQuery(event)[AGENT_ACCESS_PARAM]);
+  const suppliedToken = queryString(getQuery(event)[AGENT_ACCESS_PARAM]);
+  const tokenAccess = suppliedToken
+    ? verifyScopedAgentAccessToken(suppliedToken, {
+        resourceKind: DESIGN_AGENT_RESOURCE_KIND,
+        resourceId: designId,
+      }).ok
+    : false;
+  const token = tokenAccess ? suppliedToken : "";
   const script = renderAgentReadableResourceDiscoveryScript(
     buildAgentReadableResourceDiscovery({
       resourceType: "design",
@@ -80,9 +91,14 @@ export default defineEventHandler(async (event) => {
   const html = await response.text();
   const headers = new Headers(response.headers);
   headers.delete("content-length");
-  if (token) {
+  if (suppliedToken) {
     headers.set("Referrer-Policy", "no-referrer");
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  }
+  if (tokenAccess) {
+    // Tokenized HTML contains a bearer URL; key the shared cache by the full query.
+    headers.set("netlify-vary", "query");
+    setResponseHeader(event, "netlify-vary", "query");
   }
 
   return new Response(injectScript(html, script), {

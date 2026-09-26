@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildMobileWebViewAuthUrl,
   canCaptureMobileWebViewSession,
+  mobileWebViewTargetPath,
   resolveStickyWebViewUrl,
 } from "./webview-auth-url";
 
@@ -79,6 +80,16 @@ describe("buildMobileWebViewAuthUrl", () => {
 
     expect(url).toBe("https://mail.example/app?tab=inbox");
     expect(url).not.toContain("parent-token");
+  });
+});
+
+describe("mobileWebViewTargetPath", () => {
+  it("preserves the hash used to select an in-app settings section", () => {
+    expect(
+      mobileWebViewTargetPath(
+        "https://chat.example/settings?mode=agent#uploads",
+      ),
+    ).toBe("/settings?mode=agent#uploads");
   });
 });
 

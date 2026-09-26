@@ -28,6 +28,7 @@ const guards = [
   "guard:netlify-prebuilt-workflow",
   "guard:beta-e2e-suite",
   "guard:trusted-acceptance",
+  "guard:design-e2e-workflow",
   "guard:content-product-conformance",
   "guard:content-product-docs",
   "guard:workspace-skills",

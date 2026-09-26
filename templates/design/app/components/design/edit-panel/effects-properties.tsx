@@ -19,7 +19,7 @@ import {
   IconSun,
   IconWaveSine,
 } from "@tabler/icons-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -397,7 +397,35 @@ function EffectPopoverRow({
   );
 }
 
-function BlurControl({
+function useNumericEffectDraft(value: number, min?: number) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const parse = (raw: string) => {
+    const parsed = raw === "" ? 0 : Number(raw);
+    if (!Number.isFinite(parsed)) return null;
+    return min === undefined ? parsed : Math.max(min, parsed);
+  };
+
+  return {
+    draft,
+    preview(
+      raw: string,
+      onChange: (value: number, meta: StyleChangeMeta) => void,
+    ) {
+      setDraft(raw);
+      const next = parse(raw);
+      if (next !== null) onChange(next, { phase: "preview" });
+    },
+    commit(onChange: (value: number, meta: StyleChangeMeta) => void) {
+      const next = parse(draft) ?? value;
+      setDraft(String(next));
+      onChange(next, { phase: "commit" });
+    },
+  };
+}
+
+export function BlurControl({
   label,
   value,
   onChange,
@@ -406,31 +434,26 @@ function BlurControl({
   value: number;
   onChange: (value: number, meta: StyleChangeMeta) => void;
 }) {
+  const numberDraft = useNumericEffectDraft(value, 0);
   return (
     <InspectorControlField label={label}>
       <Input
         type="number"
         min={0}
         step={1}
-        value={value}
+        value={numberDraft.draft}
         aria-label={`${label} value`}
         className="h-6 border-0 bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none"
         onChange={(event) =>
-          onChange(Math.max(0, Number(event.target.value)), {
-            phase: "preview",
-          })
+          numberDraft.preview(event.currentTarget.value, onChange)
         }
-        onBlur={(event) =>
-          onChange(Math.max(0, Number(event.target.value)), {
-            phase: "commit",
-          })
-        }
+        onBlur={() => numberDraft.commit(onChange)}
       />
     </InspectorControlField>
   );
 }
 
-function ShadowNumberControl({
+export function ShadowNumberControl({
   label,
   ariaLabel,
   value,
@@ -443,8 +466,7 @@ function ShadowNumberControl({
   min?: number;
   onChange: (value: number, meta: StyleChangeMeta) => void;
 }) {
-  const clamp = (value: number) =>
-    min === undefined ? value : Math.max(min, value);
+  const numberDraft = useNumericEffectDraft(value, min);
   return (
     <div className="design-inspector-popover-number grid h-6 min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
       <span className="flex items-center justify-center !text-[11px] text-muted-foreground">
@@ -452,17 +474,15 @@ function ShadowNumberControl({
       </span>
       <Input
         type="number"
-        value={value}
+        value={numberDraft.draft}
         min={min}
         step={1}
         aria-label={`${ariaLabel} value`}
         className="h-6 min-w-0 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
         onChange={(event) =>
-          onChange(clamp(Number(event.target.value)), { phase: "preview" })
+          numberDraft.preview(event.currentTarget.value, onChange)
         }
-        onBlur={(event) =>
-          onChange(clamp(Number(event.target.value)), { phase: "commit" })
-        }
+        onBlur={() => numberDraft.commit(onChange)}
       />
     </div>
   );

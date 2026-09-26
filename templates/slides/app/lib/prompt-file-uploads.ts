@@ -69,6 +69,26 @@ export async function addInlineImageFallbacks(
 const CHUNK_UPLOAD_THRESHOLD_BYTES = 4 * 1024 * 1024;
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 
+export async function isReferenceStorageReady(): Promise<boolean> {
+  ensureEmbedAuthFetchInterceptor();
+  const response = await fetch(`${appBasePath()}/api/uploads/status`, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error(`Storage status unavailable (${response.status})`);
+  }
+  const status: unknown = await response.json();
+  if (
+    !status ||
+    typeof status !== "object" ||
+    typeof (status as { referenceStorageReady?: unknown })
+      .referenceStorageReady !== "boolean"
+  ) {
+    throw new Error("Storage status response is invalid");
+  }
+  return (status as { referenceStorageReady: boolean }).referenceStorageReady;
+}
+
 async function readUploadJson(response: Response): Promise<unknown> {
   try {
     return await response.json();

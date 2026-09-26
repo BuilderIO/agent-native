@@ -13,6 +13,16 @@
  */
 import type { VideoProvider } from "./types.js";
 
+export class ZoomProviderError extends Error {
+  constructor(
+    readonly statusCode: number,
+    responseBody: string,
+  ) {
+    super(`Zoom ${statusCode}: ${responseBody}`);
+    this.name = "ZoomProviderError";
+  }
+}
+
 export interface ZoomProviderConfig {
   clientId: string;
   clientSecret: string;
@@ -149,7 +159,9 @@ export function createZoomProvider(config: ZoomProviderConfig): VideoProvider {
       if (res.status === 401 || res.status === 403) {
         await config.markInvalid?.(credentialId);
       }
-      if (!res.ok) throw new Error(`Zoom ${res.status}: ${await res.text()}`);
+      if (!res.ok) {
+        throw new ZoomProviderError(res.status, res.statusText);
+      }
       const body = await res.json();
       return {
         meetingUrl: body.join_url,
@@ -159,15 +171,18 @@ export function createZoomProvider(config: ZoomProviderConfig): VideoProvider {
     },
 
     async deleteMeeting({ credentialId, meetingId }) {
-      if (!credentialId) return;
+      if (!credentialId) throw new Error("Zoom requires credentialId");
       const token = await config.getAccessToken(credentialId);
-      await fetch(
+      const res = await fetch(
         `https://api.zoom.us/v2/meetings/${encodeURIComponent(meetingId)}`,
         {
           method: "DELETE",
           headers: { authorization: `Bearer ${token}` },
         },
       );
+      if (!res.ok && res.status !== 404) {
+        throw new Error(`Zoom meeting deletion failed: ${res.status}`);
+      }
     },
   };
 }

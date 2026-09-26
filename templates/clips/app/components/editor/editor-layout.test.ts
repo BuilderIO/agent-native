@@ -121,3 +121,42 @@ describe("EditorLayout timeline geometry", () => {
     );
   });
 });
+
+describe("EditorLayout storage preflight", () => {
+  it("checks storage before starting a redaction burn", () => {
+    const source = readSource();
+    const burnStart = source.indexOf(
+      "const burnIn = useCallback(async () => {",
+    );
+    const burnEnd = source.indexOf(
+      "// The toast carries the percentage",
+      burnStart,
+    );
+    const burnHandler = source.slice(burnStart, burnEnd);
+
+    expect(burnHandler.indexOf("videoStorageStatus.refetch()")).toBeGreaterThan(
+      -1,
+    );
+    expect(burnHandler.indexOf("videoStorageStatus.refetch()")).toBeLessThan(
+      burnHandler.indexOf("setBurning(true)"),
+    );
+    expect(burnHandler.indexOf("videoStorageStatus.refetch()")).toBeLessThan(
+      burnHandler.indexOf("burnRedactions.mutateAsync({ recordingId })"),
+    );
+  });
+
+  it("checks storage before requesting or exporting Rewind history", () => {
+    const source = readFileSync(
+      new URL("./rewind-extension-dialog.tsx", import.meta.url),
+      "utf8",
+    );
+    const checkIndex = source.indexOf("await storageStatus.refetch()");
+    const requestIndex = source.indexOf("requestExtension.mutateAsync({");
+    const exportIndex = source.indexOf("await exportConcat(");
+
+    expect(checkIndex).toBeGreaterThan(-1);
+    expect(checkIndex).toBeLessThan(requestIndex);
+    expect(checkIndex).toBeLessThan(exportIndex);
+    expect(source).toContain("<FileStorageSetupCard />");
+  });
+});

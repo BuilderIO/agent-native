@@ -141,13 +141,11 @@ export default function Root() {
   const location = useLocation();
 
   // Public, unauthenticated routes render SSR-first without the authenticated
-  // app chrome (sidebar/chat/command palette). See the status routes and the
-  // `/` workspace-app public path in server/plugins/auth.ts.
+  // app chrome (sidebar/chat/command palette).
   const isPublicStatusPath =
     location.pathname === "/status" || location.pathname.startsWith("/status/");
-  const isMarketingPath = location.pathname === "/";
 
-  if (isPublicStatusPath || isMarketingPath) {
+  if (isPublicStatusPath) {
     return (
       <AppToolkitProvider>
         <AppProviders

@@ -50,11 +50,20 @@ describe("resolveFrameworkTools", () => {
 
   it("disables only the groups set to false", () => {
     const resolved = resolveFrameworkTools({
-      frameworkTools: { sharing: false, review: false },
+      frameworkTools: {
+        sharing: false,
+        review: false,
+        browserSessions: false,
+      },
     });
 
-    expect([...resolved.disabledGroups].sort()).toEqual(["review", "sharing"]);
+    expect([...resolved.disabledGroups].sort()).toEqual([
+      "browserSessions",
+      "review",
+      "sharing",
+    ]);
     expect(resolved.isEnabled("history")).toBe(true);
+    expect(resolved.isEnabled("browserSessions")).toBe(false);
   });
 
   describe("deprecated flags", () => {

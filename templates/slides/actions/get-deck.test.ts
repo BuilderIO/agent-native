@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.fn();
+const mockCurrentRequestUserIsOrgAdmin = vi.fn();
 const mockNotifyClients = vi.fn();
+let currentOrgId = "org-a";
+let currentFilter: unknown;
 let updatedFields: { data?: string; updatedAt?: string } | undefined;
 let currentResource:
-  | { data: string; updatedAt: string; [key: string]: unknown }
+  | {
+      data: string;
+      updatedAt: string;
+      orgId?: string;
+      [key: string]: unknown;
+    }
   | undefined;
 const mockWhereUpdate = vi.fn(async () => {
   if (updatedFields && currentResource) {
@@ -18,7 +26,43 @@ const mockSet = vi.fn((fields: { data?: string; updatedAt?: string }) => {
   return { where: mockWhereUpdate };
 });
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
-const mockDb = { update: mockUpdate };
+const mockSelectChain = {
+  from: vi.fn(),
+  where: vi.fn((filter: unknown) => {
+    currentFilter = filter;
+    return mockSelectChain;
+  }),
+  limit: vi.fn(async () => {
+    const conditions =
+      currentFilter && typeof currentFilter === "object"
+        ? (
+            currentFilter as {
+              conditions?: Array<{ left: string; right: string }>;
+            }
+          ).conditions
+        : undefined;
+    const sameOrg = conditions?.some(
+      (condition) =>
+        condition.left === "org_id_col" && condition.right === currentOrgId,
+    );
+    const sameDeck = conditions?.some(
+      (condition) =>
+        condition.left === "id_col" && condition.right === currentResource?.id,
+    );
+    return sameOrg && sameDeck && currentResource?.orgId === currentOrgId
+      ? [currentResource]
+      : [];
+  }),
+};
+mockSelectChain.from.mockReturnValue(mockSelectChain);
+const mockDb = { select: vi.fn(() => mockSelectChain), update: mockUpdate };
+
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
+  and: (...conditions: unknown[]) => ({ conditions }),
+  eq: (left: string, right: unknown) => ({ left, right }),
+  isNull: (column: string) => ({ isNull: column }),
+}));
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
@@ -26,11 +70,30 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "alice@example.com",
+  getRequestOrgId: () => currentOrgId,
 }));
+
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    ...actual,
+    buildDeepLink: () => "/slides/deck-1",
+    currentRequestUserIsOrgAdmin: (...args: unknown[]) =>
+      mockCurrentRequestUserIsOrgAdmin(...args),
+  };
+});
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
-  schema: { decks: { id: "id_col", data: "data_col", updatedAt: "ua_col" } },
+  schema: {
+    decks: {
+      id: "id_col",
+      orgId: "org_id_col",
+      data: "data_col",
+      updatedAt: "ua_col",
+    },
+  },
 }));
 
 vi.mock("../server/handlers/decks.js", () => ({
@@ -56,11 +119,18 @@ import action from "./get-deck";
 beforeEach(() => {
   vi.clearAllMocks();
   updatedFields = undefined;
+  currentOrgId = "org-a";
+  currentFilter = undefined;
+  mockSelectChain.where.mockClear();
+  mockSelectChain.limit.mockClear();
+  mockCurrentRequestUserIsOrgAdmin.mockReset();
+  mockCurrentRequestUserIsOrgAdmin.mockResolvedValue(false);
   currentResource = {
     id: "deck-1",
     title: "Quarterly Review",
     visibility: "private",
     ownerEmail: "Alice@Example.com",
+    orgId: "org-a",
     designSystemId: null,
     createdAt: "2026-05-01T00:00:00.000Z",
     updatedAt: "2026-05-02T00:00:00.000Z",
@@ -115,6 +185,49 @@ describe("get-deck", () => {
 
     expect(result.id).toBe("deck-1");
     expect(result.slides[0]).toMatchObject({ id: "slide-a" });
+  });
+
+  it("allows org admins to preview only decks in their current org", async () => {
+    mockCurrentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    currentResource!.data = JSON.stringify({
+      title: "Quarterly Review",
+      slides: [
+        { id: "duplicate", content: "<h1>First</h1>" },
+        { id: "duplicate", content: "<h1>Second</h1>" },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1", reviewPreview: true, compact: "false" },
+      { caller: "http" },
+    )) as any;
+
+    expect(mockCurrentRequestUserIsOrgAdmin).toHaveBeenCalledWith("org-a");
+    expect(mockSelectChain.where).toHaveBeenCalledWith({
+      conditions: [
+        { left: "id_col", right: "deck-1" },
+        { left: "org_id_col", right: "org-a" },
+      ],
+    });
+    expect(result.id).toBe("deck-1");
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-admin Human Review previews before reading a deck", async () => {
+    await expect(
+      action.run({ id: "deck-1", reviewPreview: true }, { caller: "http" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(mockSelectChain.limit).not.toHaveBeenCalled();
+  });
+
+  it("hides decks from a different org in Human Review previews", async () => {
+    mockCurrentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    currentResource!.orgId = "org-b";
+
+    await expect(
+      action.run({ id: "deck-1", reviewPreview: true }, { caller: "http" }),
+    ).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it("includes readable linked design-system context", async () => {
@@ -301,6 +414,253 @@ describe("get-deck", () => {
       originalPrompt: "Create a dark 6-slide deck from reference.png",
       targetSlideCount: 6,
     });
+  });
+
+  it("marks intentionally blank slides in compact output without hiding visual-only slides", async () => {
+    currentResource!.data = JSON.stringify({
+      slides: [
+        {
+          id: "blank",
+          layout: "blank",
+          content: '<div class="fmd-slide"></div>',
+        },
+        {
+          id: "visual-only",
+          layout: "blank",
+          content: '<div class="fmd-slide"><img src="chart.png" alt=""></div>',
+        },
+        {
+          id: "shape-only",
+          layout: "blank",
+          content:
+            '<div class="fmd-slide"><div style="background-color:#123456"></div></div>',
+        },
+        {
+          id: "rounded-empty",
+          layout: "blank",
+          content:
+            '<div class="fmd-slide"><div style="border-radius:16px"></div></div>',
+        },
+        {
+          id: "background-size-only",
+          layout: "blank",
+          content: '<div class="fmd-slide bg-cover"></div>',
+        },
+        {
+          id: "class-background",
+          layout: "blank",
+          content: '<div class="fmd-slide bg-black"></div>',
+        },
+        {
+          id: "variant-class-background",
+          layout: "blank",
+          content: '<div class="fmd-slide dark:bg-slate-900"></div>',
+        },
+        {
+          id: "hover-background",
+          layout: "blank",
+          content: '<div class="fmd-slide hover:bg-black"></div>',
+        },
+        {
+          id: "focus-within-background",
+          layout: "blank",
+          content: '<div class="fmd-slide focus-within:bg-black"></div>',
+        },
+        {
+          id: "group-focus-background",
+          layout: "blank",
+          content: '<div class="fmd-slide group-focus:bg-black"></div>',
+        },
+        {
+          id: "peer-active-background",
+          layout: "blank",
+          content: '<div class="fmd-slide peer-active:bg-black"></div>',
+        },
+        {
+          id: "active-group-data-background",
+          layout: "blank",
+          content:
+            '<div class="group" data-state="open"><div class="fmd-slide group-data-[state=open]:bg-black"></div></div>',
+        },
+        {
+          id: "inactive-group-data-background",
+          layout: "blank",
+          content:
+            '<div class="group" data-state="closed"><div class="fmd-slide group-data-[state=open]:bg-black"></div></div>',
+        },
+        {
+          id: "case-mismatched-group-data-background",
+          layout: "blank",
+          content:
+            '<div class="group" data-state="OPEN"><div class="fmd-slide group-data-[state=open]:bg-black"></div></div>',
+        },
+        {
+          id: "active-outer-group-data-background",
+          layout: "blank",
+          content:
+            '<div class="group" data-state="open"><div class="group" data-state="closed"><div class="fmd-slide group-data-[state=open]:bg-black"></div></div></div>',
+        },
+        {
+          id: "active-peer-data-background",
+          layout: "blank",
+          content:
+            '<div><button class="peer/menu" data-state="open"></button><div class="fmd-slide peer-data-[state=open]/menu:bg-black"></div></div>',
+        },
+        {
+          id: "inactive-peer-data-background",
+          layout: "blank",
+          content:
+            '<div><button class="peer/menu" data-state="closed"></button><div class="fmd-slide peer-data-[state=open]/menu:bg-black"></div></div>',
+        },
+        {
+          id: "case-mismatched-peer-data-background",
+          layout: "blank",
+          content:
+            '<div><button class="peer/menu" data-state="OPEN"></button><div class="fmd-slide peer-data-[state=open]/menu:bg-black"></div></div>',
+        },
+        {
+          id: "active-has-selector-background",
+          layout: "blank",
+          content:
+            '<div class="fmd-slide has-[.active]:bg-black"><span class="active"></span></div>',
+        },
+        {
+          id: "active-not-selector-background",
+          layout: "blank",
+          content: '<div class="fmd-slide not-[:checked]:bg-black"></div>',
+        },
+        {
+          id: "inactive-not-selector-background",
+          layout: "blank",
+          content:
+            '<input class="fmd-slide not-[:checked]:bg-black" type="checkbox" checked>',
+        },
+        {
+          id: "aria-state-background",
+          layout: "blank",
+          content:
+            '<button class="fmd-slide aria-pressed:bg-black" aria-pressed="false"></button>',
+        },
+        {
+          id: "active-aria-state-background",
+          layout: "blank",
+          content:
+            '<button class="fmd-slide aria-pressed:bg-black" aria-pressed="true"></button>',
+        },
+        {
+          id: "active-data-state-background",
+          layout: "blank",
+          content:
+            '<div class="fmd-slide data-[state=open]:bg-black" data-state="open"></div>',
+        },
+        {
+          id: "unquoted-active-data-state-background",
+          layout: "blank",
+          content:
+            '<div class="fmd-slide data-[state=open]:bg-black" data-state=open></div>',
+        },
+        {
+          id: "case-mismatched-data-state-background",
+          layout: "blank",
+          content:
+            '<div class="fmd-slide data-[state=open]:bg-black" data-state="OPEN"></div>',
+        },
+        {
+          id: "inactive-data-state-background",
+          layout: "blank",
+          content:
+            '<div class="fmd-slide data-[state=open]:bg-black" data-state="closed"></div>',
+        },
+        {
+          id: "inactive-has-state-background",
+          layout: "blank",
+          content:
+            '<div class="fmd-slide has-[:checked]:bg-black"><input type="checkbox"></div>',
+        },
+        {
+          id: "active-has-state-background",
+          layout: "blank",
+          content:
+            '<div class="fmd-slide has-[:checked]:bg-black"><input type="checkbox" checked></div>',
+        },
+        {
+          id: "text",
+          layout: "blank",
+          content: '<div class="fmd-slide"><p>Notes</p></div>',
+        },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(
+      result.slides.map((slide: { isBlank: boolean }) => slide.isBlank),
+    ).toEqual([
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+    ]);
+  });
+
+  it("keeps compact reads working when imported selector variants are invalid", async () => {
+    currentResource!.data = JSON.stringify({
+      slides: [
+        {
+          id: "invalid-has-selector",
+          layout: "blank",
+          content: '<div class="fmd-slide has-[??]:bg-black"></div>',
+        },
+        {
+          id: "invalid-not-selector",
+          layout: "blank",
+          content: '<div class="fmd-slide not-[??]:bg-black"></div>',
+        },
+        {
+          id: "blank",
+          layout: "blank",
+          content: '<div class="fmd-slide"></div>',
+        },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(
+      result.slides.map((slide: { isBlank: boolean }) => slide.isBlank),
+    ).toEqual([false, false, true]);
   });
 
   it("reports source coverage and order in compact agent reads", async () => {

@@ -165,7 +165,9 @@ export function createTeamsProvider(
     },
 
     async deleteMeeting({ credentialId, meetingId }) {
-      if (!credentialId) return;
+      if (!credentialId) {
+        throw new Error("Microsoft Teams requires credentialId");
+      }
       const response = await graphRequest(
         credentialId,
         `/me/onlineMeetings/${encodeURIComponent(meetingId)}`,

@@ -46,6 +46,12 @@ describe("DesignEditor live primitive creation boundary", () => {
     expect(source).toMatch(/onCreatePrimitive=\{handleCreatePrimitive\}/);
   });
 
+  it("forwards explicit tool intent from focused Pen completion", () => {
+    expect(source).toMatch(
+      /const handleSingleScreenCreatePrimitive[\s\S]*?nextTool:\s*spec\.nextTool\s*\?\?/,
+    );
+  });
+
   it("uses only manifest source provenance for a body-level Apply target", () => {
     expect(recordPendingStart).toBeGreaterThan(0);
     expect(recordPendingEnd).toBeGreaterThan(recordPendingStart);

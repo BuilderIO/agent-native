@@ -19,7 +19,8 @@ on:
 
 concurrency:
   group: design-e2e
-  cancel-in-progress: true
+  # Preserve the active 8-shard run while newer commits replace pending runs.
+  cancel-in-progress: false
 
 permissions:
   contents: read

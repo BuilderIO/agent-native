@@ -107,6 +107,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## الصفحة الرئيسية للموجّه ومكتبات القوالب {#prompt-home}
+
+تُصدَّر `PromptHome` و`PromptHomeLibrary` و`TemplateLibraryGrid` و`TemplateLibraryCard` من `@agent-native/toolkit/app-shell`. توحّد المسافات ومحررًا مركزيًا بعرض 700 بكسل ومكتبة متجاوبة من أربعة أعمدة. يحتفظ هيكل التطبيق بمعلم main. توفر التطبيقات بيانات فعلية وتسميات مترجمة ومعاينات وإجراءات وروابط.
+
+تقبل `PromptHome` الخصائص `title` و`composer` و`children` للمكتبة، مع `mobileToolbar` و`connection` و`quickActions` الاختيارية. تستقبل `PromptHomeLibrary` قيمة `value` متحكمًا بها (`templates` أو `recent`) و`onValueChange` و`labels` و`showRecent` و`templates`، مع `recent` و`browseAll` و`recentActions` الاختيارية. عند غياب العناصر الحديثة تعرض القوالب دون تبويب صوري. يوفر التطبيق رابطًا حقيقيًا لـ `browseAll`. تضع فتحة `Tabs.headerActions` الدلالية الإجراءات النشطة بجانب التبويبات.
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+تقبل `TemplateLibraryGrid` عناصر `items` ذات نوع محدد تتضمن `id` و`title`، و`description` مخزّنًا و`disabled` اختياريين، مع `renderPreview`. تدعم `selectedId` و`pendingId` و`disabled` و`loading` و`error` و`onRetry` و`empty` الاختياري، و`labels` لحالات التحميل والفراغ وإعادة المحاولة. يُستخدم إما `onSelect(item, element)` أو `renderLink(item, children)`، وليس كلاهما. تشترك الصورة والتسمية في هدف تفعيل واحد. يبقى `renderActions` خارج هدف التفعيل، بجانب العنوان والوصف الاختياري في الصف نفسه. تتشارك البطاقات أبعادًا ثابتة للمعاينة والتسمية؛ يستخدم التفعيل المباشر القالب أو ينسخه، بينما تبقى المعاينة في قائمة التسمية فقط. تبقى العناصر المحمّلة ظاهرة بعد فشل التحديث. توفر `TemplateLibraryCard` السلوك نفسه لعنصر `item` واحد مع `preview` و`actions` و`selected` و`pending` و`disabled` الاختيارية.
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+تُصدَّر `TemplatePreviewDialog` من نقطة الدخول نفسها وتستخدم `Dialog` الدلالية بحجم `size="viewport"` افتراضيًا أو `size="large"`. تستقبل `open` و`onOpenChange` و`title` و`children` التي يرسمها التطبيق؛ لا يتضمن رأسها إجراء استخدام. تحتوي `thumbnails` الاختيارية على `{ id, title, preview, disabled? }` وتتطلب `selectedId` و`onSelectedIdChange`. يصبح شريط الصور أفقيًا على الشاشات الضيقة ويدعم الأسهم وHome وEnd.
+
+حجم `viewport` نافذة حوار وسطية بهوامش، ارتفاعها 90dvh وعرضها الأقصى 96rem، مع هامش جانبي 1rem على الهاتف و1.5rem على الشاشات الأعرض. يحافظ على حد النافذة وزواياها وظلها وخلفيتها القياسية. تظهر قوائم التسمية عند تمرير المؤشر فوق البطاقة أو تركيز لوحة المفاتيح على الأجهزة الداعمة للتمرير، وتبقى ظاهرة على أجهزة اللمس؛ ولا تتغير المساحة المحجوزة لها.
+
+مرّر `labels` المترجمة (`close` و`loading` و`empty` و`retry` و`thumbnails`)، مع `loading` و`error` و`empty` و`onRetry` الاختيارية لحالات جاهزية لا تتداخل. تتحكم `initialFocusRef` و`restoreFocusRef` بالتركيز. افتح العارض من قائمة التسمية بعد اكتمال إغلاقها؛ تبقى القراءة والإلغاء والتفويض والعرض المعزول الآمن مسؤولية التطبيق.
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+تتضمن أنماط Toolkit أبعاد التخطيط المشتركة. يصدر `@agent-native/toolkit/app-shell/prompt-home.css` ورقة الأنماط المخصصة. تشمل وحدة الإخراج الحالية `toolkit/app-shell` التخطيط وورقة الأنماط. يظل تحميل البيانات والتفويض والاستيراد وحالة المحرر مسؤولية التطبيق.
+
 ## الوكيل والدردشة UI {#agent-chat-ui}
 
 | API                                  | مسار الاستيراد                                | استخدم عندما                                                                             |
@@ -205,6 +283,147 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 استخدم `TiptapComposer` فقط إذا كنت تقوم بالفعل بتوصيل عناصر واجهة المستخدم المساعدة
 نفسك. إنه الحقل، وليس وقت تشغيل الدردشة بالكامل.
+
+### السياق المُجهّز في المحرر {#composer-context}
+
+تقبل `PromptComposer` و`TiptapComposer` الخاصية `submissionDisabled` لمنع الإرسال مع إبقاء إعداد المسودة والملفات والسياق متاحًا. عدم إعداد المزوّد يمنع الإرسال فقط. تظل `disabled` تعطل المحرر بالكامل.
+
+تقبل `PromptComposer` و`TiptapComposer` و`AgentKitComposer` الخاصيتين `contextItems` و`contextMenuItems`. تتولى التطبيقات قراءة المصادر وتسميات القوائم المترجمة.
+
+يتضمن كل `AgentChatContextItem` الحقول `key` و`title` و`context`. قيمة `status` الاختيارية هي `ready` أو `pending` أو `error`. يوضح `statusMessage` سبب الفشل. تستقبل `onRemoveContextItem` و`onInspectContextItem` و`onRetryContextItem` مفتاح العنصر. تخفي `removable: false` الإزالة. تمنع العناصر المعلقة أو الفاشلة الإرسال ما لم تجعلها `blocksSubmission: false` معلوماتية صراحةً.
+
+يمكن للمضيف تجهيز سياق مصرح بالوصول إليه واستلام لقطة ثابتة عند الإرسال:
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+تسجّل مصادر السياق `picker` ضمن `ComposerContextMenuItem`. تدير `ComposerContextMenu` قوائم فرعية متصلة ومتسلسلة من shadcn/Radix، لا لوحات تحلّ محل بعضها: تعرض القائمة الرئيسية رفع الملفات ثم إضافة سياق → فئات المضيف → منتقيات المصادر. تُحذف إضافة سياق عند غياب عناصر المضيف. تتنقل مفاتيح الأسهم وEscape بين مستويات القائمة. أما الرجوع داخل منتقي الروابط فيعيد فقط من النتائج إلى إدخال الرابط في القائمة الفرعية نفسها. يدير المنتقي المشترك البحث وصفوف القائمة وحالات التحميل والفراغ والخطأ وإعادة المحاولة وترقيم الصفحات وإدخال الروابط. توفّر التطبيقات بيانات مصرحًا بها ودوال اختيار بدلًا من JSX خاص بالمنتقي.
+
+تقبل تهيئة المنتقي ما يلي:
+
+- `searchPlaceholder` و`emptyMessage` الاختياري كنصوص مترجمة للتطبيق. تحدد `selectedIds` الصفوف المختارة. تتضمن العناصر `id` و`title` وحقلي `disabled` و`url` الاختياريين.
+- إما `items` محلية مع `loading` و`error` و`onRetry()` اختيارية، أو `load(request)` للتحميل عن بُعد. لا يمكن الجمع بين النمطين.
+- تستقبل `load(request)` كلًا من `search` و`page` التي تبدأ من واحد و`cursor` و`url` الاختياريين و`AbortSignal`. وتعيد `{ items, hasMore?, nextCursor? }`. يجب أن ترفض حالات الفشل الوعد بدلًا من إعادة نتيجة فارغة.
+- تجهّز `onSelect(item, request)` المصدر ويمكن أن تعمل بشكل غير متزامن. تبقي إعادة `false` المنتقي مفتوحًا. يؤدي رمي خطأ إلى عرض خطأ مع إعادة المحاولة. توفّر `clearSelection` الاختيارية `label` مترجمًا ودالة `onSelect()`.
+- توفّر `link` الاختيارية نصّي `placeholder` و`submitLabel` المترجمين. يمكن أن تعيد `validate(url)` رسالة خطأ. يتولى النموذج المشترك إدخال الرابط والتنقل.
+- تعيد `scopeKey` ضبط جميع حالات المنتقي عند تغيّر الهوية أو نطاق الوصول. تبطل `refreshKey` الاستعلام الحالي عند تغيّر رمز المصدر أو الإصدار دون إعادة ضبط الرابط. يعيد تغيّر البحث الانتقال إلى الصفحة الأولى. تمرّر التطبيقات رموزًا محدثة عندما تغيّر كتابات الوكيل بيانات المصدر.
+
+يمكن للتطبيق تسجيل خيارات مصرح بها مسبقًا. تحتوي `labels` هنا على نصوص التطبيق المترجمة، وتحدّث `stageReference` السياق المجهّز لدى المضيف:
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+لمصدر قابل للبحث أو يعتمد على رابط، يوفّر التطبيق دالة تحميل مصادقًا عليها. تطبّق `loadAuthorizedReferences` عقد الطلب والنتيجة أعلاه، وتحافظ على فحوص الوصول، وتمرّر إشارة الإلغاء إلى دالة العميل المساعدة:
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
+      link: {
+        label: labels.referenceUrl,
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+القيمة الافتراضية لـ `presentation` هي `"submenu"`. مع `{ type: "dialog", mode: "multiple", onAttach }`، يفتح عنصر قائمة عادي حوارًا مشتركًا بعنوان العنصر. يحدد `link.label` تسمية حقل URL. يتحقق زر المتابعة من عنوان HTTP(S) بلا بيانات اعتماد قبل تحميل النتائج. لا يستدعي الإدخال الفارغ أو غير الصالح المزوّد. يمكن لـ `link.validate()` فرض قواعد خاصة بالمزوّد. تستخدم أزرار الحوار تسميات مشتركة مترجمة، وليس `link.submitLabel`.
+
+تستقبل `presentation.onAttach(items, request)` دفعة مجمّدة واحدة من العناصر المحددة حديثًا. لا يسمح هذا الوضع بـ `onSelect`. تُحفظ الاختيارات أثناء البحث والتنقل بين الصفحات، وتظهر عناصر `selectedIds` محددة ومعطّلة وتُستبعد من الدفعة. يجب أن تميّز المعرّفات بين ملفات المصادر المختلفة. يبقي إرجاع `false` الحوار مفتوحًا. يعرض الرفض خطأً مع إمكانية إعادة المحاولة. يؤدي الإلغاء أو تغيير `scopeKey` إلى إلغاء العمل المعلّق وتجاهل النتائج المتأخرة. تبدأ إعادة الفتح بعنوان URL جديد. يجب على المضيف مراعاة `request.signal` قبل تثبيت تغييرات الاستدعاءات غير المتزامنة. يبقى `footerAction` و`clearSelection` ضمن عناصر تحكم القائمة الفرعية.
+
+يستخدم `{ type: "dialog", mode: "url" }` الإرفاق مباشرةً دون تحميل قائمة نتائج. تستقبل `onSelect(item, request)` القيمة `{ id: url, title: url, url }` و`request.url`:
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+تبني `readComposerWebsiteSource(url, extractCallback)` من `@agent-native/core/server` مراجع المواقع عبر مستخرج المضيف الحالي المحمي من SSRF. تقبل `composerSourceRequestSchema` من `@agent-native/core/shared` القيمة `source: "website"` فقط مع `operation: "read"` وعنوان `url` ببروتوكول HTTP(S) بلا بيانات اعتماد، بطول أقصاه 2,048 محرفًا. تعيد الدالة `{ id, title, url, context }` بمعرّف ثابت مشتق من تجزئة العنوان وسياق لا يتجاوز 20,000 محرف. تبقى حالة الاستخراج والتحذيرات وبيانات التصيير وأي علامة `[truncated]` ضمن نص السياق. يظل الاستخراج الجزئي واضحًا. يؤدي فشل الاستخراج أو غياب `designMd` صالح للاستخدام إلى خطأ ذي نوع محدد. يبقى التفويض مسؤولية [إجراء](/docs/actions-overview) المضيف.
+
+لا تعرّف عناصر المنتقي أيضًا `render` أو `onSelect` على مستوى العنصر. تستخدم الفئات `children`. تحتفظ القائمة الرئيسية وكل فئة بحقل بحث في رأسها. يمكن للفئات توفير `searchPlaceholder` مترجم؛ وإلا تستخدم النص المشترك للبحث في السياق. يحدد `picker.searchPlaceholder` نص حقل البحث في قائمة المصادر. لا يمنح التسجيل وصولًا إلى المصدر. يتجاهل المنتقي المشترك استجابات التحميل التي حلّت محلها طلبات أحدث.
+
+يبقى `footerAction` الاختياري أسفل النتائج حتى أثناء التحميل أو الخطأ أو فراغ القائمة. يقبل `label` مترجمًا و`icon` و`disabled` اختياريين، وإما `onSelect()` أو `renderLink(children)`. استخدم دالة لفتح نافذة حوار أو مسار آخر ذي حالة: تُبقي `false` القائمة مفتوحة، وتغلقها `true` أو `void`، ويعرض رفض الوعد خطأ مع إعادة المحاولة. للتنقل فقط، أعد من `renderLink` عنصر `Link` حقيقيًا من React Router أو رابط HTML؛ توفّر القائمة المشتركة الصف عبر `asChild` وتحافظ على `href` وسلوك تنقل المتصفح. اربط مسارات موجودة ومصرحًا بها، لا إجراءات شكلية.
+
+تؤدي إضافة `addAttachment` إلى `ComposerContextMenu` إلى وضع إجراء الرفع القياسي أولًا مع الحفاظ على دالة معالجة ملفات المضيف.
+
+تقبل `PromptComposer` و`AgentKitComposer` الخاصية `attachmentAdapter` بالنوع العام `AttachmentAdapter` من `@assistant-ui/react`. قدّم عبر هذا المحوّل سياسة المضيف لقبول الملفات والتحقق من الحجم وتجهيز المرفقات؛ واحذفه للإبقاء على المحوّلات الافتراضية. يظل المحرر المشترك مسؤولًا عن أداة الرفع ومنتقي الملفات ومنتقي السياق وشرائح المرفقات. لا تستبدل هذه الأدوات لتخصيص تجهيز الملفات.
+
+تكون `inlineTextAttachments` مساوية لـ`true` افتراضيًا في `PromptComposer` و`AgentKitComposer`. اضبطها على `false` عندما يستخرج المضيف الملفات النصية العادية بالفعل: يمرّر المحرر الملفات الأصلية إلى المضيف دون قراءة محتواها وإلحاقه بالطلب النصي. تظل المرفقات المصطنعة الناتجة عن النص الملصق جزءًا من نص الطلب. لا يغيّر هذا الخيار قبول المرفقات أو الأدوات المشتركة.
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+تميّز اللقطة بين `undefined` والمصفوفة الفارغة الصريحة. ترفض أكثر من 32 عنصرًا أو 64 KiB من بيانات UTF-8 المسلسلة دون اقتطاع. يُنتظر `AgentKitComposer.beforeSend(submission)` قبل الإرسال أو الإدراج في الطابور، ويتلقى السياق والمراجع والمرفقات المرفوعة وخيارات التشغيل الثابتة. يحافظ الرفض على المسودة. يُدرج السياق في نص الرسالة وبياناتها الوصفية.
+
+تستخدم `composerRef.current.submitWithText(text)` مسار الإرسال نفسه بالملفات وإعدادات النموذج الحالية دون استبدال نص المحرر أولًا. تُرجع `true` بعد القبول أو `false` عند المنع أو الرفض. اختيار السياق ليس منحًا للوصول. يجب أن تعيد التطبيقات التحقق من وصول المصادر عبر إجراءاتها الموثقة.
 
 ## عرض المحادثة {#conversation}
 

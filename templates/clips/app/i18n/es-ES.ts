@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "Comprobando la conexión de IA…",
+      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+    },
+    common: { retry: "Reintentar" },
+  },
   timelineTrack: {
     helpOtherSide:
       "Haz clic primero en esa sección y arrastra la línea roja hacia la derecha.",
@@ -433,12 +440,10 @@ const messages = {
     agentEmptyTitle: "Únete a la conversación",
     agentEmptyDescription:
       "Crea una cuenta gratuita de Clips para comentar, reaccionar y preguntar sobre este clip.",
-    commentSignupTitle: "Dale a tu agente de IA todo el contexto",
-    commentSignupContext:
-      "Comparte la transcripción y los fotogramas con marca de tiempo en un solo enlace",
-    commentSignupFeedback:
-      "Convierte el feedback grabado en próximos pasos claros",
-    commentSignupDebug: "Captura errores de consola y solicitudes fallidas",
+    commentSignupTitle:
+      "Grabaciones de pantalla que tu agente de IA puede ver y escuchar",
+    commentSignupDescription:
+      "Clips es una grabadora de pantalla gratuita y de código abierto para compartir errores, comentarios y demostraciones paso a paso con agentes de IA.",
     agentEmptySignInPrompt: "¿Ya tienes una cuenta?",
     signUp: "Registrarse",
     ownerInsights: "Estadísticas del propietario",
@@ -841,6 +846,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "No se pudo actualizar el espacio activo",
     whatsNew: "Novedades",
     changelogEmpty: "Aún no hay actualizaciones.",
+    changelogCommentSignup:
+      "La barra lateral de comentarios vacía explica brevemente por qué probar Clips y ofrece una forma clara de registrarse.",
+    changelogCommentsEmptyState:
+      "El estado vacío de comentarios ahora explica cómo las grabaciones de pantalla ayudan a los agentes de IA.",
+    changelogShareLink:
+      "Quienes hayan iniciado sesión y abran un enlace compartido no disponible, vencido o privado llegarán a su biblioteca al elegir «Ir al inicio», en lugar de a la página pública de marketing.",
     viewAllUpdates: "Ver todas las actualizaciones",
     expand: "Expandir",
     collapse: "Contraer",
@@ -1453,11 +1464,22 @@ const messages = {
     disconnected: "Micrófono desconectado.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "No se pudo abrir Builder.io. Si esta aplicación está integrada en un chat, ábrela en una pestaña del navegador; de lo contrario, permite las ventanas emergentes para este sitio e inténtalo de nuevo.",
+    builderConnectError:
+      "No se pudo conectar Builder.io. Inténtalo de nuevo o contacta con el soporte.",
+    checkingBuilderConnection: "Comprobando la conexión con Builder…",
     builderTimeout:
       "No hubo respuesta de Builder en 5 minutos. Revisa la ventana emergente e inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
     connectBuilder: "Usar Builder.io",
+    createBuilderAccount: "Crear cuenta de Builder.io",
+    signInWithBuilderAccount: "Iniciar sesión con una cuenta de Builder.io",
+    builderConsentPrefix: "Al crear una cuenta de Builder.io, aceptas nuestros",
+    builderTerms: "Términos de servicio",
+    builderConsentAnd: "y",
+    builderPrivacy: "Política de privacidad",
     free: "Gratis",
     configureS3: "configurar almacenamiento compatible con S3",
     whyPrompt: "¿Por qué veo esto?",

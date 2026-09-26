@@ -33,7 +33,7 @@ import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 const MAX_CAS_ATTEMPTS = 5;
 const THUMBNAIL_STORAGE_REQUIRED_REASON =
-  "Thumbnail storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to save thumbnails.";
+  "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.";
 
 function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: string } {
   const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);

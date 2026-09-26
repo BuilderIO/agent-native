@@ -224,11 +224,18 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  const handleCommandMenuShortcut = useCallback(() => setCmdkOpen(true), []);
+  const location = useLocation();
+  const handleCommandMenuShortcut = useCallback(() => {
+    setCmdkOpen(true);
+  }, []);
+  const shouldHandleContentEditableCommandMenuShortcut = useCallback(
+    () => location.pathname !== "/home",
+    [location.pathname],
+  );
   useCommandMenuShortcut(handleCommandMenuShortcut, {
     allowContentEditable: true,
+    shouldHandleContentEditable: shouldHandleContentEditableCommandMenuShortcut,
   });
-  const location = useLocation();
   const isDeckEditor = isDeckEditorPath(location.pathname);
   const editorCommands = getEditorCommands();
   const editorCommandGroups: Array<{
@@ -255,8 +262,18 @@ function AppContent() {
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="slides"
+        chatStorageKey="slides"
       >
         <CommandMenu.Group heading={t("root.commandPresentations")}>
+          {location.pathname !== "/templates" ? (
+            <CommandMenu.Item onSelect={() => navigate("/templates")}>
+              {t("templatesPage.title")}
+            </CommandMenu.Item>
+          ) : (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.decks")}
+            </CommandMenu.Item>
+          )}
           {isDeckEditor ? (
             <CommandMenu.Item onSelect={() => navigate("/home")}>
               {t("navigation.decks")}
@@ -332,7 +349,6 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
     return <Outlet />;
@@ -343,11 +359,10 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         defaultTheme="dark"
-        isPublicPath={isMarketingPath}
         i18n={{ catalog: i18nCatalog }}
         sessionBypass={isShareableContentPath(location.pathname)}
       >
-        {isMarketingPath ? <Outlet /> : <AppContent />}
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

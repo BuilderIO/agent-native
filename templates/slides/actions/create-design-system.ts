@@ -8,6 +8,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 import { missingDesignSystemDataFields } from "../shared/design-system-validation.js";
 
 export default defineAction({
@@ -37,6 +38,7 @@ export default defineAction({
       ),
   }),
   run: async ({ title, description, data, assets, customInstructions }) => {
+    await assertDesignSystemWorkflowsEnabled();
     let parsedData: unknown;
     try {
       parsedData = JSON.parse(data);

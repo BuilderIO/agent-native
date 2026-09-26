@@ -27,6 +27,7 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
+import { getAppConfig } from "../app-config/index.js";
 import type { AgentNativeWorkspaceRootPage } from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
@@ -123,20 +124,8 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
+const WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH = "/_agent-native/google/callback";
 const VERCEL_OUTPUT_DIR = ".vercel/output";
-
-const WORKSPACE_DIRECTORY_ENV_SNIPPET = `
-  const directoryOrigin =
-    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
-    processRef.env.WORKSPACE_GATEWAY_URL ||
-    processRef.env.APP_URL ||
-    processRef.env.URL ||
-    processRef.env.DEPLOY_URL ||
-    processRef.env.BETTER_AUTH_URL;
-  if (directoryOrigin) {
-    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL = directoryOrigin;
-  }
-`;
 
 interface WorkspaceAppManifestEntry {
   id: string;
@@ -149,6 +138,28 @@ interface WorkspaceAppManifestEntry {
   audience: WorkspaceAppAudience;
   publicPaths: string[];
   protectedPaths: string[];
+}
+
+function workspaceDirectoryEnvSnippet(
+  workspaceApps: WorkspaceAppManifestEntry[],
+): string {
+  const orgDirectoryUrl = getAppConfig().workspace.orgDirectoryUrl?.trim();
+  if (!orgDirectoryUrl && !workspaceApps.some((app) => app.isDispatch)) {
+    return "";
+  }
+  return `
+  const directoryOrigin =
+    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
+    ${JSON.stringify(orgDirectoryUrl ?? null)} ||
+    processRef.env.WORKSPACE_GATEWAY_URL ||
+    processRef.env.APP_URL ||
+    processRef.env.URL ||
+    processRef.env.DEPLOY_URL ||
+    processRef.env.BETTER_AUTH_URL;
+  if (directoryOrigin) {
+    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL = directoryOrigin;
+  }
+`;
 }
 
 interface WorkspaceAppManifestOverride {
@@ -274,10 +285,15 @@ export async function runWorkspaceDeploy(
   }
 
   if (preset === "netlify") {
-    writeNetlifyRedirects(distDir, apps, workspaceRootPage);
+    writeNetlifyRedirects(distDir, apps, workspaceApps, workspaceRootPage);
     writeNetlifyHeaders(distDir, apps);
   } else {
-    writeVercelBuildConfig(vercelOutputDir, apps, workspaceRootPage);
+    writeVercelBuildConfig(
+      vercelOutputDir,
+      apps,
+      workspaceApps,
+      workspaceRootPage,
+    );
   }
 
   if (buildOnly) {
@@ -319,6 +335,11 @@ function buildOneApp(
   );
   const workspaceGatewayUrl =
     process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl();
+  const orgDirectoryUrl =
+    getAppConfig().workspace.orgDirectoryUrl?.trim() ||
+    (workspaceApps.some((entry) => entry.isDispatch)
+      ? workspaceGatewayUrl
+      : null);
   const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -355,11 +376,8 @@ function buildOneApp(
       workspaceAppRouteAccess.protectedPaths,
     ),
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: JSON.stringify(workspaceApps),
-    ...(workspaceGatewayUrl
-      ? {
-          AGENT_NATIVE_ORG_DIRECTORY_URL:
-            process.env.AGENT_NATIVE_ORG_DIRECTORY_URL || workspaceGatewayUrl,
-        }
+    ...(orgDirectoryUrl
+      ? { AGENT_NATIVE_ORG_DIRECTORY_URL: orgDirectoryUrl }
       : {}),
     ...(workspaceGatewayUrl
       ? {
@@ -516,9 +534,18 @@ function workspaceOAuthDiscoveryRoutes(
   ];
 }
 
+function workspaceOAuthCallbackApp(
+  workspaceApps: WorkspaceAppManifestEntry[],
+): string | undefined {
+  return (
+    workspaceApps.find((entry) => entry.isDispatch)?.id ?? workspaceApps[0]?.id
+  );
+}
+
 function writeNetlifyRedirects(
   distDir: string,
   apps: string[],
+  workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
 ): void {
   const lines: string[] = [
@@ -559,8 +586,16 @@ function writeNetlifyRedirects(
       lines.push(`/${from} /dispatch/${to} 302`);
     }
     lines.push("/apps/* /dispatch/apps/:splat 302");
-  } else if (rootPage !== "directory") {
-    lines.push(`/ /${apps[0]}/ 302`);
+  } else {
+    const callbackApp = workspaceOAuthCallbackApp(workspaceApps);
+    if (callbackApp) {
+      lines.push(
+        `${WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH} /.netlify/functions/${callbackApp}-server 200`,
+      );
+    }
+    if (rootPage !== "directory") {
+      lines.push(`/ /${apps[0]}/ 302`);
+    }
   }
 
   fs.writeFileSync(path.join(distDir, "_redirects"), lines.join("\n") + "\n");
@@ -591,6 +626,7 @@ function netlifyHeaderBlock(pathname: string): string {
 function writeVercelBuildConfig(
   outputDir: string,
   apps: string[],
+  workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
 ): void {
   const routes: Array<Record<string, any>> = [
@@ -638,8 +674,17 @@ function writeVercelBuildConfig(
       routes.push(vercelRedirect(`/${from}`, `/dispatch/${to}`));
     }
     routes.push(vercelRedirect("/apps/(.*)", "/dispatch/apps/$1"));
-  } else if (rootPage !== "directory") {
-    routes.push(vercelRedirect("/", `/${apps[0]}/`));
+  } else {
+    const callbackApp = workspaceOAuthCallbackApp(workspaceApps);
+    if (callbackApp) {
+      routes.push({
+        src: vercelRouteSrc(WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH),
+        dest: `/${callbackApp}-server`,
+      });
+    }
+    if (rootPage !== "directory") {
+      routes.push(vercelRedirect("/", `/${apps[0]}/`));
+    }
   }
 
   for (const app of apps) {
@@ -1013,7 +1058,7 @@ function processorPathFromBody(body) {
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
-${WORKSPACE_DIRECTORY_ENV_SNIPPET}
+${workspaceDirectoryEnvSnippet(workspaceApps)}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1126,7 +1171,7 @@ globalThis.${INTEGRATION_RECOVERY_RUNTIME_MARKER} = true;
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
-${WORKSPACE_DIRECTORY_ENV_SNIPPET}
+${workspaceDirectoryEnvSnippet(workspaceApps)}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1226,6 +1271,11 @@ function patchNetlifyFunctionEntry(
     workspaceApps,
     app,
   );
+  const callbackApp = workspaceOAuthCallbackApp(workspaceApps);
+  const rootGoogleCallbackPath =
+    app === callbackApp && app !== "dispatch"
+      ? [WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH]
+      : [];
   const pathConfig =
     app === "dispatch"
       ? [
@@ -1243,6 +1293,7 @@ function patchNetlifyFunctionEntry(
               ...(descendants ? [`${path}/*`] : []),
             ],
           ),
+          ...rootGoogleCallbackPath,
         ];
   const normalizeBasePathHelper =
     app === "dispatch"
@@ -1272,7 +1323,7 @@ function normalizeBasePathArgs(args) {
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
-${WORKSPACE_DIRECTORY_ENV_SNIPPET}
+${workspaceDirectoryEnvSnippet(workspaceApps)}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},
@@ -1349,7 +1400,7 @@ function patchVercelFunctionEntry(
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
-${WORKSPACE_DIRECTORY_ENV_SNIPPET}
+${workspaceDirectoryEnvSnippet(workspaceApps)}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: ${JSON.stringify(workspaceAuthMode)},

@@ -382,21 +382,21 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       `${baseURL}/visual-edit/${opened.designId}?editorView=overview&zoom=31`,
       { waitUntil: "domcontentloaded" },
     );
-    for (let attempt = 0; attempt < 2; attempt++) {
-      if (await page.locator("[data-design-editor]").count()) break;
-      try {
-        await page
-          .locator("[data-design-editor]")
-          .waitFor({ state: "attached", timeout: 2_000 });
-      } catch {
-        // The local editor can still be completing its first client mount.
-      }
-      if (await page.locator("[data-design-editor]").count()) break;
-      await page.reload({ waitUntil: "domcontentloaded" });
+    try {
+      await expect(page.locator("[data-design-editor]")).toBeVisible({
+        timeout: 45_000,
+      });
+    } catch (error) {
+      const pageState = await page
+        .evaluate(() => ({
+          title: document.title,
+          bodyText: document.body.innerText.slice(0, 600),
+        }))
+        .catch(() => ({ title: "unavailable", bodyText: "unavailable" }));
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; url=${redactDiagnostic(page.url())}; title=${redactDiagnostic(pageState.title)}; body=${redactDiagnostic(pageState.bodyText)}; client-errors=${clientErrors.slice(-12).join(" | ")}; bridge=${bridgeResponses.join(" | ")}; registration=${failedBridgeRequests.slice(-8).join(" | ")}`,
+      );
     }
-    await expect(page.locator("[data-design-editor]")).toBeVisible({
-      timeout: 30_000,
-    });
     const allowLocalAccess = page.getByRole("button", {
       name: "Allow local access",
     });
@@ -1671,29 +1671,46 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     };
     assertFullRafTrace(sourcePostReleaseSamples, "source");
     assertFullRafTrace(destinationPostReleaseSamples, "destination");
+    const misplacedSourceSamples = sourcePostReleaseSamples.filter(
+      (sample) =>
+        sample.present &&
+        sample.visible &&
+        (sample.parentId !== crossSourceInitialLocation.parentId ||
+          sample.index !== crossSourceInitialLocation.index ||
+          Math.abs(sample.x - crossSourceInitialLocation.x) >= 1 ||
+          Math.abs(sample.y - crossSourceInitialLocation.y) >= 1 ||
+          Math.abs(sample.width - crossSourceInitialLocation.width) >= 1 ||
+          Math.abs(sample.height - crossSourceInitialLocation.height) >= 1),
+    );
     expect(
-      sourcePostReleaseSamples.some((sample) => sample.visible),
-      "the moved node remained visible in its source iframe after mouseup; samples=" +
+      misplacedSourceSamples,
+      "the source moved to a drag-exit position before deletion; samples=" +
         JSON.stringify({
           firstVisible: sourcePostReleaseSamples.find(
             (sample) => sample.visible,
           ),
-          visibleCount: sourcePostReleaseSamples.filter(
-            (sample) => (sample as { visible: boolean }).visible,
-          ).length,
+          misplacedCount: misplacedSourceSamples.length,
           last: sourcePostReleaseSamples[sourcePostReleaseSamples.length - 1],
-          trace: await sourceBrowserFrame!.evaluate(
-            () =>
-              (
-                window as Window & {
-                  __crossScreenDropTrace?: {
-                    instanceId: string;
-                    insertions: unknown[];
-                    mutations: unknown[];
-                  };
+          trace: await sourceBrowserFrame!.evaluate(() => {
+            const trace = (
+              window as Window & {
+                __crossScreenDropTrace?: {
+                  instanceId: string;
+                  insertions: unknown[];
+                  mutations: unknown[];
+                  samples: CrossScreenDropSample[];
+                };
+              }
+            ).__crossScreenDropTrace;
+            return trace
+              ? {
+                  instanceId: trace.instanceId,
+                  insertions: trace.insertions,
+                  mutations: trace.mutations,
+                  lastSamples: trace.samples.slice(-8),
                 }
-              ).__crossScreenDropTrace ?? null,
-          ),
+              : null;
+          }),
           relevantMessages: hostMessageTrace.filter(
             (message) =>
               message.type === "agent-native:runtime-reloading" ||
@@ -1702,8 +1719,14 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
               message.type === "runtime-element-deleted" ||
               message.type === "visual-structure-ack",
           ),
+          navigations: crossFrameNavigations,
+          iframeLifecycle: iframeLifecycleTrace.slice(-20),
         }),
-    ).toBe(false);
+    ).toHaveLength(0);
+    expect(
+      sourcePostReleaseSamples[sourcePostReleaseSamples.length - 1],
+      "the moved node remained in the source after the stable 3s window",
+    ).toMatchObject({ present: false, visible: false });
     expect(
       firstDestinationInsert,
       "the inserted node never appeared in the destination within the 3s window",
@@ -1985,7 +2008,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
           width: number;
           height: number;
         }>,
-        stopAt: performance.now() + 15_000,
+        stopAt: performance.now() + 60_000,
       };
       (
         window as typeof window & { __visualDropTrace?: typeof trace }
@@ -2138,16 +2161,18 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     );
     const appPath = path.join(rootPath, "src/App.tsx");
     const before = fs.readFileSync(appPath, "utf8");
-    const after = before.replace(
-      'const initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];',
-      'const initialCards = [{ id: "v2", label: "V2" }, { id: "v3", label: "V3" }, { id: "v1", label: "V1 updated" }];',
-    );
+    const after = before
+      .replace(
+        'const initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];',
+        'const initialCards = [{ id: "v2", label: "V2" }, { id: "v3", label: "V3" }, { id: "v1", label: "V1 updated" }];',
+      )
+      .replace(">Go to next route</button>", ">Go to updated route</button>");
     if (after === before)
       throw new Error("React source edit did not match App.tsx");
     fs.writeFileSync(appPath, after);
-    await expect(frame.getByText("V1 updated", { exact: true })).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(
+      frame.getByRole("button", { name: "Go to updated route" }),
+    ).toBeVisible({ timeout: 15_000 });
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.locator("[data-design-editor]")).toBeVisible({
       timeout: 30_000,

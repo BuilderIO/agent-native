@@ -1,6 +1,72 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveCredential = vi.fn();
+const resolveCredentialDetailed = vi.fn();
+const assertCredentialCanReachEndpoint = vi.fn(
+  (
+    endpoint: {
+      scope: string;
+      scopeId?: string;
+      source?: string;
+      connectionId?: string;
+    },
+    credential:
+      | {
+          scope?: string;
+          scopeId?: string;
+          source?: string;
+          connectionId?: string;
+        }
+      | undefined,
+    key?: string,
+  ) => {
+    const soloWorkspaceEndpoint =
+      endpoint.scope === "workspace" && endpoint.scopeId?.startsWith("solo:");
+    if (
+      endpoint.source === "workspace_connection" &&
+      (!endpoint.connectionId ||
+        credential.connectionId !== endpoint.connectionId)
+    ) {
+      throw new Error(
+        `Refusing to send ${key ?? "a credential"} to a workspace connection unless it is bound to that exact connection.`,
+      );
+    }
+    if (endpoint.scope === "unknown") {
+      throw new Error(
+        `Refusing to send ${key ?? "a credential"} to an endpoint with unknown ownership.`,
+      );
+    }
+    if (endpoint.scope === "user" || soloWorkspaceEndpoint) {
+      const endpointUser = soloWorkspaceEndpoint
+        ? endpoint.scopeId?.slice("solo:".length)
+        : endpoint.scopeId;
+      if (
+        endpointUser &&
+        ((credential?.scope === "user" &&
+          credential.scopeId === endpointUser) ||
+          (credential?.scope === "workspace" &&
+            credential.scopeId === `solo:${endpointUser}`))
+      ) {
+        return;
+      }
+      throw new Error(
+        `Refusing to send ${key ?? "a credential"} to a user-controlled endpoint unless it is saved by the same user.`,
+      );
+    }
+    if (endpoint.scope === "org" || endpoint.scope === "workspace") {
+      if (
+        endpoint.scopeId &&
+        (credential?.scope === "org" || credential?.scope === "workspace") &&
+        credential.scopeId === endpoint.scopeId
+      ) {
+        return;
+      }
+      throw new Error(
+        `Refusing to send ${key ?? "a credential"} to a shared endpoint unless it is saved by the same organization or workspace.`,
+      );
+    }
+  },
+);
 const describeCredentialScopeGap = vi.fn();
 const isBlockedExtensionUrlWithDns = vi.fn();
 const createSsrfSafeDispatcher = vi.fn();
@@ -13,8 +79,10 @@ const resolveSecret = vi.fn();
 const writeWorkspaceFile = vi.fn();
 
 vi.mock("../credentials/index.js", () => ({
+  assertCredentialCanReachEndpoint,
   describeCredentialScopeGap,
   resolveCredential,
+  resolveCredentialDetailed,
 }));
 
 vi.mock("../extensions/url-safety.js", () => ({
@@ -83,6 +151,8 @@ describe("provider API runtime", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     resolveCredential.mockReset();
+    resolveCredentialDetailed.mockReset();
+    assertCredentialCanReachEndpoint.mockClear();
     describeCredentialScopeGap.mockReset();
     describeCredentialScopeGap.mockResolvedValue(null);
     isBlockedExtensionUrlWithDns.mockReset();
@@ -114,6 +184,12 @@ describe("provider API runtime", () => {
     isBlockedExtensionUrlWithDns.mockResolvedValue(false);
     createSsrfSafeDispatcher.mockResolvedValue(null);
     resolveCredential.mockResolvedValue(null);
+    resolveCredentialDetailed.mockImplementation(async (key: string) => {
+      const value = await resolveCredential(key);
+      return typeof value === "string"
+        ? { value, scope: "org", scopeId: "org-1" }
+        : undefined;
+    });
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ files: [] }), {
         status: 200,
@@ -154,6 +230,262 @@ describe("provider API runtime", () => {
     expect(catalog.map(({ id }) => id)).toEqual(["slack", "stripe"]);
     expect(catalog.find(({ id }) => id === "slack")?.label).toBe("Acme Slack");
     expect(catalog.find(({ id }) => id === "stripe")?.label).toBe("Stripe");
+  });
+
+  it("rejects an org credential before sending it to a member-owned built-in endpoint", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["grafana"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ key }) =>
+        key === "GRAFANA_URL"
+          ? {
+              key,
+              value: "https://member-grafana.example.test",
+              source: "app_local",
+              provider: "grafana",
+              scope: "user",
+              scopeId: "ada@example.com",
+            }
+          : key === "GRAFANA_API_TOKEN"
+            ? {
+                key,
+                value: "org-grafana-token",
+                source: "app_local",
+                provider: "grafana",
+                scope: "org",
+                scopeId: "org-1",
+              }
+            : null,
+    });
+
+    await expect(
+      runtime.executeRequest({ provider: "grafana", path: "/api/search" }),
+    ).rejects.toThrow(/GRAFANA_API_TOKEN.*user-controlled endpoint/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      auth: "bearer",
+      credentials: { PROMETHEUS_BEARER_TOKEN: "member-prometheus-token" },
+      authorization: "Bearer member-prometheus-token",
+    },
+    {
+      auth: "basic",
+      credentials: {
+        PROMETHEUS_USERNAME: "member-user",
+        PROMETHEUS_PASSWORD: "member-password",
+      },
+      authorization: `Basic ${Buffer.from("member-user:member-password").toString("base64")}`,
+    },
+  ])(
+    "preserves user credential provenance for Prometheus $auth auth",
+    async ({ credentials, authorization }) => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["prometheus"],
+        getCredentialContext: () => credentialContext,
+        resolveCredential: async ({ key }) => {
+          if (key === "PROMETHEUS_URL") {
+            return {
+              key,
+              value: "https://member-prometheus.example.test",
+              source: "app_local",
+              provider: "prometheus",
+              scope: "user",
+              scopeId: "ada@example.com",
+            };
+          }
+          const value = credentials[key as keyof typeof credentials];
+          return value
+            ? {
+                key,
+                value,
+                source: "app_local",
+                provider: "prometheus",
+                scope: "user",
+                scopeId: "ada@example.com",
+              }
+            : null;
+        },
+      });
+
+      await runtime.executeRequest({
+        provider: "prometheus",
+        path: "/api/v1/query",
+      });
+
+      expect(assertCredentialCanReachEndpoint).toHaveBeenCalledTimes(
+        Object.keys(credentials).length,
+      );
+      for (const key of Object.keys(credentials)) {
+        expect(assertCredentialCanReachEndpoint).toHaveBeenCalledWith(
+          expect.objectContaining({
+            scope: "user",
+            scopeId: "ada@example.com",
+          }),
+          expect.objectContaining({
+            key,
+            scope: "user",
+            scopeId: "ada@example.com",
+          }),
+          key,
+        );
+      }
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://member-prometheus.example.test/api/v1/query",
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: authorization }),
+        }),
+      );
+    },
+  );
+
+  it.each(["CUSTOM_USERNAME", "CUSTOM_PASSWORD"])(
+    "rejects an org-scoped %s before sending it to a member-owned custom endpoint",
+    async (sharedKey) => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["grafana"],
+        getCredentialContext: () => credentialContext,
+        getCustomProviders: async () => [
+          {
+            id: "member-api",
+            scope: "user",
+            scopeId: "ada@example.com",
+            label: "Member API",
+            baseUrl: "https://member-api.example.test",
+            auth: {
+              type: "basic",
+              usernameKey: "CUSTOM_USERNAME",
+              passwordKey: "CUSTOM_PASSWORD",
+            },
+            docsUrls: [],
+            allowedHostSuffixes: [],
+            defaultHeaders: {},
+            notes: "",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+        resolveCredential: async ({ key }) => ({
+          key,
+          value: `${key.toLowerCase()}-test-value`,
+          source: "app_local",
+          provider: "member-api",
+          scope: key === sharedKey ? "org" : "user",
+          scopeId: key === sharedKey ? "org-1" : "ada@example.com",
+        }),
+      });
+
+      await expect(
+        runtime.executeRequest({ provider: "member-api", path: "/records" }),
+      ).rejects.toThrow(
+        new RegExp(`${sharedKey}.*user-controlled endpoint`, "i"),
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a user credential before sending it to an organization-owned custom endpoint", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["grafana"],
+      getCredentialContext: () => credentialContext,
+      getCustomProviders: async () => [
+        {
+          id: "organization-api",
+          scope: "org",
+          scopeId: "org-1",
+          label: "Organization API",
+          baseUrl: "https://organization-api.example.test",
+          auth: { type: "bearer", credentialKey: "CUSTOM_TOKEN" },
+          docsUrls: [],
+          allowedHostSuffixes: [],
+          defaultHeaders: {},
+          notes: "",
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      resolveCredential: async ({ key }) => ({
+        key,
+        value: "member-token",
+        source: "app_local",
+        provider: "organization-api",
+        scope: "user",
+        scopeId: "ada@example.com",
+      }),
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "organization-api",
+        path: "/records",
+      }),
+    ).rejects.toThrow(/shared endpoint/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      description: "a different workspace connection",
+      endpointScope: "org",
+      endpointScopeId: "org-1",
+      credentialScope: "org",
+      credentialScopeId: "org-1",
+      endpointConnectionId: "conn-a",
+      credentialConnectionId: "conn-b",
+      error: /bound to that exact connection/i,
+    },
+    {
+      description: "a different scope in the same workspace connection",
+      endpointScope: "user",
+      endpointScopeId: "ada@example.com",
+      credentialScope: "org",
+      credentialScopeId: "org-1",
+      endpointConnectionId: "conn-a",
+      credentialConnectionId: "conn-a",
+      error: /user-controlled endpoint/i,
+    },
+  ])("rejects $description before fetch", async (scenario) => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "brain",
+      providerIds: ["gong"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ key }) => ({
+        key,
+        value:
+          key === "GONG_API_BASE"
+            ? "https://api.gong.io/v2"
+            : `${key.toLowerCase()}-test-value`,
+        source: "workspace_connection",
+        provider: "gong",
+        scope:
+          key === "GONG_API_BASE"
+            ? scenario.endpointScope
+            : scenario.credentialScope,
+        scopeId:
+          key === "GONG_API_BASE"
+            ? scenario.endpointScopeId
+            : scenario.credentialScopeId,
+        connectionId:
+          key === "GONG_API_BASE"
+            ? scenario.endpointConnectionId
+            : scenario.credentialConnectionId,
+      }),
+    });
+
+    await expect(
+      runtime.executeRequest({ provider: "gong", path: "/calls" }),
+    ).rejects.toThrow(scenario.error);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("reports a Slack send as failed when the body says ok:false, even though the HTTP status is 200", async () => {
@@ -854,6 +1186,7 @@ describe("provider API runtime", () => {
         label: "Jira One",
         accountId: "cloud-1",
         ownerEmail: "connector@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           atlassianApiBaseUrl: "https://api.atlassian.com/ex/jira/cloud-1",
@@ -887,6 +1220,63 @@ describe("provider API runtime", () => {
       "jira",
       "connector@example.com",
     );
+    expect(assertCredentialCanReachEndpoint).toHaveBeenCalledWith(
+      {
+        scope: "org",
+        scopeId: "org-1",
+        source: "workspace_connection",
+        connectionId: "jira-connection",
+      },
+      expect.objectContaining({
+        source: "oauth_token",
+        scope: "org",
+        scopeId: "org-1",
+        connectionId: "jira-connection",
+      }),
+      "JIRA_OAUTH_TOKEN",
+    );
+  });
+
+  it("rejects personal Jira credentials for an OAuth connection endpoint without its OAuth account binding", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "jira-oauth-connection",
+        label: "Jira One",
+        accountId: null,
+        ownerEmail: "connector@example.com",
+        orgId: "org-1",
+        config: {
+          credentialMode: "oauth",
+          atlassianApiBaseUrl: "https://api.atlassian.com/ex/jira/cloud-1",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["jira"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ key }) => ({
+        key,
+        value: `${key.toLowerCase()}-personal-value`,
+        source: "app_local",
+        provider: "jira",
+        scope: "user",
+        scopeId: "ada@example.com",
+      }),
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "jira",
+        path: "/rest/api/3/project",
+        connectionId: "jira-oauth-connection",
+      }),
+    ).rejects.toThrow(/bound to that exact connection/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("falls back to explicit Jira basic credentials for legacy connections", async () => {
@@ -910,7 +1300,15 @@ describe("provider API runtime", () => {
             JIRA_API_TOKEN: "jira-api-token",
           }[key] ?? null;
         return value
-          ? { key, value, provider: "jira", source: "workspace_connection" }
+          ? {
+              key,
+              value,
+              provider: "jira",
+              source: "workspace_connection",
+              scope: "org",
+              scopeId: "org-1",
+              connectionId: "jira-legacy",
+            }
           : null;
       },
     );
@@ -976,6 +1374,7 @@ describe("provider API runtime", () => {
         label: "Jira One",
         accountId: "cloud-1",
         ownerEmail: "connector@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           atlassianApiBaseUrl: "https://api.atlassian.com/ex/jira/cloud-1",
@@ -1091,6 +1490,8 @@ describe("provider API runtime", () => {
         id: "salesforce-connection",
         label: "acme.my.salesforce.com",
         accountId: "00Dexample::scoped-owner",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           salesforceInstanceUrl: "https://acme.my.salesforce.com",
@@ -1164,6 +1565,8 @@ describe("provider API runtime", () => {
         id: "salesforce-connection",
         label: "acme.my.salesforce.com",
         accountId: "00Dexample::scoped-owner",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           salesforceInstanceUrl: "https://acme.my.salesforce.com",
@@ -1224,6 +1627,8 @@ describe("provider API runtime", () => {
         id: "salesforce-connection",
         label: "acme.my.salesforce.com",
         accountId: "00Dexample::scoped-owner",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           salesforceInstanceUrl: "https://acme.my.salesforce.com",
@@ -1311,6 +1716,8 @@ describe("provider API runtime", () => {
         id: "salesforce-connection",
         label: "acme.my.salesforce.com",
         accountId: "00Dexample::scoped-owner",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           salesforceInstanceUrl: "https://acme.my.salesforce.com",

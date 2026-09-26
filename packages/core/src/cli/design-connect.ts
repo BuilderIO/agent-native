@@ -144,6 +144,7 @@ export interface DesignConnectBridge {
 export interface DesignConnectBridgeOptions {
   bridgeToken?: string;
   previewToken?: string;
+  persistBridgeToken?: boolean;
   /** Extra exact browser origins allowed to make CORS requests to the bridge.
    *  The production Design origin and loopback development origins are always
    *  recognized; custom deployments should pass their app origin here. */
@@ -189,6 +190,7 @@ async function persistBridgeToken(
 async function resolveBridgeToken(
   rootPath: string,
   configuredToken?: string,
+  persist = true,
 ): Promise<string> {
   const persistedToken = await readPersistedBridgeToken(rootPath);
   const bridgeToken =
@@ -204,10 +206,9 @@ async function resolveBridgeToken(
     );
   }
 
-  // Keep the durable daemon restart path paired with the connection row. An
-  // explicit token wins so the server-minted token from open-visual-edit can
-  // replace an older local credential before the first browser registration.
-  if (configuredToken || !persistedToken) {
+  // The daemon path persists only after it proves the running or newly-started
+  // bridge accepted this token. A rejected token must not replace recovery data.
+  if (persist && (configuredToken || !persistedToken)) {
     await persistBridgeToken(rootPath, bridgeToken);
   }
   return bridgeToken;
@@ -577,27 +578,49 @@ function isDesignConnectManifest(
 
 async function fetchRunningBridgeManifest(
   bridgeUrl: string,
-  previewToken?: string,
-): Promise<DesignConnectManifest | null> {
+  previewToken: string,
+): Promise<{
+  manifest: DesignConnectManifest | null;
+  status: number | null;
+}> {
   const manifestUrl = new URL("/manifest.json", bridgeUrl);
-  if (previewToken) {
-    manifestUrl.searchParams.set("previewToken", previewToken);
-  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 800);
   try {
     const response = await fetch(manifestUrl, {
       method: "GET",
+      headers: { "x-design-preview-token": previewToken },
       signal: controller.signal,
     });
-    if (!response.ok) return null;
+    if (!response.ok) return { manifest: null, status: response.status };
     const body = (await response.json()) as unknown;
-    return isDesignConnectManifest(body) ? body : null;
+    return {
+      manifest: isDesignConnectManifest(body) ? body : null,
+      status: response.status,
+    };
   } catch {
-    return null;
+    return { manifest: null, status: null };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function inspectRunningBridge(
+  manifest: DesignConnectManifest,
+  bridgeToken: string,
+) {
+  const [manifestResult, runningFingerprint] = await Promise.all([
+    fetchRunningBridgeManifest(
+      manifest.bridgeUrl,
+      deriveDesignPreviewToken(bridgeToken),
+    ),
+    fetchRunningBridgeFingerprint(manifest.bridgeUrl),
+  ]);
+  return {
+    ...manifestResult,
+    fingerprintMatches:
+      runningFingerprint === designConnectAppFingerprint(manifest),
+  };
 }
 
 export function designConnectManifestsTargetSameApp(
@@ -2814,9 +2837,9 @@ export async function startDesignConnectBridge(
   const bridgeToken = await resolveBridgeToken(
     manifest.rootPath,
     configuredBridgeToken,
+    false,
   );
-  const configuredPreviewToken =
-    options.previewToken || process.env["AGENT_NATIVE_PREVIEW_TOKEN"];
+  const configuredPreviewToken = options.previewToken;
   const derivedPreviewToken = deriveDesignPreviewToken(bridgeToken);
   if (
     configuredPreviewToken &&
@@ -2826,7 +2849,15 @@ export async function startDesignConnectBridge(
       "previewToken must match the deterministic token derived from bridgeToken",
     );
   }
-  const previewToken = configuredPreviewToken || derivedPreviewToken;
+  if (
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] &&
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] !== derivedPreviewToken
+  ) {
+    console.warn(
+      "Ignoring stale AGENT_NATIVE_PREVIEW_TOKEN; the current bridge token determines the preview token.",
+    );
+  }
+  const previewToken = derivedPreviewToken;
   const configuredOrigins = new Set(
     (options.allowedOrigins ?? []).flatMap((raw): string[] => {
       try {
@@ -4077,6 +4108,15 @@ export async function startDesignConnectBridge(
     });
   });
 
+  if (options.persistBridgeToken !== false) {
+    try {
+      await persistBridgeToken(manifest.rootPath, bridgeToken);
+    } catch (error) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      throw error;
+    }
+  }
+
   return { server, manifest, bridgeToken, previewToken, bridgeInstanceId };
 }
 
@@ -4214,7 +4254,7 @@ Options:
   --preview-token <token> Adopt the paired read-only browser preview token.
                           Optional when --bridge-token is present: compatible
                           clients derive the same one-way token automatically.
-                          (also reads AGENT_NATIVE_PREVIEW_TOKEN env)
+                          (stale AGENT_NATIVE_PREVIEW_TOKEN values are ignored)
   --daemon                Start the bridge detached, wait for /health, then exit
   --json                  Print the manifest JSON and exit
   --once                  Prepare/scaffold the manifest and exit
@@ -4276,25 +4316,41 @@ function resolveCurrentCliInvocation(argv: string[]): {
 async function startDetachedDesignBridge(
   argv: string[],
   manifest: DesignConnectManifest,
-  previewToken?: string,
+  bridgeToken: string,
 ): Promise<number> {
   if (await waitForBridgeHealth(manifest.bridgeUrl, 800)) {
-    const [runningManifest, runningFingerprint] = await Promise.all([
-      fetchRunningBridgeManifest(manifest.bridgeUrl, previewToken),
-      fetchRunningBridgeFingerprint(manifest.bridgeUrl),
-    ]);
-    const fingerprintMatches =
-      runningFingerprint === designConnectAppFingerprint(manifest);
+    const manifestResult = await inspectRunningBridge(manifest, bridgeToken);
+    const runningManifest = manifestResult.manifest;
+    const { fingerprintMatches } = manifestResult;
     if (
-      (runningManifest &&
-        designConnectManifestsTargetSameApp(runningManifest, manifest)) ||
-      fingerprintMatches
+      runningManifest &&
+      designConnectManifestsTargetSameApp(runningManifest, manifest)
     ) {
+      await persistBridgeToken(manifest.rootPath, bridgeToken);
       console.error(
         `Design localhost bridge already running at ${manifest.bridgeUrl}`,
       );
-      console.log(JSON.stringify(runningManifest ?? manifest, null, 2));
+      console.log(JSON.stringify(runningManifest, null, 2));
       return 0;
+    }
+
+    if (fingerprintMatches && !runningManifest) {
+      const errorMessage =
+        manifestResult.status === 401
+          ? "A Design localhost bridge for this app is already running, but it rejected the current bridge token (HTTP 401)."
+          : "A Design localhost bridge for this app is already running, but its authenticated manifest could not be verified.";
+      console.error(
+        [
+          errorMessage,
+          ...(manifestResult.status === 401
+            ? [
+                "If the token changed, stop only the bridge process you started, then rerun design connect with the bridgeToken returned by open-visual-edit via --bridge-token (or AGENT_NATIVE_BRIDGE_TOKEN).",
+              ]
+            : ["Retry after confirming the bridge is healthy."]),
+          "The existing process was left running.",
+        ].join("\n"),
+      );
+      return 1;
     }
 
     console.error(
@@ -4320,18 +4376,42 @@ async function startDetachedDesignBridge(
   const child = spawn(invocation.command, invocation.args, {
     cwd: process.cwd(),
     detached: true,
-    env: process.env,
+    env: {
+      ...process.env,
+      AGENT_NATIVE_BRIDGE_TOKEN: bridgeToken,
+    },
     stdio: ["ignore", logFd.fd, logFd.fd],
     shell: process.platform === "win32",
   });
   child.unref();
 
   if (await waitForBridgeHealth(manifest.bridgeUrl)) {
+    const running = await inspectRunningBridge(manifest, bridgeToken);
+    if (
+      running.manifest &&
+      designConnectManifestsTargetSameApp(running.manifest, manifest)
+    ) {
+      await persistBridgeToken(manifest.rootPath, bridgeToken);
+      await logFd.close();
+      console.error(`Design localhost bridge running at ${manifest.bridgeUrl}`);
+      console.error(`Bridge log: ${logPath}`);
+      console.log(JSON.stringify(running.manifest, null, 2));
+      return 0;
+    }
+
     await logFd.close();
-    console.error(`Design localhost bridge running at ${manifest.bridgeUrl}`);
-    console.error(`Bridge log: ${logPath}`);
-    console.log(JSON.stringify(manifest, null, 2));
-    return 0;
+    const authenticationFailed =
+      running.fingerprintMatches && !running.manifest;
+    console.error(
+      [
+        authenticationFailed
+          ? `A Design localhost bridge for this app became available at ${manifest.bridgeUrl}, but it rejected this invocation's bridge token (HTTP ${running.status ?? "unknown"}).`
+          : `A Design localhost bridge became available at ${manifest.bridgeUrl} for a different app or could not be verified.`,
+        "No bridge token was persisted; the running process was left untouched.",
+        `Bridge log: ${logPath}`,
+      ].join("\n"),
+    );
+    return 1;
   }
 
   const tail = await readDaemonLogTail(logPath);
@@ -4438,11 +4518,29 @@ export async function runDesign(argv: string[]) {
     parsed.bridgeToken || process.env["AGENT_NATIVE_BRIDGE_TOKEN"] || undefined;
   const seedPreviewToken =
     parsed.previewToken ||
-    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] ||
     (seedBridgeToken ? deriveDesignPreviewToken(seedBridgeToken) : undefined);
   const appUrl = resolveAppUrl(parsed.appUrl);
   if (parsed.daemon) {
-    return startDetachedDesignBridge(argv, manifest, seedPreviewToken);
+    const bridgeToken = await resolveBridgeToken(
+      manifest.rootPath,
+      seedBridgeToken,
+      false,
+    );
+    const derivedPreviewToken = deriveDesignPreviewToken(bridgeToken);
+    if (parsed.previewToken && parsed.previewToken !== derivedPreviewToken) {
+      throw new Error(
+        "previewToken must match the deterministic token derived from bridgeToken",
+      );
+    }
+    if (
+      process.env["AGENT_NATIVE_PREVIEW_TOKEN"] &&
+      process.env["AGENT_NATIVE_PREVIEW_TOKEN"] !== derivedPreviewToken
+    ) {
+      console.warn(
+        "Ignoring stale AGENT_NATIVE_PREVIEW_TOKEN; the current bridge token determines the preview token.",
+      );
+    }
+    return startDetachedDesignBridge(argv, manifest, bridgeToken);
   }
   if (parsed.json || parsed.once || parsed.dryRun) {
     console.log(JSON.stringify(manifest, null, 2));

@@ -32,7 +32,6 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  useLocation,
   useRouteError,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -489,20 +488,17 @@ export function computeSessionBypass(): boolean {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         themeAttribute={["class", "data-theme"]}
         tooltipDelayDuration={300}
-        isPublicPath={isMarketingPath}
-        toaster={isMarketingPath ? null : MAIL_TOASTER}
+        toaster={MAIL_TOASTER}
         sessionBypass={computeSessionBypass()}
         i18n={{ catalog: i18nCatalog }}
       >
-        {isMarketingPath ? <Outlet /> : <AppContent />}
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

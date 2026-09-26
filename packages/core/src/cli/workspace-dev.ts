@@ -85,6 +85,7 @@ const DEFAULT_GATEWAY_HOST = "127.0.0.1";
 const DEFAULT_GATEWAY_PORT = 8080;
 const DEFAULT_APP_PORT_START = 8100;
 const PROXY_READY_RETRY_DELAY_MS = 250;
+export const DEFAULT_PROXY_READY_TIMEOUT_MS = 60_000;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
 const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
@@ -504,6 +505,14 @@ function killChildProcessTree(
         { stdio: "ignore" },
       );
       if (result.status === 0) return;
+      if (signal !== "SIGKILL") {
+        const forcedResult = spawnSync(
+          "taskkill",
+          ["/pid", String(child.pid), "/T", "/F"],
+          { stdio: "ignore" },
+        );
+        if (forcedResult.status === 0) return;
+      }
     } else {
       process.kill(-child.pid, signal);
       return;
@@ -694,7 +703,7 @@ export async function runWorkspaceDev(
   const pollingMode = pollingFileWatcherMode(env, root);
   const usePollingFileWatcher = pollingMode === "enable";
   const proxyReadyTimeoutMs = Number(
-    env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
+    env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? DEFAULT_PROXY_READY_TIMEOUT_MS,
   );
   const proxyResponseTimeoutMs = Number(
     env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??

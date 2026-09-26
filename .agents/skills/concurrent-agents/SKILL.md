@@ -57,6 +57,12 @@ Git refs are shared, so never move, rewrite, or delete a branch checked out in
 another worktree. If a branch name is already used, choose another available
 name. Preserve and carry or reapply local changes; do not stash or discard them.
 
+Before creating or switching branches, record `git status --short
+--untracked-files=all` and classify every staged, unstaged, and untracked path.
+A switch carries the whole index and worktree, so proceed only when every dirty
+path belongs to this task. If any path is unrelated or incomplete, keep the
+checkout in place and report the exact paths without asking again.
+
 In a shared checkout, ask before changing branches unless the user gave the
 exact operation. Keep platform-assigned Builder.io and Fusion branches in
 place.

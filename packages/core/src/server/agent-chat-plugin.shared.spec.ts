@@ -124,6 +124,8 @@ function createSharedThreadEvent(
 ) {
   const headers = new Headers();
   if (options.accept) headers.set("accept", options.accept);
+  headers.set("host", "share.example.test");
+  headers.set("x-forwarded-proto", "https");
   return {
     path,
     req: {
@@ -613,6 +615,29 @@ describe("shared thread route", () => {
     expect(event.res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect(result).toContain("<!doctype html>");
     expect(result).toContain("Read-only shared agent session");
+    const head = result.slice(
+      result.indexOf("<head>"),
+      result.indexOf("</head>"),
+    );
+    expect(head).toContain(
+      '<meta name="description" content="Two messages" />',
+    );
+    expect(head).toContain(
+      '<meta property="og:title" content="Deploy recap" />',
+    );
+    expect(head).toContain(
+      '<meta property="og:description" content="Two messages" />',
+    );
+    expect(head).toContain(
+      '<meta name="twitter:title" content="Deploy recap" />',
+    );
+    expect(head).toContain(
+      '<meta name="twitter:card" content="summary_large_image" />',
+    );
+    expect(head).toContain(
+      '<meta property="og:image" content="https://share.example.test/_agent-native/og-image.png?',
+    );
+    expect(head).not.toContain("Done &amp; shipped");
     expect(result).toContain("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;");
     expect(result).toContain("Done &amp; shipped");
     expect(result).not.toContain("<script>alert");

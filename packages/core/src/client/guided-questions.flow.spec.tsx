@@ -115,7 +115,10 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     });
     let latest: HookResult | null = null;
     function Harness() {
-      latest = useGuidedQuestionFlow(options);
+      latest = useGuidedQuestionFlow({
+        providerStatusChecksEnabled: false,
+        ...options,
+      });
       return null;
     }
     await act(async () => {
@@ -510,6 +513,8 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     const result = await renderFlow({
       stateKey: "guided-questions",
       queryKey: ["guided-questions"],
+      providerStatusChecksEnabled: true,
+      providerStatus: "missing",
       refetchInterval: false,
     });
     expect(result.current().questions?.length).toBe(1);
@@ -520,6 +525,34 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     });
 
     await expect(answer).resolves.toBe("medium");
+  });
+
+  it("blocks agent answers until provider status is configured", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      providerStatusChecksEnabled: true,
+      providerStatus: "missing",
+      refetchInterval: false,
+    });
+
+    await act(async () => {
+      result.current().handleSubmit({ q1: "7d" });
+      result.current().handleSkip();
+      await Promise.resolve();
+    });
+
+    expect(result.current().isSubmissionBlocked).toBe(true);
+    expect(sendToAgentChatMock).not.toHaveBeenCalled();
   });
 
   it("resolves null when the user skips", async () => {
@@ -590,6 +623,46 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     });
 
     expect(onSubmit).toHaveBeenCalledWith({ variant: "soft-cards" });
+  });
+
+  it("disables question inputs and continuation controls while provider setup is required", async () => {
+    const onSubmit = vi.fn();
+    const onSkip = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          questions={[
+            {
+              id: "variant",
+              type: "text-options",
+              question: "Which screen should I keep?",
+              required: true,
+              submitOnSelect: true,
+              options: [{ label: "Soft Cards", value: "soft-cards" }],
+            },
+          ]}
+          onSubmit={onSubmit}
+          onSkip={onSkip}
+          isSubmissionBlocked
+          providerStatus="unavailable"
+        />,
+      );
+    });
+
+    const softCards = Array.from(container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent?.includes("Soft Cards"),
+    );
+    expect(container.querySelector("fieldset")?.disabled).toBe(true);
+    expect(container.textContent).toContain("Couldn't check AI connection.");
+
+    await act(async () => {
+      softCards?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSkip).not.toHaveBeenCalled();
   });
 
   it("submits selected option values as authoritative context", async () => {

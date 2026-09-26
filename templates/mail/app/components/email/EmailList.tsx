@@ -39,6 +39,7 @@ import { toast } from "sonner";
 import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import { JevConnectionPrompt } from "@/components/settings/JevConnectionPrompt";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -199,6 +200,11 @@ interface EmailListProps {
   onDraftOpen?: (email: EmailMessage) => void;
   onNavigateThread?: (threadId: string) => void;
   showPrioritySort?: boolean;
+  jevConfigured?: boolean;
+  jevAvailabilityLoading?: boolean;
+  jevAvailabilityError?: boolean;
+  onJevConnected?: () => void;
+  onJevRetry?: () => void;
   sortMode?: MailSortMode;
   onSortModeChange?: (mode: MailSortMode) => void;
 }
@@ -521,6 +527,11 @@ export function EmailList({
   onDraftOpen,
   onNavigateThread,
   showPrioritySort = false,
+  jevConfigured = false,
+  jevAvailabilityLoading = false,
+  jevAvailabilityError = false,
+  onJevConnected,
+  onJevRetry,
   sortMode = "newest",
   onSortModeChange,
 }: EmailListProps) {
@@ -2198,6 +2209,25 @@ export function EmailList({
                   </DropdownMenuItem>
                 </div>
               )}
+              {!showPrioritySort &&
+                (jevAvailabilityError ? (
+                  <DropdownMenuItem
+                    onSelect={onJevRetry}
+                    disabled={jevAvailabilityLoading}
+                    className="justify-between"
+                  >
+                    {t("mail.sort.priority")}
+                    <span className="text-xs text-muted-foreground">
+                      {t("mail.error.tryAgain")}
+                    </span>
+                  </DropdownMenuItem>
+                ) : (
+                  <JevConnectionPrompt
+                    variant="menu-item"
+                    disabled={jevAvailabilityLoading}
+                    onConnected={onJevConnected}
+                  />
+                ))}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -2207,6 +2237,11 @@ export function EmailList({
       labelParam,
       navigate,
       showPrioritySort,
+      jevConfigured,
+      jevAvailabilityLoading,
+      jevAvailabilityError,
+      onJevConnected,
+      onJevRetry,
       currentSortMode,
       onSortModeChange,
       searchQuery,

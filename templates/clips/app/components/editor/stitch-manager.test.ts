@@ -27,4 +27,16 @@ describe("StitchManager layout", () => {
     expect(source).toContain('className="min-h-0 flex-1"');
     expect(source).toContain('<DialogFooter className="shrink-0 pt-4">');
   });
+
+  it("checks storage before running client-side concat or creating a row", () => {
+    const source = readSource();
+    const storageCheckIndex = source.indexOf("await storageStatus.refetch()");
+    const exportIndex = source.indexOf("await exportConcat(");
+    const createIndex = source.indexOf("await stitch.mutateAsync(");
+
+    expect(storageCheckIndex).toBeGreaterThan(-1);
+    expect(storageCheckIndex).toBeLessThan(exportIndex);
+    expect(storageCheckIndex).toBeLessThan(createIndex);
+    expect(source).toContain("<FileStorageSetupCard />");
+  });
 });

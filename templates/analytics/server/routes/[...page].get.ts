@@ -1,4 +1,7 @@
-import { AGENT_ACCESS_PARAM } from "@agent-native/core/server";
+import {
+  AGENT_ACCESS_PARAM,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
 import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 import {
   buildAgentReadableResourceDiscovery,
@@ -15,6 +18,8 @@ import {
 import {
   ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
   ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT,
+  ANALYTICS_ANALYSIS_AGENT_RESOURCE_KIND,
+  ANALYTICS_DASHBOARD_AGENT_RESOURCE_KIND,
 } from "../../shared/resource-agent-access.js";
 import {
   buildSessionReplayAgentContext,
@@ -109,8 +114,17 @@ async function buildAgentDiscoveryScript(
   const resource = analyticsResourceFromPath(requestUrl.pathname);
   if (!resource) return null;
 
-  const token = queryString(query[AGENT_ACCESS_PARAM]);
+  const suppliedToken = queryString(query[AGENT_ACCESS_PARAM]);
   const isDashboard = resource.type === "dashboard";
+  const tokenAccess = suppliedToken
+    ? verifyScopedAgentAccessToken(suppliedToken, {
+        resourceKind: isDashboard
+          ? ANALYTICS_DASHBOARD_AGENT_RESOURCE_KIND
+          : ANALYTICS_ANALYSIS_AGENT_RESOURCE_KIND,
+        resourceId: resource.id,
+      }).ok
+    : false;
+  const token = tokenAccess ? suppliedToken : "";
   return {
     script: renderAgentReadableResourceDiscoveryScript(
       buildAgentReadableResourceDiscovery({
@@ -132,7 +146,7 @@ async function buildAgentDiscoveryScript(
           : "analytics-analysis-agent-context",
       },
     ),
-    privateResponse: Boolean(token),
+    privateResponse: tokenAccess,
   };
 }
 
@@ -157,7 +171,10 @@ export default defineEventHandler(async (event) => {
   headers.delete("content-length");
   if (discovery.privateResponse) {
     headers.set("Referrer-Policy", "no-referrer");
+    // Tokenized HTML contains a bearer URL; key the shared cache by the full query.
+    headers.set("netlify-vary", "query");
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
+    setResponseHeader(event, "netlify-vary", "query");
   }
 
   return new Response(injectAgentDiscovery(html, discovery.script), {

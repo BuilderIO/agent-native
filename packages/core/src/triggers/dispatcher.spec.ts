@@ -27,6 +27,7 @@ const getThreadMock = vi.hoisted(() =>
 const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
 const subscribeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
+const emitMock = vi.hoisted(() => vi.fn());
 const registerEventMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
@@ -52,6 +53,7 @@ vi.mock("../resources/store.js", () => ({
 }));
 
 vi.mock("../event-bus/index.js", () => ({
+  emit: emitMock,
   registerEvent: registerEventMock,
   subscribe: subscribeMock,
   unsubscribe: unsubscribeMock,
@@ -96,6 +98,10 @@ function fakeFilterInitialEngineTools(
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: actionsToEngineToolsMock,
   getOwnerActiveApiKey: vi.fn(async () => "test-api-key"),
+  resolveOwnerEngineApiKey: vi.fn(async () => ({
+    apiKey: undefined,
+    apiKeyEnvVar: undefined,
+  })),
   runAgentLoop: runAgentLoopMock,
   filterInitialEngineTools: fakeFilterInitialEngineTools,
 }));

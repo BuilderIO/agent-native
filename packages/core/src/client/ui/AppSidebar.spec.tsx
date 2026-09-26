@@ -2,10 +2,21 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AppSidebar } from "./AppSidebar.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { AppSidebar, RouterSidebarLink } from "./AppSidebar.js";
+
+function CurrentPath() {
+  const { pathname } = useLocation();
+  return <span data-testid="current-path">{pathname}</span>;
+}
 
 vi.mock("../FeedbackButton.js", () => ({
   FeedbackButton: () => null,
@@ -61,5 +72,64 @@ describe("AppSidebar (router links)", () => {
       expect(labels).toContain(element.getAttribute("aria-label"));
       act(() => element.blur());
     }
+  });
+
+  it("keeps rail and settings-gear tooltip links mounted across rerenders", () => {
+    const renderLinks = (revision: number) => (
+      <MemoryRouter>
+        <TooltipProvider>
+          <CurrentPath />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <RouterSidebarLink
+                to="/inbox"
+                aria-label="Inbox"
+                data-testid="rail-link"
+                data-revision={revision}
+              >
+                Inbox
+              </RouterSidebarLink>
+            </TooltipTrigger>
+            <TooltipContent>Inbox</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <RouterSidebarLink
+                to="/settings"
+                aria-label="Settings"
+                data-testid="settings-gear-link"
+                data-revision={revision}
+              >
+                Settings
+              </RouterSidebarLink>
+            </TooltipTrigger>
+            <TooltipContent>Settings</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </MemoryRouter>
+    );
+
+    act(() => root.render(renderLinks(1)));
+    const railLink = container.querySelector('[data-testid="rail-link"]');
+    const settingsGearLink = container.querySelector(
+      '[data-testid="settings-gear-link"]',
+    );
+
+    expect(railLink).not.toBeNull();
+    expect(settingsGearLink).not.toBeNull();
+
+    act(() => root.render(renderLinks(2)));
+
+    expect(container.querySelector('[data-testid="rail-link"]')).toBe(railLink);
+    expect(container.querySelector('[data-testid="settings-gear-link"]')).toBe(
+      settingsGearLink,
+    );
+    expect(railLink?.getAttribute("data-revision")).toBe("2");
+    expect(settingsGearLink?.getAttribute("data-revision")).toBe("2");
+
+    act(() => (settingsGearLink as HTMLAnchorElement).click());
+    expect(
+      container.querySelector('[data-testid="current-path"]')?.textContent,
+    ).toBe("/settings");
   });
 });

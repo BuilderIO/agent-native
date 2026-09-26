@@ -175,6 +175,16 @@ describe("chunked reference uploads", () => {
     expect(mocks.putBlob).not.toHaveBeenCalled();
   });
 
+  it("returns object storage setup guidance when no provider is configured", async () => {
+    mocks.putBlob.mockResolvedValue(null);
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
+      error:
+        "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 503);
+  });
+
   it("deletes an existing chunk before replacing its handle", async () => {
     const oldHandle = {
       id: "old",

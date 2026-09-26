@@ -653,67 +653,110 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
     const { designId, fileIds } = await createDesign(
       request,
       BOARD_OBJECT_HTML,
+      2,
     );
     try {
+      await action(request, "update-design", {
+        id: designId,
+        dataOperations: [
+          {
+            op: "set",
+            path: ["canvasFrames", fileIds[1]],
+            value: { x: 1336, y: 0, width: 1280, height: 900, z: 1 },
+          },
+        ],
+      });
       await page.goto(appPath(`/design/${designId}?view=overview`), {
         waitUntil: "domcontentloaded",
       });
-      await expect(page.locator("[data-screen-shell]")).toHaveCount(1, {
+      await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
         timeout: 30_000,
       });
 
-      const readFramePositions = () =>
+      const readFrameRects = () =>
         page.evaluate(() =>
           Object.fromEntries(
             Array.from(
               document.querySelectorAll<HTMLElement>("[data-frame-id]"),
-            ).map((node) => [
-              node.getAttribute("data-frame-id")!,
-              {
-                left: Number.parseFloat(node.style.left),
-                top: Number.parseFloat(node.style.top),
-              },
-            ]),
+            ).map((node) => {
+              const { x, y, width, height } = node.getBoundingClientRect();
+              return [
+                node.getAttribute("data-frame-id")!,
+                {
+                  left: x,
+                  top: y,
+                  width,
+                  height,
+                  canvasLeft: node.style.left,
+                  canvasTop: node.style.top,
+                  canvasWidth: node.style.width,
+                },
+              ];
+            }),
           ),
         );
-      let before: Record<string, { left: number; top: number }> = {};
+      let before: Record<
+        string,
+        {
+          left: number;
+          top: number;
+          width: number;
+          height: number;
+          canvasLeft: string;
+          canvasTop: string;
+          canvasWidth: string;
+        }
+      > = {};
       await expect
         .poll(
           async () => {
-            before = await readFramePositions();
-            return Object.keys(before).length;
+            before = await readFrameRects();
+            const source = before[fileIds[0]!];
+            const occupied = before[fileIds[1]!];
+            if (!source || !occupied) return null;
+            return (
+              Number.parseFloat(occupied.canvasLeft) -
+              Number.parseFloat(source.canvasLeft)
+            );
           },
           { timeout: 10_000 },
         )
-        .toBe(1);
+        .toBe(1336);
 
       await page.locator("[data-frame-label]").first().click({ force: true });
       await page.waitForTimeout(300);
       await page.keyboard.press("ControlOrMeta+d");
 
-      let after: Record<string, { left: number; top: number }> = {};
+      let after: typeof before = {};
       await expect
         .poll(
           async () => {
-            after = await readFramePositions();
+            after = await readFrameRects();
             return Object.keys(after).length;
           },
           { timeout: 10_000 },
         )
-        .toBe(2);
-      // A second screen/frame now exists.
-      expect(Object.keys(after)).toHaveLength(2);
-      const originalId = fileIds[0];
-      const copyId = Object.keys(after).find((id) => id !== originalId);
+        .toBe(3);
+      expect(Object.keys(after)).toHaveLength(3);
+      const originalId = fileIds[0]!;
+      const occupiedId = fileIds[1]!;
+      const copyId = Object.keys(after).find((id) => !fileIds.includes(id));
       expect(copyId).toBeTruthy();
-      // The original frame's own position is untouched.
       expect(after[originalId]).toEqual(before[originalId]);
-      // The duplicate frame is a distinct position, not stacked exactly on it
-      // (Figma: top-level frame duplicate offsets to the side).
-      const moved =
-        after[copyId!].left !== before[originalId].left ||
-        after[copyId!].top !== before[originalId].top;
-      expect(moved).toBe(true);
+      expect(after[occupiedId]).toEqual(before[occupiedId]);
+      const copy = after[copyId!]!;
+      for (const existingId of fileIds) {
+        const existing = after[existingId]!;
+        const overlaps =
+          copy.left < existing.left + existing.width &&
+          copy.left + copy.width > existing.left &&
+          copy.top < existing.top + existing.height &&
+          copy.top + copy.height > existing.top;
+        expect(
+          overlaps,
+          `duplicate overlaps frame ${existingId}: ${JSON.stringify({ copy, existing, before: before[existingId] })}`,
+        ).toBe(false);
+      }
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }

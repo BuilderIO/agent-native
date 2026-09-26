@@ -27,9 +27,16 @@ import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publ
 import { runApplyFileContentUpdate } from "./apply-file-content-update";
 import {
   absolutePlacePointForDrop,
+  releaseCrossScreenDropAdmission,
+  resolveCrossScreenMoveFailureRecovery,
   runCrossScreenElementDrop,
   shouldAbsolutePlaceOnEmptyScreen,
 } from "./cross-screen-element-drop";
+import {
+  CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
+  crossScreenRollbackAfterSourceCancellation,
+  scheduleCrossScreenRollbackTimeout,
+} from "./cross-screen-insert-timeout";
 import type { FileContentSaveCompletion } from "./save-file-content";
 
 const EMPTY_SCREEN = `<!DOCTYPE html>
@@ -41,6 +48,7 @@ const SCREEN_WITH_FRAME = `<!DOCTYPE html>
 </body></html>`;
 
 afterEach(() => {
+  vi.useRealTimers();
   shaderLocks.fileIds.clear();
   vi.clearAllMocks();
 });
@@ -2273,7 +2281,13 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     );
   });
 
-  it("uses the live source outerHTML for an atomic live-to-live move", () => {
+  it.each([
+    "cross-screen-insert-timeout",
+    "anchor-unresolved",
+    "target-canvas-unmounted",
+    "target-document-replaced",
+  ])("keeps the source and admits another move after %s", (reason) => {
+    vi.useFakeTimers();
     const sourceMarkup =
       '<div data-agent-native-node-id="runtime-source">Source</div>';
     const sourceNode = buildCodeLayerProjection(sourceMarkup).nodes[0]!;
@@ -2283,78 +2297,154 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     let insertRequest: unknown = null;
     let deleteRequest: unknown = null;
 
-    runCrossScreenElementDrop(
-      {
-        applyFileContentUpdate: () => {
-          throw new Error("live-to-live moves must not write stored content");
-        },
-        boardFileId: undefined,
-        canEditDesign: true,
-        canEditLiveScreen: () => true,
-        clearPendingOverviewLayerSelectionTimer: () => {},
-        codeLayerOwnerByNodeIdRef: {
-          current: new Map([
-            [
-              sourceNode.id,
-              {
-                fileId: "source",
-                node: sourceNode,
-                tree: sourceTree,
-                runtimeOnly: true,
-              },
-            ],
-          ]),
-        },
-        designSourceType: "localhost",
-        getScreenContent: () => "http://localhost:5173/",
-        id: undefined,
-        overviewScreens: [
-          {
-            id: "source",
-            filename: "source.html",
-            content: "http://localhost:5173/",
-            updatedAt: "2026-09-11T00:00:00.000Z",
-            heightPinned: false,
-            sourceType: "localhost",
-          },
-          {
-            id: "target",
-            filename: "target.html",
-            content: "http://localhost:5173/?screen=target",
-            updatedAt: "2026-09-11T00:00:00.000Z",
-            heightPinned: false,
-            sourceType: "localhost",
-          },
-        ],
-        pendingOverviewLayerSelectionRef: { current: null },
-        pendingOverviewScreenSelectionRef: { current: null },
-        recordContentHistoryEntry: vi.fn(),
-        runtimeStructureInsertRevisionRef: { current: 0 },
-        sendRuntimeLayerMoveSemanticHandoff: vi.fn(),
-        setActiveFileId: vi.fn(),
-        setCreatedOverviewLayerSelection: vi.fn(),
-        setOverviewSelectedScreenIds: vi.fn(),
-        setRuntimeStructureDeleteRequest: (value) => {
-          deleteRequest = typeof value === "function" ? value(null) : value;
-        },
-        setRuntimeStructureInsertRequest: (value) => {
-          insertRequest = typeof value === "function" ? value(null) : value;
-        },
-        setSelectedElement: vi.fn(),
-        setSelectedLayerIdsState: vi.fn(),
-        t: (key) => key,
-        viewModeRef: { current: "overview" },
+    const applyFileContentUpdate = vi.fn(() => {
+      throw new Error(
+        "public live-to-live moves must not write stored content",
+      );
+    });
+    const canEditLiveScreen = vi.fn(() => true);
+    const setInsertRequest = vi.fn((value) => {
+      insertRequest = typeof value === "function" ? value(null) : value;
+    });
+    const setDeleteRequest = vi.fn((value) => {
+      deleteRequest = typeof value === "function" ? value(null) : value;
+    });
+    const pendingTransactionRef = {
+      current: "move-timed-out" as string | null,
+    };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason,
+      transactionId: "move-timed-out",
+      insertRequest: {
+        requestId: 1,
+        transactionId: "move-timed-out",
+        screenId: "target",
+        html: '<div data-agent-native-node-id="clone">Source</div>',
+        anchor: { selector: "body" },
+        placement: "inside",
       },
-      {
-        sourceSelector: '[data-agent-native-node-id="runtime-source"]',
-        sourceNodeId: "runtime-source",
-        sourceScreenId: "source",
-        targetScreenId: "target",
-        targetAnchorSelector: "body",
-        targetAnchorPlacement: "inside",
-        sourceCloneHtml: sourceMarkup,
+      sourceDeleteRequest: {
+        requestId: "move-timed-out:source",
+        transactionId: "move-timed-out",
+        screenId: "source",
+        selector: '[data-agent-native-node-id="runtime-source"]',
+        waitForInsertTransaction: true,
+        rollbackScreenId: "target",
       },
-    );
+      rollbackRequestId: "move-timed-out:rollback",
+      pendingTransactionRef,
+    });
+    expect(recovery.sourceDeleteRequest).toBeNull();
+    if (recovery.rollbackRequest) {
+      expect(recovery.rollbackRequest).toMatchObject({
+        screenId: "target",
+        transactionId: "move-timed-out",
+        selector: "",
+        idempotent: true,
+      });
+      expect(pendingTransactionRef.current).toBe("move-timed-out");
+    } else {
+      expect(pendingTransactionRef.current).toBeNull();
+    }
+
+    const runViewerMove = () =>
+      runCrossScreenElementDrop(
+        {
+          applyFileContentUpdate,
+          boardFileId: undefined,
+          canEditDesign: false,
+          canEditLiveScreen,
+          clearPendingOverviewLayerSelectionTimer: () => {},
+          codeLayerOwnerByNodeIdRef: {
+            current: new Map([
+              [
+                sourceNode.id,
+                {
+                  fileId: "source",
+                  node: sourceNode,
+                  tree: sourceTree,
+                  runtimeOnly: true,
+                },
+              ],
+            ]),
+          },
+          designSourceType: "localhost",
+          getScreenContent: (screenId) =>
+            screenId === "source"
+              ? "http://localhost:5173/library"
+              : "http://localhost:5173/settings",
+          id: undefined,
+          overviewScreens: [
+            {
+              id: "source",
+              filename: "source.html",
+              content: "http://localhost:5173/library",
+              updatedAt: "2026-09-11T00:00:00.000Z",
+              heightPinned: false,
+              sourceType: "localhost",
+            },
+            {
+              id: "target",
+              filename: "target.html",
+              content: "http://localhost:5173/settings",
+              updatedAt: "2026-09-11T00:00:00.000Z",
+              heightPinned: false,
+              sourceType: "localhost",
+            },
+          ],
+          pendingOverviewLayerSelectionRef: { current: null },
+          pendingOverviewScreenSelectionRef: { current: null },
+          recordContentHistoryEntry: vi.fn(),
+          runtimeStructureInsertRevisionRef: { current: 0 },
+          runtimeStructurePendingTransactionRef: pendingTransactionRef,
+          sendRuntimeLayerMoveSemanticHandoff: vi.fn(),
+          setActiveFileId: vi.fn(),
+          setCreatedOverviewLayerSelection: vi.fn(),
+          setOverviewSelectedScreenIds: vi.fn(),
+          setRuntimeStructureDeleteRequest: setDeleteRequest,
+          setRuntimeStructureInsertRequest: setInsertRequest,
+          setSelectedElement: vi.fn(),
+          setSelectedLayerIdsState: vi.fn(),
+          t: (key) => key,
+          viewModeRef: { current: "overview" },
+        },
+        {
+          sourceSelector: '[data-agent-native-node-id="runtime-source"]',
+          sourceNodeId: "runtime-source",
+          sourceScreenId: "source",
+          targetScreenId: "target",
+          targetAnchorSelector: "body",
+          targetAnchorPlacement: "inside",
+          sourceCloneHtml: sourceMarkup,
+        },
+      );
+
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
+    if (recovery.rollbackRequest) {
+      runViewerMove();
+      expect(insertRequest).toBeNull();
+      expect(deleteRequest).toBeNull();
+      let rollbackTimedOut = false;
+      scheduleCrossScreenRollbackTimeout(
+        recovery.rollbackRequest,
+        (request) => {
+          rollbackTimedOut = true;
+          expect(
+            releaseCrossScreenDropAdmission(
+              pendingTransactionRef,
+              request.transactionId,
+            ),
+          ).toBe(true);
+        },
+      );
+      vi.advanceTimersByTime(CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
+      expect(rollbackTimedOut).toBe(true);
+      expect(pendingTransactionRef.current).toBeNull();
+      runViewerMove();
+    } else {
+      expect(pendingTransactionRef.current).toBeNull();
+      runViewerMove();
+    }
 
     expect(insertRequest).toMatchObject({
       screenId: "target",
@@ -2367,6 +2457,272 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       selector: '[data-agent-native-node-id="runtime-source"]',
       waitForInsertTransaction: true,
     });
+    expect((deleteRequest as { transactionId?: string }).transactionId).toBe(
+      (insertRequest as { transactionId?: string }).transactionId,
+    );
+    expect(pendingTransactionRef.current).toBe(
+      (insertRequest as { transactionId?: string }).transactionId,
+    );
+    expect(setInsertRequest).toHaveBeenCalledTimes(1);
+    expect(setDeleteRequest).toHaveBeenCalledTimes(1);
+    expect(canEditLiveScreen).toHaveBeenCalledWith("source");
+    expect(canEditLiveScreen).toHaveBeenCalledWith("target");
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
+  });
+
+  it("restores the source before requesting destination rollback", () => {
+    const pendingTransactionRef = { current: "move-rejected" as string | null };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "rollback-timeout",
+      transactionId: "move-rejected",
+      insertRequest: null,
+      sourceDeleteRequest: {
+        requestId: "move-rejected:source",
+        transactionId: "move-rejected",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "#inserted",
+        rollbackSourceId: "inserted-id",
+      },
+      rollbackRequestId: "move-rejected:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.sourceDeleteRequest).toMatchObject({
+      cancelRequested: true,
+      rollbackScreenId: "target",
+      rollbackSelector: "#inserted",
+      rollbackSourceId: "inserted-id",
+    });
+    expect(recovery.rollbackRequest).toBeNull();
+    expect(pendingTransactionRef.current).toBe("move-rejected");
+  });
+
+  it("holds admission until source restoration and destination rollback settle", () => {
+    const pendingTransactionRef = { current: "move-rejected" as string | null };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "rollback-timeout",
+      transactionId: "move-rejected",
+      insertRequest: null,
+      sourceDeleteRequest: {
+        requestId: "move-rejected:source",
+        transactionId: "move-rejected",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "#inserted",
+        rollbackSourceId: "inserted-id",
+      },
+      rollbackRequestId: "move-rejected:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.rollbackRequest).toBeNull();
+    expect(pendingTransactionRef.current).toBe("move-rejected");
+    const rollbackAfterSourceAck = crossScreenRollbackAfterSourceCancellation(
+      recovery.sourceDeleteRequest!,
+      true,
+      "move-rejected:recovery-rollback",
+    );
+    expect(rollbackAfterSourceAck).toMatchObject({
+      screenId: "target",
+      transactionId: "move-rejected",
+      selector: "#inserted",
+    });
+    expect(pendingTransactionRef.current).toBe("move-rejected");
+    expect(
+      releaseCrossScreenDropAdmission(pendingTransactionRef, "move-rejected"),
+    ).toBe(true);
+    expect(pendingTransactionRef.current).toBeNull();
+  });
+
+  it("keeps an acknowledged destination until a timed-out source delete is confirmed", () => {
+    const pendingTransactionRef = {
+      current: "move-delete-timeout" as string | null,
+    };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "source-delete-timeout",
+      transactionId: "move-delete-timeout",
+      insertRequest: null,
+      sourceDeleteRequest: {
+        requestId: "move-delete-timeout:source",
+        transactionId: "move-delete-timeout",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "#inserted",
+        rollbackSourceId: "inserted-id",
+      },
+      rollbackRequestId: "move-delete-timeout:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.rollbackRequest).toBeNull();
+    expect(recovery.sourceDeleteRequest).toMatchObject({
+      cancelRequested: true,
+      rollbackScreenId: "target",
+      rollbackSelector: "#inserted",
+      rollbackSourceId: "inserted-id",
+    });
+    expect(pendingTransactionRef.current).toBe("move-delete-timeout");
+  });
+
+  it("cancels source deletion after the acknowledged destination is lost", () => {
+    const pendingTransactionRef = {
+      current: "move-unmounted" as string | null,
+    };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "target-canvas-unmounted",
+      transactionId: "move-unmounted",
+      insertRequest: {
+        requestId: 1,
+        transactionId: "move-unmounted",
+        screenId: "target",
+        html: '<div data-agent-native-node-id="inserted">Moved</div>',
+        anchor: { selector: "body" },
+        placement: "inside",
+      },
+      sourceDeleteRequest: {
+        requestId: "move-unmounted:source",
+        transactionId: "move-unmounted",
+        screenId: "source",
+        selector: "#source",
+        selectorCandidates: ["#source", "[data-node-id=source]"],
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "[data-agent-native-node-id=inserted]",
+        rollbackSourceId: "inserted",
+      },
+      rollbackRequestId: "move-unmounted:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.sourceDeleteRequest).toMatchObject({
+      cancelRequested: true,
+      selector: "#source",
+      selectorCandidates: ["#source", "[data-node-id=source]"],
+      waitForInsertTransaction: false,
+    });
+    expect(recovery.sourceDeleteRequest?.rollbackSelector).toBeUndefined();
+    expect(recovery.rollbackRequest).toBeNull();
+    expect(pendingTransactionRef.current).toBe("move-unmounted");
+    expect(
+      releaseCrossScreenDropAdmission(pendingTransactionRef, "move-unmounted"),
+    ).toBe(true);
+  });
+
+  it.each(["anchor-unresolved", "read-only", "placement-unavailable"])(
+    "releases a rejected insert without touching the source (%s)",
+    (reason) => {
+      const pendingTransactionRef = {
+        current: "move-rejected" as string | null,
+      };
+      const recovery = resolveCrossScreenMoveFailureRecovery({
+        reason,
+        transactionId: "move-rejected",
+        insertRequest: {
+          requestId: 1,
+          transactionId: "move-rejected",
+          screenId: "target",
+          html: '<div data-agent-native-node-id="clone">Moved</div>',
+          anchor: { selector: "body" },
+          placement: "inside",
+        },
+        sourceDeleteRequest: {
+          requestId: "move-rejected:source",
+          transactionId: "move-rejected",
+          screenId: "source",
+          selector: "#source",
+          selectorCandidates: ["#source", "[data-node-id=source]"],
+          waitForInsertTransaction: true,
+          rollbackScreenId: "target",
+        },
+        rollbackRequestId: "move-rejected:rollback",
+        pendingTransactionRef,
+      });
+
+      expect(recovery).toMatchObject({
+        rollbackRequest: null,
+        sourceDeleteRequest: null,
+      });
+      expect(pendingTransactionRef.current).toBeNull();
+    },
+  );
+
+  it.each(["target-canvas-unmounted", "target-document-replaced"])(
+    "releases a pre-ack move when its destination is lost (%s)",
+    (reason) => {
+      const pendingTransactionRef = {
+        current: "move-unmounted" as string | null,
+      };
+      const recovery = resolveCrossScreenMoveFailureRecovery({
+        reason,
+        transactionId: "move-unmounted",
+        insertRequest: {
+          requestId: 1,
+          transactionId: "move-unmounted",
+          screenId: "target",
+          html: '<div data-agent-native-node-id="inserted">Moved</div>',
+          anchor: { selector: "body" },
+          placement: "inside",
+        },
+        sourceDeleteRequest: {
+          requestId: "move-unmounted:source",
+          transactionId: "move-unmounted",
+          screenId: "source",
+          selector: "#source",
+          waitForInsertTransaction: true,
+          rollbackScreenId: "target",
+        },
+        rollbackRequestId: "move-unmounted:rollback",
+        pendingTransactionRef,
+      });
+
+      expect(recovery).toMatchObject({
+        rollbackRequest: null,
+        sourceDeleteRequest: null,
+      });
+      expect(pendingTransactionRef.current).toBeNull();
+    },
+  );
+
+  it("restores the source after an insert timeout without issuing a source delete", () => {
+    const pendingTransactionRef = { current: "move-no-ack" as string | null };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "cross-screen-insert-timeout",
+      transactionId: "move-no-ack",
+      insertRequest: {
+        requestId: 1,
+        transactionId: "move-no-ack",
+        screenId: "target",
+        html: '<div data-agent-native-node-id="inserted">Moved</div>',
+        anchor: { selector: "body" },
+        placement: "inside",
+      },
+      sourceDeleteRequest: {
+        requestId: "move-no-ack:source",
+        transactionId: "move-no-ack",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: true,
+        rollbackScreenId: "target",
+      },
+      rollbackRequestId: "move-no-ack:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.sourceDeleteRequest).toBeNull();
+    expect(recovery.rollbackRequest).toMatchObject({
+      screenId: "target",
+      selector: "",
+      transactionId: "move-no-ack",
+      idempotent: true,
+    });
+    expect(pendingTransactionRef.current).toBe("move-no-ack");
   });
 
   it("inserts a runtime-projected board node back into a live destination", () => {

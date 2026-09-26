@@ -23,6 +23,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -295,7 +296,9 @@ export default function ImportRoute() {
         </p>
 
         <div className="mx-auto w-full max-w-lg">
-          {storageConfigured === null ? (
+          {storageQuery.isError ? (
+            <StorageStatusRetry onRetry={() => void storageQuery.refetch()} />
+          ) : storageConfigured === null ? (
             <ImportPanelSkeleton />
           ) : storageConfigured ? (
             <div

@@ -17,7 +17,11 @@ import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionProvider,
 } from "../connections/catalog.js";
-import { saveOAuthTokens, setOAuthDisplayName } from "../oauth-tokens/store.js";
+import {
+  OAuthAccountOwnedByOtherUserError,
+  saveOAuthTokens,
+  setOAuthDisplayName,
+} from "../oauth-tokens/store.js";
 import { getRegisteredAppRoles, resolveAppRole } from "../org/app-roles.js";
 import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
@@ -81,6 +85,8 @@ const SALESFORCE_PRODUCTION_LOGIN_URL = "https://login.salesforce.com";
 const SALESFORCE_SANDBOX_LOGIN_URL = "https://test.salesforce.com";
 const WORKSPACE_OAUTH_ADMIN_ERROR =
   "This shared connection requires organization or app-admin access. Personal connections can be connected by any workspace member.";
+const OAUTH_ACCOUNT_OWNERSHIP_ERROR =
+  "This account is already linked to another user. Choose a different account to connect.";
 
 export type WorkspaceProviderOAuthScope = "user" | "organization" | "app";
 
@@ -197,6 +203,18 @@ export function oauthFlowFailure(
   const accept = getRequestHeader(event, "accept") ?? "";
   if (!accept.includes("text/html")) return { error: message };
   return oauthErrorPage(message, status);
+}
+
+function oauthAccountOwnershipFailure(
+  event: H3Event,
+  error: unknown,
+): Response | { error: string } | null {
+  if (!(error instanceof OAuthAccountOwnedByOtherUserError)) return null;
+  return oauthFlowFailure(
+    event,
+    error.statusCode,
+    OAUTH_ACCOUNT_OWNERSHIP_ERROR,
+  );
 }
 
 export async function handleWorkspaceProviderOAuthStart(
@@ -470,12 +488,18 @@ export async function handleWorkspaceProviderOAuthCallback(
           session.email,
           identity.accountId,
         );
-        await saveOAuthTokens(
-          provider.oauth!.provider,
-          accountId,
-          tokens,
-          session.email,
-        );
+        try {
+          await saveOAuthTokens(
+            provider.oauth!.provider,
+            accountId,
+            tokens,
+            session.email,
+          );
+        } catch (error) {
+          const response = oauthAccountOwnershipFailure(event, error);
+          if (response) return response;
+          throw error;
+        }
         await setOAuthDisplayName(
           provider.oauth!.provider,
           accountId,

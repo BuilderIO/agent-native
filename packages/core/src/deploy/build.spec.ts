@@ -2113,6 +2113,7 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     );
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
+    expect(html).toContain("interactive-widget=resizes-content");
     expect(html).toContain("var(--agent-native-viewport-height, 100vh)");
     expect(html).toContain('data-agent-native-app-skeleton="true"');
     expect(html).not.toContain("data-agent-native-session-bootstrap");

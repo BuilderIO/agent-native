@@ -10,7 +10,9 @@ import { e2eBaseURL } from "./base-url";
 import {
   appPath,
   canvasZoom,
+  childNodeIds,
   designFrame,
+  expandAllLayers,
   gotoEditor,
   installBridge,
 } from "./helpers";
@@ -110,6 +112,124 @@ const SCREEN_WITH_TWO_ELEMENTS_HTML = `<!doctype html>
 </div>
 </body></html>`;
 
+const BOARD_AUTO_LAYOUT_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:3000px;height:1200px;overflow:visible;background:transparent">
+<div data-agent-native-node-id="root-frame" data-agent-native-layer-name="Frame" data-an-primitive="frame"
+     style="position:absolute;left:600px;top:940px;width:440px;height:300px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:20px;background:#334155">
+  <section data-agent-native-node-id="frame-2" data-agent-native-layer-name="Frame 2" data-an-primitive="frame"
+           style="box-sizing:border-box;width:260px;height:160px;display:flex;flex-direction:column;gap:8px;padding:12px;background:#475569">
+    <div data-agent-native-node-id="frame-2-child-a" data-agent-native-layer-name="Frame 2 child A"
+         style="flex:0 0 auto;width:180px;height:48px;background:#2563eb"></div>
+    <div data-agent-native-node-id="frame-2-child-b" data-agent-native-layer-name="Frame 2 child B"
+         style="flex:0 0 auto;width:180px;height:48px;background:#7c3aed"></div>
+  </section>
+  <section data-agent-native-node-id="frame-3" data-agent-native-layer-name="Frame 3" data-an-primitive="frame"
+           style="box-sizing:border-box;width:260px;height:80px;background:#0f766e"></section>
+</div>
+</body></html>`;
+
+async function createDesignWithBoard(request: APIRequestContext) {
+  const { designId } = await createDesign(request, NAMED_HTML);
+  const board = await action(request, "create-file", {
+    designId,
+    filename: "__board__.html",
+    content: BOARD_AUTO_LAYOUT_HTML,
+    fileType: "html",
+  });
+  const boardFileId = board.id ?? board.data?.id;
+  if (!boardFileId) throw new Error("create-file returned no board id");
+  await action(request, "update-design", {
+    id: designId,
+    dataOperations: [
+      { op: "set", path: ["boardFileId"], value: boardFileId },
+      {
+        op: "set",
+        path: ["screenMetadata", boardFileId],
+        value: { sourceType: "inline", width: 3000, height: 1200 },
+      },
+    ],
+  });
+  return designId;
+}
+
+async function fileContent(
+  request: APIRequestContext,
+  designId: string,
+  filename: string,
+): Promise<string> {
+  const response = await request.get(
+    `${BASE_URL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `get-design: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const record = await response.json();
+  return (
+    (record.files ?? []).find(
+      (file: { filename?: string }) => file.filename === filename,
+    )?.content ?? ""
+  );
+}
+
+type LayerTree = {
+  id: string;
+  name: string;
+  children: LayerTree[];
+};
+
+type LayerShape = {
+  name: string;
+  children: LayerShape[];
+};
+
+async function readLayerTree(layer: Locator): Promise<LayerTree> {
+  return layer.evaluate((root) => {
+    const read = (element: Element): LayerTree => ({
+      id: element.getAttribute("data-agent-native-node-id") ?? "",
+      name: element.getAttribute("data-agent-native-layer-name") ?? "",
+      children: Array.from(element.children)
+        .filter((child) => child.hasAttribute("data-agent-native-node-id"))
+        .map(read),
+    });
+    return read(root);
+  });
+}
+
+async function boardNodeHostBounds(page: Page, selector: string) {
+  const bounds = await page.evaluate((selector) => {
+    const iframe = document.querySelector(
+      "[data-board-surface-layer] iframe",
+    ) as HTMLIFrameElement | null;
+    const node = iframe?.contentDocument?.querySelector(selector);
+    if (!iframe || !node) return null;
+    const frameRect = iframe.getBoundingClientRect();
+    const nodeRect = node.getBoundingClientRect();
+    const scaleX = frameRect.width / iframe.offsetWidth;
+    const scaleY = frameRect.height / iframe.offsetHeight;
+    return {
+      x: frameRect.left + (iframe.clientLeft + nodeRect.left) * scaleX,
+      y: frameRect.top + (iframe.clientTop + nodeRect.top) * scaleY,
+      width: nodeRect.width * scaleX,
+      height: nodeRect.height * scaleY,
+    };
+  }, selector);
+  if (!bounds) throw new Error(`board node not found: ${selector}`);
+  return bounds;
+}
+
+function withoutLayerIds(tree: LayerTree): LayerShape {
+  return {
+    name: tree.name,
+    children: tree.children.map(withoutLayerIds),
+  };
+}
+
+function layerTreeIds(tree: LayerTree): string[] {
+  return [tree.id, ...tree.children.flatMap(layerTreeIds)];
+}
+
 async function openOverview(page: Page, designId: string, screens: number) {
   await page.goto(appPath(`/design/${designId}?view=overview`), {
     waitUntil: "domcontentloaded",
@@ -139,12 +259,20 @@ async function openOverview(page: Page, designId: string, screens: number) {
     .toBe(true);
 }
 
-async function zoomOutToBoardDropPoint(page: Page) {
+async function zoomOutToBoardDropPoint(
+  page: Page,
+  excludedRects: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }> = [],
+) {
   const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
   await zoomControl.click();
   await page.getByRole("menuitem", { name: "Zoom to 50%" }).click();
   await expect(zoomControl).toHaveText("50%");
-  return page.evaluate(() => {
+  return page.evaluate((excludedRects) => {
     const canvas = document.querySelector(
       "[data-multi-screen-canvas-world]",
     )?.parentElement;
@@ -158,12 +286,21 @@ async function zoomOutToBoardDropPoint(page: Page) {
     ).map((shell) => shell.getBoundingClientRect());
     const contains = (rect: DOMRect, x: number, y: number) =>
       x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    const excluded = (x: number, y: number) =>
+      excludedRects.some(
+        (rect) =>
+          x >= rect.x &&
+          x <= rect.x + rect.width &&
+          y >= rect.y &&
+          y <= rect.y + rect.height,
+      );
     for (let y = canvasBounds.top + 48; y < canvasBounds.bottom - 48; y += 64) {
       for (
         let x = canvasBounds.left + 48;
         x < canvasBounds.right - 48;
         x += 64
       ) {
+        if (excluded(x, y)) continue;
         if (
           iframeBounds.some((rect) => contains(rect, x, y)) ||
           shellBounds.some((rect) => contains(rect, x, y))
@@ -199,7 +336,7 @@ async function zoomOutToBoardDropPoint(page: Page) {
       }
     }
     return null;
-  });
+  }, excludedRects);
 }
 
 // Excludes aria-level="1" rows: those are the screen/frame roots (e.g.
@@ -219,6 +356,201 @@ async function dumpTrace(page: Page) {
   return page
     .evaluate(() => (window as any).__designTrace?.dump?.() ?? null)
     .catch(() => null);
+}
+
+async function dragBoardLayerCopyToEmptyCanvas(
+  page: Page,
+  request: APIRequestContext,
+  designId: string,
+  sourceNodeId: string,
+) {
+  await openOverview(page, designId, 1);
+  await expandAllLayers(page);
+  const boardFrame = page
+    .locator("[data-board-surface-layer] iframe")
+    .first()
+    .contentFrame();
+  const boardRoots = boardFrame.locator("body > [data-agent-native-node-id]");
+  const originalRoot = boardFrame.locator(
+    '[data-agent-native-node-id="root-frame"]',
+  );
+  const source = boardFrame.locator(
+    `[data-agent-native-node-id="${sourceNodeId}"]`,
+  );
+  await expect(boardRoots).toHaveCount(1);
+  await expect(source).toBeVisible();
+  const sourceName = await source.getAttribute("data-agent-native-layer-name");
+  expect(sourceName).toBeTruthy();
+  const sourceRow = page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button]")
+    .filter({ has: page.locator(`span[title="${sourceName}"]`) })
+    .first();
+  await expect(sourceRow).toBeVisible();
+  await sourceRow.click({ force: true });
+  await expect(
+    sourceRow.locator('xpath=ancestor::*[@role="treeitem"][1]'),
+  ).toHaveAttribute("aria-selected", "true");
+  const selectionBox = page.locator("[data-board-object-selection-box]");
+  await expect(selectionBox).toBeVisible();
+  const dragSurface = selectionBox.locator("[data-frame-drag-surface]");
+  await expect(dragSurface).toBeVisible();
+  await zoomOutToBoardDropPoint(page);
+  const rootBox = await boardNodeHostBounds(
+    page,
+    '[data-agent-native-node-id="root-frame"]',
+  );
+  const originalTreeBefore = await readLayerTree(originalRoot);
+  const sourceTreeBefore = await readLayerTree(source);
+  const originalIdsBefore = layerTreeIds(originalTreeBefore);
+  const originalChildrenBefore = childNodeIds(
+    await fileContent(request, designId, "__board__.html"),
+    "root-frame",
+  );
+  const emptyPoint = await zoomOutToBoardDropPoint(page, [rootBox]);
+  if (!emptyPoint) throw new Error("no unobstructed board drop point");
+  const dragBox = await dragSurface.boundingBox();
+  if (!dragBox) throw new Error("selected board layer has no drag surface");
+  const grabOffset = { x: dragBox.width / 2, y: dragBox.height / 2 };
+  const grabPoint = {
+    x: dragBox.x + grabOffset.x,
+    y: dragBox.y + grabOffset.y,
+  };
+  const startsOnSelectedDragSurface = await page.evaluate(({ x, y }) => {
+    const selectedDragSurface = document.querySelector(
+      "[data-board-object-selection-box] [data-frame-drag-surface]",
+    );
+    return (
+      !!selectedDragSurface &&
+      document.elementFromPoint(x, y) === selectedDragSurface
+    );
+  }, grabPoint);
+  expect(
+    startsOnSelectedDragSurface,
+    "Alt-drag must start on the selected board layer's canvas drag surface",
+  ).toBe(true);
+
+  await page.mouse.move(grabPoint.x, grabPoint.y);
+  await page.keyboard.down("Alt");
+  await page.mouse.down();
+  try {
+    await page.mouse.move(grabPoint.x + 6, grabPoint.y + 4, { steps: 2 });
+    const cloneRoot = boardFrame.locator(
+      '[data-agent-native-clone-root="true"]',
+    );
+    await expect(cloneRoot).toHaveCount(1);
+    await page.mouse.move(emptyPoint.x, emptyPoint.y, { steps: 20 });
+    await expect(cloneRoot).toHaveCount(1);
+    const heldCloneBox = await boardNodeHostBounds(
+      page,
+      '[data-agent-native-clone-root="true"]',
+    );
+    expect(heldCloneBox).not.toBeNull();
+    expect(heldCloneBox!.x).toBeCloseTo(emptyPoint.x - grabOffset.x, -1);
+    expect(heldCloneBox!.y).toBeCloseTo(emptyPoint.y - grabOffset.y, -1);
+    const heldOriginalBox = await boardNodeHostBounds(
+      page,
+      '[data-agent-native-node-id="root-frame"]',
+    );
+    expect(heldOriginalBox.x).toBeCloseTo(rootBox.x, 0);
+    expect(heldOriginalBox.y).toBeCloseTo(rootBox.y, 0);
+    expect(await readLayerTree(source)).toEqual(sourceTreeBefore);
+  } finally {
+    await page.mouse.up().catch(() => {});
+    await page.keyboard.up("Alt").catch(() => {});
+  }
+
+  await expect(boardRoots).toHaveCount(2, { timeout: 20_000 });
+  const rootInfo = await boardRoots.evaluateAll((roots) =>
+    roots.map((root) => ({
+      id: root.getAttribute("data-agent-native-node-id") ?? "",
+      name: root.getAttribute("data-agent-native-layer-name") ?? "",
+    })),
+  );
+  const copyInfo = rootInfo.find((root) => root.id !== "root-frame");
+  expect(copyInfo).toBeTruthy();
+  expect(copyInfo!.name).toBe(sourceTreeBefore.name);
+  const originalTreeAfter = await readLayerTree(originalRoot);
+  const copy = boardFrame.locator(
+    `[data-agent-native-node-id="${copyInfo!.id}"]`,
+  );
+  const copyTree = await readLayerTree(copy);
+  expect(originalTreeAfter).toEqual(originalTreeBefore);
+  expect(withoutLayerIds(copyTree)).toEqual(withoutLayerIds(sourceTreeBefore));
+  expect(new Set([...originalIdsBefore, ...layerTreeIds(copyTree)]).size).toBe(
+    originalIdsBefore.length + layerTreeIds(copyTree).length,
+  );
+  const copyBox = await boardNodeHostBounds(
+    page,
+    `[data-agent-native-node-id="${copyInfo!.id}"]`,
+  );
+  expect(copyBox.x).toBeCloseTo(emptyPoint.x - grabOffset.x, -1);
+  expect(copyBox.y).toBeCloseTo(emptyPoint.y - grabOffset.y, -1);
+  const originalRootBoxAfter = await boardNodeHostBounds(
+    page,
+    '[data-agent-native-node-id="root-frame"]',
+  );
+  expect(originalRootBoxAfter.x).toBeCloseTo(rootBox.x, 0);
+  expect(originalRootBoxAfter.y).toBeCloseTo(rootBox.y, 0);
+  expect(
+    childNodeIds(
+      await fileContent(request, designId, "__board__.html"),
+      "root-frame",
+    ),
+  ).toEqual(originalChildrenBefore);
+
+  const selectionEntries = await page.evaluate(
+    () => (window as any).__designTrace?.entries?.() ?? [],
+  );
+  const selectedCopy = selectionEntries
+    .filter(
+      (entry: { event?: string; data?: { hasSelection?: boolean } }) =>
+        entry.event === "selection-changed" && entry.data?.hasSelection,
+    )
+    .at(-1)?.data?.element;
+  expect(selectedCopy).toContain(copyInfo!.id);
+
+  await expect
+    .poll(() => fileContent(request, designId, "__board__.html"), {
+      timeout: 20_000,
+    })
+    .toContain(`data-agent-native-node-id="${copyInfo!.id}"`);
+  return {
+    copyId: copyInfo!.id,
+    copyTree,
+    originalTreeBefore,
+    sourceTreeBefore,
+  };
+}
+
+async function expectBoardCopyAfterReload(
+  page: Page,
+  request: APIRequestContext,
+  designId: string,
+  copyId: string,
+) {
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(1, {
+    timeout: 30_000,
+  });
+  const boardFrame = page
+    .locator("[data-board-surface-layer] iframe")
+    .first()
+    .contentFrame();
+  const boardRoots = boardFrame.locator("body > [data-agent-native-node-id]");
+  await expect(boardRoots).toHaveCount(2);
+  const rootIds = await boardRoots.evaluateAll((roots) =>
+    roots.map((root) => root.getAttribute("data-agent-native-node-id")),
+  );
+  expect(rootIds).toContain("root-frame");
+  expect(rootIds).toContain(copyId);
+  const html = await fileContent(request, designId, "__board__.html");
+  expect(html).toContain(`data-agent-native-node-id="${copyId}"`);
+  return {
+    html,
+    original: boardFrame.locator('[data-agent-native-node-id="root-frame"]'),
+    copy: boardFrame.locator(`[data-agent-native-node-id="${copyId}"]`),
+  };
 }
 
 test.describe("alt-drag duplicate (single-screen editor)", () => {
@@ -867,6 +1199,97 @@ test.describe("alt-drag duplicate (overview)", () => {
       // geometrically overlaps the label at the default viewport, that is a
       // genuine reachability bug, not a stale-selector problem.
       expect(clickThrew).toBe(false);
+    } finally {
+      await action(request, "delete-design", { id: designId }).catch(() => {});
+    }
+  });
+});
+
+test.describe("alt-drag board auto-layout frames to empty board", () => {
+  test.use({ viewport: { width: 1600, height: 1000 } });
+
+  test("copies a root auto-layout Frame as a selected board-root layer and preserves its original", async ({
+    page,
+    request,
+  }) => {
+    const designId = await createDesignWithBoard(request);
+    try {
+      const result = await dragBoardLayerCopyToEmptyCanvas(
+        page,
+        request,
+        designId,
+        "root-frame",
+      );
+      expect(result.sourceTreeBefore.name).toBe("Frame");
+      expect(
+        result.sourceTreeBefore.children.map((child) => child.name),
+      ).toEqual(["Frame 2", "Frame 3"]);
+
+      const reloaded = await expectBoardCopyAfterReload(
+        page,
+        request,
+        designId,
+        result.copyId,
+      );
+      await expect(reloaded.copy).toBeVisible();
+      expect(await readLayerTree(reloaded.original)).toEqual(
+        result.originalTreeBefore,
+      );
+      expect(await readLayerTree(reloaded.copy)).toEqual(result.copyTree);
+      expect(childNodeIds(reloaded.html, result.copyId)).toEqual(
+        result.copyTree.children.map((child) => child.id),
+      );
+    } finally {
+      await action(request, "delete-design", { id: designId }).catch(() => {});
+    }
+  });
+
+  test("copies nested Frame 2 to the board root with a fresh, unclipped subtree while its source stays nested", async ({
+    page,
+    request,
+  }) => {
+    const designId = await createDesignWithBoard(request);
+    try {
+      const result = await dragBoardLayerCopyToEmptyCanvas(
+        page,
+        request,
+        designId,
+        "frame-2",
+      );
+      expect(result.sourceTreeBefore.name).toBe("Frame 2");
+      expect(
+        result.sourceTreeBefore.children.map((child) => child.name),
+      ).toEqual(["Frame 2 child A", "Frame 2 child B"]);
+
+      const reloaded = await expectBoardCopyAfterReload(
+        page,
+        request,
+        designId,
+        result.copyId,
+      );
+      const nestedOriginal = reloaded.original.locator(
+        '[data-agent-native-node-id="frame-2"]',
+      );
+      await expect(reloaded.copy).toBeVisible();
+      for (const child of result.copyTree.children) {
+        await expect(
+          reloaded.copy.locator(`[data-agent-native-node-id="${child.id}"]`),
+        ).toBeVisible();
+      }
+      expect(await readLayerTree(reloaded.original)).toEqual(
+        result.originalTreeBefore,
+      );
+      expect(await readLayerTree(nestedOriginal)).toEqual(
+        result.sourceTreeBefore,
+      );
+      expect(await readLayerTree(reloaded.copy)).toEqual(result.copyTree);
+      expect(childNodeIds(reloaded.html, "root-frame")).toEqual([
+        "frame-2",
+        "frame-3",
+      ]);
+      expect(childNodeIds(reloaded.html, result.copyId)).toEqual(
+        result.copyTree.children.map((child) => child.id),
+      );
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }

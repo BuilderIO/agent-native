@@ -1,6 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { getRequestContext } from "@agent-native/core/server/request-context";
-import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -18,41 +17,6 @@ const pendingSchema = z
     prompt: z.string().min(1).max(MAX_PROMPT_LENGTH),
   })
   .nullable();
-
-function isVisualEditBrowserRequest(
-  ctx: Parameters<typeof isSameOriginVisualEditBrowserRequest>[0],
-  designId: string,
-  requireShareLink = false,
-): boolean {
-  if (
-    ctx?.caller !== "frontend" ||
-    !isSameOriginVisualEditBrowserRequest(ctx)
-  ) {
-    return false;
-  }
-
-  const referer = ctx.requestHeaders?.get("referer");
-  const requestOrigin = getRequestContext()?.requestOrigin;
-  if (!referer || !requestOrigin || !URL.canParse(referer)) return false;
-
-  const refererUrl = new URL(referer);
-  if (!URL.canParse(requestOrigin)) return false;
-  if (refererUrl.origin !== new URL(requestOrigin).origin) return false;
-  if (requireShareLink && refererUrl.searchParams.get("share") !== "1") {
-    return false;
-  }
-
-  const segments = refererUrl.pathname.split("/").filter(Boolean);
-  const referredDesignId = segments.pop();
-  if (segments.pop() !== "visual-edit" || !referredDesignId) return false;
-
-  try {
-    return decodeURIComponent(referredDesignId) === designId;
-  } catch (error) {
-    if (error instanceof URIError) return false;
-    throw error;
-  }
-}
 
 export default defineAction({
   description:
@@ -88,28 +52,9 @@ export default defineAction({
       });
     }
 
-    let access: Awaited<ReturnType<typeof assertAccess>>;
-    if (isVisualEditBrowserRequest(ctx, designId)) {
-      const browserAccess = await resolveAccess("design", designId);
-      const browserCanEditDesign =
-        browserAccess &&
-        ["owner", "admin", "editor"].includes(browserAccess.role);
-      const browserCanShareVisualEdit = isVisualEditBrowserRequest(
-        ctx,
-        designId,
-        true,
-      );
-      if (
-        browserAccess &&
-        (browserCanEditDesign || browserCanShareVisualEdit)
-      ) {
-        access = browserAccess;
-      } else {
-        access = await assertAccess("design", designId, "editor");
-      }
-    } else {
-      access = await assertAccess("design", designId, "editor");
-    }
+    // Same-origin metadata is CSRF defense only; the scoped page capability
+    // is what grants a signed-out visual-edit session editor access.
+    const access = await assertAccess("design", designId, "editor");
     const design = access.resource as typeof schema.designs.$inferSelect;
     const now = new Date().toISOString();
     const canEditDesign = ["owner", "admin", "editor"].includes(access.role);

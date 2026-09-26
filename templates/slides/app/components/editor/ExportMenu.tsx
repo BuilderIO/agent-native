@@ -86,6 +86,7 @@ export function canExportPptxFromServer(
 }
 
 interface ExportMenuProps {
+  hasSlides: boolean;
   deckId: string;
   deckTitle: string;
   onDuplicate: () => void;
@@ -223,6 +224,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     {
       deckId,
       deckTitle,
+      hasSlides,
       onDuplicate,
       onExportPdf,
       onExportPptx,
@@ -242,7 +244,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     const [menuOpen, setMenuOpen] = useState(false);
     const queryClient = useQueryClient();
     const googleSlidesExport = useGoogleSlidesExportAvailability(
-      inline || menuOpen,
+      hasSlides && (inline || menuOpen),
     );
     const [exportStatus, setExportStatus] = useState<ExportStatus>({
       state: "idle",
@@ -298,7 +300,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       action: () => Promise<void> | void,
       fallbackError: string,
     ) => {
-      if (!beginExport(kind)) return;
+      if (!hasSlides || !beginExport(kind)) return;
       try {
         await action();
         updateExportStatus({ state: "idle" });
@@ -388,7 +390,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     };
 
     const handleExportGoogleSlides = async () => {
-      if (!onExportGoogleSlides) return;
+      if (!hasSlides || !onExportGoogleSlides) return;
       if (!beginExport("google-slides")) return;
       try {
         // The connect step is a top-level navigation to Google. When Google
@@ -471,6 +473,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       <>
         <DropdownMenuItem
           onClick={() => void handleExportHtml()}
+          disabled={!hasSlides}
           className="cursor-pointer"
         >
           <IconCode className="size-4" />
@@ -478,6 +481,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => void handleExportPdf()}
+          disabled={!hasSlides}
           className="cursor-pointer"
         >
           <IconFileTypePdf className="size-4" />
@@ -485,6 +489,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => void handleExportPptx()}
+          disabled={!hasSlides}
           className="cursor-pointer"
         >
           <IconDownload className="size-4" />
@@ -493,16 +498,16 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         {onExportGoogleSlides && (
           <DropdownMenuItem
             onClick={() => void handleExportGoogleSlides()}
-            disabled={!googleSlidesExport.available}
+            disabled={!hasSlides || !googleSlidesExport.available}
             className="cursor-pointer"
           >
             <IconBrandGoogle className="size-4" />
             {t("editorExport.openInGoogleSlides")}
-            {googleSlidesExport.available ? null : (
+            {hasSlides && !googleSlidesExport.available ? (
               <span className="ml-auto text-[11px] text-muted-foreground">
                 {t("editorExport.googleSlidesUnavailable")}
               </span>
-            )}
+            ) : null}
           </DropdownMenuItem>
         )}
       </>
@@ -554,7 +559,10 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           </>
         ) : null}
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="cursor-pointer gap-2">
+          <DropdownMenuSubTrigger
+            disabled={!hasSlides}
+            className="cursor-pointer gap-2"
+          >
             <IconUpload className="size-4" />
             {t("editorExport.export")}
           </DropdownMenuSubTrigger>
@@ -574,7 +582,10 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         ) : (
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap">
+              <button
+                disabled={!hasSlides}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
+              >
                 <IconUpload className="w-3.5 h-3.5" />
                 <span className="hidden md:inline">
                   {t("editorExport.export")}

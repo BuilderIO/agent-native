@@ -1,5 +1,5 @@
 import { IconX } from "@tabler/icons-react";
-import { type ReactNode } from "react";
+import { type ComponentProps, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { PopoverContent } from "@/components/ui/popover";
@@ -20,6 +20,7 @@ export function InspectorControlPopoverContent({
   side = "left",
   align = "start",
   sideOffset = 8,
+  onFocusOutside,
 }: {
   title: string;
   icon?: ReactNode;
@@ -33,12 +34,14 @@ export function InspectorControlPopoverContent({
   side?: "top" | "right" | "bottom" | "left";
   align?: "start" | "center" | "end";
   sideOffset?: number;
+  onFocusOutside?: ComponentProps<typeof PopoverContent>["onFocusOutside"];
 }) {
   return (
     <PopoverContent
       side={side}
       align={align}
       sideOffset={sideOffset}
+      onFocusOutside={onFocusOutside}
       className={cn(
         "w-[min(256px,calc(100vw-2rem))] overflow-hidden rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-0 text-foreground shadow-xl",
         className,

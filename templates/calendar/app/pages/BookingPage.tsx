@@ -79,7 +79,7 @@ function BookingPageShell({
         <LanguagePicker variant="ghost-icon" />
         <ThemeToggle />
       </div>
-      <div className="fixed bottom-[21px] left-4 z-50 max-sm:static max-sm:mx-auto max-sm:mt-8 [&_.an-powered-logo]:!h-3.5 [&_.an-powered-logo]:brightness-0 dark:[&_.an-powered-logo]:invert">
+      <div className="fixed bottom-[21px] left-4 z-50 max-sm:static max-sm:mx-auto max-sm:pt-8 [&_.an-powered-logo]:!h-3.5 [&_.an-powered-logo]:brightness-0 dark:[&_.an-powered-logo]:invert">
         <PoweredByBadge variant="plain" embedded />
       </div>
       <div className="relative z-10 min-h-screen overflow-x-hidden p-4">
@@ -96,7 +96,7 @@ export default function BookingPage() {
   const navigate = useNavigate();
   const { data: settings, isLoading: settingsLoading } = usePublicSettings();
   const { data: availability, isLoading: availabilityLoading } =
-    usePublicAvailability(slug);
+    usePublicAvailability(slug, username);
   const {
     data: bookingLink,
     isLoading: bookingLinkLoading,
@@ -233,7 +233,7 @@ export default function BookingPage() {
     data: slots = [],
     isLoading: slotsLoading,
     error: slotsError,
-  } = useAvailableSlots(dateStr, duration, slug);
+  } = useAvailableSlots(dateStr, duration, slug, undefined, username);
   const monthStart = format(startOfMonth(viewMonth), "yyyy-MM-dd");
   const monthEnd = format(endOfMonth(viewMonth), "yyyy-MM-dd");
   const {
@@ -245,6 +245,7 @@ export default function BookingPage() {
     monthEnd,
     duration,
     slug,
+    username,
     step === "date" &&
       !!availability &&
       (!hasDurationChoice || selectedDuration !== null),

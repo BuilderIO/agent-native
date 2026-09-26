@@ -2,8 +2,10 @@ import {
   bigint,
   index,
   integer,
+  sql,
   table,
   text,
+  uniqueIndex,
 } from "@agent-native/core/db/schema";
 
 /**
@@ -64,6 +66,59 @@ export const automationRules = table("automation_rules", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+export const aiFilterRuleUndo = table(
+  "mail_ai_filter_rule_undo",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    rulesJson: text("rules_json").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (t) => [
+    index("mail_ai_filter_rule_undo_owner_expiry_idx").on(
+      t.ownerEmail,
+      t.expiresAt,
+    ),
+    index("mail_ai_filter_rule_undo_expires_idx").on(t.expiresAt),
+  ],
+);
+
+export const aiFilterBackfills = table(
+  "mail_ai_filter_backfills",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    ruleSetKey: text("rule_set_key"),
+    status: text("status", {
+      enum: ["queued", "running", "completed", "failed", "undoing", "undone"],
+    }).notNull(),
+    stateJson: text("state_json").notNull(),
+    undoToken: text("undo_token"),
+    undoExpiresAt: bigint("undo_expires_at", { mode: "number" }),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+    claimId: text("claim_id"),
+    claimedAt: bigint("claimed_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("mail_ai_filter_backfills_owner_created_idx").on(
+      t.ownerEmail,
+      t.createdAt,
+    ),
+    index("mail_ai_filter_backfills_status_updated_idx").on(
+      t.status,
+      t.updatedAt,
+    ),
+    index("mail_ai_filter_backfills_expires_idx").on(t.expiresAt),
+    uniqueIndex("mail_ai_filter_backfills_owner_rule_set_active_idx")
+      .on(t.ownerEmail, t.ruleSetKey)
+      .where(
+        sql`${t.ruleSetKey} IS NOT NULL AND ${t.status} IN ('queued', 'running', 'undoing')`,
+      ),
+  ],
+);
 
 export const emailTracking = table("email_tracking", {
   pixelToken: text("pixel_token").primaryKey(),

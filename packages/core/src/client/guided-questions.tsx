@@ -17,6 +17,12 @@ import {
   readClientAppState,
   setClientAppState,
 } from "./application-state.js";
+import { BuilderSetupCard } from "./chat/run-recovery.js";
+import { useT } from "./i18n.js";
+import {
+  useAgentEngineConfigured,
+  type AgentEngineConfiguredState,
+} from "./use-agent-engine-configured.js";
 import { useChangeVersions } from "./use-change-version.js";
 import { cn } from "./utils.js";
 
@@ -510,7 +516,49 @@ export interface GuidedQuestionFlowProps {
   skipLabel?: string;
   submitLabel?: string;
   isSubmitting?: boolean;
+  isSubmissionBlocked?: boolean;
+  providerStatus?: AgentEngineConfiguredState;
+  onRetryProviderStatus?: () => void;
+  showProviderStatusGate?: boolean;
   className?: string;
+}
+
+export function GuidedQuestionProviderGate({
+  providerStatus,
+  onRetry,
+}: {
+  providerStatus: AgentEngineConfiguredState;
+  onRetry?: () => void;
+}) {
+  const t = useT();
+
+  if (providerStatus === "missing") {
+    return (
+      <BuilderSetupCard fullWidth onConnected={onRetry} onRetry={onRetry} />
+    );
+  }
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+      role="status"
+    >
+      <span>
+        {providerStatus === "unknown"
+          ? t("agentChat.setup.checkingProvider")
+          : t("agentChat.setup.providerStatusUnavailable")}
+      </span>
+      {providerStatus === "unavailable" ? (
+        <button
+          type="button"
+          className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onRetry}
+        >
+          {t("agentChat.common.retry")}
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 export function GuidedQuestionFlow({
@@ -522,6 +570,10 @@ export function GuidedQuestionFlow({
   skipLabel = "Skip",
   submitLabel = "Continue",
   isSubmitting = false,
+  isSubmissionBlocked = false,
+  providerStatus = "configured",
+  onRetryProviderStatus,
+  showProviderStatusGate = true,
   className,
 }: GuidedQuestionFlowProps) {
   const [answers, setAnswers] = useState<GuidedQuestionAnswers>(() =>
@@ -542,10 +594,13 @@ export function GuidedQuestionFlow({
     setAnswers((prev) => ({ ...prev, [id]: value }));
   }, []);
   const submitAnswers = useCallback(
-    (nextAnswers: GuidedQuestionAnswers = answers) =>
-      onSubmit(normalizeGuidedAnswers(nextAnswers)),
-    [answers, onSubmit],
+    (nextAnswers: GuidedQuestionAnswers = answers) => {
+      if (isSubmissionBlocked || isSubmitting) return;
+      onSubmit(normalizeGuidedAnswers(nextAnswers));
+    },
+    [answers, isSubmissionBlocked, isSubmitting, onSubmit],
   );
+  const inputsDisabled = isSubmitting || isSubmissionBlocked;
 
   const allRequiredAnswered = questions
     .filter((question) => question.required)
@@ -570,20 +625,33 @@ export function GuidedQuestionFlow({
           )}
         </div>
 
-        <div className="guided-question-flow-list min-h-0 flex-1 overflow-y-auto pe-1">
+        <fieldset
+          disabled={inputsDisabled}
+          className="guided-question-flow-list m-0 min-h-0 min-w-0 flex-1 overflow-y-auto border-0 p-0 pe-1"
+        >
           {questions.map((question, index) => (
             <QuestionCard
               key={question.id}
               index={index}
               question={question}
               value={answers[question.id]}
+              disabled={inputsDisabled}
               onChange={(value) => setAnswer(question.id, value)}
               onSubmitAnswer={(value) =>
                 submitAnswers({ ...answers, [question.id]: value })
               }
             />
           ))}
-        </div>
+        </fieldset>
+
+        {isSubmissionBlocked && showProviderStatusGate ? (
+          <div className="guided-question-provider-gate mt-3">
+            <GuidedQuestionProviderGate
+              providerStatus={providerStatus}
+              onRetry={onRetryProviderStatus}
+            />
+          </div>
+        ) : null}
 
         <div className="guided-question-flow-footer mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-border pt-3">
           <div className="flex items-center gap-1.5">
@@ -603,7 +671,7 @@ export function GuidedQuestionFlow({
             <button
               type="button"
               onClick={onSkip}
-              disabled={isSubmitting}
+              disabled={inputsDisabled}
               className="cursor-pointer rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
             >
               {skipLabel}
@@ -611,7 +679,7 @@ export function GuidedQuestionFlow({
             <button
               type="button"
               onClick={() => submitAnswers()}
-              disabled={!allRequiredAnswered || isSubmitting}
+              disabled={!allRequiredAnswered || inputsDisabled}
               className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-45"
             >
               {submitLabel}
@@ -628,12 +696,14 @@ function QuestionCard({
   index,
   question,
   value,
+  disabled,
   onChange,
   onSubmitAnswer,
 }: {
   index: number;
   question: GuidedQuestion;
   value: unknown;
+  disabled: boolean;
   onChange: (value: unknown) => void;
   onSubmitAnswer: (value: unknown) => void;
 }) {
@@ -678,7 +748,7 @@ function QuestionCard({
         <SliderQuestion question={question} value={value} onChange={onChange} />
       )}
       {question.type === "file" && (
-        <FileDropZone value={value} onChange={onChange} />
+        <FileDropZone value={value} disabled={disabled} onChange={onChange} />
       )}
       {question.type === "freeform" && (
         <textarea
@@ -953,15 +1023,19 @@ function SliderQuestion({
 
 function FileDropZone({
   value,
+  disabled,
   onChange,
 }: {
   value: unknown;
+  disabled: boolean;
   onChange: (value: unknown) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const files: File[] = Array.isArray(value) ? (value as File[]) : [];
 
-  const addFiles = (incoming: File[]) => onChange([...files, ...incoming]);
+  const addFiles = (incoming: File[]) => {
+    if (!disabled) onChange([...files, ...incoming]);
+  };
   const removeFile = (index: number) =>
     onChange(files.filter((_, fileIndex) => fileIndex !== index));
 
@@ -969,11 +1043,19 @@ function FileDropZone({
     <div>
       <div
         onDragOver={(event) => {
+          if (disabled) {
+            event.preventDefault();
+            return;
+          }
           event.preventDefault();
           setDragOver(true);
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(event) => {
+          if (disabled) {
+            event.preventDefault();
+            return;
+          }
           event.preventDefault();
           setDragOver(false);
           addFiles(Array.from(event.dataTransfer.files));
@@ -993,6 +1075,7 @@ function FileDropZone({
             <input
               type="file"
               multiple
+              disabled={disabled}
               onChange={(event) => {
                 if (event.target.files)
                   addFiles(Array.from(event.target.files));
@@ -1016,6 +1099,7 @@ function FileDropZone({
               <button
                 type="button"
                 onClick={() => removeFile(index)}
+                disabled={disabled}
                 className="cursor-pointer text-muted-foreground/70 hover:text-foreground"
                 aria-label={`Remove ${file.name}`}
               >
@@ -1056,6 +1140,10 @@ export interface UseGuidedQuestionFlowOptions {
    * same card follows the user into every other chat in the tab.
    */
   threadId?: string;
+  /** Skip the hosted-provider gate for local or custom agent runtimes. */
+  providerStatusChecksEnabled?: boolean;
+  /** Reuse a host's current readiness result instead of probing again. */
+  providerStatus?: AgentEngineConfiguredState;
   queryKey?: readonly unknown[];
   refetchInterval?: number | false;
   submitMessage?: string;
@@ -1102,6 +1190,8 @@ export function useGuidedQuestionFlow({
   stateKey = "show-questions",
   browserTabId,
   threadId,
+  providerStatusChecksEnabled = true,
+  providerStatus: providedProviderStatus,
   queryKey = ["show-questions"],
   refetchInterval = false,
   submitMessage = "Here are my answers — go ahead.",
@@ -1201,6 +1291,29 @@ export function useGuidedQuestionFlow({
   // render here.
   const visiblePayload =
     payload && payloadBelongsToThread(payload, threadId) ? payload : null;
+  const needsAgentProvider = Boolean(
+    visiblePayload?.questions.length && !visiblePayload.clientResolveId,
+  );
+  const queriedProviderStatus = useAgentEngineConfigured(
+    enabled &&
+      needsAgentProvider &&
+      providerStatusChecksEnabled &&
+      providedProviderStatus === undefined,
+    { tabId: browserTabId, threadId },
+  );
+  const providerStatus = providerStatusChecksEnabled
+    ? (providedProviderStatus ?? queriedProviderStatus.state)
+    : "configured";
+  const isSubmissionBlocked =
+    enabled &&
+    needsAgentProvider &&
+    providerStatusChecksEnabled &&
+    providerStatus !== "configured";
+  const retryProviderStatus = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, []);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submissionInFlightRef = useRef(false);
 
@@ -1251,6 +1364,7 @@ export function useGuidedQuestionFlow({
         clear();
         return;
       }
+      if (isSubmissionBlocked) return;
       const formattedAnswers = formatGuidedAnswersForAgent(
         answers,
         visiblePayload?.questions,
@@ -1289,6 +1403,7 @@ export function useGuidedQuestionFlow({
       clear,
       onSubmitMessage,
       sendAndClearOnDelivery,
+      isSubmissionBlocked,
       visiblePayload,
       submitMessage,
     ],
@@ -1302,6 +1417,7 @@ export function useGuidedQuestionFlow({
       clear();
       return;
     }
+    if (isSubmissionBlocked) return;
     const message = visiblePayload?.skipMessage ?? skipMessage;
     // Skipping a variant set asks for another one — the replacement needs the
     // same context the first set was built from.
@@ -1319,6 +1435,7 @@ export function useGuidedQuestionFlow({
     clear,
     onSkipMessage,
     sendAndClearOnDelivery,
+    isSubmissionBlocked,
     visiblePayload,
     skipMessage,
   ]);
@@ -1354,6 +1471,9 @@ export function useGuidedQuestionFlow({
     skipLabel: visiblePayload?.skipLabel,
     submitLabel: visiblePayload?.submitLabel,
     isSubmitting,
+    isSubmissionBlocked,
+    providerStatus,
+    retryProviderStatus,
     clear,
     handleSubmit,
     handleSkip,

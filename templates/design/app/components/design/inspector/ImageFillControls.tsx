@@ -1,8 +1,11 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { IconPhotoPlus, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -285,6 +288,11 @@ export function ImageFillControls({
   className,
 }: ImageFillControlsProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const canUploadImages =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
+  const fileStorageMissing =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === false;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [urlDraft, setUrlDraft] = useState(value.url);
   const urlDraftRef = useRef(value.url);
@@ -309,7 +317,7 @@ export function ImageFillControls({
 
   const handleFilePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !canUploadImages) return;
     setUploadingImage(true);
     setUploadError(null);
     try {
@@ -419,13 +427,13 @@ export function ImageFillControls({
           <TooltipTrigger asChild>
             <button
               type="button"
-              disabled={disabled || uploadingImage}
+              disabled={disabled || uploadingImage || !canUploadImages}
               aria-label={"Upload image" /* i18n-ignore */}
               onClick={() => fileInputRef.current?.click()}
               className={cn(
                 "flex size-6 shrink-0 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground hover:text-foreground",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                (disabled || uploadingImage) &&
+                (disabled || uploadingImage || !canUploadImages) &&
                   "pointer-events-none opacity-40",
               )}
             >
@@ -439,9 +447,27 @@ export function ImageFillControls({
           type="file"
           accept="image/*"
           className="hidden"
+          disabled={!canUploadImages}
           onChange={handleFilePick}
         />
       </div>
+      {fileStorageMissing ? <FileStorageSetupCard /> : null}
+      {!fileUploadStatus.isSuccess && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-2 text-[10px] leading-snug text-destructive"
+        >
+          <span>{t("common.genericError")}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-1.5 text-[10px]"
+            onClick={() => void fileUploadStatus.refetch()}
+          >
+            {t("agentChat.common.retry")}
+          </Button>
+        </div>
+      )}
       {uploadError && (
         <p className="text-[10px] leading-snug text-destructive">
           {uploadError}

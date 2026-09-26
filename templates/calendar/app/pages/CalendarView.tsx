@@ -126,7 +126,10 @@ import {
   normalizeNumberOfDays,
 } from "@/lib/calendar-view-preferences";
 import { resolveEventAccountEmail } from "@/lib/event-account-selection";
-import { getGoogleEventColorHex } from "@/lib/event-colors";
+import {
+  applyOverlayOwnerMarkers,
+  getGoogleEventColorHex,
+} from "@/lib/event-colors";
 import {
   buildEventTitleUpdate,
   dateTimeInTimezoneToIso,
@@ -804,20 +807,11 @@ export default function CalendarView() {
 
   // Apply overlay ownership markers and filter hidden calendars
   const events = useMemo(() => {
-    const ownerMap = new Map(overlayPeople.map((p) => [p.email, p]));
     const sourceEvents = draftEvent
       ? [...rawEvents.filter((e) => e.id !== draftEvent.id), draftEvent]
       : rawEvents;
-    return sourceEvents
+    return applyOverlayOwnerMarkers(sourceEvents, overlayPeople)
       .map((e) => {
-        if (e.overlayEmail && ownerMap.has(e.overlayEmail)) {
-          const owner = ownerMap.get(e.overlayEmail);
-          return {
-            ...e,
-            ownerColor: owner?.color,
-            ownerName: owner?.name,
-          };
-        }
         const tempId = quickEditTempIds[e.id];
         return tempId && !e._tempId ? { ...e, _tempId: tempId } : e;
       })

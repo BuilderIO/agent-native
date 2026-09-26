@@ -158,7 +158,7 @@ describe("mountActionRoutes", () => {
       _responseHeaders: {
         "cache-control": "no-store",
         "access-control-expose-headers":
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After",
         "x-agent-native-client-mismatch": "1",
       },
     });
@@ -689,6 +689,98 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("forwards a bounded Retry-After for typed quota cooldowns", async () => {
+    const { ActionContractError } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions = {
+      markThreadRead: {
+        run: vi.fn().mockRejectedValue(
+          new ActionContractError("Gmail is temporarily limiting requests.", {
+            errorCode: "gmail_quota_cooldown",
+            details: { retryAfterSeconds: 900 },
+            statusCode: 429,
+          }),
+        ),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0]!.handler(event);
+
+    expect(event).toMatchObject({
+      _status: 429,
+      _responseHeaders: {
+        "retry-after": "300",
+        "access-control-expose-headers": expect.stringContaining("Retry-After"),
+      },
+    });
+    expect(result).toEqual({
+      error: "Gmail is temporarily limiting requests.",
+      errorCode: "gmail_quota_cooldown",
+      details: { retryAfterSeconds: 900 },
+    });
+  });
+
+  it("returns 429 and Retry-After for a get-thread cooldown error", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const cooldown = Object.assign(
+      new Error("Email service is briefly busy."),
+      {
+        statusCode: 429,
+        errorCode: "gmail_quota_cooldown",
+        details: { retryAfterSeconds: 45 },
+      },
+    );
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mountActionRoutes(
+      nitroApp,
+      {
+        "get-thread": {
+          http: { method: "GET" },
+          run: vi.fn().mockRejectedValue(cooldown),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "owner@example.com",
+        resolveOrgId: async () => "mail-test-org",
+      },
+    );
+    const event = {
+      _method: "GET",
+      _query: { accountEmail: "owner@example.com", id: "thread-1" },
+      _headers: {},
+      req: {},
+    };
+    const route = mounted.find(({ path }) =>
+      path.endsWith("/_agent-native/actions/get-thread"),
+    );
+    const result = await route!.handler(event);
+
+    expect(event).toMatchObject({
+      _status: 429,
+      _responseHeaders: { "retry-after": "45" },
+    });
+    expect(result).toEqual({
+      error: "Email service is briefly busy.",
+      errorCode: "gmail_quota_cooldown",
+      details: { retryAfterSeconds: 45 },
+    });
+  });
+
   it("keeps a bare thrown Error as a generic 500", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -1113,6 +1205,45 @@ describe("mountActionRoutes", () => {
     expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
       ["/_agent-native/actions/public-metadata"],
       nitroApp,
+    );
+  });
+
+  it("parses get-design metadata-only query booleans on the HTTP route", async () => {
+    const { defineAction } = await import("../action.js");
+    const { getDesignSchema } =
+      await import("../../../../templates/design/actions/get-design.schema.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (args) => args);
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "get-design": defineAction({
+          description: "Test get-design query parsing",
+          schema: getDesignSchema,
+          http: { method: "GET" },
+          requiresAuth: false,
+          run,
+        }) as any,
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        req: {
+          url: "http://app.test/_agent-native/actions/get-design?id=design_1&includeFileContent=false",
+        },
+      }),
+    ).resolves.toEqual({ id: "design_1", includeFileContent: false });
+    expect(run).toHaveBeenCalledWith(
+      { id: "design_1", includeFileContent: false },
+      expect.objectContaining({ caller: "http" }),
     );
   });
 

@@ -16,8 +16,9 @@ const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
  * Three distinct situations, never collapsed:
  * - `configured` / `missing` are authoritative answers from the status routes.
  * - `unknown` (first check in flight) and `unavailable` (the check failed, a
- *   retry is scheduled) both mean *we do not know*. Neither is evidence that
- *   no provider is configured, so neither may gate the composer.
+ *   retry is scheduled) both mean *we do not know*. They are not evidence that
+ *   no provider is configured, but chat input stays closed until the route
+ *   confirms readiness.
  */
 export type AgentEngineConfiguredState =
   | "unknown"
@@ -166,8 +167,8 @@ export async function fetchAgentEngineConfiguredState(
  * composer and app prompt boxes. Checks the env-key / Builder / BYOK status
  * endpoints on mount, re-checks on `agent-engine:configured-changed`, and folds
  * in the adapter's `agent-chat:missing-api-key` signal. Pass `enabled = false`
- * to short-circuit to configured. A check that cannot reach an authoritative
- * answer retries on a backoff until it does, so the gate can never latch.
+ * only for runtimes that do not use a hosted LLM provider. A check that cannot
+ * reach an authoritative answer retries on a backoff until it does.
  */
 export function useAgentEngineConfigured(
   enabled = true,

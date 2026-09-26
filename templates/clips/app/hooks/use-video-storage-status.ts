@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { fetchFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
@@ -16,49 +16,46 @@ export const VIDEO_STORAGE_STATUS_KEY = [
 ] as const;
 
 export async function fetchVideoStorageStatus(): Promise<VideoStorageStatus> {
-  let uploadStatus: VideoStorageStatus | null = null;
-  try {
-    const r = await fetch(agentNativePath("/_agent-native/file-upload/status"));
-    uploadStatus = r.ok ? ((await r.json()) as VideoStorageStatus) : null;
-    if (
-      uploadStatus?.configured ||
-      uploadStatus?.builderReauthorizationRequired
-    ) {
-      return uploadStatus;
-    }
-  } catch {
-    // Fall through to the Builder status check.
+  const result = await fetchFileUploadStatus<Partial<VideoStorageStatus>>();
+  if (result.state !== "available") {
+    throw new Error("Video storage status is unavailable");
   }
-
-  try {
-    const r = await fetch(agentNativePath("/_agent-native/builder/status"));
-    const builderStatus = r.ok
-      ? ((await r.json()) as { configured?: boolean })
-      : null;
-    if (builderStatus?.configured) {
-      return {
-        configured: true,
-        activeProvider: { id: "builder", name: "Builder.io" },
-        builderConfigured: true,
-      };
-    }
-  } catch {
-    // Treat an unreachable status route as not configured.
+  if (typeof result.value?.configured !== "boolean") {
+    throw new Error("Video storage status response is invalid");
   }
-
   return {
-    configured: false,
-    activeProvider: uploadStatus?.activeProvider ?? null,
-    builderConfigured: uploadStatus?.builderConfigured ?? false,
+    configured: result.value.configured,
+    activeProvider: result.value.activeProvider ?? null,
+    builderConfigured: result.value.builderConfigured ?? false,
+    builderUploadConfigured: result.value.builderUploadConfigured ?? false,
+    builderReauthorizationRequired:
+      result.value.builderReauthorizationRequired ?? false,
   };
 }
 
 export function useVideoStorageStatus(enabled = true) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!enabled) return;
+    const refresh = () => {
+      void queryClient.invalidateQueries({
+        queryKey: VIDEO_STORAGE_STATUS_KEY,
+      });
+    };
+    window.addEventListener("agent-engine:configured-changed", refresh);
+    return () => {
+      window.removeEventListener("agent-engine:configured-changed", refresh);
+    };
+  }, [enabled, queryClient]);
+
   return useQuery({
     queryKey: VIDEO_STORAGE_STATUS_KEY,
     queryFn: fetchVideoStorageStatus,
     enabled,
     staleTime: 60_000,
+    // request-storm-allow: React Query coalesces all storage controls onto this one status key.
+    refetchOnWindowFocus: true,
   });
 }
 

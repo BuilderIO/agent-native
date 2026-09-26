@@ -38,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   uploadAndIndexFigmaFiles,
@@ -135,6 +136,20 @@ function designSystemIndexFailureMessage(
 }
 
 export default function DesignSystemSetup() {
+  const enabled = useDesignSystemWorkflows();
+  const t = useT();
+  return enabled ? (
+    <DesignSystemSetupContent />
+  ) : (
+    <Button asChild variant="outline">
+      <Link to="/design-systems">
+        {t("designSystemSetup.backToDesignSystems")}
+      </Link>
+    </Button>
+  );
+}
+
+function DesignSystemSetupContent() {
   const t = useT();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

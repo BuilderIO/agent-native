@@ -14,8 +14,10 @@ import {
   writeCachedMediaPermission,
 } from "./media-permission";
 import {
+  claimRecordingFinalization,
   restartUploadModeFromResponse,
   restartUploadResetBody,
+  shouldClearTerminalSavingOverlay,
   shouldReconcilePersistedRecording,
   type OffscreenRecordingState,
 } from "./native-recording-state";
@@ -555,6 +557,24 @@ async function restoreRuntimeState(): Promise<void> {
       overlayBaseEpochMs = countdownEndsAtMs;
       countdownEndsAtMs = 0;
     }
+  }
+
+  if (activeNativeRecording?.status === "complete") {
+    setActionPopup("src/popup.html");
+    await finishSaving(
+      activeNativeRecording,
+      activeNativeRecording.recordingId,
+      true,
+    );
+  } else if (
+    activeNativeRecording &&
+    shouldClearTerminalSavingOverlay(overlayPhase, activeNativeRecording.status)
+  ) {
+    resetOverlay();
+    await broadcastUnmount();
+    broadcastOverlayState();
+  } else {
+    await reconcilePersistedNativeRecording();
   }
 }
 
@@ -2007,20 +2027,32 @@ async function resetRecordingChunks(
 async function finishSaving(
   recording: NativeRecording,
   recordingIdFromStatus?: string,
+  restoringCompletedRecording = false,
 ): Promise<boolean> {
-  if (overlayPhase !== "saving") return false;
-  resetOverlay(); // first statement sets overlayPhase = "idle" synchronously
-  recording.status = "complete";
-  recording.error = null;
-  if (recordingIdFromStatus) recording.recordingId = recordingIdFromStatus;
-  recording.recordingUrl = recordingUrl(recording);
-  await deleteSession(recording.sessionId);
-  await broadcastUnmount();
-  broadcastOverlayState();
-  await copyRecordingUrlToClipboard(recording);
-  await clearNativeRecording();
-  await createTab(recording.recordingUrl);
-  return true;
+  if (
+    overlayPhase !== "saving" &&
+    !(restoringCompletedRecording && recording.status === "complete")
+  ) {
+    return false;
+  }
+  const releaseFinalization = claimRecordingFinalization(recording.sessionId);
+  if (!releaseFinalization) return false;
+  try {
+    resetOverlay(); // first statement sets overlayPhase = "idle" synchronously
+    recording.status = "complete";
+    recording.error = null;
+    if (recordingIdFromStatus) recording.recordingId = recordingIdFromStatus;
+    recording.recordingUrl = recordingUrl(recording);
+    await deleteSession(recording.sessionId);
+    await broadcastUnmount();
+    broadcastOverlayState();
+    await copyRecordingUrlToClipboard(recording);
+    await clearNativeRecording();
+    await createTab(recording.recordingUrl);
+    return true;
+  } finally {
+    releaseFinalization();
+  }
 }
 
 async function stopRecording() {

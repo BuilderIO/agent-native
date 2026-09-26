@@ -213,20 +213,25 @@ function quotaCooldownMessage(cooldownMs = QUOTA_COOLDOWN_MS): string {
 
 /**
  * Every quota/cooldown throw in this file goes through this type instead of
- * a plain Error. The message text is deliberately jargon-free (see
- * quotaCooldownMessage above) so callers that need to *detect* a quota
- * cooldown — to return 429 + Retry-After instead of a hard failure — must
- * not do it by grepping the message for words like "quota" or "429"; that
- * regex silently stops matching the moment the wording changes, and every
- * caller upstream then reports a plain 502 during a routine cooldown. Check
- * `instanceof GmailQuotaCooldownError` (or read `retryAfterMs`) instead.
+ * a plain Error. Its HTTP metadata lets the shared action boundary return a
+ * retryable 429 without action-specific catches or message parsing.
  */
 export class GmailQuotaCooldownError extends Error {
   readonly retryAfterMs: number;
+  readonly statusCode = 429;
+  readonly errorCode = "gmail_quota_cooldown";
+  readonly details: { retryAfterSeconds: number };
+
   constructor(message: string, retryAfterMs: number) {
     super(message);
     this.name = "GmailQuotaCooldownError";
     this.retryAfterMs = retryAfterMs;
+    const retryAfterSeconds = Number.isFinite(retryAfterMs)
+      ? Math.ceil(retryAfterMs / 1000)
+      : 1;
+    this.details = {
+      retryAfterSeconds: Math.min(300, Math.max(1, retryAfterSeconds)),
+    };
   }
 }
 

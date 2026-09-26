@@ -1172,6 +1172,14 @@ const history = {
 };
 
 const overrides = {
+  close: "Fermer",
+  setup: { checkingProvider: "Vérification de la connexion à l’IA…" },
+  onboarding: {
+    fileStorage: {
+      title: "Connecter un stockage pour envoyer des fichiers",
+      statusUnavailable: "L’état du stockage des fichiers est indisponible.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,

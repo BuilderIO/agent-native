@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -20,6 +20,7 @@ import {
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import { BOARD_FILENAME } from "../shared/board-file.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
+import { designTemplateRetryKey } from "../shared/design-template-retry.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
@@ -34,6 +35,107 @@ interface TemplateFile {
   filename: string;
   fileType: string;
   content: string;
+}
+
+function templateCopyConflict(): never {
+  return fail(
+    "This copy request cannot be reused. Start a new copy with a new ID.",
+    {
+      statusCode: 409,
+      errorCode: "design_template_copy_conflict",
+    },
+  );
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  let current = error;
+  for (
+    let depth = 0;
+    depth < 4 && current && typeof current === "object";
+    depth++
+  ) {
+    if ("code" in current && current.code === "23505") return true;
+    current = "cause" in current ? current.cause : undefined;
+  }
+  return false;
+}
+
+async function readRetryDesign(
+  id: string,
+  ownerEmail: string,
+  orgId: string | null,
+  templateId: string,
+  createdTitle: string,
+  retryKey: string,
+) {
+  const access = await resolveAccess("design", id);
+  if (!access) return null;
+  const design = access.resource as typeof schema.designs.$inferSelect;
+  if (
+    design.ownerEmail?.toLowerCase() !== ownerEmail.toLowerCase() ||
+    design.orgId !== orgId
+  ) {
+    return templateCopyConflict();
+  }
+
+  let data: unknown;
+  try {
+    data = JSON.parse(design.data);
+  } catch {
+    // coercion-ok: unreadable retry state cannot prove this is the same copy.
+    return templateCopyConflict();
+  }
+  const dataRecord =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : null;
+  const templateSource = dataRecord?.templateSource;
+  if (
+    !dataRecord ||
+    !templateSource ||
+    typeof templateSource !== "object" ||
+    Array.isArray(templateSource) ||
+    (templateSource as { templateId?: unknown }).templateId !== templateId ||
+    design.title !== createdTitle ||
+    (templateSource as { retryKey?: unknown }).retryKey !== retryKey
+  ) {
+    return templateCopyConflict();
+  }
+
+  const files = await getDb()
+    .select({ id: schema.designFiles.id, content: schema.designFiles.content })
+    .from(schema.designFiles)
+    .where(eq(schema.designFiles.designId, id));
+  const source = templateSource as {
+    designSystemOverridden?: unknown;
+    retryKey?: unknown;
+  };
+  const designSystemId = design.designSystemId ?? null;
+  return {
+    id,
+    title: design.title,
+    templateId,
+    designSystemId,
+    designSystem: await loadAgentDesignSystemContext(
+      designSystemId,
+      getDesignSystem,
+      { full: true },
+    ),
+    designSystemOverridden: source.designSystemOverridden === true,
+    fileCount: files.length,
+    lockedLayerCount: countLockedLayersAcrossFiles(files),
+    templateBaselineFiles: files.map((file) => ({
+      id: file.id,
+      contentHash: sourceContentHash(file.content),
+    })),
+    promptPending: "templatePrompt" in dataRecord,
+    adaptationPending: "templatePrompt" in dataRecord,
+    nextRequiredAction:
+      "templatePrompt" in dataRecord
+        ? "Call get-design-snapshot, then refine unlocked content with edit-design. Do not call generate-design."
+        : null,
+    reused: true,
+  };
 }
 
 export default defineAction({
@@ -63,6 +165,21 @@ export default defineAction({
       .describe(
         "Fill this existing design instead of creating a new one. It must have no files — a design with content is never overwritten.",
       ),
+    newId: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional()
+      .describe(
+        "Stable ID for an identical retry; omit to create a new independent copy",
+      ),
+    retryKey: z
+      .string()
+      .min(1)
+      .max(128)
+      .optional()
+      .describe("Request fingerprint used to distinguish changed retries"),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -80,6 +197,8 @@ export default defineAction({
     prompt,
     designSystemId,
     targetDesignId,
+    newId,
+    retryKey,
   }) => {
     const preset = getDesignTemplatePreset(templateId);
     const db = getDb();
@@ -166,6 +285,28 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Not authenticated");
     const orgId = getRequestOrgId() ?? null;
+    const createdTitle = title ?? templateTitle;
+    const designId = targetDesignId ?? newId ?? nanoid();
+    const expectedRetryKey = designTemplateRetryKey({
+      templateId,
+      title: createdTitle,
+      designSystemId,
+      prompt,
+    });
+    if (retryKey !== undefined && retryKey !== expectedRetryKey) {
+      return templateCopyConflict();
+    }
+    if (newId && !targetDesignId) {
+      const existing = await readRetryDesign(
+        designId,
+        ownerEmail,
+        orgId,
+        templateId,
+        createdTitle,
+        expectedRetryKey,
+      );
+      if (existing) return existing;
+    }
     // Filling the design the New Design button already created, rather than
     // stranding it and navigating to a second one. Guarded twice: the caller
     // must be able to edit it, and it must still be empty, so a template can
@@ -174,7 +315,6 @@ export default defineAction({
     if (targetDesignId) {
       await assertAccess("design", targetDesignId, "editor");
     }
-    const designId = targetDesignId ?? nanoid();
     const now = new Date().toISOString();
     const fileIdMap = new Map(files.map((file) => [file.id, nanoid()]));
     const data = remapTemplateFileIds(
@@ -195,6 +335,7 @@ export default defineAction({
       templateDesignSystemId,
       appliedDesignSystemId: linkedDesignSystemId,
       designSystemOverridden,
+      ...(!targetDesignId ? { retryKey: expectedRetryKey } : {}),
       files: files.map((file) => {
         const designFileId = fileIdMap.get(file.id)!;
         const { width, height } = templateFileDimensions(data, designFileId);
@@ -299,12 +440,26 @@ export default defineAction({
     if (targetDesignId) {
       await withDesignSourceMutationTransaction(targetDesignId, persist);
     } else {
-      await db.transaction(persist);
+      try {
+        await db.transaction(persist);
+      } catch (error) {
+        if (!newId || !isUniqueViolation(error)) throw error;
+        const existing = await readRetryDesign(
+          designId,
+          ownerEmail,
+          orgId,
+          templateId,
+          createdTitle,
+          expectedRetryKey,
+        );
+        if (existing) return existing;
+        return templateCopyConflict();
+      }
     }
 
     return {
       id: designId,
-      title: title ?? templateTitle,
+      title: createdTitle,
       templateId,
       templateTitle,
       designSystemId: linkedDesignSystemId,

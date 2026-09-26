@@ -27,6 +27,15 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+vi.mock("@/hooks/use-slide-file-storage-status", () => ({
+  useSlideFileStorageStatus: () => ({
+    data: { configured: true },
+    isError: false,
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock("@agent-native/core/client/composer", () => ({
   useEagerFileUploads: () => ({
     commitFiles: vi.fn(),

@@ -128,6 +128,27 @@ const BRANCHES: Array<[string, Record<string, unknown>]> = [
 ];
 
 describe("list-decks cross-organization isolation", () => {
+  it("searches visible titles before applying the page limit", async () => {
+    expect(
+      await idsFor(
+        { userEmail: BOB, orgId: ORG_B },
+        { limit: 1, search: "PRIVATE" },
+      ),
+    ).toEqual(["deck-b-private"]);
+    expect(
+      await idsFor(
+        { userEmail: ALICE, orgId: ORG_A },
+        { limit: 1, search: "Org B" },
+      ),
+    ).toEqual([]);
+    expect(
+      await idsFor(
+        { userEmail: BOB, orgId: ORG_B },
+        { limit: 1, search: "%_" },
+      ),
+    ).toEqual([]);
+  });
+
   it.each(BRANCHES)(
     "never shows another org's decks to a brand-new account (%s)",
     async (_label, args) => {

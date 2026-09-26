@@ -1484,6 +1484,34 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
       ON analytics_bigquery_delivery_queue (org_id, owner_email, created_at)`,
       },
     },
+    {
+      version: 152,
+      name: "analytics-thread-memory-capture-queue",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_memory_capture_queue (
+      owner_email TEXT NOT NULL,
+      thread_id TEXT NOT NULL,
+      org_id TEXT,
+      ready_at BIGINT NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at BIGINT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      PRIMARY KEY (owner_email, thread_id)
+    );
+    CREATE INDEX IF NOT EXISTS analytics_memory_capture_queue_due_idx
+      ON analytics_memory_capture_queue (ready_at, lease_expires_at);
+    CREATE TABLE IF NOT EXISTS analytics_memory_capture_worker_lease (
+      lease_id TEXT PRIMARY KEY,
+      lease_token TEXT,
+      lease_expires_at BIGINT
+    );
+    INSERT INTO analytics_memory_capture_worker_lease (lease_id)
+      VALUES ('analytics-memory-capture')
+      ON CONFLICT (lease_id) DO NOTHING`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

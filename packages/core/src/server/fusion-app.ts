@@ -28,6 +28,10 @@ import { z } from "zod";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
+  builderReferralInfoSchema,
+  type BuilderReferralInfo,
+} from "../shared/builder-referrals.js";
+import {
   resolveBuilderRequestAuthorization,
   type BuilderRequestAuthorization,
 } from "./builder-api-auth.js";
@@ -127,6 +131,26 @@ export async function getBuilderCreditUsage(): Promise<BuilderCreditUsage | null
     throw new Error(`Builder credit usage failed (${response.status}).`);
   }
   return builderCreditUsageSchema.parse(await response.json());
+}
+
+/** The connected Builder workspace's eligible referral link and credit totals. */
+export async function getBuilderReferralInfo(): Promise<BuilderReferralInfo | null> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope: "builder:ai:invoke",
+  });
+  if (!authorization) return null;
+
+  const response = await fetch(
+    fusionUrl("/agent-native/credits/v1/referrals", authorization),
+    {
+      headers: { Authorization: authorization.authorization },
+      signal: AbortSignal.timeout(5000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Builder referral info failed (${response.status}).`);
+  }
+  return builderReferralInfoSchema.parse(await response.json());
 }
 
 /** The Builder visual-editor URL for a fusion branch. */

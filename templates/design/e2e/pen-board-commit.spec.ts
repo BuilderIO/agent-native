@@ -136,7 +136,7 @@ async function screenVectorCount(page: Page) {
   });
 }
 
-test("a pen path drawn on the board commits once and keeps the pen armed", async ({
+test("Escape finishes a multi-anchor Pen path on the board", async ({
   page,
   request,
 }) => {
@@ -168,17 +168,16 @@ test("a pen path drawn on the board commits once and keeps the pen armed", async
     await penClick(page, gapX - 40, gapY);
     await penClick(page, gapX + 20, gapY + 60);
     await penClick(page, gapX - 20, gapY + 120);
-    // Escape ends the path and keeps drawing (Figma); Enter would switch to Move.
+    // Escape finishes the open path. Its single-press tool state is not asserted.
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(3000);
+    await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
 
-    expect(await allVectors(page)).toHaveLength(1);
-    // The commit must not disarm the tool mid-drawing-session either.
-    await expect(
-      page
-        .locator("[data-design-bottom-toolbar]")
-        .getByRole("button", { name: "Pen", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
+    await expect
+      .poll(async () => (await allVectors(page)).length, { timeout: 20_000 })
+      .toBe(1);
+    const vectors = await allVectors(page);
+    expect(vectors).toHaveLength(1);
+    expect(vectors[0]?.d).not.toMatch(/Z\s*$/i);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

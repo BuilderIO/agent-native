@@ -584,9 +584,6 @@ describe("workspace deploy", () => {
       "/dispatch/robots.txt /_workspace_static/dispatch/robots.txt 200",
     );
     expect(redirects).toContain(
-      "/dispatch/auth-marketing/dispatch.webp /_workspace_static/dispatch/auth-marketing/dispatch.webp 200",
-    );
-    expect(redirects).toContain(
       "/starter/feed.xml /_workspace_static/starter/feed.xml 200",
     );
     expect(redirects).toContain(
@@ -720,6 +717,66 @@ describe("workspace deploy", () => {
         );
       }
     }
+  });
+
+  it("routes the root Google OAuth callback without a Dispatch app", async () => {
+    makeWorkspaceApp(tmpDir, "alpha", { displayName: "Zulu" });
+    makeWorkspaceApp(tmpDir, "beta", { displayName: "Alpha" });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const redirects = fs.readFileSync(
+      path.join(tmpDir, "dist", "_redirects"),
+      "utf-8",
+    );
+    expect(redirects).toContain(
+      "/_agent-native/google/callback /.netlify/functions/beta-server 200",
+    );
+    const alphaServer = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "alpha-server",
+        "alpha-server.mjs",
+      ),
+      "utf-8",
+    );
+    const betaServer = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "beta-server",
+        "beta-server.mjs",
+      ),
+      "utf-8",
+    );
+    expect(alphaServer).not.toContain('"/_agent-native/google/callback"');
+    expect(betaServer).toContain('"/_agent-native/google/callback"');
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "vercel",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const config = JSON.parse(
+      fs.readFileSync(
+        path.join(tmpDir, ".vercel", "output", "config.json"),
+        "utf-8",
+      ),
+    );
+    expect(config.routes).toContainEqual({
+      src: "/_agent-native/google/callback",
+      dest: "/beta-server",
+    });
   });
 
   it("propagates workspace app route access into manifests and app env", async () => {
@@ -1315,6 +1372,72 @@ describe("workspace deploy", () => {
     ]);
   });
 
+  it("does not synthesize a Dispatch directory for a workspace without Dispatch", async () => {
+    process.env.APP_URL = "https://community.example.test";
+    makeWorkspaceApp(tmpDir, "account-expert");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(
+      buildCallForApp("account-expert")?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL,
+    ).toBeUndefined();
+    const server = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "account-expert-server",
+        "account-expert-server.mjs",
+      ),
+      "utf8",
+    );
+    expect(server).not.toContain("directoryOrigin");
+  });
+
+  it.each(["netlify", "vercel"] as const)(
+    "embeds an explicit directory URL in %s runtimes without Dispatch",
+    async (preset) => {
+      const orgDirectoryUrl = "https://directory.example.test";
+      process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = orgDirectoryUrl;
+      makeWorkspaceApp(tmpDir, "account-expert");
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset,
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+
+      expect(
+        buildCallForApp("account-expert")?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL,
+      ).toBe(orgDirectoryUrl);
+      const runtimeEntry =
+        preset === "netlify"
+          ? path.join(
+              tmpDir,
+              ".netlify",
+              "functions-internal",
+              "account-expert-server",
+              "account-expert-server.mjs",
+            )
+          : path.join(
+              tmpDir,
+              ".vercel",
+              "output",
+              "functions",
+              "account-expert-server.func",
+              "index.mjs",
+            );
+      const server = fs.readFileSync(runtimeEntry, "utf8");
+      expect(server).toContain(`    "${orgDirectoryUrl}" ||`);
+    },
+  );
+
   it("rejects app ids that conflict with reserved workspace routes", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "login");
@@ -1670,6 +1793,7 @@ function makeWorkspaceApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    displayName?: string;
     homeRoute?: boolean;
     homePath?: string;
     protectedPaths?: string[];
@@ -1683,6 +1807,7 @@ function makeWorkspaceApp(
   const pkg: Record<string, unknown> = {
     name: app,
     scripts: { build: "agent-native build" },
+    ...(opts.displayName ? { displayName: opts.displayName } : {}),
   };
   if (opts.audience || opts.protectedPaths || opts.publicPaths) {
     pkg["agent-native"] = {
@@ -1770,13 +1895,6 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
   fs.writeFileSync(path.join(appDir, "dist", app, "poster.avif"), "");
   fs.writeFileSync(path.join(appDir, "dist", app, "robots.txt"), "");
   fs.writeFileSync(path.join(appDir, "dist", app, "site.webmanifest"), "{}");
-  fs.mkdirSync(path.join(appDir, "dist", app, "auth-marketing"), {
-    recursive: true,
-  });
-  fs.writeFileSync(
-    path.join(appDir, "dist", app, "auth-marketing", `${app}.webp`),
-    "image",
-  );
   fs.mkdirSync(path.join(appDir, "dist", app, app, "assets"), {
     recursive: true,
   });

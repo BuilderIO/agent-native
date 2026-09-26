@@ -38,47 +38,35 @@ export interface AnalyticsPromptReferences {
 const CATALOG_TOOL_NAMES = new Set([
   "search-analytics-query-catalog",
   "search-dashboard-references",
+  "get-sql-dashboard",
+  "get-explorer-dashboard",
+  "list-sql-dashboards",
+  "list-dashboard-usage-stats",
   "list-data-dictionary",
   "search-bigquery-schema",
 ]);
-// Grounding also covers schema, health, status, and connection actions; only
-// these bounded source reads count as query outcomes.
-// ponytail: add new source-query actions here as they ship.
+// Count SQL query tools plus source reads registered on their action definitions.
 const QUERY_TOOL_NAMES = new Set([
-  "account-deep-dive",
   "bigquery",
-  "builder-blog-articles",
-  "content-calendar",
-  "db-admin-federated-read",
-  "gcloud",
-  "get-error-issue",
-  "gong-calls",
-  "gong-native-insights",
-  "grafana",
-  "hubspot-deals",
-  "hubspot-metrics",
-  "hubspot-records",
-  "jira",
-  "jira-search",
-  "list-error-issues",
-  "match-error-issues",
-  "pylon-issues",
-  "prometheus",
   "query-agent-native-analytics",
   "query-dashboard-panel",
-  "query-inbound-forms",
   "query-staged-dataset",
-  "sentry",
-  "seo-blog-pages",
-  "seo-page-keywords",
-  "seo-top-keywords",
-  "slack-messages",
-  "stripe",
+]);
+const NON_QUERY_GROUNDING_ACTION_NAMES = new Set([
+  "content-calendar-schema",
+  "get-monitor",
+  "get-monitor-stats",
+  "hubspot-pipelines",
+  "list-connected-database-tables",
+  "list-monitors",
+  "run-monitor-check",
+  "test-custom-api-connection",
 ]);
 
 export function summarizeAnalyticsRun(input: {
   events: readonly unknown[];
   preloadedReferenceCount: number;
+  groundingActionNames: readonly string[];
 }): Record<string, number | boolean> {
   type ToolEvent = {
     type: "tool_start" | "tool_done";
@@ -114,8 +102,16 @@ export function summarizeAnalyticsRun(input: {
   const completedTools = toolEvents.filter(
     (event) => event.type === "tool_done",
   );
-  const queries = startedTools.filter((event) =>
-    QUERY_TOOL_NAMES.has(String(event.tool)),
+  const queryToolNames = new Set([
+    ...QUERY_TOOL_NAMES,
+    ...input.groundingActionNames.filter(
+      (name) => !NON_QUERY_GROUNDING_ACTION_NAMES.has(name),
+    ),
+  ]);
+  const queries = startedTools.filter(
+    (event) =>
+      queryToolNames.has(String(event.tool)) &&
+      !CATALOG_TOOL_NAMES.has(String(event.tool)),
   );
   const toolSearchCalls = startedTools.filter((event) =>
     /^tool[-_]search(?:$|[-_])/.test(String(event.tool)),

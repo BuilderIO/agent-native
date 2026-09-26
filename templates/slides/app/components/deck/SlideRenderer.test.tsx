@@ -3,7 +3,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
+import SlideRenderer, {
   computeSlideFitTransform,
   getRenderedSlideSource,
   isRawHtmlSlide,
@@ -442,6 +442,34 @@ describe("SlideInner source stamps", () => {
 });
 
 describe("SlideInner autofit", () => {
+  it("centers full-size slides inside their viewport while scaling to contain", () => {
+    render(
+      <SlideRenderer
+        slide={{
+          id: "presentation-slide",
+          layout: "blank",
+          notes: "",
+          content: '<div class="fmd-slide"><h1>Centered</h1></div>',
+        }}
+        aspectRatio="16:9"
+        thumbnail={false}
+      />,
+    );
+
+    const viewport = document.querySelector<HTMLElement>(
+      '[data-slide-canvas="presentation-slide"]',
+    )?.parentElement?.parentElement;
+    expect(viewport?.classList.contains("flex")).toBe(true);
+    expect(viewport?.classList.contains("items-center")).toBe(true);
+    expect(viewport?.classList.contains("justify-center")).toBe(true);
+    expect(viewport?.firstElementChild?.classList.contains("shrink-0")).toBe(
+      true,
+    );
+    expect(
+      viewport?.firstElementChild?.classList.contains("origin-center"),
+    ).toBe(true);
+  });
+
   it("updates an uploaded image source without replacing its live node", async () => {
     const previewContent =
       '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';

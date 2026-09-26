@@ -9,7 +9,12 @@ import {
   type BlockRenderContext,
   type NestedBlock,
 } from "@agent-native/core/blocks";
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import {
+  BuilderSetupCard,
+  sendToAgentChat,
+  useAgentEngineConfigured,
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useRef, useState } from "react";
 
 import { uploadImageFile } from "@/components/editor/image-upload";
@@ -194,9 +199,13 @@ function ContentAiBlockAction({
   blockData: unknown;
   documentId?: string | null;
 }) {
+  const agentEngine = useAgentEngineConfigured();
+  const t = useT();
+  const agentReady = agentEngine.state === "configured";
+
   const submitPrompt = (prompt: string) => {
     const trimmed = prompt.trim();
-    if (!trimmed) return;
+    if (!agentReady || !trimmed) return;
     sendToAgentChat({
       type: "content",
       submit: true,
@@ -221,11 +230,24 @@ function ContentAiBlockAction({
   };
 
   return (
-    <InlinePromptField
-      placeholder="Describe a change…"
-      ariaLabel={`Describe a change to ${label.toLowerCase()}`}
-      onSubmit={submitPrompt}
-    />
+    <div className="flex flex-col gap-2">
+      {agentEngine.state === "missing" ? (
+        <BuilderSetupCard fullWidth layout="sidebar" />
+      ) : agentEngine.state === "configured" ? null : (
+        <div
+          className="rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground"
+          role="status"
+        >
+          {t("setup.checkingProvider")}
+        </div>
+      )}
+      <InlinePromptField
+        placeholder="Describe a change…"
+        ariaLabel={`Describe a change to ${label.toLowerCase()}`}
+        onSubmit={submitPrompt}
+        disabled={!agentReady}
+      />
+    </div>
   );
 }
 

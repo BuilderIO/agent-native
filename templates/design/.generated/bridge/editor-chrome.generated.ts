@@ -943,12 +943,45 @@ export const editorChromeBridgeScript: string = `"use strict";
     var editorChromeDocumentObserver = null;
     var editorChromeRootObserver = null;
     var repairingEditorChromeHost = false;
+    function isCanvasFocusTransferSafe() {
+      if (activeTextEditEl) return false;
+      var active = document.activeElement;
+      var visited = /* @__PURE__ */ new Set();
+      var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+      while (active && !visited.has(active)) {
+        visited.add(active);
+        if (isEditorTypingTarget(active) || active.closest?.(focusTargetSelector)) {
+          return false;
+        }
+        var shadowActive = active.shadowRoot?.activeElement;
+        if (shadowActive) {
+          active = shadowActive;
+          continue;
+        }
+        if (active !== document.body && active !== document.documentElement && active.matches?.(":focus-within")) {
+          return false;
+        }
+        return true;
+      }
+      return true;
+    }
+    function reportCanvasFocusState() {
+      if (readOnly || interactionMode) return;
+      window.parent.postMessage(
+        {
+          type: "agent-native:canvas-focus-state",
+          focusSafe: isCanvasFocusTransferSafe()
+        },
+        "*"
+      );
+    }
     function sendEditorChromeReady() {
       window.parent.postMessage(
         {
           type: "agent-native:editor-chrome-ready",
           routePath: window.location.pathname + window.location.search,
-          documentId: runtimeDocumentId
+          documentId: runtimeDocumentId,
+          focusSafe: !readOnly && !interactionMode && isCanvasFocusTransferSafe()
         },
         "*"
       );
@@ -8440,7 +8473,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isEditorTypingTarget(target) {
       if (!target || !target.closest) return false;
       return !!target.closest(
-        'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
+        'input, textarea, select, [contenteditable], [role="textbox"], [role="combobox"], [role="searchbox"], [data-agent-native-text-editing]'
       );
     }
     var ALT_CODE_KEYS = {
@@ -12641,9 +12674,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           };
         }
       }
+      if (pointerOutsideCurrentParent && (!pointHit || pointHit === document.body || pointHit === document.documentElement) && dropContainerForTarget(target) === currentParent) {
+        target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
+      }
       var container = dropContainerForTarget(target);
       if (ignoreTargetAutoLayout && container && container !== document.body && isAutoLayoutElement(container)) {
-        return {
+        target = {
           anchor: container,
           placement: "inside",
           axis: parentFlowAxis(container),
@@ -12651,11 +12687,32 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
       }
       if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body)) {
-        return {
+        target = {
           anchor: currentParent,
           placement: "after",
           axis: "y",
           dropMode: "absolute-container"
+        };
+      }
+      var exitedContainer = el.parentElement;
+      var receivingContainer = exitedContainer && exitedContainer.parentElement;
+      var targetContainer = dropContainerForTarget(target);
+      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && targetContainer === receivingContainer && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
+        target = {
+          ...target,
+          anchor: exitedContainer,
+          placement: "after",
+          axis: parentFlowAxis(receivingContainer),
+          persistenceAnchor: exitedContainer,
+          persistencePlacement: "after",
+          gridCell: void 0,
+          gridPlacement: void 0,
+          gridDisplacement: void 0,
+          gridDisplacementPlacements: void 0,
+          gridDisplacementPrevStyles: void 0,
+          guideRect: void 0,
+          guideMode: void 0,
+          guidePlacement: void 0
         };
       }
       if (target && target.dropMode === "flow-insert" && container && container !== document.body && isContainerDropTarget(container) && !isAutoLayoutElement(container) && isEmptyDropContainer(container, dragged)) {
@@ -15967,7 +16024,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) || crossScreenClaimedByHost : false;
         if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
-          var sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
           postCrossScreenDrag("end", dragEl, ev, {
             duplicate: duplicatedForDrag,
             modifiers: {
@@ -15986,21 +16042,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           } else {
             restoreSourceDragPosition();
-            if (crossScreenClaimedByHost && sourceDeleteRequestId) {
-              var selector = getSelector(dragEl);
-              var sourceId = getSourceId(dragEl);
-              var selectorCandidates = [selector];
-              if (sourceId) {
-                selectorCandidates.push(
-                  '[data-agent-native-node-id="' + CSS.escape(sourceId) + '"]'
-                );
-              }
-              concealPendingRuntimeDelete(
-                selector,
-                selectorCandidates,
-                sourceDeleteRequestId
-              );
-            }
           }
           return;
         }
@@ -17682,6 +17723,21 @@ export const editorChromeBridgeScript: string = `"use strict";
     ].forEach(function(type) {
       document.addEventListener(type, stopBlockedLayerInteraction, true);
     });
+    document.addEventListener("focusin", reportCanvasFocusState, true);
+    document.addEventListener(
+      "focusout",
+      function() {
+        window.setTimeout(reportCanvasFocusState, 0);
+      },
+      true
+    );
+    document.addEventListener(
+      "pointerup",
+      function() {
+        window.setTimeout(reportCanvasFocusState, 0);
+      },
+      true
+    );
     shieldOverlay.addEventListener("click", selectElementAtEvent, true);
     shieldOverlay.addEventListener("contextmenu", openContextMenuAtEvent, true);
     selectionOverlay.addEventListener(
@@ -18797,6 +18853,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         sendEditorChromeReady();
         return;
       }
+      if (e.data.type === "agent-native:canvas-focus-state-probe") {
+        reportCanvasFocusState();
+        return;
+      }
       if (e.data.type === "resume-text-edit") {
         var resumeScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
         var resumeSelector = typeof e.data.selector === "string" ? e.data.selector : "";
@@ -18902,6 +18962,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (selectedEl?.isConnected)
             positionOverlay(selectionOverlay, selectedEl);
           scheduleRuntimeLayerSnapshot();
+          window.setTimeout(reportCanvasFocusState, 0);
         }
         return;
       }
@@ -19667,8 +19728,31 @@ export const editorChromeBridgeScript: string = `"use strict";
           requestId: e.data.requestId,
           applied: Boolean(e.data.applied)
         });
+        var cancelRuntimeStructureDelete = e.data.cancelRuntimeStructureDelete;
+        var postRuntimeStructureDeleteCancellationResult = function(sourcePresentOverride) {
+          if (!cancelRuntimeStructureDelete || typeof cancelRuntimeStructureDelete.transactionId !== "string") {
+            return;
+          }
+          var restoredSource = findRuntimeTarget(
+            String(cancelRuntimeStructureDelete.selector || ""),
+            Array.isArray(cancelRuntimeStructureDelete.selectorCandidates) ? cancelRuntimeStructureDelete.selectorCandidates : []
+          );
+          window.parent.postMessage(
+            {
+              type: "runtime-structure-delete-cancelled",
+              requestId: String(e.data.requestId || ""),
+              transactionId: cancelRuntimeStructureDelete.transactionId,
+              routePath: window.location.pathname + window.location.search,
+              sourcePresent: typeof sourcePresentOverride === "boolean" ? sourcePresentOverride : Boolean(restoredSource)
+            },
+            "*"
+          );
+        };
         var move = pendingStructureMoves[e.data.requestId];
-        if (!move) return;
+        if (!move) {
+          postRuntimeStructureDeleteCancellationResult();
+          return;
+        }
         delete pendingStructureMoves[e.data.requestId];
         var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
         var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
@@ -19689,6 +19773,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult();
           return;
         }
         if (moveWasRemoval) {
@@ -19706,6 +19791,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult(
+            Boolean(move.el && move.el.isConnected)
+          );
           return;
         }
         if (e.data.applied) {
@@ -19730,6 +19818,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             if (hoveredEl === move.el) hoveredEl = null;
             refreshOverlays();
+            postRuntimeStructureDeleteCancellationResult();
             return;
           }
           if (move.el && move.el.isConnected && move.origin && "prevParent" in move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
@@ -19752,6 +19841,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           }
         }
+        postRuntimeStructureDeleteCancellationResult();
         return;
       }
       if (e.data.type === "replace-document-content") {

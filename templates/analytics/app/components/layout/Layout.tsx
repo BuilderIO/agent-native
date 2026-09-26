@@ -18,13 +18,19 @@ import {
   CreativeContextComposerChip,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   ANALYTICS_CHAT_STORAGE_KEY,
+  ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+  discardAnalyticsChatHandoffOnSettings,
+  hasTrackedAnalyticsChatRun,
+  isAnalyticsSettingsPath,
   markAnalyticsChatActivity,
+  updateAnalyticsChatHandoffForRun,
+  type AnalyticsChatRunningRuns,
 } from "@/lib/chat-handoff";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -133,6 +139,9 @@ function InteractiveLayout({ children }: LayoutProps) {
     description: guidedDescription,
     skipLabel: guidedSkipLabel,
     submitLabel: guidedSubmitLabel,
+    isSubmissionBlocked: guidedSubmissionBlocked,
+    providerStatus: guidedProviderStatus,
+    retryProviderStatus: retryGuidedProviderStatus,
     handleSubmit: handleGuidedSubmit,
     handleSkip: handleGuidedSkip,
   } = useGuidedQuestionFlow({
@@ -164,35 +173,58 @@ function InteractiveLayout({ children }: LayoutProps) {
     location.pathname === "/monitoring" ||
     location.pathname.startsWith("/monitoring/");
   const isAskRoute = location.pathname === "/ask";
+  const isSettingsRoute = isAnalyticsSettingsPath(location.pathname);
+  const runningRuns = useRef<AnalyticsChatRunningRuns>(new Map());
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
-    enabled: !isAskRoute,
+    ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+    enabled: !isAskRoute && !isSettingsRoute,
   });
-  const chatHomeHandoffPending = isAgentChatHomeHandoffActive(
-    ANALYTICS_CHAT_STORAGE_KEY,
-  );
+  const chatHomeHandoffPending =
+    !isSettingsRoute &&
+    isAgentChatHomeHandoffActive(ANALYTICS_CHAT_STORAGE_KEY, {
+      ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+    });
   useAgentChatHomeHandoffLinks({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
     chatPath: "/ask",
+    ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
     enabled: true,
     requireActiveHandoff: true,
   });
   useEffect(() => {
+    discardAnalyticsChatHandoffOnSettings(location.pathname);
+  }, [location.pathname]);
+  useEffect(() => {
+    if (!isAskRoute) return;
+    const refreshHandoff = () => {
+      if (!hasTrackedAnalyticsChatRun(runningRuns.current)) return;
+      markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
+    };
+    refreshHandoff();
+    const interval = window.setInterval(
+      refreshHandoff,
+      ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS / 2,
+    );
+    return () => window.clearInterval(interval);
+  }, [isAskRoute]);
+  useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
-      if (isAskRoute && typeof detail?.isRunning === "boolean") {
-        markAnalyticsChatActivity();
-        if (detail.isRunning === true) {
-          markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
-        }
-      }
+      if (typeof detail?.isRunning !== "boolean") return;
+      if (location.pathname === "/ask") markAnalyticsChatActivity();
+      updateAnalyticsChatHandoffForRun(
+        runningRuns.current,
+        detail,
+        location.pathname,
+      );
     }
 
     window.addEventListener("agentNative.chatRunning", handleChatRunning);
     return () =>
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
-  }, [isAskRoute]);
+  }, [location.pathname]);
 
   function openAskAgentFullscreen() {
     focusAgentChat();
@@ -237,6 +269,9 @@ function InteractiveLayout({ children }: LayoutProps) {
             description={guidedDescription ?? t("guidedQuestions.description")}
             skipLabel={guidedSkipLabel}
             submitLabel={guidedSubmitLabel}
+            isSubmissionBlocked={guidedSubmissionBlocked}
+            providerStatus={guidedProviderStatus}
+            onRetryProviderStatus={retryGuidedProviderStatus}
           />
         </div>
       )}

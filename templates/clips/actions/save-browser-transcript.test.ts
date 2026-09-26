@@ -112,7 +112,11 @@ describe("save-browser-transcript", () => {
 
     expect(mocks.track).toHaveBeenCalledWith(
       "recording_completed",
-      expect.objectContaining({ app_name: "clips", output_id: "rec-1" }),
+      expect.objectContaining({
+        app_name: "clips",
+        recording_attempt_id: "rec-1",
+        output_id: "rec-1",
+      }),
       { userId: "owner@example.com" },
     );
   });

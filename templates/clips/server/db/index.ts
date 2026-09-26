@@ -8,7 +8,9 @@ import {
   CLIPS_MEETING_AGENT_CONTEXT_ENDPOINT,
   CLIPS_MEETING_AGENT_RESOURCE_KIND,
 } from "../../shared/meeting-agent-access.js";
+import { usesOrganizationLogoRoute } from "../../shared/organization-logo.js";
 import { recordingSharePath } from "../../shared/recording-link.js";
+import { organizationLogoAbsoluteUrl } from "../lib/organization-logo.js";
 import {
   absoluteUrl,
   recordingShareEmailExtras,
@@ -35,7 +37,11 @@ async function orgBrandLogoUrl(
     .from(schema.organizationSettings)
     .where(eq(schema.organizationSettings.organizationId, organizationId))
     .limit(1);
-  return absoluteUrl(row?.brandLogoUrl);
+  const stored = row?.brandLogoUrl?.trim();
+  if (!stored) return undefined;
+  return usesOrganizationLogoRoute(stored)
+    ? organizationLogoAbsoluteUrl(organizationId)
+    : absoluteUrl(stored);
 }
 
 /** Show the sharing org's name beside the logo instead of the app name. */

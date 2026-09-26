@@ -429,6 +429,7 @@ export async function ssrfSafeFetch(
   } = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? 3;
+  let currentInit = init;
   const allowedPrivateOrigins = normalizeAllowedPrivateOriginOriginKeys(
     options.allowedPrivateOrigins ?? [],
   );
@@ -462,7 +463,7 @@ export async function ssrfSafeFetch(
       );
     }
     const fetchOpts: RequestInit & { dispatcher?: unknown } = {
-      ...init,
+      ...currentInit,
       redirect: "manual",
     };
     const dispatcher = await createSsrfSafeDispatcher(
@@ -480,7 +481,39 @@ export async function ssrfSafeFetch(
       // Drain the redirect body so the hop's connection is released instead
       // of being held until GC.
       await response.body?.cancel().catch(() => {});
-      currentUrl = new URL(location, currentUrl).href;
+      const nextUrl = new URL(location, currentUrl);
+      const method = currentInit.method?.toUpperCase() ?? "GET";
+      const rewritesToGet =
+        ((response.status === 301 || response.status === 302) &&
+          method === "POST") ||
+        (response.status === 303 && method !== "GET" && method !== "HEAD");
+      let headers = new Headers(currentInit.headers);
+      if (rewritesToGet) {
+        for (const name of [
+          "content-encoding",
+          "content-language",
+          "content-length",
+          "content-location",
+          "content-type",
+        ]) {
+          headers.delete(name);
+        }
+        currentInit = { ...currentInit, method: "GET", body: undefined };
+      }
+      if (nextUrl.origin !== new URL(currentUrl).origin) {
+        const redirectedMethod = currentInit.method?.toUpperCase() ?? "GET";
+        if (redirectedMethod !== "GET" && redirectedMethod !== "HEAD") {
+          throw new Error(
+            "Refusing to follow a cross-origin redirect with a non-GET request",
+          );
+        }
+        const safeHeaders = new Headers();
+        const accept = headers.get("accept");
+        if (accept !== null) safeHeaders.set("accept", accept);
+        headers = safeHeaders;
+      }
+      currentInit = { ...currentInit, headers };
+      currentUrl = nextUrl.href;
       continue;
     }
     return response;

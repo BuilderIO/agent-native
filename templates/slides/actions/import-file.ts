@@ -21,6 +21,7 @@ import {
   uploadPptxSlideImages,
 } from "../server/handlers/import/pptx-assets.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
 import {
   buildSourceImportMetadata,
@@ -163,6 +164,7 @@ export default defineAction({
     }
 
     if (detectedFormat === "fig") {
+      await assertDesignSystemWorkflowsEnabled();
       if (importIntoDeck) {
         throw new Error(
           "Figma .fig imports start Builder design-system indexing, not slide replacements. Re-run without importIntoDeck.",
@@ -713,6 +715,10 @@ async function importPdfPagesWithFidelity(args: {
     slides: imported.map((entry) => entry.snapshot),
     imagesSkipped,
   });
+  const firstPageText = imported[0]?.snapshot.text ?? "";
+  const titleSource = hasLikelyPdfTitleEncodingCorruption(firstPageText)
+    ? ""
+    : firstPageText;
 
   const importedTitle = await appendDeckSlides(
     deckId,
@@ -721,7 +727,7 @@ async function importPdfPagesWithFidelity(args: {
     "import-file:pdf",
     aspectRatio,
     sourceImport,
-    imported[0]?.snapshot.text,
+    titleSource,
     fallbackTitle,
   );
 
@@ -736,6 +742,30 @@ async function importPdfPagesWithFidelity(args: {
     ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
     ...(sidecarWarning ? { warning: sidecarWarning } : {}),
   };
+}
+
+function hasLikelyPdfTitleEncodingCorruption(value: string): boolean {
+  // Custom PDF font maps can emit valid but unrelated Unicode; keep the
+  // uploaded filename as the deck title when a short extracted heading looks garbled.
+  const firstLine = value.split(/\r?\n/, 1)[0]?.trim() ?? "";
+  if (!firstLine) return false;
+  if (/[\uFFFD\uE000-\uF8FF]/u.test(firstLine)) return true;
+  if (/(?:Ã[\u0080-\u00FF]|Â[\u0080-\u00FF]|â€|ðŸ)/u.test(firstLine)) {
+    return true;
+  }
+
+  const letters = Array.from(firstLine).filter((character) =>
+    /\p{L}/u.test(character),
+  );
+  const extendedLatin = new Set(
+    letters.filter((character) => /[\u00C0-\u024F]/u.test(character)),
+  );
+  return (
+    letters.length <= 4 &&
+    letters.some((character) => /[A-Za-z]/.test(character)) &&
+    extendedLatin.size >= 2 &&
+    /[^\p{L}\p{N}\s]$/u.test(firstLine)
+  );
 }
 
 type LoadablePdf = {

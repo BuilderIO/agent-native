@@ -283,6 +283,20 @@ function isBuilderErrorCtaHref(href: string | undefined): boolean {
   }
 }
 
+function opensMarkdownLinkInNewTab(href: string | undefined): boolean {
+  if (!href || typeof window === "undefined") return false;
+  try {
+    const url = new URL(href, window.location.href);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.origin !== window.location.origin
+    );
+  } catch {
+    // coercion-ok: malformed links remain in the current tab and are not fetched here.
+    return false;
+  }
+}
+
 // react-markdown's defaultUrlTransform strips href values whose protocol
 // isn't on its safe list (https, mailto, etc.). Our in-app pseudo-href
 // `agent-native:new-chat` would be blanked out by that, so let it through
@@ -338,8 +352,15 @@ export const markdownComponents = {
     }
     const isBuilderCta = isBuilderErrorCtaHref(href);
     if (!isBuilderCta) {
+      const openInNewTab = opensMarkdownLinkInNewTab(href);
       return (
-        <a href={href} className={className} {...rest}>
+        <a
+          href={href}
+          target={openInNewTab ? "_blank" : undefined}
+          rel={openInNewTab ? "noopener noreferrer" : undefined}
+          className={className}
+          {...rest}
+        >
           {children}
         </a>
       );

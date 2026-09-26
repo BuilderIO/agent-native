@@ -2,12 +2,14 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildPromptComposerSubmission,
   PromptComposer,
-  shouldGateComposerForMissingEngine,
+  resolveComposerModelStatusChecksEnabled,
+  shouldGateComposerForEngine,
+  shouldCheckModelStatus,
   type PromptComposerFile,
 } from "./PromptComposer.js";
 
@@ -25,41 +27,81 @@ afterEach(() => {
   container.remove();
 });
 
-describe("shouldGateComposerForMissingEngine", () => {
-  it("never disables the composer while the status check is unresolved", () => {
-    for (const state of ["unknown", "unavailable"]) {
-      expect(
-        shouldGateComposerForMissingEngine({ state, hasSetupComponent: true }),
-      ).toBe(false);
+describe("shouldGateComposerForEngine", () => {
+  it("blocks typing until provider status confirms the engine is configured", () => {
+    for (const state of ["unknown", "unavailable", "missing"] as const) {
+      expect(shouldGateComposerForEngine(state)).toBe(true);
     }
   });
 
-  it("gates only when a connect affordance can be rendered", () => {
+  it("leaves the composer usable once an engine is configured", () => {
+    expect(shouldGateComposerForEngine("configured")).toBe(false);
+  });
+});
+
+describe("shouldCheckModelStatus", () => {
+  it("checks hosted engines and skips local runtimes", () => {
+    expect(shouldCheckModelStatus({ selectedEngine: "openai" })).toBe(true);
+    expect(shouldCheckModelStatus({ selectedEngine: "codex-cli" })).toBe(false);
     expect(
-      shouldGateComposerForMissingEngine({
-        state: "missing",
-        hasSetupComponent: true,
-      }),
+      shouldCheckModelStatus({ enabled: true, selectedEngine: "codex-cli" }),
     ).toBe(true);
     expect(
-      shouldGateComposerForMissingEngine({
-        state: "missing",
-        hasSetupComponent: false,
-      }),
+      shouldCheckModelStatus({ enabled: false, selectedEngine: "openai" }),
     ).toBe(false);
   });
+});
 
-  it("leaves the composer usable once an engine is configured", () => {
+describe("resolveComposerModelStatusChecksEnabled", () => {
+  it("uses the persisted engine when no picker selection is provided", () => {
     expect(
-      shouldGateComposerForMissingEngine({
-        state: "configured",
-        hasSetupComponent: true,
+      resolveComposerModelStatusChecksEnabled({ defaultEngine: "codex-cli" }),
+    ).toBe(false);
+    expect(
+      resolveComposerModelStatusChecksEnabled({ defaultEngine: "openai" }),
+    ).toBe(true);
+  });
+
+  it("prefers an explicit engine and honors an explicit host override", () => {
+    expect(
+      resolveComposerModelStatusChecksEnabled({
+        selectedEngine: "codex-cli",
+        defaultEngine: "openai",
+      }),
+    ).toBe(false);
+    expect(
+      resolveComposerModelStatusChecksEnabled({
+        enabled: false,
+        selectedEngine: "openai",
       }),
     ).toBe(false);
   });
 });
 
 describe("buildPromptComposerSubmission", () => {
+  it("lets hosts extract uploaded text without reading or duplicating it in the prompt", async () => {
+    const file = new File(["source"], "component.tsx", { type: "text/plain" });
+    const read = vi.spyOn(file, "text");
+    const result = await buildPromptComposerSubmission({
+      text: "Review",
+      inlineTextAttachments: false,
+      attachments: [{ file, name: file.name, id: "source", type: "document" }],
+    });
+    expect(result).toEqual({ text: "Review", files: [file] });
+    expect(result.files[0]).toBe(file);
+    expect(read).not.toHaveBeenCalled();
+  });
+  it("still inlines synthetic pasted text when ordinary upload inlining is disabled", async () => {
+    const file = new File(["Pasted notes"], "pasted-text-example.txt", {
+      type: "text/plain",
+    });
+    const result = await buildPromptComposerSubmission({
+      text: "Review",
+      inlineTextAttachments: false,
+      attachments: [{ file, name: file.name, id: "paste", type: "document" }],
+    });
+    expect(result).toEqual({ text: "Review\n\nPasted notes", files: [] });
+  });
   it("passes images through files only — never inlines base64 into prompt text", async () => {
     // Images are passed to `files` for the host to process through the
     // attachment pipeline. They must NOT be inlined as base64 in `text`

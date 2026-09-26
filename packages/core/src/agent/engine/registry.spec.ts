@@ -31,6 +31,70 @@ function readAppSecretsFromSingles(
   };
 }
 
+function mockOpenAiEndpointCredentials(options: {
+  endpointSource?: "user" | "org" | "workspace" | "env";
+  endpointScopeId?: string;
+  apiKeySource: "user" | "org" | "workspace" | "env";
+  apiKeyScopeId?: string;
+  apiKeyValue?: string | null;
+  allowDeployFallback?: boolean;
+  apiKeyAuthFailure?: boolean;
+}) {
+  vi.doMock("../../server/request-context.js", () => ({
+    getRequestContext: () => undefined,
+    getRequestUserEmail: () => "steve@example.com",
+    getRequestOrgId: () => "org-1",
+  }));
+  vi.doMock("../../extensions/url-safety.js", async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../extensions/url-safety.js")
+    >()),
+    isBlockedExtensionUrlWithDns: vi.fn(async () => false),
+  }));
+  vi.doMock("../../server/credential-provider.js", async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../server/credential-provider.js")
+    >()),
+    canUseDeployCredentialFallbackForRequest: vi.fn(
+      () => options.allowDeployFallback === true,
+    ),
+    getProviderCredentialAuthFailure: vi.fn(async () =>
+      options.apiKeyAuthFailure ? { fingerprint: "test" } : null,
+    ),
+    readDeployCredentialEnv: vi.fn((key: string) => {
+      const deployEnv = {
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY, // guard:allow-env-credential — reads the deploy fallback fixture
+        OPENAI_BASE_URL: process.env.OPENAI_BASE_URL, // guard:allow-env-credential — reads the deploy endpoint fixture
+      };
+      return options.allowDeployFallback
+        ? deployEnv[key as keyof typeof deployEnv]
+        : undefined;
+    }),
+    resolveSecretDetailed: vi.fn(async (key: string) => {
+      if (key === "OPENAI_BASE_URL") {
+        return {
+          value: "https://member-openai.example.test/v1",
+          lookupFailed: false,
+          source: options.endpointSource,
+          scopeId: options.endpointScopeId,
+        };
+      }
+      if (key === "OPENAI_API_KEY") {
+        if (options.apiKeyValue === null) {
+          return { value: null, lookupFailed: false };
+        }
+        return {
+          value: options.apiKeyValue ?? "openai-test-key",
+          lookupFailed: false,
+          source: options.apiKeySource,
+          scopeId: options.apiKeyScopeId,
+        };
+      }
+      return { value: null, lookupFailed: false };
+    }),
+  }));
+}
+
 // Registry uses a module-level Map — reset between tests by re-importing
 // with a fresh module via vi.resetModules().
 describe("AgentEngine registry", () => {
@@ -48,6 +112,7 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../settings/store.js");
     vi.doUnmock("../../server/credential-provider.js");
     vi.doUnmock("../../server/request-context.js");
+    vi.doUnmock("../../extensions/url-safety.js");
     vi.doUnmock("../../secrets/storage.js");
     vi.doUnmock("../../db/client.js");
     vi.doUnmock("../../org/context.js");
@@ -256,6 +321,7 @@ describe("AgentEngine registry", () => {
 
   it("checks a resolved provider engine against request credentials before a run", async () => {
     vi.doMock("../../server/credential-provider.js", () => ({
+      assertCredentialStoreReadable: vi.fn(),
       canUseDeployCredentialFallbackForRequest: () => false,
       readDeployCredentialEnv: () => undefined,
       resolveBuilderCredentials: vi.fn(async () => ({
@@ -263,6 +329,10 @@ describe("AgentEngine registry", () => {
         publicKey: null,
       })),
       resolveSecret: vi.fn(async () => null),
+      resolveSecretDetailed: vi.fn(async () => ({
+        value: null,
+        lookupFailed: false,
+      })),
       getProviderCredentialAuthFailure: vi.fn(async () => null),
       prefetchSecrets: vi.fn(async () => {}),
     }));
@@ -1317,6 +1387,16 @@ describe("AgentEngine registry", () => {
           })),
           resolveSecret: vi.fn(async (key: string) =>
             key === "OPENAI_API_KEY" ? "sk-openai-user" : null,
+          ),
+          resolveSecretDetailed: vi.fn(async (key: string) =>
+            key === "OPENAI_API_KEY"
+              ? {
+                  value: "sk-openai-user",
+                  lookupFailed: false,
+                  source: "user",
+                  scopeId: "visitor@example.com",
+                }
+              : { value: null, lookupFailed: false },
           ),
         }),
       );
@@ -3073,11 +3153,206 @@ describe("AgentEngine registry", () => {
 
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: undefined,
-        allowEnvFallback: true,
+        allowEnvFallback: false,
         baseUrl: "https://gateway.example/v1",
         requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
+    });
+
+    it.each([
+      { scope: "org" as const, scopeId: "org-1" },
+      { scope: "workspace" as const, scopeId: "org-1" },
+    ])(
+      "disables deployment API-key fallback for a $scope-owned endpoint",
+      async ({ scope, scopeId }) => {
+        process.env.OPENAI_API_KEY = "sk-deployment-test"; // guard:allow-env-credential — verifies shared endpoints do not use deployment credentials
+        mockOpenAiEndpointCredentials({
+          endpointSource: scope,
+          endpointScopeId: scopeId,
+          apiKeySource: "env",
+          apiKeyValue: null,
+          allowDeployFallback: true,
+        });
+        const { registerAgentEngine, resolveEngine } =
+          await import("./registry.js");
+        const engine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+        const create = vi.fn().mockReturnValue(engine);
+        registerAgentEngine({
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          description: "",
+          capabilities: {} as any,
+          defaultModel: "gpt-5.4",
+          supportedModels: [],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+          create,
+        });
+
+        await expect(
+          resolveEngine({ engineOption: "ai-sdk:openai" }),
+        ).resolves.toBe(engine);
+        expect(create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            apiKey: undefined,
+            allowEnvFallback: false,
+            baseUrl: "https://member-openai.example.test/v1",
+          }),
+        );
+      },
+    );
+
+    it("rejects an org-scoped OpenAI key for a member-owned endpoint before engine creation", async () => {
+      mockOpenAiEndpointCredentials({
+        endpointSource: "user",
+        endpointScopeId: "steve@example.com",
+        apiKeySource: "org",
+        apiKeyScopeId: "org-1",
+      });
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn();
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create,
+      });
+
+      await expect(
+        resolveEngine({ engineOption: "ai-sdk:openai" }),
+      ).rejects.toThrow(/OPENAI_API_KEY.*user-controlled endpoint/i);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("allows a matching user-scoped OpenAI key for that user's endpoint", async () => {
+      mockOpenAiEndpointCredentials({
+        endpointSource: "user",
+        endpointScopeId: "steve@example.com",
+        apiKeySource: "user",
+        apiKeyScopeId: "steve@example.com",
+      });
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const engine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const create = vi.fn().mockReturnValue(engine);
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create,
+      });
+
+      await expect(
+        resolveEngine({ engineOption: "ai-sdk:openai" }),
+      ).resolves.toBe(engine);
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: "openai-test-key" }),
+      );
+    });
+
+    it("fails closed when a credential could reach an endpoint with unknown ownership", async () => {
+      mockOpenAiEndpointCredentials({
+        apiKeySource: "org",
+        apiKeyScopeId: "org-1",
+      });
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn();
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create,
+      });
+
+      await expect(
+        resolveEngine({ engineOption: "ai-sdk:openai" }),
+      ).rejects.toThrow(/endpoint with unknown ownership/i);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("preserves credential provenance when auto-detecting a deploy engine", async () => {
+      process.env.OPENAI_API_KEY = "sk-deployment-test"; // guard:allow-env-credential — exercises request-time deploy engine detection
+      mockOpenAiEndpointCredentials({
+        endpointSource: "user",
+        endpointScopeId: "steve@example.com",
+        apiKeySource: "org",
+        apiKeyScopeId: "org-1",
+        apiKeyValue: null,
+        allowDeployFallback: true,
+      });
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn();
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create,
+      });
+
+      await expect(
+        resolveEngine({
+          apiKey: "org-openai-key",
+          apiKeyEnvVar: "OPENAI_API_KEY",
+          apiKeyProvenance: { scope: "org", scopeId: "org-1" },
+        }),
+      ).rejects.toThrow(/OPENAI_API_KEY.*user-controlled endpoint/i);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("blocks deploy-key fallback after rejecting the key for a user endpoint", async () => {
+      process.env.OPENAI_API_KEY = "sk-deployment-test"; // guard:allow-env-credential — exercises rejected deploy-key fallback
+      mockOpenAiEndpointCredentials({
+        endpointSource: "user",
+        endpointScopeId: "steve@example.com",
+        apiKeySource: "env",
+        apiKeyValue: "sk-deployment-test",
+        allowDeployFallback: true,
+        apiKeyAuthFailure: true,
+      });
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const engine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const create = vi.fn().mockReturnValue(engine);
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create,
+      });
+
+      await expect(
+        resolveEngine({ engineOption: "ai-sdk:openai" }),
+      ).resolves.toBe(engine);
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          apiKey: undefined,
+          allowEnvFallback: false,
+          baseUrl: "https://member-openai.example.test/v1",
+        }),
+      );
     });
 
     it("replaces caller-supplied fetch for a configured provider endpoint", async () => {
@@ -3310,11 +3585,15 @@ describe("AgentEngine registry", () => {
       const resolved = await resolveEngine({
         engineOption: "ai-sdk:openai",
         apiKey: "sk-e2e",
+        apiKeyProvenance: {
+          scope: "user",
+          scopeId: "steve@example.com",
+        },
       });
 
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: "sk-e2e",
-        allowEnvFallback: true,
+        allowEnvFallback: false,
         baseUrl: "https://api.openai.com/v1",
         requestFetch: expect.any(Function),
       });
@@ -3339,6 +3618,12 @@ describe("AgentEngine registry", () => {
             throw new Error("credential store unavailable");
           }
           return null;
+        }),
+        resolveSecretDetailed: vi.fn(async (key: string) => {
+          if (key === "OPENAI_BASE_URL") {
+            throw new Error("credential store unavailable");
+          }
+          return { value: null, lookupFailed: false };
         }),
       }));
 

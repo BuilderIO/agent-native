@@ -20,6 +20,8 @@
  */
 export {
   resolveCredential,
+  resolveCredentialDetailed,
+  assertCredentialCanReachEndpoint,
   hasCredential,
   saveCredential,
   deleteCredential,

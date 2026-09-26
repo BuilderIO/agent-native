@@ -47,6 +47,7 @@ export type {
 } from "./remote-agent-auth.js";
 export { canonicalA2AAudience } from "./audience.js";
 export { resolveA2ACallerAuth } from "./caller-auth.js";
+export { readPeerComposerSource } from "./composer-source.js";
 export type { A2ACallerAuth } from "./caller-auth.js";
 export {
   ANTHROPIC_MANAGED_AGENTS_BETA_HEADER,

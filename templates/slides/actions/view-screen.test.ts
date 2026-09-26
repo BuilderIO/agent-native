@@ -93,6 +93,28 @@ vi.mock("./get-design-system.js", () => ({
 
 import action from "./view-screen";
 
+describe("template library screen context", () => {
+  it.each(["templates", "list"])(
+    "reports selected templates from %s without reading deck bodies",
+    async (view) => {
+      navigationState = { view, templateId: "starter-update" };
+      const result = await action.run({});
+      expect(result).toContain(`view: ${view}`);
+      expect(result).toContain("templateId: starter-update");
+      expect(result).toContain("create-deck-from-template");
+      expect(selectFn).not.toHaveBeenCalled();
+      expect(result).not.toContain("<div");
+    },
+  );
+  it("reports template search results rather than the deck list", async () => {
+    navigationState = { view: "templates", search: "no-template-matches" };
+    const result = await action.run({});
+    expect(result).toContain("templateSearch: no-template-matches");
+    expect(result).not.toContain("### All decks");
+    expect(selectFn).not.toHaveBeenCalled();
+  });
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockRows = [];

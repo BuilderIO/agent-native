@@ -25,7 +25,7 @@ export function meta() {
   ];
 }
 
-// Private app entry retained at /home; / serves the public marketing page.
+// Private app entry retained at /home; / redirects to shared sign-in/signup.
 export default function AskRoute() {
   const t = useT();
   const { status: builderStatus, stale: builderStatusStale } =

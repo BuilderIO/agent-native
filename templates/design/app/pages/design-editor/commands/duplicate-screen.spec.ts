@@ -60,11 +60,87 @@ function duplicateArgs(
   } as DuplicateScreenArgs;
 }
 
+function duplicateArgsWithOccupiedFrame(
+  occupiedGeometry: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    z?: number;
+  },
+  sourceGeometry: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    z?: number;
+  } = { x: 0, y: 0, width: 640, height: 480, z: 0 },
+): DuplicateScreenArgs {
+  return duplicateArgs({
+    files: [
+      {
+        id: "source",
+        filename: "index.html",
+        fileType: "html",
+        content: "<main></main>",
+        createdAt: "",
+        updatedAt: "",
+      },
+      {
+        id: "occupied",
+        filename: "occupied.html",
+        fileType: "html",
+        content: "<main>occupied</main>",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ],
+    overviewScreens: [{ id: "occupied" } as any],
+    designDataJsonRef: {
+      current: {
+        canvasFrames: { source: sourceGeometry, occupied: occupiedGeometry },
+      },
+    },
+    liveFrameGeometryRef: {
+      current: { source: sourceGeometry, occupied: occupiedGeometry },
+    },
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("getDuplicateScreenGeometry", () => {
+  it("uses the first slot to the right of the source and stacks above it", () => {
+    const source = { x: 200, y: 720, width: 320, height: 240, z: 4 };
+
+    expect(getDuplicateScreenGeometry(source, [])).toEqual({
+      x: 576,
+      y: 720,
+      width: 320,
+      height: 240,
+      z: 5,
+    });
+  });
+
+  it("uses the next free slot instead of jumping past farther screens", () => {
+    const source = { x: 200, y: 720, width: 320, height: 240, z: 4 };
+    const occupied = [
+      { x: 576, y: 720, width: 320, height: 240, z: 90 },
+      { x: 1800, y: 720, width: 320, height: 240, z: 100 },
+      { x: 576, y: 1200, width: 320, height: 240, z: 200 },
+    ];
+
+    expect(getDuplicateScreenGeometry(source, occupied)).toEqual({
+      x: 952,
+      y: 720,
+      width: 320,
+      height: 240,
+      z: 5,
+    });
+  });
+
   it("uses a moved source and skips occupied frames in the same row", () => {
     const source = { x: 1000, y: 240, width: 800, height: 600, z: 4 };
     const occupied = [
@@ -77,12 +153,97 @@ describe("getDuplicateScreenGeometry", () => {
       y: 240,
       width: 800,
       height: 600,
-      z: 10,
+      z: 5,
     });
   });
 });
 
 describe("runDuplicateScreen", () => {
+  it("places Cmd+D duplicates in the first free slot from their requested position", async () => {
+    const args = duplicateArgsWithOccupiedFrame({
+      x: 696,
+      y: 0,
+      width: 640,
+      height: 480,
+    });
+
+    await runDuplicateScreen(args, "source", {
+      mode: "alt-click",
+      canvasPosition: { x: 696, y: 0 },
+    });
+
+    expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+      "copy",
+      expect.objectContaining({ x: 1392, y: 0 }),
+      expect.any(Object),
+    );
+  });
+
+  it("rechecks persisted frames after a pending duplicate moves its slot", async () => {
+    const args = duplicateArgsWithOccupiedFrame(
+      { x: 1112, y: 0, width: 500, height: 500 },
+      { x: 0, y: 0, width: 500, height: 500 },
+    );
+    args.pendingDuplicateGeometriesRef.current.set("pending.html", {
+      x: 556,
+      y: 0,
+      width: 100,
+      height: 500,
+    });
+
+    await runDuplicateScreen(args, "source", {
+      mode: "alt-click",
+      canvasPosition: { x: 556, y: 0 },
+    });
+
+    expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+      "copy",
+      expect.objectContaining({ x: 1668, y: 0 }),
+      expect.any(Object),
+    );
+  });
+
+  it("preserves an explicit Alt-drag drop position", async () => {
+    const args = duplicateArgsWithOccupiedFrame({
+      x: 696,
+      y: 0,
+      width: 640,
+      height: 480,
+    });
+
+    await runDuplicateScreen(args, "source", {
+      mode: "alt-drag",
+      canvasPosition: { x: 696, y: 0 },
+    });
+
+    expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+      "copy",
+      expect.objectContaining({ x: 696, y: 0 }),
+      expect.any(Object),
+    );
+  });
+
+  it("stacks an Alt-drag copy above overlapping screens", async () => {
+    const args = duplicateArgsWithOccupiedFrame({
+      x: 600,
+      y: 0,
+      width: 640,
+      height: 480,
+      z: 90,
+    });
+
+    await runDuplicateScreen(args, "source", {
+      mode: "alt-drag",
+      canvasPosition: { x: 696, y: 0 },
+    });
+
+    expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+      "copy",
+      expect.objectContaining({ x: 696, y: 0, z: 91 }),
+      expect.any(Object),
+    );
+  });
+
   it("cleans up a partial create so the same duplicate can be retried", async () => {
     let activeFilename: string | undefined;
     let sequence = 0;

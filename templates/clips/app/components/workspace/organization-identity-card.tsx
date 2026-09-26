@@ -10,6 +10,7 @@ import {
   type RecordingVisibility,
 } from "@/components/workspace/branding-editor";
 import type { MemberRole } from "@/components/workspace/members-list";
+import { organizationLogoUrl } from "@/lib/organization-logo";
 
 interface OrganizationStateResponse {
   organization: {
@@ -91,6 +92,10 @@ export function OrganizationIdentityCard() {
   if (!organization) return null;
 
   if (!isAdmin) {
+    const logoUrl = organizationLogoUrl(
+      organization.brandLogoUrl,
+      organization.id,
+    );
     return (
       <Card>
         <CardHeader>
@@ -100,9 +105,9 @@ export function OrganizationIdentityCard() {
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-3">
-            {organization.brandLogoUrl ? (
+            {logoUrl ? (
               <img
-                src={organization.brandLogoUrl}
+                src={logoUrl}
                 alt=""
                 className="h-10 w-10 rounded object-contain"
               />

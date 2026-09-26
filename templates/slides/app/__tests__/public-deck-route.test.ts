@@ -1,3 +1,4 @@
+import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resultQueue = vi.hoisted(() => ({ current: [] as unknown[][] }));
@@ -140,7 +141,7 @@ describe("public deck route", () => {
     },
   );
 
-  it("marks tokenized deck pages private and no-store", async () => {
+  it("uses a query-specific cache key for token-authorized deck pages", async () => {
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     resultQueue.current = [deckRows("private")];
 
@@ -154,6 +155,7 @@ describe("public deck route", () => {
     expect(result.init.headers).toEqual({
       "Cache-Control": "private, max-age=0, no-store",
       "Referrer-Policy": "no-referrer",
+      [SSR_QUERY_CACHE_KEY_HEADER]: "query",
     });
     expect(result.data.agentAccessToken).toBe("tok+1");
     if (result.data.deck === null) throw new Error("expected tokenized deck");

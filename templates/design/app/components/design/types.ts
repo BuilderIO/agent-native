@@ -112,6 +112,7 @@ export interface RuntimeStructureDeleteRequest {
   rollbackSourceId?: string;
   /** Cancel a source delete and restore its DOM before rolling back the insert. */
   cancelRequested?: boolean;
+  cancellationRetryCount?: number;
 }
 
 export interface RuntimeStructureRollbackRequest {
@@ -121,6 +122,7 @@ export interface RuntimeStructureRollbackRequest {
   sourceId?: string;
   /** A target lost across canvas unmount is already rolled back if absent. */
   idempotent?: boolean;
+  retryCount?: number;
 }
 
 export interface RuntimeLayerRenameRequest {

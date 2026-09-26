@@ -1,14 +1,52 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
+  const state: {
+    orgId: string;
+    superOrgId: string | undefined;
+    reviewResource: Record<string, unknown> | null;
+    whereCondition: unknown;
+  } = {
+    orgId: "org-a",
+    superOrgId: undefined,
+    reviewResource: null,
+    whereCondition: null,
+  };
   const selectChain = {
     from: vi.fn(),
     where: vi.fn(),
+    limit: vi.fn(),
     orderBy: vi.fn(),
   };
-  selectChain.from.mockReturnValue(selectChain);
-  selectChain.where.mockReturnValue(selectChain);
   const select = vi.fn(() => selectChain);
+  selectChain.from.mockReturnValue(selectChain);
+  selectChain.where.mockImplementation((condition) => {
+    state.whereCondition = condition;
+    return selectChain;
+  });
+  selectChain.limit.mockImplementation(async () => {
+    const where = state.whereCondition as
+      | {
+          left?: string;
+          right?: unknown;
+          conditions?: Array<{ left: string; right: unknown }>;
+        }
+      | undefined;
+    const conditions = where?.conditions ?? (where ? [where] : []);
+    const scopedToId = conditions.some(
+      (condition) =>
+        condition.left === "designs.id" &&
+        condition.right === state.reviewResource?.id,
+    );
+    const orgCondition = conditions.find(
+      (condition) => condition.left === "designs.orgId",
+    );
+    return scopedToId &&
+      (!orgCondition || orgCondition.right === state.orgId) &&
+      (!orgCondition || state.reviewResource?.orgId === state.orgId)
+      ? [state.reviewResource]
+      : [];
+  });
 
   return {
     asc: vi.fn((column) => ({ asc: column })),
@@ -16,6 +54,12 @@ const mocks = vi.hoisted(() => {
     eq: vi.fn((left, right) => ({ left, right })),
     getDb: vi.fn(() => ({ select })),
     resolveAccess: vi.fn(),
+    currentRequestUserIsOrgAdmin: vi.fn(),
+    getAppConfig: vi.fn(() => ({
+      observability: { superOrgId: state.superOrgId },
+    })),
+    getRequestOrgId: vi.fn(() => state.orgId),
+    state,
     select,
     selectChain,
     track: vi.fn(),
@@ -34,6 +78,16 @@ vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: mocks.resolveAccess,
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  currentRequestUserIsOrgAdmin: (...args: unknown[]) =>
+    mocks.currentRequestUserIsOrgAdmin(...args),
+  getAppConfig: () => mocks.getAppConfig(),
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestOrgId: () => mocks.getRequestOrgId(),
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   asc: mocks.asc,
@@ -44,6 +98,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../server/db/index.js", () => ({
   getDb: mocks.getDb,
   schema: {
+    designs: { id: "designs.id", orgId: "designs.orgId" },
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
@@ -66,9 +121,31 @@ import action from "./get-design.js";
 describe("get-design", () => {
   beforeEach(() => {
     mocks.resolveAccess.mockReset();
+    mocks.currentRequestUserIsOrgAdmin.mockReset();
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(false);
+    mocks.getAppConfig.mockClear();
+    mocks.state.orgId = "org-a";
+    mocks.state.superOrgId = undefined;
+    mocks.state.reviewResource = {
+      id: "design_123",
+      title: "Org design",
+      description: "Same org preview",
+      projectType: "prototype",
+      designSystemId: null,
+      data: JSON.stringify({ canvasFrames: [] }),
+      visibility: "private",
+      orgId: "org-a",
+      createdAt: "2026-06-29T00:00:00.000Z",
+      updatedAt: "2026-06-29T00:00:00.000Z",
+    };
+    mocks.state.whereCondition = null;
     mocks.select.mockClear();
+    mocks.selectChain.where.mockClear();
+    mocks.selectChain.limit.mockClear();
     mocks.selectChain.orderBy.mockReset();
     mocks.asc.mockClear();
+    mocks.and.mockClear();
+    mocks.eq.mockClear();
     mocks.resolveAccess.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -135,6 +212,63 @@ describe("get-design", () => {
     expect(result.data).not.toContain("example-private-bridge-token");
   });
 
+  it("allows an org admin to read a same-org design for Human Review", async () => {
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.track.mockClear();
+
+    const result = await action.run({ id: "design_123", reviewPreview: true });
+
+    expect(mocks.currentRequestUserIsOrgAdmin).toHaveBeenCalledWith("org-a");
+    expect(mocks.and).toHaveBeenCalledWith(
+      { left: "designs.id", right: "design_123" },
+      { left: "designs.orgId", right: "org-a" },
+    );
+    expect(result).toMatchObject({ id: "design_123", accessRole: "viewer" });
+    expect(result.files[0].content).toBe("<main>Hello</main>");
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-admin Human Review design previews before querying", async () => {
+    mocks.state.superOrgId = "org-a";
+
+    await expect(
+      action.run({ id: "design_123", reviewPreview: true }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(mocks.select).not.toHaveBeenCalled();
+  });
+
+  it("hides another org's design from Human Review previews", async () => {
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.state.reviewResource!.orgId = "org-b";
+
+    await expect(
+      action.run({ id: "design_123", reviewPreview: true }),
+    ).rejects.toMatchObject({ message: "Design not found.", statusCode: 404 });
+  });
+
+  it("allows only the configured super-org admin to preview another org's design", async () => {
+    mocks.state.orgId = "builder-org";
+    mocks.state.superOrgId = "builder-org";
+    mocks.state.reviewResource!.orgId = "customer-org";
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.track.mockClear();
+
+    const result = await action.run({ id: "design_123", reviewPreview: true });
+
+    expect(mocks.getAppConfig).toHaveBeenCalled();
+    expect(mocks.currentRequestUserIsOrgAdmin).toHaveBeenCalledWith(
+      "builder-org",
+    );
+    expect(mocks.selectChain.where).toHaveBeenCalledWith({
+      left: "designs.id",
+      right: "design_123",
+    });
+    expect(result).toMatchObject({ id: "design_123", accessRole: "viewer" });
+    expect(result.files[0].content).toBe("<main>Hello</main>");
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
   it("includes readable linked design-system context", async () => {
     mocks.resolveAccess.mockResolvedValueOnce({
       role: "viewer",
@@ -177,22 +311,18 @@ describe("get-design", () => {
   });
 
   it("can list file metadata without fetching file content", async () => {
-    mocks.selectChain.orderBy.mockResolvedValueOnce([
-      {
-        id: "file_123",
-        filename: "index.html",
-        fileType: "html",
-        createdAt: "2026-06-29T00:00:00.000Z",
-        updatedAt: "2026-06-29T00:00:00.000Z",
-      },
-    ]);
     const result = await action.run({
       id: "design_123",
       includeFileContent: false,
     });
 
-    expect(mocks.select.mock.calls.at(-1)?.[0]).not.toHaveProperty("content");
-    expect(mocks.selectChain.orderBy).toHaveBeenCalled();
+    expect(mocks.select).toHaveBeenCalledWith({
+      id: "designFiles.id",
+      filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
+      createdAt: "designFiles.createdAt",
+      updatedAt: "designFiles.updatedAt",
+    });
     expect(result.files).toEqual([
       expect.objectContaining({
         id: "file_123",

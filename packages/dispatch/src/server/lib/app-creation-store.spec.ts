@@ -45,7 +45,9 @@ const mocks = vi.hoisted(() => {
       settings.set(key, value);
     }),
     getOrgSetting: vi.fn(async () => null),
-    isWorkspaceAppAccessAllowed: vi.fn(async () => true),
+    isWorkspaceAppAccessAllowed: vi.fn(
+      async (): Promise<boolean | "unavailable"> => true,
+    ),
     resolveAccess: vi.fn(async () => ({
       role: "viewer",
       resource: {},
@@ -796,6 +798,18 @@ describe("listWorkspaceApps", () => {
       email: "member@example.test",
       orgId: "org-123",
     });
+  });
+
+  it("does not expose Dispatch when its access check is unavailable", async () => {
+    stubManifest();
+    mocks.isWorkspaceAppAccessAllowed.mockResolvedValueOnce("unavailable");
+
+    const apps = await runWithRequestContext(
+      { userEmail: "member@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
   });
 
   it("does not expose the workspace app registry without an authenticated user", async () => {

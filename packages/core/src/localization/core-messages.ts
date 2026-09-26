@@ -24,6 +24,7 @@ export type AgentChatTranslation = Record<string, string> & {
 };
 
 const legacyAgentChatAliases = [
+  ["onboarding.fileStorage", "onboarding.fileStorage"],
   ["agentPanel.addOwnKeys", "composer.addOwnKeys"],
   ["agentPanel.builderModelCredits", "composer.builderModelCredits"],
   ["agentPanel.builderOrOwnKeys", "setup.builderOrOwnKeys"],

@@ -1,9 +1,9 @@
 /**
- * Inline browser handoff for the public marketing home.
+ * Inline browser handoff for the public root entry.
  *
  * The server only decides whether this script belongs on the root shell. The
- * browser owns the session check and redirect so the shell stays anonymous and
- * safe for a shared CDN cache.
+ * browser owns the session check and redirect so the root shell stays
+ * anonymous and safe for a shared CDN cache.
  */
 export function getSsrAuthRedirectScript(
   sessionHintCookieName = "an_session_hint",
@@ -56,7 +56,7 @@ export function getSsrAuthRedirectScript(
     if (!session || typeof session.email !== "string" || session.error) return;
     return redirectToAppHome();
   }).catch(function () { // coercion-ok: auth probe intentionally fails open so marketing remains usable.
-    // A transient session failure must leave the public marketing page usable.
+    // A transient session failure must leave the public root usable.
   });
 })();</script>`;
 }

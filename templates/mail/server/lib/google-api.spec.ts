@@ -152,6 +152,11 @@ describe("googleFetch quota handling", () => {
     expect(caught).toBeInstanceOf(GmailQuotaCooldownError);
     expect((caught as GmailQuotaCooldownError).retryAfterMs).toBe(90_000);
     expect((caught as Error).message).toMatch(/about 90s/);
+    expect(caught).toMatchObject({
+      statusCode: 429,
+      errorCode: "gmail_quota_cooldown",
+      details: { retryAfterSeconds: 90 },
+    });
   });
 
   it("caps a long provider Retry-After to the breaker's advertised maximum", async () => {

@@ -2395,7 +2395,7 @@ export function createAgentChatAdapter(
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("agentNative.chatRunning", {
-            detail: { isRunning: true, tabId },
+            detail: { isRunning: true, tabId, turnId },
           }),
         );
       }
@@ -2425,9 +2425,10 @@ export function createAgentChatAdapter(
       const activeRunMatchesTab = (
         activeRun: ReturnType<typeof getActiveRun>,
       ) =>
-        !activeRun?.tabId ||
-        !activeRunTabId ||
-        activeRun.tabId === activeRunTabId;
+        !activeRun ||
+        (activeRun.tabId
+          ? !activeRunTabId || activeRun.tabId === activeRunTabId
+          : !threadId || activeRun.threadId === threadId);
       const ownsActiveRunState = () => {
         if (hasPendingSuccessorRequest()) return false;
         const activeRun = getActiveRun();
@@ -2465,7 +2466,7 @@ export function createAgentChatAdapter(
         dispatchTerminalChatUiCleanup(tabId);
         window.dispatchEvent(
           new CustomEvent("agentNative.chatRunning", {
-            detail: { isRunning: false, tabId },
+            detail: { isRunning: false, tabId, turnId },
           }),
         );
       };

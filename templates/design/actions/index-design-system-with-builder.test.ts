@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockWorkflowsEnabled = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: mockWorkflowsEnabled,
+}));
+beforeEach(() => {
+  mockWorkflowsEnabled.mockResolvedValue(true);
+});
+
 const mocks = vi.hoisted(() => ({
   assertBuilderDesignSystemCodeIndexingAllowed: vi.fn(),
   buildBuilderDesignSystemIndexFiles: vi.fn(),
@@ -29,6 +37,18 @@ import { ActionContractError } from "@agent-native/core/action";
 import action from "./index-design-system-with-builder.js";
 
 describe("index-design-system-with-builder", () => {
+  it("blocks indexing before entitlement, upload or provider work when workflows are off", async () => {
+    mockWorkflowsEnabled.mockResolvedValue(false);
+    await expect(action.run({ designMd: "# Brand" })).rejects.toMatchObject({
+      errorCode: "design_system_workflows_disabled",
+      statusCode: 403,
+    });
+    expect(
+      mocks.assertBuilderDesignSystemCodeIndexingAllowed,
+    ).not.toHaveBeenCalled();
+    expect(mocks.buildBuilderDesignSystemIndexFiles).not.toHaveBeenCalled();
+    expect(mocks.startBuilderDesignSystemIndex).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.assertBuilderDesignSystemCodeIndexingAllowed.mockResolvedValue(

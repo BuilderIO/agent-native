@@ -1,5 +1,6 @@
 import {
   callAction,
+  useActionQuery,
   useActionMutation,
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
@@ -8,6 +9,12 @@ import type {
   AiFilterState,
   AiFilterTarget,
 } from "@shared/ai-filter";
+import type {
+  AiFilterBackfillStatus,
+  AiFilterBackfillStartResult,
+  AiFilterBackfillUndoResult,
+  ManageAiFilterBackfillInput,
+} from "@shared/ai-filter-backfill";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LABELS_QUERY_KEY } from "@/hooks/use-emails";
@@ -54,6 +61,60 @@ export function usePreviewAiFilter() {
     skipActionQueryInvalidation: true,
     timeoutMs: 15_000,
   });
+}
+
+export function useManageAiFilterBackfill() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    | AiFilterBackfillStartResult
+    | AiFilterBackfillUndoResult
+    | AiFilterBackfillStatus,
+    ManageAiFilterBackfillInput
+  >("manage-ai-filter-backfill", {
+    skipActionQueryInvalidation: true,
+    timeoutMs: 15_000,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "manage-ai-filter-backfill"],
+      });
+    },
+  });
+}
+
+export function useRecentAiFilterBackfills() {
+  return useActionQuery<AiFilterBackfillStatus[]>(
+    "manage-ai-filter-backfill",
+    { operation: "recent" },
+    {
+      staleTime: 0,
+      refetchInterval: (query) =>
+        query.state.data?.some((run) =>
+          ["queued", "running", "undoing"].includes(run.status),
+        )
+          ? 1_000
+          : false,
+    },
+  );
+}
+
+export function useAiFilterBackfillStatus(runId: string | null) {
+  return useActionQuery<AiFilterBackfillStatus>(
+    "manage-ai-filter-backfill",
+    { operation: "status", runId: runId ?? "" },
+    {
+      enabled: runId !== null,
+      staleTime: 0,
+      refetchInterval: (query) => {
+        if (runId === null) return false;
+        const status = query.state.data?.status;
+        return status === "completed" ||
+          status === "failed" ||
+          status === "undone"
+          ? false
+          : 1_000;
+      },
+    },
+  );
 }
 
 export function useRefineAiFilter() {

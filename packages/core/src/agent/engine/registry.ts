@@ -11,6 +11,10 @@
 import { createRequire } from "node:module";
 
 import { getAppConfig } from "../../app-config/index.js";
+import {
+  assertCredentialCanReachEndpoint,
+  type CredentialProvenance,
+} from "../../credentials/index.js";
 import { isBlockedExtensionUrlWithDns } from "../../extensions/url-safety.js";
 import { getUserLabs } from "../../labs/store.js";
 import {
@@ -29,7 +33,7 @@ import {
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
   resolveBuilderGatewayCredentialsDetailed,
-  resolveSecret,
+  resolveSecretDetailed,
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
 import {
@@ -864,18 +868,21 @@ function engineCreateConfig(
 interface ResolvedProviderBaseUrl {
   baseUrl: string;
   allowedPrivateOrigin?: string;
+  endpointOwner: { scope: string; scopeId?: string };
 }
 
 async function resolveProviderBaseUrl(
   envVar: string,
 ): Promise<ResolvedProviderBaseUrl | undefined> {
   const isOllama = envVar === OLLAMA_BASE_URL_ENV_VAR;
-  const raw = await resolveSecret(envVar);
+  const resolved = await resolveSecretDetailed(envVar);
+  const raw = resolved.value;
   const deployValue = canUseDeployCredentialFallbackForRequest(envVar)
     ? readDeployCredentialEnv(envVar)
     : undefined;
 
   if (!raw) {
+    assertCredentialStoreReadable(resolved);
     if (!deployValue) return undefined;
     const baseUrl = await validateProviderBaseUrl(deployValue, {
       allowPrivate: true,
@@ -886,6 +893,7 @@ async function resolveProviderBaseUrl(
       allowedPrivateOrigin: (await isBlockedExtensionUrlWithDns(baseUrl))
         ? new URL(baseUrl).origin
         : undefined,
+      endpointOwner: { scope: "deployment" },
     };
   }
 
@@ -893,6 +901,12 @@ async function resolveProviderBaseUrl(
   // that fallback directly, so preserve the same private-network allowance
   // without extending it to user-, org-, or workspace-scoped endpoint values.
   const isDeployValue = deployValue !== undefined && raw === deployValue;
+  const endpointOwner = resolved.source
+    ? {
+        scope: resolved.source === "env" ? "deployment" : resolved.source,
+        scopeId: resolved.scopeId,
+      }
+    : { scope: "unknown" };
   const allowLocalOllama = isOllama && isTrustedSelfHostedRuntime();
   const baseUrl = await validateProviderBaseUrl(raw, {
     allowPrivate: isDeployValue,
@@ -905,7 +919,7 @@ async function resolveProviderBaseUrl(
     (await isBlockedExtensionUrlWithDns(baseUrl))
       ? new URL(baseUrl).origin
       : undefined;
-  return { baseUrl, allowedPrivateOrigin };
+  return { baseUrl, allowedPrivateOrigin, endpointOwner };
 }
 
 /**
@@ -970,10 +984,30 @@ async function canRunBuilderEngine(
 async function resolveUsableProviderSecret(
   key: string,
 ): Promise<string | null> {
-  const value = await resolveSecret(key);
-  if (!value) return null;
+  const resolved = await resolveUsableProviderSecretDetailed(key);
+  if (!resolved) return null;
+  return resolved.value;
+}
+
+async function resolveUsableProviderSecretDetailed(
+  key: string,
+): Promise<{ value: string; provenance: CredentialProvenance } | null> {
+  const resolved = await resolveSecretDetailed(key);
+  const value = resolved.value;
+  if (!value) {
+    assertCredentialStoreReadable(resolved);
+    return null;
+  }
   const authFailure = await getProviderCredentialAuthFailure({ key, value });
-  return authFailure ? null : value;
+  if (authFailure) return null;
+  const source = resolved.source;
+  return {
+    value,
+    provenance: {
+      scope: source === "env" ? "deployment" : (source ?? "deployment"),
+      ...(resolved.scopeId ? { scopeId: resolved.scopeId } : {}),
+    },
+  };
 }
 
 function identityUserEmail(
@@ -1038,6 +1072,7 @@ async function engineCreateConfigForEntry(
   credentialResolution: CredentialResolutionMode = "explicit",
   apiKeyEnvVar?: string,
   credentialIdentity?: BuilderCredentialLookupIdentity,
+  apiKeyProvenance?: CredentialProvenance,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
   if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
@@ -1053,12 +1088,14 @@ async function engineCreateConfigForEntry(
     safeExtra.userEmail = email;
   }
   let matchingApiKey = apiKey;
+  let matchingApiKeyProvenance = apiKeyProvenance;
   if (
     matchingApiKey === undefined &&
     typeof safeExtra.apiKey === "string" &&
     safeExtra.apiKey.trim()
   ) {
     matchingApiKey = safeExtra.apiKey;
+    matchingApiKeyProvenance = undefined;
   }
   // A declared provenance settles the question without inspecting values: a
   // credential issued for another provider's env var is never this entry's
@@ -1070,6 +1107,7 @@ async function engineCreateConfigForEntry(
     !entry.requiredEnvVars.includes(apiKeyEnvVar)
   ) {
     matchingApiKey = undefined;
+    matchingApiKeyProvenance = undefined;
   }
   // Engine selection must also select that engine's credential. Callers
   // historically passed one untagged "active" key before the registry chose
@@ -1083,21 +1121,24 @@ async function engineCreateConfigForEntry(
     entry.name !== "builder" &&
     entry.requiredEnvVars.length > 0
   ) {
-    let resolvedMatchingCredential: string | undefined;
+    let resolvedMatchingCredential:
+      | { value: string; provenance: CredentialProvenance }
+      | undefined;
     let matchingCredentialUsesDeployFallback = false;
     for (const key of entry.requiredEnvVars) {
-      const resolved = (await resolveUsableProviderSecret(key)) ?? undefined;
+      const resolved =
+        (await resolveUsableProviderSecretDetailed(key)) ?? undefined;
       if (!resolved) continue;
       resolvedMatchingCredential = resolved;
       matchingCredentialUsesDeployFallback =
         canUseDeployCredentialFallbackForRequest(key) &&
-        readDeployCredentialEnv(key) === resolved;
+        readDeployCredentialEnv(key) === resolved.value;
       break;
     }
 
     const suppliedKeyMatchesSelected =
       matchingApiKey !== undefined &&
-      matchingApiKey === resolvedMatchingCredential;
+      matchingApiKey === resolvedMatchingCredential?.value;
     const suppliedKeyBelongsElsewhere =
       matchingApiKey !== undefined &&
       !suppliedKeyMatchesSelected &&
@@ -1110,8 +1151,11 @@ async function engineCreateConfigForEntry(
       // different-provider key; an opaque explicit key is left untouched.
       matchingApiKey =
         resolvedMatchingCredential && !matchingCredentialUsesDeployFallback
-          ? resolvedMatchingCredential
+          ? resolvedMatchingCredential.value
           : undefined;
+      matchingApiKeyProvenance = resolvedMatchingCredential?.provenance;
+    } else if (suppliedKeyMatchesSelected) {
+      matchingApiKeyProvenance ??= resolvedMatchingCredential?.provenance;
     }
   }
   const aiSdkProvider = entry.name.startsWith("ai-sdk:")
@@ -1138,6 +1182,9 @@ async function engineCreateConfigForEntry(
 
     if (typeof safeExtra.baseUrl === "string") {
       const baseUrl = safeExtra.baseUrl;
+      const endpointOwner =
+        // Request bodies cannot supply engine config; remaining config objects are server-owned.
+        resolvedEndpoint?.endpointOwner ?? { scope: "deployment" };
       const validatedBaseUrl =
         resolvedEndpoint?.baseUrl ??
         (await validateProviderBaseUrl(baseUrl, {
@@ -1152,6 +1199,16 @@ async function engineCreateConfigForEntry(
         (await isBlockedExtensionUrlWithDns(validatedBaseUrl))
           ? new URL(validatedBaseUrl).origin
           : undefined);
+      if (endpointOwner.scope !== "deployment") {
+        safeExtra.allowEnvFallback = false;
+      }
+      if (matchingApiKey !== undefined || matchingApiKeyProvenance) {
+        assertCredentialCanReachEndpoint(
+          endpointOwner,
+          matchingApiKeyProvenance,
+          entry.requiredEnvVars[0],
+        );
+      }
       safeExtra.requestFetch = createProviderEndpointFetch(
         validatedBaseUrl,
         allowedPrivateOrigin ? [allowedPrivateOrigin] : [],
@@ -1312,6 +1369,8 @@ export interface ResolveEngineConfig {
    * provider's engine; omit it for opaque keys.
    */
   apiKeyEnvVar?: string;
+  /** Scope/owner of a key resolved for this request, when known. */
+  apiKeyProvenance?: CredentialProvenance;
   /** Model override (used as part of engine config) */
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
@@ -1403,6 +1462,7 @@ export async function resolveEngine(
     engineOption,
     apiKey,
     apiKeyEnvVar,
+    apiKeyProvenance,
     model: _model,
     appId,
     credentialIdentity,
@@ -1441,6 +1501,7 @@ export async function resolveEngine(
         "explicit",
         apiKeyEnvVar,
         credentialIdentity,
+        apiKeyProvenance,
       ),
     );
   }
@@ -1461,6 +1522,7 @@ export async function resolveEngine(
         "explicit",
         apiKeyEnvVar,
         credentialIdentity,
+        apiKeyProvenance,
       ),
     );
   }
@@ -1487,6 +1549,7 @@ export async function resolveEngine(
             "automatic",
             apiKeyEnvVar,
             credentialIdentity,
+            apiKeyProvenance,
           ),
         );
       }
@@ -1510,6 +1573,7 @@ export async function resolveEngine(
           "automatic",
           apiKeyEnvVar,
           credentialIdentity,
+          apiKeyProvenance,
         ),
       );
     }
@@ -1553,6 +1617,7 @@ export async function resolveEngine(
           "automatic",
           apiKeyEnvVar,
           credentialIdentity,
+          apiKeyProvenance,
         ),
       );
     }
@@ -1567,6 +1632,7 @@ export async function resolveEngine(
         "automatic",
         apiKeyEnvVar,
         credentialIdentity,
+        apiKeyProvenance,
       ),
     );
   }
@@ -1584,6 +1650,7 @@ export async function resolveEngine(
         "automatic",
         apiKeyEnvVar,
         credentialIdentity,
+        apiKeyProvenance,
       ),
     );
   }
@@ -1603,6 +1670,7 @@ export async function resolveEngine(
       "automatic",
       apiKeyEnvVar,
       credentialIdentity,
+      apiKeyProvenance,
     ),
   );
 }

@@ -7,15 +7,18 @@
  *   - ticket — a bug/issue ticket
  *   - email  — a ready-to-send email
  *
- * The agent composes the document and stores it in application_state under
- * `clips-workflow-<recordingId>` so the UI can pick it up and display it.
+ * The agent composes the document and saves it with complete-workflow so the
+ * UI can pick it up and display it.
  *
  * Usage:
  *   pnpm action generate-workflow --recordingId=<id> --kind=pr
  */
 
+import { randomUUID } from "node:crypto";
+
 import { defineAction } from "@agent-native/core/action";
 import {
+  compareAndSetManyAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -55,14 +58,23 @@ Output markdown.`,
 Keep it concise, warm, and professional.`,
 } as const;
 
-// Actions for the same recording can arrive concurrently when the player and
-// agent both retry a request. Keep the read-check-write/enqueue sequence
-// single-flight within this runtime so only one request can claim generation.
+// Skip duplicate database work in this runtime; the multi-key CAS below also
+// prevents separate runtimes from claiming the same generation.
 const workflowGenerationLocks = new Set<string>();
+
+function isRecentGeneration(state: Record<string, unknown> | null): boolean {
+  if (state?.status !== "generating") return false;
+  const requestedAt = Date.parse(
+    typeof state.requestedAt === "string" ? state.requestedAt : "",
+  );
+  return (
+    !Number.isFinite(requestedAt) || Date.now() - requestedAt < 10 * 60_000
+  );
+}
 
 export default defineAction({
   description:
-    "Ask the agent to generate a structured workflow doc (pr/sop/ticket/email) from this recording's transcript (and the full video when Include full video is enabled). The agent writes the result to clips-workflow-<recordingId> in application_state.",
+    "Ask the agent to generate a structured workflow doc (pr/sop/ticket/email) from this recording's transcript (and the full video when Include full video is enabled). The agent saves the result with complete-workflow.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     kind: WorkflowKindSchema.describe("Workflow kind"),
@@ -104,47 +116,44 @@ export default defineAction({
       const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
       const existing = await readAppState(stateKey);
-      if (existing?.status === "generating") {
-        const requestedAt = Date.parse(
-          typeof existing.requestedAt === "string" ? existing.requestedAt : "",
-        );
-        const isRecent =
-          !Number.isFinite(requestedAt) ||
-          Date.now() - requestedAt < 10 * 60_000;
-        if (isRecent) {
-          return {
-            queued: false,
-            duplicate: true,
-            recordingId: args.recordingId,
-            kind: existing.kind ?? args.kind,
-            stateKey,
-          };
-        }
+      if (isRecentGeneration(existing)) {
+        return {
+          queued: false,
+          duplicate: true,
+          recordingId: args.recordingId,
+          kind: existing?.kind ?? args.kind,
+          stateKey,
+        };
       }
 
+      const requestKey = `clips-ai-request-${args.recordingId}`;
+      const existingRequest = await readAppState(requestKey);
       const requestedAt = new Date().toISOString();
-      // Seed the output state with a "generating" placeholder so the UI can show
-      // a loading state immediately.
-      await writeAppState(stateKey, {
+      const requestId = randomUUID();
+      const workflowState = {
         kind: args.kind,
         status: "generating",
         recordingId: args.recordingId,
         requestedAt,
-      } as any);
+        requestId,
+      };
 
       const baseMessage =
         `Generate a ${args.kind.toUpperCase()} workflow document from recording ${args.recordingId} ` +
         `(title: "${rec.title}"). Read the transcript from this request's context. ` +
         `${KIND_PROMPTS[args.kind]} ` +
-        `Then write the final markdown to application_state key "${stateKey}" as ` +
-        `\`{ kind: "${args.kind}", status: "ready", content: "...", recordingId: "${args.recordingId}" }\`. ` +
-        `Finish by replying in chat with the same generated markdown so the user can read it immediately.`;
+        `Then call complete-workflow with recordingId "${args.recordingId}", ` +
+        `the exact requestedAt and requestId "${requestId}" from this request's context, ` +
+        `and the final markdown. ` +
+        `Do not report completion unless that action returns saved: true. ` +
+        `Finish by replying in chat with the same generated markdown.`;
 
       const request = {
         kind: "generate-workflow" as const,
         workflowKind: args.kind,
         recordingId: args.recordingId,
         requestedAt,
+        requestId,
         recordingTitle: rec.title,
         recordingDescription: rec.description,
         transcriptStatus: transcript?.status ?? "pending",
@@ -160,10 +169,40 @@ export default defineAction({
         ),
       };
 
-      await writeAppState(
-        `clips-ai-request-${args.recordingId}`,
-        request as any,
-      );
+      const claimed = await compareAndSetManyAppState([
+        {
+          key: stateKey,
+          expectedValue: existing,
+          nextValue: workflowState,
+        },
+        {
+          key: requestKey,
+          expectedValue: existingRequest,
+          nextValue: request,
+        },
+      ]);
+      if (!claimed) {
+        const current = await readAppState(stateKey);
+        if (isRecentGeneration(current)) {
+          return {
+            queued: false,
+            duplicate: true,
+            recordingId: args.recordingId,
+            kind: current?.kind ?? args.kind,
+            stateKey,
+          };
+        }
+        return {
+          queued: false,
+          duplicate: false,
+          retry: true,
+          reason: "claim-contended",
+          recordingId: args.recordingId,
+          kind: args.kind,
+          stateKey,
+        };
+      }
+
       await writeAppState("refresh-signal", { ts: Date.now() });
 
       console.log(

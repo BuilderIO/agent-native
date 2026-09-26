@@ -190,6 +190,7 @@ interface JevMemoryIndexEntry {
   description: string;
   updatedAt: number;
   score: number;
+  scope: "personal" | "current-org";
 }
 
 export interface PromptResourceManifestSection {
@@ -948,7 +949,9 @@ async function collectJevPromptCandidates(
 
 function parseMemoryIndex(
   content: string,
+  indexPath = "memory/MEMORY.md",
 ): Array<{ name: string; path: string; description: string }> {
+  const directory = indexPath.slice(0, indexPath.lastIndexOf("/") + 1);
   const entries: Array<{ name: string; path: string; description: string }> =
     [];
   for (const line of content.split("\n")) {
@@ -957,19 +960,18 @@ function parseMemoryIndex(
     );
     if (!match) continue;
     const [, name, linkedPath, description] = match;
+    const linkedName = linkedPath?.replace(/^memory\//, "");
     if (
       !name ||
-      !linkedPath ||
+      !linkedName ||
       !description ||
-      linkedPath.includes("..") ||
-      /[\\/]/.test(linkedPath.replace(/^memory\//, ""))
+      linkedName.includes("..") ||
+      /[\\/]/.test(linkedName) ||
+      !/^[a-zA-Z0-9._-]+\.md$/.test(linkedName)
     ) {
       continue;
     }
-    const path = linkedPath.startsWith("memory/")
-      ? linkedPath
-      : `memory/${linkedPath}`;
-    entries.push({ name, path, description });
+    entries.push({ name, path: `${directory}${linkedName}`, description });
   }
   return entries;
 }
@@ -995,23 +997,46 @@ async function collectJevMemoryPromptCandidates(input: {
   }
   try {
     input.signal.throwIfAborted();
-    const index = await resourceGetByPath(input.owner, "memory/MEMORY.md", {
-      orgId: input.orgId,
-    });
+    const indexPaths = [
+      {
+        scope: "personal" as const,
+        owner: input.owner,
+        path: "memory/MEMORY.md",
+      },
+      ...(input.orgId
+        ? [
+            {
+              scope: "current-org" as const,
+              owner: sharedResourceOwner(input.orgId),
+              path: "memory/MEMORY.md",
+            },
+          ]
+        : []),
+    ];
+    const indexes = await Promise.all(
+      indexPaths.map(({ owner, path }) =>
+        resourceGetByPath(owner, path, { orgId: input.orgId }),
+      ),
+    );
     input.signal.throwIfAborted();
-    if (!index?.content) return { candidates: [], fallbackIds: [] };
-    const memories = parseMemoryIndex(index.content)
-      .filter((memory) => memory.path !== "memory/MEMORY.md")
-      .map(
-        (memory, index): JevMemoryIndexEntry => ({
-          ...memory,
-          updatedAt: index,
-          score: memoryRelevanceScore(
-            input.request,
-            `${memory.name} ${memory.description}`,
-          ),
-        }),
-      )
+    const memories = indexes
+      .flatMap((index, indexNumber) => {
+        if (!index?.content) return [];
+        const source = indexPaths[indexNumber]!;
+        return parseMemoryIndex(index.content, source.path)
+          .filter((memory) => memory.path !== source.path)
+          .map(
+            (memory, position): JevMemoryIndexEntry => ({
+              ...memory,
+              updatedAt: position,
+              score: memoryRelevanceScore(
+                input.request,
+                `${memory.name} ${memory.description}`,
+              ),
+              scope: source.scope,
+            }),
+          );
+      })
       .sort(
         (a, b) =>
           b.score - a.score ||
@@ -1019,24 +1044,28 @@ async function collectJevMemoryPromptCandidates(input: {
           a.path.localeCompare(b.path),
       )
       .slice(0, JEV_MEMORY_CANDIDATE_LIMIT);
-    const candidates = memories.map(
-      (memory, index): JevPromptCandidate => ({
-        id: `personal-memory-${index}`,
+    const candidates = memories.map((memory, index): JevPromptCandidate => {
+      const isOrgMemory = memory.scope === "current-org";
+      const scope = isOrgMemory ? "current-org" : "personal";
+      const label = isOrgMemory
+        ? "Current organization memory"
+        : "Personal memory";
+      return {
+        id: `${scope}-memory-${index}`,
         kind: "memory",
-        description: `Personal memory: ${compactPromptLine(memory.description, JEV_MEMORY_DESCRIPTION_MAX_CHARS)}`,
-        metadata: { kind: "personal-memory", scope: "personal" },
+        description: `${label}: ${compactPromptLine(memory.description, JEV_MEMORY_DESCRIPTION_MAX_CHARS)}`,
+        metadata: { kind: "personal-memory", scope },
         name: memory.name,
-        scope: "personal",
+        scope,
         path: memory.path,
         content: "",
-      }),
-    );
+      };
+    });
     const fallback = memories.find((memory) => memory.score >= 5);
     const fallbackIndex = fallback ? memories.indexOf(fallback) : -1;
     return {
       candidates,
-      fallbackIds:
-        fallbackIndex >= 0 ? [`personal-memory-${fallbackIndex}`] : [],
+      fallbackIds: fallbackIndex >= 0 ? [candidates[fallbackIndex]!.id] : [],
     };
   } catch (error) {
     console.warn(
@@ -1103,11 +1132,13 @@ async function loadSelectedMemoryBodies(input: {
       const entries: Array<{ id: string; content: string } | null> = [];
       for (const candidate of memories) {
         signal.throwIfAborted();
-        const resource = await resourceGetByPath(
-          input.owner!,
-          candidate.path!,
-          { orgId: input.orgId },
-        );
+        const owner =
+          candidate.scope === "current-org"
+            ? sharedResourceOwner(input.orgId)
+            : input.owner;
+        const resource = await resourceGetByPath(owner!, candidate.path!, {
+          orgId: input.orgId,
+        });
         signal.throwIfAborted();
         entries.push(
           resource?.content.trim()

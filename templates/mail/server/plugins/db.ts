@@ -300,6 +300,56 @@ CREATE INDEX IF NOT EXISTS idx_mail_inbox_push_invalidations_owner_account
 ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS last_push_generation BIGINT NOT NULL DEFAULT 0;`,
     },
+    {
+      version: 27,
+      name: "mail-ai-filter-rule-undo",
+      sql: `CREATE TABLE IF NOT EXISTS mail_ai_filter_rule_undo (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    rules_json TEXT NOT NULL,
+    expires_at BIGINT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS mail_ai_filter_rule_undo_owner_expiry_idx
+  ON mail_ai_filter_rule_undo(owner_email, expires_at);`,
+    },
+    {
+      version: 28,
+      name: "mail-ai-filter-rule-undo-expiry-index",
+      sql: `CREATE INDEX IF NOT EXISTS mail_ai_filter_rule_undo_expires_idx
+  ON mail_ai_filter_rule_undo(expires_at);`,
+    },
+    {
+      version: 29,
+      name: "mail-ai-filter-backfills",
+      sql: `CREATE TABLE IF NOT EXISTS mail_ai_filter_backfills (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'completed', 'failed', 'undoing', 'undone')),
+    state_json TEXT NOT NULL,
+    undo_token TEXT,
+    undo_expires_at BIGINT,
+    expires_at BIGINT NOT NULL,
+    claim_id TEXT,
+    claimed_at BIGINT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS mail_ai_filter_backfills_owner_created_idx
+  ON mail_ai_filter_backfills(owner_email, created_at);
+CREATE INDEX IF NOT EXISTS mail_ai_filter_backfills_status_updated_idx
+  ON mail_ai_filter_backfills(status, updated_at);
+CREATE INDEX IF NOT EXISTS mail_ai_filter_backfills_expires_idx
+  ON mail_ai_filter_backfills(expires_at);`,
+    },
+    {
+      version: 30,
+      name: "mail-ai-filter-backfill-rule-set",
+      sql: `ALTER TABLE mail_ai_filter_backfills
+  ADD COLUMN IF NOT EXISTS rule_set_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS mail_ai_filter_backfills_owner_rule_set_active_idx
+  ON mail_ai_filter_backfills(owner_email, rule_set_key)
+  WHERE rule_set_key IS NOT NULL AND status IN ('queued', 'running', 'undoing');`,
+    },
   ],
   { table: "mail_migrations" },
 );

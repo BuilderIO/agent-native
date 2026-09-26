@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -32,6 +33,8 @@ export interface BaselineEntry {
   maxDiffPercent: number;
   maxOmitted: number;
   maxApproximated: number;
+  /** SHA-256 of the exact HTML source used to review this ceiling. */
+  sourceHash: string;
 }
 
 export interface ExportCase {
@@ -47,6 +50,7 @@ export interface ExportCase {
 
 export interface CaseOutcome {
   id: string;
+  sourceHash: string;
   status: "ok" | "failed";
   diffRatio?: number;
   meanDelta?: number;
@@ -57,6 +61,10 @@ export interface CaseOutcome {
   exportOmissions?: number;
   exportApproximations?: number;
   error?: string;
+}
+
+export function hashExportSource(html: string): string {
+  return createHash("sha256").update(html).digest("hex");
 }
 
 function presetCases(): ExportCase[] {
@@ -164,7 +172,14 @@ export async function runExportCase(
     JSON.stringify(report, null, 2),
   );
 
-  const candidate = await renderSvgToPng(browser, svg, renderOptions);
+  // The exported SVG names the design's web fonts but cannot load them. Figma
+  // resolves them by name, so render the SVG with the same stylesheets the
+  // design loaded; otherwise every web-font glyph falls back to a system face
+  // and the diff measures the fallback instead of the export.
+  const candidate = await renderSvgToPng(browser, svg, {
+    ...renderOptions,
+    headHtml: webFontLinks(testCase.html),
+  });
   writeFileSync(join(dir, "export.png"), candidate.png);
 
   const comparison = await comparePngs(browser, reference.png, candidate.png, {
@@ -187,6 +202,7 @@ export async function runExportCase(
 
   return {
     id: testCase.id,
+    sourceHash: hashExportSource(testCase.html),
     status: "ok",
     adHoc: testCase.adHoc,
     diffRatio: comparison.diffRatio,
@@ -197,6 +213,18 @@ export async function runExportCase(
     exportOmissions: report.omitted?.length ?? 0,
     exportApproximations: report.approximated?.length ?? 0,
   };
+}
+
+/** The design's own Google Fonts stylesheet links, verbatim. */
+export function webFontLinks(html: string): string {
+  return [...html.matchAll(/<link\b[^>]*>/gi)]
+    .map((match) => match[0])
+    .filter(
+      (tag) =>
+        /\brel=["']?stylesheet\b/i.test(tag) &&
+        /\bhref=["']https:\/\/fonts\.googleapis\.com\//i.test(tag),
+    )
+    .join("");
 }
 
 export function findExportBaselineProblems(
@@ -219,6 +247,11 @@ export function findExportBaselineProblems(
       continue;
     }
     const diffPercent = (outcome.diffRatio ?? 0) * 100;
+    if (outcome.sourceHash !== expected.sourceHash) {
+      problems.push(
+        `${outcome.id}: source changed since the reviewed baseline; record a new ceiling after reviewing the export`,
+      );
+    }
     if (diffPercent > expected.maxDiffPercent) {
       problems.push(
         `${outcome.id}: ${diffPercent.toFixed(3)}% differing pixels exceeds the ${expected.maxDiffPercent}% ceiling`,

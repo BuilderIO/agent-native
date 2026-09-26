@@ -590,6 +590,16 @@ async function performActionFetch<T>(
 
     const error = new Error(`Action ${name} failed: ${message}`);
     (error as any).status = res.status;
+    const retryAfterHeader = res.headers.get("Retry-After");
+    const retryAfterSeconds =
+      retryAfterHeader === null ? NaN : Number(retryAfterHeader);
+    if (
+      Number.isInteger(retryAfterSeconds) &&
+      retryAfterSeconds > 0 &&
+      retryAfterSeconds <= 300
+    ) {
+      (error as any).retryAfterMs = retryAfterSeconds * 1000;
+    }
     // `message` keeps the "Action <name> failed:" framing, which belongs in a
     // console but not in a toast. Carry the unframed text separately so a UI
     // can render it without string-surgery on the prefix.

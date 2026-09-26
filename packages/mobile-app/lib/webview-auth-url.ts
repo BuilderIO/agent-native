@@ -22,6 +22,15 @@ function removeLegacySessionParam(url: string): string {
   }
 }
 
+export function mobileWebViewTargetPath(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    return `${parsed.pathname || "/"}${parsed.search}${parsed.hash}`;
+  } catch {
+    return "/";
+  }
+}
+
 /**
  * The native shell owns the parent credential. A WebView may only capture a
  * session into a distinct app-scoped key, never back into that shared key.

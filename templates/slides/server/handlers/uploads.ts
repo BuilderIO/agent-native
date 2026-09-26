@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 
+import { isPrivateBlobConfiguredForRequest } from "@agent-native/core/private-blob";
 import {
   defineEventHandler,
   readBody,
@@ -80,6 +81,27 @@ export function maxReferenceFileBytes(
     ? MAX_FIG_REFERENCE_FILE_BYTES
     : MAX_REFERENCE_FILE_BYTES;
 }
+
+export const getUploadStorageStatus = defineEventHandler(async (event) => {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  if (!auth.context.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  return withSlidesRequestContext(
+    event,
+    async () => ({
+      referenceStorageReady:
+        !isHostedSlidesRuntime() || (await isPrivateBlobConfiguredForRequest()),
+    }),
+    auth.context,
+  );
+});
 
 function formatMaxFileSize(bytes: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`;
@@ -218,7 +240,7 @@ export async function saveUploadedReferenceFile(args: {
     if (!reference) {
       throw Object.assign(
         new Error(
-          "Private file storage is not configured. Connect Builder.io (free tier available) or another file provider before uploading reference files in a hosted Slides deployment.",
+          "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads before uploading reference files.",
         ),
         { statusCode: 503 },
       );

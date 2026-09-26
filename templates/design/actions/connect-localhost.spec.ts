@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const requestContextMock = vi.hoisted(() => ({
@@ -14,21 +15,23 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 type ExistingConnection = {
+  id?: string;
   ownerEmail: string;
   orgId: string | null;
+  devServerUrl?: string;
+  rootPath?: string | null;
   bridgeUrl?: string | null;
   bridgeToken: string | null;
   previewToken?: string | null;
 };
 
 let existingConnection: ExistingConnection | null = null;
-// Row the post-upsert reread sees (the value actually persisted). `undefined`
-// mirrors `existingConnection`; set it explicitly to model a race winner or a
-// cross-user no-op where the owner-scoped reread finds nothing.
-let rereadRow:
-  | { bridgeToken: string | null; previewToken?: string | null }
-  | null
-  | undefined = undefined;
+let legacyConnections: ExistingConnection[] = [];
+// Row returned by the upsert. `undefined` mirrors `insertedValues`; set it
+// explicitly to model a race winner or a cross-user no-op.
+let upsertedRow: { bridgeToken: string | null } | null | undefined = undefined;
+let previewTokenUpdate: Record<string, unknown> | null = null;
+let previewTokenUpdateWhere: unknown;
 let selectCallCount = 0;
 let insertedValues: Record<string, unknown> | null = null;
 let upsertConfig: {
@@ -36,13 +39,17 @@ let upsertConfig: {
   set: Record<string, unknown>;
   setWhere?: unknown;
 } | null = null;
+let selectWhereClauses: unknown[] = [];
 
-function makeSelectChain(rows: unknown[]) {
+function makeSelectChain(rowsForLimit: (limit: number) => unknown[]) {
   return {
     from: () => ({
-      where: () => ({
-        limit: () => Promise.resolve(rows),
-      }),
+      where: (condition: unknown) => {
+        selectWhereClauses.push(condition);
+        return {
+          limit: (limit: number) => Promise.resolve(rowsForLimit(limit)),
+        };
+      },
     }),
   };
 }
@@ -50,28 +57,57 @@ function makeSelectChain(rows: unknown[]) {
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     select: () => {
-      // 1st select = ownership pre-check; 2nd = post-upsert reread.
       selectCallCount += 1;
-      if (selectCallCount >= 2 && rereadRow !== undefined) {
-        return makeSelectChain(rereadRow ? [rereadRow] : []);
-      }
-      return makeSelectChain(existingConnection ? [existingConnection] : []);
+      const call = selectCallCount;
+      return makeSelectChain((limit) => {
+        if (limit === 2) return legacyConnections;
+        return call === 1 && existingConnection ? [existingConnection] : [];
+      });
     },
-    insert: () => ({
-      values: (vals: Record<string, unknown>) => {
-        insertedValues = vals;
-        return {
-          onConflictDoUpdate: (config: {
-            target: unknown;
-            set: Record<string, unknown>;
-            setWhere?: unknown;
-          }) => {
-            upsertConfig = config;
-            return Promise.resolve();
+    transaction: (callback: (tx: never) => Promise<unknown>) =>
+      callback({
+        insert: () => ({
+          values: (vals: Record<string, unknown>) => {
+            insertedValues = vals;
+            return {
+              onConflictDoUpdate: (config: {
+                target: unknown;
+                set: Record<string, unknown>;
+                setWhere?: unknown;
+              }) => {
+                upsertConfig = config;
+                return {
+                  returning: () =>
+                    Promise.resolve(
+                      upsertedRow === undefined
+                        ? [
+                            {
+                              bridgeToken: insertedValues?.bridgeToken as
+                                | string
+                                | null,
+                            },
+                          ]
+                        : upsertedRow
+                          ? [upsertedRow]
+                          : [],
+                    ),
+                };
+              },
+            };
           },
-        };
-      },
-    }),
+        }),
+        update: () => ({
+          set: (values: Record<string, unknown>) => {
+            previewTokenUpdate = values;
+            return {
+              where: (condition: unknown) => {
+                previewTokenUpdateWhere = condition;
+                return Promise.resolve();
+              },
+            };
+          },
+        }),
+      } as never),
   }),
   schema: {
     designLocalhostConnections: {
@@ -81,6 +117,8 @@ vi.mock("../server/db/index.js", () => ({
       bridgeUrl: "bridgeUrl",
       ownerEmail: "ownerEmail",
       orgId: "orgId",
+      devServerUrl: "devServerUrl",
+      rootPath: "rootPath",
     },
   },
 }));
@@ -91,10 +129,14 @@ import action, { derivePreviewToken } from "./connect-localhost.js";
 beforeEach(() => {
   requestContextMock.orgId = "org_1";
   existingConnection = null;
-  rereadRow = undefined;
+  legacyConnections = [];
+  upsertedRow = undefined;
+  previewTokenUpdate = null;
+  previewTokenUpdateWhere = undefined;
   selectCallCount = 0;
   insertedValues = null;
   upsertConfig = null;
+  selectWhereClauses = [];
 });
 
 describe("connect-localhost", () => {
@@ -176,6 +218,96 @@ describe("connect-localhost", () => {
     expect(upsertConfig?.set.id).toBe(expectedId);
   });
 
+  it("reuses one legacy connection for the same app so the running bridge token stays paired", async () => {
+    legacyConnections = [
+      {
+        id: "localhost_legacy",
+        ownerEmail: "user@example.com",
+        orgId: "org_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeUrl: "http://127.0.0.1:7331",
+        bridgeToken: "persisted_bridge_token",
+      },
+    ];
+
+    const result = await action.run({
+      devServerUrl: "http://localhost:5173",
+      bridgeUrl: "http://127.0.0.1:7331",
+      rootPath: "/tmp/app",
+    });
+
+    expect(insertedValues?.id).toBe("localhost_legacy");
+    expect(insertedValues?.bridgeToken).toBe("persisted_bridge_token");
+    expect(result.id).toBe("localhost_legacy");
+    expect(result.previewToken).toBe(
+      derivePreviewToken("persisted_bridge_token"),
+    );
+    const legacyLookup = selectWhereClauses
+      .map((condition) => new PgDialect().sqlToQuery(condition as SQL))
+      .find(({ params }) => params.includes("http://localhost:5173"));
+    expect(legacyLookup?.params).toEqual(
+      expect.arrayContaining([
+        "user@example.com",
+        "org_1",
+        "http://localhost:5173",
+        "/tmp/app",
+        "http://127.0.0.1:7331",
+      ]),
+    );
+  });
+
+  it("does not reuse a legacy connection owned by another principal", async () => {
+    legacyConnections = [
+      {
+        id: "localhost_foreign",
+        ownerEmail: "other@example.com",
+        orgId: "org_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "foreign_bridge_token",
+      },
+    ];
+
+    const result = await action.run({
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+    });
+
+    expect(insertedValues?.id).not.toBe("localhost_foreign");
+    expect(insertedValues?.bridgeToken).not.toBe("foreign_bridge_token");
+    expect(result.bridgeToken).not.toBe("foreign_bridge_token");
+  });
+
+  it("requires an explicit ID when multiple legacy connections match", async () => {
+    legacyConnections = [
+      {
+        id: "localhost_old_1",
+        ownerEmail: "user@example.com",
+        orgId: "org_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "old_bridge_token_1",
+      },
+      {
+        id: "localhost_old_2",
+        ownerEmail: "user@example.com",
+        orgId: "org_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "old_bridge_token_2",
+      },
+    ];
+
+    await expect(
+      action.run({
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+      }),
+    ).rejects.toThrow(/Multiple existing localhost connections match/);
+    expect(insertedValues).toBeNull();
+  });
+
   it("scopes derived connection ids by org", async () => {
     await action.run({
       devServerUrl: "http://localhost:5173/",
@@ -228,7 +360,7 @@ describe("connect-localhost", () => {
       orgId: "org_1",
       bridgeToken: "old_bridge_token",
     };
-    rereadRow = { bridgeToken: "new_bridge_token" }; // DB state after overwrite
+    upsertedRow = { bridgeToken: "new_bridge_token" }; // DB state after overwrite
 
     const result = await action.run({
       id: "conn_1",
@@ -267,11 +399,13 @@ describe("connect-localhost", () => {
     expect(result.previewToken).toBe(insertedValues?.previewToken);
   });
 
-  it("returns the token the row actually holds, not the one this call minted", async () => {
-    // Two concurrent first-time callers each mint; by read-back time another
-    // call's token is what persisted. We must return the persisted winner.
-    existingConnection = null;
-    rereadRow = { bridgeToken: "winner_token" };
+  it("persists the preview token derived from the bridge token that wins the upsert race", async () => {
+    existingConnection = {
+      ownerEmail: "user@example.com",
+      orgId: "org_1",
+      bridgeToken: "stale_read_token",
+    };
+    upsertedRow = { bridgeToken: "winner_token" };
 
     const result = await action.run({
       id: "conn_race",
@@ -279,28 +413,32 @@ describe("connect-localhost", () => {
       rootPath: "/tmp/app",
     });
 
-    expect(insertedValues?.bridgeToken).toMatch(/^[0-9a-f]{64}$/);
-    expect(selectCallCount).toBe(2); // pre-check + post-upsert reread
+    expect(insertedValues?.bridgeToken).toBe("stale_read_token");
+    expect(insertedValues?.previewToken).toBe(
+      derivePreviewToken("stale_read_token"),
+    );
     expect(result.bridgeToken).toBe("winner_token");
     expect(result.previewToken).toBe(derivePreviewToken("winner_token"));
+    expect(previewTokenUpdate).toEqual({
+      previewToken: derivePreviewToken("winner_token"),
+    });
+    expect(previewTokenUpdateWhere).toBeDefined();
   });
 
-  it("never returns another user's token when the guarded upsert is a no-op", async () => {
-    // Pre-check passes (no row yet), but the owner-scoped reread finds nothing —
-    // a concurrent insert by another user made our upsert a no-op.
+  it("fails closed when the guarded upsert did not persist for this owner", async () => {
+    // Pre-check passes, but the owner-scoped upsert returns no row because a
+    // concurrent insert by another user made it a no-op.
     existingConnection = null;
-    rereadRow = null;
+    upsertedRow = null;
 
-    const result = await action.run({
-      id: "conn_1",
-      devServerUrl: "http://localhost:5173",
-      rootPath: "/tmp/app",
-      bridgeToken: "our_token",
-    });
-
-    // Fall back to our own token — never a foreign one from the colliding row.
-    expect(result.bridgeToken).toBe("our_token");
-    expect(result.previewToken).toBe(derivePreviewToken("our_token"));
+    await expect(
+      action.run({
+        id: "conn_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "our_token",
+      }),
+    ).rejects.toMatchObject({ errorCode: "localhost_connection_conflict" });
   });
 
   it("rejects a preview token that is not derived from the bridge token", async () => {

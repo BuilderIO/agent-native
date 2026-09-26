@@ -62,6 +62,7 @@ let cachedSession: AuthSession | null | undefined;
 let cachedSessionAt = 0;
 let sessionRequest: Promise<SessionRead> | undefined;
 let trackedSessionIdentity: string | null | undefined;
+let trackedSessionAuthUserId: string | undefined;
 let sessionGeneration = 0;
 let sessionInvalidationListenersInstalled = false;
 const sessionInvalidationSubscribers = new Set<() => void>();
@@ -115,14 +116,20 @@ function hasFreshSessionCache(): boolean {
 
 function publishSessionIdentity(session: AuthSession | null): void {
   const identity = session?.userId ?? session?.email ?? null;
-  if (trackedSessionIdentity !== identity) {
+  const authUserId = session?.authUserId;
+  if (
+    trackedSessionIdentity !== identity ||
+    trackedSessionAuthUserId !== authUserId
+  ) {
     trackedSessionIdentity = identity;
+    trackedSessionAuthUserId = authUserId;
     if (session) {
       setSentryUser(
         {
           id: session.userId,
           email: session.email,
           username: session.name,
+          authUserId,
         },
         session.orgId ?? null,
       );

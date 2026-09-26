@@ -45,6 +45,13 @@ function colorOf(html: string, selector: string): string {
   return getComputedStyle(element).color;
 }
 
+function backgroundColorOf(html: string, selector: string): string {
+  document.body.innerHTML = html;
+  const element = document.querySelector(selector);
+  if (!element) throw new Error(`No element for ${selector}`);
+  return getComputedStyle(element).backgroundColor;
+}
+
 beforeAll(() => {
   const style = document.createElement("style");
   style.textContent = readFileSync(
@@ -87,5 +94,20 @@ describe("slide-content text colors", () => {
       '<div style="padding: 80px 110px; background: #fdf6ec; color: #292524">' +
       "<h1>Onboarding New Customers</h1></div></div>";
     expect(colorOf(html, "h1")).toBe("inherit");
+  });
+
+  it("keeps the selected question option's primary background", () => {
+    const utilityStyle = document.createElement("style");
+    utilityStyle.textContent = String.raw`.bg-primary\/10 { background-color: rgb(1, 2, 3); }`;
+    document.head.appendChild(utilityStyle);
+
+    expect(
+      backgroundColorOf(
+        '<div class="slides-question-flow"><div class="guided-question-flow-options"><button class="bg-primary/10" aria-pressed="true"></button></div></div>',
+        "button",
+      ),
+    ).toBe("rgb(1, 2, 3)");
+
+    utilityStyle.remove();
   });
 });

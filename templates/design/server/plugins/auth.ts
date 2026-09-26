@@ -10,9 +10,6 @@ export default createAuthPlugin({
   workspaceAppPublicPaths: ["/", "/visual-edit", "/design", "/present"],
   marketing: {
     appName: "Design",
-    screenshotPath: "/auth-marketing/design.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     learnMoreUrl: "https://agent-native.com/apps/design",
     tagline:
       "Design and prototype by describing what you want. The AI agent turns your ideas into interactive, fully responsive designs in seconds.",

@@ -25,6 +25,12 @@ export type ReasoningEffort =
   | "xhigh"
   | "max";
 
+export type ComposerAgentEngineState =
+  | "unknown"
+  | "unavailable"
+  | "missing"
+  | "configured";
+
 export interface EngineModelGroup {
   engine: string;
   label: string;
@@ -78,11 +84,16 @@ export interface AgentChatContextItem {
   key: string;
   title: string;
   context: string;
+  status?: "ready" | "pending" | "error";
+  statusMessage?: string;
+  removable?: boolean;
+  blocksSubmission?: boolean;
 }
 
 export interface ComposerAgentChatMessage {
   message: string;
   context?: string;
+  contextItems?: readonly Readonly<AgentChatContextItem>[];
   mode?: "plan" | "act";
   submit?: boolean;
 }
@@ -139,12 +150,12 @@ export interface ComposerRuntimeAdapters {
     useChatModels?: (options: { enabled: boolean }) => ComposerModelState;
     useAgentEngineConfigured?: (enabled: boolean) => {
       missing: boolean;
-      state: string;
+      state: ComposerAgentEngineState;
     };
     fetchAgentEngineConfiguredState?: (
       enabled: boolean,
       options: { timeoutMs: number },
-    ) => Promise<"missing" | "configured" | (string & {})>;
+    ) => Promise<ComposerAgentEngineState>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
     reasoning?: {
@@ -231,8 +242,11 @@ const fallbackModels = {
     onModelChange: () => {},
     onEffortChange: () => {},
   }),
-  useAgentEngineConfigured: () => ({ missing: false, state: "configured" }),
-  fetchAgentEngineConfiguredState: async () => "configured",
+  useAgentEngineConfigured: () => ({
+    missing: false,
+    state: "configured" as const,
+  }),
+  fetchAgentEngineConfiguredState: async () => "configured" as const,
 };
 const FragmentBoundary: ComponentType<{ children?: ReactNode }> = ({
   children,
@@ -352,7 +366,7 @@ export const AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE =
   "agent-native:insert-composer-reference";
 
 export function formatPromptContextItems(
-  items: AgentChatContextItem[] | undefined,
+  items: readonly AgentChatContextItem[] | undefined,
 ): string {
   return (
     items

@@ -21,9 +21,11 @@ import {
   DEFAULT_EXPORT_OUT_DIR,
   EXPORT_BASELINE_PATH,
   findExportBaselineProblems,
+  hashExportSource,
   loadExportBaseline,
   loadExportCases,
   runExportCase,
+  type CaseOutcome,
 } from "./lib/export-regression.js";
 
 const args = process.argv.slice(2);
@@ -32,7 +34,7 @@ const filter = args.find((arg) => !arg.startsWith("--"));
 const cases = loadExportCases(filter);
 
 const browser = await chromium.launch();
-const outcomes = [];
+const outcomes: CaseOutcome[] = [];
 try {
   for (const testCase of cases) {
     process.stdout.write(`· ${testCase.id} … `);
@@ -48,6 +50,7 @@ try {
       const message = error instanceof Error ? error.message : String(error);
       outcomes.push({
         id: testCase.id,
+        sourceHash: hashExportSource(testCase.html),
         status: "failed" as const,
         error: message,
       });
@@ -99,6 +102,7 @@ if (updateBaseline) {
       maxDiffPercent: ceilingFor((outcome.diffRatio ?? 0) * 100),
       maxOmitted: outcome.exportOmissions ?? 0,
       maxApproximated: outcome.exportApproximations ?? 0,
+      sourceHash: outcome.sourceHash,
     };
   }
   writeFileSync(

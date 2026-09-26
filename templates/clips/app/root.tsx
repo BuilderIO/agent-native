@@ -382,12 +382,6 @@ function ClipsExtensionAuthBridge() {
   );
 }
 
-function AppContent() {
-  const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
-  return <PrivateAppContent />;
-}
-
 function PrivateAppContent() {
   const location = useLocation();
   const { status: sessionStatus } = useSession();
@@ -429,9 +423,7 @@ export default function Root() {
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const isMarketingHome = location.pathname === "/";
-  const isPublicPath =
-    isMarketingHome || isStandalonePublicPath(location.pathname);
+  const isPublicPath = isStandalonePublicPath(location.pathname);
   const legacyRecordingPath = isLegacyRecordingPath(location.pathname);
   const publicSharePath = location.pathname.startsWith("/share/");
   return (
@@ -461,7 +453,7 @@ export default function Root() {
           persistPreference: !isPublicPath,
         }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

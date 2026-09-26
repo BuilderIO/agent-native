@@ -15,15 +15,19 @@ function tsxFiles(root: string): string[] {
 }
 
 describe("docs image loading", () => {
-  it("lazy-loads and asynchronously decodes every image", () => {
+  it("lazy-loads non-hero images and asynchronously decodes every image", () => {
     const violations: string[] = [];
 
     for (const file of tsxFiles(appDir)) {
       const source = fs.readFileSync(file, "utf8");
       for (const match of source.matchAll(/<img\b[\s\S]*?>/g)) {
         const image = match[0];
+        const eagerHeroArtwork = image.includes(
+          'className="as-generated-primary"',
+        );
         if (
-          !image.includes('loading="lazy"') ||
+          (eagerHeroArtwork && image.includes('loading="lazy"')) ||
+          (!eagerHeroArtwork && !image.includes('loading="lazy"')) ||
           !image.includes('decoding="async"')
         ) {
           violations.push(

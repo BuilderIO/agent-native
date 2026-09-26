@@ -9,6 +9,8 @@ import {
 import type { AgentRunSummary } from "../../agent/run-store.js";
 import { normalizeThreadRepository } from "../../agent/thread-data-builder.js";
 import type { ChatThread } from "../../chat-threads/store.js";
+import { buildResourceSocialMeta } from "../../shared/social-meta.js";
+import { getAppBasePath, getOrigin } from "../google-oauth.js";
 
 // ---------------------------------------------------------------------------
 // Read-only shared-thread route: renders a public HTML/JSON view of a chat
@@ -101,8 +103,29 @@ function formatSharedThreadTime(value: string | number | null | undefined) {
 function renderSharedThreadHtml(
   thread: SanitizedSharedThread,
   runs: AgentRunSummary[],
+  origin: string,
 ): string {
   const title = thread.title || "Shared agent session";
+  const description =
+    thread.preview ||
+    `${thread.messageCount} message${thread.messageCount === 1 ? "" : "s"}`;
+  const socialMeta = buildResourceSocialMeta({
+    title,
+    description,
+    origin,
+    basePath: getAppBasePath(),
+    type: "article",
+  })
+    .map((descriptor) => {
+      if ("title" in descriptor) {
+        return `<title>${escapeSharedThreadHtml(descriptor.title)}</title>`;
+      }
+      const attribute = "property" in descriptor ? "property" : "name";
+      const value =
+        "property" in descriptor ? descriptor.property : descriptor.name;
+      return `<meta ${attribute}="${escapeSharedThreadHtml(value)}" content="${escapeSharedThreadHtml(descriptor.content)}" />`;
+    })
+    .join("\n  ");
   const messages = thread.messages
     .map((message) => {
       const time = formatSharedThreadTime(message.createdAt);
@@ -144,6 +167,7 @@ function renderSharedThreadHtml(
   <meta name="robots" content="noindex, nofollow" />
   <meta name="referrer" content="no-referrer" />
   <title>${escapeSharedThreadHtml(title)}</title>
+  ${socialMeta}
   <style>
     :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f7f5; color: #1d1d1b; }
     * { box-sizing: border-box; }
@@ -181,7 +205,7 @@ function renderSharedThreadHtml(
     <header>
       <p class="eyebrow">Read-only shared agent session</p>
       <h1>${escapeSharedThreadHtml(title)}</h1>
-      <p class="summary">${escapeSharedThreadHtml(thread.preview || `${thread.messageCount} message${thread.messageCount === 1 ? "" : "s"}`)}</p>
+      <p class="summary">${escapeSharedThreadHtml(description)}</p>
     </header>
     ${messages || '<p class="empty">No transcript messages were shared.</p>'}
     ${runsHtml}
@@ -233,7 +257,7 @@ export async function handleSharedThreadRequest(
   setResponseHeader(event, "X-Robots-Tag", "noindex, nofollow");
   if (wantsSharedThreadHtml(event)) {
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-    return renderSharedThreadHtml(payload.thread, runs);
+    return renderSharedThreadHtml(payload.thread, runs, getOrigin(event));
   }
   setResponseHeader(event, "Content-Type", "application/json");
   return payload;
