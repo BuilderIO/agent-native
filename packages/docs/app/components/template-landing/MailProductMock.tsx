@@ -1,5 +1,4 @@
 // i18n-raw-literal-disable-file -- static Mail artwork; names and messages are fabricated.
-import { AgentNativeIcon } from "@agent-native/core/client/agent-native-icon";
 import {
   IconArchive,
   IconArrowUp,
@@ -8,9 +7,6 @@ import {
   IconChevronDown,
   IconClock,
   IconDots,
-  IconFileText,
-  IconInbox,
-  IconMailForward,
   IconMailOpened,
   IconMessageCircle,
   IconMenu2,
@@ -278,40 +274,6 @@ export function MailProductMock({
           </header>
 
           <div className="mm-body">
-            <nav className="mm-nav-rail" aria-label="Mail navigation">
-              <div className="mm-rail-brand">
-                <AgentNativeIcon aria-hidden="true" />
-              </div>
-              <span className="mm-rail-item is-active" aria-label="Inbox">
-                <IconInbox size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Unread">
-                <IconMailForward size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Starred">
-                <IconStar size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Snoozed">
-                <IconClock size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Sent">
-                <IconMailForward size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Drafts">
-                <IconFileText size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Archive">
-                <IconArchive size={17} />
-              </span>
-              <span className="mm-rail-item" aria-label="Trash">
-                <IconTrash size={17} />
-              </span>
-              <span className="mm-rail-spacer" />
-              <span className="mm-rail-item" aria-label="Settings">
-                <IconSettings size={17} />
-              </span>
-            </nav>
-
             <main className="mm-inbox">
               {variant === "automations" ? (
                 <div className="mm-thread-list">
