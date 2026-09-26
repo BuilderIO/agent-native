@@ -80,12 +80,35 @@ describe("public booking availability", () => {
     );
   });
 
-  it("does not expose a user's schedule on a different booking slug", async () => {
-    const result = await (getPublicAvailability as any)({
-      query: { slug: "other", username: "owner" },
+  it("returns not found for a stale personal booking slug", async () => {
+    await expect(
+      (getPublicAvailability as any)({
+        query: { slug: "other", username: "owner" },
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("returns not found for an unknown username", async () => {
+    mocks.getDb.mockReturnValue({
+      select: () => ({ from: () => ({ where: async () => [] }) }),
     });
 
-    expect(result.timezone).toBe("America/New_York");
-    expect(result.bookingPageSlug).toBe("book");
+    await expect(
+      (getPublicAvailability as any)({
+        query: { slug: "book", username: "missing" },
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(mocks.getUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("keeps defaults for legacy links without a username", async () => {
+    const result = await (getPublicAvailability as any)({
+      query: { slug: "book" },
+    });
+
+    expect(result).toMatchObject({
+      timezone: "America/New_York",
+      bookingPageSlug: "book",
+    });
   });
 });
