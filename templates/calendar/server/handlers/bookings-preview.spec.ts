@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getUserSetting: vi.fn(),
   getDefaultAccountSelection: vi.fn(),
   createGoogleEvent: vi.fn(),
+  sendBookingConfirmationEmails: vi.fn(),
   dbUpdates: [] as Array<Record<string, unknown>>,
   isConnected: vi.fn(),
   listEvents: vi.fn(),
@@ -74,6 +75,11 @@ vi.mock("../lib/google-calendar.js", () => ({
   getFreeBusy: mocks.getFreeBusy,
   isConnected: mocks.isConnected,
   listEvents: mocks.listEvents,
+}));
+
+vi.mock("../lib/booking-emails.js", () => ({
+  sendBookingCancellationEmails: vi.fn(),
+  sendBookingConfirmationEmails: mocks.sendBookingConfirmationEmails,
 }));
 
 vi.mock("../lib/zoom.js", () => ({
@@ -284,7 +290,7 @@ describe("draft booking availability previews", () => {
     expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 503);
   });
 
-  it("keeps the booking reserved when Zoom creation has an ambiguous failure", async () => {
+  it("confirms a reserved booking when Zoom creation has an ambiguous failure", async () => {
     bookingLink.conferencing = JSON.stringify({ type: "zoom" });
     bookingLink.hosts = JSON.stringify([]);
     mocks.createZoomMeeting.mockRejectedValueOnce(
@@ -294,8 +300,13 @@ describe("draft booking availability previews", () => {
 
     const response = await (createBooking as any)(event);
 
-    expect(response).toEqual({ error: "Failed to create booking" });
-    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 502);
+    expect(response).toEqual(
+      expect.objectContaining({
+        status: "confirmed",
+        meetingLinkPending: true,
+      }),
+    );
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 201);
     expect(mocks.insertedBookings).toHaveLength(1);
     expect(mocks.insertedBookings[0]).toEqual(
       expect.objectContaining({ status: "confirmed" }),
@@ -310,6 +321,12 @@ describe("draft booking availability previews", () => {
       expect.objectContaining({
         googleEventId: "google-event-id",
         calendarAccountId: "owner@example.com",
+      }),
+    );
+    expect(mocks.sendBookingConfirmationEmails).toHaveBeenCalledWith(
+      expect.objectContaining({
+        booking: expect.objectContaining({ meetingLinkPending: true }),
+        manageUrl: expect.stringContaining("/booking/manage/"),
       }),
     );
 
@@ -327,7 +344,11 @@ describe("draft booking availability previews", () => {
     bookingLink.hosts = JSON.stringify([]);
     mocks.createZoomMeeting
       .mockResolvedValueOnce({ status: "not_started" })
-      .mockRejectedValueOnce(new Error("ambiguous Zoom failure"));
+      .mockResolvedValueOnce({
+        status: "created",
+        meetingUrl: "https://zoom.us/j/meeting-id",
+        meetingId: "meeting-id",
+      });
     const event = {};
 
     const response = await (createBooking as any)(event);
@@ -341,11 +362,47 @@ describe("draft booking availability previews", () => {
 
     const retryResponse = await (createBooking as any)({});
 
-    expect(retryResponse).toEqual({ error: "Failed to create booking" });
+    expect(retryResponse).toEqual(
+      expect.objectContaining({
+        meetingLink: "https://zoom.us/j/meeting-id",
+        status: "confirmed",
+      }),
+    );
     expect(mocks.createZoomMeeting).toHaveBeenCalledTimes(2);
     expect(mocks.insertedBookings).toHaveLength(2);
     expect(mocks.insertedBookings[1]).toEqual(
       expect.objectContaining({ status: "confirmed" }),
     );
+  });
+
+  it("releases the slot when Zoom definitively rejects the meeting", async () => {
+    bookingLink.conferencing = JSON.stringify({ type: "zoom" });
+    bookingLink.hosts = JSON.stringify([]);
+    mocks.createZoomMeeting
+      .mockResolvedValueOnce({ status: "rejected" })
+      .mockResolvedValueOnce({
+        status: "created",
+        meetingUrl: "https://zoom.us/j/meeting-id",
+        meetingId: "meeting-id",
+      });
+    const event = {};
+
+    const rejectedResponse = await (createBooking as any)(event);
+
+    expect(rejectedResponse).toEqual({ error: "Failed to create booking" });
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 503);
+    expect(mocks.insertedBookings[0]).toEqual(
+      expect.objectContaining({ status: "cancelled" }),
+    );
+
+    const retryResponse = await (createBooking as any)({});
+
+    expect(retryResponse).toEqual(
+      expect.objectContaining({
+        meetingLink: "https://zoom.us/j/meeting-id",
+        status: "confirmed",
+      }),
+    );
+    expect(mocks.insertedBookings).toHaveLength(2);
   });
 });

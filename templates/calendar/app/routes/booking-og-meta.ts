@@ -16,7 +16,12 @@ import { getDb, schema } from "../../server/db";
 
 export interface BookingOgLoaderData {
   ogImageUrl: string;
-  link: { title: string; description: string | null; duration: number } | null;
+  link: {
+    title: string;
+    description: string | null;
+    duration: number;
+    updatedAt: string;
+  } | null;
   origin: string;
   pageUrl: string;
   basePath: string;
@@ -56,6 +61,7 @@ export async function bookingOgLoader({
           title: schema.bookingLinks.title,
           description: schema.bookingLinks.description,
           duration: schema.bookingLinks.duration,
+          updatedAt: schema.bookingLinks.updatedAt,
         })
         .from(schema.bookingLinks)
         .where(
@@ -71,6 +77,7 @@ export async function bookingOgLoader({
     request.url,
   );
   if (params.username) imageUrl.searchParams.set("username", params.username);
+  if (link) imageUrl.searchParams.set("v", link.updatedAt);
   return {
     ogImageUrl: imageUrl.toString(),
     link: link ?? null,

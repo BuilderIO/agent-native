@@ -1,4 +1,3 @@
-import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const database = vi.hoisted(() => ({
@@ -6,6 +5,7 @@ const database = vi.hoisted(() => ({
     title: string;
     description: string | null;
     duration: number;
+    updatedAt: string;
     isActive: boolean;
   } | null,
 }));
@@ -40,6 +40,7 @@ vi.mock("../../server/db", () => ({
       title: "booking_title",
       description: "booking_description",
       duration: "booking_duration",
+      updatedAt: "booking_updated_at",
       isActive: "booking_active",
     },
   },
@@ -53,12 +54,13 @@ describe("booking OG meta", () => {
       title: "Discovery call",
       description: "Talk through the launch plan.",
       duration: 30,
+      updatedAt: "2026-09-25T18:00:00.000Z",
       isActive: true,
     };
     where.mockClear();
   });
 
-  it("loads public link details and versions its generated image", async () => {
+  it("loads public link details and versions its image by link update", async () => {
     const loaderData = await bookingOgLoader({
       params: { slug: "meet-steve", username: "steve" },
       request: new Request("https://calendar.example.test/book/meet-steve"),
@@ -71,6 +73,7 @@ describe("booking OG meta", () => {
       duration: 30,
     });
     expect(url.searchParams.get("username")).toBe("steve");
+    expect(url.searchParams.get("v")).toBe("2026-09-25T18:00:00.000Z");
     expect(where).toHaveBeenCalled();
   });
 
@@ -100,9 +103,7 @@ describe("booking OG meta", () => {
     expect(imageUrl.pathname).toBe(
       "/api/public/booking-links/meet-steve/og.png",
     );
-    expect(imageUrl.searchParams.get("v")).toBe(
-      AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
-    );
+    expect(imageUrl.searchParams.get("v")).toBe("2026-09-25T18:00:00.000Z");
     expect(meta).toContainEqual({
       property: "og:image:width",
       content: "1200",
@@ -122,6 +123,7 @@ describe("booking OG meta", () => {
       title: "Private intake",
       description: "Internal only",
       duration: 30,
+      updatedAt: "2026-09-25T18:00:00.000Z",
       isActive: false,
     };
     const loaderData = await bookingOgLoader({

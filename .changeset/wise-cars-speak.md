@@ -1,5 +1,6 @@
 ---
 "@agent-native/core": minor
+"@agent-native/scheduling": minor
 ---
 
-Add resource-aware Open Graph and Twitter metadata for public share previews.
+Improve public share previews and recover Calendar bookings safely after Zoom outcomes.

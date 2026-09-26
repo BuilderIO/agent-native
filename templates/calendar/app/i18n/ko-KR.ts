@@ -502,6 +502,8 @@ export default {
     confirmBooking: "예약 확인",
     confirmation: "확인",
     confirmationSent: "완료되었습니다. 확인 이메일을 보냈습니다.",
+    meetingDetailsPending:
+      "시간이 예약되었습니다. 호스트가 회의 정보를 안내해 드립니다.",
     confirmed: "확정됨",
     confirmedCount: "확정됨 ({{count}})",
     confirming: "확인 중",

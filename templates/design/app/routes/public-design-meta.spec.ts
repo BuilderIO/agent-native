@@ -47,7 +47,11 @@ vi.mock("../../server/db", () => ({
   },
 }));
 
-import { designResourceMeta, loadPublicDesignMeta } from "./public-design-meta";
+import {
+  designResourceMeta,
+  loadPublicDesignMeta,
+  publicDesignMetaLoaderData,
+} from "./public-design-meta";
 
 describe("public Design metadata", () => {
   beforeEach(() => {
@@ -108,5 +112,17 @@ describe("public Design metadata", () => {
     expect(meta).toEqual([{ title: "Design editor" }]);
     expect(JSON.stringify(meta)).not.toContain("Internal redesign");
     expect(where).toHaveBeenCalled();
+  });
+
+  it("marks query-dependent public metadata for full cache-key variation", () => {
+    const response = publicDesignMetaLoaderData({
+      resource: null,
+      origin: "https://design.example.test",
+      basePath: "/design",
+    });
+
+    expect(response.init?.headers).toEqual({
+      "x-agent-native-ssr-key": "query",
+    });
   });
 });

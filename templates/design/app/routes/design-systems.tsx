@@ -5,7 +5,10 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import enUSMessages from "@/i18n/en-US";
 
 import { getDb, schema } from "../../server/db";
-import { designResourceMeta } from "./public-design-meta";
+import {
+  designResourceMeta,
+  publicDesignMetaLoaderData,
+} from "./public-design-meta";
 
 export { default } from "../pages/DesignSystems";
 
@@ -27,11 +30,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
         .limit(1)
     : [];
 
-  return {
+  return publicDesignMetaLoaderData({
     resource: resource ?? null,
     origin: new URL(request.url).origin,
     basePath: getConfiguredAppBasePath(),
-  };
+  });
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) =>

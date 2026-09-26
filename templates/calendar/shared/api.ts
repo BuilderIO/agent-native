@@ -399,6 +399,8 @@ export interface Booking {
   fieldResponses?: Record<string, string | boolean>;
   /** Meeting link (Zoom, Google Meet, or custom) */
   meetingLink?: string;
+  /** The time is booked, but the video meeting link needs host follow-up. */
+  meetingLinkPending?: boolean;
   /** Google Calendar event created for this booking, if any */
   googleEventId?: string;
   /** Token for cancel/reschedule link (only returned to the booker) */

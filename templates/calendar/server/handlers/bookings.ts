@@ -1475,7 +1475,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     let meetingLink: string | undefined;
     let googleEventId: string | undefined;
     let calendarAccountId: string | undefined;
-    let zoomCreationFailed = false;
+    let meetingLinkPending = false;
 
     // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
@@ -1500,7 +1500,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           endTime: requestedRange.end.toISOString(),
           timezone: bookingTimeZone,
         });
-        if (zoomResult.status === "not_started") {
+        if (
+          zoomResult.status === "not_started" ||
+          zoomResult.status === "rejected"
+        ) {
           await getDb()
             .update(schema.bookings)
             .set({ status: "cancelled" })
@@ -1521,7 +1524,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         // unreadable, so keep the booking to reserve the slot and prevent a
         // retry from silently creating a duplicate meeting. Finish the
         // independent calendar write before returning the provider error.
-        zoomCreationFailed = true;
+        meetingLinkPending = true;
       }
     }
 
@@ -1621,11 +1624,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         .where(eq(schema.bookings.id, id));
     }
 
-    if (zoomCreationFailed) {
-      setResponseStatus(event, 502);
-      return { error: "Failed to create booking" };
-    }
-
     const booking: Booking = {
       id,
       name: attendeeName,
@@ -1640,6 +1638,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       fieldResponses:
         Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
       meetingLink,
+      ...(meetingLinkPending ? { meetingLinkPending: true } : {}),
       googleEventId,
       cancelToken,
       status: "confirmed",

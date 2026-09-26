@@ -21,9 +21,9 @@ export const DEFAULT_SSR_CACHE_HEADERS = {
 export const SSR_HTML_CONTENT_TYPE = "text/html; charset=utf-8";
 
 /**
- * Internal response marker for public HTML whose redirect target preserves
- * request query parameters. The SSR adapters consume this marker and emit a
- * provider-specific full-query cache key only where the provider supports it.
+ * Internal marker for public SSR HTML or data whose body varies by request
+ * query. The SSR adapters consume it and emit a provider-specific full-query
+ * cache key only where the provider supports it.
  */
 export const SSR_QUERY_CACHE_KEY_HEADER = "x-agent-native-ssr-key";
 

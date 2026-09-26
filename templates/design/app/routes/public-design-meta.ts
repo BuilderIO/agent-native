@@ -1,10 +1,12 @@
 import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import {
+  SSR_QUERY_CACHE_KEY_HEADER,
   buildResourceSocialMeta,
   normalizeDocumentTitle,
   type SocialMetaDescriptor,
 } from "@agent-native/core/shared";
 import { and, eq } from "drizzle-orm";
+import { data } from "react-router";
 
 import { getDb, schema } from "../../server/db";
 
@@ -12,6 +14,12 @@ export interface PublicDesignMetaData {
   resource: { title: string; description: string | null } | null;
   origin: string;
   basePath: string;
+}
+
+export function publicDesignMetaLoaderData(payload: PublicDesignMetaData) {
+  return data(payload, {
+    headers: { [SSR_QUERY_CACHE_KEY_HEADER]: "query" },
+  });
 }
 
 export async function loadPublicDesignMeta(
