@@ -718,7 +718,7 @@ function AnalyticsDbAdminPanel({
               value={selectedConnection?.id ?? ""}
               onValueChange={onSelectConnection}
             >
-              <SelectTrigger className="h-9 w-[260px] max-w-full">
+              <SelectTrigger className="w-[260px] max-w-full">
                 <SelectValue placeholder={t("agents.selectConnection")} />
               </SelectTrigger>
               <SelectContent>

@@ -173,8 +173,8 @@ export function Sidebar() {
           </span>
           <Button
             variant="secondary"
-            size="icon"
-            className="size-10 rounded-lg transition-[background-color,box-shadow,transform] active:scale-[0.96] motion-reduce:active:scale-100"
+            size="icon-lg"
+            className="rounded-lg transition-[background-color,box-shadow,transform] active:scale-[0.96] motion-reduce:active:scale-100"
             onClick={handleSubmitPrompt}
             disabled={!prompt.trim() || promptRun.isActivePrompt(prompt)}
             aria-label={t("sidebar.sendPrompt")}
@@ -241,7 +241,7 @@ export function Sidebar() {
           type="button"
           variant="ghost"
           size="icon"
-          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          className="shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
           onClick={openCommandMenu}
           aria-label={t("root.searchForms")}
         >
@@ -275,8 +275,8 @@ export function Sidebar() {
       <div className="fixed top-2.5 start-2.5 z-40 md:hidden">
         <Button
           variant="ghost"
-          size="icon"
-          className="size-10 rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+          size="icon-lg"
+          className="rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,transform]"
           onClick={() => setMobileOpen(true)}
           aria-label={t("sidebar.openSidebar")}
         >

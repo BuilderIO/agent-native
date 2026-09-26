@@ -1528,7 +1528,7 @@ export function ComponentSection({
                             commitProp(row, checked ? "true" : "false")
                           }
                           disabled={disabled}
-                          className="h-4 w-7 [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-3"
+                          size="sm"
                           aria-label={
                             row.name /* i18n-ignore dynamic prop name */
                           }

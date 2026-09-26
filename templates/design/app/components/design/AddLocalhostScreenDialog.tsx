@@ -217,7 +217,7 @@ export function AddLocalhostScreenDialog({
               value={selectedConnectionId}
               onValueChange={setSelectedConnectionId}
             >
-              <SelectTrigger className="h-8 w-full text-xs">
+              <SelectTrigger size="sm" className="w-full text-xs">
                 <SelectValue
                   placeholder={t("editPanel.screenSource.chooseLocalApp")}
                 />

@@ -1805,17 +1805,11 @@ function CreateExtensionPopover({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 px-3"
               onClick={() => onOpenChange(false)}
             >
               Cancel
             </Button>
-            <Button
-              type="submit"
-              size="sm"
-              className="h-8 px-3"
-              disabled={!canSubmit}
-            >
+            <Button type="submit" size="sm" disabled={!canSubmit}>
               Create
             </Button>
           </div>

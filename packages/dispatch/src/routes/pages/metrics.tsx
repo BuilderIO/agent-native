@@ -570,7 +570,8 @@ function UserSelector({
       }
     >
       <SelectTrigger
-        className="h-8 w-[210px] text-xs"
+        size="sm"
+        className="w-[210px] text-xs"
         aria-label="Filter usage by user"
       >
         <SelectValue placeholder="All users" />

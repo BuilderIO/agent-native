@@ -655,12 +655,13 @@ export default function ExplorerDashboardPage() {
           ) : null}
           {editingName && canEdit ? (
             <Input
+              size="sm"
               ref={nameInputRef}
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               onBlur={handleSaveName}
               onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-              className="h-8 w-full sm:w-64 text-lg font-semibold"
+              className="w-full sm:w-64 text-lg font-semibold"
               autoFocus
             />
           ) : canEdit ? (

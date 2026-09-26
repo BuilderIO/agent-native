@@ -494,7 +494,7 @@ function ActionBuilder({
               }
             }}
           >
-            <SelectTrigger className="h-8 w-[140px] text-[13px]">
+            <SelectTrigger size="sm" className="w-[140px] text-[13px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -508,12 +508,13 @@ function ActionBuilder({
 
           {action.type === "label" && (
             <Input
+              size="sm"
               value={action.labelName}
               onChange={(e) =>
                 updateAction(idx, { type: "label", labelName: e.target.value })
               }
               placeholder={t("settings.labelName")}
-              className="flex-1 h-8 px-2 text-[13px] placeholder:text-muted-foreground/40"
+              className="flex-1 px-2 text-[13px] placeholder:text-muted-foreground/40"
             />
           )}
 
@@ -1019,7 +1020,8 @@ function AutomationsSection({ embedded = false }: { embedded?: boolean }) {
       disabled={modelOptions.length === 0}
     >
       <SelectTrigger
-        className="w-[260px] h-8 text-xs"
+        size="sm"
+        className="w-[260px] text-xs"
         aria-label={embedded ? t("settings.rulesModel") : undefined}
       >
         <SelectValue />

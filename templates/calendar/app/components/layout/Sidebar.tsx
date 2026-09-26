@@ -807,8 +807,8 @@ export function Sidebar({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground"
+          size="icon-sm"
+          className="shrink-0 text-muted-foreground"
           onClick={openCommandMenu}
           aria-label={t("root.commandSearch")}
         >

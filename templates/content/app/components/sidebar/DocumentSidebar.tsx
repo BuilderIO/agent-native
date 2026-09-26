@@ -2245,8 +2245,8 @@ export function DocumentSidebar({
           type="button"
           aria-label={t("sidebar.search")}
           variant="ghost"
-          size="icon"
-          className="size-10 text-muted-foreground hover:text-foreground"
+          size="icon-lg"
+          className="text-muted-foreground hover:text-foreground"
           onClick={handleOpenSearch}
         >
           <IconSearch size={16} />
@@ -2315,8 +2315,8 @@ export function DocumentSidebar({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="size-8 shrink-0 hover:bg-sidebar-accent/60"
+            size="icon-sm"
+            className="shrink-0 hover:bg-sidebar-accent/60"
             aria-label={`${t("sidebar.new")} — ${selectedSpace.name}`}
             disabled={createDocument.isPending || createDatabase.isPending}
           >

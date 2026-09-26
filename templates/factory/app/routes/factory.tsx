@@ -576,8 +576,8 @@ export default function FactoryRoute() {
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                className="size-10 shrink-0"
+                size="icon-lg"
+                className="shrink-0"
                 onClick={goToFactoryList}
                 aria-label={t("factoryRoute.backToFactories")}
               >
@@ -617,8 +617,8 @@ export default function FactoryRoute() {
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-10 shrink-0"
+              size="icon-lg"
+              className="shrink-0"
               onClick={goToFactoryList}
               aria-label={t("factoryRoute.backToFactories")}
             >
@@ -675,8 +675,8 @@ export default function FactoryRoute() {
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+              size="icon-sm"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
               aria-label={t("factoryRoute.auditRefresh")}
               title={t("factoryRoute.auditRefresh")}
               disabled={auditFetching}

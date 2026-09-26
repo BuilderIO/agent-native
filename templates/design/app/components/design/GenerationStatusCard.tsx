@@ -50,7 +50,7 @@ export function GenerationStatusCard({
             {retryablePrompt ? (
               <Button
                 size="sm"
-                className="h-8 cursor-pointer rounded-md"
+                className="cursor-pointer rounded-md"
                 onClick={onRetry}
               >
                 <IconRefresh className="h-3.5 w-3.5" />

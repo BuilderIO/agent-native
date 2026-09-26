@@ -2151,7 +2151,7 @@ export function EventDetailPopover({
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="size-9 shrink-0"
+                          className="shrink-0"
                           aria-label={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
                           title={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
                           disabled={mutationPending}

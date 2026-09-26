@@ -1192,7 +1192,7 @@ function DatabaseSettingsSourcePanel({
             type="button"
             size="sm"
             variant="outline"
-            className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
+            className="mt-2 text-xs text-destructive hover:text-destructive"
             disabled={!canEdit || sourceActionPending}
             onClick={() => onDisconnectSource(source.id)}
           >
@@ -1657,7 +1657,7 @@ function SecondarySourceLeaf({
           type="button"
           size="sm"
           variant="outline"
-          className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
+          className="mt-2 text-xs text-destructive hover:text-destructive"
           disabled={!canEdit || pending}
           onClick={onDisconnect}
         >
@@ -1822,7 +1822,7 @@ function SourceRoleCard({
               type="button"
               size="sm"
               variant="outline"
-              className="h-8 text-xs"
+              className="text-xs"
               disabled={!canEdit || pending}
               onClick={onChooseFields}
             >
@@ -1832,7 +1832,7 @@ function SourceRoleCard({
               type="button"
               size="sm"
               variant="outline"
-              className="h-8 text-xs"
+              className="text-xs"
               disabled={!canEdit || pending}
               onClick={onAddItems}
             >
@@ -1844,7 +1844,7 @@ function SourceRoleCard({
             type="button"
             size="sm"
             variant="outline"
-            className="h-8 text-xs"
+            className="text-xs"
             disabled={!canEdit || pending}
             onClick={onAddDetails}
           >
@@ -2280,12 +2280,13 @@ function BuilderSpaceModelsView({
       <div className="relative min-w-0">
         <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
+          size="sm"
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={dbText("searchModels")}
           aria-label={dbText("searchBuilderModels")}
-          className="h-8 min-w-0 pl-7 text-sm"
+          className="min-w-0 pl-7 text-sm"
         />
       </div>
 
@@ -3011,7 +3012,7 @@ function DatabaseSettingsGroupPanel({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-8 flex-1 text-xs"
+              className="flex-1 text-xs"
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, true)}
             >
@@ -3021,7 +3022,7 @@ function DatabaseSettingsGroupPanel({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-8 flex-1 text-xs"
+              className="flex-1 text-xs"
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, false)}
             >

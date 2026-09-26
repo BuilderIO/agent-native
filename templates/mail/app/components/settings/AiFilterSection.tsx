@@ -779,7 +779,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 px-2 text-xs text-muted-foreground"
+            className="px-2 text-xs text-muted-foreground"
             onClick={() => setSetupAgainOpen(true)}
           >
             {t("mail.sort.aiSetupRunAgain")}

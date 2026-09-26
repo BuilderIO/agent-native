@@ -234,11 +234,12 @@ export default function AutomationsRoute() {
                 className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
               />
               <Input
+                size="sm"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search automations"
                 aria-label="Search automations"
-                className="h-8 pl-8 text-xs"
+                className="pl-8 text-xs"
               />
             </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -257,7 +258,8 @@ export default function AutomationsRoute() {
               }}
             >
               <SelectTrigger
-                className="h-8 w-[10.5rem] text-xs"
+                size="sm"
+                className="w-[10.5rem] text-xs"
                 aria-label="Automation view"
               >
                 <SelectValue />

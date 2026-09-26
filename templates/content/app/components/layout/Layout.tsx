@@ -235,11 +235,11 @@ export function Layout({ children }: LayoutProps) {
       ref={sidebarTriggerRef}
       type="button"
       variant="ghost"
-      size="icon"
+      size="icon-lg"
       aria-label={t("navigation.openSidebar")}
       aria-expanded={mobileSidebarOpen}
       aria-haspopup="dialog"
-      className="size-10 shrink-0 rounded-lg text-muted-foreground"
+      className="shrink-0 rounded-lg text-muted-foreground"
       onClick={() => setMobileSidebarOpen(true)}
     >
       <IconMenu2 size={18} />

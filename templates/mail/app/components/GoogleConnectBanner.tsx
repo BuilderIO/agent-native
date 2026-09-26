@@ -1096,7 +1096,7 @@ function GoogleAuthIssuePanel({
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                className="px-2 text-xs text-muted-foreground hover:text-foreground"
                 onClick={onDismiss}
               >
                 {t("mail.googleConnect.dismiss")}

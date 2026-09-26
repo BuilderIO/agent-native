@@ -273,7 +273,7 @@ export function FieldEditor({
         value={typeof value === "string" && value ? value : undefined}
         onValueChange={(next) => commit(next === CLEAR_OPTION ? "" : next)}
       >
-        <SelectTrigger className="h-8" aria-label={attribute.apiSlug}>
+        <SelectTrigger size="sm" aria-label={attribute.apiSlug}>
           <SelectValue placeholder={t("record.fieldEmpty")} />
         </SelectTrigger>
         <SelectContent>

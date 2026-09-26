@@ -1942,12 +1942,13 @@ function SqlDashboardPageContent({
       <div className="flex min-w-0 items-center gap-2">
         {editingName && canEdit ? (
           <Input
+            size="sm"
             ref={nameInputRef}
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
             onBlur={handleSaveName}
             onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-            className="h-8 w-full sm:w-64 text-lg font-semibold"
+            className="w-full sm:w-64 text-lg font-semibold"
             autoFocus
           />
         ) : canEdit ? (
@@ -2394,8 +2395,8 @@ function SqlDashboardPageContent({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="absolute right-2 top-2 h-8 w-8 text-cyan-900 hover:bg-cyan-400/20 hover:text-cyan-950 dark:text-cyan-100 dark:hover:text-cyan-50"
+            size="icon-sm"
+            className="absolute right-2 top-2 text-cyan-900 hover:bg-cyan-400/20 hover:text-cyan-950 dark:text-cyan-100 dark:hover:text-cyan-50"
             onClick={dismissDemoIntro}
             aria-label={t("sqlDashboard.dismissDemoIntro")}
           >

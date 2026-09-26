@@ -70,7 +70,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
           type="button"
           variant="ghost"
           size="icon"
-          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          className="shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
           onClick={openCommandMenu}
           aria-label={t("root.searchDecks")}
         >

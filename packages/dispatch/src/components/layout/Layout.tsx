@@ -2363,8 +2363,8 @@ export function Layout({
             <div className="pointer-events-none sticky top-0 z-10 flex justify-end px-4 pt-2 lg:px-6">
               <Button
                 variant="ghost"
-                size="icon"
-                className="pointer-events-auto absolute start-4 top-2 h-8 w-8 lg:hidden"
+                size="icon-sm"
+                className="pointer-events-auto absolute start-4 top-2 lg:hidden"
                 onClick={() => setMobileOpen(true)}
                 aria-label="Open navigation"
               >

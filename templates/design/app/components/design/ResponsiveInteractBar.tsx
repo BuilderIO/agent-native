@@ -188,7 +188,8 @@ export function ResponsiveInteractBar({
         <div className="flex min-w-[220px] flex-1 items-center gap-2">
           <Select value={deviceName} onValueChange={onDeviceChange}>
             <SelectTrigger
-              className="h-8 w-full max-w-60 gap-1.5 rounded-md !text-[12px]"
+              size="sm"
+              className="w-full max-w-60 gap-1.5 rounded-md !text-[12px]"
               aria-label={t("designEditor.responsiveInteract.device")}
             >
               <SelectValue>

@@ -363,11 +363,12 @@ export function GoogleSetupWizard() {
                                 {t("googleConnect.clientId")}
                               </Label>
                               <Input
+                                size="sm"
                                 id="client-id"
                                 value={clientId}
                                 onChange={(e) => setClientId(e.target.value)}
                                 placeholder="123456789.apps.googleusercontent.com"
-                                className="text-xs h-8 font-mono"
+                                className="text-xs font-mono"
                               />
                             </div>
                             <div className="space-y-1.5">
@@ -378,6 +379,7 @@ export function GoogleSetupWizard() {
                                 {t("googleConnect.clientSecret")}
                               </Label>
                               <Input
+                                size="sm"
                                 id="client-secret"
                                 type="password"
                                 value={clientSecret}
@@ -385,7 +387,7 @@ export function GoogleSetupWizard() {
                                   setClientSecret(e.target.value)
                                 }
                                 placeholder="GOCSPX-..."
-                                className="text-xs h-8 font-mono"
+                                className="text-xs font-mono"
                               />
                             </div>
                             <Button

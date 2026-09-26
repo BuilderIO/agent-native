@@ -115,7 +115,7 @@ export function QuestionFlow({
               onSubmit(normalizeGuidedAnswers(answers));
             }}
             disabled={responded || !allRequiredAnswered}
-            className="h-8 cursor-pointer rounded-md bg-[var(--design-editor-accent-color)] px-3 text-[12px] text-[var(--design-editor-accent-contrast-color)] shadow-none hover:bg-[var(--design-editor-accent-hover-color)] hover:text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+            className="cursor-pointer rounded-md bg-[var(--design-editor-accent-color)] text-[12px] text-[var(--design-editor-accent-contrast-color)] shadow-none hover:bg-[var(--design-editor-accent-hover-color)] hover:text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
           >
             {submitLabel ?? t("questionFlow.continue")}
           </Button>
@@ -130,7 +130,7 @@ export function QuestionFlow({
               onSkip();
             }}
             disabled={responded}
-            className="h-8 cursor-pointer rounded-md px-3 text-[12px] text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+            className="cursor-pointer rounded-md text-[12px] text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
           >
             {skipLabel ?? t("questionFlow.skip")}
           </Button>

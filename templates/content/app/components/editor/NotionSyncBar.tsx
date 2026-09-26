@@ -223,10 +223,11 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             {!syncStatus?.pageId ? (
               <>
                 <Input
+                  size="sm"
                   value={pageIdOrUrl}
                   onChange={(e) => setPageIdOrUrl(e.target.value)}
                   placeholder={t("editor.toolbar.notionPageUrlOrId")}
-                  className="h-8 w-full sm:w-[260px]"
+                  className="w-full sm:w-[260px]"
                 />
                 <Button
                   size="sm"

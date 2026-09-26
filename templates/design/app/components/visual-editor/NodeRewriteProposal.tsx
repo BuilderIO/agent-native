@@ -577,6 +577,7 @@ export function NodeRewriteProposal({
 
       <div className="mt-3 flex items-center gap-1.5">
         <Input
+          size="sm"
           value={refinement}
           onChange={(event) => setRefinement(event.currentTarget.value)}
           onKeyDown={(event) => {
@@ -587,13 +588,13 @@ export function NodeRewriteProposal({
           }}
           disabled={busy}
           placeholder={t("designEditor.nodeRewrite.refinePlaceholder")}
-          className="h-8 min-w-0 flex-1 text-xs"
+          className="min-w-0 flex-1 text-xs"
         />
         <Button
           type="button"
-          size="icon"
+          size="icon-sm"
           variant="outline"
-          className="size-8 shrink-0"
+          className="shrink-0"
           disabled={!refinement.trim() || busy}
           onClick={() => void submitRefinement()}
           aria-label={t("designEditor.nodeRewrite.refine")}
@@ -611,7 +612,7 @@ export function NodeRewriteProposal({
           type="button"
           size="sm"
           variant="ghost"
-          className="h-8 gap-1.5 px-2.5 text-xs"
+          className="gap-1.5 px-2.5 text-xs"
           disabled={busy}
           onClick={() => void resolve("reject")}
         >
@@ -621,7 +622,7 @@ export function NodeRewriteProposal({
         <Button
           type="button"
           size="sm"
-          className="h-8 gap-1.5 px-3 text-xs"
+          className="gap-1.5 text-xs"
           disabled={busy}
           onClick={() => void resolve("accept")}
         >

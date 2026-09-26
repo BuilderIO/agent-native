@@ -280,7 +280,7 @@ export function KeyboardShortcutsPanel({
           <div className="min-w-0 flex-1 overflow-x-auto pl-[124px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <TabsList
               data-shortcuts-tab-strip
-              className="h-9 w-max justify-start rounded-none bg-transparent p-0"
+              className="w-max justify-start rounded-none bg-transparent p-0"
             >
               {DESIGN_SHORTCUT_CATEGORIES.map((categoryId) => (
                 <TabsTrigger

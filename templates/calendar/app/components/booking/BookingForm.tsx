@@ -190,7 +190,7 @@ export function BookingForm({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-9 shrink-0"
+            className="shrink-0"
             onClick={() => removeAdditionalGuest(index)}
             aria-label={t("attendees.removeAttendee", {
               email: guestEmail || t("attendees.addAnotherGuest"),

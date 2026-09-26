@@ -712,8 +712,8 @@ function GenerationPreviewDialog({
               ) : null}
               <Button
                 variant="outline"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                size="icon-sm"
+                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 disabled={isDismissing}
                 onClick={() => onDismiss(slot)}
                 aria-label={t("library.deleteCandidate")}

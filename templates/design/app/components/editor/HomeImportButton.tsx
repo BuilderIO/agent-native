@@ -108,7 +108,7 @@ export function HomeImportButton() {
               <DropdownMenuTrigger asChild>
                 <Button
                   ref={menuTrigger}
-                  size="sm"
+                  size="icon-sm"
                   disabled={busy}
                   aria-label={t("home.importOptions")}
                 >

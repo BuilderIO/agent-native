@@ -1863,9 +1863,8 @@ function SourceListItem({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                size="icon"
+                size="icon-sm"
                 variant="ghost"
-                className="size-8"
                 onClick={onReview}
                 aria-label={`${t("sources.captures")}: ${sourceName(source)}`}
               >
@@ -1886,9 +1885,8 @@ function SourceListItem({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                size="icon"
+                size="icon-sm"
                 variant="ghost"
-                className="size-8"
                 aria-label={t("sources.moreActionsFor", {
                   source: sourceName(source),
                 })}
@@ -1932,9 +1930,8 @@ function SourceListItem({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                size="icon"
+                size="icon-sm"
                 variant="ghost"
-                className="size-8"
                 onClick={() => setExpanded((value) => !value)}
                 aria-expanded={expanded}
                 aria-label={

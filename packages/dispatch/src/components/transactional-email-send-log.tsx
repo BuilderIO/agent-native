@@ -191,7 +191,7 @@ function AddressFilterControl({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-8 shrink-0 gap-1 px-2"
+            className="shrink-0 gap-1 px-2"
             aria-label={dimensionLabel}
           >
             {dimensionLabel}

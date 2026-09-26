@@ -518,7 +518,7 @@ export function ShaderControls({
           checked={animated}
           onCheckedChange={handleAnimatedChange}
           disabled={reducedMotion}
-          className="origin-right scale-[0.8]"
+          size="sm"
         />
       </div>
 

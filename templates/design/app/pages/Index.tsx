@@ -1076,11 +1076,12 @@ export default function Index() {
     <div className="relative w-full max-w-175">
       <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
       <Input
+        size="sm"
         value={search}
         onChange={(event) => handleSearchChange(event.target.value)}
         placeholder={t("home.searchPlaceholder")}
         aria-label={t("home.searchPlaceholder")}
-        className="h-8 w-full ps-8"
+        className="w-full ps-8"
       />
     </div>,
   );
@@ -1297,14 +1298,14 @@ export default function Index() {
                           <TooltipTrigger asChild>
                             <Button
                               variant="ghost"
-                              size="icon"
+                              size="icon-sm"
                               onClick={toggleVisibleSelection}
                               aria-label={
                                 allVisibleSelected
                                   ? t("home.clearVisibleSelection")
                                   : t("home.selectVisibleDesigns")
                               }
-                              className="h-8 w-8 cursor-pointer"
+                              className="cursor-pointer"
                             >
                               <IconChecks className="w-4 h-4" />
                             </Button>
@@ -1319,10 +1320,10 @@ export default function Index() {
                           <TooltipTrigger asChild>
                             <Button
                               variant="ghost"
-                              size="icon"
+                              size="icon-sm"
                               onClick={clearSelection}
                               aria-label={t("home.clearSelection")}
-                              className="h-8 w-8 cursor-pointer"
+                              className="cursor-pointer"
                             >
                               <IconX className="w-4 h-4" />
                             </Button>
@@ -1604,7 +1605,7 @@ export default function Index() {
             }}
             placeholder={t("home.designName")}
             aria-label={t("home.designName")}
-            className="h-9 text-sm"
+            className="text-sm"
           />
           <AlertDialogFooter>
             <AlertDialogCancel className="cursor-pointer">

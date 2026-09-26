@@ -377,10 +377,11 @@ export function RecordGrid({ kind, emptyTitle }: RecordGridProps) {
         <div className="flex w-full max-w-sm items-center gap-2 rounded-md border border-input bg-background px-3">
           <IconSearch className="size-4 shrink-0 text-muted-foreground" />
           <Input
+            size="sm"
             defaultValue={search}
             onChange={(event) => updateSearch(event.target.value)}
             placeholder={t("grid.searchPlaceholder")}
-            className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+            className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
           />
         </div>
       </div>

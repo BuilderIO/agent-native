@@ -49,7 +49,7 @@ export function ListSelectionToolbar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 shrink-0 px-2 text-xs"
+          className="shrink-0 px-2 text-xs"
           disabled={toolbarDisabled || visibleCount === 0}
           onClick={selectionActions.selectAll}
         >
@@ -61,7 +61,7 @@ export function ListSelectionToolbar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 shrink-0 gap-1 px-2 text-xs text-destructive hover:text-destructive"
+          className="shrink-0 gap-1 px-2 text-xs text-destructive hover:text-destructive"
           disabled={selectedCount === 0 || toolbarDisabled}
           aria-label={t("common.delete")}
           onClick={onOpenBulkDelete}
@@ -71,8 +71,8 @@ export function ListSelectionToolbar({
         </Button>
         <Button
           variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0"
+          size="icon-sm"
+          className="shrink-0"
           disabled={toolbarDisabled}
           onClick={selectionActions.clearSelection}
           aria-label={t("selection.exitSelectionMode")}

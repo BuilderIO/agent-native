@@ -163,7 +163,7 @@ function ScheduleFields({
                 ),
               })
             }
-            className="h-9 bg-background text-sm"
+            className="bg-background text-sm"
           />
         </label>
         <label className="space-y-1.5 text-xs text-muted-foreground">
@@ -178,7 +178,7 @@ function ScheduleFields({
               })
             }
           >
-            <SelectTrigger className="h-9 bg-background text-sm">
+            <SelectTrigger className="bg-background text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -217,7 +217,7 @@ function ScheduleFields({
                   ).padStart(2, "0"),
               })
             }
-            className="h-9 bg-background text-sm"
+            className="bg-background text-sm"
           />
         </label>
       ) : null}
@@ -230,7 +230,7 @@ function ScheduleFields({
             disabled={saving}
             onValueChange={(value) => onChange({ weekday: Number(value) })}
           >
-            <SelectTrigger className="h-9 bg-background text-sm">
+            <SelectTrigger className="bg-background text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -261,7 +261,7 @@ function ScheduleFields({
                 ),
               })
             }
-            className="h-9 bg-background text-sm"
+            className="bg-background text-sm"
           />
         </label>
       ) : null}
@@ -274,7 +274,7 @@ function ScheduleFields({
             value={draft.time}
             disabled={saving}
             onChange={(event) => onChange({ time: event.target.value })}
-            className="h-9 bg-background text-sm"
+            className="bg-background text-sm"
           />
         </label>
       ) : null}

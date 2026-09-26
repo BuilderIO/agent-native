@@ -200,8 +200,8 @@ export function MonitorList({
                   <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      className="size-8 text-muted-foreground"
+                      size="icon-sm"
+                      className="text-muted-foreground"
                       onClick={() => onRunCheck(monitor)}
                       disabled={isRunning}
                       aria-label={t.checkNow}

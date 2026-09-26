@@ -477,8 +477,8 @@ export function AppLayout({ children }: AppLayoutProps) {
                     <div className="flex min-w-0 flex-1 items-center gap-2">
                       <Button
                         variant="ghost"
-                        size="icon"
-                        className="h-10 w-10 shrink-0 lg:hidden"
+                        size="icon-lg"
+                        className="shrink-0 lg:hidden"
                         onClick={() => setSidebarOpen(true)}
                         aria-label={t("calendarView.openNavigation")}
                       >
