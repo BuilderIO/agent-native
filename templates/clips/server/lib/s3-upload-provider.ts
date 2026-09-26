@@ -15,7 +15,10 @@
  *   S3_PUBLIC_BASE_URL | R2_PUBLIC_BASE_URL — optional (for public read URLs)
  */
 
-import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import {
+  isBlockedExtensionUrlWithDns,
+  ssrfSafeFetch,
+} from "@agent-native/core/extensions/url-safety";
 import type { FileUploadProvider } from "@agent-native/core/file-upload";
 import {
   type PrivateBlobHandle,
@@ -70,6 +73,8 @@ async function fetchWithTimeout(
   timeoutMs: number,
 ): Promise<Response> {
   try {
+    const requiresPrivateOriginDispatcher =
+      await isBlockedExtensionUrlWithDns(url);
     return await ssrfSafeFetch(
       url,
       {
@@ -78,8 +83,10 @@ async function fetchWithTimeout(
       },
       {
         followRedirects: false,
-        requireDispatcher: true,
-        allowedPrivateOrigins: [new URL(url).origin],
+        requireDispatcher: requiresPrivateOriginDispatcher,
+        allowedPrivateOrigins: requiresPrivateOriginDispatcher
+          ? [new URL(url).origin]
+          : [],
       },
     );
   } catch (err) {
