@@ -536,6 +536,7 @@ async function settleSaved(
   deckId: string,
   slideId: string,
   writesInFlight: () => number,
+  minimumObservationMs = 2500,
 ) {
   const start = Date.now();
   let last = await getSlideContent(page, deckId, slideId);
@@ -547,7 +548,10 @@ async function settleSaved(
       last = now;
       lastChange = Date.now();
     }
-    if (Date.now() - start >= 2500 && Date.now() - lastChange >= 1200)
+    if (
+      Date.now() - start >= minimumObservationMs &&
+      Date.now() - lastChange >= 1200
+    )
       return last;
     if (Date.now() - start >= 75_000) {
       throw new Error(
@@ -1051,11 +1055,18 @@ async function runScenario(
     // The reload fires pagehide, where Slides flushes pending saves with
     // keepalive fetches that inFlight never sees; the in-page hook counts
     // them. It, or a tracked write still in flight, may land well after the
-    // page reopens.
+    // page reopens. Observe for a bounded window when one was sent because
+    // Playwright cannot report when the keepalive request finishes.
     const unloadWrites = await takeKeepaliveWrites(page);
     const reloaded =
       unloadWrites || inFlight.size
-        ? await settleSaved(page, deckId, slideId, () => inFlight.size)
+        ? await settleSaved(
+            page,
+            deckId,
+            slideId,
+            () => inFlight.size,
+            unloadWrites ? 15_000 : 2_500,
+          )
         : await getSlideContent(page, deckId, slideId);
     if (reloaded !== saved && !ctx.openMutatesContent) {
       write("reloaded.html", reloaded);
