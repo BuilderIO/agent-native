@@ -78,7 +78,7 @@ describe("embed session tokens", () => {
 
 describe("embed session tickets", () => {
   beforeEach(() => {
-    dbExec.execute.mockReset();
+    dbExec.execute.mockReset().mockResolvedValue({ rows: [], rowsAffected: 1 });
   });
 
   it("lets a signed-in collaborator redeem a resource-scoped capability", async () => {
@@ -90,6 +90,7 @@ describe("embed session tickets", () => {
             org_id: "owner-org",
             target_path: "/visual-edit/design-1?editorView=overview",
             scope: "capability:visual-edit:design:design-1",
+            created_at: Date.now(),
             expires_at: Date.now() + 60_000,
             consumed_at: null,
           },
@@ -156,6 +157,7 @@ describe("normalizeEmbedTargetPath", () => {
 
 describe("requestMatchesEmbedTarget", () => {
   beforeEach(() => {
+    dbExec.execute.mockReset().mockResolvedValue({ rows: [] });
     process.env = { ...ORIGINAL_ENV };
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
@@ -436,6 +438,72 @@ describe("requestMatchesEmbedTarget", () => {
         }),
       ),
     ).resolves.toBeNull();
+  });
+
+  it("revokes embed cookies across browser partitions after logout", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    let revokedBefore: number | null = null;
+    dbExec.execute.mockImplementation(async ({ sql, args }: any) => {
+      if (sql.includes("SELECT revoked_before")) {
+        return {
+          rows:
+            revokedBefore === null ? [] : [{ revoked_before: revokedBefore }],
+        };
+      }
+      if (sql.includes("INSERT INTO agent_native_embed_session_revocations")) {
+        revokedBefore = args[1];
+      }
+      return { rows: [] };
+    });
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/inbox",
+      audienceHost: "beta.calendar.agent-native.com",
+      ttlSeconds: 60,
+    });
+    const partitionedEmbedRequest = fakeEvent("/inbox", {
+      host: "beta.calendar.agent-native.com",
+      cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(partitionedEmbedRequest),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
+
+    const { revokeEmbedSessionsForOwner } = await import("./embed-session.js");
+    await revokeEmbedSessionsForOwner("OWNER@example.com");
+
+    await expect(
+      resolveEmbedSessionFromRequest(partitionedEmbedRequest),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects an unused embed ticket minted before logout", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const createdAt = Date.now() - 1000;
+    dbExec.execute.mockImplementation(async ({ sql }: any) => {
+      if (sql.includes("FROM agent_native_embed_tickets")) {
+        return {
+          rows: [
+            {
+              owner_email: "owner@example.com",
+              target_path: "/inbox",
+              created_at: createdAt,
+              expires_at: Date.now() + 60_000,
+              consumed_at: null,
+            },
+          ],
+        };
+      }
+      if (sql.includes("SELECT revoked_before")) {
+        return { rows: [{ revoked_before: Date.now() }] };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(consumeEmbedSessionTicket("pre-logout-ticket")).resolves.toBe(
+      null,
+    );
   });
 
   it("binds first-party embed sessions to the host that redeemed the ticket", async () => {

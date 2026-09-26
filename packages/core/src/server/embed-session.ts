@@ -93,6 +93,7 @@ export type EmbedSessionTicketConsumeOutcome =
   | "org-mismatch"
   | "consumption-race"
   | "invalid-row"
+  | "revoked"
   | "consumed";
 
 export interface EmbedSessionTicketConsumeDiagnostic {
@@ -193,6 +194,13 @@ export async function ensureTable(): Promise<void> {
         "agent_native_embed_tickets",
         embedTicketsCreateSql,
       );
+      await ensureTableExists(
+        "agent_native_embed_session_revocations",
+        `CREATE TABLE IF NOT EXISTS agent_native_embed_session_revocations (
+          owner_hash TEXT PRIMARY KEY,
+          revoked_before BIGINT NOT NULL
+        )`,
+      );
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -252,6 +260,48 @@ function redactedIdentifier(value: string | null | undefined): string | null {
 function normalizedEmail(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
   return normalized || null;
+}
+
+function ownerHash(ownerEmail: string): string | null {
+  const normalizedOwnerEmail = normalizedEmail(ownerEmail);
+  return normalizedOwnerEmail
+    ? crypto.createHash("sha256").update(normalizedOwnerEmail).digest("hex")
+    : null;
+}
+
+async function embedSessionsRevokedBefore(
+  ownerEmail: string,
+): Promise<number | null> {
+  const key = ownerHash(ownerEmail);
+  if (!key) return null;
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT revoked_before FROM agent_native_embed_session_revocations WHERE owner_hash = ?`,
+    args: [key],
+  });
+  return numberOrNull(rows[0]?.revoked_before ?? rows[0]?.revokedBefore);
+}
+
+export async function revokeEmbedSessionsForOwner(
+  ownerEmail: string,
+): Promise<void> {
+  const key = ownerHash(ownerEmail);
+  if (!key) return;
+  await ensureTable();
+  await getDbExec().execute({
+    sql:
+      `INSERT INTO agent_native_embed_session_revocations (owner_hash, revoked_before) VALUES (?, ?) ` +
+      `ON CONFLICT (owner_hash) DO UPDATE SET revoked_before = GREATEST(agent_native_embed_session_revocations.revoked_before, EXCLUDED.revoked_before)`,
+    args: [key, Date.now()],
+  });
+}
+
+async function embedSessionIsRevoked(
+  ownerEmail: string,
+  issuedAt: number,
+): Promise<boolean> {
+  const revokedBefore = await embedSessionsRevokedBefore(ownerEmail);
+  return revokedBefore !== null && issuedAt * 1000 <= revokedBefore;
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -678,7 +728,7 @@ export async function consumeEmbedSessionTicket(
   const now = Date.now();
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT ticket_hash, owner_email, org_id, target_path, scope, expires_at, consumed_at " +
+      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at " +
       "FROM agent_native_embed_tickets WHERE ticket_hash = ?",
     args: [ticketHash],
   });
@@ -697,6 +747,7 @@ export async function consumeEmbedSessionTicket(
     return null;
   }
   const row: any = rows[0];
+  const createdAt = numberOrNull(row.created_at ?? row.createdAt);
   const expiresAt = numberOrNull(row.expires_at ?? row.expiresAt);
   const consumedAt = numberOrNull(row.consumed_at ?? row.consumedAt);
   const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
@@ -704,6 +755,20 @@ export async function consumeEmbedSessionTicket(
   const orgId = stringOrUndefined(row.org_id ?? row.orgId);
   const ticketOrgKey = redactedIdentifier(orgId);
   const capabilityScope = isEmbedCapabilityScope(stringOrUndefined(row.scope));
+  if (!ownerEmail || createdAt === null) {
+    options.onResult?.({
+      outcome: "invalid-row",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: false,
+      expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
   const identityMismatchAllowed =
     options.allowCapabilityIdentityMismatch && capabilityScope;
   if (consumedAt != null) {
@@ -771,6 +836,23 @@ export async function consumeEmbedSessionTicket(
       ticketOrgKey,
     });
     return null;
+  }
+  if (!capabilityScope) {
+    const revokedBefore = await embedSessionsRevokedBefore(ownerEmail);
+    if (revokedBefore !== null && createdAt <= revokedBefore) {
+      options.onResult?.({
+        outcome: "revoked",
+        ticketKey,
+        ticketRowFound: true,
+        consumed: false,
+        expired: false,
+        expectedOwnerKey,
+        ticketOwnerKey,
+        expectedOrgKey,
+        ticketOrgKey,
+      });
+      return null;
+    }
   }
 
   const result = await getDbExec().execute({
@@ -981,6 +1063,15 @@ export async function resolveEmbedSessionFromRequest(
     const verified = verifyEmbedSessionToken(candidate.token);
     if (!verified.ok) continue;
     if (!embedTokenMatchesRequestAudience(event, verified.claims)) continue;
+    if (
+      !isEmbedCapabilityScope(verified.claims.scope) &&
+      (await embedSessionIsRevoked(
+        verified.claims.ownerEmail,
+        verified.claims.iat,
+      ))
+    ) {
+      continue;
+    }
     const matchesTarget = requestMatchesEmbedTarget(
       event,
       verified.claims.targetPath,

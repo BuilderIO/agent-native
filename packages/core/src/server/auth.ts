@@ -40,6 +40,7 @@ import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
 import {
   isEmbedCapabilityScope,
+  revokeEmbedSessionsForOwner,
   requestHasEmbedAuthMarker,
   resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
@@ -2020,11 +2021,22 @@ export async function removeSession(token: string): Promise<void> {
  * host/domain and partition scopes because its signOut only clears the current
  * scope. Failed revocation preserves session cookies so the same token can be
  * retried instead of making the browser appear signed out while it stays live.
+ * Embed sessions use a server-side cutoff because CHIPS copies in other
+ * top-level-site partitions cannot be deleted from this response.
  */
 async function performLogout(
   event: H3Event,
   getAuth: () => Promise<BetterAuthInstance | null> | BetterAuthInstance | null,
 ): Promise<{ ok: true } | { error: string }> {
+  try {
+    const sessionEmail = (await resolveSessionUncached(event))?.email;
+    if (sessionEmail) await revokeEmbedSessionsForOwner(sessionEmail);
+  } catch (error) {
+    captureAuthError(error, { route: "logout" });
+    setResponseStatus(event, 503);
+    return { error: "Unable to revoke session" };
+  }
+
   const bearerToken = getBearerSessionToken(event);
   const betterAuthTokens = getBetterAuthSessionTokenValues(event);
   const rawTokens = [

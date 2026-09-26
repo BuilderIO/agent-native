@@ -1799,6 +1799,71 @@ describe("server/auth", () => {
       expect(setCookie).not.toContain("Partitioned");
     });
 
+    it("revokes embed sessions for the signed-out identity before clearing cookies", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const revokeEmbedSessionsForOwner = vi.fn(async () => {});
+      vi.doMock("./embed-session.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        resolveEmbedSessionFromRequest: vi.fn(async () => ({
+          email: "owner@example.com",
+          token: "partitioned-embed-token",
+          targetPath: "/inbox",
+        })),
+        revokeEmbedSessionsForOwner,
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => null),
+        getBetterAuthSync: vi.fn(() => null),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const event = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        { cookie: "an_embed_session=partitioned-embed-token" },
+      );
+
+      await expect(logoutHandler(event)).resolves.toEqual({ ok: true });
+
+      expect(revokeEmbedSessionsForOwner).toHaveBeenCalledWith(
+        "owner@example.com",
+      );
+      expect(event.res.headers.get("set-cookie") ?? "").toContain(
+        "an_embed_session=; Max-Age=0",
+      );
+
+      revokeEmbedSessionsForOwner.mockRejectedValueOnce(
+        new Error("revocation store unavailable"),
+      );
+      const failedEvent = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        { cookie: "an_embed_session=partitioned-embed-token" },
+      );
+      await expect(logoutHandler(failedEvent)).resolves.toEqual({
+        error: "Unable to revoke session",
+      });
+      expect(failedEvent.res.status).toBe(503);
+      expect(failedEvent.res.headers.get("set-cookie") ?? "").not.toContain(
+        "an_embed_session=; Max-Age=0",
+      );
+    }, 30_000);
+
     it("revokes the Better Auth session row directly so logout can't be resurrected by the legacy-cookie fallback", async () => {
       // Reproduces the reported bug: a token whose legacy `sessions` row was
       // never written (the magic-link `addSession` mirror is best-effort —
