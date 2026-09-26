@@ -879,6 +879,7 @@ export async function getPublicDashboardMetadata(id: string) {
       and(
         eq(schema.dashboards.id, id),
         eq(schema.dashboards.visibility, "public"),
+        isNull(schema.dashboards.archivedAt),
       ),
     )
     .limit(1);

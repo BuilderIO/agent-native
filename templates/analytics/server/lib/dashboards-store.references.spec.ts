@@ -138,6 +138,14 @@ describe("getPublicDashboardMetadata", () => {
       description: null,
       panelTitles: [],
     });
+    expect(state.where).toEqual(
+      expect.objectContaining({
+        kind: "and",
+        conditions: expect.arrayContaining([
+          { kind: "isNull", target: { name: "archivedAt" } },
+        ]),
+      }),
+    );
 
     const projection = JSON.stringify(state.projection);
     expect(projection.match(/is json/g)).toHaveLength(2);
