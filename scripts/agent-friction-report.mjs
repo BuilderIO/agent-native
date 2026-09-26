@@ -71,6 +71,24 @@ const FEEDBACK_REGEX_CASES = [
   [false, "eyes-only thread"],
 ];
 
+const RESOURCE_CLEANUP_TARGET = String.raw`(?:tabs?|browsers?|processes|servers?|node(?:\.js)?|watchers?|repls?)`;
+const RESOURCE_CLEANUP_FAILURE = String.raw`(?:fail(?:ed)? to (?:close|stop)|(?:don['’]?t|do not|didn['’]?t|did not|can['’]?t|cannot|never|not) (?:close|stop|shut down|closing|stopping)|orphan(?:ed|ing)?|(?:left|leave|leaving)[^.!?\n]{0,50}(?:open|running|unclosed))`;
+const RESOURCE_CLEANUP_RE = new RegExp(
+  String.raw`\b(?:agents?|claude(?: code)?|codex)\b[^.!?\n]{0,200}(?:\b${RESOURCE_CLEANUP_TARGET}\b[^.!?\n]{0,160}\b${RESOURCE_CLEANUP_FAILURE}\b|\b${RESOURCE_CLEANUP_FAILURE}\b[^.!?\n]{0,160}\b${RESOURCE_CLEANUP_TARGET}\b)|\b${RESOURCE_CLEANUP_TARGET}\b[^.!?\n]{0,80}\b(?:left open|left running|not closed|not stopped|orphaned)\b`,
+  "i",
+);
+const RESOURCE_CLEANUP_REGEX_CASES = [
+  [
+    true,
+    "Agents constantly spawn browser tabs and don't close them when done, then spawn node processes and don't stop them.",
+  ],
+  [true, "Agents fail to close browser tabs after the task."],
+  [true, "The Node process was left running."],
+  [false, "Agents spawn browser tabs for a quick check."],
+  [false, "Agents are leaving browser tabs for the next session."],
+  [false, "Open a browser tab for a quick check."],
+];
+
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
@@ -1005,6 +1023,11 @@ if (process.argv.includes("--self-test")) {
       UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
   );
   failures.push(
+    ...RESOURCE_CLEANUP_REGEX_CASES.filter(
+      ([expected, message]) => RESOURCE_CLEANUP_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...SHIPPING_CHURN_REGEX_CASES.filter(
       ([expected, message]) => SHIPPING_CHURN_RE.test(message) !== expected,
     ),
@@ -1059,7 +1082,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -1149,6 +1172,12 @@ const PATTERNS = [
     label: "Stopped mid-task / queued instead of doing",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
     re: /\b(stop stopping|keep stopping|why (did|do) you stop|don'?t stop|still queued|should be doing everything now)\b/i,
+  },
+  {
+    key: "resource-cleanup",
+    label: "Had to ask agents to close spawned tabs or stop processes",
+    fixedBy: "AGENTS.md + personal global resource-cleanup rule (2026-09-25)",
+    re: RESOURCE_CLEANUP_RE,
   },
   {
     key: "ship-stopped-before-merge",
