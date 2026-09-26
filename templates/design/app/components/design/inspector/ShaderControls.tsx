@@ -263,7 +263,7 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
           id={switchId}
           checked={boolVal}
           onCheckedChange={(checked) => onChange(key, checked)}
-          className="origin-right scale-[0.8]"
+          size="sm"
         />
       </div>
     );

@@ -681,11 +681,7 @@ function AutomationRow({
       className="flex items-start gap-3 rounded-lg border border-border/30 bg-card px-4 py-3 group hover:border-border/60"
     >
       <div className="pt-0.5">
-        <Switch
-          checked={rule.enabled}
-          onCheckedChange={handleToggle}
-          className="scale-90"
-        />
+        <Switch checked={rule.enabled} onCheckedChange={handleToggle} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">

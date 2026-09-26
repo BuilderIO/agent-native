@@ -27,16 +27,24 @@ const buttonVariants = cva(
         outline: "bg-accent text-accent-foreground hover:bg-accent/80",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        // A destructive action that sits among ordinary row actions: the
+        // secondary fill keeps the row calm; red text says what it does.
+        "secondary-destructive":
+          "bg-secondary text-destructive hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         "ghost-inset":
           "text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:ring-inset focus-visible:ring-offset-0",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-11 rounded-md px-8",
-        icon: "h-10 w-10",
+        default: "h-9 px-4 py-2 has-[>svg]:px-3",
+        xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg]:size-3",
+        sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
+        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+        icon: "size-9",
+        "icon-xs": "size-6 rounded-md [&_svg]:size-3",
+        "icon-sm": "size-8",
+        "icon-lg": "size-10",
       },
     },
     defaultVariants: {
@@ -103,7 +111,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     if (DesignSystemActionButton && !asChild && !isRenderingLegacyButton) {
       const semanticIntent =
         intent ??
-        (variant === "destructive"
+        (variant === "destructive" || variant === "secondary-destructive"
           ? "danger"
           : variant === "default"
             ? "primary"
@@ -124,7 +132,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         (emphasis === "ghost-inset" ||
           (!emphasis && variant === "ghost-inset"));
       const semanticSize =
-        size === "sm" ? "compact" : size === "lg" ? "large" : "default";
+        size === "sm" ||
+        size === "xs" ||
+        size === "icon-sm" ||
+        size === "icon-xs"
+          ? "compact"
+          : size === "lg" || size === "icon-lg"
+            ? "large"
+            : "default";
       return (
         <DesignSystemErrorBoundary component="ActionButton" fallback={fallback}>
           <DesignSystemActionButton
