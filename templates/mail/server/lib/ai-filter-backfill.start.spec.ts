@@ -235,6 +235,7 @@ vi.mock("./local-email-store.js", () => ({
 }));
 
 import { AI_FILTER_LABEL } from "../../shared/ai-filter.js";
+import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
 import {
   checkpointAppliedBackfillMutation,
   processMailAiFilterBackfills,
@@ -517,7 +518,7 @@ describe("startMailAiFilterBackfill", () => {
       stateJson: JSON.stringify(state),
     });
     mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
-      new Map([["thread-a", []]]),
+      new Map([[aiPriorityEmailKey(undefined, "thread-a"), []]]),
     );
 
     await processMailAiFilterBackfills(ownerEmail);
@@ -526,6 +527,72 @@ describe("startMailAiFilterBackfill", () => {
     const saved = JSON.parse(database.rows[0].stateJson);
     expect(saved.evaluations["local:thread-a"]).toEqual([]);
     expect(saved.processedThreads).toBe(1);
+  });
+
+  it("maps shared Gmail thread IDs back to the matching account candidate", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    const state: any = backfillState([activeRule]);
+    state.evaluations = {};
+    state.candidates = ["first@example.test", "second@example.test"].map(
+      (accountEmail) => ({
+        key: `${accountEmail}:thread-shared`,
+        accountEmail,
+        threadId: "thread-shared",
+        email: {
+          ...state.candidates[0].email,
+          id: "thread-shared",
+          threadId: "thread-shared",
+          accountEmail,
+        },
+        messageIds: ["message-shared"],
+      }),
+    );
+    database.rows.push({
+      ...runningRow([activeRule]),
+      stateJson: JSON.stringify(state),
+    });
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
+      new Map([
+        [aiPriorityEmailKey("first@example.test", "thread-shared"), []],
+        [
+          aiPriorityEmailKey("second@example.test", "thread-shared"),
+          [{ ruleId: activeRule.id, confidence: 0.95 }],
+        ],
+      ]),
+    );
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [
+        { email: "first@example.test", accessToken: "first-token" },
+        { email: "second@example.test", accessToken: "second-token" },
+      ],
+      errors: [],
+    });
+    mocks.gmailGetThread.mockResolvedValue({
+      messages: [{ id: "message-shared", labelIds: ["INBOX"] }],
+    });
+    mocks.gmailModifyThread.mockResolvedValue({ historyId: "history-1" });
+    mocks.syncInboxLabelDelta.mockResolvedValue(undefined);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const saved = JSON.parse(database.rows[0].stateJson);
+    expect(saved.evaluations).toMatchObject({
+      "first@example.test:thread-shared": [],
+      "second@example.test:thread-shared": [
+        { ruleId: activeRule.id, confidence: 0.95 },
+      ],
+    });
+    expect(saved.matchedThreadKeys).toEqual([
+      "second@example.test:thread-shared",
+    ]);
+    expect(mocks.gmailModifyThread).toHaveBeenCalledTimes(1);
+    expect(mocks.gmailModifyThread).toHaveBeenCalledWith(
+      "second-token",
+      "thread-shared",
+      ["label-id"],
+      [],
+    );
   });
 
   it("queues edited rules behind an active run and retires its undo before applying the replacement", async () => {

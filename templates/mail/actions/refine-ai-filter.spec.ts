@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   buildDeepLink: vi.fn(),
   getRequestUserEmail: vi.fn(),
+  getAiFilterState: vi.fn(),
   listAutomationRules: vi.fn(),
   rewriteAutomationRuleCondition: vi.fn(),
   startMailAiFilterBackfill: vi.fn(),
@@ -27,6 +28,10 @@ vi.mock("../server/lib/ai-filter-backfill.js", () => ({
   startMailAiFilterBackfill: mocks.startMailAiFilterBackfill,
 }));
 
+vi.mock("../server/lib/ai-filter.js", () => ({
+  getAiFilterState: mocks.getAiFilterState,
+}));
+
 import action from "./refine-ai-filter.js";
 
 const filteredRule = {
@@ -34,7 +39,7 @@ const filteredRule = {
   ownerEmail: "owner@example.test",
   domain: "mail",
   kind: "ai-filter",
-  name: "AI spam",
+  name: "AI filter learned examples",
   condition: "Cold sales email",
   actions: [
     { type: "label", labelName: "agent-native-filtered" },
@@ -50,6 +55,9 @@ describe("refine-ai-filter action", () => {
     vi.clearAllMocks();
     mocks.buildDeepLink.mockReturnValue("/settings?section=ai-filter");
     mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
+    mocks.getAiFilterState.mockResolvedValue({
+      feedback: [{}, {}, {}],
+    });
     mocks.listAutomationRules.mockResolvedValue([filteredRule]);
     mocks.rewriteAutomationRuleCondition.mockResolvedValue(
       "Cold sales email from senders I have not replied to",
@@ -116,4 +124,34 @@ describe("refine-ai-filter action", () => {
       settingsHref: "/settings?section=ai-filter",
     });
   });
+
+  it.each([1, 2])(
+    "saves corrections after %i confirmed example(s) and waits for three before backfill",
+    async (confirmedExamples) => {
+      mocks.getAiFilterState.mockResolvedValue({
+        feedback: Array.from({ length: confirmedExamples }, () => ({})),
+      });
+
+      const result = await action.run({
+        ruleId: "rule-1",
+        corrections: [
+          {
+            emailId: "email-1",
+            sender: "Sales <sales@example.test>",
+            subject: "A cold pitch",
+            snippet: "A short introduction to our latest offer.",
+            expectedMatch: true,
+          },
+        ],
+      });
+
+      expect(mocks.updateAutomationRule).toHaveBeenCalledOnce();
+      expect(mocks.startMailAiFilterBackfill).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        id: "rule-1",
+        backfillStatus: "waiting-for-examples",
+        learnedExampleCount: confirmedExamples,
+      });
+    },
+  );
 });

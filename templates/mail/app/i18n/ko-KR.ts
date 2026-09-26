@@ -556,6 +556,8 @@ const messages = {
         "agent-native-filtered 라벨을 추가하고 대화를 보관합니다. 언제든 실행 취소할 수 있습니다.",
       learningNote:
         "메일을 받은편지함에 보관하고 같은 실수를 반복하지 않도록 필터가 학습합니다.",
+      learningProgress:
+        "{{required}}개 중 {{count}}개의 예시를 확인했습니다. {{required}}개를 모두 확인하면 최근 메일을 검사합니다.",
       rememberLabel: "향후 메일에 기억하기 (선택 사항)",
       correctLabel: "무엇을 학습해야 하나요? (선택 사항)",
       rememberPlaceholder: "예: 정치 캠페인에서 온 이런 메일은 원하지 않음",

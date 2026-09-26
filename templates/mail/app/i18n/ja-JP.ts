@@ -561,6 +561,8 @@ const messages = {
         "agent-native-filtered ラベルを追加してスレッドをアーカイブします。いつでも元に戻せます。",
       learningNote:
         "メールを受信トレイに残し、同じ間違いを繰り返さないようフィルターに学習させます。",
+      learningProgress:
+        "{{required}} 件中 {{count}} 件を確認しました。{{required}} 件すべてを確認すると最近のメールをチェックします。",
       rememberLabel: "今後のメールのために記憶（任意）",
       correctLabel: "何を学習させますか？（任意）",
       rememberPlaceholder: "例：政治キャンペーンからのこのようなメールは不要",

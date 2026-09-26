@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
   AI_FILTER_LABEL,
+  AI_FILTER_MIN_LEARNED_EXAMPLES,
   AI_FILTER_RULE_NAME,
   type AiFilterTarget,
 } from "@shared/ai-filter";
@@ -63,6 +64,10 @@ export function AiFilterDialog({
   const [comment, setComment] = useState("");
   const [backfillRunId, setBackfillRunId] = useState<string | null>(null);
   const [backfillFailed, setBackfillFailed] = useState(false);
+  const [awaitingExamples, setAwaitingExamples] = useState(false);
+  const [learnedExampleCount, setLearnedExampleCount] = useState<number | null>(
+    null,
+  );
   const [correctionFailed, setCorrectionFailed] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const backfillStatus = useAiFilterBackfillStatus(backfillRunId);
@@ -87,6 +92,8 @@ export function AiFilterDialog({
     setComment("");
     setBackfillRunId(null);
     setBackfillFailed(false);
+    setAwaitingExamples(false);
+    setLearnedExampleCount(null);
     setCorrectionFailed(false);
     setSubmitted(false);
   }, [open, action, targetKey]);
@@ -144,8 +151,16 @@ export function AiFilterDialog({
         })),
         ...(note ? { comment: note } : {}),
       });
+      const waitingForExamples =
+        result.backfillStatus === "waiting-for-examples";
       setBackfillRunId(result.backfillRunId ?? null);
-      setBackfillFailed(result.backfillStatus !== "queued");
+      setAwaitingExamples(waitingForExamples);
+      setLearnedExampleCount(
+        waitingForExamples ? result.learnedExampleCount : null,
+      );
+      setBackfillFailed(
+        result.backfillStatus !== "queued" && !waitingForExamples,
+      );
     } catch {
       setSubmitted(true);
       setCorrectionFailed(true);
@@ -190,6 +205,13 @@ export function AiFilterDialog({
             {correctionFailed ? (
               <p role="alert" className="text-sm text-destructive">
                 {t("mail.aiFilter.actionFailed")}
+              </p>
+            ) : awaitingExamples && learnedExampleCount !== null ? (
+              <p className="text-sm text-muted-foreground">
+                {t("mail.aiFilter.learningProgress", {
+                  count: learnedExampleCount,
+                  required: AI_FILTER_MIN_LEARNED_EXAMPLES,
+                })}
               </p>
             ) : backfillFailed || backfillStatus.data?.status === "failed" ? (
               <p role="alert" className="text-sm text-destructive">

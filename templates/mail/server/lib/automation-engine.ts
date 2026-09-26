@@ -66,6 +66,7 @@ import {
 import { getOAuth2Credentials } from "./google-auth.js";
 
 const MAX_EMAILS_PER_RUN = 50;
+const MAX_RULE_EVALUATION_PAIRS_PER_MODEL_CALL = 32;
 const MAX_PROCESSED_IDS = 500;
 const PROCESSED_IDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -223,6 +224,7 @@ async function loadActiveRules(
 export interface EmailSummary {
   id: string;
   threadId: string;
+  accountEmail?: string;
   from: string;
   to: string;
   subject: string;
@@ -233,6 +235,7 @@ export interface EmailSummary {
 
 async function fetchNewInboxMessages(
   accessToken: string,
+  accountEmail: string,
   watermark: Watermark,
   processedIds: Set<string>,
 ): Promise<{ messages: EmailSummary[]; newHistoryId?: string }> {
@@ -359,6 +362,7 @@ async function fetchNewInboxMessages(
     messages.push({
       id: msg.id,
       threadId: msg.threadId || msg.id,
+      accountEmail,
       from: getHeader("From"),
       to: getHeader("To"),
       subject: getHeader("Subject"),
@@ -584,7 +588,7 @@ async function evaluateRulesWithJev(
         id,
         {
           type: "noul",
-          instructions: `Does email ${email.id} clearly match this rule: "${rule.condition}"?`,
+          instructions: `Does email ${aiPriorityEmailKey(email.accountEmail, email.id)} clearly match this rule: "${rule.condition}"?`,
           criteria: {
             true: "The email clearly matches the user's rule.",
             false: "The email does not match the user's rule.",
@@ -597,7 +601,13 @@ async function evaluateRulesWithJev(
     questionEntries.map(([id], index) => {
       const email = emails[Math.floor(index / rules.length)];
       const rule = rules[index % rules.length];
-      return [id, { emailId: email.id, ruleId: rule.id }] as const;
+      return [
+        id,
+        {
+          emailKey: aiPriorityEmailKey(email.accountEmail, email.id),
+          ruleId: rule.id,
+        },
+      ] as const;
     }),
   );
 
@@ -605,7 +615,7 @@ async function evaluateRulesWithJev(
     model: "jev-latest",
     state: {
       emails: emails.map((email) => ({
-        id: email.id,
+        id: aiPriorityEmailKey(email.accountEmail, email.id),
         from: email.from,
         to: email.to,
         subject: email.subject,
@@ -662,7 +672,10 @@ async function evaluateRulesWithJev(
   }
 
   const results = new Map<string, RuleMatch[]>(
-    emails.map((email) => [email.id, []]),
+    emails.map((email) => [
+      aiPriorityEmailKey(email.accountEmail, email.id),
+      [],
+    ]),
   );
   const answeredQuestionIds = new Set<string>();
   for (const [questionId, answer] of Object.entries(payload.answers)) {
@@ -681,7 +694,7 @@ async function evaluateRulesWithJev(
     }
     answeredQuestionIds.add(questionId);
     if (probability >= 0.5) {
-      results.get(question.emailId)!.push({
+      results.get(question.emailKey)!.push({
         ruleId: question.ruleId,
         match: true,
         confidence: probability,
@@ -704,18 +717,23 @@ async function evaluateRules(
   jevCredentials?: JevContextCredentials,
   legacyTypesafeApiKey?: string,
 ): Promise<Map<string, RuleMatch[]>> {
-  // Returns every message ID, including those classified as no-match.
+  // Returns every account-scoped email ID, including no-match results.
   const results = new Map<string, RuleMatch[]>(
-    emails.map((email) => [email.id, []]),
+    emails.map((email) => [
+      aiPriorityEmailKey(email.accountEmail, email.id),
+      [],
+    ]),
   );
-  const expectedEmailIds = new Set(emails.map((email) => email.id));
+  const expectedEmailIds = new Set(
+    emails.map((email) => aiPriorityEmailKey(email.accountEmail, email.id)),
+  );
   const expectedRuleIds = new Set(rules.map((rule) => rule.id));
   if (
     expectedEmailIds.size !== emails.length ||
     expectedRuleIds.size !== rules.length
   ) {
     throw new Error(
-      "Mail AI rule evaluation requires unique email and rule IDs.",
+      "Mail AI rule evaluation requires unique account-scoped email and rule IDs.",
     );
   }
   if (emails.length === 0 || rules.length === 0) return results;
@@ -731,39 +749,57 @@ async function evaluateRules(
     );
   }
 
-  // Process in batches of 10 emails per call
-  const batchSize = 10;
-  for (let i = 0; i < emails.length; i += batchSize) {
-    const batch = emails.slice(i, i + batchSize);
+  // Keep each complete email-rule result matrix under the model's 2,048-token output cap.
+  for (
+    let rulesOffset = 0;
+    rulesOffset < rules.length;
+    rulesOffset += MAX_RULE_EVALUATION_PAIRS_PER_MODEL_CALL
+  ) {
+    const ruleBatch = rules.slice(
+      rulesOffset,
+      rulesOffset + MAX_RULE_EVALUATION_PAIRS_PER_MODEL_CALL,
+    );
+    const expectedRuleIds = new Set(ruleBatch.map((rule) => rule.id));
+    const batchSize = Math.min(
+      10,
+      Math.max(
+        1,
+        Math.floor(MAX_RULE_EVALUATION_PAIRS_PER_MODEL_CALL / ruleBatch.length),
+      ),
+    );
+    for (let i = 0; i < emails.length; i += batchSize) {
+      const batch = emails.slice(i, i + batchSize);
 
-    const rulesText = rules
-      .map((r, idx) => `${idx + 1}. [id: ${r.id}] Condition: "${r.condition}"`)
-      .join("\n");
+      const rulesText = ruleBatch
+        .map(
+          (r, idx) => `${idx + 1}. [id: ${r.id}] Condition: "${r.condition}"`,
+        )
+        .join("\n");
 
-    const emailsText = batch
-      .map(
-        (e, idx) =>
-          `--- Email ${idx + 1} (id: ${e.id}) ---
+      const emailsText = batch
+        .map(
+          (e, idx) =>
+            `--- Email ${idx + 1} (emailId: ${JSON.stringify(aiPriorityEmailKey(e.accountEmail, e.id))}) ---
 From: ${e.from}
 To: ${e.to}
 Subject: ${e.subject}
 Snippet: ${e.snippet}
 Labels: [${e.labelIds.join(", ")}]
 Date: ${e.date}`,
-      )
-      .join("\n\n");
+        )
+        .join("\n\n");
 
-    const feedbackText = aiFilterState?.feedback.length
-      ? aiFilterState.feedback
-          .slice(-20)
-          .map(
-            (feedback) =>
-              `- ${feedback.disposition === "spam" ? "Unwanted" : "Keep"}: From ${feedback.sender}; Subject "${feedback.subject}"${feedback.comment ? `; Note: "${feedback.comment}"` : ""}`,
-          )
-          .join("\n")
-      : "None yet.";
+      const feedbackText = aiFilterState?.feedback.length
+        ? aiFilterState.feedback
+            .slice(-20)
+            .map(
+              (feedback) =>
+                `- ${feedback.disposition === "spam" ? "Unwanted" : "Keep"}: From ${feedback.sender}; Subject "${feedback.subject}"${feedback.comment ? `; Note: "${feedback.comment}"` : ""}`,
+            )
+            .join("\n")
+        : "None yet.";
 
-    const prompt = `You are an email classification engine. Given emails and a set of rules, determine which rules match each email.
+      const prompt = `You are an email classification engine. Given emails and a set of rules, determine which rules match each email.
 
 Rules:
 ${rulesText}
@@ -774,84 +810,87 @@ ${emailsText}
 User-confirmed examples (use these as feedback, not as absolute rules):
 ${feedbackText}
 
-For each email, evaluate ALL rules. Include one result for every rule, even when it does not match, and never omit an email or rule. Respond with ONLY a JSON array, no other text. Format:
-[{"emailId": "<id>", "matches": [{"ruleId": "<id>", "match": true/false, "confidence": 0.0, "reason": "short explanation"}]}]
+For each email, evaluate ALL rules shown above. Include one result for every rule, even when it does not match, and never omit an email or rule. Copy each emailId exactly from its heading. Keep reasons to at most 80 characters. Respond with ONLY a JSON array, no other text. Format:
+[{"emailId": "<account-scoped emailId>", "matches": [{"ruleId": "<id>", "match": true/false, "confidence": 0.0, "reason": "short explanation"}]}]
 
 Be precise: only mark a rule as matching if the email clearly fits the condition. When a condition mentions a specific sender, check the From field. When it mentions a topic or category, use the subject and snippet. Confidence must be between 0 and 1. Give a short reason for every match.`;
 
-    const text = await callModel(prompt, ownerEmail, modelSettings);
+      const text = await callModel(prompt, ownerEmail, modelSettings);
 
-    // Parse JSON from response (handle markdown code blocks)
-    const jsonStr = text
-      .replace(/```json?\n?/g, "")
-      .replace(/```/g, "")
-      .trim();
-    const parsed: unknown = JSON.parse(jsonStr);
-    if (!Array.isArray(parsed)) {
-      throw new Error("Model returned a non-array result.");
-    }
+      // Parse JSON from response (handle markdown code blocks)
+      const jsonStr = text
+        .replace(/```json?\n?/g, "")
+        .replace(/```/g, "")
+        .trim();
+      const parsed: unknown = JSON.parse(jsonStr);
+      if (!Array.isArray(parsed)) {
+        throw new Error("Model returned a non-array result.");
+      }
 
-    const batchEmailIds = new Set(batch.map((email) => email.id));
-    const classifiedEmailIds = new Set<string>();
-    for (const emailResult of parsed) {
-      if (
-        !emailResult ||
-        typeof emailResult !== "object" ||
-        typeof emailResult.emailId !== "string" ||
-        !Array.isArray(emailResult.matches)
-      ) {
-        throw new Error("Model returned an invalid email classification.");
-      }
-      if (
-        !batchEmailIds.has(emailResult.emailId) ||
-        classifiedEmailIds.has(emailResult.emailId)
-      ) {
-        throw new Error("Model returned an unexpected email classification.");
-      }
-      if (emailResult.matches.length !== expectedRuleIds.size) {
-        throw new Error("Model returned an incomplete rule classification.");
-      }
-      classifiedEmailIds.add(emailResult.emailId);
-
-      const matchedRules: RuleMatch[] = [];
-      const classifiedRuleIds = new Set<string>();
-      for (const match of emailResult.matches) {
+      const batchEmailIds = new Set(
+        batch.map((email) => aiPriorityEmailKey(email.accountEmail, email.id)),
+      );
+      const classifiedEmailIds = new Set<string>();
+      for (const emailResult of parsed) {
         if (
-          !match ||
-          typeof match !== "object" ||
-          typeof match.ruleId !== "string" ||
-          !expectedRuleIds.has(match.ruleId) ||
-          classifiedRuleIds.has(match.ruleId) ||
-          typeof match.match !== "boolean"
+          !emailResult ||
+          typeof emailResult !== "object" ||
+          typeof emailResult.emailId !== "string" ||
+          !Array.isArray(emailResult.matches)
         ) {
-          throw new Error("Model returned an invalid rule classification.");
+          throw new Error("Model returned an invalid email classification.");
         }
-        classifiedRuleIds.add(match.ruleId);
-        if (!match.match) continue;
         if (
-          typeof match.confidence !== "number" ||
-          !Number.isFinite(match.confidence) ||
-          match.confidence < 0 ||
-          match.confidence > 1
+          !batchEmailIds.has(emailResult.emailId) ||
+          classifiedEmailIds.has(emailResult.emailId)
         ) {
-          throw new Error("Model returned an invalid rule confidence.");
+          throw new Error("Model returned an unexpected email classification.");
         }
-        matchedRules.push({
-          ruleId: match.ruleId,
-          match: true,
-          confidence: match.confidence,
-          ...(typeof match.reason === "string"
-            ? { reason: match.reason.slice(0, 500) }
-            : {}),
-        });
+        if (emailResult.matches.length !== expectedRuleIds.size) {
+          throw new Error("Model returned an incomplete rule classification.");
+        }
+        classifiedEmailIds.add(emailResult.emailId);
+
+        const matchedRules: RuleMatch[] = [];
+        const classifiedRuleIds = new Set<string>();
+        for (const match of emailResult.matches) {
+          if (
+            !match ||
+            typeof match !== "object" ||
+            typeof match.ruleId !== "string" ||
+            !expectedRuleIds.has(match.ruleId) ||
+            classifiedRuleIds.has(match.ruleId) ||
+            typeof match.match !== "boolean"
+          ) {
+            throw new Error("Model returned an invalid rule classification.");
+          }
+          classifiedRuleIds.add(match.ruleId);
+          if (!match.match) continue;
+          if (
+            typeof match.confidence !== "number" ||
+            !Number.isFinite(match.confidence) ||
+            match.confidence < 0 ||
+            match.confidence > 1
+          ) {
+            throw new Error("Model returned an invalid rule confidence.");
+          }
+          matchedRules.push({
+            ruleId: match.ruleId,
+            match: true,
+            confidence: match.confidence,
+            ...(typeof match.reason === "string"
+              ? { reason: match.reason.slice(0, 500) }
+              : {}),
+          });
+        }
+        if (classifiedRuleIds.size !== expectedRuleIds.size) {
+          throw new Error("Model returned an incomplete rule classification.");
+        }
+        results.get(emailResult.emailId)!.push(...matchedRules);
       }
-      if (classifiedRuleIds.size !== expectedRuleIds.size) {
-        throw new Error("Model returned an incomplete rule classification.");
+      if (classifiedEmailIds.size !== batchEmailIds.size) {
+        throw new Error("Model omitted one or more email classifications.");
       }
-      results.set(emailResult.emailId, matchedRules);
-    }
-    if (classifiedEmailIds.size !== batchEmailIds.size) {
-      throw new Error("Model omitted one or more email classifications.");
     }
   }
 
@@ -1079,6 +1118,7 @@ export async function previewAutomationRules(
     .map((email) => ({
       id: email.id,
       threadId: email.threadId,
+      accountEmail: email.accountEmail,
       from: email.from,
       to: email.to,
       subject: email.subject,
@@ -1130,6 +1170,7 @@ export async function evaluateAiFilterBackfillRules(
   const messages: EmailSummary[] = emails.map((email) => ({
     id: email.id,
     threadId: email.threadId,
+    accountEmail: email.accountEmail,
     from: email.from,
     to: email.to,
     subject: email.subject,
@@ -1275,6 +1316,7 @@ export async function processAutomationsForAccount(
   // 4. Fetch new inbox messages
   const { messages, newHistoryId } = await fetchNewInboxMessages(
     accessToken,
+    accountEmail,
     watermark,
     processedIds,
   );
@@ -1330,9 +1372,13 @@ export async function processAutomationsForAccount(
     const rulesById = new Map(rules.map((r) => [r.id, r]));
     const aiDecisions: AiFilterDecision[] = [];
 
-    for (const [messageId, matchedRules] of matches) {
-      const message = messages.find((candidate) => candidate.id === messageId);
+    for (const [emailKey, matchedRules] of matches) {
+      const message = messages.find(
+        (candidate) =>
+          aiPriorityEmailKey(candidate.accountEmail, candidate.id) === emailKey,
+      );
       if (!message) continue;
+      const messageId = message.id;
 
       for (const matchedRule of matchedRules) {
         const ruleId = matchedRule.ruleId;

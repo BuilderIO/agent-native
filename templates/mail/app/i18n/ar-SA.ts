@@ -555,6 +555,8 @@ const messages = {
       labelNote:
         "يضيف تصنيف agent-native-filtered ويؤرشف المحادثة. يمكنك التراجع في أي وقت.",
       learningNote: "يبقي الرسالة في الوارد ويعلّم الفلتر ألا يكرر الخطأ.",
+      learningProgress:
+        "تم تأكيد {{count}} من أصل {{required}} أمثلة. ستتم مراجعة الرسائل الحديثة بعد تأكيد الأمثلة كلها.",
       rememberLabel: "تذكّر للرسائل المستقبلية (اختياري)",
       correctLabel: "ما الذي يجب أن يتعلمه؟ (اختياري)",
       rememberPlaceholder:

@@ -563,6 +563,8 @@ const messages = {
         "Adiciona a etiqueta agent-native-filtered e arquiva a conversa. Você pode desfazer a qualquer momento.",
       learningNote:
         "Mantém a mensagem na Caixa de entrada e ensina o filtro a não repetir o erro.",
+      learningProgress:
+        "{{count}} de {{required}} exemplos confirmados. Os e-mails recentes serão verificados quando todos os {{required}} forem confirmados.",
       rememberLabel: "Lembrar para emails futuros (opcional)",
       correctLabel: "O que ele deve aprender? (opcional)",
       rememberPlaceholder:

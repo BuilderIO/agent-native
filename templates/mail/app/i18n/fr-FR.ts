@@ -569,6 +569,8 @@ const messages = {
         "Ajoute le libellé agent-native-filtered et archive la conversation. Vous pouvez annuler à tout moment.",
       learningNote:
         "Garde le message dans la boîte de réception et apprend au filtre à ne pas répéter l’erreur.",
+      learningProgress:
+        "{{count}} exemple(s) sur {{required}} confirmé(s). Le courrier récent sera vérifié une fois les {{required}} confirmés.",
       rememberLabel: "Mémoriser pour les futurs messages (facultatif)",
       correctLabel: "Que doit-il apprendre ? (facultatif)",
       rememberPlaceholder:

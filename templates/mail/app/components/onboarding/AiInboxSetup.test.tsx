@@ -576,4 +576,44 @@ describe("AiInboxSetup", () => {
       openSidebar: true,
     });
   });
+
+  it("does not report no matches when a backfill failed before evaluation", async () => {
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "failed",
+      totalThreads: 12,
+      processedThreads: 0,
+      matchedThreads: 0,
+      appliedThreads: 0,
+      failedThreads: 12,
+      perRule: [
+        {
+          ruleId: "rule-1",
+          name: "Receipts",
+          matchedCount: 0,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+    };
+
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "mail.sort.aiSetupContinue",
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "mail.sort.aiSetupSortInbox",
+      }),
+    );
+
+    expect(await screen.findByText("mail.sort.aiSetupSortingFailed"));
+    expect(screen.queryByText("mail.sort.aiSetupNoMatches")).toBeNull();
+  });
 });

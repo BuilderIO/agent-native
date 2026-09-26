@@ -540,6 +540,8 @@ const messages = {
       keepDescription: "这会将 {{count}} 个会话恢复到收件箱，并让筛选器学习。",
       labelNote: "添加 agent-native-filtered 标签并归档会话。你可以随时撤销。",
       learningNote: "将邮件保留在收件箱，并让筛选器不要重复这个错误。",
+      learningProgress:
+        "已确认 {{required}} 个示例中的 {{count}} 个。确认全部 {{required}} 个后会检查近期邮件。",
       rememberLabel: "记住以处理今后的邮件（可选）",
       correctLabel: "应该学习什么？（可选）",
       rememberPlaceholder: "例如：来自政治竞选的类似邮件都是不需要的",

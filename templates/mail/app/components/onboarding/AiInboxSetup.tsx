@@ -257,7 +257,7 @@ function SetupResults({
           })}
         </p>
       ) : null}
-      {status && !running && !undone && status.matchedThreads === 0 ? (
+      {status?.status === "completed" && status.matchedThreads === 0 ? (
         <div className="rounded-xl border border-border/70 bg-muted/30 p-4 text-sm">
           <p className="font-medium">{t("mail.sort.aiSetupNoMatches")}</p>
         </div>

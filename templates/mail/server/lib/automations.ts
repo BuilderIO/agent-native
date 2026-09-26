@@ -34,6 +34,23 @@ function aiTagLabel(
   return aiFilterRuleLabelName(rule).trim() || null;
 }
 
+async function existingAiTagLabelIds(ownerEmail: string): Promise<Set<string>> {
+  const rules = await db
+    .select()
+    .from(schema.automationRules)
+    .where(eq(schema.automationRules.ownerEmail, ownerEmail));
+  return new Set(
+    rules.flatMap((rule: any) => {
+      const labelName = aiTagLabel(
+        rule.domain,
+        rule.kind,
+        JSON.parse(rule.actions) as AutomationAction[],
+      );
+      return labelName ? [normalizedAiFilterLabelId(labelName)] : [];
+    }),
+  );
+}
+
 function labelsFromSetting(value: unknown): Label[] {
   const labels = (value as { labels?: unknown } | null)?.labels;
   return Array.isArray(labels)
@@ -50,6 +67,7 @@ function labelsFromSetting(value: unknown): Label[] {
 async function reconcileAiTagPins(
   ownerEmail: string,
   changedLabels: string[],
+  newlyAddedLabels: string[] = [],
 ): Promise<void> {
   const [rules, storedLabels, cachedLabels] = await Promise.all([
     db
@@ -94,6 +112,9 @@ async function reconcileAiTagPins(
   await mutateUserSetting(ownerEmail, "mail-settings", (current) => {
     const settings = normalizeMailSettings(current, ownerEmail);
     const pinned = [...new Set(settings.pinnedLabels ?? [])];
+    const newLabelIds = new Set(
+      newlyAddedLabels.map(normalizedAiFilterLabelId),
+    );
     for (const labelName of [...new Set(changedLabels)]) {
       const normalized = normalizedAiFilterLabelId(labelName);
       const aliases = aliasesFor(labelName);
@@ -106,7 +127,10 @@ async function reconcileAiTagPins(
         }
         continue;
       }
-      if (!pinned.some((id) => aliases.has(normalizedAiFilterLabelId(id)))) {
+      if (
+        newLabelIds.has(normalized) &&
+        !pinned.some((id) => aliases.has(normalizedAiFilterLabelId(id)))
+      ) {
         pinned.push(canonicalId(tags.get(normalized)!));
       }
     }
@@ -239,11 +263,15 @@ export async function createAutomationRule(
 ): Promise<AutomationRule> {
   const domain = input.domain ?? "mail";
   const kind = input.kind ?? "automation";
+  let existingTagIds = new Set<string>();
   if (domain === "mail" && kind === "ai-filter") {
     await assertMailJevEnabled(ownerEmail);
     assertAiFilterActions(input.actions);
     const tagLabel = aiTagLabel(domain, kind, input.actions);
-    if (tagLabel) await ensureAiTagLabelExists(ownerEmail, tagLabel);
+    if (tagLabel) {
+      existingTagIds = await existingAiTagLabelIds(ownerEmail);
+      await ensureAiTagLabelExists(ownerEmail, tagLabel);
+    }
   }
   const now = Math.floor(Date.now() / 1_000);
   const rule = {
@@ -262,7 +290,13 @@ export async function createAutomationRule(
   await db.insert(schema.automationRules).values(rule as any);
   const result = toApiRule(rule);
   const tagLabel = aiTagLabel(result.domain, result.kind, result.actions);
-  if (tagLabel) await reconcileAiTagPins(ownerEmail, [tagLabel]);
+  if (tagLabel) {
+    await reconcileAiTagPins(
+      ownerEmail,
+      [tagLabel],
+      existingTagIds.has(normalizedAiFilterLabelId(tagLabel)) ? [] : [tagLabel],
+    );
+  }
   return result;
 }
 
@@ -307,7 +341,16 @@ export async function updateAutomationRule(
     existingActions,
   );
   const nextTagLabel = aiTagLabel(nextDomain, nextKind, nextActions);
-  if (nextTagLabel && nextTagLabel !== oldTagLabel) {
+  const oldTagId = oldTagLabel ? normalizedAiFilterLabelId(oldTagLabel) : null;
+  const nextTagId = nextTagLabel
+    ? normalizedAiFilterLabelId(nextTagLabel)
+    : null;
+  const tagChanged = oldTagId !== nextTagId;
+  const existingTagIds =
+    nextTagLabel && tagChanged
+      ? await existingAiTagLabelIds(ownerEmail)
+      : new Set<string>();
+  if (nextTagLabel && tagChanged) {
     await ensureAiTagLabelExists(ownerEmail, nextTagLabel);
   }
 
@@ -339,10 +382,13 @@ export async function updateAutomationRule(
   if (!updated) throw new Error("Rule not found");
   const result = toApiRule(updated);
   const nextTag = aiTagLabel(result.domain, result.kind, result.actions);
-  if (oldTagLabel !== nextTag) {
+  if (tagChanged) {
     await reconcileAiTagPins(
       ownerEmail,
       [oldTagLabel, nextTag].filter((label): label is string => label !== null),
+      nextTag && !existingTagIds.has(normalizedAiFilterLabelId(nextTag))
+        ? [nextTag]
+        : [],
     );
   }
   return result;

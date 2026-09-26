@@ -538,6 +538,8 @@ const messages = {
       keepDescription: "這會將 {{count}} 個對話還原到收件匣，並讓篩選器學習。",
       labelNote: "新增 agent-native-filtered 標籤並封存對話。你可以隨時復原。",
       learningNote: "將郵件保留在收件匣，並讓篩選器不要重複這個錯誤。",
+      learningProgress:
+        "已確認 {{required}} 個範例中的 {{count}} 個。確認全部 {{required}} 個後會檢查近期郵件。",
       rememberLabel: "記住以處理未來郵件（選填）",
       correctLabel: "應該學習什麼？（選填）",
       rememberPlaceholder: "例如：來自政治競選的類似郵件都不需要",

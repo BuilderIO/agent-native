@@ -21,7 +21,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string, values?: Record<string, unknown>) =>
+    key === "mail.aiFilter.learningProgress"
+      ? `${key}:${values?.count}/${values?.required}`
+      : key,
 }));
 
 vi.mock("@/hooks/use-ai-filter", () => ({
@@ -285,5 +288,23 @@ describe("AiFilterDialog", () => {
       }),
     );
     expect(mocks.backfill).not.toHaveBeenCalled();
+  });
+
+  it("shows learning progress without reporting a sorting failure before three examples", async () => {
+    mocks.refine.mockResolvedValue({
+      rule: { id: "learned-rule" },
+      backfillStatus: "waiting-for-examples",
+      learnedExampleCount: 2,
+    });
+    renderDialog("filter");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.filterButton" }),
+    );
+
+    expect(await screen.findByText("mail.aiFilter.learningProgress:2/3"));
+    expect(screen.queryByText("mail.sort.aiSetupSortingFailed")).toBeNull();
+    expect(mocks.backfill).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
   });
 });

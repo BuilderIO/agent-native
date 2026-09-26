@@ -31,6 +31,7 @@ import {
   type AiFilterState,
   createDefaultAiFilterState,
 } from "../../shared/ai-filter.js";
+import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
 import { automationActionSchema } from "../../shared/automation-schema.js";
 import { mailLabelsInclude } from "../../shared/gmail-labels.js";
 import type { AutomationAction, EmailMessage } from "../../shared/types.js";
@@ -1444,7 +1445,9 @@ async function ensureEvaluations(
     throw new Error("Mail AI-filter evaluation did not classify every thread.");
   }
   const evaluations = batch.map((candidate) => {
-    const matches = matchMap.get(candidate.email.id);
+    const matches = matchMap.get(
+      aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
+    );
     if (matches === undefined) {
       throw new Error(
         "Mail AI-filter evaluation did not classify every thread.",

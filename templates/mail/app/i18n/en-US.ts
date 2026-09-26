@@ -557,6 +557,8 @@ const messages = {
         "Adds the agent-native-filtered label and archives the conversation. You can undo it anytime.",
       learningNote:
         "Keeps the message in Inbox and teaches the filter not to repeat the mistake.",
+      learningProgress:
+        "Confirmed {{count}} of {{required}} examples. Recent mail will be checked after {{required}} are confirmed.",
       rememberLabel: "Remember for future mail (optional)",
       correctLabel: "What should it learn? (optional)",
       rememberPlaceholder:

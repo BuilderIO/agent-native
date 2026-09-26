@@ -272,6 +272,7 @@ describe("createAutomationRule AI tags", () => {
       domain: "mail",
       kind: "ai-filter" as const,
     };
+    settingsMocks.values.set("mail-settings", { pinnedLabels: [] });
 
     await createAutomationRule("owner@example.test", input);
     await createAutomationRule("owner@example.test", {
@@ -283,6 +284,55 @@ describe("createAutomationRule AI tags", () => {
       pinnedLabels: ["receipts"],
     });
     expect(dbMock.calls.insertValues).toHaveLength(2);
+  });
+
+  it("keeps an existing hidden AI tag unpinned when rules are added or retagged to it", async () => {
+    settingsMocks.values.set("mail-settings", { pinnedLabels: [] });
+    dbMock.calls.rootRows.push({
+      id: "receipts-rule",
+      ownerEmail: "owner@example.test",
+      domain: "mail",
+      kind: "ai-filter",
+      name: "AI tag: receipts",
+      condition: "Receipts",
+      actions: JSON.stringify([{ type: "label", labelName: "Receipts" }]),
+      enabled: 1,
+      createdAt: 1_700_000_000,
+      updatedAt: 1_700_000_000,
+    });
+
+    await createAutomationRule("owner@example.test", {
+      name: "AI tag: more receipts",
+      condition: "More receipts",
+      actions: [{ type: "label", labelName: "Receipts" }],
+      domain: "mail",
+      kind: "ai-filter",
+    });
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: [],
+    });
+
+    dbMock.calls.rootRows.unshift({
+      id: "orders-rule",
+      ownerEmail: "owner@example.test",
+      domain: "mail",
+      kind: "ai-filter",
+      name: "AI tag: orders",
+      condition: "Orders",
+      actions: JSON.stringify([{ type: "label", labelName: "Orders" }]),
+      enabled: 1,
+      createdAt: 1_700_000_000,
+      updatedAt: 1_700_000_000,
+    });
+
+    await updateAutomationRule("owner@example.test", "orders-rule", {
+      actions: [{ type: "label", labelName: "Receipts" }],
+    });
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: [],
+    });
   });
 
   it.each([
