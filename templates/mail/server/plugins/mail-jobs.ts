@@ -3,6 +3,7 @@ import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 import { startIntervalJob } from "@agent-native/core/server/interval-job";
 import { z } from "zod";
 
+import { purgeExpiredMailAiFilterRuleUndoSnapshots } from "../lib/ai-filter-rule-undo.js";
 import { processAutomations } from "../lib/automation-engine.js";
 import { getClientForAccount, startWatch } from "../lib/google-auth.js";
 import {
@@ -136,6 +137,11 @@ export default () => {
   // overlap the next one and send duplicate mail.
   startIntervalJob(
     async () => {
+      try {
+        await purgeExpiredMailAiFilterRuleUndoSnapshots();
+      } catch (err) {
+        console.error("[mail-jobs] AI-filter undo cleanup failed:", err);
+      }
       try {
         await processJobs();
       } catch (err) {
