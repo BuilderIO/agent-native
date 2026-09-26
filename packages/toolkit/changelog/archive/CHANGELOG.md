@@ -1,3 +1,9 @@
+## 0.4.5
+
+### Patch Changes
+
+- a91535c: Keep alert dialogs centered above full-app overlays.
+
 ## 0.4.4
 
 ### Patch Changes

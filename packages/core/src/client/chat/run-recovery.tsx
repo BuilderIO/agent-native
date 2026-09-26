@@ -212,7 +212,7 @@ function isConnectionRecoveryRunError(info: RunErrorInfo): boolean {
   );
 }
 
-function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
+export function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
   const code = (info.errorCode ?? "").toLowerCase();
   const text = [info.message, info.details].filter(Boolean).join("\n");
   const hasCredentialSetupText =
