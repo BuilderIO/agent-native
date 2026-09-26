@@ -773,10 +773,14 @@ export function startInPlaceTextSession(
       return;
     }
     const range = selectionRange();
-    const caretHere = range?.collapsed && range.startContainer === text;
+    // Read before replaceWith: the selection's live range moves with it.
+    const caret =
+      range?.collapsed && range.startContainer === text
+        ? range.startOffset
+        : null;
     const copy = text.cloneNode() as Text;
     text.replaceWith(copy);
-    if (caretHere) placeCaret(copy, range.startOffset);
+    if (caret !== null) placeCaret(copy, caret);
   }
 
   function reshapeAtCaret() {
