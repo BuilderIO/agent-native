@@ -89,18 +89,18 @@ export function useOutputReviews(
   return query;
 }
 
-export function useOutputReviewApp(runId: string | null) {
+export function useOutputReviewApp(runId: string | null, orgId?: string) {
   return useActionQuery<AgentMcpAppPayload | null>(
     "get-observability-review-app",
-    { runId: runId ?? "" },
+    { runId: runId ?? "", ...(orgId ? { orgId } : {}) },
     { enabled: runId !== null, gcTime: 0 },
   );
 }
 
-export function useOutputReviewDetail(runId: string | null) {
+export function useOutputReviewDetail(runId: string | null, orgId?: string) {
   return useActionQuery<OutputReviewDetail>(
     "get-observability-review-detail",
-    { runId: runId ?? "" },
+    { runId: runId ?? "", ...(orgId ? { orgId } : {}) },
     { enabled: runId !== null, gcTime: 0 },
   );
 }

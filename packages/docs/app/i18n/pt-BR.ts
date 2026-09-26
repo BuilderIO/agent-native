@@ -1756,19 +1756,19 @@ const ptBR = {
       },
       s001: "Captura de tela do modelo Mail",
       heroEyebrow: "Mail",
-      heroTitle: "Gerencie sua caixa de entrada com seu agente de IA",
+      heroTitle: "Assuma o controle da sua caixa de entrada com Jev",
       heroDescription:
-        "O Mail traz classificação de prioridade, rótulos sensíveis ao contexto, resumos de conversas e regras de segundo plano em uma caixa de entrada do Gmail com teclado, com um agente que pode dar o próximo passo.",
+        "Diga ao Jev em linguagem natural o que importa. Ele mantém visíveis os comentários humanos do GitHub, destaca as mensagens do seu gerente e tira as notificações de bots do caminho — aprendendo com suas correções.",
       heroCta: "Gerencie sua caixa de entrada",
-      useCasesHeading: "Deixe o Mail dar o primeiro passo",
+      useCasesHeading: "Uma caixa de entrada mais inteligente, com Jev",
       useCasesBody:
-        "Revele conversas urgentes, rotule as mensagens por significado e mantenha o trabalho repetitivo da caixa de entrada em andamento enquanto você mantém o controle.",
-      useCase1Title: "Veja o que precisa de você hoje",
+        "Crie uma regra em linguagem natural. Jev prioriza pessoas e conversas importantes, aplica os rótulos certos e arquiva mensagens repetitivas assim que chegam.",
+      useCase1Title: "Mantenha as pessoas. Arquive os bots.",
       useCase1Body:
-        "O Mail classifica os tópicos por urgência, prazos e quem está esperando e, em seguida, fornece um resumo da caixa de entrada com as próximas ações úteis.",
-      useCase2Title: "Rotular mensagens por significado",
+        "Diga ao Jev o que importa: mantenha no Product os comentários de pessoas em pull requests do GitHub, arquive notificações de bots e mova os e-mails da sua liderança para Important. Ajuste cada regra com um prompt e ensine o filtro de spam com seu feedback.",
+      useCase2Title: "Cada e-mail com o rótulo certo",
       useCase2Body:
-        "O agente pode aplicar rótulos do contexto do remetente e da conversa, para que as conversas de pesquisa, finanças e clientes fiquem fáceis de encontrar.",
+        "Jev classifica conversas pelo significado, não apenas por palavras-chave, para que notas de clientes, recibos e pesquisas cheguem ao lugar certo.",
       useCase3Title: "Automatize o trabalho de rotina",
       useCase3Body:
         "Defina regras para rotular ou arquivar novos e-mails em segundo plano e revise o histórico de execução sempre que desejar.",
@@ -1790,9 +1790,9 @@ const ptBR = {
       feature5Title: "Revise antes de enviar",
       feature5Body:
         "Peça ao agente para redigir ou revisar uma resposta e, em seguida, revise-a e edite-a antes que ela saia da sua caixa de entrada.",
-      feature6Title: "Pesquisa em várias contas",
+      feature6Title: "Um filtro de spam que aprende",
       feature6Body:
-        "Pesquise contas do Gmail conectadas e use a mesma prioridade, rótulos e ferramentas de agente em um só lugar.",
+        "Marque uma mensagem filtrada como desejada ou sinalize um e-mail indesejado. Jev aprende com cada correção e aplica isso a mensagens semelhantes.",
       finalCtaHeading: "Comece com seu próximo e-mail",
       finalCtaBody:
         "Abra uma conversa e peça ao seu agente de IA um resumo ou um rascunho de resposta.",

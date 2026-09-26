@@ -23,7 +23,9 @@ import type {
   ExperimentMetricResult,
   InstructionUpdate,
   HumanReviewSummary,
+  ObservabilityReviewThreadScope,
 } from "./types.js";
+import { observabilityReviewThreadKey } from "./types.js";
 
 function safeJsonParse<T>(value: unknown, fallback: T): T {
   if (value === null || value === undefined) return fallback;
@@ -693,9 +695,9 @@ export async function getTraceSummaries(opts: {
   const select = opts.requireReviewContext
     ? `SELECT * FROM (
         SELECT agent_trace_summaries.*,
-          COUNT(*) OVER (PARTITION BY thread_id) AS run_count,
+          COUNT(*) OVER (PARTITION BY org_id, thread_id) AS run_count,
           ROW_NUMBER() OVER (
-            PARTITION BY thread_id ORDER BY created_at DESC, run_id DESC
+            PARTITION BY org_id, thread_id ORDER BY created_at DESC, run_id DESC
           ) AS review_row_number
         FROM agent_trace_summaries
         WHERE ${where}
@@ -728,37 +730,52 @@ export async function getTraceSummaries(opts: {
 }
 
 export async function getRecentReviewRunsForThreads(opts: {
-  orgId: string;
-  threadIds: readonly string[];
+  threadScopes: readonly ObservabilityReviewThreadScope[];
   sinceMs: number;
   perThreadLimit?: number;
 }): Promise<TraceSummary[]> {
-  const threadIds = [...new Set(opts.threadIds.filter(Boolean))].slice(0, 100);
-  if (!opts.orgId || threadIds.length === 0) return [];
+  const scopes = [
+    ...new Map(
+      opts.threadScopes
+        .filter(({ orgId, threadId }) => orgId && threadId)
+        .map((scope) => [
+          observabilityReviewThreadKey(scope.orgId, scope.threadId),
+          scope,
+        ]),
+    ).values(),
+  ].slice(0, 100);
+  if (scopes.length === 0) return [];
   await ensureObservabilityTables();
   const limit = Math.max(1, Math.min(opts.perThreadLimit ?? 6, 12));
   const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM (
       SELECT summary.*,
         ROW_NUMBER() OVER (
-          PARTITION BY summary.thread_id
+          PARTITION BY summary.org_id, summary.thread_id
           ORDER BY summary.created_at DESC, summary.run_id DESC
         ) AS review_run_number
       FROM agent_trace_summaries summary
       INNER JOIN chat_threads thread
         ON thread.id = summary.thread_id AND thread.org_id = summary.org_id
           AND LOWER(thread.owner_email) = LOWER(summary.user_id)
-      WHERE summary.org_id = ? AND summary.created_at >= ?
-        AND summary.thread_id IN (${threadIds.map(() => "?").join(", ")})
-        AND summary.run_id NOT IN (
-          SELECT run_id FROM agent_trace_spans
-          WHERE org_id = ? AND span_type = 'agent_run'
-            AND name = 'agent_run:observability:human-review-summary'
+      WHERE summary.created_at >= ? AND (${scopes
+        .map(() => "(summary.org_id = ? AND summary.thread_id = ?)")
+        .join(" OR ")})
+        AND NOT EXISTS (
+          SELECT 1 FROM agent_trace_spans review_span
+          WHERE review_span.run_id = summary.run_id
+            AND review_span.org_id = summary.org_id
+            AND review_span.span_type = 'agent_run'
+            AND review_span.name = 'agent_run:observability:human-review-summary'
         )
     ) AS review_runs
     WHERE review_run_number <= ?
     ORDER BY thread_id, created_at DESC, run_id DESC`,
-    args: [opts.orgId, opts.sinceMs, ...threadIds, opts.orgId, limit],
+    args: [
+      opts.sinceMs,
+      ...scopes.flatMap(({ orgId, threadId }) => [orgId, threadId]),
+      limit,
+    ],
   });
   return (rows as Array<Record<string, unknown>>).map(rowToTraceSummary);
 }
@@ -827,8 +844,9 @@ export async function getOrgScopedThreadTitles(
 }
 
 export async function getOrgScopedReviewThreads(
-  orgId: string,
-  requested: readonly { ownerEmail: string; threadId: string }[],
+  requested: readonly (ObservabilityReviewThreadScope & {
+    ownerEmail: string;
+  })[],
 ): Promise<
   Map<
     string,
@@ -845,31 +863,36 @@ export async function getOrgScopedReviewThreads(
   const keys = [
     ...new Map(
       requested
-        .filter(({ ownerEmail, threadId }) => ownerEmail && threadId)
+        .filter(
+          ({ orgId, ownerEmail, threadId }) => orgId && ownerEmail && threadId,
+        )
         .map((key) => [
-          `${key.ownerEmail.toLowerCase()}\0${key.threadId}`,
+          `${observabilityReviewThreadKey(key.orgId, key.threadId)}\0${key.ownerEmail.toLowerCase()}`,
           key,
         ]),
     ).values(),
   ].slice(0, 100);
-  if (!orgId || keys.length === 0) return new Map();
+  if (keys.length === 0) return new Map();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, owner_email,
+    sql: `SELECT id, owner_email, org_id,
       CASE WHEN OCTET_LENGTH(thread_data) <= ? THEN thread_data ELSE NULL END AS thread_data,
       title, scope_type, scope_id, scope_label FROM chat_threads
-      WHERE org_id = ? AND (${keys
-        .map(() => "(LOWER(owner_email) = LOWER(?) AND id = ?)")
+      WHERE (${keys
+        .map(() => "(org_id = ? AND LOWER(owner_email) = LOWER(?) AND id = ?)")
         .join(" OR ")})`,
     args: [
       MAX_REVIEW_THREAD_BYTES,
-      orgId,
-      ...keys.flatMap(({ ownerEmail, threadId }) => [ownerEmail, threadId]),
+      ...keys.flatMap(({ orgId, ownerEmail, threadId }) => [
+        orgId,
+        ownerEmail,
+        threadId,
+      ]),
     ],
   });
   return new Map(
     (rows as Array<Record<string, unknown>>).map((row) => [
-      String(row.id),
+      observabilityReviewThreadKey(String(row.org_id), String(row.id)),
       {
         ownerEmail: String(row.owner_email),
         threadData:
@@ -911,11 +934,19 @@ export async function getHumanReviewSummaries(
 }
 
 export async function getHumanReviewSummariesForThreads(
-  orgId: string,
-  threadIds: readonly string[],
+  scopes: readonly ObservabilityReviewThreadScope[],
 ): Promise<Map<string, HumanReviewSummary>> {
-  const ids = [...new Set(threadIds.filter(Boolean))];
-  if (!orgId || ids.length === 0) return new Map();
+  const uniqueScopes = [
+    ...new Map(
+      scopes
+        .filter(({ orgId, threadId }) => orgId && threadId)
+        .map((scope) => [
+          observabilityReviewThreadKey(scope.orgId, scope.threadId),
+          scope,
+        ]),
+    ).values(),
+  ].slice(0, 100);
+  if (uniqueScopes.length === 0) return new Map();
   await ensureObservabilityTables();
   const { rows } = await getDbExec().execute({
     sql: `SELECT review.*, trace.thread_id AS review_thread_id
@@ -925,15 +956,19 @@ export async function getHumanReviewSummariesForThreads(
       INNER JOIN chat_threads thread
         ON thread.id = trace.thread_id AND thread.org_id = trace.org_id
           AND LOWER(thread.owner_email) = LOWER(trace.user_id)
-      WHERE review.org_id = ? AND trace.thread_id IN (${ids.map(() => "?").join(", ")})
+      WHERE (${uniqueScopes
+        .map(() => "(review.org_id = ? AND trace.thread_id = ?)")
+        .join(" OR ")})
       ORDER BY review.updated_at DESC, review.run_id DESC`,
-    args: [orgId, ...ids],
+    args: uniqueScopes.flatMap(({ orgId, threadId }) => [orgId, threadId]),
   });
   const summaries = new Map<string, HumanReviewSummary>();
   for (const row of rows as Array<Record<string, unknown>>) {
     const threadId = String(row.review_thread_id ?? "");
-    if (threadId && !summaries.has(threadId)) {
-      summaries.set(threadId, parseHumanReviewSummaryRow(row));
+    const orgId = String(row.org_id ?? "");
+    const key = observabilityReviewThreadKey(orgId, threadId);
+    if (threadId && orgId && !summaries.has(key)) {
+      summaries.set(key, parseHumanReviewSummaryRow(row));
     }
   }
   return summaries;
@@ -1019,6 +1054,7 @@ export async function getFeedback(opts: {
   source?: FeedbackEntry["source"];
   runIds?: readonly string[];
   threadIds?: readonly string[];
+  threadScopes?: readonly ObservabilityReviewThreadScope[];
   perThreadLimit?: number;
 }): Promise<FeedbackEntry[]> {
   const runIds = opts.runIds
@@ -1029,6 +1065,19 @@ export async function getFeedback(opts: {
     ? [...new Set(opts.threadIds.filter(Boolean))]
     : undefined;
   if (threadIds?.length === 0) return [];
+  const threadScopes = opts.threadScopes
+    ? [
+        ...new Map(
+          opts.threadScopes
+            .filter(({ orgId, threadId }) => orgId && threadId)
+            .map((scope) => [
+              observabilityReviewThreadKey(scope.orgId, scope.threadId),
+              scope,
+            ]),
+        ).values(),
+      ].slice(0, 100)
+    : undefined;
+  if (threadScopes?.length === 0) return [];
   await ensureObservabilityTables();
   const client = getDbExec();
   const conditions: string[] = [];
@@ -1041,7 +1090,16 @@ export async function getFeedback(opts: {
     conditions.push(`run_id IN (${runIds.map(() => "?").join(", ")})`);
     args.push(...runIds);
   }
-  if (threadIds) {
+  if (threadScopes) {
+    conditions.push(
+      `(${threadScopes
+        .map(() => "(org_id = ? AND thread_id = ?)")
+        .join(" OR ")})`,
+    );
+    args.push(
+      ...threadScopes.flatMap(({ orgId, threadId }) => [orgId, threadId]),
+    );
+  } else if (threadIds) {
     conditions.push(`thread_id IN (${threadIds.map(() => "?").join(", ")})`);
     args.push(...threadIds);
   }
@@ -1069,8 +1127,18 @@ export async function getFeedback(opts: {
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const perThreadLimit = Math.max(1, Math.min(opts.perThreadLimit ?? 6, 12));
   const { rows } = await client.execute({
-    sql: threadIds
+    sql: threadScopes
       ? `SELECT * FROM (
+        SELECT agent_feedback.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY org_id, thread_id ORDER BY created_at DESC, id DESC
+          ) AS feedback_row_number
+        FROM agent_feedback ${where}
+      ) AS review_feedback
+      WHERE feedback_row_number <= ?
+      ORDER BY created_at DESC, id DESC`
+      : threadIds
+        ? `SELECT * FROM (
         SELECT agent_feedback.*,
           ROW_NUMBER() OVER (
             PARTITION BY thread_id ORDER BY created_at DESC, id DESC
@@ -1079,9 +1147,12 @@ export async function getFeedback(opts: {
       ) AS review_feedback
       WHERE feedback_row_number <= ?
       ORDER BY created_at DESC, id DESC`
-      : `SELECT * FROM agent_feedback ${where}
+        : `SELECT * FROM agent_feedback ${where}
       ORDER BY created_at DESC LIMIT ?`,
-    args: [...args, threadIds ? perThreadLimit : (opts.limit ?? 100)],
+    args: [
+      ...args,
+      threadScopes || threadIds ? perThreadLimit : (opts.limit ?? 100),
+    ],
   });
   return (rows as any[]).map(rowToFeedback);
 }
@@ -1157,6 +1228,7 @@ export async function getInstructionUpdates(opts: {
   userId?: string;
   orgId?: string;
   threadIds?: readonly string[];
+  threadScopes?: readonly ObservabilityReviewThreadScope[];
   perThreadLimit?: number;
 }): Promise<InstructionUpdate[]> {
   const runIds = opts.runIds
@@ -1167,6 +1239,19 @@ export async function getInstructionUpdates(opts: {
     ? [...new Set(opts.threadIds.filter(Boolean))]
     : undefined;
   if (threadIds?.length === 0) return [];
+  const threadScopes = opts.threadScopes
+    ? [
+        ...new Map(
+          opts.threadScopes
+            .filter(({ orgId, threadId }) => orgId && threadId)
+            .map((scope) => [
+              observabilityReviewThreadKey(scope.orgId, scope.threadId),
+              scope,
+            ]),
+        ).values(),
+      ].slice(0, 100)
+    : undefined;
+  if (threadScopes?.length === 0) return [];
   await ensureObservabilityTables();
   const client = getDbExec();
   const conditions: string[] = [];
@@ -1179,7 +1264,16 @@ export async function getInstructionUpdates(opts: {
     conditions.push(`run_id IN (${runIds.map(() => "?").join(", ")})`);
     args.push(...runIds);
   }
-  if (threadIds) {
+  if (threadScopes) {
+    conditions.push(
+      `(${threadScopes
+        .map(() => "(org_id = ? AND thread_id = ?)")
+        .join(" OR ")})`,
+    );
+    args.push(
+      ...threadScopes.flatMap(({ orgId, threadId }) => [orgId, threadId]),
+    );
+  } else if (threadIds) {
     conditions.push(`thread_id IN (${threadIds.map(() => "?").join(", ")})`);
     args.push(...threadIds);
   }
@@ -1199,8 +1293,18 @@ export async function getInstructionUpdates(opts: {
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const perThreadLimit = Math.max(1, Math.min(opts.perThreadLimit ?? 1, 12));
   const { rows } = await client.execute({
-    sql: threadIds
+    sql: threadScopes
       ? `SELECT * FROM (
+        SELECT agent_instruction_updates.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY org_id, thread_id ORDER BY updated_at DESC, id DESC
+          ) AS update_row_number
+        FROM agent_instruction_updates ${where}
+      ) AS review_updates
+      WHERE update_row_number <= ?
+      ORDER BY updated_at DESC, id DESC`
+      : threadIds
+        ? `SELECT * FROM (
         SELECT agent_instruction_updates.*,
           ROW_NUMBER() OVER (
             PARTITION BY thread_id ORDER BY updated_at DESC, id DESC
@@ -1209,9 +1313,12 @@ export async function getInstructionUpdates(opts: {
       ) AS review_updates
       WHERE update_row_number <= ?
       ORDER BY updated_at DESC, id DESC`
-      : `SELECT * FROM agent_instruction_updates ${where}
+        : `SELECT * FROM agent_instruction_updates ${where}
       ORDER BY updated_at DESC LIMIT ?`,
-    args: [...args, threadIds ? perThreadLimit : (opts.limit ?? 500)],
+    args: [
+      ...args,
+      threadScopes || threadIds ? perThreadLimit : (opts.limit ?? 500),
+    ],
   });
   return (rows as any[]).map(rowToInstructionUpdate);
 }

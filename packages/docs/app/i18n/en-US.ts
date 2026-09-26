@@ -1740,19 +1740,19 @@ const enUS = {
       },
       s001: "Mail app screenshot",
       heroEyebrow: "Mail",
-      heroTitle: "Manage your inbox with your AI agent",
+      heroTitle: "Take control of your inbox with Jev",
       heroDescription:
-        "Mail brings priority sorting, context-aware labels, thread summaries, and background rules into one keyboard-first Gmail inbox—with an agent that can take the next step.",
+        "Tell Jev what matters in plain English. It keeps human GitHub comments, moves your manager’s mail up, and clears bot notifications—then learns from your corrections.",
       heroCta: "Manage your inbox",
-      useCasesHeading: "Let Mail take the first pass",
+      useCasesHeading: "A smarter inbox, powered by Jev",
       useCasesBody:
-        "Surface urgent threads, label messages by meaning, and keep repetitive inbox work moving while you stay in control.",
-      useCase1Title: "See what needs you today",
+        "Set a rule in plain English. Jev prioritizes the people and conversations that matter, applies useful labels, and archives repetitive mail as it arrives.",
+      useCase1Title: "Keep the people. Clear the bots.",
       useCase1Body:
-        "Mail ranks threads by urgency, deadlines, and who is waiting, then gives you an inbox brief with the next useful actions.",
-      useCase2Title: "Label messages by meaning",
+        "Tell Jev what matters: keep human GitHub pull-request comments in Product, archive bot notifications, and move your manager’s mail to Important. Refine every rule with a prompt, and teach the spam filter as you go.",
+      useCase2Title: "Every email, tagged for you",
       useCase2Body:
-        "The agent can apply labels from sender and conversation context, so research, finance, and customer threads stay easy to find.",
+        "Jev labels conversations by meaning, not just keywords, so customer notes, receipts, and research land in the right place.",
       useCase3Title: "Automate the routine work",
       useCase3Body:
         "Set rules to label or archive new mail in the background, then review the run history whenever you want.",
@@ -1774,9 +1774,9 @@ const enUS = {
       feature5Title: "Review before sending",
       feature5Body:
         "Have the agent draft or revise a reply, then review and edit it before it leaves your inbox.",
-      feature6Title: "Multi-account search",
+      feature6Title: "A spam filter that learns",
       feature6Body:
-        "Search across connected Gmail accounts and use the same priority, labels, and agent tools in one place.",
+        "Mark a filtered message as wanted or flag unwanted mail. Jev learns from each correction and applies it to similar messages.",
       finalCtaHeading: "Start with your next email",
       finalCtaBody:
         "Open a conversation and ask your AI agent for a summary or a draft reply.",

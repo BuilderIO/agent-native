@@ -1,34 +1,21 @@
 import { defineBlock } from "@agent-native/core/blocks";
 import type { BlockReadProps } from "@agent-native/core/blocks";
-import { useEffect, useState } from "react";
+import { useRef } from "react";
 
+import { usePrefersReducedMotion } from "../use-prefers-reduced-motion";
 import { MediaFrame } from "./media-layout";
 import { videoSchema, videoMdx, type VideoData } from "./video.config";
 
 export type { VideoData };
 
-function usePrefersReducedMotion(): boolean | null {
-  const [reduced, setReduced] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) {
-      setReduced(false);
-      return;
-    }
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduced(query.matches);
-    const onChange = (event: MediaQueryListEvent) => setReduced(event.matches);
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
-
-  return reduced;
-}
-
 export function VideoBlock({ data, ctx }: BlockReadProps<VideoData>) {
-  const prefersReducedMotion = usePrefersReducedMotion();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const { current, initial, autoplayStopped } =
+    usePrefersReducedMotion(videoRef);
+  // Autoplay only fires once the reduced-motion preference has resolved.
   const shouldAutoplay =
-    Boolean(data.autoplay) && prefersReducedMotion === false;
+    Boolean(data.autoplay) && current === false && !autoplayStopped;
+  const shouldMute = Boolean(data.autoplay) && initial !== true;
 
   return (
     <MediaFrame
@@ -40,13 +27,14 @@ export function VideoBlock({ data, ctx }: BlockReadProps<VideoData>) {
       ctx={ctx}
       media={
         <video
+          ref={videoRef}
           src={data.src}
           aria-label={data.alt}
           controls
           preload="metadata"
           autoPlay={shouldAutoplay}
-          muted={shouldAutoplay}
-          playsInline={shouldAutoplay}
+          muted={shouldMute}
+          playsInline
           loop={Boolean(data.loop)}
         />
       }
