@@ -15,7 +15,16 @@ export type {
   OnboardingStepStatus,
   OnboardingCapability,
   OnboardingAppProfile,
+  WorkspaceBuilderOnlyServiceId,
+  WorkspaceProviderServiceId,
+  WorkspaceServiceId,
 } from "./types.js";
+export {
+  WORKSPACE_SERVICES,
+  workspaceServiceForCapability,
+  type WorkspaceService,
+  type WorkspaceServiceKind,
+} from "./workspace-services.js";
 export {
   getOnboardingAppProfile,
   resolveOnboardingAppId,

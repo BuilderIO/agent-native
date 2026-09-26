@@ -69,6 +69,31 @@ so onboarding, Settings, and templates cannot drift into different rules. A
 provider that serves files without a public URL sets
 `publicBaseUrlOptional: true` on its `FileUploadProvider`.
 
+## Shared services: one list for first-run and Infrastructure
+
+`WORKSPACE_SERVICES` (`packages/core/src/onboarding/workspace-services.ts`,
+exported from `@agent-native/core/onboarding`) is the one list of services
+every app shares: AI model, storage, voice, images, embeddings, and the
+Builder.io-only services. First-run "Choose your setup" reads it through
+`getOnboardingAppProfile()`, which tags each capability with its `service` id
+(and `builderOnly`). Settings › Organization › Infrastructure renders one
+Services row per entry and takes its Required/Recommended tags from those ids.
+
+- To add a shared service, add it to `WORKSPACE_SERVICES` and give it a row in
+  `InfrastructureSettingsPage.tsx`; its records are keyed by service id, so
+  the page won't compile without one. Never add a label to first-run alone.
+- To tailor a service for one app, declare a capability in that app's profile
+  with one of the service's `capabilityIds` (Clips' `video-storage`). It
+  replaces the default copy and can raise the tag, never lower it.
+- An app's own capabilities (a Figma token, a Gmail connection) stay out of
+  `WORKSPACE_SERVICES`. First-run shows them only when required or suggested.
+- List a Builder.io capability only if Builder.io actually powers it in code.
+
+Transactional email is deployment configuration, not an onboarding form. The
+built-in `email` step links to the host variables (`RESEND_API_KEY` or
+`SENDGRID_API_KEY`, plus `EMAIL_FROM`) and is hidden when the deployment
+already provides email. Don't add a step that saves those keys.
+
 ## Related Skills
 
 - `adding-a-feature` — The four-area checklist; onboarding is often part of a new integration

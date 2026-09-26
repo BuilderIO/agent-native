@@ -16,18 +16,23 @@ import React, {
   useState,
 } from "react";
 
+import { SETTINGS_REDESIGN_FLAG } from "../../feature-flags/registry.js";
 import { buildSettingsRoute } from "../../navigation/index.js";
 import type {
   OnboardingAppProfile,
   OnboardingCapability,
 } from "../../onboarding/types.js";
+import { canManageOrg } from "../../org/permissions.js";
+import type { OrgInfo } from "../../org/types.js";
 import { appPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useFeatureFlagState } from "../feature-flags/use-feature-flag.js";
 import { useT } from "../i18n.js";
+import { useOrg } from "../org/hooks.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
@@ -81,16 +86,23 @@ const FIRST_RUN_ROLE_OPTIONS = [
   { value: "other", labelKey: "agentChat.onboarding.roleOther" },
 ] as const;
 
-const BUILDER_MORE_SERVICES = [
-  "Voice input",
-  "Background agents",
-  "Image generation",
-  "Video generation",
-  "Connected agents",
-  "Hosting and deployment",
-  "Browser automation",
-  "Embeddings",
-] as const;
+/**
+ * Where "Skip and configure manually" lands: Organization › Infrastructure,
+ * the Settings side of this screen, for the people who can open it once the
+ * redesign is on; otherwise the AI model settings as before.
+ */
+export function manualSetupSettingsRoute({
+  redesign,
+  org,
+}: {
+  redesign: boolean;
+  org: Pick<OrgInfo, "orgId" | "role"> | undefined;
+}): string {
+  if (redesign && org && (!org.orgId || canManageOrg(org.role))) {
+    return buildSettingsRoute("infra");
+  }
+  return buildSettingsRoute("agent:llm");
+}
 
 export interface FirstRunOnboardingProps {
   /** The shared startup gate has already resolved this account as eligible. */
@@ -123,6 +135,8 @@ export function FirstRunOnboarding({
     "existing" | "provision"
   >("existing");
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  const { data: org } = useOrg({ enabled: firstRun });
   useEffect(() => {
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
@@ -303,9 +317,12 @@ export function FirstRunOnboarding({
     return <OnboardingSkeleton />;
   }
 
+  // Every shared service Builder.io powers, the same list Infrastructure
+  // shows, plus the app's own headline capabilities it covers.
   const builderCapabilities = profile.capabilities.filter(
     (capability) =>
-      capability.builderIncluded && isHeadlineCapability(capability),
+      capability.builderIncluded &&
+      (!!capability.service || isHeadlineCapability(capability)),
   );
 
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
@@ -345,7 +362,7 @@ export function FirstRunOnboarding({
     window.history.pushState(
       null,
       "",
-      `${appPath(buildSettingsRoute("agent:llm"))}${query ? `?${query}` : ""}`,
+      `${appPath(manualSetupSettingsRoute({ redesign: redesign.enabled, org }))}${query ? `?${query}` : ""}`,
     );
     window.dispatchEvent(new Event("popstate"));
   };
@@ -473,7 +490,7 @@ export function FirstRunOnboarding({
                         <span className="flex-1 text-xs text-foreground">
                           {copy.label}
                         </span>
-                        {capability.id === "design-system-intelligence" && (
+                        {capability.builderOnly && (
                           <CapabilityInfoButton
                             why={copy.why}
                             ariaLabel={t(
@@ -488,27 +505,6 @@ export function FirstRunOnboarding({
                       </div>
                     );
                   })}
-                  {BUILDER_MORE_SERVICES.filter(
-                    (service) =>
-                      !builderCapabilities.some(
-                        (capability) =>
-                          getCapabilityCopy(
-                            t,
-                            capability,
-                          ).label.toLowerCase() === service.toLowerCase(),
-                      ),
-                  ).map((service) => (
-                    <div
-                      key={service}
-                      className="flex items-center gap-2 rounded-md px-2 py-1"
-                    >
-                      <IconCheck
-                        className="shrink-0 text-muted-foreground"
-                        size={15}
-                      />
-                      <span className="text-xs text-foreground">{service}</span>
-                    </div>
-                  ))}
                 </div>
                 <div className="flex flex-col gap-2">
                   <button
@@ -885,7 +881,7 @@ type CapabilityTranslator = (
 
 type CapabilityCopy = Pick<
   OnboardingCapability,
-  "id" | "required" | "suggested"
+  "id" | "required" | "suggested" | "builderOnly"
 > & {
   label: string;
   keySummary: string;
@@ -900,6 +896,7 @@ function getCapabilityCopy(
     id: capability.id,
     required: capability.required,
     suggested: capability.suggested,
+    builderOnly: capability.builderOnly,
     label: capability.labelKey
       ? t(capability.labelKey, { defaultValue: capability.label })
       : capability.label,
@@ -949,11 +946,6 @@ function CapabilityList({
   );
 }
 
-// Design system intelligence has no BYOK path — it's Builder-managed only, so
-// the manual list shows it crossed out with no Required/Recommended tag
-// instead of mislabeling it "Optional".
-const NO_MANUAL_PATH_CAPABILITY_IDS = new Set(["design-system-intelligence"]);
-
 /** The setup cards are a scannable comparison, not a capability inventory:
  *  they carry what the app needs (required), what we recommend (suggested),
  *  and the Builder-only rows that make the manual column honest. Per-app
@@ -961,14 +953,15 @@ const NO_MANUAL_PATH_CAPABILITY_IDS = new Set(["design-system-intelligence"]);
  *  actually choosing them. */
 function isHeadlineCapability(capability: OnboardingCapability): boolean {
   return (
-    capability.required ||
-    !!capability.suggested ||
-    NO_MANUAL_PATH_CAPABILITY_IDS.has(capability.id)
+    capability.required || !!capability.suggested || !!capability.builderOnly
   );
 }
 
 function CapabilityRow({ copy }: { copy: CapabilityCopy }) {
-  if (NO_MANUAL_PATH_CAPABILITY_IDS.has(copy.id)) {
+  // Builder-only services have no bring-your-own path, so the manual list
+  // shows them crossed out with no Required/Recommended tag instead of
+  // mislabeling them "Optional".
+  if (copy.builderOnly) {
     return (
       <div className="flex items-center gap-2 rounded-md px-2 py-1">
         <IconX className="shrink-0 text-muted-foreground" size={14} />

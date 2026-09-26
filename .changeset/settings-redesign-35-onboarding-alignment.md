@@ -1,0 +1,5 @@
+---
+"@agent-native/core": minor
+---
+
+First-run "Choose your setup" and Settings › Organization › Infrastructure now read one list of shared services, `WORKSPACE_SERVICES` (exported from `@agent-native/core/onboarding`): AI model, file uploads and storage, Voice input, Image generation, Embeddings, and the Builder.io-only Design system intelligence, Background agents, and Browser automation. App profiles tag each of these capabilities with its `service` id (and `builderOnly` for the Builder.io-only ones), Infrastructure's Required/Recommended tags come from those ids, and the first-run Builder.io card lists them from the profile instead of a fixed list, so "Connected agents" and "Hosting and deployment", which Builder.io doesn't provide, are gone and Assets' Video generation shows as Builder.io-powered. The Email delivery onboarding step no longer saves `RESEND_API_KEY` or `SENDGRID_API_KEY`: it explains the host variables, and it's hidden when the deployment already provides email. With the `settings-redesign` flag on, "Skip and configure manually" opens Organization › Infrastructure for owners and admins.

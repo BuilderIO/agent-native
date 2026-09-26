@@ -24,6 +24,11 @@ import type {
 } from "../../../agent/actions/manage-service-providers.js";
 import type { FileStorageStatus } from "../../../file-upload/storage-settings.js";
 import type {
+  WorkspaceBuilderOnlyServiceId,
+  WorkspaceProviderServiceId,
+} from "../../../onboarding/types.js";
+import { WORKSPACE_SERVICES } from "../../../onboarding/workspace-services.js";
+import type {
   InfrastructureSetupTag,
   InfrastructureStatus,
 } from "../../../server/infrastructure-status.js";
@@ -79,58 +84,65 @@ const SERVICES_QUERY_KEY = ["action", "manage-service-providers", {}] as const;
 
 type Translate = ReturnType<typeof useT>;
 
-/** Voice input, Image generation, Embeddings: label, what uses it, and why. */
-const SERVICES: ReadonlyArray<{
-  id: ServiceId;
+type ServiceRowMeta = {
   labelKey: string;
-  useKey: string;
   whyKey: string;
   icon: typeof IconMicrophone;
-}> = [
-  {
-    id: "voice",
+};
+
+/**
+ * Copy and icons for each shared service. Rows render in
+ * `WORKSPACE_SERVICES` order, the list first-run setup also reads, and these
+ * records are keyed by its ids so a new service needs a row here to compile.
+ */
+const PROVIDER_SERVICES: Record<
+  WorkspaceProviderServiceId,
+  ServiceRowMeta & { useKey: string }
+> = {
+  voice: {
     labelKey: `${K}voice`,
     useKey: `${K}useVoice`,
     whyKey: `${K}whyVoice`,
     icon: IconMicrophone,
   },
-  {
-    id: "images",
+  images: {
     labelKey: `${K}images`,
     useKey: `${K}useImages`,
     whyKey: `${K}whyImages`,
     icon: IconPhoto,
   },
-  {
-    id: "embeddings",
+  embeddings: {
     labelKey: `${K}embeddings`,
     useKey: `${K}useEmbeddings`,
     whyKey: `${K}whyEmbeddings`,
     icon: IconSearch,
   },
-];
+};
 
-/** Services with no bring-your-own path; row ids are their search anchors. */
-const BUILDER_ONLY_SERVICES = [
-  {
-    id: "design-system-intelligence",
+/** Services with no bring-your-own path; `rowId` is each row's search anchor. */
+const BUILDER_ONLY_SERVICES: Record<
+  WorkspaceBuilderOnlyServiceId,
+  ServiceRowMeta & { rowId: string }
+> = {
+  "design-system-intelligence": {
+    rowId: "design-system-intelligence",
     labelKey: `${K}designSystem`,
     whyKey: `${K}whyDesignSystem`,
     icon: IconPalette,
   },
-  {
-    id: "background",
+  "background-agents": {
+    rowId: "background",
     labelKey: "agentChat.settingsShell.search.backgroundAgents",
     whyKey: `${K}whyBackground`,
     icon: IconCode,
   },
-  {
-    id: "browser-automation",
+  "browser-automation": {
+    rowId: "browser-automation",
     labelKey: "agentChat.settingsShell.search.browserAutomation",
     whyKey: `${K}whyBrowser`,
     icon: IconBrowser,
   },
-] as const;
+};
 
 type ServiceKeyDialog =
   | { mode: "add-from-service"; service: ServiceId; provider: AgentProviderId }
@@ -242,7 +254,7 @@ function InfrastructurePageContent({
   const tags = infra.data?.setupTags;
 
   const setService = (service: ServiceId, provider: ServiceProviderId) => {
-    const label = t(SERVICES.find((entry) => entry.id === service)!.labelKey);
+    const label = t(PROVIDER_SERVICES[service].labelKey);
     const name = SERVICE_PROVIDER_LABELS[provider];
     const previous =
       queryClient.getQueryData<ServiceProvidersStatus>(SERVICES_QUERY_KEY);
@@ -432,11 +444,10 @@ function InfrastructurePageContent({
     };
   })();
 
-  const serviceRow = (entry: (typeof SERVICES)[number]) => {
+  const serviceRow = (id: WorkspaceProviderServiceId) => {
+    const entry = PROVIDER_SERVICES[id];
     if (!services.data) return failedRow(services.refetch);
-    const status = services.data.services.find(
-      (item) => item.service === entry.id,
-    );
+    const status = services.data.services.find((item) => item.service === id);
     if (!status) return failedRow(services.refetch);
     const provider = status.effectiveProvider;
     return {
@@ -445,13 +456,13 @@ function InfrastructurePageContent({
       ) : (
         <entry.icon aria-hidden />
       ),
-      status: provider ? undefined : tag(tags?.[entry.id]),
+      status: provider ? undefined : tag(tags?.[id]),
       description: rowDescription(
         provider ? SERVICE_PROVIDER_LABELS[provider] : t(`${K}notSetUp`),
         t(entry.useKey),
       ),
       control: (
-        <RowButton onClick={() => setServiceOpen(entry.id)}>
+        <RowButton onClick={() => setServiceOpen(id)}>
           {provider ? t(`${K}manage`) : t(`${K}setUp`)}
         </RowButton>
       ),
@@ -462,7 +473,7 @@ function InfrastructurePageContent({
     (serviceOpen &&
       services.data?.services.find((item) => item.service === serviceOpen)) ||
     null;
-  const openServiceMeta = SERVICES.find((entry) => entry.id === serviceOpen);
+  const openServiceMeta = serviceOpen ? PROVIDER_SERVICES[serviceOpen] : null;
 
   return (
     <div className="flex flex-col gap-8" data-infrastructure-settings="">
@@ -483,47 +494,68 @@ function InfrastructurePageContent({
       </SettingsGroup>
 
       <SettingsGroup id="services" title={t(`${K}services`)}>
-        <SettingsRow id="ai-model" label={t(`${K}aiModel`)} {...aiModelRow} />
-        <SettingsRow
-          id="uploads"
-          label={t("agentChat.settingsShell.search.fileUploads")}
-          {...storageRow}
-        />
-        {hasOrg
-          ? SERVICES.map((entry) => (
-              <SettingsRow
-                key={entry.id}
-                id={entry.id}
-                label={t(entry.labelKey)}
-                {...serviceRow(entry)}
-              />
-            ))
-          : null}
-        {BUILDER_ONLY_SERVICES.map((entry) => (
-          <SettingsRow
-            key={entry.id}
-            id={entry.id}
-            icon={
-              builderConnected ? (
-                <BrandLogo logoId="builder-cms" />
-              ) : (
-                <entry.icon aria-hidden />
-              )
+        {WORKSPACE_SERVICES.map((service) => {
+          switch (service.kind) {
+            case "model":
+              return (
+                <SettingsRow
+                  key={service.id}
+                  id="ai-model"
+                  label={t(`${K}aiModel`)}
+                  {...aiModelRow}
+                />
+              );
+            case "storage":
+              return (
+                <SettingsRow
+                  key={service.id}
+                  id="uploads"
+                  label={t("agentChat.settingsShell.search.fileUploads")}
+                  {...storageRow}
+                />
+              );
+            case "provider":
+              return hasOrg ? (
+                <SettingsRow
+                  key={service.id}
+                  id={service.id}
+                  label={t(PROVIDER_SERVICES[service.id].labelKey)}
+                  {...serviceRow(service.id)}
+                />
+              ) : null;
+            case "builder-only": {
+              const entry = BUILDER_ONLY_SERVICES[service.id];
+              return (
+                <SettingsRow
+                  key={service.id}
+                  id={entry.rowId}
+                  icon={
+                    builderConnected ? (
+                      <BrandLogo logoId="builder-cms" />
+                    ) : (
+                      <entry.icon aria-hidden />
+                    )
+                  }
+                  label={t(entry.labelKey)}
+                  status={
+                    builderConnected ? undefined : (
+                      <Badge
+                        variant="secondary"
+                        className="text-[11px] font-normal"
+                      >
+                        {t(`${K}needsBuilder`)}
+                      </Badge>
+                    )
+                  }
+                  description={rowDescription(
+                    builderConnected ? BUILDER_LABEL : t(`${K}notAvailable`),
+                    t(entry.whyKey),
+                  )}
+                />
+              );
             }
-            label={t(entry.labelKey)}
-            status={
-              builderConnected ? undefined : (
-                <Badge variant="secondary" className="text-[11px] font-normal">
-                  {t(`${K}needsBuilder`)}
-                </Badge>
-              )
-            }
-            description={rowDescription(
-              builderConnected ? BUILDER_LABEL : t(`${K}notAvailable`),
-              t(entry.whyKey),
-            )}
-          />
-        ))}
+          }
+        })}
       </SettingsGroup>
 
       <EnvironmentGroup
@@ -599,8 +631,7 @@ function InfrastructurePageContent({
                 ? { scope: hasOrg ? ("org" as const) : ("user" as const) }
                 : {
                     serviceLabel: t(
-                      SERVICES.find((entry) => entry.id === keyDialog.service)!
-                        .labelKey,
+                      PROVIDER_SERVICES[keyDialog.service].labelKey,
                     ),
                   }),
             }

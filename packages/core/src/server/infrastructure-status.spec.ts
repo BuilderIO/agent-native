@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   env: new Map<string, string>(),
   capabilities: [] as Array<{
     id: string;
+    service?: string;
     required: boolean;
     suggested?: boolean;
   }>,
@@ -73,10 +74,23 @@ beforeEach(() => {
   mocks.local = false;
   mocks.env.clear();
   mocks.capabilities = [
-    { id: "llm", required: true },
-    { id: "file-storage", required: true, suggested: false },
-    { id: "voice-input", required: false, suggested: true },
-    { id: "embeddings", required: false, suggested: true },
+    { id: "llm", service: "model", required: true },
+    {
+      id: "video-storage",
+      service: "storage",
+      required: true,
+      suggested: false,
+    },
+    { id: "voice-input", service: "voice", required: false, suggested: true },
+    { id: "image-generation", service: "images", required: false },
+    {
+      id: "embeddings",
+      service: "embeddings",
+      required: false,
+      suggested: true,
+    },
+    // Only the service id tags a row; an app's own capability never does.
+    { id: "media-generation", required: true },
   ];
 });
 

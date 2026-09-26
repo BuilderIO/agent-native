@@ -250,65 +250,39 @@ const authStep: OnboardingStep = {
   isComplete: () => true,
 };
 
-/** Step 4 — transactional email (password resets, invitations). Optional. */
+/**
+ * Step 4 — transactional email (password resets, invitations). Optional.
+ *
+ * Email is deployment configuration: auth mail reads only the host's
+ * variables (`getDeploymentEmailReadiness`), so this step explains them
+ * instead of saving keys. A deployment that already provides email, such as a
+ * hosted app, doesn't show it.
+ */
 const emailStep: OnboardingStep = {
   id: "email",
   order: 40,
   required: false,
   title: "Email delivery",
   description:
-    "Optional for local work. Before deploying with password resets, invitations, or share notifications, connect an email provider.",
+    "Optional for local work. To send password resets, invitations, and share notifications, set RESEND_API_KEY or SENDGRID_API_KEY, plus EMAIL_FROM, on your host.",
   methods: [
     {
-      id: "resend",
-      kind: "form",
-      label: "Resend",
-      description: "Use Resend for transactional email.",
+      id: "host-variables",
+      kind: "link",
+      primary: true,
+      label: "Set email variables on your host",
+      description:
+        "See which variables each email provider needs and how to set them.",
       payload: {
-        writeScope: "workspace",
-        fields: [
-          {
-            key: "RESEND_API_KEY",
-            label: "RESEND_API_KEY",
-            placeholder: "re_...",
-            secret: true,
-          },
-          {
-            key: "EMAIL_FROM",
-            label: "EMAIL_FROM (from address)",
-            placeholder: "Agent-Native <noreply@yourdomain.com>",
-          },
-          {
-            key: "APP_NAME",
-            label: "APP_NAME (shown in invite emails)",
-            placeholder: "Acme Forms",
-          },
-        ],
-      },
-    },
-    {
-      id: "sendgrid",
-      kind: "form",
-      label: "SendGrid",
-      description: "Use SendGrid for transactional email.",
-      payload: {
-        writeScope: "workspace",
-        fields: [
-          {
-            key: "SENDGRID_API_KEY",
-            label: "SENDGRID_API_KEY",
-            placeholder: "SG....",
-            secret: true,
-          },
-          {
-            key: "EMAIL_FROM",
-            label: "EMAIL_FROM (from address)",
-            placeholder: "Agent-Native <noreply@yourdomain.com>",
-          },
-        ],
+        url: "https://www.agent-native.com/docs/deployment#email-provider",
+        external: true,
       },
     },
   ],
+  isAvailable: async () => {
+    const { getDeploymentEmailReadiness } = await import("../server/email.js");
+    return getDeploymentEmailReadiness().status !== "ready";
+  },
   isComplete: async () => {
     if (await resolveSecret("RESEND_API_KEY")) return true;
     // SendGrid rejects Resend's sandbox sender, so EMAIL_FROM must also be

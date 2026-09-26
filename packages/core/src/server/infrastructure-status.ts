@@ -255,32 +255,23 @@ function readVariables(
   ];
 }
 
-const PROFILE_CAPABILITY_IDS: Record<
-  keyof InfrastructureSetupTags,
-  readonly string[]
-> = {
-  model: ["llm"],
-  storage: ["file-storage", "video-storage"],
-  voice: ["voice-input"],
-  images: ["image-generation", "media-generation"],
-  embeddings: ["embeddings"],
-};
-
 function readSetupTags(profile: OnboardingAppProfile): InfrastructureSetupTags {
-  const tag = (ids: readonly string[]): InfrastructureSetupTag | null => {
-    const capability = profile.capabilities.find((item) =>
-      ids.includes(item.id),
+  const tag = (
+    service: keyof InfrastructureSetupTags,
+  ): InfrastructureSetupTag | null => {
+    const capability = profile.capabilities.find(
+      (item) => item.service === service,
     );
     if (!capability) return null;
     if (capability.required) return "required";
     return capability.suggested ? "recommended" : null;
   };
   return {
-    model: tag(PROFILE_CAPABILITY_IDS.model),
-    storage: tag(PROFILE_CAPABILITY_IDS.storage),
-    voice: tag(PROFILE_CAPABILITY_IDS.voice),
-    images: tag(PROFILE_CAPABILITY_IDS.images),
-    embeddings: tag(PROFILE_CAPABILITY_IDS.embeddings),
+    model: tag("model"),
+    storage: tag("storage"),
+    voice: tag("voice"),
+    images: tag("images"),
+    embeddings: tag("embeddings"),
   };
 }
 
