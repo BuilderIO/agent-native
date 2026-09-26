@@ -6,19 +6,19 @@ Date: 2026-09-25
 
 ## Context
 
-[Issue #5611](https://github.com/BuilderIO/agent-native/issues/5611) asks for one organization with people in several teams. Each team needs agent context that inherits from the organization. Leads need a central view of team work.
+[Issue #5611](https://github.com/BuilderIO/agent-native/issues/5611) asks for one organization with people in several teams. Each team needs its own agent instructions, skills, and memory alongside the organization's. Leads need a central view of team work.
 
-Today, organization-scoped `workspace_user_groups` can share supported resources and grant access to workspace connections. They have no team roles or team agent context, so they cannot provide the requested workflow on their own.
+Today, `workspace_user_groups` within an organization can share supported resources and grant access to workspace connections. They do not assign team roles or store team instructions, skills, and memory, so they cannot provide the requested workflow on their own.
 
-An organization-wide resource does not need to become team-owned to meet these needs. [Review feedback on PR #5777](https://github.com/BuilderIO/agent-native/pull/5777#pullrequestreview-5311752444) calls for a smaller first release instead of a second membership system and generic resource tenancy.
+An organization-wide resource does not need to become team-owned to meet these needs. [Review feedback on PR #5777](https://github.com/BuilderIO/agent-native/pull/5777#pullrequestreview-5311752444) calls for a smaller first release instead of another place to track members and a new team ownership model for every resource.
 
 ## Decision and V1 boundary
 
-Organization owners and admins can create a marked group or explicitly convert an existing group into a team. A converted group keeps its ID, members, shares, and connection allow-lists. Ordinary groups stay ordinary access lists. People can belong to several teams, and organizations without teams keep their current behavior.
+Organization owners and admins can create a group designated as a team or explicitly convert an existing group into one. A converted group keeps its ID, members, shares, and connection allow-lists. Ordinary groups stay ordinary access lists. People can belong to several teams, and organizations without teams keep their current behavior.
 
-V1 adds team instructions, skills, and memory. Users select an active team for new conversations and explicitly share conversations with a team. A team-wide list shows shared conversations and their linked runs. A team is a group with additional behavior, not a new organization or a default grant to its members.
+V1 adds team instructions, skills, and memory. Users select a team for new conversations and explicitly share conversations with a team. A team-wide list shows shared conversations and their linked runs. A team is an existing group with added features. Membership alone does not grant access to every resource or conversation.
 
-Binding a new conversation to a team chooses its agent context. Sharing separately lets team members read it. If the owner leaves the bound team, they lose access until they rejoin. Deleting the team leaves bound conversations stored but inaccessible. An unbound personal conversation shared with that team keeps its owner's access.
+When someone starts a conversation with a team selected, the agent uses that team's instructions, skills, and memory for that conversation. Selecting another team later does not change it. The conversation stays private until its owner shares it with the team. If the owner leaves the team recorded on the conversation, they lose access until they rejoin. Deleting that team leaves conversations started with it stored but inaccessible. A personal conversation started without a team keeps its owner's access even if a team it was shared with is deleted.
 
 V1 does not add a general `personal`/`organization`/`team` resource ownership scope, separate `teams` and `team_members` records, resource moves, or a new automation identity.
 
@@ -28,7 +28,7 @@ Extend `workspace_user_groups` additively with a team marker (proposed `is_team 
 
 Removing a member also removes their lead role in the same operation. A team can have several leads or none. Do not convert an existing group without an explicit choice or maintain a second membership list.
 
-Reuse the existing group list/create/update/delete and membership operations as the authoritative action surface. Extend them to create a marked team, convert a group, delete a team, and list team membership and roles. Add an operation to change lead roles.
+Keep the existing group actions as the single way to list, create, update, delete, and change group membership. Extend them to create a team, convert a group, delete a team, and list team membership and roles. Add an action to change lead roles.
 
 Every write path for a marked group, including bulk updates, must enforce team roles. Update membership and leads atomically so leads remain members. For every mutation, validate the group and the actor's current organization membership. Record membership and lead changes in the audit history. The concrete storage and action changes are listed below.
 
@@ -77,9 +77,11 @@ Direct thread reads, existing thread lists, prompt assembly, and run reads/lists
 
 ### Which team context loads?
 
-Store team instructions, skills, and memory against the marked group's stable ID in a team-specific agent-resource namespace. Keep it separate from organization and personal resources. Current members can read and edit team context, but the namespace does not make every app resource team-owned. Organization resources remain the inherited source; nothing is copied into a team. A team cannot edit organization defaults.
+Store a team's instructions, skills, and memory under its group ID, separate from organization and personal agent resources. Current members can read and edit them, but other app resources do not become team-owned. The agent still uses organization resources alongside the team's; nothing is copied into the team. A team cannot edit organization defaults.
 
-The user selects one active team in the current organization. The selection follows that user across sessions and devices until they change it; each current session reflects the same selection. Switching organizations uses that organization's selection, not the previous organization's team. It determines the team binding only when a new conversation starts. On every turn, the server validates current membership and loads context from the conversation's stored binding, regardless of the current selection. An unbound conversation loads organization and personal context only. Selection does not grant resource or connection access. Membership in several teams does not load all their context at once.
+The user selects one active team in the current organization. The choice follows them across sessions and devices until they change it. Switching organizations uses the choice saved for that organization, not the previous organization's team.
+
+The selected team is recorded only when a new conversation starts. On every turn of a conversation started with a team, the server checks current membership and loads the team instructions, skills, and memory recorded for that conversation, even if the user has since selected another team. A conversation started without a team uses organization and personal context only. Selecting a team does not grant access to resources or connections. Belonging to several teams does not load all their context at once.
 
 ```mermaid
 flowchart LR
@@ -91,17 +93,17 @@ flowchart LR
   P["Personal context"] --> E
 ```
 
-For overridable instruction guidance, load workspace and app defaults, organization, the conversation's bound team if any, then personal instructions. Personal guidance takes precedence over conflicting team guidance. Team guidance takes precedence over conflicting organization guidance. Check enforced organization and team permissions and policies outside the prompt; instruction text cannot override them.
+Load instructions in this order: workspace and app defaults, organization, the team recorded on the conversation if any, then personal instructions. If instructions conflict, personal instructions take precedence over team instructions, and team instructions take precedence over organization instructions. Check organization and team permissions separately; instructions cannot override them.
 
-For stored skills with the same exact name, keep one in this order: personal, bound team if any, organization, then workspace/app defaults. Keep organization, team, and personal memory sources distinct and identified by origin. V1 does not reconcile contradictory facts in memory.
+For skills with the same exact name, keep the first available in this order: personal, the team recorded on the conversation if any, organization, then workspace/app defaults. Keep organization, team, and personal memory separate and label where each memory came from. V1 does not resolve contradictory facts in memory.
 
 Organization-owned connections remain organization-owned. Reuse existing group connection allow-lists alongside existing app, actor, and organization authorization; selecting a team is not a substitute for those checks. Do not copy credentials into team resources or prompts.
 
 ### Who can read a team conversation?
 
-Conversations remain person-owned and private at creation. Add a nullable, stable bound-group ID to each conversation (proposed `team_group_id`). When a user starts one with an active team, validate the marked group, its organization, and the creator's current membership. Then record that ID. A conversation started without a team has no binding. Binding selects prompt context. It does not share the conversation or introduce a generic resource ownership scope.
+Conversations remain person-owned and private at creation. Add a nullable, stable team group ID to each conversation (proposed `team_group_id`). When a user starts one with an active team, check that the group is a team in the current organization and that the creator belongs to it. Then record its ID. A conversation started without a team records no team ID. The recorded team determines which team instructions, skills, and memory the agent uses. It does not share the conversation or change who owns it.
 
-Switching the active team never rebinds an existing conversation. Reading, listing, or continuing a team-bound conversation requires current membership in both its organization and bound team, even for its recorded owner. If membership is absent or the bound team no longer exists, deny access. Do not silently drop team context or substitute another team's context. Never infer an older conversation's binding from the user's current selection.
+Switching the active team never changes the team recorded on an existing conversation. Reading, listing, or continuing a conversation started with a team requires current membership in both its organization and that team, even for its recorded owner. If membership is absent or the team no longer exists, deny access. Do not silently omit the team's instructions, skills, or memory or use another team's instead. Never assign a team to an older conversation from the user's current selection.
 
 Only the recorded owner can explicitly grant viewer access, one conversation at a time. The target must be a marked team in the conversation's organization. The owner must currently belong to both the organization and that team. A bound conversation can be shared only with its bound team. An unbound conversation can be shared with one allowed team without gaining a binding or changing its personal ownership and organization/personal context.
 
@@ -125,7 +127,7 @@ At grant time, validate the marked team, its match to the conversation's organiz
 
 Linked runs inherit the conversation's read access; V1 has no independent run-sharing control. Show linked runs of shared conversations without exposing runs of private conversations. Check every run read and listing path against current access to its conversation. Keep the general permission recheck rules in `durable-agent-runs.md` rather than defining a new run identity here.
 
-If the recorded owner leaves the bound team, they lose read, continuation, and management access until they rejoin. An explicitly shared conversation remains readable to current members but becomes read-only when its owner cannot act. V1 does not make a lead a successor or transfer ownership automatically. Organization offboarding remains a separate flow; any deliberate successor must pass the bound-team membership check. An unbound conversation keeps its personal-owner rules even if its team share is revoked.
+If the recorded owner leaves the team recorded on the conversation, they cannot read, continue, or manage it until they rejoin. Current members can still read it if the owner shared it with the team, but they cannot continue or manage it for the owner. V1 does not make a lead a successor or transfer ownership automatically. Removing someone from the organization remains a separate flow; any deliberate successor must belong to the team recorded on the conversation. A conversation started without a team keeps its personal-owner rules even if its team share is revoked.
 
 ### What happens to other resources and deleted teams?
 
@@ -150,7 +152,7 @@ These are existing surfaces to extend, not claims that V1 is implemented:
 
 ## Implementation and proof boundary
 
-Implement the group/role and team-context layer in Core first. Then enable chat-thread group sharing, stable conversation binding, and the authorized team work list with linked runs. Reuse group-share access for other resource families where it is already supported. Agent and UI operations use the same actions and current-membership checks. Persist the active selection per user and organization across sessions, and expose it to the agent through the existing session application-state behavior; never treat it as proof of authority.
+Implement group roles and team instructions, skills, and memory in Core first. Then let owners share conversations with a team, record the team used when each conversation starts, and list shared team work with its linked runs. Reuse group-share access for other resource families where it is already supported. Agent and UI operations use the same actions and current-membership checks. Save each user's active-team choice for each organization across sessions and make it available to the agent in the current session. Always check current organization and team membership separately; the saved choice does not prove access.
 
 Before offering V1, prove these boundaries:
 
