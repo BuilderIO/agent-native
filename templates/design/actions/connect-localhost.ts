@@ -369,52 +369,53 @@ export default defineAction({
       updatedAt: now,
     };
 
-    // Keep the read-only credential paired with the bridge credential on every
-    // reconnect. A legacy row may contain an unrelated preview token from
-    // before the deterministic pairing contract; preserving it makes the
-    // next daemon restart fail again. setWhere keeps a cross-user conflict a
-    // no-op, and the read-back below returns the winning row after a race.
-    await db
-      .insert(schema.designLocalhostConnections)
-      .values({
-        ...baseValues,
-        previewToken: nextPreviewToken,
-        bridgeToken: nextBridgeToken,
-        createdAt: now,
-      })
-      .onConflictDoUpdate({
-        target: schema.designLocalhostConnections.id,
-        set: {
+    // The conflict update can keep a concurrently inserted bridge token.
+    // Derive and persist its preview token under the same row lock so the pair
+    // is committed atomically, including for legacy rows with a stale preview.
+    const {
+      bridgeToken: effectiveBridgeToken,
+      previewToken: effectivePreviewToken,
+    } = await db.transaction(async (tx) => {
+      const [stored] = await tx
+        .insert(schema.designLocalhostConnections)
+        .values({
           ...baseValues,
-          bridgeToken: explicitToken
-            ? nextBridgeToken
-            : sql`coalesce(${schema.designLocalhostConnections.bridgeToken}, excluded.bridge_token)`,
           previewToken: nextPreviewToken,
-        },
-        setWhere: ownerOrgScope,
-      });
+          bridgeToken: nextBridgeToken,
+          createdAt: now,
+        })
+        .onConflictDoUpdate({
+          target: schema.designLocalhostConnections.id,
+          set: {
+            ...baseValues,
+            bridgeToken: explicitToken
+              ? nextBridgeToken
+              : sql`coalesce(${schema.designLocalhostConnections.bridgeToken}, excluded.bridge_token)`,
+            previewToken: nextPreviewToken,
+          },
+          setWhere: ownerOrgScope,
+        })
+        .returning({
+          bridgeToken: schema.designLocalhostConnections.bridgeToken,
+        });
+      if (!stored?.bridgeToken) {
+        throw Object.assign(
+          new Error(
+            "The localhost connection could not be confirmed for this account. Refresh the connection and retry.",
+          ),
+          { errorCode: "localhost_connection_conflict" },
+        );
+      }
 
-    // Return the token the row actually holds (owner-scoped, so a cross-user
-    // no-op never leaks another user's token), not the one we minted — so
-    // concurrent callers converge on the winner (no 401 on a lost race).
-    const [stored] = await db
-      .select({
-        bridgeToken: schema.designLocalhostConnections.bridgeToken,
-        previewToken: schema.designLocalhostConnections.previewToken,
-      })
-      .from(schema.designLocalhostConnections)
-      .where(and(eq(schema.designLocalhostConnections.id, id), ownerOrgScope))
-      .limit(1);
-    if (!stored?.bridgeToken) {
-      throw Object.assign(
-        new Error(
-          "The localhost connection could not be confirmed for this account. Refresh the connection and retry.",
-        ),
-        { errorCode: "localhost_connection_conflict" },
-      );
-    }
-    const effectiveBridgeToken = stored.bridgeToken;
-    const effectivePreviewToken = derivePreviewToken(effectiveBridgeToken);
+      const previewToken = derivePreviewToken(stored.bridgeToken);
+      await tx
+        .update(schema.designLocalhostConnections)
+        .set({ previewToken })
+        .where(
+          and(eq(schema.designLocalhostConnections.id, id), ownerOrgScope),
+        );
+      return { bridgeToken: stored.bridgeToken, previewToken };
+    });
 
     return {
       id,

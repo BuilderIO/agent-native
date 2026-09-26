@@ -27,13 +27,11 @@ type ExistingConnection = {
 
 let existingConnection: ExistingConnection | null = null;
 let legacyConnections: ExistingConnection[] = [];
-// Row the post-upsert reread sees (the value actually persisted). `undefined`
-// mirrors `existingConnection`; set it explicitly to model a race winner or a
-// cross-user no-op where the owner-scoped reread finds nothing.
-let rereadRow:
-  | { bridgeToken: string | null; previewToken?: string | null }
-  | null
-  | undefined = undefined;
+// Row returned by the upsert. `undefined` mirrors `insertedValues`; set it
+// explicitly to model a race winner or a cross-user no-op.
+let upsertedRow: { bridgeToken: string | null } | null | undefined = undefined;
+let previewTokenUpdate: Record<string, unknown> | null = null;
+let previewTokenUpdateWhere: unknown;
 let selectCallCount = 0;
 let insertedValues: Record<string, unknown> | null = null;
 let upsertConfig: {
@@ -63,35 +61,53 @@ vi.mock("../server/db/index.js", () => ({
       const call = selectCallCount;
       return makeSelectChain((limit) => {
         if (limit === 2) return legacyConnections;
-        if (call > 1) {
-          if (rereadRow !== undefined) return rereadRow ? [rereadRow] : [];
-          return insertedValues
-            ? [
-                {
-                  bridgeToken: insertedValues.bridgeToken as string,
-                  previewToken: insertedValues.previewToken as string,
-                },
-              ]
-            : [];
-        }
         return call === 1 && existingConnection ? [existingConnection] : [];
       });
     },
-    insert: () => ({
-      values: (vals: Record<string, unknown>) => {
-        insertedValues = vals;
-        return {
-          onConflictDoUpdate: (config: {
-            target: unknown;
-            set: Record<string, unknown>;
-            setWhere?: unknown;
-          }) => {
-            upsertConfig = config;
-            return Promise.resolve();
+    transaction: (callback: (tx: never) => Promise<unknown>) =>
+      callback({
+        insert: () => ({
+          values: (vals: Record<string, unknown>) => {
+            insertedValues = vals;
+            return {
+              onConflictDoUpdate: (config: {
+                target: unknown;
+                set: Record<string, unknown>;
+                setWhere?: unknown;
+              }) => {
+                upsertConfig = config;
+                return {
+                  returning: () =>
+                    Promise.resolve(
+                      upsertedRow === undefined
+                        ? [
+                            {
+                              bridgeToken: insertedValues?.bridgeToken as
+                                | string
+                                | null,
+                            },
+                          ]
+                        : upsertedRow
+                          ? [upsertedRow]
+                          : [],
+                    ),
+                };
+              },
+            };
           },
-        };
-      },
-    }),
+        }),
+        update: () => ({
+          set: (values: Record<string, unknown>) => {
+            previewTokenUpdate = values;
+            return {
+              where: (condition: unknown) => {
+                previewTokenUpdateWhere = condition;
+                return Promise.resolve();
+              },
+            };
+          },
+        }),
+      } as never),
   }),
   schema: {
     designLocalhostConnections: {
@@ -114,7 +130,9 @@ beforeEach(() => {
   requestContextMock.orgId = "org_1";
   existingConnection = null;
   legacyConnections = [];
-  rereadRow = undefined;
+  upsertedRow = undefined;
+  previewTokenUpdate = null;
+  previewTokenUpdateWhere = undefined;
   selectCallCount = 0;
   insertedValues = null;
   upsertConfig = null;
@@ -342,7 +360,7 @@ describe("connect-localhost", () => {
       orgId: "org_1",
       bridgeToken: "old_bridge_token",
     };
-    rereadRow = { bridgeToken: "new_bridge_token" }; // DB state after overwrite
+    upsertedRow = { bridgeToken: "new_bridge_token" }; // DB state after overwrite
 
     const result = await action.run({
       id: "conn_1",
@@ -381,11 +399,13 @@ describe("connect-localhost", () => {
     expect(result.previewToken).toBe(insertedValues?.previewToken);
   });
 
-  it("returns the token the row actually holds, not the one this call minted", async () => {
-    // Two concurrent first-time callers each mint; by read-back time another
-    // call's token is what persisted. We must return the persisted winner.
-    existingConnection = null;
-    rereadRow = { bridgeToken: "winner_token" };
+  it("persists the preview token derived from the bridge token that wins the upsert race", async () => {
+    existingConnection = {
+      ownerEmail: "user@example.com",
+      orgId: "org_1",
+      bridgeToken: "stale_read_token",
+    };
+    upsertedRow = { bridgeToken: "winner_token" };
 
     const result = await action.run({
       id: "conn_race",
@@ -393,17 +413,23 @@ describe("connect-localhost", () => {
       rootPath: "/tmp/app",
     });
 
-    expect(insertedValues?.bridgeToken).toMatch(/^[0-9a-f]{64}$/);
-    expect(selectCallCount).toBe(2); // pre-check + post-upsert reread
+    expect(insertedValues?.bridgeToken).toBe("stale_read_token");
+    expect(insertedValues?.previewToken).toBe(
+      derivePreviewToken("stale_read_token"),
+    );
     expect(result.bridgeToken).toBe("winner_token");
     expect(result.previewToken).toBe(derivePreviewToken("winner_token"));
+    expect(previewTokenUpdate).toEqual({
+      previewToken: derivePreviewToken("winner_token"),
+    });
+    expect(previewTokenUpdateWhere).toBeDefined();
   });
 
   it("fails closed when the guarded upsert did not persist for this owner", async () => {
-    // Pre-check passes (no row yet), but the owner-scoped reread finds nothing —
-    // a concurrent insert by another user made our upsert a no-op.
+    // Pre-check passes, but the owner-scoped upsert returns no row because a
+    // concurrent insert by another user made it a no-op.
     existingConnection = null;
-    rereadRow = null;
+    upsertedRow = null;
 
     await expect(
       action.run({

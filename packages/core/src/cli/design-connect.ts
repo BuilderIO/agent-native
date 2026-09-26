@@ -604,6 +604,24 @@ async function fetchRunningBridgeManifest(
   }
 }
 
+async function inspectRunningBridge(
+  manifest: DesignConnectManifest,
+  bridgeToken: string,
+) {
+  const [manifestResult, runningFingerprint] = await Promise.all([
+    fetchRunningBridgeManifest(
+      manifest.bridgeUrl,
+      deriveDesignPreviewToken(bridgeToken),
+    ),
+    fetchRunningBridgeFingerprint(manifest.bridgeUrl),
+  ]);
+  return {
+    ...manifestResult,
+    fingerprintMatches:
+      runningFingerprint === designConnectAppFingerprint(manifest),
+  };
+}
+
 export function designConnectManifestsTargetSameApp(
   running: Pick<DesignConnectManifest, "devServerUrl" | "rootPath">,
   requested: Pick<DesignConnectManifest, "devServerUrl" | "rootPath">,
@@ -2818,6 +2836,7 @@ export async function startDesignConnectBridge(
   const bridgeToken = await resolveBridgeToken(
     manifest.rootPath,
     configuredBridgeToken,
+    false,
   );
   const configuredPreviewToken = options.previewToken;
   const derivedPreviewToken = deriveDesignPreviewToken(bridgeToken);
@@ -4088,6 +4107,13 @@ export async function startDesignConnectBridge(
     });
   });
 
+  try {
+    await persistBridgeToken(manifest.rootPath, bridgeToken);
+  } catch (error) {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    throw error;
+  }
+
   return { server, manifest, bridgeToken, previewToken, bridgeInstanceId };
 }
 
@@ -4290,16 +4316,9 @@ async function startDetachedDesignBridge(
   bridgeToken: string,
 ): Promise<number> {
   if (await waitForBridgeHealth(manifest.bridgeUrl, 800)) {
-    const [manifestResult, runningFingerprint] = await Promise.all([
-      fetchRunningBridgeManifest(
-        manifest.bridgeUrl,
-        deriveDesignPreviewToken(bridgeToken),
-      ),
-      fetchRunningBridgeFingerprint(manifest.bridgeUrl),
-    ]);
+    const manifestResult = await inspectRunningBridge(manifest, bridgeToken);
     const runningManifest = manifestResult.manifest;
-    const fingerprintMatches =
-      runningFingerprint === designConnectAppFingerprint(manifest);
+    const { fingerprintMatches } = manifestResult;
     if (
       runningManifest &&
       designConnectManifestsTargetSameApp(runningManifest, manifest)
@@ -4361,12 +4380,32 @@ async function startDetachedDesignBridge(
   child.unref();
 
   if (await waitForBridgeHealth(manifest.bridgeUrl)) {
-    await persistBridgeToken(manifest.rootPath, bridgeToken);
+    const running = await inspectRunningBridge(manifest, bridgeToken);
+    if (
+      running.manifest &&
+      designConnectManifestsTargetSameApp(running.manifest, manifest)
+    ) {
+      await persistBridgeToken(manifest.rootPath, bridgeToken);
+      await logFd.close();
+      console.error(`Design localhost bridge running at ${manifest.bridgeUrl}`);
+      console.error(`Bridge log: ${logPath}`);
+      console.log(JSON.stringify(running.manifest, null, 2));
+      return 0;
+    }
+
     await logFd.close();
-    console.error(`Design localhost bridge running at ${manifest.bridgeUrl}`);
-    console.error(`Bridge log: ${logPath}`);
-    console.log(JSON.stringify(manifest, null, 2));
-    return 0;
+    const authenticationFailed =
+      running.fingerprintMatches && !running.manifest;
+    console.error(
+      [
+        authenticationFailed
+          ? `A Design localhost bridge for this app became available at ${manifest.bridgeUrl}, but it rejected this invocation's bridge token (HTTP ${running.status ?? "unknown"}).`
+          : `A Design localhost bridge became available at ${manifest.bridgeUrl} for a different app or could not be verified.`,
+        "No bridge token was persisted; the running process was left untouched.",
+        `Bridge log: ${logPath}`,
+      ].join("\n"),
+    );
+    return 1;
   }
 
   const tail = await readDaemonLogTail(logPath);

@@ -10,6 +10,13 @@ import vm from "node:vm";
 import { chromium, type Browser } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const spawnMock = vi.hoisted(() => vi.fn());
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawn: spawnMock,
+}));
+
 import {
   discoverDesignRoutes,
   designConnectManifestsTargetSameApp,
@@ -488,6 +495,70 @@ describe("design connect CLI", () => {
     }
   });
 
+  it("does not persist a losing token when another daemon wins the port race", async () => {
+    for (const key of bridgeTokenEnvKeys) delete process.env[key];
+    const root = tmpDir();
+    const port = await freePort();
+    const devServerUrl = "http://localhost:5173";
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: devServerUrl,
+      port,
+    });
+    const losingToken = crypto.randomBytes(32).toString("hex");
+    const winningToken = crypto.randomBytes(32).toString("hex");
+    const persistedPath = path.join(
+      root,
+      ".agent-native",
+      "design-bridge-token",
+    );
+    let winningBridge:
+      | Awaited<ReturnType<typeof startDesignConnectBridge>>
+      | undefined;
+    spawnMock.mockImplementation(() => {
+      void startDesignConnectBridge(manifest, {
+        bridgeToken: winningToken,
+      }).then((bridge) => {
+        winningBridge = bridge;
+      });
+      return { unref: vi.fn() };
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        runDesign([
+          "connect",
+          "--url",
+          devServerUrl,
+          "--port",
+          String(port),
+          "--root",
+          root,
+          "--daemon",
+          "--bridge-token",
+          losingToken,
+        ]),
+      ).resolves.toBe(1);
+      expect(spawnMock).toHaveBeenCalledOnce();
+      expect(winningBridge).toBeDefined();
+      expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(winningToken);
+      expect(JSON.stringify(error.mock.calls)).toContain(
+        "No bridge token was persisted",
+      );
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      spawnMock.mockReset();
+      log.mockRestore();
+      error.mockRestore();
+      if (winningBridge) {
+        await new Promise<void>((resolve) =>
+          winningBridge?.server.close(() => resolve()),
+        );
+      }
+    }
+  });
+
   it("resolves standard app URL env vars for self-registration", () => {
     for (const key of appUrlEnvKeys) delete process.env[key];
     process.env.APP_URL = "https://design.example.com/";
@@ -736,6 +807,38 @@ describe("design connect bridge endpoints", () => {
       warn.mockRestore();
       await new Promise<void>((resolve) =>
         secondBridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("keeps the saved token when an explicit token cannot bind the bridge port", async () => {
+    for (const key of bridgeTokenEnvKeys) delete process.env[key];
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const persistedPath = path.join(
+      root,
+      ".agent-native",
+      "design-bridge-token",
+    );
+    const savedToken = crypto.randomBytes(32).toString("hex");
+    const rejectedOverride = crypto.randomBytes(32).toString("hex");
+    fs.writeFileSync(persistedPath, `${savedToken}\n`);
+    try {
+      await expect(
+        startDesignConnectBridge(manifest, {
+          bridgeToken: rejectedOverride,
+        }),
+      ).rejects.toMatchObject({ code: "EADDRINUSE" });
+      expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(savedToken);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
       );
     }
   });
