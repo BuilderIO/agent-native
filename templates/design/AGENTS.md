@@ -50,6 +50,7 @@ Read the relevant skill before deeper work in that area.
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use app actions for designs, files, versions, systems, variants, exports, and
   sharing; do not write design rows directly with SQL.
