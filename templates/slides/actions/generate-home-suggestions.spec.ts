@@ -70,4 +70,21 @@ describe("generate-home-suggestions", () => {
       "Tailor all three suggestions to the supplied role context",
     );
   });
+
+  it("uses custom onboarding roles instead of generic deck starters", async () => {
+    mocks.getUserProfile.mockResolvedValue({
+      email: "user@example.test",
+      name: "User",
+      onboardingRole: "Content strategist",
+    });
+
+    await action.run({}, { userEmail: "user@example.test" } as never);
+
+    expect(mocks.completeText.mock.calls[0]?.[0].input).toContain(
+      'selected onboarding role is "Content strategist"',
+    );
+    expect(mocks.completeText.mock.calls[0]?.[0].input).not.toContain(
+      "broadly useful presentation starters",
+    );
+  });
 });

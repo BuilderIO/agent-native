@@ -224,11 +224,22 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  const handleCommandMenuShortcut = useCallback(() => setCmdkOpen(true), []);
+  const location = useLocation();
+  const handleCommandMenuShortcut = useCallback(() => {
+    if (location.pathname === "/home") {
+      const homeSearch = Array.from(
+        document.querySelectorAll<HTMLInputElement>("[data-home-search]"),
+      ).find((input) => input.getClientRects().length > 0);
+      if (homeSearch) {
+        homeSearch.focus();
+        return;
+      }
+    }
+    setCmdkOpen(true);
+  }, [location.pathname]);
   useCommandMenuShortcut(handleCommandMenuShortcut, {
     allowContentEditable: true,
   });
-  const location = useLocation();
   const isDeckEditor = isDeckEditorPath(location.pathname);
   const editorCommands = getEditorCommands();
   const editorCommandGroups: Array<{

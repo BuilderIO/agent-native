@@ -72,6 +72,23 @@ describe("generate-home-suggestions", () => {
     );
   });
 
+  it("uses custom onboarding roles instead of generic design starters", async () => {
+    mocks.getUserProfile.mockResolvedValue({
+      email: "user@example.test",
+      name: "User",
+      onboardingRole: "Content Strategist",
+    });
+
+    await action.run({}, { userEmail: "user@example.test" } as never);
+
+    expect(mocks.completeText.mock.calls[0]?.[0].input).toContain(
+      'selected onboarding role is "Content Strategist"',
+    );
+    expect(mocks.completeText.mock.calls[0]?.[0].input).not.toContain(
+      "broadly useful design starters",
+    );
+  });
+
   it("fails loudly when the model does not return three structured suggestions", async () => {
     mocks.completeText.mockResolvedValue({ text: "not json" });
 

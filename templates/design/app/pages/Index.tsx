@@ -1080,6 +1080,7 @@ export default function Index() {
         onChange={(event) => handleSearchChange(event.target.value)}
         placeholder={t("home.searchPlaceholder")}
         aria-label={t("home.searchPlaceholder")}
+        data-home-search="true"
         className="h-8 w-full pe-12 ps-8"
       />
       <kbd

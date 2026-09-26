@@ -2377,6 +2377,7 @@ function DeckSearchInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={t("root.searchDecks")}
         aria-label={t("root.searchDecks")}
+        data-home-search="true"
         className="h-8 pe-12 ps-9"
       />
       <kbd

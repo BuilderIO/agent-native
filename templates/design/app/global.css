@@ -31,7 +31,10 @@
 .design-home-header {
   display: grid;
   height: 3.5rem;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 30rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(
+      6rem,
+      min(30rem, max(6rem, calc(100cqw - 27rem)))
+    ) minmax(0, 1fr);
   grid-template-rows: 3.5rem;
   column-gap: 0.75rem;
   border-bottom: 0;
@@ -62,7 +65,7 @@
   border-bottom: 0;
 }
 
-@container design-home-toolbar (max-width: 34rem) {
+@container design-home-toolbar (max-width: 32rem) {
   .design-home-header {
     height: 7rem;
     grid-template-columns: minmax(0, 1fr) auto;
