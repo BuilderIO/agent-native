@@ -32,7 +32,7 @@ export function VideoBlock({ data, ctx }: BlockReadProps<VideoData>) {
           controls
           preload="metadata"
           autoPlay={shouldAutoplay}
-          muted={shouldAutoplay}
+          muted={Boolean(data.autoplay)}
           playsInline
           loop={Boolean(data.loop)}
         />

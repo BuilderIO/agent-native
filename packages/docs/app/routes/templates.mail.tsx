@@ -176,7 +176,7 @@ export default function MailTemplate() {
                   poster="/videos/mail-jev-story-poster.jpg"
                   aria-label={t("templateLanding.mail.heroDescription")}
                   autoPlay={shouldAutoplay}
-                  muted={shouldAutoplay}
+                  muted
                   loop
                   playsInline
                   controls
