@@ -5,6 +5,7 @@ export {
 export {
   defineAppConfig,
   getAppConfig,
+  resolveAppHomePath,
   resetAppConfigForTests,
   appConfigSchema,
   type AppConfig,

@@ -16,4 +16,8 @@ describe("signInLandingLoader", () => {
     expect(response.headers.get("location")).toBe("/account-expert/sign-in");
     expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
   });
+
+  it("leaves the root route available when it is the configured app home", () => {
+    expect(signInLandingLoader("/")).toBeNull();
+  });
 });
