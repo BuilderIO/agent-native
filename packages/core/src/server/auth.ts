@@ -754,7 +754,8 @@ async function getLegacyCookieSession(
   return null;
 }
 function getOAuthStateAppId(): string | undefined {
-  const raw = process.env.APP_NAME || process.env.npm_package_name;
+  const { app } = getAppConfig();
+  const raw = app.workspaceId || app.name || process.env.npm_package_name;
   if (!raw) return undefined;
   const slug = raw
     .toLowerCase()

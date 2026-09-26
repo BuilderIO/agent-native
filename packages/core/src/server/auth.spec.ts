@@ -2151,6 +2151,10 @@ describe("server/auth", () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "provider-client");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "provider-secret");
       vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+      vi.stubEnv("APP_BASE_PATH", "/account-expert");
+      vi.stubEnv("APP_NAME", "dispatch");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
@@ -2188,12 +2192,13 @@ describe("server/auth", () => {
       expect(new URL(result.url).searchParams.get("scope")).toBe(
         "openid email profile",
       );
-      expect(
-        decodeOAuthState(
-          new URL(result.url).searchParams.get("state") ?? undefined,
-          "http://localhost/_agent-native/google/callback",
-        ).mobile,
-      ).toBe(true);
+      const stateParam = new URL(result.url).searchParams.get("state");
+      const state = decodeOAuthState(
+        stateParam ?? undefined,
+        "http://localhost/_agent-native/google/callback",
+      );
+      expect(state.mobile).toBe(true);
+      expect(state.app).toBe("account-expert");
     });
 
     it("maps an invite-only Google callback rejection to the public auth error page", async () => {
