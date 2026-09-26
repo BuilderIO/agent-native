@@ -129,6 +129,11 @@ export default defineAction({
             EVENT_RULES_RUNTIME_KEY,
             (current) => {
               const record = (current ?? {}) as Record<string, any>;
+              if (
+                (record.rsvpClaims?.[undoSuppressionKey!]?.expiresAt ?? 0) >
+                Date.now()
+              )
+                conflict();
               const suppressions = {
                 ...(record.undoRsvpSuppressions ?? {}),
               };
