@@ -1190,11 +1190,7 @@ export function setSentryUser(
     };
     const userId = user.email || user.id;
     if (userId) {
-      const authUserId =
-        readTrackingString(user.authUserId) ??
-        (user.email && user.email === _trackingIdentity?.userEmail
-          ? _trackingIdentity.authUserId
-          : undefined);
+      const authUserId = readTrackingString(user.authUserId);
       _trackingIdentity = {
         userId,
         ...(authUserId ? { authUserId } : {}),

@@ -857,6 +857,43 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("clears the canonical id when the current session no longer supplies one", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setSentryUser, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    setSentryUser({
+      id: "provider-subject-1",
+      email: "person@example.test",
+      authUserId: "canonical-user-1",
+    });
+    trackEvent("before_session_refresh");
+    setSentryUser({ id: "provider-subject-1", email: "person@example.test" });
+    trackEvent("after_session_refresh");
+    await tick();
+
+    const events = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    expect(
+      events.find((entry) => entry.event === "before_session_refresh")
+        ?.properties.auth_user_id,
+    ).toBe("canonical-user-1");
+    expect(
+      events.find((entry) => entry.event === "after_session_refresh")
+        ?.properties,
+    ).not.toHaveProperty("auth_user_id");
+  });
+
   it("sends explicitly anonymous events without resolved user identity", async () => {
     installBrowser("https://app.agent-native.com/plans");
     const { analyticsCalls } = installFetch();
