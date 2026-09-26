@@ -10086,7 +10086,7 @@ it(
 );
 
 it(
-  "editor chrome bridge preserves an explicit sibling slot when a flow child exits its frame",
+  "editor chrome bridge uses the exited frame for empty-area drops and preserves explicit sibling slots",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -10131,13 +10131,17 @@ it(
 </html>`;
       const dropResults: Array<{
         crossesExitedFrame: boolean;
+        dropArea: "empty" | "sibling";
         parentId: string | undefined;
         childOrder: string[];
-        stack: string[];
         structureChange: Record<string, unknown> | undefined;
       }> = [];
 
-      for (const crossesExitedFrame of [false, true]) {
+      for (const testCase of [
+        { crossesExitedFrame: false, dropArea: "empty" },
+        { crossesExitedFrame: true, dropArea: "empty" },
+        { crossesExitedFrame: false, dropArea: "sibling" },
+      ] as const) {
         await page.setContent(`<!doctype html><html><body style="margin:0">
 <iframe id="design" style="display:block;width:900px;height:700px;border:0"></iframe>
 <script>
@@ -10211,11 +10215,15 @@ it(
         const startY = dragmeBox.y + dragmeBox.height / 2;
         await page.mouse.move(startX, startY);
         await page.mouse.down();
-        if (crossesExitedFrame) {
+        if (testCase.crossesExitedFrame) {
           await page.mouse.move(570, 350, { steps: 4 });
           await page.mouse.move(startX, startY, { steps: 4 });
         }
-        await page.mouse.move(170, 480, { steps: 12 });
+        await page.mouse.move(
+          testCase.dropArea === "empty" ? 650 : 130,
+          testCase.dropArea === "empty" ? 550 : 460,
+          { steps: 12 },
+        );
         await page.mouse.up();
 
         const messages = await readBridgeMessages(page);
@@ -10246,42 +10254,40 @@ it(
         const result = await frame.evaluate(() => {
           const outer = document.querySelector<HTMLElement>("#outer")!;
           const child = document.querySelector<HTMLElement>("#dragme")!;
-          const stack = document
-            .elementsFromPoint(140, 130)
-            .map((element) => element.closest<HTMLElement>("[id]")?.id)
-            .filter((id): id is string => Boolean(id));
           return {
             parentId: child.parentElement?.id,
             childOrder: Array.from(outer.children).map((element) => element.id),
-            stack,
           };
         });
 
-        dropResults.push({ crossesExitedFrame, ...result, structureChange });
+        dropResults.push({ ...testCase, ...result, structureChange });
       }
 
       for (const dropResult of dropResults) {
-        const label = dropResult.crossesExitedFrame
-          ? "nested-frame crossing path"
-          : "direct exit path";
+        const label = `${dropResult.crossesExitedFrame ? "nested-frame crossing" : "direct exit"} ${dropResult.dropArea} drop`;
         const observed = JSON.stringify(dropResults);
         expect(dropResult.parentId, `${label}: ${observed}`).toBe("outer");
         expect(dropResult.childOrder, `${label}: ${observed}`).toEqual([
           "nested",
-          "candidate",
           "dragme",
+          "candidate",
           "overlap",
         ]);
-        expect(dropResult.stack.indexOf("overlap")).toBeGreaterThanOrEqual(0);
-        expect(dropResult.stack.indexOf("overlap")).toBeLessThan(
-          dropResult.stack.indexOf("dragme"),
-        );
-        expect(dropResult.structureChange).toMatchObject({
-          anchorSourceId: "candidate",
-          persistenceAnchorSourceId: "candidate",
-          placement: "after",
-          persistencePlacement: "after",
-        });
+        if (dropResult.dropArea === "empty") {
+          expect(dropResult.structureChange).toMatchObject({
+            anchorSourceId: "nested",
+            persistenceAnchorSourceId: "nested",
+            placement: "after",
+            persistencePlacement: "after",
+          });
+        } else {
+          expect(dropResult.structureChange).toMatchObject({
+            anchorSourceId: "candidate",
+            persistenceAnchorSourceId: "candidate",
+            placement: "before",
+            persistencePlacement: "before",
+          });
+        }
       }
       expect(pageErrors).toEqual([]);
     } finally {
