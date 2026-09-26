@@ -519,6 +519,37 @@ describe("get-deck", () => {
     ]);
   });
 
+  it("keeps compact reads working when imported selector variants are invalid", async () => {
+    currentResource!.data = JSON.stringify({
+      slides: [
+        {
+          id: "invalid-has-selector",
+          layout: "blank",
+          content: '<div class="fmd-slide has-[??]:bg-black"></div>',
+        },
+        {
+          id: "invalid-not-selector",
+          layout: "blank",
+          content: '<div class="fmd-slide not-[??]:bg-black"></div>',
+        },
+        {
+          id: "blank",
+          layout: "blank",
+          content: '<div class="fmd-slide"></div>',
+        },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(
+      result.slides.map((slide: { isBlank: boolean }) => slide.isBlank),
+    ).toEqual([false, false, true]);
+  });
+
   it("reports source coverage and order in compact agent reads", async () => {
     currentResource!.data = JSON.stringify({
       title: "Imported source",

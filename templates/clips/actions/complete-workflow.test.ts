@@ -24,12 +24,14 @@ vi.mock("@agent-native/core/sharing", () => ({
 import action from "./complete-workflow";
 
 const requestedAt = "2026-09-25T12:00:00.000Z";
+const requestId = "workflow-request-current";
 const content = "Subject: Clip summary\n\nHello team.";
 const generating = {
   kind: "email",
   status: "generating",
   recordingId: "rec_1",
   requestedAt,
+  requestId,
 };
 
 beforeEach(() => {
@@ -47,8 +49,13 @@ describe("complete-workflow", () => {
     });
 
     await expect(
-      action.run({ recordingId: "rec_1", requestedAt, content }),
-    ).resolves.toEqual({ saved: true, recordingId: "rec_1", requestedAt });
+      action.run({ recordingId: "rec_1", requestedAt, requestId, content }),
+    ).resolves.toEqual({
+      saved: true,
+      recordingId: "rec_1",
+      requestedAt,
+      requestId,
+    });
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "recording",
       "rec_1",
@@ -64,11 +71,11 @@ describe("complete-workflow", () => {
   it("rejects a stale request without overwriting newer work", async () => {
     mocks.readAppState.mockResolvedValueOnce({
       ...generating,
-      requestedAt: "2026-09-25T12:01:00.000Z",
+      requestId: "workflow-request-newer",
     });
 
     await expect(
-      action.run({ recordingId: "rec_1", requestedAt, content }),
+      action.run({ recordingId: "rec_1", requestedAt, requestId, content }),
     ).rejects.toThrow("replaced by a newer request");
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
@@ -81,11 +88,12 @@ describe("complete-workflow", () => {
     });
 
     await expect(
-      action.run({ recordingId: "rec_1", requestedAt, content }),
+      action.run({ recordingId: "rec_1", requestedAt, requestId, content }),
     ).resolves.toEqual({
       saved: true,
       recordingId: "rec_1",
       requestedAt,
+      requestId,
       alreadySaved: true,
     });
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
@@ -98,12 +106,29 @@ describe("complete-workflow", () => {
       .mockResolvedValueOnce({ ...generating, status: "ready", content });
 
     await expect(
-      action.run({ recordingId: "rec_1", requestedAt, content }),
+      action.run({ recordingId: "rec_1", requestedAt, requestId, content }),
     ).resolves.toEqual({
       saved: true,
       recordingId: "rec_1",
       requestedAt,
+      requestId,
       alreadySaved: true,
     });
+  });
+
+  it("accepts a legacy request state without a request ID", async () => {
+    const legacyGenerating = {
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_1",
+      requestedAt,
+    };
+    mocks.readAppState
+      .mockResolvedValueOnce(legacyGenerating)
+      .mockResolvedValueOnce({ ...legacyGenerating, status: "ready", content });
+
+    await expect(
+      action.run({ recordingId: "rec_1", requestedAt, content }),
+    ).resolves.toEqual({ saved: true, recordingId: "rec_1", requestedAt });
   });
 });

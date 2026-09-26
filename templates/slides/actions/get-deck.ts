@@ -130,10 +130,16 @@ function hasVisibleBackgroundClass(html: string): boolean {
         const selectorVariant = variant.match(/^(has|not)-\[(.+)\]$/i);
         if (selectorVariant) {
           const [, mode, selector] = selectorVariant;
-          const matches =
-            mode.toLowerCase() === "has"
-              ? element.matches(`:has(${selector.replaceAll("_", " ")})`)
-              : element.matches(selector.replaceAll("_", " "));
+          let matches: boolean;
+          try {
+            matches =
+              mode.toLowerCase() === "has"
+                ? element.matches(`:has(${selector.replaceAll("_", " ")})`)
+                : element.matches(selector.replaceAll("_", " "));
+          } catch {
+            // coercion-ok: invalid variants stay active.
+            return false;
+          }
           return mode.toLowerCase() === "has" ? !matches : matches;
         }
 

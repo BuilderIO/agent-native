@@ -14,6 +14,8 @@
  *   pnpm action generate-workflow --recordingId=<id> --kind=pr
  */
 
+import { randomUUID } from "node:crypto";
+
 import { defineAction } from "@agent-native/core/action";
 import {
   readAppState,
@@ -123,6 +125,7 @@ export default defineAction({
       }
 
       const requestedAt = new Date().toISOString();
+      const requestId = randomUUID();
       // Seed the output state with a "generating" placeholder so the UI can show
       // a loading state immediately.
       await writeAppState(stateKey, {
@@ -130,6 +133,7 @@ export default defineAction({
         status: "generating",
         recordingId: args.recordingId,
         requestedAt,
+        requestId,
       } as any);
 
       const baseMessage =
@@ -137,7 +141,8 @@ export default defineAction({
         `(title: "${rec.title}"). Read the transcript from this request's context. ` +
         `${KIND_PROMPTS[args.kind]} ` +
         `Then call complete-workflow with recordingId "${args.recordingId}", ` +
-        `the exact requestedAt from this request's context, and the final markdown. ` +
+        `the exact requestedAt and requestId "${requestId}" from this request's context, ` +
+        `and the final markdown. ` +
         `Do not report completion unless that action returns saved: true. ` +
         `Finish by replying in chat with the same generated markdown.`;
 
@@ -146,6 +151,7 @@ export default defineAction({
         workflowKind: args.kind,
         recordingId: args.recordingId,
         requestedAt,
+        requestId,
         recordingTitle: rec.title,
         recordingDescription: rec.description,
         transcriptStatus: transcript?.status ?? "pending",

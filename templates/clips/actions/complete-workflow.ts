@@ -6,7 +6,10 @@ import {
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { WorkflowKindSchema } from "../shared/workflow.js";
+import {
+  matchesWorkflowRequest,
+  WorkflowKindSchema,
+} from "../shared/workflow.js";
 
 const WorkflowStateSchema = z
   .object({
@@ -14,6 +17,7 @@ const WorkflowStateSchema = z
     status: z.string(),
     recordingId: z.string().min(1),
     requestedAt: z.string().min(1),
+    requestId: z.string().min(1).optional(),
   })
   .passthrough();
 
@@ -26,6 +30,13 @@ export default defineAction({
       .string()
       .min(1)
       .describe("Exact request timestamp from the generate-workflow context"),
+    requestId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Exact workflow request ID when present in the request context",
+      ),
     content: z
       .string()
       .trim()
@@ -33,7 +44,7 @@ export default defineAction({
       .max(50_000)
       .describe("Final workflow document in markdown"),
   }),
-  run: async ({ recordingId, requestedAt, content }) => {
+  run: async ({ recordingId, requestedAt, requestId, content }) => {
     await assertAccess("recording", recordingId, "viewer");
 
     const stateKey = `clips-workflow-${recordingId}`;
@@ -52,15 +63,21 @@ export default defineAction({
     if (parsed.data.recordingId !== recordingId) {
       throw new Error(`Generated workflow state does not match ${recordingId}`);
     }
-    if (parsed.data.requestedAt !== requestedAt) {
+    const expected = { requestedAt, requestId };
+    if (!matchesWorkflowRequest(parsed.data, expected)) {
       fail("This workflow request has been replaced by a newer request.", {
         statusCode: 409,
         errorCode: "stale_workflow_request",
       });
     }
+    const result = {
+      recordingId,
+      requestedAt,
+      ...(requestId ? { requestId } : {}),
+    };
 
     if (parsed.data.status === "ready" && current.content === content) {
-      return { saved: true, recordingId, requestedAt, alreadySaved: true };
+      return { saved: true, ...result, alreadySaved: true };
     }
     if (parsed.data.status !== "generating") {
       fail("This workflow request is no longer generating.", {
@@ -81,10 +98,10 @@ export default defineAction({
       if (
         latest?.status === "ready" &&
         latest.recordingId === recordingId &&
-        latest.requestedAt === requestedAt &&
+        matchesWorkflowRequest(latest, expected) &&
         latest.content === content
       ) {
-        return { saved: true, recordingId, requestedAt, alreadySaved: true };
+        return { saved: true, ...result, alreadySaved: true };
       }
       fail("The workflow changed before its result could be saved.", {
         statusCode: 409,
@@ -96,7 +113,7 @@ export default defineAction({
     if (
       persisted?.status !== "ready" ||
       persisted.recordingId !== recordingId ||
-      persisted.requestedAt !== requestedAt ||
+      !matchesWorkflowRequest(persisted, expected) ||
       persisted.content !== content
     ) {
       throw new Error(
@@ -104,6 +121,6 @@ export default defineAction({
       );
     }
 
-    return { saved: true, recordingId, requestedAt };
+    return { saved: true, ...result };
   },
 });

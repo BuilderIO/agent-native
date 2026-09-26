@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
@@ -77,6 +77,10 @@ beforeEach(() => {
   );
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("generate-workflow action", () => {
   it("single-flights concurrent requests for one recording", async () => {
     let releaseRead!: () => void;
@@ -123,8 +127,37 @@ describe("generate-workflow action", () => {
       ([key]) => key === "clips-ai-request-rec_1",
     )?.[1];
     expect(queuedRequest.requestedAt).toBe(workflowState.requestedAt);
+    expect(queuedRequest.requestId).toBe(workflowState.requestId);
+    expect(queuedRequest.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     expect(queuedRequest.message).toContain("complete-workflow");
+    expect(queuedRequest.message).toContain(workflowState.requestId);
     expect(queuedRequest.openInChat).toBe(true);
+  });
+
+  it("uses distinct request IDs for requests created in the same millisecond", async () => {
+    const now = new Date("2026-09-25T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    await action.run({ recordingId: "rec_1", kind: "email" });
+    await action.run({ recordingId: "rec_1", kind: "email" });
+
+    const workflowStates = mocks.writeAppState.mock.calls
+      .filter(([key]) => key === "clips-workflow-rec_1")
+      .map(([, value]) => value);
+    const queuedRequests = mocks.writeAppState.mock.calls
+      .filter(([key]) => key === "clips-ai-request-rec_1")
+      .map(([, value]) => value);
+
+    expect(workflowStates).toHaveLength(2);
+    expect(workflowStates[0].requestedAt).toBe(workflowStates[1].requestedAt);
+    expect(workflowStates[0].requestId).not.toBe(workflowStates[1].requestId);
+    expect(workflowStates[0].requestedAt).toBe(now.toISOString());
+    expect(queuedRequests.map((request) => request.requestId)).toEqual(
+      workflowStates.map((state) => state.requestId),
+    );
   });
 
   it("does not enqueue when workflow state cannot be read", async () => {
