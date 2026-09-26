@@ -1069,6 +1069,56 @@ export async function previewAutomationRules(
   return { matches, model };
 }
 
+/**
+ * Evaluate the same AI-filter rule engine for a captured backfill batch.
+ * Unlike interactive preview, a run may retry after its own archive action,
+ * so the immutable run snapshot is evaluated even when the live thread is now
+ * archived.
+ */
+export async function evaluateAiFilterBackfillRules(
+  emails: AiFilterPreviewEmail[],
+  rules: AiFilterPreviewRule[],
+  ownerEmail: string,
+  aiFilterState: AiFilterState,
+): Promise<Map<string, RuleMatch[]>> {
+  const model = await getAutomationModelSettings(ownerEmail);
+  const modelAccess = await canUseAutomationModel(ownerEmail, model);
+  if (!modelAccess.available) {
+    throw new Error("No LLM provider is connected for Mail AI rules.");
+  }
+  const messages: EmailSummary[] = emails.map((email) => ({
+    id: email.id,
+    threadId: email.threadId,
+    from: email.from,
+    to: email.to,
+    subject: email.subject,
+    snippet: email.snippet,
+    labelIds: email.labelIds,
+    date: email.date,
+  }));
+  const records: RuleRecord[] = rules.map((rule) => ({
+    id: rule.id,
+    ownerEmail,
+    domain: "mail",
+    kind: "ai-filter",
+    name: rule.name,
+    condition: rule.condition,
+    actions: JSON.stringify(rule.actions),
+    enabled: 1,
+    createdAt: 0,
+    updatedAt: 0,
+  }));
+  return evaluateRules(
+    messages,
+    records,
+    ownerEmail,
+    model,
+    aiFilterState,
+    modelAccess.jevCredentials,
+    modelAccess.legacyTypesafeApiKey,
+  );
+}
+
 export async function rewriteAutomationRuleCondition(
   ownerEmail: string,
   rule: AiFilterPreviewRule,

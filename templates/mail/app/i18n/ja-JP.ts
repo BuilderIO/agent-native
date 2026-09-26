@@ -68,6 +68,26 @@ const messages = {
       aiSetupPromptTravel: "必要な旅行の確認と予約",
       aiSetupTagFinance: "金融",
       aiSetupPromptFinance: "必要な請求書と口座明細",
+      aiSetupArchiveExample:
+        "GitHub、Vercel、Dependabot のボット通知と CI 通知",
+      aiSetupFilteredExample: "返信していない営業メールや採用担当者からの連絡",
+      aiSetupSortingHeadline: "受信トレイを整理しています",
+      aiSetupSortingProgress:
+        "最近のメールを整理中：{{total}} 件中 {{processed}} 件",
+      aiSetupUndoing: "受信トレイの変更を取り消しています…",
+      aiSetupSortingFailed:
+        "受信トレイを整理できませんでした。ルールは保存されています。もう一度お試しください。",
+      aiSetupUndoComplete: "{{count}} 件のメッセージを元の状態に戻しました。",
+      aiSetupRuleCount: "{{count}} 件が一致",
+      aiSetupNoMatches:
+        "過去 14 日間に、これらのルールに一致するメッセージはありません。",
+      aiSetupChatTip:
+        "ルールはいつでもチャットで調整したり追加したりできます。",
+      aiSetupChatPrompt: "上司からのメールを優先して…",
+      aiSetupNoRules: "ルールは選択されていません。",
+      aiSetupPartialFailure: "{{count}} 件のメッセージを更新できませんでした。",
+      aiSetupSortInbox: "受信トレイを整理",
+      aiSetupImportantExample: "マネージャーの Priya からのメールすべて…",
       priorityFeedbackLabel: "重要度フィードバック",
       priorityScoreHigh: "重要度 高",
       priorityScoreMedium: "重要度 中",
@@ -558,6 +578,25 @@ const messages = {
       spamMode: "スパム",
       tagMode: "タグ",
       aiTagsTitle: "AIタグ",
+      filteredMode: "フィルター済み",
+      autoArchiveMode: "自動アーカイブ",
+      manageSettings: "管理",
+      askJev: "Jev に相談",
+      askJevPrompt:
+        "この Mail ルールを調整してください: {{condition}}。変更したい内容を質問してから更新してください。",
+      composerPlaceholder: "Jev に受信トレイの整理を頼む…",
+      ruleBackfillStarting: "このルールを最近のメールに適用しています…",
+      ruleBackfillProgress:
+        "最近のメールに適用中：{{total}} 件中 {{processed}} 件",
+      ruleBackfillMatches: "最近のメッセージ {{count}} 件が一致",
+      ruleBackfillNoMatches:
+        "最近のメールにこのルールと一致するものはありません。",
+      ruleBackfillFailed: "最近のメールにこのルールを適用できませんでした。",
+      ruleBackfillPartialFailure:
+        "{{count}} 件のメッセージを更新できませんでした。",
+      ruleBackfillUndoing: "最近のメールを復元しています…",
+      ruleBackfillUndoComplete: "{{count}} 件のメッセージを復元しました",
+      ruleBackfillReview: "一致したメールを確認",
       importantMode: "重要",
       notImportantMode: "重要ではない",
       importantLabel: "AI重要",

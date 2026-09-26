@@ -82,6 +82,36 @@ export const aiFilterRuleUndo = table(
   ],
 );
 
+export const aiFilterBackfills = table(
+  "mail_ai_filter_backfills",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    status: text("status", {
+      enum: ["queued", "running", "completed", "failed", "undoing", "undone"],
+    }).notNull(),
+    stateJson: text("state_json").notNull(),
+    undoToken: text("undo_token"),
+    undoExpiresAt: bigint("undo_expires_at", { mode: "number" }),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+    claimId: text("claim_id"),
+    claimedAt: bigint("claimed_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("mail_ai_filter_backfills_owner_created_idx").on(
+      t.ownerEmail,
+      t.createdAt,
+    ),
+    index("mail_ai_filter_backfills_status_updated_idx").on(
+      t.status,
+      t.updatedAt,
+    ),
+    index("mail_ai_filter_backfills_expires_idx").on(t.expiresAt),
+  ],
+);
+
 export const emailTracking = table("email_tracking", {
   pixelToken: text("pixel_token").primaryKey(),
   messageId: text("message_id").notNull(),

@@ -219,6 +219,21 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain('t("mail.tabSettings.splitInbox")');
   });
 
+  it("lists AI rule tags first and keeps them out of the Gmail label tree", () => {
+    const source = appLayoutSource();
+    const aiTagsSection = source.indexOf("{/* AI rule tags stay separate");
+    const viewsSection = source.indexOf("{/* System views */}");
+
+    expect(source).toContain('rule.kind !== "ai-filter"');
+    expect(source).toContain('aiFilterRuleMode(rule) !== "tag"');
+    expect(source).toContain(
+      "!aiTagIds.has(normalizedAiFilterLabelId(l.name))",
+    );
+    expect(source).toContain("checked={pinnedLabels.includes(tag.id)}");
+    expect(aiTagsSection).toBeGreaterThan(-1);
+    expect(viewsSection).toBeGreaterThan(aiTagsSection);
+  });
+
   it("routes saved searches through the Gmail query path", () => {
     const source = appLayoutSource();
 
