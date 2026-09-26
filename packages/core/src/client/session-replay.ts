@@ -190,6 +190,14 @@ export interface SessionReplayOptions {
   inlineImages?: boolean;
   eventSampling?: ReplayEventSampling;
   console?: boolean | SessionReplayConsoleOptions;
+  /**
+   * Capture fetch/XHR requests as `agent-native.network` custom rrweb
+   * events (method, URL, status, timing). Request bodies and headers are
+   * never captured; response bodies are captured only as a bounded,
+   * redacted snippet for 5xx responses (see `captureErrorBodies`).
+   * Defaults to on whenever session replay is enabled. Pass `false` to
+   * disable, or an options object to override caps.
+   */
   network?: boolean | SessionReplayNetworkOptions;
   onUploadRejected?: (details: SessionReplayUploadRejectedDetails) => void;
   onUploadRejectedWithAttemptId?: (
@@ -508,6 +516,28 @@ function removeStoredReplaySession(replayId: string): void {
   safeSessionStorageRemove(SESSION_REPLAY_ID_STORAGE_KEY);
 }
 
+/**
+ * Per-tab replay identity is deliberate -- do not "fix" this by reading or
+ * writing the session record through `localStorage` again.
+ *
+ * `sessionStorage` is scoped to a single tab (and survives reloads/
+ * navigations within that tab, which is exactly the lifetime a recording
+ * needs). `localStorage` is shared by every open tab of the origin. If this
+ * record lived there, two tabs open to the same app would read/write the
+ * *same* `replayId` and the *same* sequence counter, so rrweb in each tab
+ * would record independently but upload chunks under one shared identity.
+ * The two interleaved DOM mutation streams get merged into a single
+ * recording server-side: mutations reference the other tab's node ids
+ * (broken CSS), the viewport/meta events reflect whichever tab resized last
+ * (wrong or ultra-wide viewport), and lost mousemove batches from the
+ * "other" tab's chunks read as a frozen cursor or a fake inactivity gap. A
+ * chunk-sequence collision with a different checksum gets rejected
+ * server-side (409) rather than merged, so one tab's batches are silently
+ * dropped -- there is no way to reconstruct or repair this at playback time.
+ * Keep this per-tab. A tab *duplicated* mid-session still shares a
+ * `sessionStorage` snapshot, which is what the `BroadcastChannel` claim
+ * check in `startSessionReplayRecorder` guards against.
+ */
 function getOrCreateReplaySession(
   sessionId: string,
   linkBaseUrl?: string | null,
@@ -1786,6 +1816,10 @@ async function recoverAfterPendingReplayUploadInternal(
       isTerminalReplayFlushReason(pending.reason) ||
       isTerminalReplayFlushReason(state.pendingFlushReason ?? "");
 
+    // Never reuse the replay identity after a timeout. The server may have
+    // accepted the old request even when this client observed an abort, so a
+    // later FullSnapshot under the old identity could conflict at the same
+    // sequence. Restarting rrweb also emits a fresh Meta + FullSnapshot pair.
     state.queue = [];
     state.queuedBytes = 0;
     state.retryBatches = [];
@@ -3248,6 +3282,9 @@ async function startSessionReplayRecorder(
       };
     }
   }
+  // stopSessionReplay may be called while the duplicate-tab probe is waiting.
+  // Recheck both cancellation and the caller's live eligibility before rrweb
+  // is activated so a deferred start cannot escape a route/auth teardown.
   if (
     state.startGeneration !== startGeneration ||
     (normalized.shouldStart && !normalized.shouldStart())

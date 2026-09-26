@@ -733,6 +733,13 @@ export async function updateTask(
   return task;
 }
 
+/**
+ * Persist the terminal result produced by the async processor, but only while
+ * that processor still owns a task in `processing`. A tasks/get request may
+ * fail an over-lifetime processor while its handler is still running; the
+ * handler cannot be canceled reliably, so this compare-and-set is what keeps
+ * its eventual completion (or error) from overwriting the timeout result.
+ */
 export async function settleProcessingA2ATask(
   id: string,
   update: {

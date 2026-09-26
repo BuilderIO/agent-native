@@ -1,5 +1,11 @@
 import { getAppConfig } from "../app-config/index.js";
 
+/**
+ * A workspace serves every app from one gateway on loopback, so sibling A2A
+ * targets are private addresses by construction and the SSRF guard cannot tell
+ * them apart from an attack. Trust only origins this deployment configured for
+ * itself — never a value that arrived on a request.
+ */
 export function workspacePrivateOrigins(): string[] {
   const config = getAppConfig();
   const origins = [

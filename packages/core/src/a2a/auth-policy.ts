@@ -28,6 +28,20 @@ export function shouldAdvertiseJwtA2AAuth(): boolean {
   return hasConfiguredA2ASecret() || isA2AProductionRuntime();
 }
 
+/**
+ * True only when unsigned internal self-dispatch is acceptable: no A2A_SECRET
+ * is configured AND we can positively identify a local/dev runtime. Everything
+ * else — production, or any UNRECOGNIZED deployed/networked host — must fail
+ * closed and require A2A_SECRET. `loopback` should be whether the inbound
+ * request arrived over the loopback interface (127.0.0.1/::1); callers that
+ * cannot determine the peer address pass `false`.
+ *
+ * NODE_ENV alone is deliberately NOT a trust grant: a self-hosted deployment
+ * that doesn't set NODE_ENV=production and isn't recognized by
+ * `isA2AProductionRuntime()` (a bare Docker/VPS/K8s pod) must still fail
+ * closed unless the request actually came from loopback or the explicit
+ * opt-in flag is set.
+ */
 export function isTrustedLocalRuntime(opts: { loopback: boolean }): boolean {
   if (isA2AProductionRuntime()) return false;
   if (getAppConfig().a2a.allowUnsignedInternal) return true;

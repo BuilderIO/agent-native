@@ -272,6 +272,13 @@ function withSignupAttributionContext<T>(
   );
 }
 
+/**
+ * Replace the internal attribution handoff on a request bound for Better
+ * Auth. Call this on every such request, including the ones with no
+ * attribution to add — the header is unsigned and outranks the request cookie
+ * inside the user-create hook, so an inbound copy is a stranger writing the
+ * `anonymous_id` and campaign of somebody else's signup.
+ */
 function requestWithSignupAttribution(
   request: Request,
   signupAttribution: SignupAttributionContext | undefined,
@@ -306,8 +313,17 @@ export interface AuthSession {
 export interface AuthOptions {
   maxAge?: number;
   getSession?: (event: H3Event) => Promise<AuthSession | null>;
+  /**
+   * Set only when the custom provider independently verifies email ownership.
+   * Without this opt-in, an omitted `emailVerified` value remains unknown.
+   */
   trustCustomEmailVerification?: boolean;
   publicPaths?: string[];
+  /**
+   * Public, unauthenticated ingest paths that may receive cross-origin
+   * requests when CORS_ALLOWED_ORIGINS is unset. These routes must perform
+   * their own request validation and must not rely on cookies for auth.
+   */
   publicCorsPaths?: string[];
   workspaceAppAudience?: WorkspaceAppAudience;
   workspaceAppPublicPaths?: string[];
@@ -780,6 +796,20 @@ export function isLoopbackAddress(ip: string | undefined): boolean {
 export function isLoopbackRequest(event: H3Event): boolean {
   return loopback.isLoopbackRequest(event);
 }
+/**
+ * Read the desktop-SSO broker file, but only if the request is plausibly
+ * from the Electron desktop app *and* coming from the local machine.
+ *
+ * The broker file lives in the user's home directory and trusts the local
+ * trust boundary — a non-loopback request that pretends to be Electron
+ * via User-Agent must NEVER be allowed to read it. We additionally refuse
+ * any read in production builds: the desktop app launches with
+ * `NODE_ENV=development` (or unset), and any web-hosted production deploy
+ * has no business consulting a per-user file on the server's homedir
+ * even if one exists.
+ *
+ * Returns null when the safety checks fail or the file isn't present.
+ */
 async function readDesktopSsoSafely(
   event: H3Event,
 ): Promise<Awaited<ReturnType<typeof readDesktopSso>>> {
@@ -4790,6 +4820,11 @@ async function mountBetterAuthRoutes(
             });
             return oauthErrorPage(msg);
           }
+          // Defence in depth: the state is HMAC-signed, but if the signing
+          // key ever leaked an attacker could mint state with their own
+          // redirect_uri. Re-validate against the same allowlist used at
+          // auth-url time so the token exchange is always sent to a URI we
+          // own.
           if (
             !isAllowedOAuthRedirectUri(redirectUri, event, getOrigin(event), {
               useNetlifyPreviewGoogleOAuthRelay: true,
@@ -5871,6 +5906,14 @@ async function mountBetterAuthRoutes(
         );
       }
 
+      // After email verification, add ?verified=1 to the redirect so the
+      // login page can show "Email verified!". MUTATE the response in
+      // place — `new Response(null, { headers: new Headers(response.headers) })`
+      // collapses multiple Set-Cookie headers into one comma-joined value,
+      // which browsers reject. With `autoSignInAfterVerification: true`
+      // Better Auth emits 2–3 Set-Cookie headers (session token + cookie
+      // cache + dontRememberToken); losing them strands the user on the
+      // login page even though verification succeeded.
       if (
         reqPath.includes("verify-email") &&
         isResponse &&
@@ -6693,6 +6736,9 @@ export async function autoMountAuth(
   } catch (err) {
     console.error("[agent-native] Failed to initialize Better Auth:", err);
     mountAuthFallbackRoutes(app);
+    // CRITICAL: Even if Better Auth fails, register the auth guard so
+    // unauthenticated users can't access the app. They'll see the login
+    // page but won't be able to sign in until the DB is available.
     const loginHtmlConfig = getOnboardingLoginHtmlConfig(options);
     _authGuardConfig = {
       ...loginHtmlConfig,
