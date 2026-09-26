@@ -33,13 +33,13 @@ vi.mock("@agent-native/core/settings", () => ({
   mutateUserSetting: settings.mutateUserSetting,
 }));
 
+import type { AiFilterDecision } from "../../shared/ai-filter.js";
 import {
   getAiFilterState,
   recordAiFilterFeedback,
   recordAiFilterDecisions,
   saveAiFilterState,
 } from "./ai-filter.js";
-import type { AiFilterDecision } from "../../shared/ai-filter.js";
 
 describe("AI filter settings persistence", () => {
   beforeEach(() => {
