@@ -659,6 +659,38 @@ describe("requestMatchesEmbedTarget", () => {
     ).resolves.toBeNull();
   });
 
+  it("accepts signed-out visual-edit bootstrap tokens only on their issuing host", async () => {
+    const host = "beta.design.agent-native.com";
+    const token = signEmbedSessionToken({
+      ownerEmail: "bootstrap@example.invalid",
+      targetPath: "/visual-edit",
+      audienceHost: host,
+      scope: `capability:visual-edit-bootstrap:${"a".repeat(32)}`,
+      ttlSeconds: 300,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/visual-edit", {
+          host,
+          authorization: `Bearer ${token}`,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      email: "bootstrap@example.invalid",
+      scope: `capability:visual-edit-bootstrap:${"a".repeat(32)}`,
+    });
+
+    const siblingRequest = fakeEvent("/visual-edit", {
+      host: "beta.calendar.agent-native.com",
+      authorization: `Bearer ${token}`,
+    });
+    await expect(resolveEmbedSessionFromRequest(siblingRequest)).resolves.toBe(
+      null,
+    );
+    expect(requestHasEmbedAuthMarker(siblingRequest)).toBe(false);
+  });
+
   it("binds custom-host embed sessions to their audience while preserving legacy tokens", async () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
