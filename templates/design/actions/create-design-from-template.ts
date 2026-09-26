@@ -293,23 +293,17 @@ export default defineAction({
       designSystemId,
       prompt,
     });
-    if (newId && !retryKey) {
-      throw new Error("retryKey is required when newId is provided");
-    }
-    if (newId && retryKey !== expectedRetryKey) {
+    if (retryKey !== undefined && retryKey !== expectedRetryKey) {
       return templateCopyConflict();
     }
     if (newId && !targetDesignId) {
-      if (!retryKey) {
-        throw new Error("retryKey is required when newId is provided");
-      }
       const existing = await readRetryDesign(
         designId,
         ownerEmail,
         orgId,
         templateId,
         createdTitle,
-        retryKey,
+        expectedRetryKey,
       );
       if (existing) return existing;
     }
@@ -341,7 +335,7 @@ export default defineAction({
       templateDesignSystemId,
       appliedDesignSystemId: linkedDesignSystemId,
       designSystemOverridden,
-      ...(retryKey !== undefined ? { retryKey } : {}),
+      ...(!targetDesignId ? { retryKey: expectedRetryKey } : {}),
       files: files.map((file) => {
         const designFileId = fileIdMap.get(file.id)!;
         const { width, height } = templateFileDimensions(data, designFileId);
@@ -450,16 +444,13 @@ export default defineAction({
         await db.transaction(persist);
       } catch (error) {
         if (!newId || !isUniqueViolation(error)) throw error;
-        if (!retryKey) {
-          throw new Error("retryKey is required when newId is provided");
-        }
         const existing = await readRetryDesign(
           designId,
           ownerEmail,
           orgId,
           templateId,
           createdTitle,
-          retryKey,
+          expectedRetryKey,
         );
         if (existing) return existing;
         return templateCopyConflict();

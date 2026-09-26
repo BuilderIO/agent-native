@@ -315,13 +315,12 @@ describe("create-design-from-template", () => {
     expect(testState.insertedDesign).toBeNull();
   });
 
-  it("requires a matching bounded fingerprint for stable retries", async () => {
-    await expect(
-      action.run({
-        templateId: "saved-template",
-        newId: "retry-id",
-      }),
-    ).rejects.toThrow("retryKey is required");
+  it("preserves stable retries without requiring callers to build the fingerprint", async () => {
+    const first = await action.run({
+      templateId: "saved-template",
+      newId: "retry-id",
+    });
+    expect(first.id).toBe("retry-id");
 
     await expect(
       action.run({
