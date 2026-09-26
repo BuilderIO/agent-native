@@ -229,6 +229,7 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   addInlineImageFallbacks,
+  formatPromptUploadFailure,
   isPromptUploadAuthRequiredError,
   isPromptUploadLimitError,
   isPromptUploadNetworkError,
@@ -708,9 +709,43 @@ describe("uploadPromptFiles", () => {
       code: "reference_storage_limit_exceeded",
       message: "Reference file upload failed",
       status: 413,
+      fileName: promptFile.name,
     });
     expect(error.message).not.toContain("private provider details");
     expect(isPromptUploadLimitError(error)).toBe(true);
+  });
+
+  it("identifies the failed multipart file without exposing server details", async () => {
+    const files = [
+      new File(["good"], "good.txt", { type: "text/plain" }),
+      new File(["bad"], "bad.html", { type: "text/html" }),
+    ];
+    stubReadyStorageUpload(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: "private storage provider credentials",
+            failedFileName: "bad.html",
+          }),
+          { status: 400 },
+        ),
+    );
+
+    const error = await uploadPromptFilesImpl(
+      files,
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "reference_storage_http_failed",
+      message: "Reference file upload failed",
+      status: 400,
+      fileName: "bad.html",
+    });
+    expect(error.message).not.toContain("private storage provider");
+    expect(formatPromptUploadFailure(error, "Upload failed")).toBe(
+      "bad.html: Upload failed",
+    );
   });
 
   it("preserves HTTP 413 from chunked upload start", async () => {

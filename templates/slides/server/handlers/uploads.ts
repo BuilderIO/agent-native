@@ -331,6 +331,7 @@ export const uploadFiles = defineEventHandler(async (event) => {
         setResponseStatus(event, 413);
         return {
           error: `File "${oversized.filename || "upload"}": File too large (max ${formatMaxFileSize(limit)})`,
+          failedFileName: oversized.filename,
         };
       }
 
@@ -377,6 +378,7 @@ export const uploadFiles = defineEventHandler(async (event) => {
         setResponseStatus(event, statusCode);
         return {
           error: `File "${failedFile?.filename || "upload"}": ${errorMessage}`,
+          failedFileName: failedFile?.filename,
         };
       }
 

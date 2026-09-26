@@ -834,7 +834,7 @@ const messages = {
       notReady: "參考內容仍在載入或無法使用。請重試或移除後再傳送。",
       emptySource: "此來源未傳回可用的參考內容。",
       figmaReadFailed:
-        "Figma 無法讀取此參考內容。請檢查連結、連線和檔案存取權限，然後再試一次。",
+        "Design 無法讀取此 Figma 參考內容。請檢查 Design 中儲存的 Figma 存取權杖，以及連結帳戶是否能開啟該檔案，然後再試一次。",
       tooMany: "最多選取 20 項參考資料。",
       search: "搜尋參考資料",
       designCategory: "設計",

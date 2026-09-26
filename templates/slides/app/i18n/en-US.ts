@@ -863,7 +863,7 @@ const messages = {
         "Context is still loading or unavailable. Retry or remove it before sending.",
       emptySource: "This source returned no usable context.",
       figmaReadFailed:
-        "Figma couldn't read this reference. Check the link, connection, and file access, then try again.",
+        "Design couldn't read this Figma reference. Check the saved Figma access token in Design and make sure its account can open the file, then try again.",
       tooMany: "Choose up to 20 references.",
       search: "Search references",
       designCategory: "Design",

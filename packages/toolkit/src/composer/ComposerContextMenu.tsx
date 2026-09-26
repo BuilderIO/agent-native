@@ -79,6 +79,7 @@ export interface ComposerContextMenuProps {
   addAttachment?: (file: File) => Promise<unknown>;
   attachmentAccept?: string;
   onAttachmentError?: (message: string) => void;
+  onDisabledFocus?: () => void;
   disabled?: boolean;
 }
 interface ComposerContextPage {
@@ -239,6 +240,7 @@ export function ComposerContextMenu({
   addAttachment,
   attachmentAccept,
   onAttachmentError,
+  onDisabledFocus,
   disabled,
 }: ComposerContextMenuProps) {
   const t = useComposerRuntimeAdapters().translate!;
@@ -337,7 +339,9 @@ export function ComposerContextMenu({
     } catch (cause) {
       reportError(cause);
     }
-  }, [disabled, open, changeOpen, reportError]);
+    const focusFrame = window.requestAnimationFrame(() => onDisabledFocus?.());
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [disabled, open, changeOpen, onDisabledFocus, reportError]);
   const selectAction = (action: ComposerContextMenuAction) => {
     setError(null);
     try {
@@ -616,7 +620,8 @@ export function ComposerContextMenu({
               }
             }}
             onRestoreFocus={() => {
-              if (!dialogRef.current) triggerRef.current?.focus();
+              if (dialogRef.current) return;
+              if (!disabled) triggerRef.current?.focus();
             }}
           />
         )}

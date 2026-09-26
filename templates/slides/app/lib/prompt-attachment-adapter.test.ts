@@ -6,12 +6,12 @@ import { createSlidesPromptAttachmentAdapter } from "./prompt-attachment-adapter
 describe("Slides prompt attachment adapter", () => {
   const adapter = createSlidesPromptAttachmentAdapter();
 
-  it("matches the Slides reference upload allowlist without HTML", () => {
+  it("matches the Slides reference upload allowlist", () => {
     expect(adapter.accept).toBe(SLIDES_REFERENCE_FILE_ACCEPT);
     expect(adapter.accept).toContain(".pdf");
     expect(adapter.accept).toContain(".pptx");
-    expect(adapter.accept).not.toContain(".html");
-    expect(adapter.accept).not.toContain(".htm");
+    expect(adapter.accept).toContain(".html");
+    expect(adapter.accept).toContain(".htm");
   });
 
   it("stages a file without changing its bytes and gives duplicate names distinct ids", async () => {

@@ -561,13 +561,27 @@ export function NewDeckReferenceStep({
                 />
               </div>
               {storageQuery.isError ? (
-                <p className="mt-3 text-sm text-destructive" role="alert">
-                  {isPromptUploadAuthRequiredError(storageQuery.error)
-                    ? t("home.importMenu.notStarted")
-                    : isPromptUploadNetworkError(storageQuery.error)
-                      ? t("home.importMenu.networkFailed")
-                      : t("home.fileStorageStatusUnavailable")}
-                </p>
+                <div
+                  className="mt-3 flex items-center justify-between gap-3 text-sm text-destructive"
+                  role="alert"
+                >
+                  <span>
+                    {isPromptUploadAuthRequiredError(storageQuery.error)
+                      ? t("home.importMenu.notStarted")
+                      : isPromptUploadNetworkError(storageQuery.error)
+                        ? t("home.importMenu.networkFailed")
+                        : t("home.fileStorageStatusUnavailable")}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="shrink-0 px-1 text-destructive"
+                    onClick={() => void storageQuery.refetch()}
+                  >
+                    {t("home.retry")}
+                  </Button>
+                </div>
               ) : !storageQuery.isLoading ? (
                 <div className="mt-3">
                   <UploadStorageGate

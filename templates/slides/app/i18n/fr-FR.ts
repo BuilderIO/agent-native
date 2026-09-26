@@ -891,7 +891,7 @@ const messages = {
         "Le contexte est en cours de chargement ou indisponible. Réessayez ou retirez-le avant l’envoi.",
       emptySource: "Cette source n’a fourni aucun contexte utilisable.",
       figmaReadFailed:
-        "Figma n’a pas pu lire cette référence. Vérifiez le lien, la connexion et l’accès au fichier, puis réessayez.",
+        "Design n’a pas pu lire cette référence Figma. Vérifiez le jeton d’accès Figma enregistré dans Design et que le compte associé peut ouvrir le fichier, puis réessayez.",
       tooMany: "Choisissez jusqu’à 20 références.",
       search: "Rechercher des références",
       designCategory: "Création",

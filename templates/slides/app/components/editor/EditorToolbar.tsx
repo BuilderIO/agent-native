@@ -82,6 +82,7 @@ import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client
 import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import {
   cleanupUploadedPromptFiles,
+  formatPromptUploadFailure,
   isPromptUploadAuthRequiredError,
   isPromptUploadLimitError,
   isPromptUploadNetworkError,
@@ -429,21 +430,24 @@ export default function EditorToolbar({
       const storageSetupRequired = isStorageSetupRequiredError(err);
       if (storageSetupRequired) void storageQuery.refetch();
       toast.error(t("editorToolbar.importFailed"), {
-        description: storageSetupRequired
-          ? t("home.fileStorageSetupRequired")
-          : err instanceof DeckBackupError
-            ? t("editorToolbar.invalidBackup")
-            : isPromptUploadAuthRequiredError(err)
-              ? t("home.importMenu.notStarted")
-              : isPromptUploadNetworkError(err)
-                ? t("home.importMenu.networkFailed")
-                : isPromptUploadLimitError(err)
-                  ? t("home.importMenu.uploadLimitExceeded")
-                  : isPromptUploadStorageStatusError(err)
-                    ? t("editorToolbar.importFailedDescription")
-                    : err instanceof Error
-                      ? err.message
-                      : t("editorToolbar.importFailedDescription"),
+        description: formatPromptUploadFailure(
+          err,
+          storageSetupRequired
+            ? t("home.fileStorageSetupRequired")
+            : err instanceof DeckBackupError
+              ? t("editorToolbar.invalidBackup")
+              : isPromptUploadAuthRequiredError(err)
+                ? t("home.importMenu.notStarted")
+                : isPromptUploadNetworkError(err)
+                  ? t("home.importMenu.networkFailed")
+                  : isPromptUploadLimitError(err)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadStorageStatusError(err)
+                      ? t("editorToolbar.importFailedDescription")
+                      : err instanceof Error
+                        ? err.message
+                        : t("editorToolbar.importFailedDescription"),
+        ),
       });
     } finally {
       await cleanupUploadedPromptFiles(uploadedFiles);

@@ -20,6 +20,9 @@ const mocks = vi.hoisted(() => ({
   creativeContextLabEnabled: { value: true },
   uploadPromptFiles: vi.fn(),
   cleanupUploadedPromptFiles: vi.fn(),
+  formatPromptUploadFailure: vi.fn(
+    (_error: unknown, description: string) => description,
+  ),
   isPromptUploadAuthRequiredError: vi.fn(() => false),
   isPromptUploadLimitError: vi.fn(() => false),
   isPromptUploadNetworkError: vi.fn(() => false),
@@ -73,6 +76,7 @@ vi.mock("@/lib/utils", () => ({
 vi.mock("@/lib/prompt-file-uploads", () => ({
   uploadPromptFiles: mocks.uploadPromptFiles,
   cleanupUploadedPromptFiles: mocks.cleanupUploadedPromptFiles,
+  formatPromptUploadFailure: mocks.formatPromptUploadFailure,
   isPromptUploadAuthRequiredError: mocks.isPromptUploadAuthRequiredError,
   isPromptUploadLimitError: mocks.isPromptUploadLimitError,
   isPromptUploadNetworkError: mocks.isPromptUploadNetworkError,

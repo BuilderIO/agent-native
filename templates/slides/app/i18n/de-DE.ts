@@ -885,7 +885,7 @@ const messages = {
         "Kontext wird geladen oder ist nicht verfügbar. Erneut versuchen oder vor dem Senden entfernen.",
       emptySource: "Diese Quelle lieferte keinen nutzbaren Kontext.",
       figmaReadFailed:
-        "Figma konnte diese Referenz nicht lesen. Prüfe den Link, die Verbindung und den Dateizugriff und versuche es erneut.",
+        "Design konnte diese Figma-Referenz nicht lesen. Prüfe das gespeicherte Figma-Zugriffstoken in Design und ob das zugehörige Konto die Datei öffnen kann, und versuche es erneut.",
       tooMany: "Wähle bis zu 20 Referenzen.",
       search: "Referenzen suchen",
       designCategory: "Gestaltung",

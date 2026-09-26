@@ -4,6 +4,7 @@ import { getOversizedDocumentAttachmentError } from "@agent-native/toolkit/compo
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
+  formatPromptUploadFailure,
   isPromptUploadAuthRequiredError,
   isPromptUploadLimitError,
   isPromptUploadNetworkError,
@@ -58,8 +59,9 @@ export function usePromptImport({
   }, []);
   const fail = useCallback(
     (message: string, cause?: unknown) => {
-      setError(message);
-      onError?.(message, cause);
+      const formattedMessage = formatPromptUploadFailure(cause, message);
+      setError(formattedMessage);
+      onError?.(formattedMessage, cause);
       return false;
     },
     [onError],

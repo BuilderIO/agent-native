@@ -889,7 +889,7 @@ const messages = {
         "El contexto sigue cargando o no está disponible. Reintenta o elimínalo antes de enviar.",
       emptySource: "La fuente no devolvió contexto utilizable.",
       figmaReadFailed:
-        "Figma no pudo leer esta referencia. Comprueba el enlace, la conexión y el acceso al archivo, e inténtalo de nuevo.",
+        "Design no pudo leer esta referencia de Figma. Comprueba el token de acceso a Figma guardado en Design y que esa cuenta pueda abrir el archivo; luego inténtalo de nuevo.",
       tooMany: "Elige hasta 20 referencias.",
       search: "Buscar referencias",
       designCategory: "Diseño",

@@ -185,7 +185,12 @@ describe("connected composer menus", () => {
     const entries: ComposerContextMenuItem[] = [
       { id: "source", label: "Source", picker, onDismiss },
     ];
-    await render(entries);
+    let draft: HTMLInputElement | null = null;
+    const onDisabledFocus = vi.fn(() => draft?.focus());
+    await render(entries, { onDisabledFocus });
+    draft = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Prompt draft"]',
+    );
     await open();
     await click("Add context");
     await click("Source");
@@ -194,10 +199,18 @@ describe("connected composer menus", () => {
     });
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 
-    await render(entries, { disabled: true });
+    await render(entries, { disabled: true, onDisabledFocus });
+    await act(
+      async () =>
+        await new Promise<void>((resolve) =>
+          window.requestAnimationFrame(() => resolve()),
+        ),
+    );
 
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(onDismiss).toHaveBeenCalledOnce();
+    expect(onDisabledFocus).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(draft);
   });
   it("filters root and category search without flattening the hierarchy", async () => {
     const select = vi.fn();

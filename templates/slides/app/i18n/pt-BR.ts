@@ -881,7 +881,7 @@ const messages = {
         "O contexto está carregando ou indisponível. Tente novamente ou remova-o antes de enviar.",
       emptySource: "Esta fonte não retornou contexto utilizável.",
       figmaReadFailed:
-        "O Figma não conseguiu ler esta referência. Confira o link, a conexão e o acesso ao arquivo e tente novamente.",
+        "O Design não conseguiu ler esta referência do Figma. Confira o token de acesso do Figma salvo no Design e se a conta vinculada consegue abrir o arquivo; depois tente novamente.",
       tooMany: "Escolha até 20 referências.",
       search: "Buscar referências",
       designCategory: "Criação",

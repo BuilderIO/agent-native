@@ -44,6 +44,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "Complete any required sign-in, then retry the import.",
         "home.fileStorageStatusUnavailable":
           "Couldn't check object storage. Retry before uploading files.",
+        "home.retry": "Retry",
         "home.none": "None",
         "home.continue": "Continue",
         "home.continueToGenerate": "Continue to generate",
@@ -210,9 +211,13 @@ describe("<NewDeckReferenceStep>", () => {
     );
     await renderStep({}, null);
 
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    expect((await screen.findByRole("alert")).textContent).toContain(
       "The import request timed out or lost its network connection. Check your connection and retry.",
     );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    });
+    expect(isReferenceStorageReadyMock).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -238,7 +243,7 @@ describe("<NewDeckReferenceStep>", () => {
     isReferenceStorageReadyMock.mockRejectedValue(error);
     await renderStep({}, null);
 
-    expect((await screen.findByRole("alert")).textContent).toBe(message);
+    expect((await screen.findByRole("alert")).textContent).toContain(message);
     expect(
       screen.queryByText(/private storage|503|response is invalid/i),
     ).toBeNull();

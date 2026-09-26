@@ -320,21 +320,41 @@ describe("Slides reference upload limits", () => {
       },
       {
         name: "files",
-        filename: "reference.html",
-        type: "text/html",
-        data: Buffer.from("<main>Design system</main>"),
+        filename: "reference.exe",
+        type: "application/octet-stream",
+        data: Buffer.from("not allowed"),
       },
     ]);
 
     await expect(uploadFiles(event)).resolves.toEqual({
       error: expect.stringMatching(
-        /^File "reference\.html": Unsupported file type\./,
+        /^File "reference\.exe": Unsupported file type\./,
       ),
+      failedFileName: "reference.exe",
     });
 
     expect(mockWriteFile).toHaveBeenCalledOnce();
     expect(mockDeleteUploadedReferenceBlob).toHaveBeenCalledOnce();
     expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 400);
+  });
+
+  it("stores HTML references as text", async () => {
+    const data = Buffer.from("<main>Design system</main>");
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "reference.html",
+        data,
+        type: "text/html",
+      }),
+    ).resolves.toMatchObject({
+      originalName: "reference.html",
+      type: "text/html",
+      size: data.length,
+      filename: expect.stringContaining(".html"),
+    });
+    expect(mockWriteFile).toHaveBeenCalledOnce();
   });
 
   it("fails closed when hosted private file storage is unavailable", async () => {

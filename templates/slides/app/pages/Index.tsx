@@ -163,8 +163,13 @@ async function uploadPromptFiles(
     return await module.uploadPromptFiles(files, storageUnavailableMessage);
   } catch (cause) {
     if (module.isPromptUploadNetworkError(cause)) {
+      const fileName =
+        cause && typeof cause === "object" && "fileName" in cause
+          ? (cause as { fileName?: unknown }).fileName
+          : undefined;
       throw Object.assign(new Error(networkFailedMessage, { cause }), {
         code: "reference_upload_network_failed",
+        ...(typeof fileName === "string" ? { fileName } : {}),
       });
     }
     throw cause;
@@ -436,13 +441,13 @@ export default function Index({ active = true }: { active?: boolean }) {
     refetch: refetchDesignSystems,
     error: designSystemsError,
     isLoading: designSystemsLoading,
-  } = useDesignSystems(systemsEnabled);
+  } = useDesignSystems(systemsEnabled && active);
   const {
     referenceDeck: workspaceReferenceDeck,
     designSystem: workspaceDesignSystem,
     canManage: canManageWorkspaceDefaults,
     refetch: refetchWorkspaceDefaults,
-  } = useWorkspaceDefaults();
+  } = useWorkspaceDefaults(active);
   const { session } = useSession();
   const agentEngine = useAgentEngineConfigured();
   const quickActionsEnabled =
@@ -788,7 +793,6 @@ export default function Index({ active = true }: { active?: boolean }) {
     if (active) return;
     setDeckToDelete(null);
     setWorkspaceDefaultCandidate(null);
-    setShowNewDeckReferenceStep(false);
     setShowDesignSystemSetup(false);
     setSignInDialogOpen(false);
   }, [active, setSignInDialogOpen]);
@@ -1508,18 +1512,11 @@ export default function Index({ active = true }: { active?: boolean }) {
         return true;
       }
 
-      let uploaded: UploadedFile[];
-      try {
-        uploaded = await uploadPromptFiles(
-          selection.files,
-          t("home.referenceFileStorageUnavailable"),
-          t("home.importMenu.networkFailed"),
-        );
-      } catch (cause) {
-        const module = await import("@/lib/prompt-file-uploads");
-        if (module.isPromptUploadAuthRequiredError(cause)) return false;
-        throw cause;
-      }
+      const uploaded: UploadedFile[] = await uploadPromptFiles(
+        selection.files,
+        t("home.referenceFileStorageUnavailable"),
+        t("home.importMenu.networkFailed"),
+      );
       const file = uploaded[0];
       if (!file) throw new Error("The selected file could not be uploaded.");
 
@@ -1839,19 +1836,22 @@ export default function Index({ active = true }: { active?: boolean }) {
           "code" in error &&
           error.code === "reference_storage_unavailable";
         toast.error(t("editorToolbar.uploadFailed"), {
-          description: uploadModule.isPromptUploadAuthRequiredError(error)
-            ? t("home.importMenu.notStarted")
-            : uploadModule.isPromptUploadNetworkError(error)
-              ? t("home.importMenu.networkFailed")
-              : uploadModule.isPromptUploadLimitError(error)
-                ? t("home.importMenu.uploadLimitExceeded")
-                : uploadModule.isPromptUploadStorageStatusError(error)
-                  ? t("editorToolbar.importFailedDescription")
-                  : isStorageUnavailable && error instanceof Error
-                    ? error.message
-                    : error instanceof Error
+          description: uploadModule.formatPromptUploadFailure(
+            error,
+            uploadModule.isPromptUploadAuthRequiredError(error)
+              ? t("home.importMenu.notStarted")
+              : uploadModule.isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : uploadModule.isPromptUploadLimitError(error)
+                  ? t("home.importMenu.uploadLimitExceeded")
+                  : uploadModule.isPromptUploadStorageStatusError(error)
+                    ? t("editorToolbar.importFailedDescription")
+                    : isStorageUnavailable && error instanceof Error
                       ? error.message
-                      : t("editorToolbar.importFailedDescription"),
+                      : error instanceof Error
+                        ? error.message
+                        : t("editorToolbar.importFailedDescription"),
+          ),
         });
         return null;
       } finally {
@@ -2207,6 +2207,7 @@ export default function Index({ active = true }: { active?: boolean }) {
                 showModelSelector={agentEngineConfigured}
                 modelStatusChecksEnabled={false}
                 open={showNewDeckPrompt}
+                active={active}
                 onOpenChange={setNewDeckPromptOpen}
                 title={t("home.newDeckPromptTitle")}
                 placeholder={t("home.newDeckPlaceholder")}
@@ -2311,7 +2312,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         recentActions={
           <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
         }
-        templates={<DeckTemplateLibrary home />}
+        templates={<DeckTemplateLibrary home enabled={isHome} />}
         recent={
           <div className="agent-template-library-grid">
             {visibleDecks.map((deck) => (

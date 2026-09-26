@@ -839,7 +839,7 @@ const messages = {
       notReady: "上下文仍在加载或不可用。请重试或移除后再发送。",
       emptySource: "此来源未返回可用的上下文。",
       figmaReadFailed:
-        "Figma 无法读取此参考内容。请检查链接、连接和文件访问权限，然后重试。",
+        "Design 无法读取此 Figma 参考内容。请检查 Design 中保存的 Figma 访问令牌，以及关联账号是否有权打开该文件，然后重试。",
       tooMany: "最多选择 20 项参考资料。",
       search: "搜索参考资料",
       designCategory: "设计",

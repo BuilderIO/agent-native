@@ -26,6 +26,7 @@ import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   deleteUploadedPromptFile,
+  formatPromptUploadFailure,
   isPromptUploadAuthRequiredError,
   isPromptUploadLimitError,
   isPromptUploadNetworkError,
@@ -206,19 +207,22 @@ export function AddSlidePopover({
             const storageSetupRequired = isStorageSetupRequiredError(error);
             if (storageSetupRequired) void storageQuery.refetch();
             toast.error(t("editorSidebar.uploadFailed"), {
-              description: storageSetupRequired
-                ? t("home.fileStorageSetupRequired")
-                : isPromptUploadNetworkError(error)
-                  ? t("home.importMenu.networkFailed")
-                  : isPromptUploadAuthRequiredError(error)
-                    ? t("home.importMenu.notStarted")
-                    : isPromptUploadLimitError(error)
-                      ? t("home.importMenu.uploadLimitExceeded")
-                      : isPromptUploadStorageStatusError(error)
-                        ? t("editorToolbar.importFailedDescription")
-                        : error instanceof Error
-                          ? error.message
-                          : t("editorSidebar.uploadAttachedFileFailed"),
+              description: formatPromptUploadFailure(
+                error,
+                storageSetupRequired
+                  ? t("home.fileStorageSetupRequired")
+                  : isPromptUploadNetworkError(error)
+                    ? t("home.importMenu.networkFailed")
+                    : isPromptUploadAuthRequiredError(error)
+                      ? t("home.importMenu.notStarted")
+                      : isPromptUploadLimitError(error)
+                        ? t("home.importMenu.uploadLimitExceeded")
+                        : isPromptUploadStorageStatusError(error)
+                          ? t("editorToolbar.importFailedDescription")
+                          : error instanceof Error
+                            ? error.message
+                            : t("editorSidebar.uploadAttachedFileFailed"),
+              ),
             });
             return;
           }
@@ -313,19 +317,22 @@ export function AddSlidePopover({
         const storageSetupRequired = isStorageSetupRequiredError(error);
         if (storageSetupRequired) void storageQuery.refetch();
         toast.error(t("editorSidebar.uploadFailed"), {
-          description: storageSetupRequired
-            ? t("home.fileStorageSetupRequired")
-            : isPromptUploadNetworkError(error)
-              ? t("home.importMenu.networkFailed")
-              : isPromptUploadAuthRequiredError(error)
-                ? t("home.importMenu.notStarted")
-                : isPromptUploadLimitError(error)
-                  ? t("home.importMenu.uploadLimitExceeded")
-                  : isPromptUploadStorageStatusError(error)
-                    ? t("editorToolbar.importFailedDescription")
-                    : error instanceof Error
-                      ? error.message
-                      : t("editorSidebar.uploadAttachedFileFailed"),
+          description: formatPromptUploadFailure(
+            error,
+            storageSetupRequired
+              ? t("home.fileStorageSetupRequired")
+              : isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : isPromptUploadAuthRequiredError(error)
+                  ? t("home.importMenu.notStarted")
+                  : isPromptUploadLimitError(error)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadStorageStatusError(error)
+                      ? t("editorToolbar.importFailedDescription")
+                      : error instanceof Error
+                        ? error.message
+                        : t("editorSidebar.uploadAttachedFileFailed"),
+          ),
         });
       });
     },
