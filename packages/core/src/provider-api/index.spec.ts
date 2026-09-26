@@ -20,26 +20,14 @@ const assertCredentialCanReachEndpoint = vi.fn(
       | undefined,
     key?: string,
   ) => {
-    if (
-      endpoint.source === "workspace_connection" &&
-      endpoint.connectionId &&
-      credential?.source === "workspace_connection" &&
-      credential.connectionId === endpoint.connectionId
-    ) {
-      return;
-    }
     const soloWorkspaceEndpoint =
       endpoint.scope === "workspace" && endpoint.scopeId?.startsWith("solo:");
     if (
       endpoint.source === "workspace_connection" &&
-      credential?.source === "workspace_connection"
+      credential?.source === "workspace_connection" &&
+      (!endpoint.connectionId ||
+        credential.connectionId !== endpoint.connectionId)
     ) {
-      if (
-        endpoint.connectionId &&
-        credential.connectionId === endpoint.connectionId
-      ) {
-        return;
-      }
       throw new Error(
         `Refusing to send ${key ?? "a credential"} to a different workspace connection than the endpoint.`,
       );
@@ -326,7 +314,28 @@ describe("provider API runtime", () => {
     },
   );
 
-  it("rejects credentials from a different workspace connection before fetch", async () => {
+  it.each([
+    {
+      description: "a different workspace connection",
+      endpointScope: "org",
+      endpointScopeId: "org-1",
+      credentialScope: "org",
+      credentialScopeId: "org-1",
+      endpointConnectionId: "conn-a",
+      credentialConnectionId: "conn-b",
+      error: /different workspace connection/i,
+    },
+    {
+      description: "a different scope in the same workspace connection",
+      endpointScope: "user",
+      endpointScopeId: "ada@example.com",
+      credentialScope: "org",
+      credentialScopeId: "org-1",
+      endpointConnectionId: "conn-a",
+      credentialConnectionId: "conn-a",
+      error: /user-controlled endpoint/i,
+    },
+  ])("rejects $description before fetch", async (scenario) => {
     const fetchMock = vi.mocked(globalThis.fetch);
     const runtime = createProviderApiRuntime({
       appId: "brain",
@@ -340,15 +349,24 @@ describe("provider API runtime", () => {
             : `${key.toLowerCase()}-test-value`,
         source: "workspace_connection",
         provider: "gong",
-        scope: "org",
-        scopeId: "org-1",
-        connectionId: key === "GONG_API_BASE" ? "conn-a" : "conn-b",
+        scope:
+          key === "GONG_API_BASE"
+            ? scenario.endpointScope
+            : scenario.credentialScope,
+        scopeId:
+          key === "GONG_API_BASE"
+            ? scenario.endpointScopeId
+            : scenario.credentialScopeId,
+        connectionId:
+          key === "GONG_API_BASE"
+            ? scenario.endpointConnectionId
+            : scenario.credentialConnectionId,
       }),
     });
 
     await expect(
       runtime.executeRequest({ provider: "gong", path: "/calls" }),
-    ).rejects.toThrow(/different workspace connection/i);
+    ).rejects.toThrow(scenario.error);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1106,7 +1124,15 @@ describe("provider API runtime", () => {
             JIRA_API_TOKEN: "jira-api-token",
           }[key] ?? null;
         return value
-          ? { key, value, provider: "jira", source: "workspace_connection" }
+          ? {
+              key,
+              value,
+              provider: "jira",
+              source: "workspace_connection",
+              scope: "org",
+              scopeId: "org-1",
+              connectionId: "jira-legacy",
+            }
           : null;
       },
     );

@@ -247,6 +247,46 @@ describe("credentials encryption at rest", () => {
       assertCredentialCanReachEndpoint(
         endpoint,
         {
+          scope: "org",
+          scopeId: "org-1",
+          source: "workspace_connection",
+          connectionId: "conn-a",
+        },
+        "TOKEN",
+      ),
+    ).not.toThrow();
+  });
+
+  it("checks credential scope even when the endpoint and credential share a workspace connection", async () => {
+    const {
+      assertCredentialCanReachEndpoint,
+      CredentialEndpointMismatchError,
+    } = await import("./index.js");
+    const endpoint = {
+      scope: "user",
+      scopeId: "member@example.test",
+      source: "workspace_connection",
+      connectionId: "conn-a",
+    };
+
+    expect(() =>
+      assertCredentialCanReachEndpoint(
+        endpoint,
+        {
+          scope: "org",
+          scopeId: "org-1",
+          source: "workspace_connection",
+          connectionId: "conn-a",
+        },
+        "TOKEN",
+      ),
+    ).toThrow(CredentialEndpointMismatchError);
+    expect(() =>
+      assertCredentialCanReachEndpoint(
+        endpoint,
+        {
+          scope: "user",
+          scopeId: "member@example.test",
           source: "workspace_connection",
           connectionId: "conn-a",
         },
