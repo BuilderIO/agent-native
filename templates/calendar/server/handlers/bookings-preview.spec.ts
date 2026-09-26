@@ -295,7 +295,9 @@ describe("draft booking availability previews", () => {
           where: vi.fn(async () =>
             table === schema.bookingUsernames
               ? [{ ownerEmail: "owner@example.com" }]
-              : [],
+              : table === schema.bookingLinks
+                ? [{ ...bookingLink, slug: "book", hosts: "[]" }]
+                : [],
           ),
         })),
       })),
@@ -321,6 +323,64 @@ describe("draft booking availability previews", () => {
       "owner@example.com",
       "America/Los_Angeles",
     );
+  });
+
+  it("does not expose slots for a username URL without a saved booking link", async () => {
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn(async () =>
+            table === schema.bookingUsernames
+              ? [{ ownerEmail: "owner@example.com" }]
+              : [],
+          ),
+        })),
+      })),
+    });
+
+    const response = await (getAvailableSlots as any)({
+      query: {
+        date: "2026-08-17",
+        duration: "30",
+        slug: "book",
+        username: "owner",
+      },
+    });
+
+    expect(response.slots).toEqual([]);
+    expect(mocks.getFreeBusy).not.toHaveBeenCalled();
+  });
+
+  it("does not return slots when a username does not own the requested link", async () => {
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn(async () =>
+            table === schema.bookingUsernames
+              ? [{ ownerEmail: "owner@example.com" }]
+              : table === schema.bookingLinks
+                ? [{ ...bookingLink, ownerEmail: "other@example.com" }]
+                : [],
+          ),
+        })),
+      })),
+    });
+
+    const response = await (getAvailableSlots as any)({
+      query: {
+        date: "2026-08-17",
+        duration: "30",
+        slug: "saved-meeting",
+        username: "owner",
+      },
+    });
+
+    expect(response).toMatchObject({ error: "Booking page not found" });
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      404,
+    );
+    expect(mocks.getFreeBusy).not.toHaveBeenCalled();
   });
 
   it("returns an unavailable response when the saved link owner is disconnected", async () => {
