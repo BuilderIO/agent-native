@@ -455,13 +455,12 @@ function promptForTurn(
       const role = typeof message.role === "string" ? message.role : "";
       if (role !== "user" && role !== "human") continue;
       const text = promptText(message.content);
-      if (text) {
-        const id = typeof message.id === "string" ? message.id : null;
-        return {
-          prompt: text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text,
-          messageId: id,
-        };
-      }
+      if (!text) return null;
+      const id = typeof message.id === "string" ? message.id : null;
+      return {
+        prompt: text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text,
+        messageId: id,
+      };
     }
     return null;
   };
@@ -478,7 +477,7 @@ function promptForTurn(
 
   let latest: {
     timestamp: number;
-    match: NonNullable<ReturnType<typeof promptAt>>;
+    match: ReturnType<typeof promptAt>;
   } | null = null;
   let userMessageCount = 0;
   let onlyUserMessageIndex = -1;
@@ -492,7 +491,7 @@ function promptForTurn(
     const timestamp = messageTimestamp(message);
     if (timestamp === null || timestamp > usageCreatedAt) continue;
     const match = promptAt(i);
-    if (match && (!latest || timestamp >= latest.timestamp)) {
+    if (!latest || timestamp >= latest.timestamp) {
       latest = { timestamp, match };
     }
   }

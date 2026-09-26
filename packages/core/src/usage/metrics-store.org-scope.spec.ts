@@ -327,6 +327,63 @@ describe("listAppUsageMetrics organization scoping", () => {
     expect(metrics.recent[0]?.promptSource).toBe("thread");
   });
 
+  it("does not attribute a textless user turn to an earlier prompt", async () => {
+    const now = Date.now();
+    const messages = [
+      {
+        message: {
+          id: "earlier-user",
+          createdAt: new Date(now - 20_000).toISOString(),
+          role: "user",
+          content: [{ type: "text", text: "earlier prompt" }],
+        },
+      },
+      {
+        message: {
+          id: "textless-user",
+          createdAt: new Date(now - 10_000).toISOString(),
+          role: "user",
+          content: [{ type: "image" }],
+        },
+      },
+      {
+        message: {
+          id: "textless-assistant",
+          role: "assistant",
+          metadata: { custom: { turnId: "textless-turn" } },
+          content: [{ type: "text", text: "image analyzed" }],
+        },
+      },
+    ];
+    await pglite
+      .prepare(
+        `INSERT INTO chat_threads (id, preview, thread_data) VALUES (?, ?, ?)`,
+      )
+      .run("textless-thread", "earlier prompt", JSON.stringify({ messages }));
+    await pglite
+      .prepare(
+        `INSERT INTO token_usage (id, owner_email, label, app, thread_id, task_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        1,
+        "a@example.com",
+        "chat",
+        "",
+        "textless-thread",
+        "textless-turn",
+        now,
+      );
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "me" },
+      { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+    );
+
+    expect(metrics.recent[0]?.prompt).toBeNull();
+    expect(metrics.recent[0]?.promptSource).toBe("not-captured");
+  });
+
   it("keeps estimated Builder credits visible while exact reporting is disabled", async () => {
     process.env.AGENT_ENGINE = "builder";
     await runWithRequestContext(
