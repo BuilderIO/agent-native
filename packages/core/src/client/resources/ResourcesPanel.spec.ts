@@ -453,6 +453,36 @@ describe("ResourcesPanel storage retries", () => {
     expect(storageMocks.upload).toHaveBeenCalledTimes(1);
   });
 
+  it("does not queue a batch after a successful status probe", async () => {
+    storageMocks.refetch
+      .mockResolvedValueOnce({ isError: false, data: { configured: true } })
+      .mockResolvedValueOnce({ isError: true })
+      .mockResolvedValueOnce({ isError: false, data: { configured: true } });
+    renderPanel();
+    await chooseFile(
+      new File(["success"], "success.png", { type: "image/png" }),
+    );
+    expect(storageMocks.upload).toHaveBeenCalledTimes(1);
+
+    storageMocks.status = { isError: true, isSuccess: false };
+    renderPanel();
+    await chooseFile(new File(["retry"], "retry.png", { type: "image/png" }));
+    act(() => storageMocks.retry?.());
+    storageMocks.status = {
+      data: { configured: true },
+      isError: false,
+      isSuccess: true,
+    };
+    renderPanel();
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(2);
+    expect(
+      storageMocks.upload.mock.calls.map(
+        ([formData]) => (formData.get("file") as File).name,
+      ),
+    ).toEqual(["success.png", "retry.png"]);
+  });
+
   it("ignores an upload probe after its attempt was dismissed", async () => {
     let resolveDismissedProbe!: (result: {
       isError: boolean;

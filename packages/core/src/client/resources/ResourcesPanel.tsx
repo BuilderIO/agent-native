@@ -1692,10 +1692,6 @@ export function ResourcesPanel({
         );
         return;
       }
-      pendingResourceUploadsRef.current = mergePendingResourceUploads(
-        pendingResourceUploadsRef.current,
-        selected,
-      );
       void fileUploadStatus
         .refetch()
         .then(processAttempt)
