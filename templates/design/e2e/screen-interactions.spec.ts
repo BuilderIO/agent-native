@@ -200,6 +200,17 @@ test("Cmd+R renames a Screen selected on canvas or in Layers without renaming th
       .locator(`[data-screen-shell][data-frame-id="${fileId}"]`)
       .locator("[data-frame-title]")
       .first();
+    await screenTitle.hover();
+    const titleBounds = await screenTitle.boundingBox();
+    const interactBounds = await page
+      .locator(`[data-screen-shell][data-frame-id="${fileId}"]`)
+      .locator("[data-frame-full-view]")
+      .boundingBox();
+    expect(titleBounds).not.toBeNull();
+    expect(interactBounds).not.toBeNull();
+    expect(titleBounds!.x + titleBounds!.width).toBeLessThanOrEqual(
+      interactBounds!.x,
+    );
     await screenTitle.click();
     const rename = page.getByRole("textbox", {
       name: "Rename layer",
