@@ -69,7 +69,9 @@ export default defineAction({
         )
         .limit(1);
       if (!resource) fail("Design not found.", { statusCode: 404 });
-      access = { role: "viewer" as const, resource };
+      const directAccess =
+        resource.orgId === orgId ? await resolveAccess("design", id) : null;
+      access = directAccess ?? { role: "viewer" as const, resource };
     } else {
       access = await resolveAccess("design", id);
     }

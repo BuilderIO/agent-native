@@ -284,7 +284,7 @@ export function resolveReviewArtifactOpenHref(
   url.pathname = `/design/${encodeURIComponent(artifactId)}`;
   url.search = "";
   url.searchParams.set("editorView", "overview");
-  if (options.readOnly) url.searchParams.set("reviewPreview", "1");
+  url.searchParams.set("reviewPreview", "1");
   if (!options.readOnly && options.threadId) {
     url.searchParams.set("thread", options.threadId);
     url.searchParams.set(
