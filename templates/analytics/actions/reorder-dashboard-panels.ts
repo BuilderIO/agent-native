@@ -135,10 +135,6 @@ export default defineAction({
     const scope = resolveScope();
     const ctx = { email: scope.email, orgId: scope.orgId };
 
-    // Recomputed on every attempt from whichever dashboard state
-    // `upsertDashboardWithRetry` hands us, so a retry after a concurrent
-    // writer's save re-applies this move against their fresh panel order
-    // instead of silently discarding it.
     let orderResult!: PanelOrderResult;
     const saved = await upsertDashboardWithRetry(
       dashboardId,

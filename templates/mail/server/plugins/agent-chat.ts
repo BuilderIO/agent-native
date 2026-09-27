@@ -44,11 +44,6 @@ const INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   appId: "mail",
-  // A delegated (A2A) turn served from the foreground gets the 40s
-  // serverless wall, and "I ran out of time before finishing this step"
-  // was 39% of this fleet's failed inbound A2A tasks — clustered at
-  // 35-46s, the wall to the second. Opting in routes the task to the
-  // background worker, as content, slides and analytics already do.
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: { connectorCatalog: [...MAIL_CONNECTOR_CATALOG] },
@@ -56,9 +51,6 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  // Enable sandboxed JavaScript execution so Mail agents can fetch, paginate,
-  // and reduce provider data through providerFetch() without us hardcoding one
-  // action per Gmail, Google Calendar, or CRM endpoint.
   codeExecution: { production: "sandboxed" },
   mentionProviders: {
     emails: {
@@ -70,14 +62,12 @@ export default createAgentChatPlugin({
             view: query ? "all" : "inbox",
           });
           if (query) params.set("q", query);
-          // Build URL from the incoming request's host to avoid port mismatches
           const host =
             event?.node?.req?.headers?.host ||
             `localhost:${process.env.PORT || process.env.NITRO_PORT || "8080"}`;
           const proto =
             event?.node?.req?.headers?.["x-forwarded-proto"] || "http";
           const url = `${proto}://${host}/api/emails?${params.toString()}`;
-          // Forward cookies so auth middleware passes
           const cookie = event?.node?.req?.headers?.cookie || "";
           const res = await fetch(url, {
             headers: cookie ? { cookie } : {},

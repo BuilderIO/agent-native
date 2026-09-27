@@ -105,8 +105,6 @@ test.describe("editor keyboard layer clipboard", () => {
     await selectLayerRow(page, "Copy Card");
     await pressPrimaryShortcut(page, "c");
 
-    // Recreate the reported flow: leave the source editor (the designs grid
-    // remounts the editor), enter another design, then paste there.
     await page.goto(appPath("/"));
     await gotoEditor(page, targetDesignId);
     await selectScreenRow(page, "Target");
@@ -120,14 +118,6 @@ test.describe("editor keyboard layer clipboard", () => {
         expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
         expect(count(html, ">Nested CTA<")).toBe(1);
         expect(html).toContain("border-radius: 16px");
-        // The portable-style snapshot captures appearance via
-        // getComputedStyle so a cross-design paste still looks like the
-        // source even when the two documents' stylesheets differ (see
-        // portable-style.ts). CSSOM always resolves a captured `transform`
-        // to matrix() — never the authored function syntax — so assert the
-        // matrix terms this produces rather than a literal "rotate(2deg)".
-        // All six terms are checked (not just the rotation angle) so a
-        // scale, skew, or translate folded into the same matrix still fails.
         const pastedTransform = transformMatrixTerms(html);
         expect(pastedTransform).not.toBeNull();
         const twoDegrees = (2 * Math.PI) / 180;
@@ -168,9 +158,6 @@ test.describe("editor keyboard layer clipboard", () => {
       },
     );
 
-    // A second editor tab has no shared React refs. Copy in that tab and paste
-    // back in the target tab to prove the OS clipboard representation is the
-    // source of truth rather than same-page memory.
     const sourceTab = await context.newPage();
     await gotoEditor(sourceTab, designId);
     await selectLayerRow(sourceTab, "Copy Card");
@@ -208,9 +195,6 @@ test.describe("editor keyboard layer clipboard", () => {
         expect(html).toContain("letter-spacing: 1px");
       },
     );
-    // Rapid consecutive undo: paste two distinct clones from the same live
-    // system clipboard, then remove the latest and the prior clone with two
-    // immediate Cmd+Z presses.
     await pressPrimaryShortcut(page, "v");
     await expectFileContent(
       request,
@@ -256,8 +240,6 @@ test.describe("editor keyboard layer clipboard", () => {
       },
     );
 
-    // Repeat after the route-remount, cross-tab copy, and rapid undo cycles.
-    // Prior history depth must not collapse the next pair into one entry.
     for (const expected of [1, 2]) {
       await pressPrimaryShortcut(page, "v");
       await expectFileContent(
@@ -862,11 +844,6 @@ function count(value: string, needle: string): number {
   return value.split(needle).length - 1;
 }
 
-// Extracts all six `matrix(a, b, c, d, e, f)` terms from the first
-// `transform:` declaration in `html` — the form getComputedStyle always
-// resolves a captured transform to, never the authored function syntax.
-// Anchored on a preceding boundary char so `text-transform:` never matches.
-// Returns null when no transform declaration is present or it isn't a matrix.
 function transformMatrixTerms(html: string): {
   a: number;
   b: number;

@@ -47,7 +47,6 @@ export interface UseAgentNativeEmbeddedBrowserSessionOptions {
   getContext?: AgentNativeHostContextGetter;
   screen?: boolean | AgentNativeScreenSnapshotOptions;
   commands?: AgentNativeHostCommandHandlers;
-  /** WebMCP tools this chat may consume from the current page. */
   webmcp?: AgentNativeWebMcpClient;
   session?: string | Partial<AgentNativeHostSession>;
   browserSession?: AgentNativeEmbeddedBrowserSessionOptions;
@@ -63,12 +62,7 @@ export interface AgentNativeEmbeddedProps
     Omit<AgentSidebarProps, "children">,
     UseAgentNativeEmbeddedBrowserSessionOptions {
   children?: React.ReactNode;
-  /**
-   * Render only the agent chat surface when no host children are supplied.
-   * Defaults to "sidebar" when `children` exist and "panel" otherwise.
-   */
   surface?: "sidebar" | "panel";
-  /** Props forwarded to AgentChatSurface in panel mode. */
   panel?: AgentChatSurfaceProps;
 }
 

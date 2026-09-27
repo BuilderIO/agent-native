@@ -20,8 +20,6 @@ const mockShareQuery = vi.hoisted(() => {
   query.where.mockReturnValue(query);
   return query;
 });
-// The player payload's tag read is a *projected* select, so it needs its own
-// builder: the share builder below resolves through `limit`, not `orderBy`.
 const mockTagRows = vi.hoisted(() =>
   vi.fn(async () => [] as { tag: string }[]),
 );
@@ -36,9 +34,6 @@ const mockTagsQuery = vi.hoisted(() => {
   query.orderBy.mockImplementation(() => mockTagRows());
   return query;
 });
-// Unselected `db.select()` means the run reached the player payload queries.
-// It throws unless a test opts in by installing a builder, which keeps the
-// access-gate tests honest about never getting that far.
 const mockPlayerQuery = vi.hoisted(() => ({
   build: null as null | (() => unknown),
 }));
@@ -59,8 +54,6 @@ const mockDb = vi.hoisted(() => ({
     }
     return mockShareQuery;
   }),
-  // The player's tag read is DISTINCT — `recording_tags` carries no unique
-  // (recording_id, tag) constraint, so duplicate rows are possible.
   selectDistinct: vi.fn(() => mockTagsQuery),
 }));
 const mockCountRecordingViews = vi.hoisted(() =>
@@ -317,8 +310,6 @@ describe("get-recording-player-data view count", () => {
     const result = await action.run({ recordingId: "rec-1" });
 
     expect(result.viewCount).toBe(9);
-    // Going through the shared helper is what keeps this number identical to
-    // list-recordings.viewCount and get-recording-insights.views.
     expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
   });
 
@@ -345,10 +336,6 @@ describe("get-recording-player-data view count", () => {
   });
 
   it("holds the filmstrip back while redactions are pending", async () => {
-    // The sprite is a grid of frames cut from the stored file, so it shows the
-    // very thing a pending box is covering — and it is fetched from storage
-    // directly, not through a route that can refuse.
-    // A viewer needs an explicit share to open a recording directly.
     mockShareLimit.mockResolvedValue([{ id: "share-1" }]);
     mockResolveAccess.mockResolvedValue({
       role: "viewer",

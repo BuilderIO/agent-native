@@ -41,7 +41,6 @@ export function DesignCanvasToolbar() {
     <div className="dct">
       <span className="dct-group">
         {TOOLS.map(({ icon: Icon, active }, index) => (
-          // Icon identity is the only distinguishing value in this static list.
           <span
             key={index}
             className={active ? "dct-btn is-active" : "dct-btn"}
@@ -74,14 +73,8 @@ export const DESIGN_CANVAS_TOOLBAR_CSS = [
   ".dct-mode.is-active { background: rgba(3, 3, 3, 0.7); color: hsl(0 0% 90%); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); }",
   ".dct-divider { width: 1px; height: 20px; flex-shrink: 0; margin: 0 2px; background: rgba(255, 255, 255, 0.15); }",
 
-  // Light mode is an opaque raised white bar, not the dark slab at reduced
-  // alpha: the bar floats over the design's own light surface, and any
-  // translucency let the board bleed through until it stopped reading as a
-  // separate object.
   "html.light .dct { border-color: rgba(0, 0, 0, 0.14); background: #ffffff; box-shadow: 0 24px 55px -22px rgba(0, 0, 0, 0.45), 0 2px 8px -2px rgba(0, 0, 0, 0.12); }",
   "html.light .dct-btn, html.light .dct-mode { color: hsl(0 0% 28%); }",
-  // Restated: the light rules above outrank the is-active ones on specificity,
-  // so without these the active chips draw dark on dark.
   "html.light .dct-btn.is-active { background: hsl(0 0% 20%); color: hsl(0 0% 98%); }",
   "html.light .dct-modes { background: rgba(0, 0, 0, 0.06); }",
   "html.light .dct-mode.is-active { background: #ffffff; color: hsl(0 0% 15%); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.16); }",

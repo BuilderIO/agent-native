@@ -1,7 +1,3 @@
-/**
- * Read path: DB rows (JSON columns) → typed field definitions and values.
- * Structural parsing uses schema.ts; domain rules use validate.ts; then normalize.
- */
 import type {
   StoredCustomField,
   StoredCustomFieldValue,

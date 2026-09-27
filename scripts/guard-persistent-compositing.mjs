@@ -42,15 +42,12 @@ const BASELINE_PATH = path.join(
 
 const SCAN_DIRS = ["packages", "templates", "apps"];
 const SCAN_EXT = new Set([".css", ".ts", ".tsx"]);
-/** The corpus is a scaffolding mirror of templates/; fixing it twice is noise. */
 const EXCLUDE_RE =
   /(^|\/)(node_modules|dist|build|\.wrangler|coverage)(\/|$)|\/corpus\/|\.(spec|test)\.[jt]sx?$/;
 
 const PRAGMA_RE = /compositing-ok:/;
-/** A justified pragma is usually a multi-line comment above the declaration. */
 const PRAGMA_LOOKBACK = 4;
 
-/** Each rule returns a short reason string when `line` violates it. */
 const RULES = [
   {
     id: "will-change",
@@ -58,8 +55,6 @@ const RULES = [
       const declares =
         /(^|[^-\w])will-change\s*:/.test(line) || /\bwill-change-\[/.test(line);
       if (!declares) return false;
-      // `phase !== "idle" && "will-change-[…]"` is the correct form: the hint
-      // exists only while the element is actually animating.
       if (/&&\s*$|&&\s*["'`]/.test(line.split("will-change")[0] ?? "")) {
         return false;
       }
@@ -73,10 +68,7 @@ const RULES = [
     test: (line) => {
       if (!/viewTransitionName\s*:|view-transition-name\s*:/.test(line))
         return false;
-      // Conditional application (`cond ? { viewTransitionName: … }`) is the
-      // correct form: the name exists only while a transition is capturing.
       if (/\?\s*\{/.test(line)) return false;
-      // Type declarations and constant definitions are not applications.
       if (/viewTransitionName\??\s*:\s*string/.test(line)) return false;
       if (/@supports|::view-transition/.test(line)) return false;
       return true;
@@ -87,10 +79,6 @@ const RULES = [
 ];
 
 function listFiles() {
-  // `--others --exclude-standard` includes new files that are not staged yet, so
-  // a local run catches a violation before it is ever committed. `git ls-files`
-  // alone silently skips them, which makes the guard look clean on exactly the
-  // code someone is about to push.
   const out = execFileSync(
     "git",
     [
@@ -110,16 +98,10 @@ function listFiles() {
     .filter((p) => SCAN_EXT.has(path.extname(p)) && !EXCLUDE_RE.test(p));
 }
 
-/**
- * Blank out comment bodies while preserving line count and column offsets. The
- * declarations this guard forbids are also *named* in the comments explaining
- * why they are forbidden, so a scanner that reads comments flags its own
- * documentation — and a guard that prose can trip is a guard nobody trusts.
- */
 function stripComments(src) {
   let out = "";
   let i = 0;
-  let mode = "code"; // code | line | block | single | double | backtick
+  let mode = "code";
   while (i < src.length) {
     const ch = src[i];
     const next = src[i + 1];
@@ -146,7 +128,6 @@ function stripComments(src) {
       if (ch === "*" && next === "/") ((mode = "code"), blank(2));
       else blank(1);
     } else {
-      // Inside a string: honour escapes so a quote in a class list can't end it.
       if (ch === "\\") keep(2);
       else if (
         (mode === "single" && ch === "'") ||
@@ -160,8 +141,6 @@ function stripComments(src) {
   return out;
 }
 
-/** Baseline keys are path + rule + normalized snippet, so they survive edits
- *  elsewhere in the file but not a change to the offending line itself. */
 function keyFor(relPath, ruleId, lineText) {
   return `${relPath}\t${ruleId}\t${lineText.trim().replace(/\s+/g, " ").slice(0, 160)}`;
 }
@@ -183,9 +162,6 @@ function collect() {
     for (let i = 0; i < lines.length; i++) {
       const lineText = lines[i];
       if (lineText === undefined) continue;
-      // Pragmas live in the comments we just blanked, so read them from source.
-      // Look back a few lines: a pragma that needs a sentence of justification
-      // is a multi-line comment, and the reason is the point of the pragma.
       const window = rawLines.slice(Math.max(0, i - PRAGMA_LOOKBACK), i + 1);
       if (window.some((l) => PRAGMA_RE.test(l))) continue;
 

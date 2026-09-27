@@ -1,21 +1,3 @@
-// Focused tests for the corpus-directory swap step in
-// materialize-source-corpus.mjs. This exercises the fix for a concurrency bug:
-// two overlapping `materializeSourceCorpus()` runs (e.g. two overlapping
-// `scripts/dev-lazy.ts` prebuilds) used to `rmSync`/repopulate the shared
-// `packages/core/corpus` directory directly, which could throw ENOTEMPTY out
-// of the recursive rm/rename when one process's writes landed mid-walk of
-// another's, crashing the caller. `swapCorpusDirIntoPlace` now builds into a
-// unique temp dir and swaps it into place with a bounded retry that accepts
-// "a concurrent run already produced an equivalent corpus" instead of
-// crashing.
-//
-// A genuine two-process OS-level race for the exact rm-then-rename window is
-// inherently timing-dependent and not worth making a CI test depend on (see
-// the PR description for a real repro using an artificially slowed process).
-// These tests instead force the same code paths deterministically: an
-// absent/renamed-away temp dir reliably reproduces the "our rename lost"
-// outcome (ENOENT is one of the tolerated codes), letting the accept/reject
-// branches be exercised without flaky timing.
 import assert from "node:assert/strict";
 import {
   chmodSync,

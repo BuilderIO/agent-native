@@ -404,9 +404,6 @@ describe("runDoctor (CLI)", () => {
       ["--cwd", root, "--json", "--only", "no-env-mutation"],
       io,
     );
-    // The violation fixture only trips no-drizzle-push; restricting to
-    // no-env-mutation means the scan comes back clean (exit 0), and the
-    // JSON report goes to stdout (io.log) rather than stderr.
     expect(code).toBe(0);
     const parsed = JSON.parse(out.join(""));
     expect(parsed.ok).toBe(true);
@@ -554,7 +551,6 @@ describe("disk check", () => {
       expect(disk.freeBytes).toBeGreaterThan(0);
       expect(disk.reclaimableBytes).toBeUndefined();
       expect(disk.scanFailures).toBeUndefined();
-      // The walk is the whole cost: a default run must not touch the tree.
       expect(spy).not.toHaveBeenCalled();
       checkDisk(root, { measureReclaimable: true });
       expect(spy).toHaveBeenCalled();
@@ -602,9 +598,7 @@ describe("disk check", () => {
     try {
       const { io, out } = captureIo();
       const code = await runDoctor(["--cwd", root], io);
-      // Low disk is advisory: it reports, it does not fail the run.
       expect(code).toBe(0);
-      // Still points at `agent-native clean` without paying for the scan.
       expect(out.join("\n")).toMatch(
         /Disk: 1\.0 MB free of 4\.7 GB — LOW\. `agent-native clean` frees build caches/,
       );
@@ -626,7 +620,6 @@ describe("disk check", () => {
     expect(code).toBe(0);
     const parsed = JSON.parse(out.join(""));
     expect(parsed.disk.freeBytes).toBeGreaterThan(0);
-    // Unmeasured stays absent in JSON too — a 0 would read as "nothing to clean".
     expect(parsed.disk).not.toHaveProperty("reclaimableBytes");
     expect(parsed.ok).toBe(true);
   });

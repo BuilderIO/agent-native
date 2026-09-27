@@ -2,28 +2,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * These tests exercise the REAL alignment/smart-guide snap math that
- * `editor-chrome.bridge.ts` uses while dragging an element inside a screen's
- * sandboxed iframe (see the "Alignment / smart-guide snapping" section of
- * that file, just above `startMove`).
- *
- * Rather than copy the math (which would drift), we pull `rectBounds` and
- * `computeMoveSnapOffset` directly out of the compiled generated bridge
- * string, following the same "extract pure logic from the compiled bridge"
- * convention as motion-preview-bridge.test.ts. Unlike that file, we don't run
- * the entire bridge body through `new Function` — the editor-chrome bridge's
- * top-level body creates DOM overlays and wires up document-level listeners,
- * which would need a much heavier DOM stub than these two pure, side-effect-
- * free functions require. Instead we isolate just the two function
- * declarations (via brace-matched source extraction) and evaluate only that
- * snippet, so the test still runs against the actual shipped/compiled source
- * rather than a hand-copied re-implementation.
- *
- * Source: app/components/design/bridge/editor-chrome.bridge.ts
- * Compiled: .generated/bridge/editor-chrome.generated.ts
- */
-
 interface SnapGuide {
   orientation: "vertical" | "horizontal";
   position: number;
@@ -121,8 +99,6 @@ function loadSnapMath(): {
 } {
   const editorChromeBridgeScript = loadEditorChromeBridgeScript();
 
-  // computeMoveSnapOffset is the top of a small pure call tree; pull the
-  // whole tree so the snippet still evaluates without the bridge's DOM body.
   const sources = [
     "rectBounds",
     "axisSnapValues",
@@ -160,9 +136,6 @@ const mergeRelativeScale = loadPureBridgeFn<
   (scale: string, flipX: boolean, flipY: boolean) => string
 >("mergeRelativeScale", ["readScalePair"]);
 
-// These functions read only their arguments (plus, for dragTargetForPointerDown,
-// the containerScopeAncestor helper it calls), so brace-extracted declarations
-// evaluate in isolation without the bridge's DOM-wiring body.
 function loadPureBridgeFn<T>(name: string, dependencies: string[] = []): T {
   const editorChromeBridgeScript = loadEditorChromeBridgeScript();
   const sources = [...dependencies, name].map((fnName) =>
@@ -752,9 +725,6 @@ describe("editor-chrome bridge — computeMoveSnapOffset", () => {
   });
 
   it("snaps the moving rect's left edge to a candidate's left edge within threshold", () => {
-    // Candidate sits with its left edge at x=100. Moving rect's left edge is
-    // at 104 (4px away, within the 6px threshold) — snapping should report a
-    // +(-4) offset that would bring left from 104 to 100.
     const moving = { left: 104, top: 300, width: 80, height: 40 };
     const candidates = [
       rectBounds({ left: 100, top: 0, width: 60, height: 60 }),
@@ -765,8 +735,6 @@ describe("editor-chrome bridge — computeMoveSnapOffset", () => {
   });
 
   it("snaps to the closest of several within-threshold candidates on each axis", () => {
-    // Two candidates: one whose right edge is 3px from moving's left edge,
-    // another whose right edge is 5px away — the 3px one should win.
     const moving = { left: 203, top: 100, width: 50, height: 50 };
     const candidates = [
       rectBounds({ left: 100, top: 0, width: 100, height: 20 }), // right = 200, distance 3
@@ -787,8 +755,6 @@ describe("editor-chrome bridge — computeMoveSnapOffset", () => {
   });
 
   it("snaps center-to-center as well as edge-to-edge", () => {
-    // Candidate center at x=300 (left 250, width 100). Moving rect center is
-    // at 297 (left 272, width 50) — 3px away, within threshold.
     const moving = { left: 272, top: 400, width: 50, height: 50 };
     const candidates = [
       rectBounds({ left: 250, top: 0, width: 100, height: 20 }),
@@ -799,10 +765,6 @@ describe("editor-chrome bridge — computeMoveSnapOffset", () => {
   });
 
   it("computes independent x and y snap offsets in the same call", () => {
-    // Candidate A's right edge (x=100) is 4px from moving's left edge (104);
-    // its own left/center are far away so it can only match on the x-axis.
-    // Candidate B's bottom edge (y=200) is 6px from moving's top edge (206);
-    // its own left/center are far away so it can only match on the y-axis.
     const moving = { left: 104, top: 206, width: 40, height: 40 };
     const candidates = [
       rectBounds({ left: 50, top: 900, width: 50, height: 10 }),
@@ -816,17 +778,11 @@ describe("editor-chrome bridge — computeMoveSnapOffset", () => {
   });
 
   it("guide line extents span the union of the moving and candidate bounds on the cross axis", () => {
-    // Candidate's left edge sits at x=100, 4px from moving's left edge
-    // (104). Its own right edge (600) and center (350) are far from every
-    // moving x-value (104/124/144), so the left-edge match unambiguously
-    // wins.
     const moving = { left: 104, top: 50, width: 40, height: 200 };
     const candidates = [
       rectBounds({ left: 100, top: 300, width: 500, height: 10 }),
     ];
     const result = computeMoveSnapOffset(moving, candidates, 6);
-    // Vertical guide (x snap) spans min(movingTop, candidateTop) to
-    // max(movingBottom, candidateBottom): min(50, 300)=50, max(250, 310)=310.
     expect(verticalGuide(result)).toEqual({
       orientation: "vertical",
       position: 100,
@@ -880,8 +836,6 @@ describe("editor-chrome bridge — spacing snap", () => {
   });
 
   it("never moves an axis an alignment guide already claimed", () => {
-    // Aligning left-to-left with the neighbor at x=200 is 2px away and wins;
-    // the centered position (x=150) is 53px away and must not fight it.
     const result = computeMoveSnapOffset(
       { left: 202, top: 0, width: 100, height: 100 },
       row(0, 200, 400),
@@ -935,8 +889,6 @@ describe("editor-chrome bridge — spacing band CSS", () => {
   >("spacingBandCss");
 
   it("paints the band with the fill it was given", () => {
-    // An arity mismatch at the call site silently bound `fill` to a number,
-    // leaving the main spacing line transparent while its serifs still drew.
     const css = spacingBandCss(
       "vertical",
       { gapStart: 10, gapEnd: 40, crossStart: 0, crossEnd: 20 },

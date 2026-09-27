@@ -36,12 +36,6 @@ export const IDENTITY_SSO_MIGRATIONS: MigrationEntry[] = [
     `,
   },
   {
-    // Widening only. `created_at`/`expires_at`/`consumed_at`/`seen_at` store
-    // JS `Date.now()` millisecond epochs (13 digits) but v1 declared them
-    // `INTEGER` — Postgres int4, max 2,147,483,647 — so every SSO flow-state
-    // insert overflows with `value "<ms epoch>" is out of range for type
-    // integer`. This is the framework release migration (see module doc), so
-    // it's the one that actually creates these tables in production.
     version: 2,
     name: "identity-sso-timestamps-bigint",
     sql: `

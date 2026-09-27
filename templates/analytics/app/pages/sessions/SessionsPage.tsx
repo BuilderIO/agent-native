@@ -184,15 +184,6 @@ export function shouldShowZeroMinuteRecoveryAction(
   );
 }
 
-/**
- * Local input state for a URL-backed filter, debounced into the URL.
- *
- * `urlValue` only resyncs local state when it changes for a reason other
- * than this hook's own debounced write (back/forward navigation, an agent
- * driven URL change, etc). React Router commits `setSearchParams` inside a
- * transition, so without this guard the echo of our own write can land
- * after a newer keystroke and clobber it.
- */
 export function useDebouncedUrlFilter(
   urlValue: string,
   onCommit: (value: string) => void,

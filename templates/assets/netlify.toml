@@ -20,7 +20,5 @@ AGENT_NATIVE_SSR_CACHE = "5m"
 # migration probes on every serverless invocation.
 AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
 
-# Emit the Netlify background function used by Assets' durable agent-chat opt-in.
-# The normal server timeout still protects non-agent image/video HTTP handlers.
 [functions."*"]
 timeout = 300

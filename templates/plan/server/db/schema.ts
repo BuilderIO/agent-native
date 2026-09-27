@@ -50,11 +50,7 @@ export const plans = table("plans", {
   usageCostCentsX100: integer("usage_cost_cents_x100"),
   usageCostSource: text("usage_cost_source"),
   usageRecordedAt: text("usage_recorded_at"),
-  // URL of the source PR, issue, or page that triggered this recap (e.g. the
-  // GitHub PR URL). Nullable — only populated when the caller supplies it.
   sourceUrl: text("source_url"),
-  // Structured source metadata for recap/product-knowledge search. Nullable so
-  // older imported recaps and non-PR recaps keep working unchanged.
   sourceType: text("source_type"),
   sourceRepo: text("source_repo"),
   sourcePrNumber: integer("source_pr_number"),
@@ -63,8 +59,6 @@ export const plans = table("plans", {
   sourceAuthorEmail: text("source_author_email"),
   sourceAuthorName: text("source_author_name"),
   sourceAuthorLogin: text("source_author_login"),
-  // Stable key used by PR Visual Recap publish retries to replace the recap
-  // created by an earlier attempt instead of creating duplicate recap rows.
   recapIdempotencyKey: text("recap_idempotency_key"),
   deletedAt: text("deleted_at"),
   deletedBy: text("deleted_by"),
@@ -165,11 +159,6 @@ export const planVersions = table("plan_versions", {
     .default("agent"),
   createdAt: text("created_at").notNull(),
   chatContext: text("chat_context"),
-  // Denormalized copies of summarizePlanVersion's derived fields, populated at
-  // snapshot-write time so list-plan-versions can project just these small
-  // columns instead of fetching + JSON.parsing every row's full snapshot_json
-  // blob. Nullable so pre-existing rows (written before this column existed)
-  // fall back to parsing snapshot_json lazily — see summarizePlanVersionRow.
   status: text("summary_status", { enum: PLAN_STATUSES }),
   source: text("summary_source", { enum: PLAN_SOURCES }),
   blockCount: integer("block_count"),
@@ -194,7 +183,6 @@ export const planAssets = table("plan_assets", {
     .references(() => plans.id),
   filename: text("filename").notNull(),
   mimeType: text("mime_type").notNull(),
-  /** Base64-encoded image data. Used as SQL-fallback when no upload provider is configured. */
   data: text("data").notNull(),
   byteSize: integer("byte_size").notNull(),
   createdAt: text("created_at").notNull(),

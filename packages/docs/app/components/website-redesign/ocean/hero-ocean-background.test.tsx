@@ -28,9 +28,6 @@ vi.mock("./renderer", async () => {
 
 let intersectionCallbacks: ((entries: unknown[]) => void)[] = [];
 let mutationCallbacks: (() => void)[] = [];
-// Testing Library's own waitFor() runs on a MutationObserver, so this list
-// carries its observers too. Assert on the delta across unmount rather than on
-// a total, or the harness's bookkeeping reads as component behaviour.
 let disconnected: string[] = [];
 
 beforeEach(() => {
@@ -81,9 +78,6 @@ describe("hexToLinearRgb", () => {
   });
 
   it("linearizes rather than passing sRGB straight through", () => {
-    // 0x80 is 0.502 in sRGB but ~0.216 in linear light. Passing the sRGB value
-    // to a shader that re-encodes on the way out is what makes a token-driven
-    // field render too dark.
     const [r] = hexToLinearRgb("#808080")!;
     expect(r).toBeCloseTo(0.2158, 3);
   });
@@ -111,21 +105,16 @@ describe("HeroOceanBackground", () => {
     expect(box.className).toContain("inset-0");
     expect(box.className).toContain("z-[-1]");
     expect(box.querySelector("canvas")).not.toBeNull();
-    // Starts transparent: the halftone is still painting underneath until the
-    // first GPU frame lands, and the two cross-fade from there.
     expect(box.style.opacity).toBe("0");
     await waitFor(() =>
       expect(box.style.opacity).toBe("var(--b-hero-ocean-opacity)"),
     );
-    // Settle the lazy import before this test ends: leaving it in flight lets
-    // it land mid-way through the next test, against that test's mocks.
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
   });
 
   it("loads the GPU runtime in an effect, not during render", async () => {
     const onError = vi.fn();
     render(<HeroOceanBackground onError={onError} />);
-    // Present in the DOM before the renderer module has been constructed.
     expect(createRenderer).not.toHaveBeenCalled();
     await waitFor(() => {
       if (onError.mock.calls.length) throw onError.mock.calls[0]![0];
@@ -255,7 +244,6 @@ describe("HeroOceanBackground", () => {
     const box = container.firstElementChild as HTMLElement;
 
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
-    // Still building the graph: fading in here would show an empty canvas.
     expect(box.style.opacity).toBe("0");
 
     drawFirstFrame();
@@ -272,8 +260,6 @@ describe("HeroOceanBackground", () => {
 
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
     await Promise.resolve();
-    // A failed init must not reveal a dead canvas: the caller is demoting to
-    // the fallback at the same moment.
     expect(box.style.opacity).toBe("0");
     renderer.firstFrame = Promise.resolve();
   });

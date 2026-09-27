@@ -190,14 +190,10 @@ test("grouped clipboard SVG keeps path identities and edits only the selected si
       (element) => getComputedStyle(element).fill,
     );
     const layers = page.getByRole("tree", { name: "Layers" });
-    // expandAllLayers above has already expanded both the imported SVG and
-    // its nested group; toggling those rows here would collapse them.
     const pathRows = layers.getByRole("treeitem", { level: 4 }).filter({
       has: page.getByRole("button", { name: "PATH", exact: true }),
     });
     await expect(pathRows).toHaveCount(2);
-    // Layer rows list siblings in reverse SVG document order, so this row
-    // selects paths.nth(0), the orange path that this test edits.
     const row = pathRows.nth(1);
     await expect(row).toBeVisible();
     await row.locator("[data-layer-row-button]").click();
@@ -335,7 +331,6 @@ test("a grouped pasted SVG edits only the selected path through undo and reload"
       has: page.getByRole("button", { name: "PATH", exact: true }),
     });
     await expect(pathRows).toHaveCount(2);
-    // Layer rows display SVG siblings in reverse document order.
     const targetRow = pathRows.nth(0);
     const layerButton = targetRow.locator("[data-layer-row-button]");
     await expect(layerButton).toBeVisible();

@@ -21,12 +21,6 @@ describe("canvas text primitive style", () => {
   });
 
   it("maps a caller-chosen fill to text color, not a filled background (CV24)", () => {
-    // Regression: canvasPrimitiveReactStyle used to set `background` from
-    // `overrides.fill` for every kind including text, then unconditionally
-    // clobber it back to "transparent" for text — silently discarding a
-    // user-chosen text color. The committed HTML output (DesignEditor's
-    // appendCanvasPrimitiveToHtml) already mapped fill -> color for text, so
-    // the bug only showed up as a color jump on commit.
     const style = canvasPrimitiveReactStyle("text", { fill: "#ff0000" });
     expect(style.background).toBe("transparent");
     expect(style.color).toBe("#ff0000");
@@ -89,19 +83,12 @@ describe("canvas rect/ellipse default tokens", () => {
   it("frame fill is the one default that is theme-adaptive via a CSS custom property", () => {
     const frame = canvasPrimitiveVisual("frame");
     expect(frame.background).toContain("var(--primary)");
-    // Frames intentionally retain a dashed structural border; only their
-    // (very faint) fill reads the editor's --primary custom property.
     expect(frame.border).toContain("rgb(168 168 168)");
   });
 });
 
 describe("canvas line/arrow/pen default stroke tokens (Figma parity)", () => {
   it("defaults to solid black at 1px, not the theme accent color at 3px", () => {
-    // Figma: a freshly drawn line/arrow/pen path is solid black 1px, not a
-    // tinted, thick accent stroke. These canonical tokens are the single
-    // source of truth every draw/commit call site (MultiScreenCanvas.tsx,
-    // shared/board-file.ts, and DesignEditor.tsx's
-    // appendCanvasPrimitiveToHtml) must agree on.
     expect(DEFAULT_LINE_STROKE).toBe("#000000");
     expect(DEFAULT_LINE_STROKE_WIDTH_PX).toBe(1);
   });

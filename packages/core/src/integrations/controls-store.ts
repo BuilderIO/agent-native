@@ -136,7 +136,6 @@ export async function createIntegrationControl(input: {
   return id;
 }
 
-/** Atomically bind a one-shot Slack button to its original requester/thread. */
 export async function claimIntegrationControl(input: {
   id: string;
   action: IntegrationControlAction;

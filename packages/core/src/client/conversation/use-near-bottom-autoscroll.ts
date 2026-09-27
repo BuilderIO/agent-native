@@ -189,15 +189,6 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
       const previousScrollTop = lastScrollTopRef.current;
       const nextScrollTop = el.scrollTop;
       const nextScrollHeight = el.scrollHeight;
-      // When the message list briefly shrinks (a re-render swaps content, a
-      // streaming/reconnect placeholder collapses, images unload, the message
-      // list remounts as a new run starts, etc.) the browser is forced to clamp
-      // scrollTop downward and fires a scroll event. That clamp is not the user
-      // scrolling up — treating it as such detaches auto-follow and strands the
-      // conversation scrolled up, sometimes all the way at the top. Only treat a
-      // downward jump as user intent when the content did not shrink underneath
-      // it. Genuine user scroll-ups (wheel/touch/keys, scrollbar drag at a
-      // stable height) are unaffected.
       const contentShrank = nextScrollHeight < lastScrollHeight;
       lastScrollTopRef.current = nextScrollTop;
       lastScrollHeight = nextScrollHeight;
@@ -227,10 +218,6 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
     el.addEventListener("keydown", onKeyDown);
     updateBottomState();
 
-    // Re-check near-bottom whenever the scroll container's content grows
-    // (e.g. new messages appended, images loaded, tool-call details expanded).
-    // Without this the "near bottom" flag can get stuck as `false` even though
-    // the user never scrolled away — the container just grew taller.
     let ro: ResizeObserver | null = null;
     let mo: MutationObserver | null = null;
     if (typeof ResizeObserver !== "undefined") {
@@ -244,7 +231,6 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
           }
         });
         ro.observe(el);
-        // Also watch direct children so inline content changes are caught.
         for (const child of Array.from(el.children)) ro.observe(child);
       };
       observeResizeTargets();

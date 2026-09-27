@@ -11,11 +11,6 @@ function validates(schema: JsonSchema, input: unknown): boolean {
   return ajv.validate(schema, input) as boolean;
 }
 
-/**
- * Flattens `schema` and checks the result against the original on `inputs`:
- * everything the original admits the flattened schema must admit too, and the
- * returned map says what the flattened schema does with each input.
- */
 function flatten(schema: JsonSchema, inputs: unknown[] = []) {
   const flat = flattenComposedRootSchema(schema) as Record<string, any>;
   for (const key of ["anyOf", "oneOf", "allOf"]) {
@@ -356,7 +351,6 @@ describe("flattenComposedRootSchema", () => {
       for (const key of ["dependentRequired", "not"]) {
         expect(flat).not.toHaveProperty(key);
       }
-      // An over-approximation: the action's own validation still rejects it.
       expect(validates(schema, { card: "4" })).toBe(false);
       expect(admits({ card: "4" })).toBe(true);
     });

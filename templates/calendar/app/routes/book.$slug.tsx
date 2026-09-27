@@ -6,7 +6,6 @@ export const loader = bookingOgLoader;
 
 export const meta = bookingOgMeta;
 
-// Public booking page — no AppLayout wrapper.
 export default function BookingRoute() {
   return <BookingPage />;
 }

@@ -1,13 +1,8 @@
-/**
- * Microsoft Teams provider — delegated Microsoft OAuth with Graph-backed
- * standalone online meetings.
- */
 import type { VideoProvider } from "./types.js";
 
 export interface TeamsProviderConfig {
   clientId: string;
   clientSecret: string;
-  /** Microsoft tenant id/domain; defaults to work-or-school accounts. */
   tenant?: string;
   getAccessToken: (credentialId: string) => Promise<string>;
   updateTokens?: (
@@ -19,7 +14,6 @@ export interface TeamsProviderConfig {
       rawResponse?: Record<string, unknown>;
     },
   ) => Promise<void>;
-  /** Called when Graph returns 401/403; mark the credential invalid in UI. */
   markInvalid?: (credentialId: string) => Promise<void>;
 }
 
@@ -106,8 +100,6 @@ export function createTeamsProvider(
         rawResponse: tokens,
       });
 
-      // Use the token from this exchange directly. The consumer's token store
-      // may not be observable through getAccessToken until after this callback.
       const identityResponse = await fetch(
         `${GRAPH_BASE_URL}/me?$select=id,mail,userPrincipalName,displayName`,
         { headers: { authorization: `Bearer ${tokens.access_token}` } },

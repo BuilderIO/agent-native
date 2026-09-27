@@ -26,9 +26,6 @@ export interface DropUploadItem {
   key: string;
   fileName: string;
   progress: number;
-  /** The created recording id, once `create-recording` returns. The grid
-   * hides the real card for this id while its placeholder is on screen so a
-   * file never appears twice mid-upload. */
   recordingId?: string;
 }
 
@@ -44,13 +41,6 @@ function defaultTitleFor(file: File): string {
   return file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle();
 }
 
-/** Uploads dropped video files straight from the library grid — creates the
- * recording row via `create-recording`, then streams it to
- * `/api/uploads/:id/chunk` the same way the recorder's file picker does, so
- * `finalize-recording` treats it identically. Skips the recorder route's
- * bug-report/intake and re-encode paths (not applicable to a plain drop) and
- * never navigates away — the grid's own polling and the shared refresh
- * signal pick up the new "uploading" card as soon as the row exists. */
 export function useDropVideoUpload(
   scope: {
     spaceId?: string | null;
@@ -146,8 +136,6 @@ export function useDropVideoUpload(
           );
         }
         createdId = info.id;
-        // Tie the placeholder to the real row so the grid hides that row's
-        // card while this placeholder (with its progress bar) is on screen.
         setRecordingId(createdId);
 
         void uploadVideoBlobThumbnail(createdId, file, {
@@ -310,9 +298,6 @@ export function useDropVideoUpload(
         }
         setProgress(1);
 
-        // The bytes are in, but with no storage connected the clip can't be
-        // served yet — say so rather than claiming a finished upload. The row
-        // persists in a "waiting for storage" state the card surfaces.
         if (
           finalResult?.waitingForStorage === true ||
           finalResult?.status === "waiting_storage"
@@ -324,8 +309,6 @@ export function useDropVideoUpload(
         } else {
           toast.success(t("recordRoute.videoUploaded"));
         }
-        // Refetch so the real card is present before the placeholder leaves,
-        // making the hand-off seamless (the finally block clears it).
         await invalidateRecordings().catch((error) => {
           console.warn("[clips] dropped-upload list refresh failed", error);
         });

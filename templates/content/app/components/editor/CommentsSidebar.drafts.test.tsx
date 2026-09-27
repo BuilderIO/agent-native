@@ -960,7 +960,6 @@ it("hands focus from a retained inert history rail to the sheet without clearing
     await act(async () => root.render(<Harness compact />));
     expect(oldInput.isConnected).toBe(true);
     expect(oldInput.closest("[inert]")).not.toBeNull();
-    // happy-dom does not dispatch the browser's blur when an ancestor becomes inert.
     oldInput.blur();
     await settle();
     const input = container.querySelector<HTMLTextAreaElement>(

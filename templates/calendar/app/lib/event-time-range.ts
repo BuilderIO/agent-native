@@ -68,11 +68,6 @@ function rangeToAbsoluteMinutes(date: string, time: string): number | null {
   return dayIndex * MINUTES_PER_DAY + minuteOfDay;
 }
 
-/**
- * Minutes from `start` to `end` treating an `end` at or before `start` as the
- * following day, so every option an end-time picker offers reads as a positive
- * duration rather than a negative one.
- */
 export function wrappedDurationMinutes(
   start: string,
   end: string,
@@ -91,11 +86,6 @@ export function eventDurationMinutes(range: EventTimeRange): number | null {
   return end - start;
 }
 
-/**
- * Time options for a picker. When `after` is supplied the 24h slot list is
- * rotated to begin at the first slot strictly after it, so an end-time list
- * reads forward from the chosen start instead of from midnight.
- */
 export function buildTimeOptions({
   value,
   after,
@@ -120,21 +110,6 @@ export function buildTimeOptions({
   return options.includes(value) ? options : [value, ...options];
 }
 
-/**
- * Preserves duration when the start moves, in either direction. The end is
- * shifted by exactly the amount the start moved, so a 45-minute block stays a
- * 45-minute block whether the start moves later (past the old end) or earlier
- * (while the old end is still technically valid) - matching what Google
- * Calendar does and what a picker that only fixed invalid ranges could not:
- * an earlier start left the end untouched and silently lengthened the event.
- *
- * Duration here is deliberately wall-clock, not elapsed: these are the picker's
- * own `YYYY-MM-DD` + `HH:mm` values, and the timezone is applied later at
- * submit. A 3pm-4pm block stays a 3pm-4pm block when its start moves across a
- * DST boundary, which is what the visible list implies and what Google Calendar
- * does. Converting to elapsed time would need a timezone argument and would
- * silently resize the block the user can see.
- */
 export function shiftEndForStartChange(
   range: EventTimeRange,
   nextStartTime: string,
@@ -152,10 +127,6 @@ export function shiftEndForStartChange(
     return { ...next, endDate: shifted.date, endTime: shifted.time };
   }
 
-  // The stored range already had end <= start (corrupt data, since a valid
-  // duration always stays positive under an equal shift). Repair it to a
-  // minimum-duration range instead of preserving the invalid gap, which
-  // would otherwise get rejected at save time with no way to fix it here.
   const repaired = addMinutesToTimeValue(
     next.date,
     nextStartTime,
@@ -165,11 +136,6 @@ export function shiftEndForStartChange(
   return { ...next, endDate: repaired.date, endTime: repaired.time };
 }
 
-/**
- * Move a timed event's start date without changing its visible duration. The
- * end date is shifted by the same number of calendar days; this keeps a
- * multi-day event intact when its start date changes in the composer.
- */
 export function shiftEndForDateChange(
   range: EventTimeRange,
   nextDate: string,
@@ -199,11 +165,6 @@ export function shiftEndForDateChange(
   return { ...next, endDate: repaired.date, endTime: repaired.time };
 }
 
-/**
- * Resolves an end-time pick against the start. A pick that reads as earlier in
- * the day is the wrapped option from `buildTimeOptions`, so it belongs to the
- * next day rather than being an invalid end.
- */
 export function applyEndTimeChange(
   range: EventTimeRange,
   nextEndTime: string,

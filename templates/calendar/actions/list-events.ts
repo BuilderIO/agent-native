@@ -33,11 +33,6 @@ import { calendarEventMatchesQuery } from "./event-search.js";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// External ICS feeds are third-party HTTP fetches re-parsed on every
-// list-events call; a short TTL avoids re-fetching/re-parsing the same feed
-// + range on every poll while a calendar tab stays open. Per-process only —
-// a serverless cold start just resets it, which is fine since the feed is
-// re-fetched on the next call.
 const ICAL_CACHE_TTL_MS = 5 * 60_000;
 const ICAL_CACHE_MAX_ENTRIES = 200;
 const icalCache = new Map<
@@ -116,14 +111,7 @@ type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
 interface CalendarEventsResult {
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
-  // Primary-account read failures only, excluding overlay-account
-  // failures - an optional overlay person's calendar failing shouldn't
-  // make an otherwise-successful primary read look failed.
   primaryErrors: Array<{ email: string; error: string }>;
-  // Count of events the primary read itself contributed, before merging
-  // in overlay/ical/booking events - lets callers tell "primary failed
-  // but a supplementary source had something" apart from "primary really
-  // returned events".
   primaryEventCount: number;
   googleConnected: boolean;
   range: CalendarEventRange;
@@ -359,8 +347,6 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
         : event.source;
   return {
     key,
-    // Keep the app id when it carries a calendar namespace; the raw provider
-    // id is only unique within one Google calendar.
     id:
       event.googleEventId && event.id !== `google-${event.googleEventId}`
         ? event.id
@@ -556,19 +542,6 @@ async function listLocalBookingEvents(
     });
 }
 
-/**
- * Which of these Google event ids are backing a still-active booking.
- *
- * Deleting such an event without cancelling its booking leaves the row
- * confirmed, and `shouldShowLocalBookingEvent` then republishes the booking as a
- * local calendar event — so the "deleted" meeting reappears. Scoped through the
- * same booking-link access filter as the calendar read.
- *
- * Returns `calendarAccountId` so callers can tell which account a booking'"'"'s event
- * lives on. It is nullable — the column was added after bookings already
- * existed — so a null must be read as "unknown account", never as "other
- * account".
- */
 export async function findBookedGoogleEvents(
   googleEventIds: readonly string[],
 ): Promise<Array<{ googleEventId: string; calendarAccountId: string | null }>> {
@@ -621,9 +594,6 @@ function shouldShowLocalBookingEvent({
   if (!event.googleEventId) return true;
   if (googleEventIds.has(event.googleEventId)) return false;
 
-  // A linked booking's Google event is the visible calendar source of truth.
-  // Keep the local fallback only when Google did not provide an authoritative
-  // answer, such as an auth or fetch error.
   return !googleReadAuthoritative;
 }
 
@@ -646,7 +616,6 @@ export async function listCalendarEvents(
   const includeGoogle = sources.includes("google");
   const includeOverlays = sources.includes("overlays");
 
-  // Resolve owned accounts before any token refresh or provider call.
   let googleEvents: CalendarEvent[] = [];
   let errors: Array<{ email: string; error: string }> = [];
   let overlaySources: Array<{
@@ -659,8 +628,6 @@ export async function listCalendarEvents(
     ? normalizedRequestedAccounts
     : null;
   let resolvedAccounts: string[] = [];
-  // Resolve/validate ownership before `isConnected` or token refreshes. A
-  // rejected filter is therefore atomic even when every token is expired.
   const [ownedAccounts, connected] = await Promise.all([
     options.ownedAccounts ?? googleCalendar.getOwnedAccountEmails(email),
     googleCalendar.isConnected(email),
@@ -691,8 +658,6 @@ export async function listCalendarEvents(
       error: "Google Calendar is not connected",
     }));
   }
-  // Once account ownership is validated, independent providers and local SQL
-  // can run together. The slowest source should set latency, not their sum.
   const googleRead =
     connected && includeGoogle
       ? googleCalendar.listEvents(range.from, range.to, email, {
@@ -1007,9 +972,6 @@ export default defineAction({
           sources: result.sources,
         });
       const compact = result.events.map(compactInventoryEvent);
-      // Provider ids are only unique within an account. Prefer the owned Google
-      // occurrence to a duplicate local booking; otherwise keep first after a
-      // stable source/key sort.
       const unique = Array.from(
         new Map(
           compact
@@ -1146,15 +1108,6 @@ export default defineAction({
       };
     }
 
-    // Overlay people are a supplementary view on top of the caller's own
-    // calendar - an overlay-only failure (disconnected/erroring peer
-    // account) must not fail the whole request when the caller's own
-    // primary read succeeded fine, even if it happened to return zero
-    // events for this range. Conversely, check primaryEventCount (not
-    // the combined `events.length`) so a real primary failure isn't
-    // silently masked by a supplementary source (overlay/ical/booking)
-    // happening to contribute something - that would otherwise return
-    // an incomplete result that looks like a normal empty success.
     if (result.primaryEventCount === 0 && result.primaryErrors.length > 0) {
       throw new Error(
         result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),

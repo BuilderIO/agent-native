@@ -57,11 +57,6 @@ async function screenCheckpoint(
   const shell = page.locator(
     `[data-screen-shell][data-frame-id="${screenId}"]`,
   );
-  // [data-frame-title] is a flex-1 span whose hit box can stretch well past
-  // its short visible text (e.g. "Screen 2") toward frame center — where a
-  // selected screen's always-visible "Interact" button (data-frame-full-view,
-  // MultiScreenCanvas.tsx) sits. A default center click lands on that empty
-  // stretch and hits the button instead, so click inside the actual glyphs.
   await shell.locator("[data-frame-title]").click({ position: { x: 4, y: 4 } });
   const width = page.getByRole("textbox", {
     name: /^W(?: size in pixels)?$/,
@@ -278,10 +273,6 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
     await layout
       .getByRole("textbox", { name: "Gap", exact: true })
       .press("Enter");
-    // Exact match: PR #5824 added a "Left margin / Right margin" row to the
-    // same Auto layout section, and the old /Left.*Right/ regex matched it
-    // too (both share the literal substring), so a loose match here resolves
-    // to two textboxes instead of the padding row alone.
     const horizontalPadding = layout.getByRole("textbox", {
       name: "Left / Right",
       exact: true,
@@ -344,8 +335,6 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       name: "Absolute position",
       exact: true,
     });
-    // Figma adds a newly drawn child to an auto-layout frame's flow. Toggle
-    // ignore-auto-layout on and off to cover both states explicitly.
     await expect(absolutePosition).toHaveAttribute("aria-pressed", "false");
     await absolutePosition.click();
     await expect(absolutePosition).toHaveAttribute("aria-pressed", "true");
@@ -545,8 +534,6 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       exact: true,
     });
     const flowStartedAt = Date.now();
-    // These text layers were created inside the Screen's auto-layout flow,
-    // so they already participate in it when selected together.
     await expect(flow).toBeVisible();
     await expect(flow).toHaveAttribute("aria-pressed", "false");
     await flow.click();

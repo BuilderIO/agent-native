@@ -399,9 +399,6 @@ export interface UndoArgs {
   allowPendingLiveEdits?: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
-  /** Flat ownership map (DesignEditor.tsx's `codeLayerOwnerByNodeIdRef`) used
-   * only to derive the on-canvas `selectedElement` a restored selection-only
-   * entry implies — see `elementInfoForSelectionSnapshot`'s doc comment. */
   codeLayerOwnerByNodeIdRef: RefObject<Map<string, { node: CodeLayerNode }>>;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentRedoSelectionStackRef: RefObject<
@@ -647,11 +644,6 @@ export function runUndo({
   };
   trace("history", "undo", {});
   if (!canEditDesign && !allowPendingLiveEdits) return;
-  // U10: an in-progress drag hasn't been committed yet (onGeometryCommit /
-  // the content update fires on drag END), so undoing mid-drag would pop a
-  // PRIOR entry while the live-but-uncommitted drag is still moving the
-  // element — the drag's eventual commit would then stomp the undo. Block
-  // until the drag finishes (or is cancelled).
   if (activeEditorDragRef.current) return;
   if (fileHistoryMutationPendingRef.current) return;
   resetGeometryCommitCoalescing?.();
@@ -729,14 +721,6 @@ export function runUndo({
             : pendingLiveStructureEditsFromUndoEntry(pendingNonStyleUndo),
     );
     setPendingLiveNonStyleEdits(nextPending);
-    // Bug fix — undo reverted the DOM via requestPendingLiveNonStyleRevert
-    // above but never resynced the inspector panel's selectedElement, so
-    // the right panel kept showing pre-undo text until deselect/reselect.
-    // Mirrors recordPendingVisualStyleEdit's direct object-patch resync
-    // (~line 9514): a plain merge of the revert payload already on this
-    // undo entry, not a DOM re-query or content-string rebuild (those
-    // don't exist for pending live edits, which never touch
-    // ydoc/activeFile.content).
     if (
       pendingNonStyleUndo.kind === "text" &&
       pendingNonStyleUndo.edit.screenId === activeFile?.id
@@ -789,12 +773,6 @@ export function runUndo({
       })),
     );
     setPendingVisualStyleEdits(nextPending);
-    // Bug fix — same stale-inspector-panel issue as the pendingNonStyleUndo
-    // branch above, for style undo. Merge the reverted style values
-    // (already computed as pendingStyleUndo.revertStyles) into
-    // selectedElement.computedStyles, guarded to the currently-selected
-    // element so an undo on a different/background screen doesn't
-    // clobber the panel for whatever the user has selected right now.
     setSelectedElement((prev) => {
       if (!prev) return prev;
       const revertedTarget = revertedTargets.find(
@@ -847,8 +825,6 @@ export function runUndo({
       (clipboardPasteUndo.fileId === activeFile?.id
         ? getFreshActiveContent()
         : (getScreenContent(clipboardPasteUndo.fileId) ?? ""));
-    // A newer history token stays ahead of this paste; if the current
-    // document no longer matches it, keep this top token intact.
     if (currentContent !== clipboardPasteUndo.after) return false;
     if (isShaderWriteInFlight(clipboardPasteUndo.fileId)) {
       toast.error(t("designEditor.toasts.saveConflict"), {
@@ -936,13 +912,6 @@ export function runUndo({
     if (scope !== "global" && um?.canUndo()) {
       const beforeUndoContent = ydoc?.getText("content").toJSON() ?? null;
       const poppedItem = um.undo();
-      // Figma-parity undo selection restore: a gesture (see
-      // stampYjsUndoSelection) stamps the selection it started with onto
-      // this exact stack item. When present it overrides the
-      // refresh-from-content heuristic below, which can only ever keep or
-      // drop whatever is CURRENTLY selected — for a delete or an alt-drag
-      // duplicate, that's the very node undo just removed, so the heuristic
-      // alone always lands on empty, never back on the original selection.
       const restoredSelection = readYjsUndoSelection(poppedItem);
       if (ydoc && activeFile && beforeUndoContent !== null) {
         const ytext = ydoc.getText("content");
@@ -966,13 +935,6 @@ export function runUndo({
           expectedVersionHash: sourceContentHash(beforeUndoContent),
           syncCollab: !(ydoc && isSynced),
         });
-        // Holistic flash pipeline: only fall back to a full srcdoc rebuild
-        // (real iframe reload) when the live in-place patch genuinely
-        // failed — replaceRuntimeDocument's forceFullDocument branch already
-        // swaps content inside the SAME live iframe (no navigation), so
-        // bumping contentRenderRevision unconditionally right after a
-        // successful in-place replace was a redundant second reload and the
-        // dominant cause of "undo/redo flashes heavily".
         if (
           previewContentReplaceNeedsRenderFallback(
             replacePreviewContent(next, null, {
@@ -982,7 +944,6 @@ export function runUndo({
         ) {
           setContentRenderRevision((revision) => revision + 1);
         }
-        // Clear stale selection if the undo removed the selected element.
         setSelectedElement((prev) => {
           if (restoredSelection)
             return resolveLocalHistorySelection(
@@ -1003,7 +964,6 @@ export function runUndo({
             fileId: activeFile.id,
           });
         });
-        // U18: keep the layers-panel highlight in sync too.
         setSelectedLayerIdsState((prev) =>
           restoredSelection
             ? resolveLocalHistorySelection(
@@ -1017,9 +977,6 @@ export function runUndo({
               }),
         );
       }
-      // Drop the matching local fallback mirror (see U3) so it can't be
-      // replayed a second time via the fallthrough path below once the Yjs
-      // UndoManager for this file is later torn down.
       const mirroredIndex = findLastContentHistoryChangeIndex(
         localContentUndoStackRef.current,
         activeFile?.id,
@@ -1055,8 +1012,6 @@ export function runUndo({
             ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
             "content",
           ];
-          // U20: route a live-snapshot screen's replay through
-          // updateLiveScreenSnapshotContent — see the matching note above.
           if (liveScreenSnapshotsById[entry.fileId]) {
             updateLiveScreenSnapshotContent(entry.fileId, entry.before, {
               recordHistory: false,
@@ -1070,12 +1025,6 @@ export function runUndo({
               recordHistory: false,
             });
           }
-          // Figma-parity undo selection restore: same need as the Yjs
-          // branch above — a gesture recorded on THIS (non-Yjs) stack can
-          // stamp its pre-gesture selection via ContentHistoryChange.
-          // selectionBefore, which overrides the refresh-from-content
-          // heuristic below for the same reason (delete/duplicate leave the
-          // heuristic nothing to recover the ORIGINAL selection from).
           setSelectedElement((prev) => {
             if (entry.selectionBefore)
               return resolveLocalHistorySelection(
@@ -1096,7 +1045,6 @@ export function runUndo({
               fileId: entry.fileId,
             });
           });
-          // U18: keep the layers-panel highlight in sync too.
           setSelectedLayerIdsState((prev) =>
             entry.selectionBefore
               ? resolveLocalHistorySelection(
@@ -1156,10 +1104,6 @@ export function runUndo({
     try {
       for (const change of changes) {
         if (change.before === change.after) continue;
-        // U20: a live-snapshot (URL-backed/localhost) screen's visible
-        // content lives in liveScreenSnapshotsById, not DesignFile.content
-        // — route replay there instead of the regular content path, which
-        // that screen's edits never actually write to.
         if (liveScreenSnapshotsById[change.fileId]) {
           acceptedContents.set(change.fileId, change.before);
           updateLiveScreenSnapshotContent(change.fileId, change.before, {
@@ -1264,7 +1208,6 @@ export function runUndo({
           fileId: activeChange.fileId,
         });
       });
-      // U18: keep the layers-panel highlight in sync too.
       setSelectedLayerIdsState((prev) =>
         refreshSelectedLayerIdsFromContent(activeChange.before, prev, {
           kind: "design-file",
@@ -1284,10 +1227,6 @@ export function runUndo({
     if (!canUseOverviewHistory) return false;
     const entry = geometryUndoStackRef.current.pop();
     if (!entry) return false;
-    // Freshness guard: this entry last wrote `entry.after`. If a peer/agent
-    // has since moved any of the frames it touched, replaying `entry.before`
-    // would silently clobber their change — drop this entry instead. The pop
-    // above already removed it, so undo skips forward to the next entry.
     const stale = staleGeometryFrameIds(
       entry,
       liveFrameGeometryRef.current,
@@ -1299,7 +1238,6 @@ export function runUndo({
         stale,
       );
       toast.info(t("designEditor.toasts.undoSkippedConcurrentEdit"));
-      // Try the next undo entry rather than swallowing the whole gesture.
       return undoGeometry();
     }
     geometryRedoStackRef.current = [
@@ -1310,11 +1248,6 @@ export function runUndo({
       ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
       "geometry",
     ];
-    // U11: merge only this entry's per-frame diff onto the CURRENT live
-    // map (read fresh from the ref) instead of replacing the whole board
-    // with the entry's stale whole-board snapshot — otherwise a frame
-    // created after this entry was recorded has no key in entry.before
-    // and would be wiped out by a full-map replace.
     writeFrameGeometrySnapshot(
       applyGeometryHistoryDiff(
         getCanvasFrameGeometry(designDataJsonRef.current),
@@ -1329,8 +1262,6 @@ export function runUndo({
         ),
       },
     );
-    // Figma parity: undo re-selects whatever was selected when this
-    // gesture's change was originally made.
     if (entry.linkedContentChanges?.length) {
       applyGeometryHistoryContentChanges?.(entry.linkedContentChanges, "undo");
     }
@@ -1345,11 +1276,6 @@ export function runUndo({
     );
     return true;
   };
-  // Figma parity (ground-truth Round 4): undo a plain selection change (no
-  // document edit) — see SelectionHistoryEntry's doc comment. Restores the
-  // pre-selection-change snapshot, including the on-canvas selection overlay
-  // (elementInfoForSelectionSnapshot), which restoreSelectionSnapshot alone
-  // cannot derive.
   const undoSelection = () => {
     if (!canUseOverviewHistory) return false;
     const entry = selectionUndoStackRef.current.pop();
@@ -1365,11 +1291,6 @@ export function runUndo({
     restoreHistorySelection(entry.before);
     return true;
   };
-  // U12: undo a screen create/duplicate by soft-deleting the file it
-  // created (performDeleteFiles already prunes any content/geometry undo
-  // entries for that file, mirroring U2's screen-deletion cleanup).
-  // Resolved by filename at undo time (filenames are unique) since the
-  // entry itself doesn't carry the id assigned by the create mutation.
   const undoFileCreation = () => {
     if (!canUseOverviewHistory) return false;
     const stack = fileCreationUndoStackRef.current;
@@ -1494,10 +1415,6 @@ export function runUndo({
             : item,
       );
     };
-    // skipFileCreationRedoPrune: the entry was just pushed onto the redo
-    // stack above for this exact filename — without this flag
-    // performDeleteFiles' filename-keyed redo prune would immediately pop
-    // it back off, leaving redo permanently empty after this undo.
     performDeleteFiles(
       createdFiles.filter((file): file is DesignFile => Boolean(file)),
       {
@@ -1760,8 +1677,6 @@ export function runUndo({
           recreatedEntry,
         );
 
-        // Retained screens may have been edited while creation was retryable.
-        // Keep those current values in the snapshot used by the next redo.
         for (const file of recreatedEntry.files) {
           if (!entry.restoredFiles?.some((retained) => retained.id === file.id))
             continue;
@@ -1784,7 +1699,6 @@ export function runUndo({
           else delete file.geometry;
         }
 
-        // Historical source is replayed byte-for-byte, in the recreated file's namespace.
         const fileIds = new Map(
           entry.files.map((file, index) => [file.id, recreatedIds[index]!]),
         );
@@ -1873,7 +1787,6 @@ export function runUndo({
           ...file,
           content: restoredContentById.get(file.id) ?? file.content,
         }));
-        // Keep survivor identity and metadata until the whole retry succeeds.
         if (survivorIds.size > 0) {
           remapRestoredHistory(
             survivorIds,

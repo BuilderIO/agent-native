@@ -43,7 +43,6 @@ describe("PlanMarkdownEditor image node", () => {
       });
     }).not.toThrow();
 
-    // The editor should have mounted the image node's DOM.
     expect(container.querySelector(".ProseMirror")).toBeTruthy();
   });
 });

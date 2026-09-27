@@ -106,21 +106,14 @@ function automationParams(scope: JobsScope) {
   return { scope: scope === "org" ? "organization" : "personal" } as const;
 }
 
-// Re-exported so existing callers keep one import site for the jobs data layer.
 export type { ScheduledTriggerState, ScheduledTriggerStatus };
 
-/**
- * Deploy-scoped and fixed for the life of the process, so it is cached far
- * longer than the automation lists.
- */
 export function useScheduledTriggerState(): ScheduledTriggerState {
   const query = useActionQuery<ScheduledTriggerStatus>(
     "get-scheduled-trigger-status",
     {},
     { staleTime: 5 * 60_000 },
   );
-  // Data first: a cached answer with a failing background refetch is still an
-  // answer, and downgrading it to `unknown` would flicker the warning off.
   if (query.data) return { kind: "resolved", status: query.data };
   if (query.error) return { kind: "unknown", error: query.error };
   return { kind: "loading" };

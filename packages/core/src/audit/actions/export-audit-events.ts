@@ -7,10 +7,6 @@ import type { AuditEvent } from "../types.js";
 const DEFAULT_MAX_ROWS = 5000;
 const HARD_CAP_ROWS = 10000;
 
-// Deterministic column order for CSV — mirrors the store's list projection
-// (`LIST_COLUMNS`), which deliberately excludes `input` so a bulk export
-// never streams every event's (redacted) request body at once. Future
-// columns added to the audit store must be reflected here too.
 const CSV_COLUMNS: Array<[key: keyof AuditEvent, header: string]> = [
   ["id", "id"],
   ["createdAt", "created_at"],
@@ -30,9 +26,6 @@ const CSV_COLUMNS: Array<[key: keyof AuditEvent, header: string]> = [
   ["visibility", "visibility"],
 ];
 
-/** Hand-rolled CSV field escaper — quotes a field when it contains a comma,
- *  quote, or newline, doubling any embedded quotes. No dependency needed for
- *  ~10 lines of RFC 4180 escaping. */
 function csvField(value: unknown): string {
   if (value === null || value === undefined) return "";
   const raw = String(value);
@@ -54,13 +47,6 @@ function toNdjson(events: AuditEvent[]): string {
   return events.map((event) => JSON.stringify(event)).join("\n");
 }
 
-/**
- * Bulk-export audit-log events as CSV or NDJSON — the "bulk export" sensitive
- * read the audit doc itself names. Pages past the per-call row clamp
- * (`queryAuditEvents`'s `MAX_LIMIT`) up to `maxRows`, scoped in SQL to the
- * caller's identity exactly like `list-audit-events`. Read-only; never
- * exposes other tenants' rows.
- */
 export default defineAction({
   description:
     "Export audit-log events as a CSV or NDJSON document for offline/compliance pulls (up to maxRows, default 5000, hard cap 10000). Use this instead of hand-paging list-audit-events when you need a bulk download of the trail; use list-audit-events instead for browsing recent activity or answering 'what changed'.",
@@ -105,8 +91,6 @@ export default defineAction({
   }),
   http: { method: "GET" },
   audit: {
-    // Read-only actions are skipped by default — this is exactly the
-    // "bulk export" sensitive read the framework's own audit doc calls out.
     onRead: true,
     summary: (args) =>
       `Bulk export of audit events (${(args as { format?: string }).format ?? "csv"})`,
@@ -141,11 +125,9 @@ export default defineAction({
       });
       events.push(...page);
       offset += page.length;
-      if (page.length < pageLimit) break; // exhausted — no more matching rows
+      if (page.length < pageLimit) break;
     }
 
-    // We stopped because we hit the cap, not because we ran out of rows —
-    // probe one more row to know whether the export was actually truncated.
     let truncated = false;
     if (events.length >= cap) {
       const probe = await queryAuditEvents(scope, {

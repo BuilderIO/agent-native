@@ -4,12 +4,6 @@ import { previewSourceDiff } from "./source-workspace.js";
 export interface LocalJsxSourceAnchor {
   line: number;
   column: number;
-  /**
-   * Whether line/column are authored coordinates. A "transformed" anchor is a
-   * position in the dev server's output (React 19's only tier), so seeking to
-   * it in the authored file lands on an unrelated line — usually no JSX at all,
-   * but occasionally the wrong element, which would edit silently.
-   */
   positionPrecision?: SourcePositionPrecision;
   runtimeMultiplicity?: number;
   scope?:
@@ -181,11 +175,6 @@ function scanOpeningTags(content: string): OpeningTag[] {
   return tags;
 }
 
-/**
- * Read quoted component props from the authored opening tag at a verified
- * source anchor. Dynamic and shorthand attributes make the full literal prop
- * set uncertain, so this reader fails closed; spreads can shadow every prop.
- */
 export function readLiteralJsxPropsAtAnchor(args: {
   content: string;
   anchor: LocalJsxSourceAnchor;

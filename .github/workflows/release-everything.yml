@@ -1,8 +1,5 @@
 name: 🚀 Release everything
 
-# This is the stable release train. It completes the package changeset release
-# first, then releases both desktop apps and promotes every configured
-# *.agent-native.com site from that exact post-release commit.
 on:
   schedule:
     - cron: "0 12 * * 1-4"

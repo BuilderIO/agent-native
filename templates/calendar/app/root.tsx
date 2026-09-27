@@ -186,12 +186,6 @@ function ThemeToggleItem() {
   );
 }
 
-/**
- * Public booking routes must SSR real content for first-visit signed-out users
- * and crawlers. These paths bypass ClientOnly so entry.server.tsx can stream
- * the actual route markup rather than a bare spinner. Auth/private routes are
- * unaffected.
- */
 function isPublicBookingPath(pathname: string): boolean {
   const p = pathname.replace(/\/+$/, "") || "/";
   return (
@@ -280,8 +274,6 @@ export default function Root() {
           // webview focus events otherwise duplicate the events request.
           // request-storm-allow: one user-driven focus refresh for provider data.
           refetchOnWindowFocus: !isAgentNativeDesktop(),
-          // Flat retry: calendar data fetches don't need the auth-aware
-          // retry function — auth errors surface through the booking flow.
           retry: 1,
         },
       },

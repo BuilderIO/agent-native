@@ -1,11 +1,3 @@
-/**
- * Typed pub/sub bus for framework events.
- *
- * Wraps Node's EventEmitter with payload validation against the registered
- * Standard Schema for each event. Handler errors are caught and logged so a
- * misbehaving subscriber can never crash the emitter.
- */
-
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
@@ -28,8 +20,6 @@ function getBus(): BusState {
   const g = globalThis as unknown as GlobalWithBus;
   if (!g[BUS_KEY]) {
     const emitter = new EventEmitter();
-    // Many integrations may subscribe to the same event; lift the warning
-    // ceiling rather than printing MaxListenersExceededWarning at runtime.
     emitter.setMaxListeners(0);
     g[BUS_KEY] = { emitter, subscriptions: new Map() };
   }
@@ -100,8 +90,6 @@ export function emit(
     owner: meta?.owner,
   };
 
-  // Snapshot listeners so a handler that subscribes/unsubscribes during
-  // dispatch doesn't perturb this emission.
   const listeners = bus.emitter.listeners(event) as Handler[];
   for (const listener of listeners) {
     try {
@@ -132,7 +120,6 @@ export function listSubscriptions(
   return out;
 }
 
-/** Test helper — drops all subscriptions. */
 export function __resetEventBus(): void {
   const bus = getBus();
   bus.emitter.removeAllListeners();

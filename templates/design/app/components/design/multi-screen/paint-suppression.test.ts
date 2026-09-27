@@ -64,8 +64,6 @@ describe("overview paint suppression", () => {
 
     applyScreenPaintSuppression(targets, new Set(["screen"]));
     expect(element.style.visibility).toBe("hidden");
-    // content-visibility discards rendering state, so un-hiding would blank the
-    // iframe for a frame. visibility alone skips paint and restores instantly.
     expect(element.style.getPropertyValue("content-visibility")).toBe("");
 
     element.style.setProperty("visibility", "visible");
@@ -82,12 +80,8 @@ describe("overview paint suppression", () => {
       "app/components/design/MultiScreenCanvas.tsx",
       "utf8",
     );
-    // Two owners drift: React's style diff stops re-applying a value it thinks
-    // is unchanged, so suppression silently dies with nothing visibly broken.
     expect(source).not.toContain("contentVisibility:");
     expect(source).not.toContain("visibility: isCulled");
-    // A camera move that skips this leaves screens hidden until the debounced
-    // commit — the zoom flicker this whole module exists for.
     const applyViewToDom = source.slice(
       source.indexOf("const applyViewToDom = useCallback("),
     );

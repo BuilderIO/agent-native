@@ -335,7 +335,6 @@ describe("observability routes", () => {
     await handler(createEvent("/feedback", "POST"));
 
     expect(mockInsertFeedback).toHaveBeenCalledOnce();
-    // The submission is visible...
     expect(mockTrack).toHaveBeenCalledOnce();
     const [name, properties] = mockTrack.mock.calls[0];
     expect(name).toBe("$ai_feedback");
@@ -344,7 +343,6 @@ describe("observability routes", () => {
       run_id: "run-1",
       $ai_trace_id: "run-1",
     });
-    // ...but carries no sentiment: the thumbs-down it follows already counted.
     expect(properties).not.toHaveProperty("sentiment");
   });
 
@@ -391,8 +389,6 @@ describe("observability routes", () => {
     const [, properties] = mockTrack.mock.calls[0];
     expect(properties).toMatchObject({ feedback_type: "text" });
     expect(properties).not.toHaveProperty("sentiment");
-    // The first-party event stays content-free; the text itself is persisted
-    // and, when a survey is configured, sent as the survey response.
     expect(JSON.stringify(properties)).not.toContain("wrong doc");
   });
 

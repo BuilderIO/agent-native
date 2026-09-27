@@ -82,7 +82,6 @@ export default defineEventHandler(async (event) => {
     return { error: "messageId and id are required" };
   }
 
-  // Allowlist of safe content types for inline display
   const SAFE_TYPES = new Set([
     "image/jpeg",
     "image/png",
@@ -111,13 +110,11 @@ export default defineEventHandler(async (event) => {
 
       setResponseHeader(event, "Cache-Control", "private, max-age=31536000");
       setResponseHeader(event, "Content-Length", String(buffer.length));
-      // X-Content-Type-Options prevents MIME sniffing of HTML for XSS
       setResponseHeader(event, "X-Content-Type-Options", "nosniff");
       setResponseHeader(event, "Content-Type", contentType);
 
       return buffer;
     } catch {
-      // Try next account
       continue;
     }
   }

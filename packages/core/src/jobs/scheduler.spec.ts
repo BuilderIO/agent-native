@@ -66,13 +66,6 @@ vi.mock("../chat-threads/store.js", () => ({
 
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn(() => []));
 
-// `filterInitialEngineTools`'s own filtering semantics are covered directly
-// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
-// rather than via `vi.importActual` on the real module, which would pull in
-// production-agent.ts's full module graph (e.g. its module-scope
-// `registerBuiltinEngines()` call) that this file's narrower mocks don't
-// support. This only needs to prove scheduler.ts WIRES the filter with the
-// right inputs, not re-prove the filter's own correctness.
 function fakeFilterInitialEngineTools(
   tools: Array<{ name: string }>,
   initialToolNames?: string[],
@@ -144,9 +137,6 @@ vi.mock("../server/onboarding-html.js", () => ({
   getResetPasswordHtml: vi.fn(),
 }));
 
-// Partial-mock db/client so the user/membership validation lookup is
-// stubbed (audit 12 #10) but other consumers (auth shim, onboarding HTML
-// loaded transitively via `getDbExec`) still see real exports.
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -167,9 +157,6 @@ describe("processRecurringJobs", () => {
   beforeEach(() => {
     process.env = { ...originalEnv };
     vi.clearAllMocks();
-    // Default: user exists and (when checked) is an org member. rowsAffected: 1
-    // also lets the background run's self-claim CAS UPDATE (see
-    // background-automation-runner.ts) succeed by default.
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([
@@ -194,9 +181,6 @@ Summarize the inbox.`,
         return { id: input.owner + input.path };
       },
     );
-    // Model a real store: a re-read returns whatever was last written. The
-    // scheduler re-reads before recording an outcome, and treats a missing
-    // resource as deleted mid-run.
     resourceGetByPathMock.mockImplementation(
       async (owner: string, path: string) => {
         const latestListCall = resourceListAllOwnersMock.mock.results.at(-1);
@@ -228,8 +212,6 @@ Summarize the inbox.`,
       cacheWriteTokens: 5,
       model: "test-model",
     });
-    // The scheduler runs through the resume wrapper; delegate so the existing
-    // assertions about what the loop was called with still read the same call.
     runAgentLoopWrapperMock.mockImplementation((opts: unknown) =>
       runAgentLoopMock(opts),
     );
@@ -631,7 +613,6 @@ Process the feedback.`,
       }),
       expect.any(Number),
       expect.any(Object),
-      // Chunk control from startRun; undefined under this suite's fake.
       undefined,
     );
   });
@@ -1087,17 +1068,6 @@ Import action items.`,
     ]);
   });
 
-  // The agent-chat plugin now wires `getInitialToolNames` for real (it used
-  // to be unset, making the filter above a no-op) to:
-  //   [...template action names, "manage-jobs", "manage-progress"]
-  // "manage-jobs" and "manage-progress" are taught BY NAME in the shared
-  // framework prompt this job runner reuses from interactive chat (see
-  // FRAMEWORK_CORE's "Recurring jobs" bullet and SHARED_RULE_14 in
-  // server/prompts/*.ts) — both must stay visible on the very first job
-  // request even though jobTools/progressTools are merged into getActions()
-  // alongside a much larger framework-addition surface
-  // (automationTools/notificationTools/fetchTool/webSearchTool/toolActions)
-  // that should stay deferred behind tool-search.
   it("keeps manage-jobs and manage-progress visible on the first request alongside the app's own actions (real plugin wiring shape)", async () => {
     actionsToEngineToolsMock.mockImplementation(
       (actionsMap: Record<string, { tool: { description: string } }>) =>
@@ -1120,9 +1090,6 @@ Import action items.`,
         "manage-automations": noopTool("Framework addition — not taught"),
         "manage-notifications": noopTool("Framework addition — not taught"),
       }),
-      // Mirrors agent-chat-plugin.ts's schedulerDeps.getInitialToolNames:
-      // template action names plus the two tool names the shared prompt
-      // teaches by name for this surface.
       getInitialToolNames: () => [
         "template-job-action",
         "manage-jobs",
@@ -1178,8 +1145,6 @@ Import action items.`,
     const firstRequestToolNames = call.tools
       .map((tool: { name: string }) => tool.name)
       .sort();
-    // No filtering applied and no tool-search attached — identical to the
-    // prior behavior when the caller doesn't opt into initial-tool filtering.
     expect(firstRequestToolNames).toEqual([
       "other-framework-action",
       "template-job-action",
@@ -1319,18 +1284,6 @@ Post the digest.`,
   });
 
   it("marks the job run as background dispatch so the stale reaper uses the background window", async () => {
-    // dispatch_mode NULL falls through to RUN_STALE_MS (15s) in
-    // backgroundAwareStaleCutoffSql — a window sized for a foreground run a
-    // browser is streaming. Nothing streams a job, so it gets reaped mid-run.
-    //
-    // It reaches the ROW through the runner's own pre-claim (see
-    // background-automation-runner.spec.ts for the self-claim regression test),
-    // and it is ALSO passed to startRun, which is what puts it on the terminal
-    // and boundary analytics events. This assertion used to require its
-    // absence; that left every scheduled run reported as `foreground`, which is
-    // why a 6-of-7 no-progress rate on the automation path was invisible.
-    // Passing it cannot clobber the claim: `insertRun` is ON CONFLICT DO
-    // NOTHING, so startRun's insert is a no-op for an already-claimed row.
     await processRecurringJobs({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
@@ -1365,9 +1318,6 @@ Post the digest.`,
   });
 
   it("records a run_timeout continuation boundary as an error and suppresses delivery", async () => {
-    // The soft timeout emits auto_continue{run_timeout} and the run row is
-    // still status 'completed'. Without the cut-off check the job is reported
-    // as a success and its truncated partial answer is shipped to Slack.
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
         id: "resource-cutoff",
@@ -1511,7 +1461,6 @@ createdBy: alice+jobs@agent-native.test
 Post the digest.`,
       },
     ]);
-    // Deleted mid-run: the re-read finds nothing.
     resourceGetByPathMock.mockResolvedValue(null);
 
     await processRecurringJobs({
@@ -1521,8 +1470,6 @@ Post the digest.`,
       model: "test-model",
     });
 
-    // The "mark as running" write happened before the delete; the completion
-    // write must not follow it and resurrect the job.
     const writesAfterStart = resourcePutMock.mock.calls.filter((call) =>
       String(call[2]).includes("lastStatus: success"),
     );
@@ -1530,8 +1477,6 @@ Post the digest.`,
   });
 
   it("keeps a schedule edited mid-run instead of restoring the pre-run copy", async () => {
-    // The run holds the frontmatter it started with. Writing that snapshot
-    // back on completion would silently undo the user's edit.
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
         id: "resource-edited",
@@ -1547,7 +1492,6 @@ createdBy: alice+jobs@agent-native.test
 Post the digest.`,
       },
     ]);
-    // While the job runs, the user moves it to 9pm Tokyo and edits the body.
     resourceGetByPathMock.mockResolvedValue({
       id: "resource-edited",
       owner: "alice+jobs@agent-native.test",
@@ -1575,17 +1519,12 @@ Post the revised digest.`,
     expect(putContent).toContain("timezone: Asia/Tokyo");
     expect(putContent).toContain("Post the revised digest.");
     expect(putContent).toContain("lastStatus: success");
-    // nextRun follows the edited schedule: 21:00 Tokyo is 12:00 UTC.
     expect(putContent).toContain('nextRun: "');
     expect(putContent).toMatch(/nextRun: "[\d-]+T12:00:00\.000Z"/);
   });
 
   it("resets a job stuck in lastStatus:running after 10+ minutes without executing it", async () => {
-    // P2 stale-running recovery: a serverless kill mid-job leaves
-    // lastStatus:"running" forever. The scheduler must detect runs that have
-    // been "running" for > 10 minutes (stuck-guard) and reset them to "error"
-    // without re-executing, then let the NEXT tick pick them up normally.
-    const stuckLastRun = new Date(Date.now() - 11 * 60 * 1000).toISOString(); // 11 minutes ago
+    const stuckLastRun = new Date(Date.now() - 11 * 60 * 1000).toISOString();
 
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
@@ -1612,22 +1551,19 @@ Do some work.`,
       model: "test-model",
     });
 
-    // The job must NOT have been executed — it should be skipped this tick.
     expect(createThreadMock).not.toHaveBeenCalled();
     expect(runAgentLoopMock).not.toHaveBeenCalled();
 
-    // The resource must have been updated to reset the stuck run to "error".
     expect(resourcePutMock).toHaveBeenCalledOnce();
-    const putCall = resourcePutMock.mock.calls[0][1]; // path argument
+    const putCall = resourcePutMock.mock.calls[0][1];
     expect(putCall).toBe("jobs/stuck-job.md");
-    const putContent: string = resourcePutMock.mock.calls[0][2]; // content argument
+    const putContent: string = resourcePutMock.mock.calls[0][2];
     expect(putContent).toContain("lastStatus: error");
     expect(putContent).toContain("timed out or been recycled");
   });
 
   it("does not reset a job that has been running for less than 10 minutes", async () => {
-    // A job that started < 10 min ago is still running legitimately — leave it.
-    const recentLastRun = new Date(Date.now() - 2 * 60 * 1000).toISOString(); // 2 minutes ago
+    const recentLastRun = new Date(Date.now() - 2 * 60 * 1000).toISOString();
 
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
@@ -1654,15 +1590,11 @@ Do some work.`,
       model: "test-model",
     });
 
-    // Still within 10-minute window — must be skipped without resetting.
     expect(createThreadMock).not.toHaveBeenCalled();
     expect(resourcePutMock).not.toHaveBeenCalled();
   });
 
   it("does not record a lastRun for a tick that never ran the job", async () => {
-    // A job whose run-as user no longer exists is skipped on every tick. It
-    // must not report a run it never performed — the reason goes in lastError
-    // and the evaluation time in lastCheck.
     dbExecuteMock.mockResolvedValue({ rows: [] });
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
@@ -1697,8 +1629,6 @@ Do some work.`,
   });
 
   it("stops rewriting a blocked job once its failure state is recorded", async () => {
-    // The skip path used to persist the resource on every 60s tick, churning
-    // the poll stream and moving the displayed timestamp forever.
     dbExecuteMock.mockResolvedValue({ rows: [] });
     const blocked = {
       id: "resource-blocked",

@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * In-memory SQL simulator just rich enough for the two connect tables. We
- * pattern-match the small, fixed set of statements the store issues rather
- * than implementing a SQL engine — same approach as sibling store specs.
- */
 interface TokenRow {
   id: string;
   jti: string;
@@ -49,7 +44,6 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     }
     return { rows: [], rowsAffected: 0 };
   }
-  // Additive org-service-token columns — already part of the in-memory shape.
   if (/^ALTER TABLE mcp_connect_tokens ADD COLUMN/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
@@ -57,7 +51,6 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     return { rows: [], rowsAffected: 0 };
   }
 
-  // --- mcp_connect_tokens ---
   if (/^INSERT INTO mcp_connect_tokens/i.test(sql)) {
     tokens.push({
       id: args[0],
@@ -137,7 +130,6 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     return { rows: [], rowsAffected: t ? 1 : 0 };
   }
 
-  // --- mcp_device_codes ---
   if (/^SELECT COUNT\(\*\) AS n FROM mcp_device_codes/i.test(sql)) {
     const n = devices.filter((d) => (d.created_at ?? 0) > args[0]).length;
     return { rows: [{ n }], rowsAffected: 0 };
@@ -300,7 +292,6 @@ describe("connect-store", () => {
         label: "laptop",
         revoked_at: null,
       });
-      // The row has no column for the token value at all.
       expect(Object.keys(tokens[0])).not.toContain("token");
     });
 
@@ -381,7 +372,6 @@ describe("connect-store", () => {
       await store.recordMintedToken({ jti: "j", ownerEmail: "a@example.com" });
       await expect(store.touchTokenUsed("j")).resolves.toBeUndefined();
       expect(tokens[0].last_used_at).not.toBeNull();
-      // Unknown jti is a silent no-op (best-effort telemetry).
       await expect(store.touchTokenUsed("missing")).resolves.toBeUndefined();
     });
 
@@ -490,15 +480,12 @@ describe("connect-store", () => {
         createdBy: "admin@example.com",
       });
 
-      // Another org can't revoke it.
       expect(await store.revokeOrgServiceToken("org-2", id)).toBe(false);
       expect(await store.isJtiRevoked("jti-svc")).toBe(false);
 
-      // The owning org can; the shared revocation gate then rejects the jti.
       expect(await store.revokeOrgServiceToken("org-1", id)).toBe(true);
       expect(await store.isJtiRevoked("jti-svc")).toBe(true);
 
-      // Idempotent: re-revoking keeps the first timestamp.
       const first = tokens[0].revoked_at;
       expect(await store.revokeOrgServiceToken("org-1", id)).toBe(false);
       expect(tokens[0].revoked_at).toBe(first);
@@ -577,7 +564,6 @@ describe("connect-store", () => {
       expect(first?.ownerEmail).toBe("user@example.com");
       expect(first?.orgId).toBe("org-9");
 
-      // Single-use: a second consume returns null.
       const second = await store.consumeDeviceCode(created.deviceCode, "jti-y");
       expect(second).toBeNull();
 

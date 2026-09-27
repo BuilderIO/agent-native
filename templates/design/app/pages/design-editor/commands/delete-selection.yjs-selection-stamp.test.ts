@@ -6,17 +6,6 @@ import { readYjsUndoSelection } from "@/pages/design-editor/history";
 
 import { runDeleteSelection } from "./delete-selection";
 
-/**
- * Figma parity — "deleting an element then one undo restores it with its
- * original position, name and selection" (parity-undo-redo.spec.ts). Undo
- * can only restore what Delete captured; this proves Delete itself stamps
- * the PRE-delete selection onto the Yjs undo-stack item its own content
- * write just created (see history.ts's stampYjsUndoSelection), before it
- * clears selectedElement/selectedLayerIdsState to null/[] — and that it
- * does NOT stamp when the write didn't actually push a new stack item
- * (coalesced into the existing top, or a no-op), which would otherwise
- * corrupt an unrelated earlier gesture's own stamp.
- */
 function baseDeleteArgs(overrides: {
   undoManagerRef: { current: { stopCapturing: () => void; undoStack: any[] } };
   applyLocalContentUpdate: ReturnType<typeof vi.fn>;
@@ -69,7 +58,6 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
     const undoManagerRef = {
       current: { stopCapturing: vi.fn(), undoStack: [priorItem] },
     };
-    // Simulates a real Yjs write: the content edit pushes a fresh stack item.
     const applyLocalContentUpdate = vi.fn(() => {
       undoManagerRef.current.undoStack.push({ meta: new Map() });
     });
@@ -86,8 +74,6 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
     runDeleteSelection(args);
 
     const newItem = undoManagerRef.current.undoStack[1]!;
-    // The stamp must land on the NEW item, using the selection as it was
-    // when the gesture started, not the (already-cleared) post-delete state.
     expect(readYjsUndoSelection(newItem)).toEqual({
       selectedElement,
       selectedLayerIds: ["box-a"],
@@ -103,7 +89,6 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
     const undoManagerRef = {
       current: { stopCapturing: vi.fn(), undoStack: [priorItem] },
     };
-    // Simulates a coalesced/no-op Yjs write: no new stack item appears.
     const applyLocalContentUpdate = vi.fn();
 
     const { args } = baseDeleteArgs({

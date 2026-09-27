@@ -43,7 +43,6 @@ function allDeps(pkg: Record<string, any>): Record<string, string> {
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-create-test-"));
-  // createApp resolves relative to cwd
   process.chdir(tmpDir);
 });
 
@@ -218,8 +217,6 @@ describe("createApp", { timeout: 30000 }, () => {
     await createApp("my-app", { template: "blank" });
     const skillsDir = path.join(tmpDir, "my-app", ".agents", "skills");
     if (fs.existsSync(skillsDir)) {
-      // There must be no entry named 'skills' inside the skills directory
-      // as that would create a circular reference that crashes Vite's watcher.
       const entries = fs.readdirSync(skillsDir);
       expect(entries).not.toContain("skills");
     }
@@ -256,8 +253,6 @@ describe("createApp", { timeout: 30000 }, () => {
       path.join(root, "actions", "hello.ts"),
       "utf-8",
     );
-    // Imports from the bare package root, which is server-safe so a headless
-    // app loads it without React / @tanstack/react-query installed.
     expect(hello).toContain('from "@agent-native/core/action"');
     expect(hello).toContain("defineAction");
     expect(hello).toContain('http: { method: "GET" }');
@@ -381,7 +376,6 @@ describe("createApp", { timeout: 30000 }, () => {
     fs.mkdirSync(dir);
     process.chdir(dir);
     await createApp(".", { template: "blank" });
-    // No subfolder — files land directly in the current directory.
     expect(fs.existsSync(path.join(dir, "my-inplace-app"))).toBe(false);
     const pkg = JSON.parse(
       fs.readFileSync(path.join(dir, "package.json"), "utf-8"),
@@ -1324,8 +1318,6 @@ describe("findEnclosingRepo", () => {
 
   it("reports unknown, not outside, when discovery fails", () => {
     const { root, nested } = makeTree();
-    // A corrupt gitfile makes git refuse the checkout with a fatal that is not
-    // "not a git repository" — the same shape as dubious ownership.
     fs.writeFileSync(path.join(root, ".git"), "garbage");
 
     const discovery = _discoverEnclosingRepo(nested);

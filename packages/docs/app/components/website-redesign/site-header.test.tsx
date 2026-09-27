@@ -5,8 +5,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The real modal pulls the docs search index; the header only owns the open
-// state, so the lazy chunk is stubbed with a probe.
 vi.mock("../SearchModal", () => ({
   SearchModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="search-modal" /> : null,

@@ -1,12 +1,3 @@
-/**
- * create-visual-recap: sourceUrl persistence.
- *
- * Verifies that:
- * 1. A valid http(s) sourceUrl is stored on the plan row when provided on
- *    create (new recap).
- * 2. A valid sourceUrl is stored when replacing an existing recap (planId path).
- * 3. An invalid (non-URL) sourceUrl is rejected before the plan is written.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -427,7 +418,6 @@ describe("create-visual-recap: sourceUrl", () => {
   });
 
   it("stores sourceUrl when replacing an existing recap (planId path)", async () => {
-    // Create a recap without a sourceUrl first.
     const first = await asOwner(() =>
       createVisualRecap.run({ mdx: MINIMAL_MDX, visibility: "org" }),
     );
@@ -435,7 +425,6 @@ describe("create-visual-recap: sourceUrl", () => {
     const before = await rawPlan(planId);
     expect(before?.sourceUrl).toBeNull();
 
-    // Replace with a sourceUrl.
     await asOwner(() =>
       createVisualRecap.run({
         planId,
@@ -484,9 +473,6 @@ describe("create-visual-recap: sourceUrl", () => {
     );
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toMatch(/empty wireframes[\s\S]*empty-before/i);
-    // Malformed source is a CLIENT error: it must surface as a 422 (so the
-    // action route echoes the real message and the recap publisher does not
-    // retry a deterministic authoring error), NOT a generic 500.
     expect(error.statusCode).toBe(422);
 
     // guard:allow-unscoped -- test-only assertion reads the isolated temp DB.

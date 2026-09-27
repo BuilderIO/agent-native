@@ -12,7 +12,6 @@ import { MAX_REFERENCE_FILES } from "../../shared/upload-types";
 export interface UploadedFile {
   path: string;
   url?: string;
-  /** Browser-only fallback when the upload provider did not return a public URL. */
   dataUrl?: string;
   originalName: string;
   filename: string;

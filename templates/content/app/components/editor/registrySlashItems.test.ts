@@ -60,16 +60,6 @@ function offeredTypes(options: Parameters<typeof buildRegistrySlashItems>[1]) {
   );
 }
 
-/**
- * T7 — registry-derived slash items + Notion gating for content's slash menu.
- *
- * Authorable registry specs become slash items that insert a `registryBlock`
- * atom seeded with a fresh id and inline `__raw` data. Builder preservation
- * formats remain registered for saved content but cannot be inserted without
- * their source sidecars.
- */
-
-/** A fake editor that records the last `insertContent` payload. */
 function fakeEditor() {
   let inserted: any = null;
   const chain = {
@@ -170,8 +160,6 @@ describe("buildRegistrySlashItems", () => {
     expect(inserted?.attrs?.blockType).toBe("code");
     expect(typeof inserted?.attrs?.blockId).toBe("string");
     expect(inserted?.attrs?.blockId.length).toBeGreaterThan(0);
-    // Seeded __raw is the inline MDX for the spec's empty() data, so the
-    // side-map's lazy getBlock hydrates it exactly like a saved block.
     expect(inserted?.attrs?.__raw).toContain("<Code");
     expect(inserted?.attrs?.__raw).toContain(inserted?.attrs?.blockId);
   });
@@ -205,12 +193,6 @@ describe("seedRegistryBlockRaw", () => {
     expect(seedRegistryBlockRaw(noEmpty as never, "x")).toBe("");
   });
 
-  // Regression: the `code` and `code-tabs` slash items were the only two
-  // block-placed specs with no `empty()` factory, so selecting either one
-  // stamped `__raw: ""` on the freshly inserted node. `RegistryBlockNodeView`
-  // can't hydrate an empty `__raw` (there is no element node to parse), so the
-  // block got stuck on "Loading code block…" — permanently, since the same
-  // empty `__raw` round-trips back on save/reload.
   it("seeds real MDX for the code block (not the stuck-loading empty string)", () => {
     const spec = contentBlockRegistry.get("code")!;
     const raw = seedRegistryBlockRaw(spec, "code-1");

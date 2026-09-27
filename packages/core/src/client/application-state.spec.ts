@@ -70,8 +70,6 @@ describe("client application-state helpers", () => {
     expect(navigation).toEqual({ view: "detail" });
     expect(selection).toEqual({ ids: ["a"] });
     expect(duplicate).toEqual({ view: "detail" });
-    // Absent keys still read as `null` through the single-key helper, matching
-    // the pre-batching contract.
     expect(url).toBeNull();
   });
 

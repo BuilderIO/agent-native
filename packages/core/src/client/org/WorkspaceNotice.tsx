@@ -22,25 +22,8 @@ function readDismissed(workspaceUrl: string): boolean {
   }
 }
 
-/**
- * Points a member at their org's own workspace when they've landed somewhere
- * else — typically a shared hosted app opened from the template catalog.
- *
- * The switcher shows the same org name on both deployments, so without this
- * the two are indistinguishable: the app looks like their team's, the team's
- * apps aren't in it, and the natural reading is a broken session rather than
- * a different host. Renders nothing unless an owner/admin has set a workspace
- * URL and the member is not already on it.
- *
- * Deliberately a choice, not a redirect. The shared hosted app is the real
- * product for most people, and some members of an org with a workspace still
- * want to be here.
- */
 export function WorkspaceNotice({ className }: { className?: string }) {
   const { data: org } = useOrg();
-  // Only re-renders after a click; the persisted answer is re-read below,
-  // because on every load this renders before the org query resolves and a
-  // value captured then would always be the pre-data default.
   const [dismissedNow, setDismissedNow] = useState(false);
   const workspaceUrl = org?.workspaceUrl ?? null;
 

@@ -48,11 +48,6 @@ export type PreviewAsset = {
   lineage?: { label?: string | null } | null;
 };
 
-/**
- * The single side-panel asset preview used everywhere an asset is opened:
- * large media on the left, details on the right, a top toolbar (download,
- * details toggle, close), and previous/next navigation across `assets`.
- */
 export function AssetPreviewDialog({
   asset,
   assets,
@@ -62,7 +57,6 @@ export function AssetPreviewDialog({
   asset: PreviewAsset | null;
   assets: PreviewAsset[];
   onAssetChange: (asset: PreviewAsset | null) => void;
-  /** Optional media renderer (e.g. an embed/COEP-aware image loader). */
   renderImage?: (asset: PreviewAsset) => ReactNode;
 }) {
   const t = useT();
@@ -103,8 +97,6 @@ export function AssetPreviewDialog({
               startDownload(downloadUrl);
               return;
             }
-            // Synthetic starter-preset assets aren't database rows, so
-            // export-asset can't resolve them; download the source directly.
             if (isStarterPreviewAsset(asset)) {
               const directUrl = assetPreviewSources(asset)[0];
               startDownload(directUrl);

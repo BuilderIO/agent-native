@@ -36,16 +36,9 @@ const SOURCE_EXTENSIONS = /\.(tsx|jsx)$/;
 const EXCLUDED_PATH =
   /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage)(\/|$)/;
 
-/**
- * `corpus` is intentionally NOT excluded: packages/core/corpus/templates/**
- * seeds new apps, so a shape that survives there ships to every app made later.
- */
 const RULES = [
   {
     id: "required-prose-prop",
-    // A component that types `description: string` cannot be rendered without
-    // prose — tsc demands the sentence, and no skill rewrite reaches a type
-    // error. Making it optional is the whole fix.
     pragma: "guard:allow-required-description",
     test: (line) =>
       /^\s*(eyebrow|kicker|description|subtitle|tagline|hint)\s*:\s*(string|ReactNode|React\.ReactNode)\s*;/.test(
@@ -55,10 +48,6 @@ const RULES = [
   },
   {
     id: "eyebrow",
-    // The uppercase micro-label ABOVE a heading. Position is the whole
-    // distinction: identical styling to the right of a heading is a column or
-    // status label, which nobody has complained about. Requiring the heading to
-    // follow is what keeps this off `UsageSection`'s "Spend".
     pragma: "guard:allow-eyebrow",
     multiline: true,
     re: /<(?:p|span|div)[^>]*className=\{?["'`][^"'`]*\buppercase\b[^"'`]*tracking-[^"'`]*text-muted-foreground[^"'`]*["'`][^>]*>[\s\S]{0,160}?<\/(?:p|span|div)>\s*<h[1-3]\b/g,
@@ -66,8 +55,6 @@ const RULES = [
   },
   {
     id: "empty-description-fallback",
-    // "No description yet." is chrome wearing a data field's clothes: it turns
-    // an empty column into a sentence on every row.
     pragma: "guard:allow-empty-copy-fallback",
     test: (line) =>
       /\|\|\s*["'`][^"'`]{0,60}\b(no description|none yet|not set|no summary|nothing here)\b/i.test(
@@ -77,14 +64,9 @@ const RULES = [
   },
   {
     id: "card-title-blurb",
-    // A muted paragraph directly under a CardTitle — the hand-rolled
-    // CardDescription. Guarding the component alone would inspect nothing,
-    // because this is how it is actually written here.
     pragma: "guard:allow-card-description",
     multiline: true,
     re: /<\/CardTitle>[\s\S]{0,240}?<p[^>]*className=\{?["'`][^"'`]*text-muted-foreground/g,
-    // Report the paragraph, not the CardTitle: the paragraph is the line the
-    // author added and the line they need to delete.
     anchorIn: (matched) => matched.lastIndexOf("<p"),
     why: "A card gets a title or a description, never both. Move the explanation to a tooltip or drop it.",
   },
@@ -114,8 +96,6 @@ function main() {
     try {
       source = readFileSync(absolutePath, "utf8");
     } catch {
-      // A path in the diff that cannot be read is not a clean file. Say so
-      // rather than counting it as checked.
       console.error(
         `guard-no-default-chrome: unreadable, skipped ${relativePath}`,
       );
@@ -134,9 +114,6 @@ function main() {
             source,
             start + (rule.anchorIn ? rule.anchorIn(match[0]) : 0),
           );
-          // A match spanning several lines counts if the branch added any of
-          // them — an author who adds only the blurb under an existing title
-          // has still added the blurb.
           const touched = [...addedLineNumbers].some(
             (n) =>
               n >= startLine &&
@@ -197,7 +174,6 @@ function main() {
   process.exit(1);
 }
 
-/** A pragma on the line above, or the two above it for wrapped JSX. */
 function hasPragma(lines, lineNumber, pragma) {
   for (let offset = 2; offset <= 3; offset += 1) {
     if ((lines[lineNumber - offset] ?? "").includes(pragma)) return true;

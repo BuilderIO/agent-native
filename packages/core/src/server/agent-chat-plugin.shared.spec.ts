@@ -305,10 +305,6 @@ describe("recurring jobs runtime startup", () => {
 });
 
 describe("scheduled trigger availability", () => {
-  // The whole reason this is not `!shouldDisableRecurringJobsRuntime`: that
-  // predicate is true on hosted Netlify, where schedules DO fire via the
-  // emitted scheduled function. Reusing it would report the one working
-  // production runtime as broken.
   it("reports hosted Netlify as working despite the in-process timer being off", () => {
     expect(
       shouldDisableRecurringJobsRuntime({
@@ -374,19 +370,12 @@ describe("scheduled trigger availability", () => {
     ).toEqual({ available: true, driver: "in-process" });
   });
 
-  // The regression: a pipeline that sets AGENT_NATIVE_DISABLE_RECURRING_JOBS for
-  // the BUILD only leaves no trace of it in the deployed env. Netlify's runtime
-  // markers still say "Netlify", so inferring the driver from them reported a
-  // working scheduler for a build that emitted no scheduled function at all —
-  // hiding the warning and showing future run dates for automations that can
-  // never fire.
   it("trusts the build marker over runtime-only Netlify markers", () => {
     expect(
       scheduledTriggerAvailability({
         NODE_ENV: "production",
         NETLIFY: "true",
         SITE_ID: "site-1",
-        // Set at build time, absent from the deployed runtime env.
         AGENT_NATIVE_BUILD_RECURRING_JOBS: "disabled",
       }),
     ).toEqual({ available: false, reason: "disabled-by-env" });
@@ -419,9 +408,6 @@ describe("scheduled trigger availability", () => {
     ).toEqual({ available: true, driver: "netlify-scheduled-function" });
   });
 
-  // In-process drivers are the opposite: `shouldDisableRecurringJobsRuntime`
-  // reads the runtime env before starting the timer, so a build marker cannot
-  // speak for this branch.
   it("keeps the runtime env authoritative for the in-process driver", () => {
     expect(
       scheduledTriggerAvailability({

@@ -154,9 +154,6 @@ export function runNudgeSelection(
   const dx = freeTranslation.kind === "translate" ? freeTranslation.dx : 0;
   const dy = freeTranslation.kind === "translate" ? freeTranslation.dy : 0;
 
-  // Screen frames nudge through the same geometry-commit path mouse-drag
-  // uses, so a held arrow key gets handleGeometryCommit's ~800ms undo
-  // coalescing instead of one history entry per keypress.
   if (
     viewModeRef.current === "overview" &&
     overviewSelectedScreenIds.length > 0 &&
@@ -200,9 +197,6 @@ export function runNudgeSelection(
     return;
   }
 
-  // Selecting in the layers tree fills selectedLayerTargets before the
-  // bridge round-trip fills selectedElement, so keying off the latter
-  // alone silently drops the first nudge after every tree selection.
   const nudgeTarget = resolveNudgeTarget(
     selectedElement,
     selectedLayerTargetsRef.current,
@@ -274,9 +268,6 @@ export function runNudgeSelection(
     );
     if (patch.result.status !== "applied") return;
     applyLocalContentUpdate(patch.content, { forcePreviewFullDocument: true });
-    // A node with no stable `data-agent-native-node-id` has its id derived
-    // from path/offset, and the move changes both — so the pre-move id
-    // finds nothing and the selection has to be re-resolved by identity.
     const movedNode =
       patch.projection.nodes.find(
         (node) =>

@@ -1,26 +1,3 @@
-/**
- * <AgendaCard /> — the Meetings tab's rolling agenda.
- *
- * Independent per-meeting cards, not a grid of tiles — see
- * `desktop/design-refs/granola-ux.md` §2. It is a Zoom-style rolling window
- * rather than a strict future list: `view=agenda` reaches 24h back, so the
- * calls you already had today stay on your day, with a "now" marker between
- * what has happened and what has not. Anything older falls out to the Past tab.
- *
- * Each meeting renders as its own bordered Card rather than a shared row
- * inside one frame — per @shawnmcclelland's review, the "now" marker only
- * reads cleanly as a divider when it sits between two independent elements;
- * inside a single shared card (our first pass) it visually collided with the
- * day-number column. That independence is also why the marker is confined to
- * a single day (see `nowMarkerIndex`): between the last meeting of a mostly-
- * finished day and the first of tomorrow is a day boundary, not a "now" — the
- * day header already marks that transition, so a second marker there just
- * reads as one more ambiguous boundary line (the "limbo" feel Shawn called
- * out from Zoom's own equivalent).
- *
- * Recording is a desktop gesture, so a row never offers a web "record" button
- * that cannot work; the imminent row offers Join and Open notes instead.
- */
 import { useT } from "@agent-native/core/client/i18n";
 import { IconExternalLink } from "@tabler/icons-react";
 import { Fragment } from "react";
@@ -47,12 +24,6 @@ export interface AgendaMeeting {
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
-/**
- * Whether a meeting has actually finished. Agenda intentionally keeps
- * already-ended meetings (see module doc), so "is this over" has to be its
- * own check — `relativeStartLabel`'s `soon` only looks at scheduledStart and
- * stays true for up to 2h after start regardless of whether the call ended.
- */
 export function meetingHasEnded(
   meeting: Pick<AgendaMeeting, "actualEnd" | "scheduledEnd" | "scheduledStart">,
   nowMs: number = Date.now(),
@@ -70,11 +41,6 @@ function formatTime(iso?: string | null): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-/**
- * Index of the first meeting that has not finished yet — where the "now"
- * marker goes. Returns -1 when every meeting is still ahead, so a day that
- * hasn't started yet doesn't get a marker pinned above its first row.
- */
 export function nowMarkerIndex(
   meetings: AgendaMeeting[],
   nowMs: number,
@@ -86,7 +52,6 @@ export function nowMarkerIndex(
   return firstUnfinished > 0 ? firstUnfinished : -1;
 }
 
-/** Human "now" / "in 5 min" / "in 2 hr" label for an upcoming row. */
 export function relativeStartLabel(
   iso: string,
   t: Translate,
@@ -119,9 +84,6 @@ function AgendaRow({ meeting }: { meeting: AgendaMeeting }) {
   const end = formatTime(meeting.scheduledEnd);
 
   return (
-    // Wraps rather than compressing: at ~375px the title, avatars and both
-    // buttons cannot share a line, and a nowrap row silently slides the
-    // buttons on top of the title instead of pushing them down.
     <Card className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
       <div className="flex min-w-0 flex-1 basis-48 items-center gap-3">
         <span
@@ -196,7 +158,6 @@ function AgendaRow({ meeting }: { meeting: AgendaMeeting }) {
   );
 }
 
-/** Zoom's orange current-time rule: what is behind you, and what is not. */
 function NowMarker() {
   const t = useT();
   return (
@@ -217,9 +178,6 @@ export function AgendaCard({ meetings }: { meetings: AgendaMeeting[] }) {
     (m) => m.scheduledStart,
     (a, b) => Date.parse(a.scheduledStart) - Date.parse(b.scheduledStart) || 0,
   );
-  // The marker is computed over the flat, already-sorted list, then matched
-  // back per day below — a day group cannot know how many meetings preceded
-  // it on its own.
   const markerIndex = nowMarkerIndex(meetings, Date.now());
 
   let flatIndex = 0;
@@ -228,12 +186,6 @@ export function AgendaCard({ meetings }: { meetings: AgendaMeeting[] }) {
       {days.map(([key, items]) => {
         const dayStartIndex = flatIndex;
         flatIndex += items.length;
-        // Restrict the marker to strictly within this day's own rows. At
-        // `dayStartIndex` exactly, the marker would fall right where the day
-        // header already sits — a day boundary, not a live current-time mark —
-        // so it renders as a second, redundant, ambiguous divider. See the
-        // module doc.
-        // Boolean expression, not a visible string.
         const withinThisDay =
           markerIndex > dayStartIndex && markerIndex < flatIndex; // i18n-ignore
         const dayMarkerIndex = withinThisDay ? markerIndex : -1;

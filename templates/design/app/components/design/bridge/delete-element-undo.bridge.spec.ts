@@ -3,17 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * GAP-DELETE-LIVE — a host-initiated delete on a live screen is now queued as
- * a pending live edit, so Cmd+Z must be able to take it back. Undo replays
- * through the SAME `visual-structure-ack` channel a drag-move uses, which
- * previously only knew how to revert a reorder or drop an insert: a delete's
- * ack found no pending entry and Cmd+Z silently did nothing.
- *
- * Runs the real generated bridge in a real browser, since the behaviour under
- * test is DOM identity — the restored node must be the ORIGINAL element, with
- * its listeners and children intact, back in its original slot.
- */
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
@@ -49,7 +38,6 @@ describe("delete-element / visual-structure-ack undo", () => {
         page.on("pageerror", (error) => pageErrors.push(error.message));
         await page.setContent(FIXTURE);
         await page.evaluate(() => {
-          // Identity probe: a re-parsed clone would not carry this listener.
           (window as Window & { __subjectProbes?: number }).__subjectProbes = 0;
           (
             window as Window & { __originalSubject?: Element }
@@ -109,8 +97,6 @@ describe("delete-element / visual-structure-ack undo", () => {
         );
         expect(await computedStyle("transition")).toBe("opacity 2s");
 
-        // The accepted move stays concealed until removal. Undo restores the
-        // original inline declaration, not the temporary editor-only mask.
         await page.evaluate(() => {
           window.postMessage(
             {
@@ -137,7 +123,6 @@ describe("delete-element / visual-structure-ack undo", () => {
           await page.locator('[data-agent-native-node-id="subject"]').count(),
         ).toBe(0);
 
-        // Cmd+Z on the pending live edit.
         const cancellation = await page.evaluate(
           () =>
             new Promise<{ sourcePresent: boolean }>((resolve) => {
@@ -284,7 +269,6 @@ describe("delete-element / visual-structure-ack undo", () => {
           ),
         ).toBe(1);
 
-        // Redo re-issues the delete under the same request id.
         await page.evaluate(() => {
           window.postMessage(
             {
@@ -300,9 +284,6 @@ describe("delete-element / visual-structure-ack undo", () => {
           await page.locator('[data-agent-native-node-id="subject"]').count(),
         ).toBe(0);
 
-        // Applying the pending edit to source acks applied:true — the node
-        // stays deleted and the entry is released, so a later stray ack for
-        // the same id cannot resurrect it.
         await page.evaluate(() => {
           window.postMessage(
             {

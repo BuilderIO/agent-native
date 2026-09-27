@@ -110,8 +110,6 @@ describe("automation run history", () => {
     expect(run.status).toBe("success");
   });
 
-  // The failure taxonomy already existed in code and survived only as English
-  // prose in a text column, so "how often are runs cut off?" was a LIKE.
   it("persists the failure code alongside the message", async () => {
     await finishAutomationRun(
       "run-1",
@@ -144,9 +142,6 @@ describe("automation run history", () => {
     expect(run.errorCode).toBe("background_automation_interrupted");
   });
 
-  // This is the framework's terminal hook for automations, and it fires from
-  // every path that records an outcome — the runner, the scheduler's dispatch
-  // failures, remote execution — not just the one the runner owns.
   it("announces the terminal outcome with its code and duration", async () => {
     const startedAt = Date.now() - 4_000;
     executeMock.mockResolvedValue({

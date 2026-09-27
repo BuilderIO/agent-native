@@ -1,7 +1,4 @@
 import { accessFilter } from "@agent-native/core/sharing";
-/**
- * Data access for bookings + their attendees, references, and notes.
- */
 import { eq, and, gte, lt, or, desc, asc, isNotNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -98,16 +95,9 @@ export interface ListBookingsFilter {
   eventTypeId?: string;
   status?: BookingStatus | "upcoming" | "past" | "unconfirmed" | "recurring";
   attendeeEmail?: string;
-  /** Inclusive start (ISO) */
   from?: string;
-  /** Exclusive end (ISO) */
   to?: string;
   limit?: number;
-  /**
-   * If true, admit any booking the current user owns, has been shared on, or
-   * matches via org-visibility — in addition to the explicit `hostEmail`
-   * filter (which still narrows further when set).
-   */
   useAccessFilter?: boolean;
 }
 

@@ -1,4 +1,3 @@
-/* Self-hosted via @fontsource-variable/inter — no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
@@ -8,7 +7,6 @@
 @source "./**/*.{ts,tsx}";
 
 :root {
-  /* Base */
   --background: 0 0% 13%;
   --foreground: 0 0% 98%;
 
@@ -18,39 +16,31 @@
   --popover: 0 0% 15%;
   --popover-foreground: 0 0% 98%;
 
-  /* Primary - White/Off-white for high contrast */
   --primary: 0 0% 98%;
   --primary-foreground: 0 0% 10%;
 
-  /* Secondary - Muted grays */
   --secondary: 0 0% 18%;
   --secondary-foreground: 0 0% 98%;
 
-  /* Muted - Subtle text */
   --muted: 0 0% 16%;
   --muted-foreground: 0 0% 64.9%;
 
-  /* Accent - Subtle interactive elements */
   --accent: 0 0% 18%;
   --accent-foreground: 0 0% 98%;
 
-  /* Destructive - bright enough for text on dark surfaces */
   --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 98%;
 
-  /* Borders - Subtle and thin */
   --border: 0 0% 24%;
   --input: 0 0% 24%;
   --ring: 0 0% 83.9%;
 
-  /* Charts */
   --chart-1: 220 70% 50%;
   --chart-2: 160 60% 45%;
   --chart-3: 30 80% 55%;
   --chart-4: 280 65% 60%;
   --chart-5: 340 75% 55%;
 
-  /* Brand colors — bright stops from the agent-native gradient, suited to dark backgrounds */
   --brand-blue: #00b5ff;
   --brand-green: #22c55e;
   --brand-orange: #f59e0b;
@@ -60,10 +50,8 @@
 
   --radius: 0.5rem;
 
-  /* Table header - solid card color for sticky headers */
   --table-header: 0 0% 15%;
 
-  /* Sidebar */
   --sidebar-background: 0 0% 10%;
   --sidebar-foreground: 0 0% 95.9%;
   --sidebar-primary: 224.3 76.3% 48%;
@@ -92,7 +80,7 @@
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 90%;
-  --table-header: 0 0% 100%; /* Same as card for light mode */
+  --table-header: 0 0% 100%;
   --input: 0 0% 90%;
   --ring: 0 0% 10%;
   --chart-1: 220 70% 50%;
@@ -101,7 +89,6 @@
   --chart-4: 280 65% 60%;
   --chart-5: 340 75% 55%;
 
-  /* Brand colors — darker variants for readability on white */
   --brand-blue: #0284c7;
   --brand-green: #16a34a;
   --brand-orange: #d97706;
@@ -127,12 +114,10 @@
       "calt" 1;
   }
 
-  /* Glass effect utility */
   .glass {
     @apply bg-background/80 backdrop-blur-sm border-b border-border;
   }
 
-  /* Lighten Recharts grid lines in light mode */
   .light .recharts-cartesian-grid line {
     stroke: #d4d4d8 !important;
   }
@@ -240,17 +225,9 @@
   transform-origin: top left;
 }
 
-/* INTENTIONAL — DO NOT REMOVE OR REPLACE WITH rrweb's STOCK CURSOR.
-   The recorded visitor cursor is a core session-replay affordance: users need
-   to see the Mac-style arrow where the visitor clicked, including on dark
-   recordings. rrweb's bundled cursor is a small black sprite that disappears
-   against those pages. Use the normal black Mac cursor with its white outline;
-   the small shadow below keeps it legible on either background. */
 .an-replay-stage-root .replayer-mouse {
   position: absolute;
   z-index: 2;
-  /* Render at 2x locally, then downscale to the compact 0.72rem x 0.96rem
-     screen size. This keeps the small cursor's rounded outline smooth. */
   width: 1.44rem;
   height: 1.92rem;
   border-radius: 0;
@@ -258,8 +235,6 @@
   background-image: none;
   box-shadow: none;
   visibility: hidden;
-  /* The stage is fit-to-container, but the recorded cursor should stay at a
-     normal on-screen size. The stage supplies the inverse scale variable. */
   transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5));
   transform-origin: top left;
   transition:
@@ -293,7 +268,6 @@
   opacity: 0;
 }
 
-/* rrweb toggles `.active` on mouse interactions; pulse a click ripple. */
 .an-replay-stage-root .replayer-mouse.active::after {
   animation: an-replay-mouse-click 0.4s ease-out 1;
 }
@@ -351,8 +325,6 @@
   opacity: 0.55;
 }
 
-/* Keep the playhead visually distinct from red console-error marker dots on
-   the scrubber track — those markers used to look like a second thumb. */
 .an-replay-scrub::-webkit-slider-thumb {
   width: 0.875rem;
   height: 0.875rem;
@@ -438,8 +410,6 @@
   }
 }
 
-/* The data source page responds to its pane width instead of the viewport.
-   That keeps the compact/mobile layout when sidebars narrow the content area. */
 .data-sources-layout {
   container: data-sources / inline-size;
 }
@@ -634,9 +604,6 @@
   }
 }
 
-/* The dashboard grid responds to the available content width — which shrinks
-   when the agent sidebar is open — not the viewport. Rows are rendered
-   explicitly so deleting a card only expands the remaining cards in that row. */
 .dashboard-grid-container {
   --dashboard-drop-line: hsl(217 91% 60%);
   container: dashboard-grid / inline-size;
@@ -673,9 +640,6 @@
   margin-block: -0.75rem;
 }
 
-/* At compact widths, panels from the same dashboard row stack vertically.
-   Give the drop targets between those panels the same 1rem footprint as the
-   row drop targets so every adjacent chart has consistent spacing. */
 @container dashboard-grid (max-width: 767px) {
   .dashboard-grid
     > .dashboard-column-drop-slot:not(:first-child):not(:last-child) {

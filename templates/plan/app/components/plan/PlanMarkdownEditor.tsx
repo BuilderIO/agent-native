@@ -22,21 +22,10 @@ import { cn } from "@/lib/utils";
 
 import { PlanImageNode } from "./PlanImageNode";
 
-// Plans get the shared block-level image node: the `/image` slash command, plus
-// paste / drag-drop of image files. Each image uploads through the framework
-// `upload-image` action (`uploadEditorImage`) and is inserted as a standard
-// `![alt](url)` markdown image, so it autosaves through the existing
-// `update-rich-text` path and stays source-syncable.
-// `features.image` is off because `PlanImageNode` (injected below) IS the image
-// node — it extends the shared node with a React node view that adds the hover
-// zoom / lightbox / three-dots menu. Enabling the core image node too would
-// register a second `image` node and collide.
 const PLAN_EDITOR_FEATURES = { image: false } as const;
 const SAVE_DEBOUNCE_MS = 700;
 const SAVE_RETRY_MS = 120;
 
-// Stable per-tab request source so this client ignores its own collab updates
-// echoing back through the poll ring buffer.
 const TAB_ID = generateTabId();
 
 type PlanMarkdownEditorProps = {
@@ -46,14 +35,6 @@ type PlanMarkdownEditorProps = {
   className?: string;
   ariaLabel?: string;
   contentUpdatedAt?: string | null;
-  /**
-   * When both `planId` and `blockId` are present, prose for this block is edited
-   * collaboratively against a shared Y.Doc keyed `plan:${planId}:${blockId}`.
-   * Markdown still autosaves through `onSave` (the `update-rich-text` patch), so
-   * the canonical content in `plans.content` is unchanged. When absent (public
-   * read, SSR, or missing session) the editor falls back to today's controlled
-   * single-user editing.
-   */
   planId?: string | null;
   blockId?: string | null;
   user?: RichMarkdownCollabUser | null;
@@ -89,9 +70,6 @@ export function PlanMarkdownEditor({
 
   onSaveRef.current = onSave;
 
-  // Gate collab on an editable block with a real plan/block id and a known user
-  // with an email (cursors need a stable label + identity). Anything missing
-  // keeps the non-collab single-user path.
   const collabUser: CollabUser | null =
     user && user.email
       ? { name: user.name, email: user.email, color: user.color }
