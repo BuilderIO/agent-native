@@ -145,12 +145,12 @@ function FirstRunOnboardingStartupLoading({
 }) {
   return (
     <div
+      role="status"
+      aria-label="Loading application"
       data-first-run-startup-loading="true"
-      aria-busy="true"
-      inert
       className="fixed inset-0 z-[110] bg-background"
     >
-      {fallback}
+      <div inert>{fallback}</div>
     </div>
   );
 }
