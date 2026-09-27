@@ -20,7 +20,6 @@ import {
 } from "../ui/dropdown-menu.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
-import { ComposerContextMenuSearch } from "./ComposerContextMenuSearch.js";
 import {
   ComposerContextPicker,
   type ComposerContextPickerConfig,
@@ -190,37 +189,6 @@ function ContextSubmenu({
   );
 }
 
-function ContextMenuPanel({
-  placeholder,
-  children,
-}: {
-  placeholder: string;
-  children: (query: string) => ReactNode;
-}) {
-  const [query, setQuery] = useState("");
-  return (
-    <>
-      <ComposerContextMenuSearch
-        placeholder={placeholder}
-        value={query}
-        onValueChange={setQuery}
-      />
-      {children(query)}
-    </>
-  );
-}
-
-function matchesEntry(entry: ComposerContextMenuItem, query: string): boolean {
-  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  const text = [entry.label, ...(entry.keywords ?? [])]
-    .join(" ")
-    .toLocaleLowerCase();
-  return (
-    terms.every((term) => text.includes(term)) ||
-    Boolean(entry.children?.some((child) => matchesEntry(child, query)))
-  );
-}
-
 function LegacyContextPage({ children }: { children: ReactNode }) {
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -275,9 +243,6 @@ export function ComposerContextMenu({
   const restoreFocusOnClose = useRef(true);
   const label = t("agentChat.composer.addContext", {
     defaultValue: "Add context",
-  });
-  const searchContext = t("agentChat.composer.searchContext", {
-    defaultValue: "Search context…",
   });
   const uploadLabel = t("agentChat.composer.menu.uploadFile", {
     defaultValue: "Upload File",
@@ -401,18 +366,7 @@ export function ComposerContextMenu({
               }}
             >
               {entry.children ? (
-                <ContextMenuPanel
-                  placeholder={entry.searchPlaceholder ?? searchContext}
-                >
-                  {(query) =>
-                    renderEntries(
-                      entry.children.filter((child) =>
-                        matchesEntry(child, query),
-                      ),
-                      branch,
-                    )
-                  }
-                </ContextMenuPanel>
+                renderEntries(entry.children, branch)
               ) : entry.picker ? (
                 <ComposerContextPicker
                   key={JSON.stringify([entry.id, entry.picker.scopeKey])}
@@ -524,65 +478,41 @@ export function ComposerContextMenu({
             restoreFocusOnClose.current = true;
           }}
         >
-          <ContextMenuPanel
-            placeholder={t("agentChat.composer.menu.search", {
-              defaultValue: "Search…",
-            })}
-          >
-            {(query) => (
-              <DropdownMenuGroup>
-                {(addAttachment || onAttachmentRequest) &&
-                  uploadLabel
-                    .toLocaleLowerCase()
-                    .includes(query.trim().toLocaleLowerCase()) && (
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        changeOpen(false);
-                        if (addAttachment) inputRef.current?.click();
-                        else
-                          onAttachmentRequest?.(
-                            event.currentTarget instanceof HTMLElement
-                              ? event.currentTarget
-                              : undefined,
-                          );
-                      }}
-                    >
-                      <IconFile size={16} />
-                      {uploadLabel}
-                    </DropdownMenuItem>
-                  )}
-                {items.length > 0 &&
-                  (label
-                    .toLocaleLowerCase()
-                    .includes(query.trim().toLocaleLowerCase()) ||
-                    items.some((item) => matchesEntry(item, query))) && (
-                    <ContextSubmenu
-                      label={label}
-                      icon={<IconTextRecognition size={16} />}
-                      open={contextOpen}
-                      onOpenChange={(next) => {
-                        setContextOpen(next);
-                        if (!next) {
-                          dismissPage();
-                          updatePath([]);
-                        }
-                      }}
-                    >
-                      <ContextMenuPanel placeholder={searchContext}>
-                        {(contextQuery) =>
-                          renderEntries(
-                            items.filter((item) =>
-                              matchesEntry(item, contextQuery),
-                            ),
-                            [],
-                          )
-                        }
-                      </ContextMenuPanel>
-                    </ContextSubmenu>
-                  )}
-              </DropdownMenuGroup>
+          <DropdownMenuGroup>
+            {(addAttachment || onAttachmentRequest) && (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  changeOpen(false);
+                  if (addAttachment) inputRef.current?.click();
+                  else
+                    onAttachmentRequest?.(
+                      event.currentTarget instanceof HTMLElement
+                        ? event.currentTarget
+                        : undefined,
+                    );
+                }}
+              >
+                <IconFile size={16} />
+                {uploadLabel}
+              </DropdownMenuItem>
             )}
-          </ContextMenuPanel>
+            {items.length > 0 ? (
+              <ContextSubmenu
+                label={label}
+                icon={<IconTextRecognition size={16} />}
+                open={contextOpen}
+                onOpenChange={(next) => {
+                  setContextOpen(next);
+                  if (!next) {
+                    dismissPage();
+                    updatePath([]);
+                  }
+                }}
+              >
+                {renderEntries(items, [])}
+              </ContextSubmenu>
+            ) : null}
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
       {dialog &&

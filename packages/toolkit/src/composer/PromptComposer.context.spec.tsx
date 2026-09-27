@@ -44,7 +44,7 @@ describe("controlled composer context", () => {
       ),
     );
     const menu = document.querySelector('[role="menu"]')!;
-    expect(menu.querySelector('[role="searchbox"]')).not.toBeNull();
+    expect(menu.querySelector('[role="searchbox"]')).toBeNull();
     expect(menu.textContent).toBe("Upload File");
     await act(async () =>
       document.dispatchEvent(

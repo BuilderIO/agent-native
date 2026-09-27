@@ -817,6 +817,11 @@ const messages = {
     chooseAnotherFile: "別のファイルを選択",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "製品のピッチ資料を作成",
+      roadmap: "製品ロードマップを作成",
+      explainer: "プレゼンでテーマを説明",
+    },
     suggestedPrompts: "おすすめのプロンプト",
     importMenu: {
       import: "インポート",

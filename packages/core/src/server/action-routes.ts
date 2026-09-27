@@ -98,6 +98,8 @@ function currentBuildId(): string {
 import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
+  getRequestIdentityAuthenticatedAtMs,
+  getRequestIdentitySessionToken,
   hasExplicitPersonalOrgScope,
   markExplicitPersonalOrgScope,
   runWithRequestContext,
@@ -551,6 +553,7 @@ function mountActionRoutesInternal(
     app.use(
       routePath,
       defineEventHandler(async (event) => {
+        const requestAuthenticationStartedAtMs = Date.now();
         setHttpRequestTelemetryActionName(event, name, routeTemplate);
         const reqMethod = getMethod(event);
         const effectiveMethod =
@@ -797,10 +800,21 @@ function mountActionRoutesInternal(
           typeof event.req?.waitUntil === "function"
             ? event.req.waitUntil.bind(event.req)
             : undefined;
+        const identityAuthenticatedAtMs = userEmail
+          ? (getRequestIdentityAuthenticatedAtMs(event, userEmail) ??
+            requestAuthenticationStartedAtMs)
+          : undefined;
+        const identitySessionToken = userEmail
+          ? getRequestIdentitySessionToken(event, userEmail)
+          : undefined;
 
         return runWithRequestContext(
           {
             userEmail,
+            ...(identityAuthenticatedAtMs !== undefined
+              ? { identityAuthenticatedAtMs }
+              : {}),
+            ...(identitySessionToken ? { identitySessionToken } : {}),
             ...(authUserId ? { authUserId } : {}),
             userName,
             orgId,

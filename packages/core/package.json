@@ -157,6 +157,7 @@
     "./client/route-chunk-recovery": "./dist/client/route-chunk-recovery/index.js",
     "./client/lazy-chunk-error-boundary": "./dist/client/lazy-chunk-error-boundary.js",
     "./client/lazy-chunk-retry-fallback": "./dist/client/lazy-chunk-retry-fallback.js",
+    "./client/secrets": "./dist/client/secrets.js",
     "./client/settings": "./dist/client/settings/index.js",
     "./client/use-db-sync": "./dist/client/use-db-sync.js",
     "./client/zoom-gesture": "./dist/client/zoom-gesture.js",
