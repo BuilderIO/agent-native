@@ -556,7 +556,7 @@ export function RecordingPill() {
     setCompletionActionError(null);
     setCompletionActionBusy(false);
     const stopDispatch = (async () => {
-      await safeInvoke("set_toolbar_finishing", { hold: true });
+      if (hasTauri) await invoke("set_toolbar_finishing", { hold: true });
       await safeEmit("clips:recorder-stop");
     })();
     stopDispatchRef.current = stopDispatch;

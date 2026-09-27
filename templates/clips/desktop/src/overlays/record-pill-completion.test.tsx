@@ -155,6 +155,18 @@ describe("completion card actions", () => {
     );
   }
 
+  async function renderTauriPill() {
+    await act(async () => root.unmount());
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    vi.resetModules();
+    const { RecordingPill } = await import("./record-pill");
+    root = createRoot(host);
+    await act(async () => root.render(<RecordingPill />));
+  }
+
   it.each([false, true])(
     "dismisses after Open succeeds (uploaded=%s)",
     async (uploaded) => {
@@ -243,15 +255,7 @@ describe("completion card actions", () => {
   });
 
   it("shows Copy and Open after the recording shortcut reaches the pill", async () => {
-    await act(async () => root.unmount());
-    Object.defineProperty(window, "__TAURI_INTERNALS__", {
-      configurable: true,
-      value: {},
-    });
-    vi.resetModules();
-    const { RecordingPill } = await import("./record-pill");
-    root = createRoot(host);
-    await act(async () => root.render(<RecordingPill />));
+    await renderTauriPill();
     expect("__TAURI_INTERNALS__" in window).toBe(true);
     expect(tauriEvents.listeners.has("clips:tray-stop-request")).toBe(true);
 
@@ -300,5 +304,85 @@ describe("completion card actions", () => {
       tauriEvents.emit("clips:tray-stop-request", undefined),
     );
     expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover", undefined);
+  });
+
+  it("shows Copy and Open when direct shortcut fallback reaches the pill", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+
+    const { requestRecordingShortcutStop } =
+      await import("../lib/recording-shortcut-stop");
+    let outcome;
+    await act(async () => {
+      outcome = await requestRecordingShortcutStop();
+    });
+    expect(outcome).toEqual({
+      type: "direct",
+      reason: "acknowledgement-listener-not-registered",
+    });
+    await act(async () => {
+      await tauriEvents.emit("clips:native-upload-finished", {
+        recordingId: "example-clip",
+        ok: true,
+        viewUrl: url,
+      });
+    });
+
+    expect(host.textContent).toContain("Recording saved");
+    expect(button("Copy")).toBeDefined();
+    expect(button("Open")).toBeDefined();
+    const fallbackRequest = tauriEvents.emit.mock.calls.findIndex(
+      ([event, payload]) =>
+        event === "clips:tray-stop-request" && payload === undefined,
+    );
+    const recorderStop = tauriEvents.emit.mock.calls.findIndex(
+      ([event]) => event === "clips:recorder-stop",
+    );
+    expect(fallbackRequest).toBeGreaterThanOrEqual(0);
+    expect(fallbackRequest).toBeLessThan(recorderStop);
+  });
+
+  it("does not acknowledge a shortcut when the finishing hold fails", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    tauriCore.invoke.mockRejectedValueOnce(new Error("hold unavailable"));
+    const { listenForRecordingShortcutStopAcks, requestRecordingShortcutStop } =
+      await import("../lib/recording-shortcut-stop");
+    const unlistenAcks = await listenForRecordingShortcutStopAcks();
+    let outcome;
+    const stopRequest = requestRecordingShortcutStop();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+      outcome = await stopRequest;
+    });
+    unlistenAcks();
+
+    expect(outcome).toEqual({
+      type: "direct",
+      reason: "pill-did-not-acknowledge",
+    });
+    expect(tauriEvents.emit).not.toHaveBeenCalledWith(
+      "clips:tray-stop-ack",
+      expect.anything(),
+    );
+    expect(tauriCore.invoke).toHaveBeenCalledWith("set_toolbar_finishing", {
+      hold: true,
+    });
+    expect(log).toHaveBeenCalled();
   });
 });
