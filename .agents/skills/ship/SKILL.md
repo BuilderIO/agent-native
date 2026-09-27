@@ -290,10 +290,12 @@ because the PR is behind, checks are pending, or mergeability is UNKNOWN.
 
 If /review-latest-feedback was used, carry its start cursor, grouped reports,
 evidence links, and disposition table into the ship ledger and PR recap.
-Follow review-latest-feedback for ownership, reactions, reporter replies, and
-the exact disposition vocabulary; follow babysit-pr for review comments and
-merge blocking. Do not send Slack replies or reactions as a routine ship step
-unless that workflow was explicitly requested or already owns the action.
+Follow review-latest-feedback for ownership, claims, reporter replies, and the
+exact disposition vocabulary; follow babysit-pr for review comments and merge
+blocking. Shipping does not independently change Slack reactions. Keep the
+feedback workflow's `👀` claim in place; add `✅` only for verified fixes. Do
+not send Slack replies or reactions as a routine ship step unless that workflow
+was explicitly requested or already owns the action.
 Start any such Slack feedback reply by thanking the person for sharing the
 issue, then give the status or ask the needed question. This does not widen the
 existing write authorization.

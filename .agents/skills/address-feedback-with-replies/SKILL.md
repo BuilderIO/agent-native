@@ -40,27 +40,23 @@ Even when invoked alone, this workflow asks at most three new clarification
 questions per run across all threads, ranked by which answer would unblock a
 safe fix.
 
-If this workflow earlier added `👀` to an out-of-scope item, release that claim
-with `:no_entry_sign:` when reactions are available. Do not investigate it as a
-compensating question, or post a new reply. If this workflow already posted a
+If this workflow earlier added `👀` before recognizing an item was out of
+scope, keep our eye and add no other reaction. Do not investigate it as a
+compensating question or post a new reply. If this workflow already posted a
 mistaken reply, delete that reply when safe; otherwise edit it to one brief
-`Skipped` disposition. If the connector cannot add the release marker, record
-the exact parent for manual cleanup and leave the thread otherwise untouched.
+`Skipped` disposition.
 New messages must pass the clear-bug gate before any external write.
 
-Use the disposition-specific release contract from `review-latest-feedback`:
-`✅` is only for verified **Fixed**, **Shipped**, or **Live verified**;
-`:no_entry_sign:` means triage complete, not fixed. On reopen or re-claim,
-remove this workflow's stale marker before adding `👀`. If removal is
-unavailable, use full reaction-aware enumeration, do not place `👀` beside the
-stale marker, and claim only after cleanup.
+Use the disposition-specific reaction contract from `review-latest-feedback`:
+`✅` is only for verified **Fixed**, **Shipped**, or **Live verified**. Other
+terminal dispositions keep `👀` without `✅`. Never remove Slack reactions.
 
-Every eye enters the ledger; it marks active investigation or a fix, not
-completion. Follow `review-latest-feedback` for ownership: claim before code
-investigation and remove it while reporter input blocks work or when no safe
-fix exists. Before finishing, re-read each claim and record its reply or
-disposition. A reply or source change never means **Fixed**; terminal states
-need their release marker. Preserve foreign eyes and clean up mistaken claims.
+Every eye enters the ledger; it marks a claimed report and remains after work
+is blocked or terminal. Follow `review-latest-feedback` for ownership: claim
+before code investigation and keep the eye while reporter input blocks work or
+when no safe fix exists. Before finishing, re-read each claim and record its
+reply or disposition. A reply or source change never means **Fixed**; add `✅`
+only for verified fixes. Preserve foreign eyes.
 
 ## Prerequisites
 
@@ -134,14 +130,14 @@ cause, reply once and record the rest as clustered.
 A tracked clear bug or authorized upvoted improvement receives at most one
 disposition per run. **Verified locally**, **Built - live unverified**,
 **Deployed - live unverified**, **Not reproducible - attempted**, and **In
-progress** retain the eye only while investigation or fix work is active.
-**Asked**, **Clarification needed**, and **Blocked on reporter** carry no eye.
+progress** retain `👀` after the report has been claimed.
+**Asked**, **Clarification needed**, and **Blocked on reporter** retain `👀`
+after the report has been claimed.
 Terminal dispositions: **Fixed**, **Shipped**,
 **Live verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
 **Clustered**, and **Abandoned - no answer in 4 days**, each with required
-evidence and a release marker. An already-eyed out-of-scope item gets a
-`:no_entry_sign:` release marker and no new
-reply; if
+evidence and `👀`; add `✅` only for verified fixes. An already-eyed
+out-of-scope item keeps our eye and gets no new reply; if
 this workflow already replied, delete that reply when safe or edit it to one
 concise **Skipped** disposition. **Fixed** closes the issue after a verified
 source fix merges; publication, beta, and live verification follow separately.
@@ -154,9 +150,9 @@ must revisit **In progress** and resolve it to **Fixed**, **Clarification
 needed**, or evidence-backed **Open - no reply** when no safe fix or
 reproduction remains. `Blocked`, `not fixed yet`, `still needs a fix`, and
 similar phrases are internal notes, never a complete Slack reply. **Open - no
-reply** is terminal only after releasing the eye with `:no_entry_sign:`. If a reply
-does not say the fix is complete, acknowledge concrete existing ownership, or
-ask what is needed to fix it, do not post it. These are ledger states, not
+reply** is terminal with our eye retained and no checkmark. If a
+reply does not say the fix is complete, acknowledge concrete existing
+ownership, or ask what is needed to fix it, do not post it. These are ledger states, not
 mandatory headings: keep the reporter-facing wording natural instead of
 opening with the robotic phrase “Clarification needed”. A substantive
 diagnosis, fix, or in-progress ownership statement from someone in the thread
@@ -166,15 +162,15 @@ handoff first.
 **Clarification needed** is an open state, not a completed product fix. Asking
 the question creates a standing obligation to come back for the answer. It is
 the invoking identity's open disposition for the current cursor, not a terminal
-closure; remove the eye while waiting. The next
+closure; keep the eye while waiting. The next
 `review-latest-feedback` run must re-read every thread it previously asked in
 before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
 
-That obligation expires after four days, standalone runs included: release the
-`👀` with `:no_entry_sign:`, post nothing, and record the terminal **Abandoned - no answer in
-4 days**. An expired thread keeps no open eye and owes no reply. Carry the underlying bug
-forward with no reporter dependency.
+That obligation expires after four days, standalone runs included: keep our
+`👀`, add no reaction, post nothing, and record the terminal **Abandoned - no
+answer in 4 days**. The thread keeps its eye and owes no reply. Carry the
+underlying bug forward with no reporter dependency.
 
 **In progress** is also an open state. It records that the thread already has
 real ownership or an active fix, so the invoking identity must not ask the
@@ -265,8 +261,8 @@ non-repeating question only if one specific required detail still blocks it.
    invoking-user reply timestamp, disposition, and eye state. Use the states in
    the contract above, with a reason; silent terminal states have no timestamp.
    Record **Owned elsewhere** for a foreign eye without mutating it. Record
-   out-of-scope and non-owning **Clustered** rows with a `:no_entry_sign:` release marker and
-   no reply. Do not create questions for out-of-scope items.
+   out-of-scope and non-owning **Clustered** rows with our eye retained and no
+   added reaction or reply. Do not create questions for out-of-scope items.
    If any participant replies after the post, re-read the entire thread again
    before deciding whether to fix, close, or ask anything else.
 7. If any participant supplies the requested detail or an explicit resolution,
@@ -334,8 +330,8 @@ identity:
   accessible source, and never write “not fixed yet” without a real question
   that unblocks the fix. If a linked source is inaccessible, ask for access or
   a fresh/replacement link instead of requesting its contents again. If no
-  reporter detail would unblock the work, release the `👀` with `:no_entry_sign:`, record
-  **Open - no reply**, and post nothing.
+  reporter detail would unblock the work, keep our `👀`, add no reaction,
+  record **Open - no reply**, and post nothing.
 - When a request ID would help, make the path easy and optional: “at the end of
   the chat, hit the three dots and share the request ID if that option is
   available.” Pair it with the useful surface link when one exists, such as a
@@ -344,8 +340,9 @@ identity:
 - Before finishing the sweep, search every reply authored in that sweep for
   vague unresolved wording and edit or remove it. Re-read the affected threads
   after each edit. Check that skipped subjective/product/policy items still
-  have no open eye (`👀` without this workflow's release marker) and no reply from the
-  invoking identity. A claimed-and-released item may retain both reactions.
+  were not claimed and have no reply from the invoking identity. If an item was
+  already claimed before being skipped, preserve its eye. Add `✅` only for a
+  verified fix.
 
 A useful reply shape is:
 

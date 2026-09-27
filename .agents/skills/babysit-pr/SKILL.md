@@ -204,12 +204,12 @@ results at 100, so record bounded coverage and do not claim exhaustive newness.
 A new actionable report resets the soak timer and must reach either
 a verified **Fixed** or **Shipped** result with a concise reply and `✅`, a
 verified **Live verified** result with `✅` (reply only when informative), or a
-non-fixed terminal ledger disposition with its marker before merge (`✅` only
-for **Fixed**, **Shipped**, or **Live verified**; `:done:` means triage is
-complete, not that the bug is fixed). An active/evidence-limited disposition, an eye-only item,
-or a reply without one of those outcomes blocks merge.
-Evidence-limited or active dispositions retain the workflow's eye until
-resolved; they are not terminal closure. Silent terminal
+non-fixed terminal ledger disposition with its existing `👀` before merge
+(`✅` only for **Fixed**, **Shipped**, or **Live verified**). An
+active/evidence-limited disposition or a reply without one of those outcomes
+blocks merge; the eye remains on every claimed item.
+Evidence-limited or active dispositions retain the workflow's eye; it remains
+after resolution. Silent terminal
 states need no reply. If a connector is unavailable, record it as unavailable
 in the recap rather than treating it as no findings.
 
