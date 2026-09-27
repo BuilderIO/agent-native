@@ -3009,10 +3009,12 @@ function AgentKitComposerSurface({
   useEffect(() => {
     if (fileStorageConfigured) setFileStoragePromptOpen(false);
   }, [fileStorageConfigured]);
-  const requestFileStorage = useCallback(
-    () => setFileStoragePromptOpen(true),
-    [],
-  );
+  const requestFileStorage = useCallback(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setFileStoragePromptOpen(true);
+  }, []);
   const thread = useAgentThread(threadId);
   const latestAssistant = [...thread.messages]
     .reverse()

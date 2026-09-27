@@ -63,6 +63,9 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
   }
 
   const title = t("onboarding.fileStorage.title");
+  // ponytail: wide home composers open left; add an explicit placement prop if a wide sidebar needs another side.
+  const useLeftSide =
+    (anchorRef?.current?.getBoundingClientRect().width ?? 0) >= 500;
 
   return (
     <Popover
@@ -73,14 +76,25 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
     >
       <PopoverAnchor virtualRef={virtualAnchorRef} />
       <PopoverContent
-        side="bottom"
-        align="center"
+        side={useLeftSide ? "left" : "top"}
+        align={useLeftSide ? "end" : "center"}
+        sideOffset={useLeftSide ? 8 : 4}
+        onOpenAutoFocus={(event) => {
+          const content = event.currentTarget;
+          if (!(content instanceof HTMLElement)) return;
+          const firstAction = content.querySelector<HTMLButtonElement>(
+            "button:not(:disabled)",
+          );
+          if (!firstAction) return;
+          event.preventDefault();
+          firstAction.focus();
+        }}
         aria-label={
           status === "unavailable"
             ? t("onboarding.fileStorage.statusUnavailable")
             : title
         }
-        className="w-72 gap-2 p-3"
+        className="w-[272px] gap-2 p-3"
       >
         {status === "unavailable" ? (
           <div className="flex items-center justify-between gap-3">
