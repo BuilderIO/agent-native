@@ -92,7 +92,7 @@ export async function executeAction(
   try {
     switch (action.type) {
       case "notify": {
-        await notify(
+        const notification = await notify(
           {
             severity: "info",
             channels: ["inbox"],
@@ -107,6 +107,9 @@ export async function executeAction(
           },
           { owner: ctx.ownerEmail },
         );
+        if (!notification) {
+          throw new Error("Mail notification was not persisted.");
+        }
         return { success: true };
       }
       case "label": {

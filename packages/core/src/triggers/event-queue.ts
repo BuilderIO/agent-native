@@ -10,6 +10,10 @@ const COMPLETED_PAYLOAD = '{"kind":"completed"}';
 const UNIQUE_INDEX = "idx_automation_trigger_event_queue_dedupe";
 const ORDER_INDEX = "idx_automation_trigger_event_queue_order";
 const READY_INDEX = "idx_automation_trigger_event_queue_ready";
+const COMPLETED_INDEX = "idx_automation_trigger_event_queue_completed";
+export const AUTOMATION_TRIGGER_EVENT_DEDUPE_RETENTION_MS =
+  7 * 24 * 60 * 60_000;
+export const AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE = 1_000;
 const CLAIM_LEASE_MS = () =>
   Math.ceil(resolveBackgroundRunHardTimeoutMs() * 1.5);
 
@@ -44,7 +48,9 @@ export const AUTOMATION_TRIGGER_EVENT_MIGRATIONS: MigrationEntry[] = [
       CREATE INDEX IF NOT EXISTS ${ORDER_INDEX}
         ON ${TABLE} (trigger_id, sequence_id, status);
       CREATE INDEX IF NOT EXISTS ${READY_INDEX}
-        ON ${TABLE} (app_id, status, available_at, claimed_at)`,
+        ON ${TABLE} (app_id, status, available_at, claimed_at);
+      CREATE INDEX IF NOT EXISTS ${COMPLETED_INDEX}
+        ON ${TABLE} (completed_at) WHERE status = 'completed'`,
   },
 ];
 
@@ -76,6 +82,11 @@ export async function ensureAutomationTriggerEventQueue(): Promise<void> {
         READY_INDEX,
         `CREATE INDEX IF NOT EXISTS ${READY_INDEX}
           ON ${TABLE} (app_id, status, available_at, claimed_at)`,
+      );
+      await ensureIndexExists(
+        COMPLETED_INDEX,
+        `CREATE INDEX IF NOT EXISTS ${COMPLETED_INDEX}
+          ON ${TABLE} (completed_at) WHERE status = 'completed'`,
       );
     })().catch((error) => {
       _initPromise = undefined;
@@ -110,11 +121,15 @@ export interface QueuedAutomationTriggerEvent {
   eventOwner?: string;
   emittedAt: string;
   attempts: number;
+  claimedAt: number;
 }
 
 function rowToEvent(
   row: Record<string, unknown>,
 ): QueuedAutomationTriggerEvent {
+  if (row.claimed_at == null || !Number.isFinite(Number(row.claimed_at))) {
+    throw new Error("Claimed automation event is missing its lease timestamp.");
+  }
   let payload: unknown;
   try {
     const serialized = JSON.parse(String(row.payload)) as {
@@ -146,6 +161,7 @@ function rowToEvent(
     ...(row.event_owner == null ? {} : { eventOwner: String(row.event_owner) }),
     emittedAt: String(row.emitted_at),
     attempts: Number(row.attempts ?? 0),
+    claimedAt: Number(row.claimed_at),
   };
 }
 
@@ -267,7 +283,8 @@ export async function claimNextAutomationTriggerEvent(
           RETURNING claimed.id, claimed.sequence_id, claimed.trigger_id,
             claimed.trigger_owner, claimed.trigger_path, claimed.app_id,
             claimed.event_name, claimed.event_id, claimed.payload,
-            claimed.event_owner, claimed.emitted_at, claimed.attempts`,
+            claimed.event_owner, claimed.emitted_at, claimed.attempts,
+            claimed.claimed_at`,
     args: [now, triggerId, ...scope.args, now, cutoff, cutoff],
   });
   return rows[0] ? rowToEvent(rows[0] as Record<string, unknown>) : null;
@@ -275,19 +292,23 @@ export async function claimNextAutomationTriggerEvent(
 
 export async function completeAutomationTriggerEvent(
   id: string,
+  claimedAt: number,
+  attempts: number,
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   await getDbExec().execute({
     sql: `UPDATE ${TABLE}
           SET status = 'completed', payload = ?, claimed_at = NULL,
               completed_at = ?, last_error = NULL
-          WHERE id = ? AND status = 'processing'`,
-    args: [COMPLETED_PAYLOAD, Date.now(), id],
+          WHERE id = ? AND status = 'processing'
+            AND claimed_at = ? AND attempts = ?`,
+    args: [COMPLETED_PAYLOAD, Date.now(), id, claimedAt, attempts],
   });
 }
 
 export async function retryAutomationTriggerEvent(
   id: string,
+  claimedAt: number,
   attempts: number,
   error: unknown,
   delayMs?: number,
@@ -302,9 +323,36 @@ export async function retryAutomationTriggerEvent(
     sql: `UPDATE ${TABLE}
           SET status = 'pending', claimed_at = NULL, available_at = ?,
               last_error = ?
-          WHERE id = ? AND status = 'processing'`,
-    args: [Date.now() + backoffMs, message.slice(0, 500), id],
+          WHERE id = ? AND status = 'processing'
+            AND claimed_at = ? AND attempts = ?`,
+    args: [
+      Date.now() + backoffMs,
+      message.slice(0, 500),
+      id,
+      claimedAt,
+      attempts,
+    ],
   });
+}
+
+export async function purgeExpiredAutomationTriggerEvents(
+  now = Date.now(),
+): Promise<number> {
+  await ensureAutomationTriggerEventQueue();
+  const { rowsAffected } = await getDbExec().execute({
+    sql: `DELETE FROM ${TABLE}
+          WHERE id IN (
+            SELECT id FROM ${TABLE}
+            WHERE status = 'completed' AND completed_at < ?
+            ORDER BY completed_at ASC
+            LIMIT ?
+          )`,
+    args: [
+      now - AUTOMATION_TRIGGER_EVENT_DEDUPE_RETENTION_MS,
+      AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE,
+    ],
+  });
+  return rowsAffected;
 }
 
 export const __automationTriggerEventQueue = {

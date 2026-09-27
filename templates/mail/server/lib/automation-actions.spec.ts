@@ -45,4 +45,24 @@ describe("automation notification action", () => {
       { owner: "owner@example.com" },
     );
   });
+
+  it("reports a failed notification when persistence returns no row", async () => {
+    mocks.notify.mockResolvedValueOnce(undefined);
+
+    const result = await executeAction(
+      { type: "notify" },
+      {
+        accessToken: "google-access-token",
+        messageId: "message-1",
+        ownerEmail: "owner@example.com",
+        accountEmail: "mailbox@example.com",
+        labelCache: new Map(),
+      },
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: "Mail notification was not persisted.",
+    });
+  });
 });

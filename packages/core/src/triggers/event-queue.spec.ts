@@ -19,10 +19,13 @@ vi.mock("../agent/run-manager.js", () => ({
 }));
 
 import {
+  AUTOMATION_TRIGGER_EVENT_DEDUPE_RETENTION_MS,
+  AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE,
   claimNextAutomationTriggerEvent,
   completeAutomationTriggerEvent,
   enqueueAutomationTriggerEvent,
   listReadyAutomationTriggerIds,
+  purgeExpiredAutomationTriggerEvents,
   retryAutomationTriggerEvent,
 } from "./event-queue.js";
 
@@ -104,6 +107,7 @@ describe("automation trigger event queue", () => {
           event_owner: "alice@example.com",
           emitted_at: "2026-09-27T10:00:00.000Z",
           attempts: "1",
+          claimed_at: "1234",
         },
       ],
     });
@@ -116,6 +120,7 @@ describe("automation trigger event queue", () => {
       eventId: "stable-1",
       payload: { messageId: "message-1" },
       attempts: 1,
+      claimedAt: 1234,
     });
     const update = executeMock.mock.calls[0]?.[0] as {
       args: unknown[];
@@ -131,6 +136,7 @@ describe("automation trigger event queue", () => {
   it("leaves busy or failed events pending with a retry time and error", async () => {
     await retryAutomationTriggerEvent(
       "queue-1",
+      1234,
       2,
       new Error("automation is running"),
       5_000,
@@ -143,8 +149,15 @@ describe("automation trigger event queue", () => {
     expect(update.sql).toContain("SET status = 'pending'");
     expect(update.sql).toContain("claimed_at = NULL");
     expect(update.sql).toContain("available_at = ?");
+    expect(update.sql).toContain("claimed_at = ? AND attempts = ?");
     expect(update.sql).not.toContain("payload");
-    expect(update.args[1]).toBe("automation is running");
+    expect(update.args).toEqual([
+      expect.any(Number),
+      "automation is running",
+      "queue-1",
+      1234,
+      2,
+    ]);
   });
 
   it("round trips an undefined payload without coercing it to null", async () => {
@@ -163,6 +176,7 @@ describe("automation trigger event queue", () => {
           event_owner: null,
           emitted_at: "2026-09-27T10:00:00.000Z",
           attempts: "1",
+          claimed_at: "1234",
         },
       ],
     });
@@ -188,7 +202,7 @@ describe("automation trigger event queue", () => {
   });
 
   it("scrubs a completed event payload and retains its dedupe row", async () => {
-    await completeAutomationTriggerEvent("queue-1");
+    await completeAutomationTriggerEvent("queue-1", 1234, 1);
 
     const update = executeMock.mock.calls[0]?.[0] as {
       args: unknown[];
@@ -197,12 +211,34 @@ describe("automation trigger event queue", () => {
     expect(update.sql).toContain("SET status = 'completed'");
     expect(update.sql).toContain("payload = ?");
     expect(update.sql).toContain("completed_at = ?");
+    expect(update.sql).toContain("claimed_at = ? AND attempts = ?");
     expect(update.sql).not.toContain("DELETE");
     expect(update.sql).not.toContain("event_id =");
     expect(update.args).toEqual([
       '{"kind":"completed"}',
       expect.any(Number),
       "queue-1",
+      1234,
+      1,
+    ]);
+  });
+
+  it("purges completed dedupe rows in bounded batches after seven days", async () => {
+    const now = Date.UTC(2026, 8, 27);
+    executeMock.mockResolvedValueOnce({ rows: [], rowsAffected: 17 });
+
+    await expect(purgeExpiredAutomationTriggerEvents(now)).resolves.toBe(17);
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(query.sql).toContain("status = 'completed' AND completed_at < ?");
+    expect(query.sql).toContain("ORDER BY completed_at ASC");
+    expect(query.sql).toContain("LIMIT ?");
+    expect(query.args).toEqual([
+      now - AUTOMATION_TRIGGER_EVENT_DEDUPE_RETENTION_MS,
+      AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE,
     ]);
   });
 });

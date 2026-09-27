@@ -27,11 +27,13 @@ import {
 import { startIntervalJob } from "../server/interval-job.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import {
+  AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE,
   claimNextAutomationTriggerEvent,
   completeAutomationTriggerEvent,
   enqueueAutomationTriggerEvent,
   ensureAutomationTriggerEventQueue,
   listReadyAutomationTriggerIds,
+  purgeExpiredAutomationTriggerEvents,
   retryAutomationTriggerEvent,
   type QueuedAutomationTriggerEvent,
 } from "./event-queue.js";
@@ -75,6 +77,7 @@ const MAX_TRIGGER_PAYLOAD_PROMPT_CHARS = 4_000;
 const MAX_TRIGGER_META_CHARS = 200;
 let _deps: TriggerDispatcherDeps | null = null;
 let _triggerQueueWorkerStarted = false;
+let _nextTriggerQueueCleanupAt = 0;
 
 export function buildAutomationTriggerPrompt(input: {
   triggerName: string;
@@ -200,6 +203,14 @@ function startTriggerQueueWorker(): void {
       if (!deps || signal.aborted) return;
       const triggerIds = await listReadyAutomationTriggerIds(deps.appId, 100);
       for (const triggerId of triggerIds) startTriggerDrain(triggerId);
+      if (Date.now() >= _nextTriggerQueueCleanupAt) {
+        const purged = await purgeExpiredAutomationTriggerEvents();
+        _nextTriggerQueueCleanupAt =
+          Date.now() +
+          (purged === AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE
+            ? 60_000
+            : 24 * 60 * 60_000);
+      }
     },
     {
       intervalMs: 10_000,
@@ -211,7 +222,7 @@ function startTriggerQueueWorker(): void {
   );
 }
 
-export async function refreshEventSubscriptions(): Promise<void> {
+export async function refreshEventSubscriptions(): Promise<boolean> {
   try {
     const jobResources = await resourceListAllOwners("jobs/");
     const eventNames = new Set<string>();
@@ -240,8 +251,10 @@ export async function refreshEventSubscriptions(): Promise<void> {
         _eventSubscriptions.set(eventName, subId);
       }
     }
+    return true;
   } catch (err) {
     console.error("[triggers] Failed to refresh event subscriptions:", err);
+    return false;
   }
 }
 
@@ -316,15 +329,25 @@ async function drainTriggerQueue(triggerId: string): Promise<void> {
       if (result === "retry") {
         await retryAutomationTriggerEvent(
           queued.id,
+          queued.claimedAt,
           queued.attempts,
           "Automation trigger is busy; the event remains queued.",
           5_000,
         );
         return;
       }
-      await completeAutomationTriggerEvent(queued.id);
+      await completeAutomationTriggerEvent(
+        queued.id,
+        queued.claimedAt,
+        queued.attempts,
+      );
     } catch (error) {
-      await retryAutomationTriggerEvent(queued.id, queued.attempts, error);
+      await retryAutomationTriggerEvent(
+        queued.id,
+        queued.claimedAt,
+        queued.attempts,
+        error,
+      );
       console.error(
         `[triggers] Queued event ${queued.eventId} will be retried:`,
         error,

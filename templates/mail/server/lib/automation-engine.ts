@@ -26,6 +26,7 @@ import {
   mutateUserSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+import { refreshEventSubscriptions } from "@agent-native/core/triggers";
 import {
   AI_FILTER_MIN_LEARNED_EXAMPLES,
   AI_FILTER_RULE_NAME,
@@ -85,6 +86,7 @@ interface Watermark {
   lastHistoryId?: string;
   pageToken?: string;
   pendingHistoryId?: string;
+  fallbackPageToken?: string;
   pendingMessageIds?: string[];
   lastTimestamp: number;
 }
@@ -268,13 +270,12 @@ async function assertAutomationPollClaim(
   }
 }
 
-async function initializeReceivedEventCursor(
+async function refreshReceivedEventCursor(
   ownerEmail: string,
   accountEmail: string,
   accessToken: string,
 ): Promise<void> {
   const watermarkKey = receivedEventSettingKey(accountEmail, "watermark");
-  if (await getUserSetting(ownerEmail, watermarkKey)) return;
   const profile = await gmailGetProfile(accessToken);
   if (typeof profile.historyId !== "string" || !profile.historyId) {
     throw new Error("Gmail did not return a history cursor for Mail events.");
@@ -294,7 +295,7 @@ async function emitNewReceivedEvents(
   const storedWatermark = await getUserSetting(ownerEmail, watermarkKey);
   if (storedWatermark === null || storedWatermark === undefined) {
     // Do not replay the recent inbox on first poll; only subsequent arrivals start automations.
-    await initializeReceivedEventCursor(ownerEmail, accountEmail, accessToken);
+    await refreshReceivedEventCursor(ownerEmail, accountEmail, accessToken);
     return 0;
   }
   if (
@@ -309,6 +310,9 @@ async function emitNewReceivedEvents(
     ((storedWatermark as any).pendingHistoryId !== undefined &&
       (typeof (storedWatermark as any).pendingHistoryId !== "string" ||
         !(storedWatermark as any).pendingHistoryId)) ||
+    ((storedWatermark as any).fallbackPageToken !== undefined &&
+      (typeof (storedWatermark as any).fallbackPageToken !== "string" ||
+        !(storedWatermark as any).fallbackPageToken)) ||
     ((storedWatermark as any).pendingMessageIds !== undefined &&
       (!Array.isArray((storedWatermark as any).pendingMessageIds) ||
         !(storedWatermark as any).pendingMessageIds.every(
@@ -338,7 +342,11 @@ async function emitNewReceivedEvents(
     }
   }
   const watermark = storedWatermark as unknown as Watermark;
-  const { messages, watermark: nextWatermark } = await fetchNewInboxMessages(
+  const {
+    messages,
+    watermark: nextWatermark,
+    error: fetchError,
+  } = await fetchNewInboxMessages(
     accessToken,
     accountEmail,
     watermark,
@@ -375,6 +383,7 @@ async function emitNewReceivedEvents(
       updatedAt: Date.now(),
     } as any,
   );
+  if (fetchError) throw fetchError;
   return messages.length;
 }
 
@@ -413,13 +422,16 @@ async function fetchNewInboxMessages(
   accountEmail: string,
   watermark: Watermark,
   processedIds: Set<string>,
-): Promise<{ messages: EmailSummary[]; watermark: Watermark }> {
+): Promise<{ messages: EmailSummary[]; watermark: Watermark; error?: Error }> {
   let messageIds = (watermark.pendingMessageIds || []).filter(
     (id) => !processedIds.has(id),
   );
   let nextWatermark: Watermark = {
     ...(watermark.lastHistoryId
       ? { lastHistoryId: watermark.lastHistoryId }
+      : {}),
+    ...(watermark.fallbackPageToken
+      ? { fallbackPageToken: watermark.fallbackPageToken }
       : {}),
     lastTimestamp: Date.now(),
   };
@@ -444,8 +456,12 @@ async function fetchNewInboxMessages(
           "[automation-engine] History list failed, falling back to message list:",
           err.message,
         );
-        nextWatermark = { lastTimestamp: Date.now() };
-        messageIds = [];
+        nextWatermark = {
+          ...(watermark.fallbackPageToken
+            ? { fallbackPageToken: watermark.fallbackPageToken }
+            : {}),
+          lastTimestamp: Date.now(),
+        };
         fallbackToList = true;
         break;
       }
@@ -472,6 +488,9 @@ async function fetchNewInboxMessages(
       if (!pageToken) {
         nextWatermark = {
           lastHistoryId: historyId || watermark.lastHistoryId,
+          ...(watermark.fallbackPageToken
+            ? { fallbackPageToken: watermark.fallbackPageToken }
+            : {}),
           lastTimestamp: Date.now(),
         };
         historyId = undefined;
@@ -488,22 +507,44 @@ async function fetchNewInboxMessages(
           : historyId || watermark.lastHistoryId,
         ...(pageToken ? { pageToken } : {}),
         ...(pageToken && historyId ? { pendingHistoryId: historyId } : {}),
+        ...(watermark.fallbackPageToken
+          ? { fallbackPageToken: watermark.fallbackPageToken }
+          : {}),
         ...(pendingMessageIds.length ? { pendingMessageIds } : {}),
         lastTimestamp: Date.now(),
       };
     } else if (historyId) {
       nextWatermark = {
         lastHistoryId: historyId,
+        ...(watermark.fallbackPageToken
+          ? { fallbackPageToken: watermark.fallbackPageToken }
+          : {}),
         lastTimestamp: Date.now(),
       };
     }
   }
 
-  if (fallbackToList) {
+  if (fallbackToList || watermark.fallbackPageToken) {
     try {
+      if (fallbackToList) {
+        const profile = await gmailGetProfile(accessToken);
+        if (typeof profile.historyId !== "string" || !profile.historyId) {
+          throw new Error(
+            "Gmail did not return a history cursor before listing.",
+          );
+        }
+        nextWatermark = {
+          ...nextWatermark,
+          lastHistoryId: profile.historyId,
+          lastTimestamp: Date.now(),
+        };
+      }
       const res = await gmailListMessages(accessToken, {
         q: "in:inbox newer_than:3d",
         maxResults: MAX_EMAILS_PER_RUN,
+        ...(watermark.fallbackPageToken
+          ? { pageToken: watermark.fallbackPageToken }
+          : {}),
       });
       const listedMessageIds = new Set<string>();
       for (const message of res.messages || []) {
@@ -511,39 +552,77 @@ async function fetchNewInboxMessages(
           listedMessageIds.add(message.id);
         }
       }
-      messageIds = [...listedMessageIds];
-
-      try {
-        const profile = await gmailGetProfile(accessToken);
-        nextWatermark = {
-          lastHistoryId: profile.historyId,
-          lastTimestamp: Date.now(),
-        };
-      } catch {}
+      messageIds = [...new Set([...messageIds, ...listedMessageIds])];
+      if (
+        res.nextPageToken != null &&
+        (typeof res.nextPageToken !== "string" || !res.nextPageToken)
+      ) {
+        throw new Error("Gmail returned an invalid fallback page cursor.");
+      }
+      if (typeof res.nextPageToken === "string") {
+        nextWatermark.fallbackPageToken = res.nextPageToken;
+      } else {
+        delete nextWatermark.fallbackPageToken;
+      }
+      nextWatermark.lastTimestamp = Date.now();
     } catch (err: any) {
       console.error(
-        "[automation-engine] Failed to list inbox messages:",
+        "[automation-engine] Failed to list inbox messages or refresh history cursor:",
         err.message,
       );
-      return { messages: [], watermark: nextWatermark };
+      throw new Error(
+        `Could not establish a Mail history cursor: ${err?.message || String(err)}`,
+      );
     }
   }
 
   messageIds = messageIds.filter((id) => !processedIds.has(id));
 
-  messageIds = messageIds.slice(0, MAX_EMAILS_PER_RUN);
+  if (messageIds.length > MAX_EMAILS_PER_RUN) {
+    const pendingMessageIds = [
+      ...(nextWatermark.pendingMessageIds || []),
+      ...messageIds.slice(MAX_EMAILS_PER_RUN),
+    ];
+    messageIds = messageIds.slice(0, MAX_EMAILS_PER_RUN);
+    nextWatermark = {
+      ...nextWatermark,
+      pendingMessageIds: [...new Set(pendingMessageIds)],
+    };
+  }
 
   if (messageIds.length === 0) {
     return { messages: [], watermark: nextWatermark };
   }
 
-  const batchResults = await gmailBatchGetMessages(
-    accessToken,
-    messageIds,
-    "metadata",
-  );
+  let batchResults: Awaited<ReturnType<typeof gmailBatchGetMessages>>;
+  try {
+    batchResults = await gmailBatchGetMessages(
+      accessToken,
+      messageIds,
+      "metadata",
+    );
+  } catch (error) {
+    console.error(
+      "[automation-engine] Failed to fetch Gmail message batch:",
+      error,
+    );
+    return {
+      messages: [],
+      watermark: {
+        ...nextWatermark,
+        pendingMessageIds: [
+          ...new Set([
+            ...(nextWatermark.pendingMessageIds || []),
+            ...messageIds,
+          ]),
+        ],
+      },
+      error: error instanceof Error ? error : new Error(String(error)),
+    };
+  }
 
   const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
+  const permanentlyMissingMessageIds = new Set<string>();
   if (missing.length > 0) {
     const refills = await Promise.all(
       missing.map(async (id) => {
@@ -551,10 +630,17 @@ async function fetchNewInboxMessages(
           const data = await gmailGetMessage(accessToken, id, "metadata");
           return { id, data };
         } catch (err: any) {
-          console.error(
-            `[automation-engine] Failed to fetch message ${id}:`,
-            err.message,
-          );
+          if (/^Google API error \(404\):/.test(err?.message || "")) {
+            permanentlyMissingMessageIds.add(id);
+            console.info(
+              `[automation-engine] Message ${id} was deleted before it could be fetched.`,
+            );
+          } else {
+            console.error(
+              `[automation-engine] Failed to fetch message ${id}:`,
+              err.message,
+            );
+          }
           return { id, data: null as any };
         }
       }),
@@ -563,6 +649,24 @@ async function fetchNewInboxMessages(
     for (const r of batchResults) {
       if (!r.data && byId.has(r.id)) r.data = byId.get(r.id);
     }
+  }
+
+  const pendingMessageIds = [
+    ...(nextWatermark.pendingMessageIds || []).filter(
+      (id) => !permanentlyMissingMessageIds.has(id),
+    ),
+    ...batchResults
+      .filter(
+        (result) =>
+          !result.data && !permanentlyMissingMessageIds.has(result.id),
+      )
+      .map((result) => result.id),
+  ];
+  if (nextWatermark.pendingMessageIds) {
+    delete nextWatermark.pendingMessageIds;
+  }
+  if (pendingMessageIds.length > 0) {
+    nextWatermark.pendingMessageIds = [...new Set(pendingMessageIds)];
   }
 
   const messages: EmailSummary[] = [];
@@ -1483,14 +1587,17 @@ async function runAutomationsForAccount(
   };
 
   try {
-    if (listSubscriptions("mail.message.received").length > 0)
+    if (
+      listSubscriptions("mail.message.received").length === 0 &&
+      !(await refreshEventSubscriptions())
+    ) {
+      throw new Error("Could not refresh Mail event automation subscriptions.");
+    }
+    if (listSubscriptions("mail.message.received").length > 0) {
       await emitNewReceivedEvents(ownerEmail, accountEmail, accessToken);
-    else
-      await initializeReceivedEventCursor(
-        ownerEmail,
-        accountEmail,
-        accessToken,
-      );
+    } else {
+      await refreshReceivedEventCursor(ownerEmail, accountEmail, accessToken);
+    }
   } catch (error) {
     console.error(
       `[automation-engine] Failed to emit received-mail events for ${accountEmail}:`,

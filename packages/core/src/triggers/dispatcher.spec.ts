@@ -8,6 +8,7 @@ import {
   buildAutomationTriggerPrompt,
   buildTriggerContent,
   initTriggerDispatcher,
+  refreshEventSubscriptions,
 } from "./dispatcher.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
@@ -42,6 +43,7 @@ const triggerQueueMocks = vi.hoisted(() => {
       sequence = 0;
     },
     ensure: vi.fn(async () => {}),
+    purge: vi.fn(async () => 0),
     enqueue: vi.fn(async (input: Record<string, any>) => {
       const existing = rows.find(
         (row) =>
@@ -86,20 +88,38 @@ const triggerQueueMocks = vi.hoisted(() => {
       if (!row) return null;
       row.status = "processing";
       row.attempts += 1;
+      row.claimedAt = Date.now();
       return { ...row };
     }),
-    complete: vi.fn(async (id: string) => {
+    complete: vi.fn(async (id: string, claimedAt: number, attempts: number) => {
       const row = rows.find((candidate) => candidate.id === id);
-      if (row) row.status = "completed";
-    }),
-    retry: vi.fn(async (id: string, _attempts: number, error: unknown) => {
-      const row = rows.find((candidate) => candidate.id === id);
-      if (row) {
-        row.status = "pending";
-        row.availableAt = Date.now() + 5_000;
-        row.lastError = String(error);
+      if (
+        row?.status === "processing" &&
+        row.claimedAt === claimedAt &&
+        row.attempts === attempts
+      ) {
+        row.status = "completed";
       }
     }),
+    retry: vi.fn(
+      async (
+        id: string,
+        claimedAt: number,
+        attempts: number,
+        error: unknown,
+      ) => {
+        const row = rows.find((candidate) => candidate.id === id);
+        if (
+          row?.status === "processing" &&
+          row.claimedAt === claimedAt &&
+          row.attempts === attempts
+        ) {
+          row.status = "pending";
+          row.availableAt = Date.now() + 5_000;
+          row.lastError = String(error);
+        }
+      },
+    ),
   };
 });
 
@@ -130,11 +150,13 @@ vi.mock("../server/interval-job.js", () => ({
   startIntervalJob: vi.fn(() => ({ stop: vi.fn() })),
 }));
 vi.mock("./event-queue.js", () => ({
+  AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE: 1_000,
   claimNextAutomationTriggerEvent: triggerQueueMocks.claim,
   completeAutomationTriggerEvent: triggerQueueMocks.complete,
   enqueueAutomationTriggerEvent: triggerQueueMocks.enqueue,
   ensureAutomationTriggerEventQueue: triggerQueueMocks.ensure,
   listReadyAutomationTriggerIds: triggerQueueMocks.ready,
+  purgeExpiredAutomationTriggerEvents: triggerQueueMocks.purge,
   retryAutomationTriggerEvent: triggerQueueMocks.retry,
 }));
 
@@ -214,6 +236,14 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
 });
 
 describe("trigger dispatcher", () => {
+  it("reports when durable event subscriptions cannot be refreshed", async () => {
+    resourceListAllOwnersMock.mockRejectedValueOnce(
+      new Error("resource store unavailable"),
+    );
+
+    await expect(refreshEventSubscriptions()).resolves.toBe(false);
+  });
+
   it("rejects delegated policy ids that could inject trigger frontmatter", () => {
     expect(() =>
       buildTriggerContent(
