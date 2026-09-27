@@ -208,19 +208,14 @@ const CONTROL_STYLE_PAGE = {
   lineHeight: 1.2,
 } satisfies React.CSSProperties;
 
-// Surface-aware class helpers so section bodies (shared with the compact
-// sidebar) read as roomy, shadcn-style forms on the full settings page while
-// staying dense in the sidebar.
 function fieldLabelClass(isPage: boolean): string {
   return cn("font-medium text-foreground", isPage ? "text-sm" : "text-[12px]");
 }
 
-// Secondary label / row-title size (e.g. "This app", provider names).
 function subTextClass(isPage: boolean): string {
   return isPage ? "text-sm" : "text-[11px]";
 }
 
-// Helper / hint / status note size.
 function noteTextClass(isPage: boolean): string {
   return isPage ? "text-xs" : "text-[10px]";
 }
@@ -301,8 +296,6 @@ function SettingsSelect({
   );
 }
 
-// ─── "Connect Builder.io" card (shared across all sections) ─────────────────
-
 function UseBuilderCard({
   builderFlow,
   connectUrl,
@@ -328,7 +321,6 @@ function UseBuilderCard({
   label?: string;
   subtitle?: string;
   dim?: boolean;
-  /** Use a Codex-style row when this card is the primary action in a page section. */
   compact?: boolean;
 }) {
   const isPage = useSettingsSurface() === "page";
@@ -503,8 +495,6 @@ function UseBuilderCard({
   );
 }
 
-// ─── Manual setup card ──────────────────────────────────────────────────────
-
 function ManualSetupCard({
   id,
   title = "Set up manually",
@@ -526,15 +516,10 @@ function ManualSetupCard({
   docsLabel?: string;
   children?: React.ReactNode;
   dim?: boolean;
-  /** Optional "Connected via X" badge shown in the header row. */
   sourceBadge?: string;
-  /** Render the form without another card surface when used in a popover. */
   bare?: boolean;
-  /** Show only a Manage trigger and progressively disclose the form. */
   popover?: boolean;
-  /** Label for the trigger when the form is shown in a popover. */
   popoverLabel?: string;
-  /** Optional connection summary shown above the setup content. */
   summaryContent?: React.ReactNode;
 }) {
   const isPage = useSettingsSurface() === "page";
@@ -608,8 +593,6 @@ function ManualSetupCard({
     </Popover>
   );
 }
-
-// ─── LLM helpers ────────────────────────────────────────────────────────────
 
 export function friendlyModelName(model: string): string {
   if (model === "z-ai/glm-5.2") return "GLM 5.2";
@@ -740,10 +723,6 @@ export function AppDefaultModelField({
     (model) => ({ value: model, label: friendlyModelName(model) }),
   );
 
-  // Builder models are a closed catalog (and are validated server-side), so a
-  // real select keeps every available model visible even when one is already
-  // selected. Native datalists filter against the current input value, which
-  // made this field appear to contain only the active model.
   if (engine === "builder" && modelOptions.length > 0) {
     return (
       <SettingsSelect
@@ -790,8 +769,6 @@ export function AppDefaultModelField({
     </div>
   );
 }
-
-// ─── LLM Section ────────────────────────────────────────────────────────────
 
 interface EngineInfo {
   name: string;
@@ -1399,9 +1376,6 @@ function LLMSectionInner({
     retry: retryKeySaveRole,
   } = useProviderKeySaveScope();
 
-  // Ask the Ollama server itself which models it has pulled, instead of only
-  // offering the static suggestion list. Triggered explicitly by the "Find
-  // models" button, mirroring the same flow in `AgentProviderSetupForm`.
   const handleFindOllamaModels = () => {
     setOllamaModelsLoading(true);
     setOllamaModelsError(null);
@@ -1410,10 +1384,6 @@ function LLMSectionInner({
       .then(async (models) => {
         setOllamaModels(models);
         setOllamaModelsError(null);
-        // A successful check is the only signal this address actually works;
-        // persist it immediately so other surfaces reading the saved Ollama
-        // endpoint (the chat composer's model picker) don't keep falling back
-        // to the localhost default until "Save" is also clicked.
         if (typedEndpoint && keySaveScope) {
           try {
             await saveAgentEngineProviderSettings({
@@ -1532,8 +1502,6 @@ function LLMSectionInner({
           model: selectedModel || selectedEngineInfo?.defaultModel,
         } as any,
       );
-      // Older action paths wrapped tool output in { result }. Accept either
-      // shape while the action route normalizes JSON-string script output.
       const parsed =
         typeof data === "string"
           ? JSON.parse(data)
@@ -2243,8 +2211,6 @@ function LLMSectionInner({
   );
 }
 
-// ─── App Default Model Section ──────────────────────────────────────────────
-
 interface AppModelDefaultEngine extends EngineInfo {
   configured: boolean;
 }
@@ -2287,14 +2253,6 @@ function AppDefaultModelPicker({
     (engine) => engine.name !== "ai-sdk:anthropic",
   );
 
-  // The static catalog only has the curated suggestion models for Ollama.
-  // Ask the configured Ollama server what it actually has installed and
-  // swap those in — a second, later render, so it never blocks this
-  // picker's first paint on a local network round trip. Gated on the
-  // popover actually being opened (a deliberate user action), not merely
-  // Ollama's presence in the catalog, which it always has by default —
-  // an unconditional probe would 502 for the vast majority of setups that
-  // never touched Ollama and never even open this picker.
   useEffect(() => {
     if (!open) return;
     if (!engines.some(usesLiveOllamaModels)) return;
@@ -2502,13 +2460,6 @@ function AppModelDefaultsSectionInner({
 
   useEffect(() => load(), [load]);
 
-  // The static catalog only has the curated suggestion models for Ollama.
-  // Ask the configured Ollama server what it actually has installed and
-  // swap those in — a second, later render, so it never blocks this
-  // section's first paint on a local network round trip. Gated on Ollama
-  // actually being the selected engine here (not merely present in the
-  // catalog, which it always is by default) — an unconditional probe would
-  // 502 for the vast majority of setups that never touched Ollama.
   useEffect(() => {
     if (selectedEngine !== "ai-sdk:ollama") return;
     let cancelled = false;
@@ -2849,8 +2800,6 @@ function AppModelDefaultsSectionInner({
   );
 }
 
-// ─── Email Section ──────────────────────────────────────────────────────────
-
 export function EmailSectionInner({
   open,
   onToggle,
@@ -3141,8 +3090,6 @@ export function EmailSectionInner({
     </SettingsSection>
   );
 }
-
-// ─── Agent Limits Section ──────────────────────────────────────────────────
 
 interface AgentLoopSettingsResponse {
   maxIterations: number;
@@ -3512,8 +3459,6 @@ function AgentLimitsSectionInner({
   );
 }
 
-// ─── Main SettingsPanel ─────────────────────────────────────────────────────
-
 export interface SettingsPanelProps {
   isDevMode: boolean;
   onToggleDevMode: () => void;
@@ -3524,22 +3469,12 @@ export interface SettingsPanelProps {
 }
 
 export interface AgentSettingsTabsOptions {
-  /** Human-readable app name used in MCP connection instructions. */
   appName?: string;
-  /**
-   * Include the shared Extensions management tab. Extensions are an optional
-   * app capability and stay hidden unless the host opts in.
-   */
   extensionTools?: boolean;
-  /** Optional page-level settings to show in the Agent section. */
   agentAdditionalContent?: React.ReactNode;
-  /** Optional app-owned tabs that share the Agent settings scope. */
   agentAdditionalTabFactories?: AgentSettingsTabFactory[];
-  /** App identity used to scope the shared Usage tab. */
   usageAppId?: string | null;
-  /** Optional progressive-disclosure link to the app's full metrics view. */
   usageViewAllHref?: string;
-  /** Optional app-owned replacement for the shared Organization tab. */
   organizationContent?: React.ReactNode;
 }
 

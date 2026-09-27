@@ -36,12 +36,6 @@ function pathSegments(pathname: string) {
   return normalizePath(pathname).split("/").filter(Boolean);
 }
 
-/**
- * Netlify lowercases locale path segments, so an emitted URL must use the
- * lowercase form to be the one that answers 200. The locale tag itself stays
- * BCP-47 everywhere else -- `hreflang` values and translation lookups both
- * depend on the cased form.
- */
 function localeSegment(locale: DocsLocale) {
   return locale.toLowerCase();
 }
@@ -52,18 +46,10 @@ function docsBasePath(locale: DocsLocale) {
     : `/${localeSegment(locale)}/docs`;
 }
 
-/** Markdown twins and machine-readable endpoints answer at an exact URL. */
 function isFileLikePath(pathname: string) {
   return (pathname.split("/").pop() ?? "").includes(".");
 }
 
-/**
- * Resolve a URL locale segment to its canonical locale, accepting any casing.
- * The counterpart to `localeSegment`: emitted paths are lowercase, so route
- * params arrive lowercase, and comparing them against the BCP-47 tag rejects
- * every localized URL the site serves. Matches supported locales only -- no
- * language-prefix fallback, so a real doc slug can never read as a locale.
- */
 export function docsLocaleFromSegment(
   segment: unknown,
 ): DocsLocale | undefined {
@@ -110,13 +96,6 @@ export function isDocsPath(pathname: string) {
   return docsSlugFromPathname(pathname) !== undefined;
 }
 
-/**
- * The canonical route path: trailing slash, lowercase locale segment. This is
- * the form the CDN answers 200 for, so canonical tags, alternates, sitemap
- * entries, redirect targets, prerender paths, and internal links all use it.
- * Non-route strings must not be built by appending onto it -- see
- * `docsMarkdownPathForSlug` and `comparableDocsPath`.
- */
 export function docsPathForSlug(
   slug: string,
   locale: unknown = DEFAULT_DOCS_LOCALE,
@@ -173,20 +152,7 @@ export function sitePathForLocale(
     : `/${localeSegment(docsLocale)}${unprefixedPath}`;
 }
 
-/**
- * Rewrite a same-site `/docs/...` href from a doc body to the canonical URL.
- * An href that already names a locale keeps that locale; otherwise it inherits
- * the page's. Both forms are rewritten rather than passed through: a body link
- * written as `/docs/client-data` or `/de-DE/docs/client-data` still resolves,
- * but only after a redirect, and rendered pages are where most internal links
- * on the site come from.
- *
- * Leaves external, relative, in-page (`#anchor`), file-like (Markdown twins),
- * and non-docs hrefs alone.
- */
 export function localizeDocsHref(href: string, locale: DocsLocale): string {
-  // Split on whichever comes first: a query would otherwise be read as part of
-  // the slug and land inside the path, as `/docs/x?tab=api/`.
   const suffixIndex = href.search(/[?#]/);
   const path = suffixIndex === -1 ? href : href.slice(0, suffixIndex);
   const suffix = suffixIndex === -1 ? "" : href.slice(suffixIndex);
@@ -200,7 +166,6 @@ export function localizeDocsHref(href: string, locale: DocsLocale): string {
 
 const LOCALIZED_POLICY_ROOTS = new Set(["legal", "privacy", "terms"]);
 
-/** Rewrite same-site policy links using the same locale rules as docs links. */
 export function localizeSiteHref(href: string, locale: DocsLocale): string {
   const localizedDocsHref = localizeDocsHref(href, locale);
   if (localizedDocsHref !== href) return localizedDocsHref;
@@ -222,18 +187,10 @@ export function localizeSiteHref(href: string, locale: DocsLocale): string {
   )}${suffix}`;
 }
 
-/**
- * Apply same-site URL localization to every link in a Markdown body. The
- * generated Markdown twins are served to agents verbatim, so without this they
- * hand out redirecting forms of internal links.
- */
 export function localizeDocsMarkdownLinks(
   markdown: string,
   locale: DocsLocale,
 ): string {
-  // Fenced and inline code are literal samples a reader copies. Rewriting a
-  // link inside one edits the example instead of the page's own links, so the
-  // split keeps code spans out of the rewrite.
   return markdown
     .split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/g)
     .map((part, index) =>

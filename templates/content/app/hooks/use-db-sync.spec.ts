@@ -324,8 +324,6 @@ describe("contentActionInvalidatePredicate", () => {
       ),
     ).toBe(true);
 
-    // The poll state keeps the newest key for each source. A later document
-    // mutation can therefore be the only visible event after a comment write.
     expect(
       predicate(
         {

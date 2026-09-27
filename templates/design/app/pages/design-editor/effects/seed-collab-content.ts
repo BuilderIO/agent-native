@@ -58,8 +58,6 @@ export function runSeedCollabContent({
   const fileId = activeFileId;
   const ytext = ydoc.getText("content");
   const text = ytext.toJSON();
-  // Source actions own Yjs updates. Re-splicing SQL or pending bytes here
-  // duplicates insertions when their server delta is still in flight.
   const pending = pendingLocalFileContentsRef.current.get(fileId);
   const pendingLocalContent = pending?.content;
   if (
@@ -94,13 +92,6 @@ export function runSeedCollabContent({
       fileId,
       fileType: activeFile?.fileType,
     }).content;
-    // §gesture-persistence — a freshly-connected/just-synced doc snapshot
-    // has no proven watermark yet in this session. Don't let it outrank
-    // SQL merely because it looks like well-formed HTML: rebase from SQL
-    // whenever they differ and no baseline has been established (or the
-    // live text is outright malformed). See
-    // shouldRebaseCollabDocFromStoredContent's doc comment for the full
-    // clobber this closes.
     if (
       shouldRebaseCollabDocFromStoredContent({
         liveContent: text,
@@ -135,21 +126,6 @@ export function runSeedCollabContent({
 
       return;
     }
-    // Y.Doc snapshots are a render seed, not the SQL source of truth; the
-    // reconcile effect below advances the updatedAt watermark only after it
-    // confirms or applies the current DB content.
-    //
-    // Item 5 (edit-flash) root cause: this effect's deps include
-    // `activeFile?.content`/`activeFile?.updatedAt`, which change on EVERY
-    // save (useActionMutation's default onSuccess invalidates all
-    // `["action"]` queries, so `get-design` refetches after every single
-    // edit and hands back a new `activeFile` object with a bumped
-    // `updatedAt`). That refire lands here even when the Y.Doc's `text`
-    // hasn't changed at all since the last time this ran — previously this
-    // unconditionally re-adopted `text` and bumped contentRenderRevision on
-    // every such refire, forcing a full srcdoc rebuild after nearly every
-    // commit. Only touch collab/render state when `text` genuinely differs
-    // from what is already reflected.
     const canonicalLiveContent = prepareCanonicalSourceContent(text, {
       fileId,
       fileType: activeFile?.fileType,

@@ -11,11 +11,6 @@ import {
   type CrmSettingsPanelProps,
 } from "./SettingsPanelHeader";
 
-/**
- * The irreversible-looking corner of CRM settings. It is deliberately thin:
- * CRM has no delete path. Archiving an attribute, an option, or a list keeps
- * every stored value, which is the one thing worth stating here.
- */
 export function AdvancedSettings({ embedded }: CrmSettingsPanelProps = {}) {
   const t = useT();
   return (

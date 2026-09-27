@@ -75,13 +75,6 @@ interface QuickAskSidebarProps {
   segments?: TranscriptSegment[] | null;
 }
 
-/**
- * Mounts the Cmd+J keybinding on the meeting detail page. The toggle is
- * idempotent: pressing Cmd+J while open closes the sheet (and vice versa).
- *
- * IMPORTANT: we register exactly one keydown handler. The `useEffect` cleanup
- * unsubscribes — so route changes / unmounts never leave a stale listener.
- */
 export function QuickAskSidebar({
   meetingId,
   meetingTitle,
@@ -99,8 +92,6 @@ export function QuickAskSidebar({
   const [pendingAsk, setPendingAsk] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Single global keydown listener; toggles on Cmd/Ctrl+J. Esc is handled
-  // natively by `Sheet` (Radix Dialog).
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const cmdOrCtrl = e.metaKey || e.ctrlKey;
@@ -113,9 +104,6 @@ export function QuickAskSidebar({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // The desktop pill's "Ask anything" bar hands its question over as `?ask=`
-  // alongside `?chat=1`, so the question the user typed on the overlay lands
-  // in the agent chat here instead of being retyped.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const askParam = params.get("ask")?.trim();
@@ -132,7 +120,6 @@ export function QuickAskSidebar({
     );
   }, []);
 
-  // Focus the composer whenever the sheet opens.
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => textareaRef.current?.focus(), 60);
@@ -144,8 +131,6 @@ export function QuickAskSidebar({
     (prompt: string) => {
       const trimmed = prompt.trim();
       if (!trimmed || !chatReady) return;
-      // Build a compact context object: meeting id + last 200 segments.
-      // Agent chat is the single source of truth — no inline LLM calls.
       const tail = (segments ?? []).slice(-200);
       const turn: ChatTurn = {
         id: `t_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -166,7 +151,6 @@ export function QuickAskSidebar({
         openSidebar: false,
         background: false,
       });
-      // Optimistic placeholder so the user sees we received the prompt.
       setHistory((prev) => [
         ...prev,
         {

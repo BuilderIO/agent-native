@@ -40,7 +40,6 @@ describe("navigate", () => {
     it("requires a known view and ignores a raw path", () => {
       expect(() => navigateSchema.parse({})).toThrow();
       expect(() => navigateSchema.parse({ view: "unknown" })).toThrow();
-      // `path` is no longer part of the surface, so zod strips it.
       expect(
         navigateSchema.parse({ view: "tasks", path: "/_agent-native/poll" }),
       ).toEqual({ view: "tasks" });

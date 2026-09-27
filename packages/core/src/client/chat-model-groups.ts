@@ -9,9 +9,7 @@ export interface ChatModelEngineEntry {
   name: string;
   label: string;
   supportedModels?: readonly string[];
-  /** Whether explicit provider selections may use IDs outside the catalog. */
   acceptsCustomModels?: boolean;
-  /** Whether the engine accepts model IDs outside its curated catalog. */
   preserveCustomModels?: boolean;
   requiredEnvVars?: readonly string[];
   packageInstalled?: boolean;
@@ -25,7 +23,6 @@ export interface ChatModelEngineEntry {
    * through to the env heuristic rather than reading as "needs an API key".
    */
   configured?: boolean;
-  /** Why readiness is unknown, when the server's lookup failed. */
   configuredError?: string;
   /**
    * Whether `supportedModels` is the provider's checked models (`selected`)
@@ -49,11 +46,6 @@ export interface BuildChatModelGroupsOptions {
   currentModel?: string;
 }
 
-/**
- * A loaded provider-backed catalog can confirm that setup is missing before
- * the slower canonical readiness request resolves. An empty catalog is a
- * failed lookup, not evidence that no provider is configured.
- */
 export function modelCatalogConfirmsMissing(
   groups: readonly Pick<EngineModelGroup, "configured">[] | undefined,
   loading: boolean | undefined,
@@ -111,9 +103,6 @@ function addCurrentModel(
   return next;
 }
 
-// Cheapest → most expensive. The composer mirrors these tokens for the `$`
-// cost labels on picker rows (packages/toolkit/src/composer/TiptapComposer.tsx);
-// the toolkit cannot import core, so a new family must be added in both lists.
 const MODEL_COST_ORDER = [
   "luna",
   "terra",
@@ -208,9 +197,6 @@ function shouldShowDirectEngine(
   configured: boolean,
   currentEngineName?: string,
 ): boolean {
-  // Keep a persisted selection usable after an engine is hidden from the
-  // picker; users can choose a supported replacement instead of landing on a
-  // model that no longer has a rendered group.
   if (
     HIDDEN_CHAT_MODEL_ENGINES.has(engine.name) &&
     engine.name !== currentEngineName &&

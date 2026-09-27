@@ -52,8 +52,6 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
       lastSyncedRef.current &&
       lastSyncedRef.current !== syncStatus.lastSyncedAt
     ) {
-      // Bare ["action"] refetches every mounted query app-wide (sidebar tree,
-      // comments, database views, search, connection status) on each sync tick.
       invalidateDocumentQueries(queryClient, documentId);
     }
     lastSyncedRef.current = syncStatus.lastSyncedAt;

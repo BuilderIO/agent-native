@@ -17,7 +17,6 @@ interface ColumnUse {
   offset: number;
 }
 
-/** Ensure core schema identity columns are either rekeyed or explicitly non-identity. */
 export function scanIdentityColumnsRegistered({
   root,
 }: {
@@ -32,9 +31,6 @@ export function scanIdentityColumnsRegistered({
   );
   const findings: GuardFinding[] = [];
   for (const file of walk(sourceRoot)) {
-    // Test fixtures may intentionally declare throwaway schemas. Production
-    // stores and inline migrations live in ordinary *.ts files, so scope the
-    // guard to every runtime source file rather than filename conventions.
     if (/(?:\.spec|\.test)\.tsx?$/i.test(file)) continue;
     const contents = fs.readFileSync(file, "utf8");
     for (const use of schemaColumns(contents)) {

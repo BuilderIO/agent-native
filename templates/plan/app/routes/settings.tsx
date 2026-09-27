@@ -24,9 +24,6 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
-  // /extensions redirects here and navigation.view supports "extensions"
-  // (see use-navigation-state.ts), so the settings tab must exist too —
-  // otherwise /settings/extensions silently falls back to General.
   const agentSettingsTabs = useAgentSettingsTabs({ extensionTools: true });
   // Core Preferences owns the interface language in the redesigned Settings,
   // so Plan › General keeps only the editor row.

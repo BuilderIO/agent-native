@@ -81,9 +81,6 @@ function providerApiConfigured({
       .map((detail) => detail.key),
   );
 
-  // Jira's legacy fallback is one complete Basic-auth tuple. The catalog keys
-  // are individually optional because OAuth is preferred, so the generic
-  // required-key count cannot prove that an unconnected Jira provider is ready.
   if (providerApi.id === "jira") {
     return ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"].every((key) =>
       availableKeys.has(key),

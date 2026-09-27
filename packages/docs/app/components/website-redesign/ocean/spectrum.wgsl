@@ -1,11 +1,3 @@
-// Evolves the FFT ocean spectrum each frame.
-//
-// `initial-spectrum.wgsl` seeds h0(k) and h0(-k) from the Phillips-style
-// wind spectrum. This pass applies deep-water dispersion over time to produce
-// the frequency-domain height and horizontal displacement channels consumed by
-// the IFFT passes; later passes transform them into spatial displacement,
-// normals/foam, and particles.
-
 import { PI, G, cmul } from "./ocean-common.wgsl";
 
 struct SpectrumUniforms {
@@ -31,8 +23,8 @@ struct SpectrumUniforms {
 
   let h = cmul(h0.rg, expp) + cmul(h0.ba, expm);
 
-  // Convert the evolved height spectrum into slope/height and choppy
-  // horizontal displacement spectra before the inverse FFT stages.
+
+
   var kn = vec2f(0.0);
   if (kLen > 0.0) { kn = k / kLen; }
   let negI_h = vec2f(h.y, -h.x);

@@ -12,7 +12,6 @@ export interface MetricCardProps {
   error?: string;
 }
 
-/** A compact, data-source-agnostic dashboard metric. */
 export function MetricCard({
   title,
   value,

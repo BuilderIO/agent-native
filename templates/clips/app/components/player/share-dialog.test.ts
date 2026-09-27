@@ -40,7 +40,6 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("<CopyButton");
     expect(shareDialogSource).toContain("value={shareUrl}");
     expect(shareDialogSource).toContain("writeClipboardText(agentCopyValue)");
-    // Share URLs are never rendered into an input.
     expect(shareDialogSource).not.toContain(
       "value={shareUrl}\n          readOnly",
     );
@@ -221,7 +220,6 @@ describe("recording share popover", () => {
     const shareUiSource = readSource("../sharing/share-ui.tsx");
 
     expect(shareUiSource).toContain("export function CopyButton");
-    // The URL is only ever passed to the clipboard, never rendered.
     expect(shareUiSource).not.toContain("readOnly");
     expect(shareUiSource).toContain('t("shareUi.copied")');
     expect(shareUiSource).toContain("text-success");

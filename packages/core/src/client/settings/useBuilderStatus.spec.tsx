@@ -23,8 +23,6 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
-// The initial Builder status read is deferred past first paint; the fallback
-// timer bounds that wait at 250ms, so settling past it is deterministic.
 async function flushAfterPaint() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -282,8 +280,6 @@ describe("useBuilderStatus", () => {
       window.dispatchEvent(new Event("focus"));
       await Promise.resolve();
     });
-    // The focus refresh stays immediate and the scheduled initial read is
-    // consumed, not stacked behind it.
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await flushAfterPaint();
@@ -361,15 +357,11 @@ describe("useBuilderConnectFlow", () => {
       window.dispatchEvent(new Event("focus"));
       await Promise.resolve();
     });
-    // One read lands immediately; the scheduled initial read was consumed
-    // instead of stacking a duplicate when the window elapses.
     expect(pendingResponses).toHaveLength(1);
 
     await flushAfterPaint();
     expect(pendingResponses).toHaveLength(1);
 
-    // Overlapping refreshes supersede each other: the newest started wins
-    // even when the older response resolves last.
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
       await Promise.resolve();
@@ -1199,9 +1191,6 @@ describe("useBuilderConnectFlow", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toContain("not-configured idle unresolved");
-    // A status we could not read must not render the same as a status we have
-    // not asked for yet: the connect CTA stays inert until this resolves, so
-    // the failure has to be visible rather than silently held.
     expect(container.textContent).toContain(
       "Couldn't reach Builder to check your account.",
     );
@@ -1252,10 +1241,6 @@ describe("useBuilderConnectFlow", () => {
   });
 
   it("honors a connect click made while the first status read is still in flight", async () => {
-    // The cold-start shape: the status route is reachable but slow, so the
-    // trigger renders as a normal enabled button for seconds. A click there
-    // used to be discarded, which is what "Connect Builder.io doesn't work"
-    // looked like to a brand-new signup landing on a cold instance.
     const pending: Array<() => void> = [];
     vi.mocked(fetch).mockImplementation(
       () =>
@@ -1300,8 +1285,6 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    // Provisioning is available, so the queued click surfaces the consent
-    // choice rather than silently starting a connect.
     expect(
       document.querySelector("[data-radix-popper-content-wrapper]"),
     ).not.toBeNull();
@@ -1802,7 +1785,6 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(8000);
     });
 
-    // Still within the confirmation grace window: a real success can still land.
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("couldn't confirm");
   });
@@ -1846,8 +1828,6 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(26_000);
     });
 
-    // No confirmation ever landed, so the button must stop spinning and become
-    // clickable again instead of hanging until the 5-minute overall timeout.
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain(
       "Didn't finish connecting to Builder.io",
@@ -1856,7 +1836,6 @@ describe("useBuilderConnectFlow", () => {
     const button = container.querySelector("button");
     expect(button?.disabled).toBe(false);
 
-    // A retry click must work without a page reload.
     openSpy.mockClear();
     await act(async () => {
       button?.click();
@@ -2183,9 +2162,6 @@ describe("useBuilderConnectFlow", () => {
     openSpy.mockReturnValue(popup);
 
     const startedAt = Date.now();
-    // Past the 20s popup-close grace window, but well within the
-    // callback-success handler's own ~5s retry budget once the success
-    // message lands at t=20s below.
     const configuredAfterMs = 24_200;
     vi.mocked(fetch).mockImplementation(async () => {
       const isConfigured = Date.now() - startedAt >= configuredAfterMs;
@@ -2229,10 +2205,7 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20_000);
     });
-    // removed debug
 
-    // The success message lands right as the popup-close grace window would
-    // otherwise be about to fire the cancellation.
     await act(async () => {
       const attemptId = popupAttemptId(popup);
       window.dispatchEvent(
@@ -2243,10 +2216,7 @@ describe("useBuilderConnectFlow", () => {
       );
       await vi.advanceTimersByTimeAsync(6000);
     });
-    // removed debug
 
-    // The real connection must resolve, not get discarded by the popup-close
-    // branch racing ahead of the callback-success retry loop.
     expect(container.textContent).toContain("configured idle resolved");
     expect(container.textContent).not.toContain("Didn't finish connecting");
   });

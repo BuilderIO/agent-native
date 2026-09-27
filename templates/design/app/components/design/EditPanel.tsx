@@ -297,11 +297,8 @@ export function mergeOptimisticInteractionStateStyles(
 
 export type InspectorTab = "design" | "tweaks" | "comments" | "code";
 
-/** Board ("overview") vs inside one screen ("single"). */
 export type DesignViewMode = "single" | "overview";
 
-/** Floor for a typed/preset frame size. Matches the frame tool's own minimum
- *  so a frame cannot be typed smaller than it can be drawn. */
 const MIN_SCREEN_FRAME_SIZE_PX = 24;
 const EMPTY_SCREEN_SIZE_CONSTRAINTS: ScreenSizeConstraints = {
   width: { min: null, max: null },
@@ -315,24 +312,12 @@ interface EditPanelProps {
   onToggleSelectionHidden?: () => void;
   selectedElements?: ElementInfo[];
   selectedScreenGeometry?: ScreenGeometrySelection | null;
-  /** The selected frame's own layout grid, and the writer for it. Omitting the
-   *  writer hides the section — the board has no grid to edit. */
   selectedScreenLayoutGrid?: LayoutGrid | null;
   onLayoutGridChange?: (
     frameId: string,
     next: Partial<LayoutGrid> | null,
   ) => void;
-  /**
-   * Resizes/moves the selected screen frame. When omitted the geometry fields
-   * stay read-only, which is what read-only viewers and non-editable designs
-   * get. Supplying it also reveals the size-preset picker: the frame tool's
-   * full-panel preset list is only reachable *before* a frame exists, so
-   * without this an existing frame could never be set to a device size.
-   */
-  /** Design-level canvas background — the surround, not a screen's document. */
   canvasBackground?: string | null;
-  /** What the canvas is actually painted with when nothing is stored, so the
-   *  swatch reads as a colour rather than as an absent value. */
   canvasBackgroundFallback?: string | null;
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
   onScreenGeometryChange?: (
@@ -342,11 +327,8 @@ interface EditPanelProps {
     >,
   ) => void;
   onScreenHeightModeChange?: (screenId: string, mode: ScreenHeightMode) => void;
-  /** Source mode and route for the selected overview screen. */
   selectedScreenSource?: ScreenSourceSelection | null;
-  /** True when the active live frame has no resolvable source locations. */
   sourceLocationUnavailable?: boolean;
-  /** Localhost connections available to URL-backed screen settings. */
   localhostConnections?: LocalhostConnectionOption[];
   onScreenSourceChange?: (
     screenId: string,
@@ -361,15 +343,8 @@ interface EditPanelProps {
   screenSourcePending?: boolean;
   screenBreakpointControls?: ReactNode;
   pageStyles?: Record<string, string>;
-  /** The selected screen's own document element, plus the writer for it. A
-   *  screen's box comes from the board and its paint from that document, which
-   *  now fills the frame — so both halves belong in one inspector, the way a
-   *  Figma frame carries box and paint together. */
   selectedScreenElement?: ElementInfo | null;
   onSelectedScreenStyleChange?: StyleChangeHandler;
-  /** Batched sibling of the above. Gradients and image fills patch several
-   *  properties at once; without this they degrade to one-at-a-time writes
-   *  that each rebuild from the same stale projection. */
   onSelectedScreenStylesChange?: StylesChangeHandler;
   vectorPointRadius?: { value: number; max: number } | null;
   vectorPointSelected?: boolean;
@@ -377,8 +352,6 @@ interface EditPanelProps {
     value: number,
     meta?: ScrubInputChangeMeta,
   ) => void;
-  /** Source ranges covered by the current selection for Figma-style color
-   *  replacement. Multiple scopes may belong to one file or several screens. */
   selectionColorScopes?: SelectionColorScope[];
   onSelectionColorChange?: SelectionColorChangeHandler;
   onSelectionColorTarget?: (color: string) => void;
@@ -390,15 +363,11 @@ interface EditPanelProps {
   ) => boolean;
   zoom?: number;
   headerTrailing?: ReactNode;
-  /** Draws the inspector's canonical 28-column / 8px baseline overlay. */
   inspectorGridDebug?: boolean;
   onInspectorGridDebugChange?: (visible: boolean) => void;
   width?: number;
-  /** Board vs single screen, and which editor mode — together they select the
-   *  nothing-selected panel's background scope (resolveBackgroundPanelScope). */
   viewMode: DesignViewMode;
   mode: EditorMode;
-  /** Viewer mode exposes inspection and comments, never editing controls. */
   readOnly?: boolean;
   activeTab?: InspectorTab;
   onActiveTabChange?: (tab: InspectorTab) => void;
@@ -411,298 +380,82 @@ interface EditPanelProps {
   onStylesChange?: StylesChangeHandler;
   onFontUploaded?: (font: UploadedFont) => void | Promise<void>;
   onExport?: (settings: ExportSettingsValue[]) => void;
-  /** Rasterizes the current selection for the export preview. Must go through
-   *  the same renderer as `onExport`, or the preview lies about the output. */
   onRenderExportPreview?: () => Promise<Blob>;
   exporting?: boolean;
-  /** Active file id — used for component prop editing context. */
   fileId?: string;
-  /** Reserved board file id, used to resolve the board preview iframe. */
   boardFileId?: string;
-  /** Host iframe id for live component previews when overview has frame siblings. */
   previewFrameId?: string;
-  /** Latest active file HTML, used to compose rapid sequential source edits. */
   activeContent?: string;
-  /** Optimistic localhost state styles that are not persisted into activeContent. */
   pendingInteractionStateStyles?: Partial<
     Record<InteractionState, Record<string, string>>
   >;
-  /** Server revision for activeContent. */
   activeFileUpdatedAt?: string | null;
-  /** Current hashes for every HTML file when a linked component edit spans Screens. */
   getComponentExpectedFiles?: () => Array<{
     fileId: string;
     versionHash: string;
   }>;
-  /**
-   * Every file's content in the current design (all screens, not just the
-   * active one) — used to compute the document-wide "Document colors"
-   * palette (see `extractDocumentColorPalette`) so it reflects colors used
-   * anywhere in the file, not just the selected element's own color props.
-   * Optional: when omitted, the Fill section's document-colors row falls
-   * back to just the selected element's colors (previous behavior).
-   */
   files?: DocumentColorSourceFile[];
-  // -------------------------------------------------------------------------
-  // Design Studio panels (§6.2, §6.4, §6.5)
-  // Pass `designId` to unlock Tokens, States, and Review sections.
-  // -------------------------------------------------------------------------
-  /** The active design's id — required to mount Tokens / States / Review. */
   designId?: string;
-  /**
-   * Called after a component prop edit returns the patched source so the parent
-   * editor can sync local/Yjs content instead of waiting for query invalidation.
-   */
   onComponentPropApplied?: (
     fileId: string,
     content: string,
     updatedAt?: string,
   ) => void;
-  /** Called only when a GLSL source write has finished persisting. */
   onShaderSourceApplied?: (
     fileId: string,
     content: string,
     updatedAt?: string,
   ) => void;
-  /**
-   * Called after a token edit is applied so the parent can push the resolved
-   * CSS-var map into the iframe via the tweak-values postMessage.
-   */
   onTokensApplied?: (resolvedCssVars: Record<string, string>) => void;
-  /** Props forwarded to the StatesPanel (§6.4). Requires `designId`. */
   statesPanelProps?: Omit<StatesPanelProps, "designId">;
-  /** Props forwarded to the ReviewPanel (§6.5). */
   reviewPanelProps?: Omit<ReviewPanelProps, "className">;
-  /** Persisted design review comments and feedback queue. */
   reviewCommentsPanelProps?: ReviewCommentsPanelProps;
-  /** Open review-thread count shown on the inspector tab. */
   reviewCommentsCount?: number;
-  // -------------------------------------------------------------------------
-  // Component section (§6.1)
-  // When a component instance is selected, pass its node id here to unlock
-  // the contextual Component section at the top of the Design tab.
-  // -------------------------------------------------------------------------
-  /**
-   * The `data-agent-native-node-id` of the currently-selected component root
-   * element.  When provided (along with `designId`), a Component section is
-   * shown at the top of the Design tab with name, source path, prop controls,
-   * and an Edit component action.
-   */
   componentNodeId?: string;
-  /** Runtime component metadata for URL-backed React selections. */
   componentRuntime?: RuntimeComponentDetails;
-  /** Request the existing localhost write-consent dialog before source writes. */
   requestLocalhostWrite?: (opts: {
     files: string[];
     onGranted: LocalhostWriteConsentPayload["onGranted"];
     onCancel?: () => void;
   }) => void;
-  /** True when the selected component node has reached the accepted source. */
   componentDetailsReady?: boolean;
-  /** True when the selected linked component instance stores local overrides. */
   componentInstanceHasLocalOverrides?: boolean;
-  /** Reset local component overrides through the editor's mutation queue. */
   onResetComponentInstanceOverrides?: (nodeId: string) => void;
-  /** Restore a deleted linked component through the editor's mutation queue. */
   onRestoreComponent?: (nodeId: string) => void;
-  /** Increment to open the selected component's Swap instance picker. */
   componentSwapPickerRequest?: number;
-  /**
-   * Source capabilities for the current design.  Used to gate the Edit
-   * component / jump-to-source affordances.  When absent all writes default
-   * to disabled (inline / Alpine tier behaviour).
-   */
   sourceCapabilities?: string[];
-  // -------------------------------------------------------------------------
-  // Selection header quick actions ("Create component" + "Inspect code")
-  // -------------------------------------------------------------------------
-  /**
-   * Promote the current selection into a reusable component. Receives the
-   * (already-normalized-by-the-action) component name the user typed. When
-   * omitted the "Create component" button is disabled.
-   */
   onCreateComponent?: (name: string) => void;
-  /** True when the selected element is already represented as a component. */
   selectedElementAlreadyComponent?: boolean;
-  /** Suggested default name for the create-component dialog. */
   defaultComponentName?: string;
-  /** Code-inspection data for the "Inspect code" popover. */
   inspectCode?: InspectCodeData;
-  /** Optional compact AI edit controls for selected/local source elements. */
   aiActions?: ReactNode;
-  // -------------------------------------------------------------------------
-  // Frame tool size presets (Figma parity)
-  // -------------------------------------------------------------------------
-  /**
-   * The currently-armed canvas tool. When this is `"frame"` and
-   * `onCreateScreenFromPreset` is provided, the whole panel is replaced with
-   * a scrollable list of screen-size presets grouped by category — mirroring
-   * Figma's behavior when the Frame tool (F / A) is activated before
-   * drawing. Any string is accepted so callers can pass their own tool union
-   * type without EditPanel importing it.
-   */
   activeTool?: string;
-  /** Shows Figma's Scale section while `activeTool === "scale"`. */
   scaleToolControls?: ScaleToolControls;
-  /**
-   * Creates a new screen sized to the clicked preset. Only takes effect while
-   * `activeTool === "frame"`; when omitted the frame tool falls back to the
-   * normal selection-based panel content.
-   *
-   * Contract: the parent (DesignEditor) is responsible for placing the new
-   * screen centered in the current viewport, selecting it, and reverting the
-   * active tool back to `"move"` afterward — matching Figma, which arms the
-   * Frame tool for exactly one placement.
-   */
   onCreateScreenFromPreset?: (preset: {
     name: string;
     width: number;
     height: number;
   }) => void;
-  // -------------------------------------------------------------------------
-  // Position section — selection alignment (Figma parity)
-  // -------------------------------------------------------------------------
-  /**
-   * Moves the selected object(s) — the real Figma "Alignment" row in the
-   * Position section always aligns the selection itself, never the selected
-   * element's own children (that's a distinct operation covered by the
-   * auto-layout section's alignment matrix for flex containers).
-   *
-   * Contract for the caller (DesignEditor):
-   * - `edge` names one of Figma's six align operations: "left" | "right" |
-   *   "center-h" (horizontal centering) act on the X axis; "top" | "bottom" |
-   *   "center-v" (vertical centering) act on the Y axis.
-   * - For a multi-selection (2+ objects), align every selected object to the
-   *   shared bounding box of the current selection (min/max of every
-   *   selected element's `boundingRect`) — e.g. "left" moves each object's
-   *   left edge to the selection bbox's left edge; "center-h" centers each
-   *   object on the bbox's horizontal midpoint. This matches
-   *   `mixedElementFromSelection`'s bbox computation already used to build
-   *   the merged inspector element in this file.
-   * - For a single selected object, align it to its parent's content box
-   *   instead (Figma's single-object align-to-parent behavior).
-   * - This callback only needs to reposition objects (write left/top or an
-   *   equivalent transform) — it must NOT touch flexbox alignment
-   *   properties; that responsibility was removed from this row and lives
-   *   solely in the auto-layout alignment matrix now.
-   * - When omitted, the alignment row's buttons are still rendered (Figma
-   *   always shows this row) but no-op, since EditPanel has no selection
-   *   bbox/parent geometry of its own to act on.
-   */
-  /** Convert this container to freeform, pinning children where they render. */
   onDisableAutoLayout?: (nodeId: string) => void;
-  /**
-   * Apply a flex/grid flow to this container, reflowing its children into it.
-   * Only `"unsupported"` may fall back to writing the container styles alone.
-   */
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
-  /**
-   * True when `onAlignSelection` would refuse this selection — a lone
-   * top-level frame, or fewer than two selected screens in overview. The row
-   * stays rendered and goes disabled, so the buttons never look live.
-   */
   alignSelectionDisabled?: boolean;
-  // -------------------------------------------------------------------------
-  // Element interaction states (hover / focus / focus-visible / active /
-  // disabled) — see shared/interaction-states.ts for the persisted format
-  // and forced-preview mechanism, and the StyleChangeMeta doc comment above
-  // for the exact phase-2 commit-routing contract.
-  // -------------------------------------------------------------------------
-  /**
-   * Called whenever the inspector's state selector changes. `null` means
-   * Default. PHASE 2: the parent (DesignEditor) uses this to set/clear the
-   * `data-an-state-preview` attribute on the selected element in the canvas
-   * iframe via the bridge (see `duplicateStatePreviewRules` in
-   * `shared/interaction-states.ts` for why an attribute, not a real
-   * pseudo-class, drives the forced preview). Omit to render the selector as
-   * a no-op display (EditPanel still shows/tracks the active state locally
-   * for its own commit-meta tagging even without this callback).
-   */
   onInteractionStateChange?: (state: ActiveInteractionState) => void;
-  /**
-   * Restricts which non-default states the selector offers for the current
-   * selection (e.g. omit "disabled" for elements that don't support it).
-   * Defaults to all five supported states when omitted.
-   */
   availableInteractionStates?: readonly InteractionState[];
-  /**
-   * GLSL shader fill/effect "Edit code" affordance — threaded straight into
-   * `glslShaderContext.onEditCode` (see `GlslShaderPanelContext` in
-   * `./inspector/GlslShaderPanel`). Called with the shader's id when the user
-   * clicks the panel's Edit-code button; the parent (DesignEditor) should
-   * open the left Code panel focused on the active screen's file. Omit to
-   * leave the affordance rendered but inert (the panel still explains where
-   * the shader source lives).
-   */
   onEditCode?: (shaderId: string) => void;
-  // -------------------------------------------------------------------------
-  // Motion keyframe diamonds (Figma Motion parity) — small ◆ affordances
-  // beside keyframeable fields (X/Y/W/H, rotation, opacity, corner radius,
-  // fill/stroke color, stroke weight, drop shadow). See
-  // `MotionKeyframeDiamond` in `./inspector` for the affordance itself and
-  // the exact CSS property identifiers it emits (`MotionKeyframeCssProperty`
-  // — these match `MOTION_PROPERTY_PRESETS` in `shared/motion-timeline.ts`
-  // verbatim: translate/scale/rotate/opacity/border-radius/
-  // background-color/border-color/border-width/box-shadow).
-  // -------------------------------------------------------------------------
-  /**
-   * When provided, unlocks the per-field keyframe diamonds. Safe default:
-   * omitted (or `hasTimeline: false`) hides every diamond, so EditPanel
-   * renders exactly as before this feature for any caller that hasn't wired
-   * motion yet.
-   */
   motionKeyframeState?: {
-    /** Whether the selected element currently belongs to a motion timeline. */
     hasTimeline: boolean;
-    /**
-     * CSS property identifiers (see `MotionKeyframeCssProperty`) that already
-     * have at least one authored keyframe for the selected element — drives
-     * each diamond's outline-vs-filled state.
-     */
     keyframedProperties: readonly string[];
   };
-  /**
-   * Called when a keyframe diamond is clicked. `cssProperty` is always one
-   * of the motion catalog's tracked identifiers (see
-   * `MotionKeyframeCssProperty`). Contract for the caller (DesignEditor):
-   * toggle a keyframe for that property on the selected element at the
-   * timeline's current playhead position — add one (seeded from the
-   * element's current computed value) when none exists yet at that time, or
-   * remove the one at the playhead when `motionKeyframeState.keyframedProperties`
-   * already includes it. Omit to render every diamond as an inert (but still
-   * visible once `hasTimeline` is true) affordance.
-   */
   onToggleMotionKeyframe?: (cssProperty: MotionKeyframeCssProperty) => void;
-  // -------------------------------------------------------------------------
-  // Breakpoint override indicators (Framer-style responsive breakpoints) —
-  // see `getBreakpointOverrideState` in `@shared/breakpoint-media` for the
-  // override-detection contract this reads, and `BreakpointOverrideIndicator`
-  // in `./inspector` for the dot + reset affordance itself.
-  // -------------------------------------------------------------------------
-  /**
-   * When provided (and `activeWidthPx` is non-null), style-section fields
-   * show an accent override indicator + reset affordance for any property
-   * that's overridden at the active breakpoint. Safe default: omitted
-   * disables the feature entirely — every field renders exactly as before.
-   */
   breakpointContext?: {
-    /** Widths (px) of the design's configured breakpoint frames. */
     breakpointWidths: readonly number[];
-    /** The primary/widest frame's width — the base editing context. */
     baseWidthPx: number;
-    /**
-     * The active breakpoint frame's width, or `null` while editing the base
-     * frame (no override indicators shown in that case — matches
-     * `getBreakpointOverrideState`'s `activeUpperBoundPx: null` contract).
-     */
     activeWidthPx: number | null;
-    /** Captured write scope for async fill operations that can outlive this selection. */
     upperBoundPx?: number | null;
     lowerBoundPx?: number | null;
-    /** The active screen's HTML — read-only, for the managed media block. */
     html: string;
   };
 }
@@ -730,26 +483,13 @@ export interface LocalhostConnectionOption {
   devServerUrl?: string | null;
 }
 
-/**
- * Data backing the "Inspect code" popover. The parent resolves the selected
- * node's HTML and (for real-app sources) its source file location.
- */
 export interface InspectCodeData {
-  /** Outer HTML of the selected element (inline / Alpine source). */
   html?: string | null;
-  /** Selected element tag, used when only runtime selection metadata exists. */
   tagName?: string | null;
-  /** Selected element id, used for the runtime-metadata fallback preview. */
   id?: string | null;
-  /** Selected element classes, used for the runtime-metadata fallback preview. */
   classes?: string[];
-  /**
-   * Resolved source file for real-app sources (localhost / fusion), when the
-   * resolveNodeToFile capability is available.
-   */
   sourceLocation?:
     | (InspectCodeSourceLocation & {
-        /** Optional snippet to show above the Open-in-VS-Code button. */
         snippet?: string;
       })
     | null;
@@ -836,10 +576,6 @@ function SourceLocationSummary({
   );
 }
 
-/**
- * Header-anchored popover that prompts for a component name, then promotes the
- * current selection into a reusable component via `onSubmit`.
- */
 function CreateComponentPopover({
   open,
   onOpenChange,
@@ -854,7 +590,6 @@ function CreateComponentPopover({
   const [name, setName] = useState(defaultName);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Reset the field to the freshest default each time the popover opens.
   useEffect(() => {
     if (open) setName(defaultName);
   }, [open, defaultName]);
@@ -950,14 +685,6 @@ function CreateComponentPopover({
   );
 }
 
-/**
- * Popover anchored to the "Inspect code" button showing the selected node's
- * code.  Inline/Alpine sources show the element's outer HTML with a Copy
- * button; real-app sources additionally render an "Open in VS Code" button.
- *
- * TODO: replace the read-only <pre> with an inline Monaco editor for richer
- * (editable) code inspection once the editor bundle is wired into the inspector.
- */
 function InspectCodePopover({ data }: { data: InspectCodeData }) {
   const [copied, setCopied] = useState(false);
   const html = data.html ?? "";
@@ -1216,13 +943,11 @@ function SelectionHeader({
 }: {
   element: ElementInfo | null;
   selectedCount?: number;
-  /** Promote the current selection into a reusable component. Omit/undefined to disable. */
   onCreateComponent?: (name: string) => void;
   createComponentOpen?: boolean;
   onCreateComponentOpenChange?: (open: boolean) => void;
   showCreateComponentAction?: boolean;
   defaultComponentName?: string;
-  /** Data for the "Inspect code" popover. When omitted the button renders disabled. */
   inspectCode?: InspectCodeData;
 }) {
   const t = useT();
@@ -1234,8 +959,6 @@ function SelectionHeader({
       : inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
   const isComponentSelection = elementIsComponentSelection(element);
-  // One row of a repeat is one source element, so an edit here reaches every
-  // row. Without this the propagation is invisible until the canvas changes.
   const repeatCount =
     selectedCount > 1 ? 0 : (element.repeat?.instanceCount ?? 0);
 
@@ -1316,10 +1039,6 @@ function ScreenSelectionHeader({
   );
 }
 
-/** Preset picker for a selected frame's size. Kept behind a popover on the
- *  Size label rather than an always-visible list: the frame tool's full-panel
- *  preset list only exists before a frame is drawn, so a selected frame had no
- *  way to reach the same sizes. */
 function ScreenSizePresetPicker({
   onPick,
 }: {
@@ -1500,9 +1219,6 @@ function ScreenGeometryProperties({
                 setSourceMode("static");
                 return;
               }
-              // Keep the control pessimistic while a URL-to-static snapshot
-              // is in flight. A failed bridge snapshot must not make the
-              // inspector claim that the screen changed modes.
               setSourceMode("url");
               onScreenSourceChange?.(screen.id, { sourceType: "static" });
             }}
@@ -1850,16 +1566,6 @@ function InspectorTabsHeader({
   );
 }
 
-/**
- * Which background scope the nothing-selected panel addresses. Scope follows
- * what you are looking at; permission only decides whether the section appears
- * at all. Deciding by callback presence instead handed read-only viewers the
- * live document controls and editors the board colour.
- *
- * `single` alone does not mean "inside a screen editing it" — standalone it is
- * the responsive interactive view, and only a host-embedded editor stays in
- * `edit` there. Document scope needs both.
- */
 export function resolveBackgroundPanelScope(input: {
   viewMode: DesignViewMode;
   mode: EditorMode;
@@ -1870,7 +1576,6 @@ export function resolveBackgroundPanelScope(input: {
   return "canvas";
 }
 
-/** Page-level properties when nothing is selected */
 function PageProperties({
   scope,
   styles,
@@ -1920,8 +1625,6 @@ function PageProperties({
             label={t("editPanel.labels.background")}
             value={canvasBackground ?? canvasBackgroundFallback ?? ""}
             supportedPaintTypes={["solid", "none"]}
-            // meta carries phase: "preview" while dragging vs "commit" on
-            // release. Dropping it persists every tick and the picker jumps.
             onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
             allowDesignHistoryHotkeys
           />
@@ -1941,15 +1644,6 @@ function PageProperties({
             onSolidToGradientChange={(patch) =>
               commitStylePatch(patch, onStyleChange, onStylesChange)
             }
-            // Layer-index-aware: ColorInput merges the edited image into the
-            // correct backgroundImage/backgroundSize/backgroundRepeat/
-            // backgroundPosition index and hands back the full four-property
-            // patch here, already preserving every other stacked
-            // gradient/image layer (same pattern as FillProperties' base fill
-            // row — see fill-properties.tsx). The single-layer
-            // `onImageFillChange` this previously used always overwrote the
-            // *whole* background stack via `imageFillToBackgroundStyles`,
-            // silently wiping any other stacked background layer.
             onImageFillLayerChange={(patch) =>
               commitStylePatch(patch, onStyleChange, onStylesChange)
             }
@@ -1977,14 +1671,6 @@ function PageProperties({
   );
 }
 
-/**
- * Togglable export preview thumbnail (the design editor shows a small preview of the export
- * frame above the export rows). Renders a proportional placeholder reflecting
- * the selected element's aspect ratio, fill, radius and dimensions.
- */
-/** Rasterizes through the same path the export actions use, so the preview
- *  cannot disagree with the file. A failed render must stay visibly failed —
- *  never substitute a synthesized stand-in for the real content. */
 function ExportPreview({
   element,
   onRender,
@@ -1994,9 +1680,6 @@ function ExportPreview({
 }) {
   const t = useT();
   const rect = element?.boundingRect;
-  // Selection sources disagree on whether boundingRect is populated (layer-tree
-  // picks in overview report nothing), so the rendered bitmap — which exists
-  // only once a real capture succeeded — is the honest size to caption with.
   const [rendered, setRendered] = useState<{
     width: number;
     height: number;
@@ -2080,8 +1763,6 @@ function ExportPreview({
   );
 }
 
-/** Named, collapsed-by-default "Preview" row. An icon-only toggle in the
- *  section header reads as "export an image", not "reveal what will export". */
 function ExportPreviewDisclosure({
   element,
   onRender,
@@ -2131,9 +1812,6 @@ export function SelectionColorsProperties({
   colors?: SelectionColorValue[];
   title?: string;
 }) {
-  // M6 · the design editor's Selection colors collapses to a single "Show selection colors"
-  // affordance, expanding to one editable [swatch · hex · opacity] row per
-  // unique color — matching the Fill row grammar instead of a swatch strip.
   const [expanded, setExpanded] = useState(false);
   const t = useT();
   const colors = providedColors ?? selectionColorValues(elements, scopes);
@@ -2307,9 +1985,6 @@ export function SelectionColorsProperties({
                       setColorPickerOpen(index, color, open)
                     }
                     supportedPaintTypes={["solid"]}
-                    // PF12: per-tick drag preview vs. one authoritative
-                    // commit on gesture-end — same split as ColorInput's
-                    // setNext (see its PF12 comment above).
                     onChange={(next) =>
                       changeColor(index, color, next, "preview")
                     }
@@ -2441,12 +2116,6 @@ function GroupFillProperties({
 
 const NO_DOCUMENT_COLORS: string[] = [];
 
-/**
- * Document-wide color palette (real "Document colors", not just the selected
- * element's own color props). Only a color picker shows it, so it is read in
- * idle slices rather than tokenizing every screen during the render that
- * opens a design; after an edit only the changed file is re-read.
- */
 function useDocumentColorPalette(files?: DocumentColorSourceFile[]) {
   const cacheRef = useRef<DocumentColorCountCache>(new Map());
   const [palette, setPalette] = useState(NO_DOCUMENT_COLORS);
@@ -2480,17 +2149,6 @@ function useDocumentColorPalette(files?: DocumentColorSourceFile[]) {
   return palette;
 }
 
-// PF8: EditPanel re-renders on every DesignEditor state change (drag,
-// hover, zoom) unless memoized. Nearly all props are already stabilized at
-// the call site (useMemo/useCallback — see DesignEditor.tsx's
-// selectedInspectorElements/selectedScreenGeometry/pageStyles/tweaks/
-// sourceCapabilities/statesPanelProps/reviewPanelProps and the onXxx
-// handlers passed to <EditPanel>). `headerTrailing` and `aiActions` are
-// legitimately-dynamic ReactNode slots (the zoom control repaints its own
-// live percentage every zoom tick; aiActions depends on the live
-// selection) — their identity is expected to change often and a custom
-// comparator that ignored them would hide real content changes, so this
-// uses the default shallow comparison rather than special-casing them.
 export const EditPanel = memo(function EditPanel({
   selectedElement,
   textEditingState,
@@ -2594,20 +2252,8 @@ export const EditPanel = memo(function EditPanel({
   const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
     DEFAULT_EXPORT_SETTINGS,
   );
-  // Element interaction-state selector (Default / Hover / Focus / …). Owned
-  // here (not lifted to the parent) per the mission contract — DesignEditor
-  // only needs to react to changes via onInteractionStateChange, it doesn't
-  // need to drive the value. Resets to Default whenever the selection
-  // changes so switching elements never leaves a stale non-default state
-  // silently active (matches the export-settings reset effect below).
   const [interactionState, setInteractionState] =
     useState<ActiveInteractionState>(null);
-  // Own the Radix menu state above InteractionStatePanel's conditional
-  // element subtree. A source commit can briefly remove/recreate that subtree
-  // while the selected runtime element is reconciled; panel-local uncontrolled
-  // state interpreted that refresh as an outside close immediately after the
-  // user's click. This state survives the transient remount and is reset only
-  // when the stable selection identity genuinely changes.
   const [interactionStateMenuOpen, setInteractionStateMenuOpen] =
     useState(false);
 
@@ -2668,8 +2314,6 @@ export const EditPanel = memo(function EditPanel({
 
     const computedStyles = { ...element.computedStyles };
     const inlineStyles = { ...(element.inlineStyles ?? {}) };
-    // The root element's normal-line-height measurement does not describe the
-    // currently selected text run.
     delete computedStyles.resolvedLineHeightPx;
     const rangeStyles = textEditingState.computedStyles ?? {};
     Object.assign(computedStyles, rangeStyles);
@@ -2685,8 +2329,6 @@ export const EditPanel = memo(function EditPanel({
     };
   }, [effectiveSelectedElements, textEditingState]);
   const selectedCount = effectiveSelectedElements.length;
-  // Persistence context for the code-backed GLSL Shader paint/effect type.
-  // Requires the design + active file plus a stable node id on the selection.
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
     if (!designId || !fileId || selectedCount > 1) return undefined;
     const nodeId = inspectorElement?.sourceId;
@@ -2722,14 +2364,6 @@ export const EditPanel = memo(function EditPanel({
   const selectedElementKey = inspectorElement
     ? interactionStateSelectionKey(inspectorElement, fileId, selectedCount)
     : "none";
-  // A committed source update can make the projected inspector element
-  // disappear for one render before the iframe's refreshed element-select
-  // payload restores the exact same stable selection. Keep the state picker
-  // mounted through that gap while a non-default state or its menu is active;
-  // unmounting Radix's root synchronously reports onOpenChange(false), which
-  // otherwise closes a menu the user opened during the refresh. A genuine
-  // selection change still resets both values in the selectedElementKey
-  // effect below, so this cache cannot carry a picker to another element.
   const lastInteractionStateSourceIdRef = useRef<string | null>(null);
   if (selectedCount <= 1 && inspectorElement?.sourceId) {
     lastInteractionStateSourceIdRef.current = inspectorElement.sourceId;
@@ -2783,13 +2417,6 @@ export const EditPanel = memo(function EditPanel({
     if (!canCreateComponent) setCreateComponentOpen(false);
   }, [canCreateComponent]);
 
-  // Reset the interaction-state selector back to Default whenever the
-  // selection changes, so switching elements never leaves a stale
-  // non-default state silently active (and never leaves the PREVIOUS
-  // element's forced canvas preview attribute stuck on — the effect also
-  // notifies the parent so it can clear that attribute). Runs for every
-  // selection change, including going from "an element" to "no element" or
-  // "multi-selection", both of which the state selector doesn't support.
   useEffect(() => {
     setInteractionState(null);
     setInteractionStateMenuOpen(false);
@@ -2805,12 +2432,6 @@ export const EditPanel = memo(function EditPanel({
     [onInteractionStateChange],
   );
 
-  // States that already have at least one authored override for the
-  // selected element, for the selector's per-row accent dot. Pure/cheap:
-  // `listInteractionStates` just scans the managed
-  // `<style data-agent-native-states>` block in the active file's HTML for
-  // this one node id. Only meaningful for a single-element, source-backed
-  // selection — undefined (no dot ever shown) otherwise.
   const interactionStatesWithOverrides = useMemo(():
     | ReadonlySet<InteractionState>
     | undefined => {
@@ -2830,10 +2451,6 @@ export const EditPanel = memo(function EditPanel({
     inspectorElement?.sourceId,
   ]);
 
-  // The active state's declared property/value overrides for the selected
-  // element, used below to resolve each style-section field's displayed
-  // value (state value when overridden, else the base value — see
-  // `resolveInteractionStateValue`).
   const activeInteractionStateStyles = useMemo(():
     | Record<string, string>
     | undefined => {
@@ -2880,9 +2497,6 @@ export const EditPanel = memo(function EditPanel({
     ? elementInspectorKey(selectedScreenElement, selectedScreenGeometry?.id)
     : "selected-screen";
 
-  // Motion keyframe diamonds (Figma Motion parity) — see `motionKeyframeState`
-  // on EditPanelProps. `undefined` (feature off, or a multi-selection, which
-  // has no single element to keyframe) hides every diamond below.
   const motionKeyframeFieldContext = useMemo(():
     | MotionKeyframeFieldContext
     | undefined => {
@@ -2894,17 +2508,6 @@ export const EditPanel = memo(function EditPanel({
     };
   }, [motionKeyframeState, selectedCount, onToggleMotionKeyframe]);
 
-  // Every style commit below flows through these two wrappers instead of the
-  // raw onStyleChange/onStylesChange props — see the StyleChangeMeta doc
-  // comment for the full phase-2 contract. While a non-default interaction
-  // state is active, every commit (regardless of gesture `phase`) is tagged
-  // with `meta.interactionState` so the parent (DesignEditor) can route it
-  // to the state's managed CSS rule instead of the element's inline style.
-  // Every existing call site in this file passes `onStyleChange`/
-  // `onStylesChange` straight through as JSX props, so shadowing the prop
-  // names here (see the destructure above:
-  // `onStyleChange: onStyleChangeProp`) applies the wrapping everywhere
-  // without touching those ~26 call sites individually.
   const onStyleChange = useCallback<StyleChangeHandler>(
     (property, value, meta) => {
       onStyleChangeProp(
@@ -2980,12 +2583,6 @@ export const EditPanel = memo(function EditPanel({
     [onGroupFillStylesChangeProp],
   );
 
-  // Breakpoint override indicators — see `breakpointContext` on
-  // EditPanelProps. `undefined` (feature off, no stable node id, or a
-  // multi-selection) hides every indicator below; the per-field resolution
-  // itself happens in `resolveBreakpointOverride`. Declared after
-  // `onStyleChange` so its reset callback can route the synthetic commit
-  // through the same interaction-state-aware wrapper every other field uses.
   const breakpointOverrideFieldContext = useMemo(():
     | BreakpointOverrideFieldContext
     | undefined => {
@@ -3019,12 +2616,6 @@ export const EditPanel = memo(function EditPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onStyleChange is a stable useCallback (see above) whose own deps already cover onStyleChangeProp/interactionState; omitting it here avoids recreating this context on every keystroke of an unrelated interaction-state toggle.
   }, [breakpointContext, selectedCount, inspectorElement]);
 
-  // Scroll guard: suppress the click that fires immediately after a scroll
-  // gesture ends (rubber-band or normal scroll). Using onScroll instead of
-  // onPointerDown avoids side-effects like Radix DismissableLayer detecting a
-  // "pointerdown outside" and closing open popovers — which, during an
-  // over-scroll bounce, could briefly un-shield the canvas and allow a stray
-  // pointer event to deselect the selected canvas element (R3 regression).
   const scrolledRecentlyRef = useRef(false);
   const userScrollIntentRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3036,8 +2627,6 @@ export const EditPanel = memo(function EditPanel({
         ? "design"
         : activeTab;
 
-  // Frame presets belong to the Design inspector. Keep Comments and Tweaks
-  // visible when the Frame tool remains armed while another tab is active.
   const showFramePresets =
     !readOnly &&
     resolvedActiveTab === "design" &&
@@ -3110,14 +2699,6 @@ export const EditPanel = memo(function EditPanel({
               }}
               onScroll={() => {
                 if (!userScrollIntentRef.current) return;
-                // Mark that a scroll just happened so the click that some
-                // browsers fire at the end of a scroll gesture (or after an
-                // overscroll/rubber-band bounce) is suppressed. Crucially this
-                // runs on the scroll event — NOT on pointerdown — so it never
-                // triggers Radix's DismissableLayer "outside pointerdown"
-                // detection, which would close open inspector popovers and, once
-                // the shield is removed, allow a stray canvas pointer event to
-                // deselect the selected element (the R3 overscroll regression).
                 scrolledRecentlyRef.current = true;
                 if (scrollTimerRef.current !== null) {
                   clearTimeout(scrollTimerRef.current);
@@ -3129,11 +2710,6 @@ export const EditPanel = memo(function EditPanel({
                 }, 300);
               }}
               onClickCapture={(e) => {
-                // Suppress spurious clicks (e.g. color-picker opening) that
-                // fire immediately after a scroll gesture ends. The 300ms
-                // window from the last scroll event covers both the synchronous
-                // scroll-end click and the delayed synthetic click that mobile
-                // browsers generate after a touch-scroll ends.
                 if (!scrolledRecentlyRef.current) return;
                 scrolledRecentlyRef.current = false;
                 userScrollIntentRef.current = false;
@@ -3145,12 +2721,6 @@ export const EditPanel = memo(function EditPanel({
                 e.preventDefault();
               }}
               onKeyDown={(e) => {
-                // Trap Tab within the inspector panel so it never focuses the
-                // canvas iframe. When the canvas iframe gains focus it forwards
-                // a synthetic Tab keydown to the parent window, which is picked
-                // up by the design-editor hotkey handler as "cycle file" and
-                // causes apparent deselection / overview-mode switch (bug: Tab
-                // in a numeric field deselected the canvas element).
                 if (e.key !== "Tab") return;
                 const panel = e.currentTarget;
                 const focusable = Array.from(
@@ -3504,14 +3074,6 @@ export const EditPanel = memo(function EditPanel({
                   <ExportSettingsPanel
                     key={selectedElementKey}
                     value={exportSettings}
-                    // "pdf" was previously missing here even though the format
-                    // dropdown's type, the default format list, and
-                    // handleDownloadPdf/createSinglePageRasterPdf were already
-                    // fully implemented — Download PDF was unreachable from any
-                    // UI surface (this panel and the "More" export menu are the
-                    // only two, and the menu has no PDF item either). Users had
-                    // no way to trigger it at all, let alone hit a pagination
-                    // or clipping bug in it.
                     formats={["png", "svg", "pdf"]}
                     exporting={exporting}
                     onChange={(patch) =>

@@ -30,8 +30,6 @@ import {
   type InteractDeviceCategory,
 } from "@/pages/design-editor/responsive-interact";
 
-/** Same labels/icons as the bottom toolbar's mode tabs, which this bar stands
- * in for while Interact owns the surface. */
 const MODE_EXITS = [
   {
     mode: "edit",
@@ -102,34 +100,13 @@ export interface ResponsiveInteractBarProps {
   onDeviceChange: (name: string) => void;
   onWidthChange: (width: number) => void;
   onHeightChange: (height: number) => void;
-  /**
-   * Leave Interact for a canvas mode. The bottom toolbar (which owns the mode
-   * tabs) is hidden while Interact owns the surface, so without this the only
-   * exit is Close. The handler must route through `resolveModeChangeView` so
-   * Edit/Annotate land on the infinite canvas rather than the forbidden
-   * single-screen editing state.
-   */
   onModeChange: (mode: "edit" | "annotate") => void;
-  /** Annotate is editor-only; commenters get Edit alone. */
   canAnnotate: boolean;
   onClose: () => void;
-  /**
-   * The docked (non-floating) bar sits in the canvas column, which is inset by
-   * the left rail's width via `paddingLeft`. A wide rail plus a narrow window
-   * can squeeze that column so far that Close gets clipped by the column's
-   * `overflow-hidden`. The caller renders `ResponsiveInteractExitButton`
-   * pinned outside that squeeze for the docked bar; the floating bar keeps it
-   * inline.
-   */
   showClose?: boolean;
   className?: string;
 }
 
-/**
- * The Close/Exit control on its own, styled to match its home inside
- * ResponsiveInteractBar. Exported so a caller can pin it somewhere the
- * docked bar's own horizontal squeeze can't reach — see `showClose` above.
- */
 export function ResponsiveInteractExitButton({
   onClose,
   className,
@@ -155,12 +132,6 @@ export function ResponsiveInteractExitButton({
   );
 }
 
-/**
- * Responsive Interact mode's top chrome bar: device preset + editable W/H
- * (typing switches the preset to "Custom", same as builder-internal's
- * ResponsiveEditingMode). Interact intentionally has no canvas zoom controls;
- * the device preview fits itself to the available canvas.
- */
 export function ResponsiveInteractBar({
   deviceName,
   width,

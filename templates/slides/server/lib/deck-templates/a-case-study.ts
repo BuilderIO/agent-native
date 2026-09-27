@@ -25,7 +25,6 @@ const slide = (body: string, style = "") =>
     body,
   );
 
-/** Duotone scenes that stand in for photography; the caption tells the author what to shoot. */
 const scenes = {
   landscape:
     "radial-gradient(circle at 74% 30%,var(--cs-peach) 0 9%,transparent 9.5%),radial-gradient(ellipse 75% 42% at 22% 104%,var(--cs-forest) 0 99%,transparent 100%),radial-gradient(ellipse 85% 50% at 92% 110%,color-mix(in srgb,var(--cs-forest) 75%,var(--deck-ink)) 0 99%,transparent 100%),radial-gradient(ellipse 120% 60% at 50% 100%,color-mix(in srgb,var(--deck-accent) 70%,var(--cs-forest)) 0 99%,transparent 100%),linear-gradient(180deg,var(--cs-clay),var(--deck-accent))",

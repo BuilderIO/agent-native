@@ -20,11 +20,6 @@ interface AttachmentInput {
   declaredSize?: unknown;
 }
 
-/**
- * Opens signed resumable-upload slots so the browser can stream large `.fig`
- * bytes straight to storage. Only small JSON metadata rides through the app
- * server; the file bytes never do.
- */
 export const designSystemUploadStart = defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {

@@ -320,11 +320,6 @@ import { mountUiActionCapabilityRoute } from "./ui-action-capability.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
 
-/**
- * The base path prefix for all framework-level routes.
- * All agent-native core routes live under this namespace to avoid
- * collisions with template-specific `/api/*` routes.
- */
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
@@ -369,14 +364,6 @@ export interface AgentEngineStatusDeps<
   lookupEntry?: (engine: string) => E | undefined;
 }
 
-/**
- * Resolve "does this request have a usable AI provider" for one identity.
- *
- * Every call site pays for these lookups on a user-visible path (the agent
- * composer blocks on the status probe), so the two identity-independent reads
- * start together and the expensive `app_secrets` sweep only runs when the
- * cheaper sources have not already answered.
- */
 export async function resolveAgentEngineStatus<
   E extends AgentEngineStatusEntry,
 >(deps: AgentEngineStatusDeps<E>): Promise<AgentEngineStatusResult> {
@@ -418,9 +405,6 @@ export async function resolveAgentEngineStatus<
     }
   }
 
-  // Stored provider selections win over an existing Builder connection, so
-  // this is checked before the app_secrets sweep — and the sweep is skipped
-  // entirely when it answers.
   if (stored && typeof stored.engine === "string") {
     const entry = lookupEntry(stored.engine);
     if (entry && (await deps.isStoredEngineUsable(stored, entry))) {
@@ -435,8 +419,6 @@ export async function resolveAgentEngineStatus<
     }
   }
 
-  // Per-user app_secrets — a user who connected Builder (or pasted their own
-  // provider key) may not have any deploy-level env vars set.
   const detectedFromUser = await deps.detectFromUserSecrets();
   if (detectedFromUser) {
     return {
@@ -488,10 +470,6 @@ function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry>
   };
 }
 
-/**
- * Resolve the identity the status answer depends on. Both lookups memoize per
- * request inside their own helpers, so repeating them here stays cheap.
- */
 async function resolveAgentEngineStatusIdentity(
   event: H3Event,
 ): Promise<{ userEmail: string | undefined; orgId: string | undefined }> {
@@ -507,12 +485,6 @@ async function resolveAgentEngineStatusIdentity(
   }
 }
 
-/**
- * Shared Builder grants stay org-scoped, but connect initiation can come from
- * any authenticated member. Revocation still needs owner/admin authority.
- * Capture the org id at connect start so the grant is stored under the org
- * that was authorized, not one re-resolved after the OAuth round trip.
- */
 export async function resolveBuilderOrgMutation(
   event: H3Event,
   options: { allowMemberInitiation?: boolean } = {},
@@ -925,60 +897,23 @@ export function getFrameworkEnvKeys(): EnvKeyConfig[] {
   ];
 }
 
-/** Result of the `/_agent-native/health` liveness + DB-warmup probe. */
-/**
- * Deliberately generous: a genuinely cold Neon compute can take seconds to
- * accept its first connection, and reporting a slow-but-working database as
- * timed out would flap. This is a ceiling on hanging, not a latency budget.
- */
 const DB_HEALTH_PROBE_DEADLINE_MS = 5_000;
 
 export interface DbHealthProbeResult {
-  /** The serverless function is live and served the request. */
   ok: true;
-  /** Database + optional schema readiness for stricter production monitors. */
   ready: boolean;
-  /** A trivial `SELECT 1` reached the database (false = no DB or unreachable). */
   db: boolean;
-  /**
-   * The probe hit its deadline instead of answering. Reported SEPARATELY from
-   * `db: false`, because "the database said no" and "the database never
-   * replied" are different failures and folding them together is exactly the
-   * coercion this repo bans — a monitor cannot tell an app with no database
-   * from one whose database is hanging.
-   */
   dbTimedOut?: boolean;
-  /** Round-trip time of the probe in milliseconds. */
   ms: number;
-  /** Redacted database routing details useful for deploy/runtime checks. */
   database: {
     configured: boolean;
     source: string;
     urlHash?: string;
-    /** Pooler-agnostic identity of the physical database — see getDatabaseRuntimeFingerprint(). */
     fingerprint?: string;
     appName?: string;
     netlifyDatabaseUrlConfigured: boolean;
-    /**
-     * Which app first recorded owning this database (the `beta.<app>`/`<app>`
-     * pair share one). Present only when `db` is true — the read reuses the
-     * connection the `SELECT 1` above just confirmed. `"timeout"` is its own
-     * state distinct from `"unreadable"`: a hung read must never be reported
-     * as "nothing recorded".
-     */
     identity?: DatabaseIdentityReadResult | { state: "timeout" };
-    /**
-     * True only when `identity.state === "recorded"` and the recorded app
-     * differs from the app running this probe. Every other identity state
-     * reports `false` — "not confirmed mismatched", never "confirmed
-     * matching".
-     */
     identityMismatch?: boolean;
-    /**
-     * What this runtime believes its own app is (`app.slug ?? app.id`), or
-     * `null` when the bundle cannot derive one. A null here is why a
-     * mismatch cannot be claimed, and is itself a finding worth reading.
-     */
     runningApp?: string | null;
   };
   /**
@@ -991,31 +926,12 @@ export interface DbHealthProbeResult {
    * this probe already warms a cold database.
    */
   realtime: {
-    /** `"hosted"` only when the transport env var is set. */
     transport: "hosted" | "local";
-    /** A channel resolved — injected by the pipeline, or self-registered. */
     registered: boolean;
-    /**
-     * First 8 chars of a SHA-256 of the channel id. This endpoint is public and
-     * the channel id is half the gateway's auth story, so it is fingerprinted
-     * rather than published — enough to tell two deploys apart or confirm a
-     * rotation, useless for connecting. Mirrors `database.urlHash`.
-     */
     channelHash?: string;
-    /**
-     * Resolution FAILED, reported separately from `registered: false`. On a
-     * diagnostic endpoint the difference is the whole point: "this deploy has
-     * no channel" and "we could not find out" send you to different places.
-     * Same split as `dbTimedOut` above.
-     */
     unavailable?: true;
   };
-  /** Optional metadata-only schema compatibility check. */
   schema?: DatabaseSchemaHealthResult;
-  /**
-   * Optional `pg_stat_activity` pressure counters. Present only when asked for,
-   * and shaped so "could not measure" cannot be read as "nothing wrong".
-   */
   pressure?: DbPressure;
 }
 
@@ -1056,10 +972,6 @@ async function resolveRealtimeHealth(): Promise<
     return { transport, registered: false, unavailable: true };
   }
   if (!channelId) {
-    // Self-registration fails soft to `null`, so the absence of a channel does
-    // not say which kind of absence it is. Ask: a gateway we could not reach
-    // is `unavailable`, an org that is not in the rollout is simply not
-    // registered, and this endpoint exists to tell an operator which.
     return realtimeRegistrationUnavailable()
       ? { transport, registered: false, unavailable: true }
       : { transport, registered: false };
@@ -1074,11 +986,6 @@ async function resolveRealtimeHealth(): Promise<
   };
 }
 
-/**
- * Resolve `promise`, or `onTimeout` if it has not settled by the probe
- * deadline. The timer is always cleared: a pending one keeps a serverless
- * function alive past its response.
- */
 async function withHealthDeadline<T>(
   promise: Promise<T>,
   onTimeout: T,
@@ -1109,16 +1016,8 @@ export async function runDbHealthProbe(
   let schema: DatabaseSchemaHealthResult | undefined;
   const dbExec = exec();
   let dbTimedOut = false;
-  // Started BEFORE the DB probe, not awaited after it. Both read the database,
-  // so running them in series charged every health check the realtime path's
-  // whole latency — up to a 4s gateway POST on a cold isolate — for nothing.
   const realtimeProbe = resolveRealtimeHealth();
   try {
-    // An UNBOUNDED await here is what took the docs site down: the health route
-    // hung for 20-40s until the CDN returned 502, the keep-warm cron failed
-    // every minute, and the function stayed permanently cold — a ~10x penalty
-    // on every cache miss. This function's own contract says "Always
-    // resolves"; without a deadline it did not.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(
@@ -1135,7 +1034,6 @@ export async function runDbHealthProbe(
       if (timer) clearTimeout(timer);
     }
   } catch (err) {
-    // Live even when the DB is unreachable or the app has no database.
     dbTimedOut = (err as Error)?.message === "db probe deadline";
   }
   if (db && options.schema) {
@@ -1143,12 +1041,6 @@ export async function runDbHealthProbe(
       exec: dbExec as ReturnType<typeof getDbExec>,
     });
   }
-  // Same bounded-read pattern as the `SELECT 1` above, and reuses this exact
-  // connection rather than letting the settings store open its own — the
-  // whole reason a mispointed database went unnoticed for 12 days is that
-  // nothing reads this on the hot path. `"timeout"` is its own state,
-  // returned distinctly from `withHealthDeadline`'s fallback below: a hung
-  // read must never be reported as "nothing recorded".
   let identity: DatabaseIdentityReadResult | { state: "timeout" } | undefined;
   let identityMismatch: boolean | undefined;
   let runningApp: string | null | undefined;
@@ -1164,12 +1056,6 @@ export async function runDbHealthProbe(
       ),
       { state: "timeout" as const },
     );
-    // Only "recorded" can ever prove a mismatch — the other three states mean
-    // the check couldn't confirm one, not that it confirmed there wasn't.
-    // And only a KNOWN running identity can disagree with the recorded one:
-    // a hosted bundle that cannot derive its own slug/id must report the gap
-    // (`runningApp: null`), not a mismatch that blocks every production
-    // cutover — which is exactly what the first crm promotion did.
     runningApp = resolveRunningAppIdentity();
     identityMismatch =
       identity.state === "recorded" &&
@@ -1177,20 +1063,12 @@ export async function runDbHealthProbe(
       identity.app !== runningApp;
   }
   const database = getDatabaseRuntimeFingerprint();
-  // Measured on the connection `SELECT 1` just warmed, so the number reflects
-  // the database's own load rather than a serverless cold start.
   let pressure: DbPressure | undefined;
   if (options.pressure) {
     pressure = db
       ? await probeDbPressure(dbExec, { trivialQueryMs })
       : { measured: false, reason: "database unreachable" };
   }
-  // Same deadline, same reason as the `SELECT 1` above. `resolveRealtimeHealth`
-  // reaches the gateway through the app's own database (the project-id lookup
-  // and the stored-registration read), and those reads have no bound of their
-  // own: against a black-holed Postgres the probe would time out on SELECT 1
-  // and then hang here on the same dead pool — reintroducing the unbounded
-  // /health await documented above, one layer down.
   const realtime = await withHealthDeadline(realtimeProbe, {
     transport: isHostedRealtimeTransport() ? "hosted" : "local",
     registered: false,
@@ -1528,10 +1406,6 @@ function parseBuilderCallbackBoolean(
   return /^(1|true)$/i.test(value);
 }
 
-// Raster-only data-URI allowlist for avatar writes. SVG is deliberately absent:
-// data:image/svg+xml payloads can carry inline <script> and event-handler
-// attributes that execute when the browser renders them as an <img> src or
-// inlines them in the DOM. Mirrors SAFE_DATA_IMAGE in sanitize-html.ts.
 export const AVATAR_RASTER_MIME = /^data:image\/(png|jpe?g|gif|webp);/i;
 
 export function resolveAvatarEmailParam(
@@ -1570,7 +1444,6 @@ async function detectUsageEngineName(
     const status = await runWithRequestContext({ userEmail, orgId }, () =>
       resolveAgentEngineStatus({
         ...requestAgentEngineStatusDeps(),
-        // Tracking only needs the engine name; skip the base-URL secret read.
         readOpenAiBaseUrlConfigured: () => false,
       }),
     );
@@ -1760,8 +1633,6 @@ export async function resolveBuilderOwnerContextForRequest(
   mode?: "connect" | "callback",
 ): Promise<BuilderOwnerContext> {
   const searchParams = getFrameworkRouteRequestUrl(event).searchParams;
-  // OAuth callback is session-bound; only the connect trampoline still uses a
-  // signed connect token for anonymous docs/app popup ownership.
   const signedOwner =
     mode === "connect"
       ? verifyBuilderConnectTokenAndGetOwner(
@@ -1778,9 +1649,6 @@ export async function resolveBuilderOwnerContextForRequest(
         (isAgentNativeAnonymousOwner(signedOwner) &&
           isAgentNativeAnonymousOwner(session.email)))
     ) {
-      // Public docs/app surfaces can mint a new anonymous session inside the
-      // popup when cookies do not round-trip. Keep the signed flow owner in
-      // that anonymous-only case, but do not override a real user session.
       return {
         email: signedOwner,
         session: signedOwner === session.email ? session : null,
@@ -1806,20 +1674,6 @@ export async function resolveBuilderOwnerContextForRequest(
   return { email: undefined, session: null, anonymous: false };
 }
 
-/**
- * Resolves the page-level legacy `/tools` → `/extensions` redirect target.
- *
- * Returns the absolute path (with optional query string) to redirect to,
- * or `null` if the request should fall through to the SPA / next handler.
- *
- * Skips:
- *   - Framework API namespace (`/_agent-native/tools/*` is handled separately
- *     as a legacy alias and intentionally stays mounted as `tools`).
- *   - Anything that isn't `/tools` or a `/tools/...` page navigation, after
- *     the configured app base path is stripped off.
- *
- * Exported for tests; the runtime middleware below is a thin wrapper.
- */
 export function resolveLegacyToolsRedirect(
   rawPath: string,
   search: string,
@@ -1838,9 +1692,6 @@ export function getFrameworkRouteRequestUrl(event: H3Event): URL {
   const url = getRequestURL(event);
   if (url.search) return url;
 
-  // In some mounted Nitro/H3 paths, `event.url` is normalized while the raw
-  // Node request URL still has the query string. Builder callbacks carry the
-  // signed `_an_state` there, so preserve it before validating the flow.
   const rawUrl =
     event.node?.req?.url ??
     (typeof event.path === "string" ? event.path : undefined);
@@ -1956,9 +1807,6 @@ export async function consumeBuilderRelayRequest(
     return { ok: false, status: 403, error: "No active Builder relay flow" };
   }
 
-  // A successful delete, not merely a resolved promise, is the one-shot gate.
-  // It happens before credential persistence so replay is impossible even if
-  // the downstream write fails and the human has to start a fresh flow.
   const consumed = await dependencies
     .deletePending(pendingKey)
     .catch(() => false);
@@ -1996,70 +1844,19 @@ function redactValues(text: string, values: Array<string | null | undefined>) {
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface CoreRoutesPluginOptions {
-  /**
-   * Allow authenticated extension creation through
-   * POST /_agent-native/extensions (and the legacy /tools alias).
-   * Existing extension runtime, read, edit, and deep-link routes stay mounted
-   * when this is false. Default: false.
-   */
   extensionTools?: boolean;
-  /** Route path for the SSE endpoint. Default: "/_agent-native/events" */
   sseRoute?: string;
-  /** Disable the SSE endpoint entirely. */
   disableSSE?: boolean;
-  /**
-   * Close an SSE stream after this many milliseconds instead of holding it
-   * open indefinitely, so the stream ends at 200 and the client reconnects
-   * instead of the platform killing the invocation and recording a runtime
-   * timeout. Only applies on a long-lived host, or a production serverless
-   * request from a bundle old enough to still stream (see the SSE mount) —
-   * a request that opts into the 204 short-circuit never reaches the stream,
-   * so this value is unused for it. Default: unset (no cap).
-   * `createCoreRoutesPlugin` throws on a zero, negative, or non-finite value.
-   */
   sseMaxDurationMs?: number;
-  /** Disable the /_agent-native/ping health check. */
   disablePing?: boolean;
-  /** Disable the /_agent-native/health DB liveness + warmup probe. */
   disableHealth?: boolean;
-  /**
-   * Callback paths emitted by this app's Google OAuth health contract. The
-   * default is the shared framework callback; app-owned callbacks must opt in
-   * so fleet probes read the deployed app instead of guessing from a hostname.
-   */
   googleOAuthCallbackPaths?: string[];
-  /** Whether the managed Google client is deployment- or user-scoped. */
   googleOAuthCredentialMode?: "managed" | "user";
-  /**
-   * Whether this app exposes deployment-level Google workspace OAuth. Custom
-   * core-route plugins must declare this; the framework default declares that
-   * managed OAuth is not applicable.
-   */
   googleOAuthManagedConnection?: "required" | "not_applicable";
-  /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
-  /**
-   * Let anonymous visitors keep application state under the owner that
-   * `anonymousOwner` resolves, instead of answering them 401. For apps whose
-   * chat or pages run for visitors without a session (a guest chat): the
-   * client's navigation, URL and composer preference sync then works for them
-   * too. Off by default, since every anonymous visitor then gets state rows.
-   */
   anonymousApplicationState?: boolean;
-  /** Disable the /_agent-native/open deep-link route. */
   disableOpenRoute?: boolean;
-  /** Disable the /_agent-native/embed/start iframe session launcher. */
   disableEmbedRoute?: boolean;
-  /**
-   * Everything about this app's MCP connect surface — whether the Connect page
-   * and OAuth endpoints are mounted, and the server id clients key it by.
-   * See `CoreRoutesMcpOptions`.
-   *
-   * Replaces the top-level `disableMcpConnect`, `mcpConnectServerName`,
-   * `mcpConnectAppId`, and `mcpConnectAppName`, which stay accepted for one
-   * minor. Setting both forms to disagreeing values throws at plugin init
-   * rather than silently picking one.
-   */
   mcp?: CoreRoutesMcpOptions;
 
   /** @deprecated Use `mcp.connect: false`. */
@@ -2070,19 +1867,9 @@ export interface CoreRoutesPluginOptions {
   mcpConnectAppId?: string;
   /** @deprecated Set `app.name` in `defineAppConfig()`. */
   mcpConnectAppName?: string;
-  /** Per-template override mapping deep-link params → client SPA path.
-   *  See `createOpenRouteHandler`. */
   resolveOpenPath?: import("./open-route.js").OpenRouteOptions["resolveOpenPath"];
-  /** Per-template allowlist for open-route targets that may redirect without
-   *  a browser session. See `createOpenRouteHandler`. */
   allowUnauthenticatedOpen?: import("./open-route.js").OpenRouteOptions["allowUnauthenticatedOpen"];
-  /** Env key configuration. Enables env-status and env-vars routes. */
   envKeys?: EnvKeyConfig[];
-  /**
-   * Optional owner resolver for narrowly-scoped public routes. Used by public
-   * pages that let anonymous viewers connect Builder credentials for their
-   * own browser-scoped agent session.
-   */
   anonymousOwner?: BuilderAnonymousOwnerResolver;
 }
 
@@ -2132,17 +1919,12 @@ export async function readLegacyCoreRouteInitSettings(
   };
 }
 
-/**
- * Production release jobs own schema setup. Request functions must not spend
- * their cold-start budget on legacy cleanup or best-effort table warmups.
- */
 export function shouldRunCoreRouteBootDatabaseWork(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   return !isProductionServerlessFunctionRuntime(env);
 }
 
-/** Public discovery is a picker, not a credential registry. */
 export function stripRemoteAgentAuth<
   T extends { auth?: unknown; kind?: unknown },
 >(agent: T): Omit<T, "auth" | "kind"> {
@@ -2150,7 +1932,6 @@ export function stripRemoteAgentAuth<
   return publicAgent;
 }
 
-/** Credentialed probes may only replay a saved, access-scoped connection. */
 export function matchesSavedHostedAgentProbe(
   agent: {
     url: string;
@@ -2261,38 +2042,6 @@ function getBuilderConnectErrorCleanupKeys(
   return attemptKey === legacyKey ? [legacyKey] : [attemptKey, legacyKey];
 }
 
-/**
- * Creates a Nitro plugin that mounts all standard agent-native framework routes.
- *
- * All routes are mounted under `/_agent-native/` to avoid collisions
- * with template-specific routes.
- *
- * Routes:
- *   GET    /_agent-native/poll                          — polling endpoint for change detection
- *   GET    /_agent-native/events (or custom)            — SSE endpoint for real-time sync
- *   GET    /_agent-native/ping                          — health check; add ?configuration=1 for redacted deploy diagnostics
- *   GET    /_agent-native/health                        — DB liveness probe + scale-to-zero warmup
- *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
- *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
- *   GET    /_agent-native/application-state?keys=a,b,c  — batched read of many keys
- *   GET    /_agent-native/application-state/:key        — read application state
- *   PUT    /_agent-native/application-state/:key        — write application state
- *   DELETE /_agent-native/application-state/:key        — delete application state
- *   GET    /_agent-native/application-state/compose     — list compose drafts
- *   DELETE /_agent-native/application-state/compose     — delete all compose drafts
- *   GET    /_agent-native/application-state/compose/:id — get compose draft
- *   PUT    /_agent-native/application-state/compose/:id — upsert compose draft
- *   DELETE /_agent-native/application-state/compose/:id — delete compose draft
- */
-/**
- * Route every Nitro route error through the provider-agnostic `captureError()`
- * registry, filtered by the shared noise rules.
- *
- * This lives here rather than in `sentry-plugin.ts` because that plugin bails
- * out when no `SENTRY_DSN` is configured — wiring the hook there meant an app
- * running PostHog (or any other backend) with no Sentry project reported no
- * route errors at all, while still looking configured.
- */
 function wireRouteErrorCapture(nitroApp: any): void {
   nitroApp.hooks?.hook?.(
     "error",
@@ -2348,13 +2097,6 @@ export interface OAuthCustodyBuilderKeyStatus {
   keyLookupFailed: boolean;
 }
 
-/**
- * Resolves the classic Builder key-pair status for a request that already
- * has Builder MCP OAuth custody (the connection-status handler's `configured`
- * is already `true` by the time this runs — OAuth alone proves the chat
- * gateway). Exported so the connection-status route's OAuth-custody branch is
- * unit-testable without standing up the full plugin.
- */
 export async function resolveOAuthCustodyBuilderKeyStatus(
   dependencies: {
     resolveCredentialsDetailed: () => Promise<{
@@ -2383,10 +2125,6 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
       keyLookupFailed: creds.lookupFailed,
     };
   } catch {
-    // OAuth already proves the chat gateway, so a thrown key-pair lookup
-    // here must not abort the response — but it is unreadable, not
-    // confirmed-absent, so keyLookupFailed has to say so (see the field doc
-    // above) instead of silently landing on the same `false`s as a real miss.
     return {
       privateKeyConfigured: false,
       publicKeyConfigured: false,
@@ -2413,9 +2151,6 @@ export function createOAuthPopupWaitingHandler() {
       "default-src 'none'; frame-ancestors 'none'",
     );
     setResponseHeader(event, "X-Frame-Options", "DENY");
-    // Keep the opener alive until the client replaces this inert page with the
-    // provider URL. The response has no script or user data, so it does not
-    // need the default same-origin opener isolation.
     setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
     return OAUTH_POPUP_WAITING_HTML;
   });
@@ -2427,8 +2162,6 @@ export function mountApplicationStateRoutes(
   app: H3AppShim = getH3App(nitroApp),
   options: { anonymousOwner?: AppStateAnonymousOwnerResolver } = {},
 ): void {
-  // Hand the handlers the app's anonymous owner resolver; they consult it only
-  // when the request has no session.
   const withAnonymousOwner = (event: H3Event) => {
     if (options.anonymousOwner && event.context) {
       event.context[APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY] =
@@ -2504,8 +2237,6 @@ export function createCoreRoutesPlugin(
       SETTINGS_REDESIGN_FLAG,
     ]);
     registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
-    // No-op when called from inside the bootstrap (auto-mount path).
-    // Otherwise wait so other default plugins finish mounting first.
     let resolveInit: () => void = () => {};
     let rejectInit: (error: unknown) => void = () => {};
     const initPromise = new Promise<void>((resolve, reject) => {
@@ -2539,11 +2270,6 @@ export function createCoreRoutesPlugin(
         ...(!options.disableAppState ? [`${P}/application-state`] : []),
       ]);
 
-      // Keep the framework-owned S3-compatible provider available even when an
-      // app does not mount the optional onboarding plugin. The settings CTA and
-      // the upload route share this registry. An app may register its own
-      // provider under the conventional `s3` id, so preserve that explicit
-      // registration instead of replacing it during core bootstrap.
       ensureS3FileUploadProvider();
 
       getH3App(nitroApp).use(
@@ -2560,9 +2286,6 @@ export function createCoreRoutesPlugin(
       );
 
       if (!options.disableAppState) {
-        // Application state is part of the client bootstrap contract. Register
-        // it before optional plugin/bootstrap work so the first localization
-        // write cannot fall through to the template router on a cold start.
         mountApplicationStateRoutes(nitroApp, P, undefined, {
           anonymousOwner: options.anonymousApplicationState
             ? options.anonymousOwner
@@ -2570,16 +2293,9 @@ export function createCoreRoutesPlugin(
         });
       }
 
-      // This response is a side-effect-free static contract used by the SSR
-      // shell. Mount it before optional default-plugin/bootstrap work so a
-      // browser's automatic rules fetch cannot inherit the cold-start wait.
       getH3App(nitroApp).use(
         `${P}/speculation-rules.json`,
         defineEventHandler((event) => {
-          // `createH3SSRHandler` points the Speculation-Rules response header
-          // here to prevent Cloudflare Speed Brain from injecting its own
-          // edge prefetch rules. Keep this route public and side-effect free:
-          // browsers may request it while parsing any SSR HTML document.
           setResponseHeader(
             event,
             "content-type",
@@ -2594,9 +2310,6 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // Keep liveness independent from the rest of framework bootstrap. A
-      // cold-start database failure must report a useful ping/health result,
-      // not prevent these handlers from being registered at all.
       if (!options.disablePing) {
         getH3App(nitroApp).use(
           `${P}/ping`,
@@ -2627,13 +2340,6 @@ export function createCoreRoutesPlugin(
       }
 
       if (!options.disableHealth) {
-        // Registered before `/health` because h3 matches by prefix, and the
-        // health handler would otherwise swallow this path.
-        // Resolved once per process — the deployment's own CONFIGURED
-        // canonical origin (never the current request's), so a probe result
-        // can't be spoofed via a Host header, and matches what the callback
-        // route itself builds (resolveOAuthRedirectUri / getAppUrl) for the
-        // default sign-in callback path.
         const googleHealthOrigin = await (async () => {
           try {
             const { getAppProductionUrl } = await import("./app-url.js");
@@ -2763,9 +2469,6 @@ export function createCoreRoutesPlugin(
                   healthBaseUrlHost !== requestHost,
                 ),
               },
-              // Informational only — an unconfigured webhook never fails
-              // health. It answers "would the next chat outage page anyone",
-              // since chat-health-alert.ts silently no-ops without it.
               alerts: {
                 chatHealthSlackWebhookConfigured: isSlackWebhookConfigured(),
               },
@@ -2832,10 +2535,6 @@ export function createCoreRoutesPlugin(
               Boolean(readRequestHeader(EMBED_TRANSPLANT_HEADER)) ||
               Boolean(readRequestHeader("authorization")));
 
-          // Decide whether this origin is allowed. We never fall back to the
-          // first allowlist entry — that previously echoed `Access-Control-
-          // Allow-Origin: <unrelated-allowed-origin>` for disallowed callers,
-          // which is permissive enough that some clients followed through.
           const allowedOrigin = mcpEmbedCorsRequest
             ? origin
             : getAllowedCorsOrigin(origin, {
@@ -2843,11 +2542,6 @@ export function createCoreRoutesPlugin(
                 allowAnyOriginWhenNoAllowlist: false,
               });
 
-          // Reject preflights from disallowed cross-origin callers BEFORE
-          // returning 204. Previously the OPTIONS short-circuit returned 204
-          // with no ACAO header, which the browser then treats as a CORS
-          // failure — but also short-circuited any further checks. Now we
-          // explicitly 403 disallowed cross-origin preflights.
           if (method === "OPTIONS") {
             if (origin && !allowedOrigin) {
               setResponseStatus(event, 403);
@@ -2882,10 +2576,6 @@ export function createCoreRoutesPlugin(
             return "";
           }
 
-          // Non-preflight requests: only set CORS response headers when we
-          // have an allowed origin. Same-origin / no-origin requests fall
-          // through without explicit CORS headers (browser treats them as
-          // same-origin by default).
           if (!allowedOrigin) return;
           setResponseHeader(
             event,
@@ -2913,28 +2603,15 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. `/login`
-      // 302s to the identity hub;
-      // `/callback` verifies the hub-issued A2A-signed identity JWT and JIT-
-      // links the verified email into this app's local Better Auth store. The
-      // handler fails closed unless direct web SSO is configured or the
-      // packaged Desktop SSO Canary requests a canonical Agent-Native app.
-      // Mounting the handler unconditionally lets that request-scoped decision
-      // work.
       getH3App(nitroApp).use(
         `${P}/identity`,
         defineEventHandler(async (event: H3Event) => {
-          // Framework strips the mount prefix; what remains is the subpath
-          // after `/identity` (e.g. `/login`, `/callback`).
           const subpath = event.url?.pathname || "";
           return handleIdentitySso(event, subpath);
         }),
       );
 
       if (!options.disableEmbedRoute) {
-        // One-time ticket launcher for MCP Apps that embed the full React app.
-        // The ticket is minted by an authenticated MCP tool call and exchanged
-        // here for a short-lived browser session cookie + bearer fallback.
         getH3App(nitroApp).use(
           `${P}/embed/start`,
           createEmbedStartRouteHandler({ getExistingSession: getSession }),
@@ -2948,9 +2625,6 @@ export function createCoreRoutesPlugin(
         ? await readLegacyCoreRouteInitSettings()
         : { persistedEnvVars: null, builderDisconnected: null };
 
-      // Legacy cleanup: key saves now go to scoped app_secrets rows. Do not
-      // rehydrate the old deployment-global `persisted-env-vars` row into
-      // process.env; keep only the Builder scrub so stale leaked keys self-heal.
       try {
         if (persistedEnvVars) {
           const builderKeys = new Set<string>(BUILDER_ENV_KEYS);
@@ -2980,13 +2654,6 @@ export function createCoreRoutesPlugin(
         // DB not ready yet — skip
       }
 
-      // Honor Builder disconnect. Nitro's dev env-runner preserves
-      // `process.env` across `.env` file reloads inside the same worker, so
-      // deleting BUILDER_PRIVATE_KEY in the disconnect handler can bleed
-      // back through an env-runner restart. We persist a
-      // `builder-disconnected` flag in SQL and scrub BUILDER_* on every
-      // plugin init while the flag is set. The flag is cleared by the
-      // Builder cli-auth callback when the user re-connects.
       try {
         if (builderDisconnected) {
           for (const key of BUILDER_ENV_KEYS) {
@@ -2998,17 +2665,9 @@ export function createCoreRoutesPlugin(
         // next plugin boot once the settings table is reachable.
       }
 
-      // Register framework-level secrets (OPENAI_API_KEY for composer voice
-      // transcription, etc.). Each registration is guarded so templates that
-      // already registered the same key win.
       registerFrameworkSecrets();
       registerBuiltinProviders();
-      // Named for the destination it actually reaches: every configured
-      // tracking provider (PostHog, Mixpanel, Amplitude, Agent-Native
-      // Analytics, webhook), not just one of them.
       registerErrorCaptureProvider("tracking", (error, context) => {
-        // Attribute to the in-flight request's user so server exceptions and
-        // that same person's browser events share one `distinct_id`.
         const requestContext = hasRequestContext()
           ? getRequestContext()
           : undefined;
@@ -3042,10 +2701,6 @@ export function createCoreRoutesPlugin(
         // Observability module not available — skip
       }
 
-      // Audit log — durable, append-only record of who mutated what app data,
-      // when, and (for the agent) in which run. Capture is automatic at the
-      // action seam; here we just ensure the table exists and start the
-      // retention purge. Best-effort so a missing DB never crashes boot.
       try {
         const { ensureAuditTables } = await import("../audit/store.js");
         const { startAuditCleanupJob } =
@@ -3191,9 +2846,6 @@ export function createCoreRoutesPlugin(
 
               const requiresSavedConnection =
                 Boolean(auth) ||
-                // The default Anthropic API host is the provider endpoint, so
-                // its ID/key check is safe before the manifest is saved. Any
-                // custom host still needs an existing scoped connection.
                 Boolean(kind && !isAnthropicManagedAgentsApiUrl(urlParam));
               if (requiresSavedConnection) {
                 const { discoverAgents } = await import("./agent-discovery.js");
@@ -3233,10 +2885,6 @@ export function createCoreRoutesPlugin(
                 { verifyAuth: auth !== undefined || kind !== undefined },
               );
 
-              // Reachability and auth are independent, but a malformed/SSRF-blocked
-              // URL is a caller input error, not a peer that failed to answer — the
-              // one case where the probe's "unreachable" result is reclassified into
-              // a 400 instead of a 200 with `reachable: false`.
               if (result.error?.startsWith("SSRF blocked:")) {
                 setResponseStatus(event, 400);
                 return { url: urlParam, error: result.error };
@@ -3248,45 +2896,17 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // Agent discovery primitive — shared by headless CLI/A2A surfaces and
-      // UI shells that need to show connected peer apps without depending on
-      // the chat route namespace.
       getH3App(nitroApp).use(`${P}/agents`, createPublicRemoteAgentsHandler());
 
-      // Polling
       getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
 
-      // Realtime subscribe-token mint (hosted gateway path)
       getH3App(nitroApp).use(
         `${P}/realtime-token`,
         createRealtimeTokenHandler(),
       );
-      // Sharee visibility check for the hosted gateway
       getH3App(nitroApp).use(`${P}/can-see`, createGatewayAccessCheckHandler());
 
-      // SSE
       if (!options.disableSSE) {
-        // A serverless invocation holding this stream never ends on its own:
-        // the platform kills it at its own ceiling, which recycles that
-        // execution environment, and EventSource reconnects immediately — one
-        // open tab becomes a steady stream of fresh cold containers. Refusing
-        // up front with a bare 204 (EventSource treats any non-200 status as
-        // terminal and does not auto-reconnect; 204 is the conventional "stop"
-        // signal) costs nothing per invocation and lets the client's own
-        // local-reconnect path (use-db-sync.ts) fall back to /poll instead,
-        // reporting poll-live so subscribers keep their normal cadence.
-        // Long-lived Node hosts and local dev are unaffected.
-        //
-        // Gated on the request itself, not only the runtime: `isServerlessRuntime()`
-        // is a pool-sizing check that is also true under `netlify dev`
-        // (NETLIFY_LOCAL, a long-lived local server) and on Cloudflare (one
-        // isolate serving many concurrent requests, where in-process events
-        // can still reach some streams) — a false positive there would
-        // silently drop local SSE. `isProductionServerlessFunctionRuntime()`
-        // excludes both. The `poll_live` param further limits the 204 to
-        // requests from a client new enough to fall back to poll-live; an
-        // older bundle's stream (already open, or opened before its next
-        // reload) keeps streaming.
         const streamHandler = createPollEventsHandler(undefined, {
           maxDurationMs: sseMaxDurationMs,
         });
@@ -3308,14 +2928,6 @@ export function createCoreRoutesPlugin(
         }
       }
 
-      // ─── Durable sandbox execution processor ─────────────────────────
-      // Self-fired by run-code's background queue (see
-      // coding-tools/sandbox/background.ts): the enqueueing request POSTs here
-      // so the code executes in a FRESH invocation with its own budget instead
-      // of riding the ~40s agent-loop wall. Authenticity is verified via the
-      // shared HMAC internal-token scheme (same as the A2A / integration /
-      // agent-teams processors) plus the atomic SQL claim inside
-      // processQueuedSandboxExecution, which prevents double execution.
       getH3App(nitroApp).use(
         `${P}/sandbox/_process-execution`,
         defineEventHandler(async (event) => {
@@ -3377,13 +2989,6 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // ─── Durable sandbox execution sweep ──────────────────────────────
-      // Backstop for lost dispatches and dead executors: re-drives queued rows
-      // whose enqueue-time dispatch never landed and reclaims/reaps running
-      // rows whose lease expired. Cheap (one indexed query per 2-min window;
-      // a missing table short-circuits to a no-op) and best-effort — the
-      // poll-time drain in run-code covers deployments where warm-instance
-      // timers rarely fire.
       (() => {
         if (shouldDisableInProcessSweeps()) return;
         let lastSweep = 0;
@@ -3402,8 +3007,8 @@ export function createCoreRoutesPlugin(
             })().catch(() => {
               // best-effort — never break the server
             });
-          }, 30_000); // Check every 30s but only sweep once per 2min
-        }, 25_000); // Start 25s after init (after the agent sweeps)
+          }, 30_000);
+        }, 25_000);
       })();
 
       getH3App(nitroApp).use(
@@ -3443,13 +3048,6 @@ export function createCoreRoutesPlugin(
         );
       }
 
-      // Signed, content-only recap PNG images. POST (authenticated with the
-      // same `agent-native connect` bearer token the action surface accepts)
-      // stores a PNG and returns a public image URL; GET <token>.png serves
-      // the opaque bytes anonymously so GitHub's camo proxy can inline a recap
-      // screenshot into a private-repo PR comment. Mounted as a prefix so it
-      // owns both `/_agent-native/recap-image` (POST) and
-      // `/_agent-native/recap-image/<token>.png` (GET).
       {
         const { createRecapImageHandler } =
           await import("./recap-image-route.js");
@@ -3458,9 +3056,6 @@ export function createCoreRoutesPlugin(
 
       mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
 
-      // Dev-mode DB admin (Supabase-Studio-like). Mounted unconditionally; every
-      // handler self-gates on dev + localhost (the authoritative gate lives in
-      // db-admin/routes.ts), so on a deployed / production app it always 403s.
       mountDbAdminRoutes(nitroApp, { routePrefix: P });
 
       const resolveBuilderOwnerContext = async (
@@ -3518,11 +3113,6 @@ export function createCoreRoutesPlugin(
           };
         };
 
-        // Pass the user's active orgId so status reads can fall back to
-        // org-scoped credentials and branch project IDs. Without it, an
-        // admin's org-scope OAuth result is invisible to every other org
-        // member's status poller and the UI would show "not connected" forever
-        // even though the chat actually resolves the org-shared credential.
         let orgId: string | null = null;
         let orgRole: string | null = null;
         if (!ownerContext.anonymous) {
@@ -3556,10 +3146,6 @@ export function createCoreRoutesPlugin(
               branchProjectId: projectId || undefined,
             };
 
-            // Surface a recent OAuth callback failure before reporting a
-            // deployment fallback as "connected"; otherwise a failed personal
-            // connect attempt on a deploy that also has BUILDER_PRIVATE_KEY set
-            // looks successful even though the user's credentials were not saved.
             try {
               if (userEmail) {
                 const errKey = getBuilderConnectErrorKey(
@@ -3676,9 +3262,6 @@ export function createCoreRoutesPlugin(
               }
             }
 
-            // Read request-scoped Builder credentials first; deploy env is only
-            // the fallback. This keeps a root/local BUILDER_PRIVATE_KEY from
-            // blocking a user from connecting their own Builder account.
             try {
               const {
                 resolveBuilderCredentials,
@@ -3706,11 +3289,6 @@ export function createCoreRoutesPlugin(
                   isFreeAccount: undefined,
                   credentialSource: credentialSource ?? undefined,
                   canDisconnect: false,
-                  // Surface durable credential rejection separately from
-                  // one-shot OAuth callback failures. The reconnect UI keeps
-                  // polling through authError while the user chooses a new
-                  // Builder space; connectError means the active callback itself
-                  // failed and should stop the flow.
                   authError: {
                     message: authFailure.message,
                     at: authFailure.at,
@@ -3718,10 +3296,6 @@ export function createCoreRoutesPlugin(
                 });
               }
               if (creds.privateKey && creds.publicKey) {
-                // Best-effort: surface the real space name(s) from Builder's
-                // Admin API. Stay NON-BLOCKING — return whatever is cached now
-                // and refresh in the background for the next poll. Falls back
-                // to orgName until the cache warms.
                 let spaces: Array<{ id: string; name: string }> | undefined;
                 try {
                   const { getCachedBuilderSpaces, listBuilderSpaces } =
@@ -3732,7 +3306,6 @@ export function createCoreRoutesPlugin(
                     spaces = cachedSpaces;
                   }
                   if (!cachedSpaces) {
-                    // Warm the cache without blocking this response.
                     void listBuilderSpaces(privateKey).catch(() => {});
                   }
                 } catch {
@@ -3777,7 +3350,6 @@ export function createCoreRoutesPlugin(
               // Secrets table not ready — fall through to env status
             }
 
-            // Honor legacy disconnect flag for existing deployments.
             try {
               const disconnected = await getSetting("builder-disconnected");
               if (disconnected) {
@@ -3799,9 +3371,6 @@ export function createCoreRoutesPlugin(
             } catch {
               // DB not reachable
             }
-            // No env, no per-user creds → not configured. Both authenticated
-            // and unauthenticated callers see "not connected" so they can
-            // run through the OAuth flow.
             return withConnectToken({
               ...requestStatus,
               configured: false,
@@ -3825,25 +3394,12 @@ export function createCoreRoutesPlugin(
         builderStatusHandler,
       );
 
-      // How long a pending-connect row is valid. Must be long enough for
-      // the user to complete the Builder OAuth flow, but short enough
-      // that a stale row from an abandoned attempt doesn't accept a new
-      // callback minutes later.
-      const BUILDER_CONNECT_PENDING_TTL_MS = 10 * 60 * 1000; // 10 min
+      const BUILDER_CONNECT_PENDING_TTL_MS = 10 * 60 * 1000;
 
-      // Decide whether a /builder/connect navigation originated from this
-      // app's own UI (allowed) or from a foreign origin (cross-site CSRF
-      // attempt — rejected). Sec-Fetch-Site is the modern signal:
-      //   - "same-origin": user clicked Connect from our own pages — allow
-      //   - "none": typed in URL bar / bookmark / browser extension — allow
-      //   - "same-site" / "cross-site" / missing-but-with-foreign-Origin
-      //     all map to reject.
-      // For older browsers without Sec-Fetch-* we fall back to Origin and
-      // then Referer, comparing against the request's resolved origin.
       function isSameOriginConnect(event: H3Event): boolean {
         const fetchSite = getHeader(event, "sec-fetch-site");
         if (fetchSite === "same-origin" || fetchSite === "none") return true;
-        if (fetchSite) return false; // browser told us it's cross-site/same-site
+        if (fetchSite) return false;
         const expected = getBuilderBrowserOriginForEvent(event).replace(
           /\/+$/,
           "",
@@ -3858,9 +3414,6 @@ export function createCoreRoutesPlugin(
             return false;
           }
         }
-        // No Sec-Fetch-Site, no Origin, no Referer — pre-2020 browser
-        // making a top-level navigation. Allow; cookies are still
-        // session-bound so the worst case degrades to the prior behavior.
         return true;
       }
 
@@ -3937,9 +3490,6 @@ export function createCoreRoutesPlugin(
           const hasValidConnectToken =
             Boolean(connectTokenOwner) && connectTokenOwner === ownerEmail;
 
-          // Same-origin gate. Sec-Fetch-Site remains the fast path; the signed
-          // connect token is the compatibility path for legitimate embedded or
-          // local desktop popups stamped as same-site/cross-site by the browser.
           if (!isSameOriginConnect(event) && !hasValidConnectToken) {
             const crossOriginMessage = connectToken
               ? "This Builder connect link is expired or belongs to a different deployment. Close this popup and click Connect account again."
@@ -4216,9 +3766,6 @@ export function createCoreRoutesPlugin(
             }
           }
 
-          // Clear any prior failure row from a previous attempt — otherwise
-          // useBuilderStatus polling sees the stale error and aborts the
-          // new attempt before it can complete.
           try {
             await Promise.all(
               getBuilderConnectErrorCleanupKeys(
@@ -4266,9 +3813,6 @@ export function createCoreRoutesPlugin(
               "org_authorization_required",
             );
           }
-          // The standard OAuth client discovers Builder's protected-resource
-          // metadata, dynamically registers, and creates its S256 verifier.
-          // Persist that opaque protocol state encrypted and consume it once.
           let oauthFlow: BuilderOAuthPendingFlow;
           let authorizationUrl: string;
           try {
@@ -4328,8 +3872,6 @@ export function createCoreRoutesPlugin(
               "[builder] Could not store pending-connect state:",
               (err as Error)?.message ?? err,
             );
-            // Best-effort: also write the error row so the parent's
-            // /builder/status poll picks it up if BroadcastChannel doesn't.
             await putSetting(
               getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
               {
@@ -4405,12 +3947,6 @@ export function createCoreRoutesPlugin(
             /* org module not present in this template — keep userEmail-only */
           }
 
-          // Wrap in runWithRequestContext so resolveBuilderCredential() inside
-          // runBuilderAgent() resolves per-user app_secrets rather than falling
-          // through to process.env — the same pattern the /builder/status endpoint
-          // uses. Without this, per-user Builder keys stored in app_secrets are
-          // invisible to the run path and the call throws "Builder keys are not
-          // configured" even though the status endpoint correctly reports configured=true.
           return runWithRequestContext(
             { userEmail, orgId: orgId ?? undefined },
             async () => {
@@ -4427,10 +3963,6 @@ export function createCoreRoutesPlugin(
                 await import("./credential-provider.js");
               const builderUserId =
                 (await resolveBuilderCred("BUILDER_USER_ID")) || undefined;
-              // Server-controlled projectId — don't let clients target arbitrary
-              // Builder projects with our private key. When this feature graduates
-              // past the hardcoded preview, the projectId will come from
-              // workspace/org config, still resolved server-side.
               try {
                 const result = await runBuilderAgent({
                   prompt,
@@ -4455,11 +3987,6 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // Branch-creation waitlist signup. Used by ConnectBuilderCard when the
-      // current request has no Builder branch project configured. Hosted
-      // Agent-Native deployments submit into the Builder-org Forms waitlist;
-      // local/self-hosted deployments keep the analytics signal without
-      // sending private workspace data to Agent-Native.
       getH3App(nitroApp).use(
         `${P}/builder/branch-waitlist`,
         defineEventHandler(async (event: H3Event) => {
@@ -4608,10 +4135,6 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          // Builder's provider contract puts credentials on this first-hop
-          // URL. Keep the response out of caches and suppress referrer
-          // propagation even though the second hop carries secrets only in
-          // its authenticated POST body.
           setResponseHeader(event, "Cache-Control", "no-store");
           setResponseHeader(event, "Pragma", "no-cache");
           setResponseHeader(event, "Referrer-Policy", "no-referrer");
@@ -4748,9 +4271,6 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          // Builder sometimes drops the top-level OAuth state. Recover it
-          // from the host-only cookie set by /builder/connect; the pending row
-          // and authenticated session still bind it to this account.
           const queryState = requestUrl.searchParams.get("state");
           const rawStateCookie = getCookie(event, BUILDER_CONNECT_STATE_COOKIE);
           const cookieStates = parseBuilderConnectStateCookie(rawStateCookie);
@@ -4778,8 +4298,6 @@ export function createCoreRoutesPlugin(
               cookie,
               finishedState,
             );
-            // Rewriting a cookie this attempt does not own would resurrect
-            // states a concurrent callback just finished with.
             if (remaining === cookie) return;
             if (!remaining) {
               deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
@@ -4833,10 +4351,6 @@ export function createCoreRoutesPlugin(
           };
 
           if (!state || !isSignedBuilderConnectState(state)) {
-            // This route is a SameSite=Lax GET, so a prefetch, a history
-            // revisit, or a cross-site link reaches it without a payload.
-            // Only a request carrying a real OAuth result may discard the
-            // recovery states of flows still running in other tabs.
             const carriesOAuthResult =
               requestUrl.searchParams.has("code") ||
               requestUrl.searchParams.has("error");
@@ -4946,9 +4460,6 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          // PKCE proves the callback belongs to this flow before its pending
-          // row is consumed. Persist first so a transient credential-store
-          // failure does not strand an otherwise valid pending flow.
           const requestedConnectionScope = parseBuilderConnectionScope(
             pending.connectionScope,
           );
@@ -5157,8 +4668,6 @@ export function createCoreRoutesPlugin(
               orgId,
             );
             const hadOAuth = oauthScope !== null;
-            // Revoking an org-scoped grant takes the connection offline for
-            // every member, so require org owner/admin before doing so.
             if (oauthScope === "org") {
               const { deny } = await resolveBuilderOrgMutation(event);
               if (deny) {
@@ -5257,7 +4766,6 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // Proxy to Builder's agents-run API for background code changes.
       getH3App(nitroApp).use(
         `${P}/builder/agents-run`,
         defineEventHandler(async (event: H3Event) => {
@@ -5338,7 +4846,6 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // Env key management — framework keys are always included
       const frameworkEnvKeys = getFrameworkEnvKeys();
       {
         const envKeys = [...frameworkEnvKeys, ...(options.envKeys ?? [])];
@@ -5358,9 +4865,6 @@ export function createCoreRoutesPlugin(
                 /* org module not present in this template */
               }
             }
-            // One context for the whole sweep so the per-request secret memo is
-            // shared, and one batched read per scope to fill it. Without this
-            // every key pays its own four-scope waterfall.
             const requestContext = { userEmail, orgId };
             await runWithRequestContext(requestContext, () =>
               prefetchSecrets(allowedEnvKeyNames),
@@ -5435,18 +4939,11 @@ export function createCoreRoutesPlugin(
         createAgentEngineApiKeyHandler(),
       );
 
-      // GET /_agent-native/agent-engine/ollama-models — lists the models an
-      // Ollama server actually has installed, so the provider setup form can
-      // show real options instead of only the static suggestion list.
       getH3App(nitroApp).use(
         `${P}/agent-engine/ollama-models`,
         createAgentEngineOllamaModelsHandler(),
       );
 
-      // GET /_agent-native/agent-engine/status — reports whether an engine
-      // is configured (settings row, settings+env, or auto-detected from env).
-      // The agent-chat UI uses this to skip the onboarding gate for providers
-      // not in the env-status list (OpenRouter, Groq, Ollama, …).
       getH3App(nitroApp).use(
         `${P}/agent-engine/status`,
         defineEventHandler(async (event) => {
@@ -5457,11 +4954,6 @@ export function createCoreRoutesPlugin(
               resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
             );
           } catch (err) {
-            // NOT `{ configured: false }`. A 200 saying "not configured" is an
-            // authoritative answer to the client, so a DB blip here renders as
-            // "connect an AI provider" and gates the composer. 503 is the only
-            // response the client can tell apart from a real answer — it maps
-            // to `unavailable`, which keeps the composer usable and retries.
             console.error("[agent-engine/status] lookup failed", err);
             setResponseStatus(event, 503);
             return { error: "Could not read the agent engine configuration." };
@@ -5469,16 +4961,6 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // POST /_agent-native/track — client-originated analytics events.
-      // The browser `track()` helper POSTs `{ name, properties }` here so app
-      // code can fan out to the SAME server-side providers (PostHog/Mixpanel/
-      // etc.) that server `track()` reaches. Authenticated + first-party only:
-      // the CSRF middleware above (mounted before route handlers) already
-      // requires the X-Agent-Native-CSRF marker the client helper sends, and we
-      // require a resolved session so this can't become an open relay. Events
-      // are attributed to the resolved user/org — never a client-supplied id.
-      // Best-effort: invalid bodies 400, everything else returns 204 and
-      // provider errors are swallowed by the server `track()`.
       getH3App(nitroApp).use(
         `${P}/track`,
         defineEventHandler(async (event: H3Event) => {
@@ -5499,11 +4981,6 @@ export function createCoreRoutesPlugin(
             return { error: validation.error ?? "Invalid tracking payload." };
           }
 
-          // Attribute to the active org when the template uses orgs. The
-          // registry's `track()` only carries `userId` in meta, so org context
-          // rides along in properties — every built-in provider forwards
-          // `properties` verbatim. Client-supplied properties never override
-          // the server-resolved `org_id`.
           let orgId: string | null = null;
           try {
             const orgCtx = await getOrgContext(event);
@@ -5524,8 +5001,6 @@ export function createCoreRoutesPlugin(
           };
           if (orgId) properties.org_id = orgId;
 
-          // Best-effort — server `track()` swallows provider errors. We still
-          // guard here so an unexpected throw can't surface to the browser.
           try {
             track(validation.name as string, properties, {
               userId: userEmail,
@@ -5548,9 +5023,6 @@ export function createCoreRoutesPlugin(
         createAgentEngineDisconnectHandler(),
       );
 
-      // GET/PUT/DELETE /_agent-native/agent-loop-settings — org/user-scoped
-      // ceiling for tool-calling loop iterations before the agent asks whether
-      // it should keep going.
       getH3App(nitroApp).use(
         `${P}/agent-loop-settings`,
         defineEventHandler(async (event: H3Event) => {
@@ -5632,10 +5104,6 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // ─── Usage & cost summary ────────────────────────────────────────
-      // GET /_agent-native/usage?sinceDays=30
-      // Returns spend broken down by label, model, app, and day for the
-      // current user. Powers the Usage section in the agent settings panel.
       getH3App(nitroApp).use(
         `${P}/usage`,
         defineEventHandler(async (event: H3Event) => {
@@ -5668,9 +5136,6 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // ─── File upload primitive ──────────────────────────────────────
-      // GET  /_agent-native/file-upload/status — report active provider
-      // POST /_agent-native/file-upload        — upload a file, return { url }
       getH3App(nitroApp).use(
         `${P}/file-upload/status`,
         defineEventHandler(async (event) => {
@@ -5706,9 +5171,6 @@ export function createCoreRoutesPlugin(
               }),
             );
 
-            // When the builder builtin is selected via env var, its sync
-            // isConfigured() doesn't reflect per-user OAuth credentials. Use
-            // builderConfigured so status reflects this specific request.
             const isBuilderEnvActive = active?.id === "builder";
             const configured = isBuilderEnvActive
               ? builderUploadConfigured
@@ -5759,7 +5221,6 @@ export function createCoreRoutesPlugin(
             return { error: "No file uploaded" };
           }
 
-          // Reject files that exceed the upload size ceiling.
           if (filePart.data.length > DEFAULT_UPLOAD_MAX_FILE_BYTES) {
             setResponseStatus(event, 413);
             return {
@@ -5767,7 +5228,6 @@ export function createCoreRoutesPlugin(
             };
           }
 
-          // Reject executable/script MIME types.
           if (filePart.type && !isAllowedUploadMimeType(filePart.type)) {
             setResponseStatus(event, 415);
             return {
@@ -5805,40 +5265,24 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // ─── Voice transcription (Whisper) ───────────────────────────────
-      // POST /_agent-native/transcribe-voice — multipart audio → text
       getH3App(nitroApp).use(
         `${P}/transcribe-voice`,
         createTranscribeVoiceHandler(),
       );
 
-      // ─── Google realtime transcription session bridge ───────────────
-      // POST /_agent-native/transcribe-stream/session — resolve the user's
-      // Google service-account credential server-side, mint an opaque managed
-      // streaming session in ai-services, and return the websocket URL.
       getH3App(nitroApp).use(
         `${P}/transcribe-stream/session`,
         createGoogleRealtimeSessionHandler(),
       );
 
-      // ─── Voice provider status ───────────────────────────────────────
-      // GET /_agent-native/voice-providers/status — which providers are
-      // configured for the current user (powers the Settings UI pills).
       getH3App(nitroApp).use(
         `${P}/voice-providers/status`,
         createVoiceProvidersStatusHandler(),
       );
 
-      // ─── Ad-hoc secrets (user-created keys) ────────────────────────────
-      // Must mount before the generic /secrets handler to avoid shadowing.
       const adHocSecretHandler = createAdHocSecretHandler();
       getH3App(nitroApp).use(`${P}/secrets/adhoc`, adHocSecretHandler);
 
-      // ─── Secrets registry ────────────────────────────────────────────
-      // GET    /_agent-native/secrets              — list registered secrets + status
-      // POST   /_agent-native/secrets/:key         — write a secret value
-      // DELETE /_agent-native/secrets/:key         — remove a secret value
-      // POST   /_agent-native/secrets/:key/test    — re-run the validator
       const listSecretsHandler = createListSecretsHandler();
       const writeSecretHandler = createWriteSecretHandler();
       const testSecretHandler = createTestSecretHandler();
@@ -5851,17 +5295,14 @@ export function createCoreRoutesPlugin(
             .replace(/\/+$/, "");
           const parts = pathname ? pathname.split("/") : [];
 
-          // Collection root — list handler.
           if (parts.length === 0) {
             return listSecretsHandler(event);
           }
 
-          // /:key/test — re-validate stored value.
           if (parts.length === 2 && parts[1] === "test") {
             return testSecretHandler(event);
           }
 
-          // /:key — write / delete a specific secret.
           if (parts.length === 1) {
             return writeSecretHandler(event);
           }
@@ -5871,18 +5312,11 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // ─── Notifications inbox ──────────────────────────────────────────
-      // GET    /_agent-native/notifications[?unread&limit&before]
-      // GET    /_agent-native/notifications/count
-      // POST   /_agent-native/notifications/:id/read
-      // POST   /_agent-native/notifications/read-all
-      // DELETE /_agent-native/notifications/:id
       getH3App(nitroApp).use(
         `${P}/notifications`,
         createNotificationsHandler(),
       );
 
-      // ─── Extensions (sandboxed mini-app runtime + proxy) ────────────────
       try {
         const { ensureExtensionsTables, registerExtensionsShareable } =
           await import("../extensions/store.js");
@@ -5894,12 +5328,8 @@ export function createCoreRoutesPlugin(
           extensionTools: options.extensionTools,
         });
         getH3App(nitroApp).use(`${P}/extensions`, extensionsHandler);
-        // Legacy alias — the previous public API was /_agent-native/tools/*.
-        // Mounted in addition to /extensions/* so any deployed iframes mid-flight
-        // (or external integrations bookmarked the old path) keep working.
         getH3App(nitroApp).use(`${P}/tools`, extensionsHandler);
 
-        // Extension-point slots — sub-system of extensions.
         const { ensureSlotTables } =
           await import("../extensions/slots/store.js");
         const { createSlotsHandler } =
@@ -5910,7 +5340,6 @@ export function createCoreRoutesPlugin(
         // Extensions module not available — skip
       }
 
-      // ─── Data programs (stored server-side JS scripts + run cache) ─────
       try {
         const { ensureDataProgramTables, registerDataProgramsShareable } =
           await import("../data-programs/store.js");
@@ -5920,16 +5349,6 @@ export function createCoreRoutesPlugin(
         // Data programs module not available — skip
       }
 
-      // ─── Page-level legacy redirect: /tools → /extensions ──────────────
-      // Catches direct browser navigation / bookmarks for the old page route
-      // (`/tools`, `/tools/:id`) and 302s to the renamed equivalent under
-      // `/extensions`. The framework API alias above (`/_agent-native/tools/*`)
-      // is intentionally untouched — it stays mounted in parallel.
-      //
-      // Mounted with no path so the helper can do its own base-path stripping
-      // (h3 mount-matching only allows base-path stripping for `/_agent-native`
-      // and `/.well-known`). Returns undefined to fall through for anything
-      // that isn't a `/tools` page navigation.
       getH3App(nitroApp).use(
         defineEventHandler((event) => {
           const method = getMethod(event);
@@ -5946,28 +5365,10 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // ─── Agent run progress ───────────────────────────────────────────
-      // GET    /_agent-native/runs[?active&limit]
-      // GET    /_agent-native/runs/:id
-      // DELETE /_agent-native/runs/:id
       getH3App(nitroApp).use(`${P}/runs`, createProgressHandler());
 
-      // ─── Automations API ──────────────────────────────────────────────
-      // GET  /_agent-native/automations — list all automations (parsed triggers)
-      // PATCH /_agent-native/automations — enable/disable a jobs/*.md automation
-      // POST /_agent-native/automations/fire-test — emit test.event.fired
       getH3App(nitroApp).use(`${P}/automations`, createAutomationsHandler());
 
-      // ─── Application State CRUD ──────────────────────────────────────
-      // Auto-mounted so templates don't need boilerplate route files.
-
-      // ─── User-scoped settings store ────────────────────────────────────
-      // GET    /_agent-native/settings/:key   — read current user's value
-      // PUT    /_agent-native/settings/:key   — write current user's value
-      // DELETE /_agent-native/settings/:key   — clear current user's value
-      //
-      // Keys are auto-prefixed with `u:<email>:` so each user gets their
-      // own row — no leakage between sessions sharing the same DB.
       getH3App(nitroApp).use(
         `${P}/settings`,
         defineEventHandler(async (event: H3Event) => {
@@ -6016,14 +5417,6 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // ─── Avatar routes ──────────────────────────────────────────────────
-      // GET /_agent-native/avatar/:email — fetch any user's avatar (public)
-      // PUT /_agent-native/avatar       — update current user's avatar (auth required)
-      //
-      // Only raster MIME types are accepted on write; SVG carries scripting risk
-      // (data:image/svg+xml payloads can execute JS when rendered by browsers),
-      // so it is explicitly excluded. Mirrors the SAFE_DATA_IMAGE allowlist in
-      // packages/core/src/client/blocks/library/sanitize-html.ts.
       getH3App(nitroApp).use(
         `${P}/avatar`,
         defineEventHandler(async (event: H3Event) => {
@@ -6139,9 +5532,6 @@ export function createCoreRoutesPlugin(
           getH3App(nitroApp).use(
             `${mcpRoutePrefix}/connect`,
             defineEventHandler(async (event: H3Event) => {
-              // The framework strips the mount prefix from event.url.pathname,
-              // so what remains is the subpath after `/connect` (e.g. `/token`,
-              // `/device/start`, or `` for the page itself).
               const subpath = event.url?.pathname || "";
               return handleMcpConnect(event, subpath, mcpConnectOpts);
             }),
@@ -6150,11 +5540,6 @@ export function createCoreRoutesPlugin(
       }
 
       if (!options.disableOpenRoute) {
-        // Stable deep-link route. External agents (MCP/A2A) surface
-        // `/_agent-native/open?app=…&view=…&<recordId>=…` links; this resolves
-        // the browser session, writes the one-shot `navigate` app-state command
-        // the UI already drains, and 302s to the rendered SPA view. The auth
-        // guard bypasses this exact path so it can serve its own login form.
         getH3App(nitroApp).use(
           `${P}/open`,
           createOpenRouteHandler({
@@ -6245,26 +5630,11 @@ export function createCoreRoutesPlugin(
 
       resolveInit();
     } catch (error) {
-      // Do NOT rethrow. Nitro invokes plugins as `try { plugin(app) } catch`,
-      // which cannot catch an async rejection, so rethrowing here surfaces as
-      // an unhandledRejection: Node exits, the serverless container dies, and
-      // every in-flight request on it returns a bare 502. `rejectInit` already
-      // routes this failure to the readiness gate, which answers the affected
-      // paths with a retryable 503 instead.
       rejectInit(error);
     }
   };
 }
 
-/**
- * Default core routes plugin — mount with no configuration needed.
- *
- * Usage in templates:
- * ```ts
- * // server/plugins/core-routes.ts
- * export { defaultCoreRoutesPlugin as default } from "@agent-native/core/server";
- * ```
- */
 export const defaultCoreRoutesPlugin: NitroPluginDef = createCoreRoutesPlugin({
   googleOAuthManagedConnection: "not_applicable",
 });

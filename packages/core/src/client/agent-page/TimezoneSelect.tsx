@@ -19,7 +19,6 @@ import { cn } from "../utils.js";
 
 const SYSTEM_VALUE = "system";
 
-/** The browser's IANA zone, or UTC when the runtime cannot report one. */
 export function browserTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -33,15 +32,12 @@ function supportedTimezones(): string[] {
     Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
   ).supportedValuesOf;
   const zones = supported ? supported("timeZone") : [];
-  // Older runtimes omit supportedValuesOf; the browser zone plus UTC still
-  // covers the common case rather than leaving an empty, unusable menu.
   const base = zones.length ? zones : [browserTimezone()];
   return [...new Set(["UTC", ...base])];
 }
 
 interface ZoneOption {
   zone: string;
-  /** Minutes east of GMT, used to order the list the way a map reads. */
   offsetMinutes: number;
   offsetLabel: string;
   timeLabel: string;
@@ -66,7 +62,6 @@ function describeZone(zone: string, now: Date): ZoneOption | null {
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((p) => p.type === type)?.value ?? "";
 
-  // `longOffset` collapses to a bare "GMT" at zero rather than "GMT+00:00".
   const raw = part("timeZoneName");
   const offsetLabel = raw === "GMT" ? "GMT+00:00" : raw;
   const match = /^GMT([+-])(\d{2}):(\d{2})$/.exec(offsetLabel);
@@ -99,12 +94,7 @@ export interface TimezoneSelectProps {
   value: string;
   disabled?: boolean;
   onChange: (timezone: string) => void;
-  /** Zones to surface above the full list, e.g. the currently stored one. */
   suggested?: string[];
-  /**
-   * Label for a leading `system` choice. Settings offer it so the preference
-   * stays revertible; a schedule must name a concrete zone and omits it.
-   */
   systemLabel?: string;
   id?: string;
   /** The trigger's height: `sm` for a settings row, 32px. */
@@ -123,8 +113,6 @@ export function TimezoneSelect({
   const [open, setOpen] = useState(false);
   const detected = browserTimezone();
 
-  // 418 zones each need their own formatter, so only pay for that once the
-  // list is actually on screen. Reopening re-reads the clock.
   const options = useMemo(() => {
     if (!open) return [];
     const pinned = [...suggested, value].filter(
@@ -154,9 +142,6 @@ export function TimezoneSelect({
     return (
       <CommandItem
         key={key}
-        // Searched text: place and offset both need to match what users type.
-        // The key is folded in because the detected zone is listed twice, and
-        // cmdk treats two items with the same value as the same item.
         value={`${option.placeLabel} ${option.offsetLabel} ${option.zone} ${key}`}
         onSelect={() => choose(option.zone)}
         className="gap-2"
@@ -188,7 +173,6 @@ export function TimezoneSelect({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
-          // Matches the text inputs it sits beside, not a button.
           className={cn(
             "flex w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
             size === "sm" ? "h-8" : "h-10",
@@ -203,8 +187,6 @@ export function TimezoneSelect({
         className="w-[--radix-popover-trigger-width] p-0"
       >
         <Command
-          // cmdk's default scorer matches loose subsequences, so "Perth" would
-          // otherwise surface most of the list.
           filter={(itemValue, search) =>
             itemValue.toLowerCase().includes(search.toLowerCase().trim())
               ? 1

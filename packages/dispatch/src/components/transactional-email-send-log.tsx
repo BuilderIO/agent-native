@@ -64,7 +64,6 @@ interface SendLogEntryBody {
   textBody: string | null;
 }
 
-/** One page of `list-email-log`, fetched at `PAGE_SIZE + 1` to detect "has more". */
 const PAGE_SIZE = 50;
 
 function useDebounced(value: string, delayMs = 300): string {
@@ -76,11 +75,6 @@ function useDebounced(value: string, delayMs = 300): string {
   return debounced;
 }
 
-/**
- * Bodies are large (up to the 8,000-char logged cap) and sensitive, so
- * `list-email-log` never returns them — this fetches one row's body only
- * once its dialog is open, keeping list responses and the query cache small.
- */
 function SendLogBody({ appPath, id }: { appPath: string; id: string }) {
   const t = useT();
   const query = useQuery({

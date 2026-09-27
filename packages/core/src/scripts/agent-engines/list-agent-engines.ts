@@ -1,7 +1,3 @@
-/**
- * list-agent-engines — returns the registered engine registry and current selection.
- */
-
 import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
 import {
   readDefaultAgentEngineSettingDetailed,
@@ -114,10 +110,6 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     ? (defaultSetting.value as { engine?: string; model?: string })
     : null;
 
-  // Same priority chain resolveEngine uses after explicit request options:
-  // AGENT_ENGINE → app default → stored (if usable) → user/Builder app_secrets
-  // → env → anthropic. Gating stored/app defaults on the request-aware helper
-  // keeps the picker in step with the runtime.
   const storedEntry =
     typeof current?.engine === "string"
       ? getAgentEngineEntry(current.engine)
@@ -160,8 +152,6 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       : storedUsable && currentEntry?.name === current?.engine
         ? current?.model
         : undefined;
-  // Resolve both gateway and provider model capabilities so a saved custom
-  // model is reported as-is instead of being normalized to the engine default.
   const acceptsCustomModels = currentEntry
     ? await resolveEngineAcceptsCustomModels(currentEntry)
     : false;
@@ -188,9 +178,6 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
           { acceptsCustomModels, preserveCustomModels },
         )
       : undefined;
-  // Readiness has to be resolved here: `requiredEnvVars` alone cannot see
-  // vault-stored keys or the deploy-injected Builder gateway lane, so a client
-  // that re-derives it from env keys marks working engines unconfigured.
   const engineEntries = await Promise.all(
     engines.map(async (e) => {
       // Resolved per engine, not across the set: one provider whose credential

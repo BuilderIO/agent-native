@@ -63,12 +63,6 @@ function variantStateKey(threadId: string | null) {
   return threadId ? `asset-variants:${threadId}` : "asset-variants";
 }
 
-// Only reconcile a still-pending slot once it is old enough that the run cannot
-// plausibly still be generating. Keep this above the server generation budget
-// (IMAGE_GENERATION_REQUEST_TIMEOUT_MS, default 300s) and in step with
-// STALE_IMAGE_RUN_MS in refresh-generation-run, so a slow-but-healthy run (e.g.
-// gpt-image-2) is not flagged "interrupted" and flipped to an error slot before
-// its finished image arrives.
 const STALE_PENDING_RUN_MS = 10 * 60 * 1000;
 
 function slotTime(slot: VariantSlot): number {
@@ -111,9 +105,6 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   const { data: librariesData } = useActionQuery("list-libraries", {
     compact: true,
   } as any) as { data?: LibraryListResult };
-  // Saving a candidate into the kit needs editor access, while generating it
-  // only needs read access, so the tray asks before offering Save at all
-  // rather than letting the button 403.
   const { data: libraryAccess } = useActionQuery(
     "get-library-access",
     { libraryId: variants?.libraryId } as any,
@@ -142,9 +133,6 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
         ),
     [variants?.slots],
   );
-  // Variant numbers reflect generation order (oldest = 1), not display order:
-  // refined candidates render first but keep the next number in sequence
-  // instead of stealing "Variant 1" from the newest-first display sort above.
   const variantNumberBySlotId = useMemo(() => {
     const map = new Map<string, number>();
     (variants?.slots ?? [])
@@ -201,8 +189,6 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   };
 
   useEffect(() => {
-    // Re-measure after the slot list changes size (new/removed candidates)
-    // since that can flip whether either arrow should be enabled.
     updateScrollEdges();
   }, [slots.length]);
 
@@ -789,9 +775,6 @@ function GenerationSlotPreview({ slot }: { slot: VariantSlot }) {
     );
   }
   if (slot.status === "failed") {
-    // Last line of defence for the tray: a provider that starts nesting its
-    // payload a layer deeper than the server reader expects must degrade to
-    // the generic label, not paste escaped JSON over the candidate.
     const failure =
       slot.error && !looksLikeMachinePayload(slot.error) ? slot.error : null;
     return (

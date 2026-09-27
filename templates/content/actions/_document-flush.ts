@@ -37,10 +37,6 @@ function awarenessFlushCandidate(entry: {
   if (entry.clientId === AGENT_CLIENT_ID) return null;
   const state = parseAwarenessState(entry.state);
   if (!state || state.visible === false || !state.user) return null;
-  // New clients publish an exact boolean. `false` is a known read-only viewer
-  // and must never block. A missing field is a pre-deploy client which may be
-  // an editor, so offer it the old handshake on a best-effort basis. Invalid
-  // values are neither a trustworthy editor capability nor a legacy omission.
   if (state.canFlushDocument !== true && state.canFlushDocument !== undefined) {
     return null;
   }
@@ -57,17 +53,8 @@ export async function flushOpenDocumentEditorToSql(args: {
   ownerEmail?: string | null;
   propertyId?: string;
 }) {
-  // If a live Yjs collab session is open, the in-memory editor doc is fresher
-  // than the SQL column. Ask the open editor to serialize + save, then wait
-  // for an explicit request-id-matched acknowledgement.
   if (!(await hasCollabState(args.documentId))) return;
 
-  // Persisted Yjs state outlives browser tabs. Modern clients distinguish
-  // editors (`true`) from viewers (`false`), so only the former are a hard
-  // freshness barrier. Pre-deploy tabs omit the field; they still know how to
-  // service this request, but may also be legacy viewers, so offer them the
-  // bounded handshake without failing if they stay silent. This preserves live
-  // legacy editor changes without making viewer-only tabs time out sync actions.
   const awarenessRows = await loadAwarenessRowsStrict(args.documentId);
   const flushCandidates = awarenessRows
     .map(awarenessFlushCandidate)
@@ -95,10 +82,6 @@ export async function flushOpenDocumentEditorToSql(args: {
     .filter((email): email is string => !!email);
 
   const flushKey = `flush-request-${args.documentId}`;
-  // The editor polls `flush-request-<id>` via the framework app-state route,
-  // which scopes reads to the logged-in browser user. Target every active
-  // collaborator email plus owner/caller fallbacks so shared editors and
-  // cross-instance actions reach the tab that can serialize the live Y.Doc.
   const callerEmail = getRequestUserEmail() || undefined;
   const targetSessions = Array.from(
     new Set(
@@ -191,7 +174,6 @@ export async function flushOpenDocumentEditorToSql(args: {
     if (acknowledged) break;
   }
 
-  // Best-effort cleanup after success, explicit failure, or timeout.
   await Promise.all(
     writtenSessions.map(async (session) => {
       try {

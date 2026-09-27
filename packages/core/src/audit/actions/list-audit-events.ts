@@ -4,12 +4,6 @@ import { defineAction } from "../../action.js";
 import { resolveAuditReadScope } from "../read-scope.js";
 import { queryAuditApps, queryAuditEventPage } from "../store.js";
 
-/**
- * List audit-log events the current user can see — their own actions plus the
- * agent's actions on their behalf, plus rows shared with their org — scoped in
- * SQL to the caller's identity and org. Owners and admins also see the org's
- * settings and admin changes. Read-only; never exposes other tenants' rows.
- */
 export default defineAction({
   description:
     "List audit-log events (who changed what, when, and whether it was you or the agent) for resources you can access. Supports filtering by target resource, actor (agent vs human), status, agent thread/turn, app, and time range, with offset paging. Use this to answer 'what did the agent change', 'who edited this record', or 'show recent changes'. Organization owners and admins pass scope 'organization' to read the organization's settings and admin trail (default model, member roles, Builder.io, and other org settings changes, including refused attempts), which is the Settings audit log.",

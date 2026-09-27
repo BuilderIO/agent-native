@@ -802,7 +802,10 @@ const messages = {
       invalidPdf: "請選擇 PDF 檔案。",
       invalidPptx: "請選擇 PPTX 檔案。",
       invalidFile: "請選擇 PDF 或 PPTX 檔案。",
+      networkFailed: "匯入要求逾時或網路連線中斷。請檢查網路連線後再試一次。",
       notStarted: "完成必要的登入後，請重試匯入。",
+      uploadLimitExceeded:
+        "上傳內容超出允許的限制。請縮小檔案或減少檔案數量後重試。",
     },
     importDeck: "匯入簡報",
     context: {
@@ -839,6 +842,8 @@ const messages = {
       figma: "Figma 畫框",
       notReady: "參考內容仍在載入或無法使用。請重試或移除後再傳送。",
       emptySource: "此來源未傳回可用的參考內容。",
+      figmaReadFailed:
+        "Design 無法讀取此 Figma 參考內容。請檢查 Design 中儲存的 Figma 存取權杖，以及連結帳戶是否能開啟該檔案，然後再試一次。",
       tooMany: "最多選取 20 項參考資料。",
       search: "搜尋參考資料",
       designCategory: "設計",

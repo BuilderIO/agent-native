@@ -80,10 +80,6 @@ vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: vi.fn(async (_context, fn) => fn()),
 }));
 
-// listGmailMessages persists its thread candidate window through user
-// settings. Without a mocked store these tests reach the real settings table,
-// where an unreachable or busy database aborts the thread path mid-hydrate and
-// fails the ranking and refill assertions for reasons unrelated to them.
 const threadCandidatePages = vi.hoisted(
   () => new Map<string, Record<string, unknown>>(),
 );
@@ -102,9 +98,6 @@ vi.mock("@agent-native/core/settings", () => ({
 
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: vi.fn(),
-  // Real class, not vi.fn(): production code does `instanceof
-  // GmailQuotaCooldownError` to classify cooldown errors, which only works
-  // against the actual constructor.
   GmailQuotaCooldownError: class GmailQuotaCooldownError extends Error {
     retryAfterMs: number;
     constructor(message: string, retryAfterMs: number) {
@@ -135,8 +128,6 @@ vi.mock("./provider-api.js", () => ({
   getMailProviderApiRuntime: vi.fn(),
 }));
 
-// Makes `resolveManagedGmailClient()` resolve as if the owner is connected
-// only through the workspace's shared Gmail grant (no per-user OAuth row).
 function mockManagedGrant(email: string, accessToken = "managed-token") {
   vi.mocked(getCredentialContext).mockReturnValue({ userEmail: email } as any);
   vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
@@ -831,11 +822,6 @@ describe("getClientsWithErrors with unusable token records", () => {
   });
 
   it("surfaces a reconnect error without deleting the row when a record parses to an empty object", async () => {
-    // A stored oauth_tokens row that fails to decrypt (key rotation / wrong
-    // key) parses to `{}` in core's parseStoredTokens. The account must fail
-    // with a reconnect-style error — but the row must NOT be deleted, because
-    // this process may simply hold the wrong key while the row is still
-    // decryptable by a correctly configured deployment.
     vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
       {
         accountId: "connected@example.com",
@@ -905,7 +891,6 @@ describe("getValidAccessToken single-flight refresh", () => {
         tokens: {
           access_token: "stale-access-token",
           refresh_token: "refresh-token",
-          // Already expired — every caller takes the refresh path.
           expiry_date: Date.now() - 1000,
         },
       },
@@ -952,9 +937,6 @@ describe("getValidAccessToken single-flight refresh", () => {
     }
     expect(refreshToken).toHaveBeenCalledTimes(1);
 
-    // The failed shared promise is cleared from the in-flight map, so the
-    // next call retries with a fresh refresh rather than replaying the
-    // rejection.
     const retried = await getClient("connected@example.com");
     expect(retried?.accessToken).toBe("refreshed-token");
     expect(refreshToken).toHaveBeenCalledTimes(2);
@@ -1824,9 +1806,6 @@ describe("gmailBatchModifyByAccount — managed workspace grant", () => {
   });
 
   afterEach(() => {
-    // getCredentialContext's mockReturnValue from mockManagedGrant() would
-    // otherwise leak into later tests in this file (vi.clearAllMocks clears
-    // call history, not implementations set via mockReturnValue).
     vi.mocked(getCredentialContext).mockReturnValue(null);
   });
 

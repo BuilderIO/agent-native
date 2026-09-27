@@ -72,8 +72,6 @@ const STEPS = [
 
 const DESKTOP_POLL_INTERVAL_MS = 1500;
 const ADD_ACCOUNT_POLL_INTERVAL_MS = 2000;
-// Bounds each poll's fetches so a hung request can't leave its in-flight
-// guard stuck and stall the interval forever.
 const DESKTOP_POLL_ABORT_MS = Math.max(10_000, DESKTOP_POLL_INTERVAL_MS * 4);
 const ADD_ACCOUNT_POLL_ABORT_MS = Math.max(
   10_000,
@@ -291,7 +289,6 @@ export function GoogleConnectBanner({
 
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Wizard state
   const [currentStep, setCurrentStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -319,25 +316,14 @@ export function GoogleConnectBanner({
     }
   }, []);
 
-  // Check if credentials are already configured on mount
   useEffect(() => {
     void fetchStatus();
   }, [fetchStatus]);
 
-  // When auth URL is ready, leave this tab for Google and let the callback
-  // return here. Opening a popup leaves users with duplicate Mail tabs after
-  // OAuth completes.
-  //
-  // `wantAuthUrl` is the user's retry intent and must be in the deps so a
-  // second click re-runs this effect (the cached authUrl.data won't change on
-  // its own).
   useEffect(() => {
     if (!wantAuthUrl || !authUrl.data?.url) return;
     const url = authUrl.data.url;
     setWantAuthUrl(false);
-    // In a React Native WebView, window.open() is silently blocked (WKWebView
-    // doesn't support it without onOpenWindow). Use postMessage to ask the
-    // native wrapper to open the URL in the system browser (Safari).
     const rnWebView = (window as any).ReactNativeWebView;
     const isNativeWebView = typeof rnWebView !== "undefined";
     if (isNativeWebView) {
@@ -347,7 +333,6 @@ export function GoogleConnectBanner({
     window.location.href = url;
   }, [wantAuthUrl, authUrl.data]);
 
-  // When auth URL fails, show wizard (for missing credentials) or an error message
   useEffect(() => {
     if (authUrl.error) {
       setWantAuthUrl(false);
@@ -368,11 +353,6 @@ export function GoogleConnectBanner({
     await signOut();
   }, []);
 
-  // When add-account URL is ready, open it and poll for new account.
-  // Same retry-intent rationale as the connect effect — `wantAddAccount`
-  // is in the deps so a second click rerun the effect; the polling
-  // interval lives in a ref so flipping wantAddAccount false here doesn't
-  // tear down the running poll.
   useEffect(() => {
     if (!wantAddAccount || !addAccountUrl.data?.url) return;
     const isNativeWebView =
@@ -454,7 +434,6 @@ export function GoogleConnectBanner({
       const text = await file.text();
       const json = JSON.parse(text);
 
-      // Google's downloaded JSON has the credentials nested under "web" or "installed"
       const creds = json.web || json.installed || json;
       const clientId = creds.client_id;
       const clientSecret = creds.client_secret;
@@ -482,7 +461,6 @@ export function GoogleConnectBanner({
 
       setSaved(true);
       await fetchStatus();
-      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setSaveError(
@@ -510,7 +488,6 @@ export function GoogleConnectBanner({
   )
     return null;
 
-  // Full-page hero for setup / reconnection
   if (variant === "hero") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center text-center px-6">
@@ -731,7 +708,6 @@ export function GoogleConnectBanner({
     );
   }
 
-  // Connected with accounts — show compact account strip
   if (hasAccounts) {
     return (
       <div className="border-b border-border/30 bg-card">
@@ -793,7 +769,6 @@ export function GoogleConnectBanner({
     );
   }
 
-  // Not connected or not configured — show setup banner
   return (
     <div className="border-b border-border/30 bg-card">
       {/* Compact banner row */}

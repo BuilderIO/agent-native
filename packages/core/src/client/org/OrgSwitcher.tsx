@@ -86,9 +86,7 @@ export interface OrgSwitcherUtilityLink {
 
 export interface OrgSwitcherProps {
   className?: string;
-  /** Hide entirely when the user only belongs to one org. Default: false. */
   hideWhenSingle?: boolean;
-  /** Keep the switcher's slot reserved when there is no organization to show. */
   reserveSpace?: boolean;
   /**
    * Avatar-only trigger for collapsed sidebar rails. The menu, and with it the

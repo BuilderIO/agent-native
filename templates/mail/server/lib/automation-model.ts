@@ -61,11 +61,6 @@ async function resolveEngineDefaultModel(
   });
 }
 
-/**
- * Prefer Luna for background text classification when a Luna-capable provider
- * is actually configured. An app's explicit automation setting always wins;
- * this is only the no-override default.
- */
 export async function resolveDefaultAutomationModel(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
@@ -128,12 +123,9 @@ export async function resolveDefaultAutomationModel(
     };
   }
 
-  // Leave engine selection to resolveEngine so a configured non-Luna provider
-  // remains usable when none of the preferred Luna engines is connected.
   return {};
 }
 
-/** Text generation is only needed when feedback rewrites a rule. */
 export async function resolveTextAutomationModelSettings(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {

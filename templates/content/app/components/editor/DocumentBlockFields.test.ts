@@ -143,9 +143,6 @@ describe("isLoadedForDocument (stale placeholder-data gate)", () => {
   });
 
   it("is NOT loaded while data still belongs to the PREVIOUS document", () => {
-    // useDocumentProperties keeps the old doc's data as placeholder for a tick
-    // after documentId changes. Trusting it would route the new row's edits to
-    // the old doc's field layout (body-clobber window). Must read as loading.
     expect(
       isLoadedForDocument("doc-new", "db-new", {
         documentId: "doc-old",
@@ -176,9 +173,6 @@ describe("isLoadedForDocument (stale placeholder-data gate)", () => {
   });
 
   it("stale previous-doc data renders 'loading', never a writable body editor", () => {
-    // Compose the gate with the render-state machine the way the component does:
-    // even though the (previous doc's) field list would be a solo PRIMARY field,
-    // an identity mismatch forces `loaded:false` → loading, not a body editor.
     const previousDocPrimary = [
       property({
         id: "content",
@@ -223,9 +217,6 @@ describe("isLoadedForDocument (stale placeholder-data gate)", () => {
 
 describe("blockFieldsRenderState", () => {
   it("is 'loading' before field data arrives — never a writable body editor", () => {
-    // The list is `[]` only because nothing has loaded. We must NOT treat this
-    // as a solo primary field and route to the body, since a surviving
-    // non-primary field would then clobber `documents.content` during load.
     const state = blockFieldsRenderState({ loaded: false, blockFields: [] });
     expect(state.kind).toBe("loading");
   });
@@ -242,13 +233,10 @@ describe("blockFieldsRenderState", () => {
         }),
       ],
     });
-    // Identity is not trusted until the query confirms it is loaded.
     expect(state.kind).toBe("loading");
   });
 
   it("is 'empty' when loaded with zero Blocks fields — no body editor", () => {
-    // Deleting the only Blocks field leaves a metadata-only row. This must NOT
-    // fall back to the body editor.
     const state = blockFieldsRenderState({ loaded: true, blockFields: [] });
     expect(state.kind).toBe("empty");
   });
@@ -268,9 +256,6 @@ describe("blockFieldsRenderState", () => {
   });
 
   it("routes a solo NON-PRIMARY field to the block-field store, not the body — even right after load", () => {
-    // The primary "Content" field was deleted; a non-primary field is now the
-    // sole field and renders chromeless. It must read AND write its OWN store
-    // the instant data loads, not the body.
     const field = property({
       id: "outline",
       type: "blocks",
@@ -312,11 +297,6 @@ describe("blockFieldsRenderState", () => {
 
 describe("property-query failure UI", () => {
   it("renders an explicit retry state instead of treating a failed query as loading", () => {
-    // The component owns the query because it must keep stale placeholder data
-    // from selecting a writable storage target. A query error takes precedence
-    // over that loading gate and must therefore never render `primaryEditor`.
-    // This focused source assertion keeps the render boundary covered without
-    // coupling the state-machine unit tests to React Query setup.
     const source = readFileSync(
       new URL("./DocumentBlockFields.tsx", import.meta.url),
       "utf8",

@@ -2,9 +2,6 @@ overrides:
   "@assistant-ui/store": ">=0.2.9 <0.2.14"
   "@assistant-ui/tap": "^0.5.14"
   nf3: "0.3.17"
-  # Tiptap 3.28 packages use caret ranges for their internal dependencies.
-  # Keep a fresh scaffold on one tested family so extension-list does not
-  # resolve to 3.30 alongside core 3.28 during a generated build.
   "@tiptap/core": "3.28.0"
   "@tiptap/extension-blockquote": "3.28.0"
   "@tiptap/extension-bold": "3.28.0"

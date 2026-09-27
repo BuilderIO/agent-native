@@ -140,12 +140,6 @@ export interface CodeAgentsIpcDeps {
   ) => Promise<CodeAgentRemoteConnectorPairResult>;
 }
 
-/**
- * Registers the clipboard + Agent-Native Code (background code-agent) IPC
- * surface: run listing/creation/transcripts, follow-ups, control commands,
- * computer-use setup, provider settings, projects, terminal launch, and the
- * remote connector pairing flow.
- */
 export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
   const {
     isObject,

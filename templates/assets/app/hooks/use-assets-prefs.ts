@@ -18,7 +18,6 @@ export interface AssetsPrefsState {
   loading: boolean;
   /** The read failed, so `prefs` holds no stored answer. */
   loadFailed: boolean;
-  /** Applies the patch optimistically and rolls back if the write fails. */
   save: (patch: AssetsUserPrefs) => Promise<void>;
 }
 

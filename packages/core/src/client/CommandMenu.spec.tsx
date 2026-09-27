@@ -4,6 +4,13 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const actionMocks = vi.hoisted(() => ({ callAction: vi.fn() }));
+
+vi.mock("./use-action.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./use-action.js")>()),
+  callAction: actionMocks.callAction,
+}));
+
 import {
   CommandMenu,
   openAgentSettings,
@@ -28,6 +35,7 @@ describe("CommandMenu docs group", () => {
   let root: Root;
 
   beforeEach(() => {
+    actionMocks.callAction.mockReset();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
       cb(0);
@@ -128,6 +136,60 @@ describe("CommandMenu docs group", () => {
       search(term);
       expect(document.body.textContent).toContain("Log out");
     }
+  });
+
+  it("enables Ask AI for an automatically selected local runtime", async () => {
+    actionMocks.callAction.mockResolvedValue({
+      engines: [
+        {
+          name: "codex-cli",
+          label: "Codex CLI",
+          supportedModels: ["gpt-5.6-sol"],
+          requiredEnvVars: [],
+        },
+      ],
+      current: { engine: "codex-cli", model: "gpt-5.6-sol" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.includes("agent-engine/status")) {
+          return Response.json({ configured: false });
+        }
+        if (url.includes("env-status")) return Response.json([]);
+        if (url.includes("builder/status")) {
+          return Response.json({ configured: false });
+        }
+        return Response.json({});
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          chatStorageKey="local-first-run"
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Open chat
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const askAi = [
+      ...document.querySelectorAll<HTMLElement>("[cmdk-item]"),
+    ].find((item) => item.textContent?.includes("Ask AI anything"));
+    expect(actionMocks.callAction).toHaveBeenCalledWith("manage-agent-engine", {
+      action: "list",
+    });
+    expect(askAi).toBeTruthy();
+    expect(askAi?.getAttribute("aria-disabled")).not.toBe("true");
   });
 
   it("filters command items nested in fragments", () => {

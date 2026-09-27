@@ -113,7 +113,6 @@ interface SecretStatusOption {
   source?: string;
 }
 
-/** Wire shape of `GET /_agent-native/agents/probe` (single or batched result). */
 export interface AgentProbeResult {
   url: string;
   reachable: boolean;
@@ -121,7 +120,6 @@ export interface AgentProbeResult {
   name?: string;
   description?: string;
   securitySchemes?: string[];
-  /** Absent (not false) whenever the auth check never ran or never resolved. */
   authorized?: boolean;
   authError?: string;
   publicSkills?: number;
@@ -145,14 +143,10 @@ function describeSkills(
   t: Translate,
 ): string | null {
   if (publicSkills === undefined) return null;
-  // An empty public skill list only means the card advertises no anonymous-
-  // safe actions — the peer still has authenticated reads/writes. Saying so
-  // plainly avoids reading as "this agent can't do anything."
   if (publicSkills === 0) return t("agentChat.agents.checkReadsRequireAuth");
   return t("agentChat.agents.checkPublicSkills", { count: publicSkills });
 }
 
-/** One-line status for the row dot tooltip. */
 function describeProbeTooltip(result: AgentProbeResult): string {
   if (!result.reachable) {
     return `Unreachable${result.error ? `: ${result.error}` : ""}`;
@@ -166,7 +160,6 @@ function describeProbeTooltip(result: AgentProbeResult): string {
   return "Reachable and authorized";
 }
 
-/** Multi-clause status line for the Add popover's Check result. */
 function describeCheckResult(result: AgentProbeResult, t: Translate): string {
   if (!result.reachable) {
     return result.error ?? t("agentChat.agents.checkNotReachable");
@@ -1645,9 +1638,6 @@ function A2ASecretStatusRow({
   const secretSet = org.a2aSecretSet;
 
   if (secretSet === undefined) {
-    // Not an owner/admin — the server omits `a2aSecretSet` entirely for this
-    // role rather than reporting `false`, so this must read as "can't see
-    // it," never as "not set" (a claim we have no basis for).
     return (
       <div className="mb-2 rounded-md border border-border/60 bg-accent/20 px-2 py-1.5 text-[10px] text-muted-foreground">
         Shared secret is managed by your workspace owner.
@@ -1737,7 +1727,6 @@ function A2ASecretStatusRow({
   );
 }
 
-/** Query params `/_agent-native/open` forwards onto the redirect target. */
 const PREFILL_PARAMS = [
   "f_agentName",
   "f_agentUrl",
@@ -1893,9 +1882,6 @@ export function useRemoteAgents(): RemoteAgentsState {
     [savedSecrets, t],
   );
 
-  // One batched probe for the whole list — cheap liveness dots, not one
-  // request per row. A row absent from the results (never returned) stays
-  // dot-less rather than defaulting to a color that isn't backed by data.
   useEffect(() => {
     let cancelled = false;
     fetch(agentNativePath("/_agent-native/agents/probe"))
@@ -1931,10 +1917,6 @@ export function useRemoteAgents(): RemoteAgentsState {
         return;
       }
       const data = await res.json();
-      // Migrating a remote agent to the canonical `remote-agents/` prefix
-      // leaves the legacy `agents/` row in place (resources/store.ts), so
-      // every migrated agent has two resources pointing at one URL. Collapse
-      // them the way discoverAgents does, canonical winning.
       const byAgentId = new Map<string, { id: string; path: string }>();
       for (const resource of (data.resources ?? []) as Array<{
         id: string;
@@ -2102,9 +2084,6 @@ export function useRemoteAgents(): RemoteAgentsState {
       setAgents(previousAgents);
       throw error;
     }
-    // Deliberately don't close the form here — a successful add shows a
-    // follow-up state (registration is one-way; the peer doesn't know
-    // about us yet) that the user dismisses explicitly.
     void fetchAgents();
     return true;
   };

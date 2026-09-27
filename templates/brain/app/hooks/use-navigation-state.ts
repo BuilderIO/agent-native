@@ -79,10 +79,6 @@ export function useNavigationState() {
       if (knowledgeId) {
         params.set("knowledgeId", knowledgeId);
       }
-      // Captures have no dedicated detail route — they live in the Search
-      // surface. Deep links from ask-brain / search-everything use
-      // `view: "capture"` + `captureId`; carry the id through and resolve the
-      // view to /search below so the user lands where captures are shown.
       if (navCommand.captureId) {
         params.set("captureId", navCommand.captureId);
       }
@@ -107,11 +103,6 @@ export function useNavigationState() {
   });
 }
 
-/**
- * Resolve a navigate command `view` to a router path. `view: "capture"` (or any
- * command that only carries a `captureId`) resolves to the Search surface,
- * since Brain has no standalone capture-detail route.
- */
 function pathFromNavView(
   view?: string,
   captureId?: string,

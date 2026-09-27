@@ -59,11 +59,6 @@ function safeFilename(
 ): string | null {
   const ext = extension.toLowerCase();
   if (!isSlidesReferenceFileExtension(ext)) return null;
-  // Filename uniqueness comes from nanoid (~21 chars, ~126 bits of entropy),
-  // not `Date.now()` — second-resolution timestamps are guessable and let
-  // someone with the per-tenant URL prefix probe the upload window. The
-  // tenant subdir already namespaces by user; nanoid makes the leaf
-  // unguessable too. (audit 10 medium / audit 01 medium).
   return `${nanoid()}${ext}`;
 }
 
@@ -253,10 +248,6 @@ export async function saveUploadedReferenceFile(args: {
     await fs.promises.writeFile(destPath, args.data);
     uploadedPath = pathForAgent(destPath);
   }
-  // For images, also push to the public file-upload provider so the agent can
-  // embed a hosted URL (in slide HTML, chat replies, etc.). The `path` above
-  // remains the private import source: a tenant path locally and an encrypted,
-  // owner-scoped blob reference in hosted deployments.
   let url: string | undefined;
   if (
     canSaveAsUploadedAsset({
@@ -274,9 +265,6 @@ export async function saveUploadedReferenceFile(args: {
         })
       ).url;
     } catch {
-      // No provider configured or upload failed — the agent still has the
-      // on-disk path. The caller's UI can prompt the user to connect a
-      // provider if it needs a public URL.
       url = undefined;
     }
   }
@@ -290,7 +278,6 @@ export async function saveUploadedReferenceFile(args: {
   };
 }
 
-// Upload one or more files
 export const uploadFiles = defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {
@@ -329,7 +316,10 @@ export const uploadFiles = defineEventHandler(async (event) => {
       if (oversized) {
         const limit = maxReferenceFileBytes(oversized.filename);
         setResponseStatus(event, 413);
-        return { error: `File too large (max ${formatMaxFileSize(limit)})` };
+        return {
+          error: `File "${oversized.filename || "upload"}": File too large (max ${formatMaxFileSize(limit)})`,
+          failedFileName: oversized.filename,
+        };
       }
 
       const results = await Promise.allSettled(
@@ -347,26 +337,35 @@ export const uploadFiles = defineEventHandler(async (event) => {
         (result): result is PromiseFulfilledResult<UploadedReferenceFile> =>
           result.status === "fulfilled",
       );
-      const failedResult = results.find(
+      const failedResultIndex = results.findIndex(
         (result) => result.status === "rejected",
       );
-      if (failedResult) {
+      if (failedResultIndex !== -1) {
         await Promise.allSettled(
           successfulResults.map((result) =>
             deleteUploadedReferenceBlob(result.value.path, email),
           ),
         );
+        const failedResult = results[failedResultIndex];
+        const failedFile = fileParts[failedResultIndex];
+        const failedReason =
+          failedResult?.status === "rejected" ? failedResult.reason : undefined;
+        const errorMessage =
+          failedReason instanceof Error
+            ? failedReason.message
+            : "Invalid upload";
+        const errorStatusCode =
+          typeof failedReason === "object" &&
+          failedReason !== null &&
+          "statusCode" in failedReason
+            ? failedReason.statusCode
+            : undefined;
         const statusCode =
-          typeof (failedResult.reason as { statusCode?: unknown })
-            ?.statusCode === "number"
-            ? (failedResult.reason as { statusCode: number }).statusCode
-            : 400;
+          typeof errorStatusCode === "number" ? errorStatusCode : 400;
         setResponseStatus(event, statusCode);
         return {
-          error:
-            failedResult.reason instanceof Error
-              ? failedResult.reason.message
-              : "Invalid upload",
+          error: `File "${failedFile?.filename || "upload"}": ${errorMessage}`,
+          failedFileName: failedFile?.filename,
         };
       }
 

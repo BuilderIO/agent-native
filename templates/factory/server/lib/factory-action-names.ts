@@ -1,4 +1,3 @@
-/** Stored Factory automation prompts keep the previous action names until repair. */
 export const FACTORY_ACTION_RENAMES = [
   ["start-builder-for-item", "dispatch-factory-item"],
   ["govern-agent-native-pull-request", "govern-factory-pull-request"],

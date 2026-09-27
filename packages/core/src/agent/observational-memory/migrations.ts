@@ -1,15 +1,5 @@
 import type { MigrationEntry } from "../../db/migrations.js";
 
-/**
- * Additive-only migrations for Observational Memory.
- *
- * These run under their OWN bookkeeping table (`_observational_memory_migrations`)
- * so the version space is independent of core/org/context-xray — see
- * `db/migrations.ts` for why each module owns its own version space.
- *
- * Strictly additive: a new table plus its hot-path indexes. Never drops,
- * renames, or destructively alters anything.
- */
 export const OBSERVATIONAL_MEMORY_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,
@@ -30,13 +20,11 @@ export const OBSERVATIONAL_MEMORY_MIGRATIONS: MigrationEntry[] = [
     )`,
   },
   {
-    // Hot path: read a thread's entries of a given tier, ordered by recency.
     version: 2,
     sql: `CREATE INDEX IF NOT EXISTS observational_memory_thread_tier_idx
       ON observational_memory(thread_id, tier, created_at)`,
   },
   {
-    // Hot path: owner-scoped reads for ownable-table access checks.
     version: 3,
     sql: `CREATE INDEX IF NOT EXISTS observational_memory_thread_owner_idx
       ON observational_memory(thread_id, owner_email)`,

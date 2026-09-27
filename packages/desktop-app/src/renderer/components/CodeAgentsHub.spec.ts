@@ -292,9 +292,6 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
   });
 
   it("declares the app guest hidden while the integrations overlay covers it", () => {
-    // The guest stays isActive while the wrapper is `invisible`, and an
-    // Electron guest never observes CSS hiding — without this it keeps
-    // polling and holding its event stream underneath the overlay.
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
@@ -304,8 +301,6 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
   });
 
   it("remounts chat-first app surfaces when the shell refresh key changes", () => {
-    // A lane switch bumps refreshKey; without this the app surfaces kept
-    // their old origin and only the preview path reloaded.
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",

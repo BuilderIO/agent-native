@@ -9,11 +9,8 @@ import { cn } from "@/lib/utils";
 interface AutoRecordPromptProps {
   scheduledStart?: string | null;
   actualStart?: string | null;
-  /** Called when the user (or auto-fire) starts the recording. */
   onStart: () => void;
-  /** Called when the user dismisses the banner. */
   onDismiss?: () => void;
-  /** Disable the auto-fire countdown (e.g. while another action is pending). */
   disabled?: boolean;
 }
 
@@ -43,7 +40,6 @@ export function AutoRecordPrompt({
     },
   });
 
-  // 5-second cancel grace after auto-fire — counts down independently.
   useEffect(() => {
     if (graceRemaining <= 0) return;
     const id = setInterval(() => {

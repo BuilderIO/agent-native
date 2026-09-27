@@ -90,24 +90,16 @@ export interface ReviewThreadPanelProps {
   resourceType: string;
   resourceId: string;
   targetId?: string | null;
-  /** Select the newest active threads before restoring each thread's chronology. */
   newestFirst?: boolean;
-  /** Maximum number of comments/threads returned by the review query. */
   limit?: number;
-  /** Filter the rendered list to threads marked unread for the current user. */
   unreadOnly?: boolean;
-  /** Persist new comments against this target while targetId continues to filter the list. */
   composerTargetId?: string | null;
-  /** Optional element/point anchor attached to new comments from the composer. */
   composerAnchor?: unknown;
-  /** Host metadata attached to new comments from the composer. */
   composerMetadata?: Record<string, unknown>;
-  /** Visible label describing the element currently targeted by the composer. */
   composerContextLabel?: string;
   title?: string;
   className?: string;
   includeResolved?: boolean;
-  /** Show the compact open/resolved history filter. */
   showFilter?: boolean;
   filterLabel?: string;
   allCommentsLabel?: string;
@@ -131,32 +123,25 @@ export interface ReviewThreadPanelProps {
   agentLabel?: string;
   onSelectThread?: (thread: ReviewThread) => void;
   onCommentCreated?: (comment: ReviewComment) => void;
-  /** Filter already-loaded threads without changing the review query. */
   threadFilter?: (thread: ReviewThread) => boolean;
-  /** Sort already-loaded threads without changing the review query. */
   threadSort?: (left: ReviewThread, right: ReviewThread) => number;
-  /** Optional actions matching the Figma thread menu. */
   onCopyThreadLink?: (thread: ReviewThread) => void;
   onMarkThreadUnread?: (thread: ReviewThread) => void;
   onSetThreadUnread?: (thread: ReviewThread, unread: boolean) => void;
   copyLinkLabel?: string;
   markUnreadLabel?: string;
   markReadLabel?: string;
-  /** Show reaction chips and an emoji picker under each comment. */
   showReactions?: boolean;
   reactionChoices?: readonly string[];
   addReactionLabel?: string;
   onReactionError?: () => void;
-  /** People available to the shared composer mention picker. */
   mentionOptions?: readonly ReviewMention[];
   showComposerTools?: boolean;
-  /** Allow an authorized author/editor to edit a comment body. */
   canEditComment?: ReviewCommentCapability;
   editLabel?: string;
   saveEditLabel?: string;
   cancelEditLabel?: string;
   onCommentUpdated?: (comment: ReviewComment) => void;
-  /** Called after a resolve/reopen mutation has been verified by the action. */
   onThreadResolved?: (thread: ReviewThread) => void;
   onThreadReopened?: (thread: ReviewThread) => void;
   reopenLabel?: string;
@@ -165,19 +150,13 @@ export interface ReviewThreadPanelProps {
   confirmDeleteDescription?: string;
   confirmDeleteLabel?: string;
   cancelDeleteLabel?: string;
-  /** Allow signed-in commenters to reply. Omitted capabilities fail closed. */
   canReply?: ReviewThreadCapability;
-  /** Allow editors to resolve a thread. Omitted capabilities fail closed. */
   canResolve?: ReviewThreadCapability;
-  /** Allow deletion only for comments the caller has authorized. */
   canDeleteComment?: ReviewCommentCapability;
-  /** Allow copying a stable link to a thread. Omitted capabilities fail closed. */
   canCopyLink?: ReviewThreadCapability;
   linkCopiedLabel?: string;
   copyLinkFailedLabel?: string;
-  /** Extra per-thread controls rendered next to reply/resolve/delete. */
   renderThreadActions?: (thread: ReviewThread) => ReactNode;
-  /** Show a separate agent-submit action when the host supports agent routing. */
   showComposerTargetPicker?: boolean;
   composerCommentLabel?: string;
   composerAgentLabel?: string;

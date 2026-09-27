@@ -860,9 +860,6 @@ describe("babysit work policy", () => {
     ).toBe(false);
   });
 
-  // Pull request 4495 was pinged three times in seven minutes: a first look with
-  // mergeability uncomputed, then uncomputed becoming dirty, then dirty going
-  // back to uncomputed. Only the first look may post.
   it("posts exactly once across the pull request 4495 mergeability flicker", () => {
     const failing = reconcileBabysitState({
       ...baseInput,
@@ -935,8 +932,6 @@ describe("babysit work policy", () => {
       "duplicate-comment",
     ]);
     expect(stored.factoryBabysitCommentCount).toBe(1);
-    // The third read returns to uncomputed, so the sticky bit holds the conflict
-    // and the fingerprint does not move back.
     expect(fingerprints[2]).toBe(fingerprints[1]);
   });
 

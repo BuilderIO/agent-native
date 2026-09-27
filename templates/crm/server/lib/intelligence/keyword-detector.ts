@@ -41,7 +41,6 @@ function boundedQuote(text: string, start: number, end: number): string {
   }`.trim();
 }
 
-/** Runs deterministic detector matching on already-bounded Clips evidence excerpts. */
 export function runKeywordDetector(
   detector: KeywordDetectorDefinition,
   values: unknown,

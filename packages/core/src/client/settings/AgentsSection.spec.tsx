@@ -33,8 +33,6 @@ function renderSection(root: Root) {
   });
 }
 
-// A migrated remote agent keeps its legacy `agents/` row alongside the
-// canonical `remote-agents/` one, so the list has to collapse them.
 const resources = [
   { id: "legacy-mail", path: "agents/mail.json" },
   { id: "canonical-mail", path: "remote-agents/mail.json" },
@@ -98,9 +96,6 @@ describe("AgentsSection", () => {
   });
 
   it("never claims the shared secret is unset when the caller can't see it", async () => {
-    // A member (not owner/admin) gets `a2aSecretSet` omitted entirely by the
-    // server — the client must read that as "can't see it," never coerce the
-    // absence into a false "not set" claim it has no basis for.
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request) => {

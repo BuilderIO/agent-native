@@ -9,32 +9,14 @@ import type { ScheduledTriggerState } from "./scheduled-trigger-state.js";
 
 export interface ScheduledTriggerNoticeProps {
   state: ScheduledTriggerState;
-  /** `banner` heads the page; `inline` sits inside the schedule dialog. */
   variant?: "banner" | "inline";
 }
 
-/**
- * Warns that schedule-triggered automations will not fire in this deploy.
- *
- * Worth a persistent surface rather than a one-time toast: whether a schedule
- * fires is decided by the BUILD, while automations are created at runtime, so
- * the mismatch is invisible at the moment it bites. Without this, a scheduled
- * automation reports "Enabled" with a plausible "Next run" and silently never
- * runs. Shown on the Automations page and again inside the schedule editor,
- * which is the one place a user is actively choosing a cadence.
- *
- * Takes the whole query state, not just a resolved status, because a status
- * check that FAILED has to look different from one that came back healthy: the
- * failure is why the next-run dates alongside it are unverified, and silently
- * rendering nothing would present them as confirmed.
- */
 export function ScheduledTriggerNotice({
   state,
   variant = "banner",
 }: ScheduledTriggerNoticeProps) {
   const t = useT();
-  // Still in flight: resolves in milliseconds, so say nothing rather than
-  // flash a caveat at every reader on a perfectly healthy deploy.
   if (state.kind === "loading") return null;
 
   const shell =
@@ -42,9 +24,6 @@ export function ScheduledTriggerNotice({
       ? "flex items-start gap-2.5 rounded-xl border px-4 py-3"
       : "flex items-start gap-2 rounded-lg border px-3 py-2";
 
-  // Muted rather than amber: "we could not check" is a weaker claim than "this
-  // will not run", and dressing it identically would teach readers to discount
-  // the one that means something.
   if (state.kind === "unknown") {
     return (
       <div
@@ -102,13 +81,6 @@ export function ScheduledTriggerNotice({
               "Event-triggered automations and Run now still work.",
           });
 
-  /**
-   * Recovery steps, collapsed by default: the notice has to say what is wrong
-   * before it says how to change it, and the how is longer than the what. Null
-   * where nothing is actually toggleable — `no-platform-scheduler` means the
-   * host has no scheduler to enable, so an empty disclosure would promise a fix
-   * that does not exist.
-   */
   const fix =
     status.reason === "disabled-by-env"
       ? t("jobs.scheduleUnavailableDisabledFix", {
@@ -139,8 +111,6 @@ export function ScheduledTriggerNotice({
           {detail}
         </p>
         {fix ? (
-          // Native <details>: the collapsed text stays in the DOM, so
-          // find-in-page still reaches the env var someone is looking for.
           <details className="group mt-1">
             <summary className="-ml-1.5 inline-flex w-fit cursor-pointer select-none list-none items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 dark:text-amber-300 dark:hover:bg-amber-400/15 [&::-webkit-details-marker]:hidden">
               <IconChevronRight className="size-3 shrink-0 transition-transform duration-150 group-open:rotate-90" />

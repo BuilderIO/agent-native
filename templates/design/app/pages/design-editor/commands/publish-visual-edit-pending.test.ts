@@ -121,7 +121,6 @@ describe("runPublishVisualEditPending", () => {
       true,
     );
     expect(args.showHandoffErrorToast).toHaveBeenCalledWith(error);
-    // The bridge POST is independent and must still run after the failure.
     expect(args.fetchImpl).toHaveBeenCalled();
   });
 

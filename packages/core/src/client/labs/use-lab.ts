@@ -24,9 +24,6 @@ export function useLabState(lab: LabReference): {
   isSuccess: boolean;
 } {
   const key = labKey(lab);
-  // get-labs requires a real session. Gating on it avoids firing a request
-  // that 401s for every signed-out visitor; isSuccess stays false so callers
-  // keep today's "not yet known" default below.
   const { status } = useSession();
   const query = useActionQuery<LabValues>("get-labs" as never, undefined, {
     enabled: status === "authenticated",
@@ -35,9 +32,6 @@ export function useLabState(lab: LabReference): {
     enabled: query.data
       ? query.data[key] === true
       : typeof lab !== "string" && lab.defaultEnabled === true,
-    // A disabled query reports isLoading=false with no data. While the
-    // session gate itself is still resolving (e.g. a cold reload), that would
-    // read as "known off" for a signed-in user whose lab is actually on.
     isLoading:
       query.isLoading || (status === "loading" && query.data === undefined),
     isError: query.isError,

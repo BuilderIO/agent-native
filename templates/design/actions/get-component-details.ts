@@ -1,19 +1,3 @@
-/**
- * get-component-details — read action.
- *
- * For a selected component instance, returns the component name, source file
- * (via resolveNodeToFile when the capability is available), props / variants,
- * and the persistent component_index row when one exists.
- *
- * Works across both tiers:
- * - **Alpine / inline** — returns name + observed props from attributes, plus
- *   a CTA flag for features that require a real-app source.
- * - **Real app (localhost / fusion)** — returns the full component_index row
- *   including parsed TS prop types, cva variants, Storybook stories, and the
- *   source file path.  The `resolveNodeToFile` capability unlocks the source
- *   deep-link returned in `sourceLocation`.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   accessFilter,
@@ -24,7 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   fetchLocalhostSnapshot,
   resolveLocalhostBridgeConnection,
@@ -196,8 +180,6 @@ export class ComponentDetailsLiveProjectionError extends Error {
   }
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
-
 export default defineAction({
   description:
     "Return details for a selected component instance: component name, " +
@@ -247,11 +229,9 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designId, nodeId, fileId, runtime }) => {
-    // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
 
-    // ── Source type + capabilities ───────────────────────────────────────────
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
     if (sourceType !== "inline") {
@@ -271,9 +251,6 @@ export default defineAction({
         ? "Prop write-back requires the bridge applyEdit capability. Preview controls remain available until source write hardening is enabled."
         : undefined;
 
-    // URL-backed files store the route URL in SQL rather than the rendered
-    // DOM. Use the accepted runtime projection for the inspector instead of
-    // pretending that URL is an HTML source document.
     if (runtime) {
       const [indexRow] = await db
         .select()
@@ -327,7 +304,6 @@ export default defineAction({
       };
     }
 
-    // ── Fetch design file ────────────────────────────────────────────────────
     const conditions = [
       accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
         includePublic: true,
@@ -356,8 +332,6 @@ export default defineAction({
 
     if (!file) throw new Error("Design HTML file not found.");
 
-    // Inline screens use durable SQL. URL-backed screens must be projected from
-    // the live bridge because the stored value is only a route URL.
     let html = file.content ?? "";
     if (isStandaloneHttpUrl(html)) {
       if (sourceType !== "localhost") {
@@ -402,7 +376,6 @@ export default defineAction({
       }
     }
 
-    // ── Projection lookup ────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
       kind: "design-file",
       designId: file.designId,
@@ -430,11 +403,9 @@ export default defineAction({
       );
     }
 
-    // ── Simple props from attributes ─────────────────────────────────────────
     const observedProps = extractProps(node);
     const instance = liveInstanceForNode(node, name);
 
-    // ── Lookup persisted component_index row ─────────────────────────────────
     const [indexRow] = await db
       .select()
       .from(schema.componentIndex)
@@ -453,9 +424,6 @@ export default defineAction({
     );
     const persistedStories = parseJson<unknown[]>(indexRow?.stories, []);
 
-    // ── Source location (real-app only) ──────────────────────────────────────
-    // Live bridge provenance is preferred; indexed metadata remains the
-    // fallback when the bridge did not stamp a source span.
     const sourceLocation = sourceLocationForNode(
       node,
       indexRow,
@@ -474,8 +442,6 @@ export default defineAction({
         !node.dataAttributes[COMPONENT_REF_ATTR],
       ),
       canRestore: canRestoreComponentMain(node),
-      // Props: merge observed attribute props with richer persisted prop types
-      // when available.  Real-app callers get the full TS/cva prop table.
       observedProps,
       persistedProps,
       persistedVariants,

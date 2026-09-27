@@ -63,7 +63,6 @@ export interface BuilderConnectionMenuProps {
   credentialSource?: BuilderStatus["credentialSource"] | null;
   trackingSource?: string;
   trackingFlow?: string;
-  /** "icon" (default) matches the compact card; "text" shows a labeled "Manage" button for row layouts. */
   variant?: "icon" | "text";
   /**
    * The connection this menu manages; Reconnect and Disconnect act on that

@@ -1,10 +1,3 @@
-/**
- * Core script: db-reset-dev-owner
- *
- * Reassign rows owned by the local development sentinel to a real account.
- * Local execution uses PGlite and hosted execution uses PostgreSQL.
- */
-
 import path from "node:path";
 
 import { getDatabaseUrl } from "../../db/client.js";

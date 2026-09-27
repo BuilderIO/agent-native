@@ -301,9 +301,6 @@ export function registerFrameworkSecrets(): void {
     });
   }
 
-  // The other AI SDK providers the engine can run on. Registering them here
-  // is what makes them show up in Settings → API keys, so bringing your own
-  // OpenRouter or Gemini key is the same flow as OpenAI or Anthropic.
   // Every model provider key registers at "user" scope: API keys writes the
   // same personal row the provider forms save by default, and an owner's or
   // admin's organization key sits beside it instead of replacing it.
@@ -372,9 +369,6 @@ export function registerFrameworkSecrets(): void {
     });
   }
 
-  // PostHog — product analytics, error tracking, and LLM analytics. One key
-  // arms all three; `POSTHOG_ERROR_TRACKING=false` opts out of exceptions
-  // while keeping analytics.
   if (!getRequiredSecret("POSTHOG_API_KEY")) {
     registerRequiredSecret({
       key: "POSTHOG_API_KEY",
@@ -388,8 +382,6 @@ export function registerFrameworkSecrets(): void {
     });
   }
 
-  // Web-search tool backends — optional; the tool selects the first
-  // configured manual key at call time, then falls back to Builder Connect.
   const webSearchKeys: Array<{
     key: string;
     label: string;

@@ -72,7 +72,6 @@ export type AppIdentityColumn = {
   reason: string;
 };
 
-/** Mutable identity references only. Historical actor/creator fields are intentionally retained. */
 export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "user", column: "email" },
   { table: "invitation", column: "email" },
@@ -205,7 +204,6 @@ const OPTIONAL_TABLES = new Set(
   IDENTITY_REKEY_COLUMNS.map(({ table }) => table),
 );
 
-/** Columns that are deliberately stable IDs or immutable provenance, not email identities. */
 export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "agent_audit_log.actor_email",
   "agent_audit_log.owner_email",
@@ -492,7 +490,6 @@ function predicate(
 export interface IdentityRekeyResult {
   counts: Record<string, number>;
   sessionCount: number;
-  /** OAuth rows that were revoked because their payload could not be safely rewritten. */
   oauthRevokedCount: number;
 }
 
@@ -525,7 +522,6 @@ export async function listPendingIdentityRekeys(
   }));
 }
 
-/** The ledger is intentionally separate from the Better Auth update transaction. */
 export async function ensureIdentityRekeyLedger(
   db: IdentityRekeyDb,
 ): Promise<void> {
@@ -639,7 +635,6 @@ export async function failIdentityRekey(
   );
 }
 
-/** Durable wrapper used by Better Auth hooks and the CLI. */
 export async function executeIdentityRekey(
   db: IdentityRekeyDb,
   oldEmail: string,
@@ -663,7 +658,6 @@ export async function executeIdentityRekey(
   }
 }
 
-/** Retry rows left pending after Better Auth committed the account email. */
 export async function resumePendingIdentityRekeys(
   db: IdentityRekeyDb,
   email: string,

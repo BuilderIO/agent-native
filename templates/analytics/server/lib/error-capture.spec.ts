@@ -79,10 +79,6 @@ import {
   type RawExceptionInput,
 } from "./error-capture";
 
-// ---------------------------------------------------------------------------
-// Pure helpers
-// ---------------------------------------------------------------------------
-
 describe("parseStack", () => {
   it("parses V8/Chrome frames with function + location", () => {
     const frames = parseStack(
@@ -100,9 +96,7 @@ describe("parseStack", () => {
       colno: 34,
       inApp: true,
     });
-    // `async ` prefix is stripped from the function name.
     expect(frames[1].function).toBe("handler");
-    // cdn/vendor files are flagged not-in-app.
     expect(frames[2].inApp).toBe(false);
   });
 
@@ -230,9 +224,6 @@ describe("fingerprint", () => {
   });
 
   it("separates different messages thrown through the same frame", () => {
-    // Real regression: every server action error shares one minified dispatch
-    // frame, so a frame-only key merged unrelated failures under whichever
-    // title arrived first.
     const frames = parseStack(
       "Error: boom\n    at runAction (https://app.example.com/assets/server.js:1:1)",
     );
@@ -274,16 +265,12 @@ describe("fingerprint", () => {
     expect(same("Failed to read /Users/ada/app/src/main.ts")).toBe(
       same("Failed to read /Users/grace/other/lib/util.ts"),
     );
-    // An apostrophe is not an opening quote: these stay distinct.
     expect(same("Can't find variable: EmptyRanges")).not.toBe(
       same("Can't find variable: __firefox__"),
     );
   });
 
   it("groups agent-chat failures that differ only by the opaque ERROR ID", () => {
-    // Real outage: 18 chat failures in one day rendered as 18 issues of
-    // count 1, because the gateway embeds a fresh hex id in every message.
-    // A per-occurrence grouping key makes an outage look like noise.
     const frames = parseStack(
       "EngineError: boom\n    at Fa (https://analytics.example.com/assets/production-agent.mjs:140:12)",
     );
@@ -299,21 +286,18 @@ describe("fingerprint", () => {
       "0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f",
     ];
     expect(new Set(ids.map(withId)).size).toBe(1);
-    // Still a different issue from another EngineError through the same frame.
     expect(withId("a3f9c2d1")).not.toBe(
       fingerprint("EngineError", frames, "Builder gateway timed out"),
     );
   });
 
   it("keeps hex-shaped words that are not ids in their own group", () => {
-    // No digit, so it is a word and not an id.
     expect(fingerprint("Error", [], "decade decade")).not.toBe(
       fingerprint("Error", [], "deadbeef facade"),
     );
   });
 
   it("falls back to a normalized message when there is no usable stack", () => {
-    // Numbers/urls/uuids are normalized so "id 1" and "id 2" group together.
     expect(fingerprint("Error", [], "Failed to load id 1")).toBe(
       fingerprint("Error", [], "Failed to load id 2"),
     );
@@ -360,7 +344,6 @@ describe("deriveConsoleExceptionIdentity", () => {
   });
 
   it("treats a spaced/plain prefix as a message, not a type", () => {
-    // "Failed to fetch: /x" has a space in the prefix → not an error name.
     expect(deriveConsoleExceptionIdentity("Failed to fetch: /x")).toEqual({
       type: "Error",
       message: "Failed to fetch: /x",
@@ -377,8 +360,6 @@ describe("candidateFingerprintsForConsole", () => {
     "TypeError: x is not a function\n    at doThing (https://app.example.com/main.js:12:34)";
 
   it("matches the fingerprint ingest computes for the same underlying error", () => {
-    // The recorder serializes a window error as `${name}: ${message}` + stack;
-    // resolving that must land on the exact fingerprint ingest filed it under.
     const [fp] = candidateFingerprintsForConsole({
       key: "c1",
       source: "window-error",
@@ -409,8 +390,6 @@ describe("candidateFingerprintsForConsole", () => {
   });
 
   it("adds the UnhandledRejection variant for a plain-Error rejection", () => {
-    // The SDK renames a bare `Error` reason to `UnhandledRejection` at capture,
-    // so the resolver offers both candidates for reliable matching.
     const rejectionStack =
       "Error: boom\n    at doThing (https://app.example.com/main.js:1:1)";
     const fps = candidateFingerprintsForConsole({
@@ -444,7 +423,6 @@ describe("extractExceptionInput", () => {
     expect(input.type).toBe("TypeError");
     expect(input.handled).toBe(false);
     expect(input.clientRecordingId).toBe("client-abc");
-    // tag values are coerced to strings.
     expect(input.tags).toEqual({ area: "checkout", count: "3" });
     expect(input.extra).toEqual({ cartId: "c1" });
     expect(input.breadcrumbs).toHaveLength(1);
@@ -471,10 +449,6 @@ describe("extractExceptionInput", () => {
     ).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// ingestException upsert behavior (real in-memory PostgreSQL DB)
-// ---------------------------------------------------------------------------
 
 function baseRaw(
   overrides: Partial<RawExceptionInput> = {},
@@ -662,7 +636,6 @@ describe("ingestException", () => {
     expect(recordChangeMock).toHaveBeenCalledWith(
       expect.objectContaining({ source: "error-issues", type: "add" }),
     );
-    // A brand new issue raises a best-effort notification.
     expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
     expect(notifyWithDeliveryMock).toHaveBeenCalledWith(
       expect.objectContaining({ channels: ["inbox"] }),
@@ -696,7 +669,6 @@ describe("ingestException", () => {
     );
     const second = await ingestException(
       SCOPE,
-      // Same top in-app frame but different line/col → same fingerprint.
       baseRaw({
         rawStack:
           "TypeError: x is not a function\n    at doThing (https://app.example.com/main.js:99:1)",
@@ -715,7 +687,6 @@ describe("ingestException", () => {
       firstSeenAt: "2026-07-08T12:00:00.000Z",
       lastSeenAt: "2026-07-08T13:00:00.000Z",
     });
-    // Only the first (new) issue notifies.
     expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
   });
 
@@ -732,7 +703,6 @@ describe("ingestException", () => {
       timestamp: "2026-07-08T12:00:01.000Z",
     });
     let issues = await loadIssues();
-    // A flood with no identity is volume, never user impact.
     expect(issues[0]).toMatchObject({ eventCount: 2, usersAffected: 0 });
 
     await ingestException(
@@ -741,7 +711,6 @@ describe("ingestException", () => {
       derivedFor({ userId: null, anonymousId: null, userKey: null }),
     );
     issues = await loadIssues();
-    // The session id is a real identity; the two anonymous events still are not.
     expect(issues[0]).toMatchObject({ eventCount: 3, usersAffected: 1 });
   });
 
@@ -988,7 +957,6 @@ describe("matchErrorIssuesBySignatures", () => {
           message: "TypeError: x is not a function",
           stack: baseRaw().rawStack,
         },
-        // A non-captured line resolves to nothing (no link rendered).
         {
           key: "console-2",
           source: "console",

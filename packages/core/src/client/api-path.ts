@@ -9,17 +9,6 @@ import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { initializeAgentNativeClient } from "./client-bootstrap.js";
 
-/**
- * The PUBLIC framework route prefix this bundle was built for.
- *
- * Framework code keeps naming routes by their internal `/_agent-native` form;
- * `agentNativePath()` swaps in this value at the one place browser URLs are
- * built. It comes from the resolved `agent-native.config.ts` Vite serialized
- * into the bundle, with the SSR shell's projected config as the fallback for
- * a script that runs before the bundle (or a bundle built without the
- * define). A malformed injected value throws rather than silently building
- * URLs under the wrong namespace.
- */
 export function frameworkRoutePrefix(): string {
   const configured = injectedAgentNativeConfig().runtime?.frameworkRoutePrefix;
   if (configured !== undefined) {
@@ -39,11 +28,6 @@ export function frameworkRoutePrefix(): string {
   );
 }
 
-/**
- * True when `pathname` is under the framework namespace as the browser sees
- * it: the public prefix, or — because internal names are what framework code
- * writes before `agentNativePath()` runs — the internal one.
- */
 export function isFrameworkRoutePath(pathname: string): boolean {
   return (
     matchesPathPrefix(pathname, FRAMEWORK_INTERNAL_ROUTE_PREFIX) ||
@@ -93,9 +77,6 @@ function clientEnv(): Record<string, string | boolean | undefined> | undefined {
 }
 
 function frameworkMarkerIndex(pathname: string): number {
-  // The live URL carries the public prefix; the internal name is still
-  // accepted because a default deployment's public prefix IS the internal one.
-  // Only a whole segment counts: `/docs/_platform-settings` is an app route.
   for (const marker of [
     frameworkRoutePrefix(),
     FRAMEWORK_INTERNAL_ROUTE_PREFIX,
@@ -160,15 +141,6 @@ function workspacePathBasePath(): string {
   const segment = pathname.split("/").find(Boolean);
   if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
   const basePath = normalizeBasePath(segment);
-  // Guard against treating an app-local route (e.g. a client-rendered
-  // "/settings" page reached via stale client-side navigation) as if it
-  // were a sibling app's workspace mount — that built URLs like
-  // "/settings/_agent-native/builder/connect", which the workspace gateway
-  // 404s (no app is mounted at "/settings") into its app-picker page instead
-  // of the real target route. Only trust the segment when it matches a
-  // known mount from the deployed app manifest; when the manifest can't be
-  // read, fall back to the prior blind-trust behavior (e.g. the same build
-  // reused across sibling app ids without a manifest).
   const mounts = workspaceAppMountPaths();
   if (mounts && !mounts.has(basePath)) return "";
   return basePath;
@@ -212,8 +184,6 @@ export function appBasePath(): string {
   const pathname = window.location.pathname;
   if (pathMatchesBasePath(pathname, configured)) return configured;
 
-  // In a multi-app workspace, a globally configured base can bleed from one
-  // app build into another. Prefer the live mount path when they disagree.
   return derived || workspacePathBasePath() || configured;
 }
 
@@ -251,11 +221,6 @@ function workspaceAppMountPaths(): Set<string> | null {
   }
 }
 
-/**
- * Returns true for a same-origin path mounted at a sibling workspace app.
- * React Router treats root paths as local to its basename, so these targets
- * must use the browser location instead of the app-local router.
- */
 export function isWorkspaceAppPath(path: string): boolean {
   if (typeof window === "undefined" || !path.startsWith("/")) return false;
   if (!isWorkspaceRuntime()) return false;
@@ -274,7 +239,6 @@ export function isWorkspaceAppPath(path: string): boolean {
   );
 }
 
-/** Resolve the live app mount from the route already visible in the browser. */
 export function appMountPath(appLocalRoute: string): string {
   const basePath = appBasePath();
   if (typeof window === "undefined") return basePath;
@@ -315,7 +279,6 @@ export function appMountPath(appLocalRoute: string): string {
   return candidates[0] ?? basePath;
 }
 
-/** Prefix an app-local browser URL with the mount resolved from the live route. */
 export function appMountedPath(path: string, appLocalRoute: string): string {
   if (!path.startsWith("/")) return path;
   const mountPath = appMountPath(appLocalRoute);
@@ -342,13 +305,6 @@ export function appApiPath(path: string): string {
   return appPath(normalized);
 }
 
-/**
- * The browser URL for a framework route named by its internal path.
- *
- * `/_agent-native/actions/x` becomes `/{base}/{public prefix}/actions/x`. A
- * path that does not start with the internal prefix is returned as it is,
- * which is also what keeps an already-mounted URL from being prefixed twice.
- */
 export function agentNativePath(path: string): string {
   const queryOrFragment = path.search(/[?#]/);
   const pathname =
@@ -360,10 +316,6 @@ export function agentNativePath(path: string): string {
   );
 }
 
-/**
- * Optional cross-origin response-streaming endpoint. The browser uses the
- * normal same-origin chat route to mint a short-lived bearer token first.
- */
 export function agentChatStreamingUrl(): string | undefined {
   const value = clientEnv()?.VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL;
   if (typeof value !== "string" || !value.trim()) return undefined;

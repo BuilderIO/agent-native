@@ -1,27 +1,10 @@
-/**
- * list-design-components — read action.
- *
- * Scans every HTML file in a design for `data-agent-native-component`
- * annotations and returns one summary row per distinct component name
- * (instance count + a representative instance to preview/source from).
- *
- * Unlike `index-components` (which only scans one file at a time and persists
- * metadata into `component_index`), this action is a lightweight, read-only,
- * cross-file scan purpose-built for the Swap Instance component picker — the
- * caller needs to know every component name that exists ANYWHERE in the
- * design, not just on the active screen.
- *
- * Inline/Alpine designs only; real-app sources return an empty list with a
- * CTA (matches `index-components`' real-app posture).
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   scanComponentLibrary,
   summarizeComponentLibrary,

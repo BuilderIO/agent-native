@@ -95,8 +95,6 @@ describe("Tasks settings route", () => {
       root.render(<SettingsRoute />);
     });
 
-    // extensions._index.tsx unconditionally redirects to /settings/extensions;
-    // without this, that route silently falls back to General.
     expect(container.textContent).toContain("Extension management");
   });
 

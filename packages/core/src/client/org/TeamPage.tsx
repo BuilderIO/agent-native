@@ -1,7 +1,5 @@
 import type { ReactNode } from "react";
 
-// Type-only: erased at build time, so declaring app roles pulls no server or
-// database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
@@ -35,40 +33,11 @@ export { MemberRow, MembersTableCard } from "./MembersSection.js";
 export { OrgIdentitySettings } from "./OrgIdentitySettings.js";
 
 export interface TeamPageProps {
-  /**
-   * Optional wrapper around the page contents. Templates pass their own Layout
-   * component so the Team page renders inside the template's chrome.
-   */
   layout?: (children: ReactNode) => ReactNode;
-  /**
-   * Title shown at the top of the page. Defaults to "Team".
-   */
   title?: string;
-  /**
-   * Hide the page title when this is rendered inside another titled surface,
-   * such as the Settings > Team tab.
-   */
   showTitle?: boolean;
-  /**
-   * Description shown on the "Create an Organization" card. Defaults to
-   * "Set up a team to collaborate with your colleagues."
-   */
   createOrgDescription?: string;
-  /**
-   * Class applied to the outer max-width container. Templates can use this to
-   * tweak page width.
-   */
   className?: string;
-  /**
-   * Opt in to an app-role column on the members table, using the same
-   * descriptor the app passes to `defineAppRoles`. Pass it explicitly rather
-   * than letting the page discover registered apps: a workspace can host
-   * several, and a members table that silently grows a column when some
-   * unrelated module registers itself is a surprise, not a feature.
-   *
-   * Only org owners/admins can change assignments; everyone else sees the
-   * column read-only.
-   */
   appRoles?: AppRolesDescriptor;
 }
 
@@ -116,10 +85,6 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   );
 }
 
-/**
- * Default Team management page. Templates can route directly to this component
- * or wrap it with their own Layout via the `layout` prop.
- */
 export function TeamPage({
   layout,
   title,

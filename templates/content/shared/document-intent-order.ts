@@ -1,11 +1,7 @@
 export interface DocumentBodyIntent {
-  /** Stable across transport retries and derived rebase attempts. */
   operationId: string;
-  /** Scoped to the authenticated actor, document, and editing surface. */
   writerId: string;
-  /** Monotonic within a writer. MCP operations may omit it. */
   generation?: number;
-  /** The body revision actually observed when this edit was authored. */
   authoredBaseRevision: number;
 }
 
@@ -20,10 +16,6 @@ export type DocumentIntentOrder =
   | "incoming-concurrent-wins"
   | "committed-concurrent-wins";
 
-/**
- * Order authored edits rather than deliveries. A rebase or retry must retain
- * its original operation ID, generation, and observed base revision.
- */
 export function compareDocumentBodyIntents(
   incoming: DocumentBodyIntent,
   committed: CommittedDocumentBodyIntent,

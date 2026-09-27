@@ -98,8 +98,6 @@ it("bounds canonical cache retention by UTF-8 bytes", () => {
 });
 
 it("keeps a whole design cached across repeated prepare passes", () => {
-  // ~20MB of unchanged screens, past the byte cap: charged by bytes, each
-  // in-order pass would evict the entry it needs next.
   const screens = Array.from({ length: 100 }, (_, index) => ({
     fileId: `whole-design-${index}`,
     content: `<main data-agent-native-node-id="screen-${index}">${"x".repeat(200_000)}</main>`,
@@ -207,7 +205,6 @@ it("hands the Layers model the projection it built for the editor's source", () 
   expect(reused).toBeDefined();
   expect(reused).not.toBe(fresh);
   expect(reused).toEqual(fresh);
-  // Ids are keyed on fileId alone, so the default source maps the same nodes.
   expect([...prepared.nodeIdMap.values()]).toEqual(
     fresh.nodes.map((node) => node.id),
   );

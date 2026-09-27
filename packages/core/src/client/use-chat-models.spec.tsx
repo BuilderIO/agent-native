@@ -11,7 +11,6 @@ vi.mock("./use-action.js", () => actionMocks);
 import { invalidateClientStatusRequests } from "./client-status-requests.js";
 import { useChatModels } from "./use-chat-models.js";
 
-/** Serve the three requests refreshEngines makes: engines, env keys, builder. */
 function stubCatalog(options: {
   engines: unknown[];
   configuredKeys?: string[];
@@ -147,11 +146,6 @@ describe("useChatModels", () => {
     expect(container.textContent).toContain("claude-sonnet-5:high:");
   });
 
-  // DEFAULT_MODEL is a builder-gateway id, and the builder engine is hidden
-  // from the picker unless Builder is connected. Keeping it as the selection
-  // submitted a model no engine could serve, which the server then quietly
-  // replaced with its own default — the picker said one thing, every turn ran
-  // another.
   it("replaces an unroutable default with a model the catalog can serve", async () => {
     stubCatalog({
       engines: [
@@ -180,8 +174,6 @@ describe("useChatModels", () => {
   });
 
   it("clears the selection when the catalog can route nothing", async () => {
-    // Zero groups: an empty selection hides the picker and submits no model, so
-    // the server's own resolved default is used instead of an unroutable id.
     stubCatalog({ engines: [] });
 
     await act(async () => {
@@ -207,9 +199,6 @@ describe("useChatModels", () => {
           requiredEnvVars: [],
         },
       ],
-      // Ollama needs no API key, so it's only rendered by default once it's
-      // the active engine — matches how a real setup that already ran a
-      // conversation on Ollama would look.
       current: { engine: "ai-sdk:ollama", model: "llama3.1" },
     });
     vi.stubGlobal(
@@ -233,9 +222,6 @@ describe("useChatModels", () => {
     await act(async () => {
       root.render(<ChatModelsProbe enabled storageKey="ollama-live-models" />);
     });
-    // The engine catalog resolves first and renders the static suggestions;
-    // give the follow-up Ollama /api/tags fetch's microtask chain a few more
-    // turns to resolve and re-render with the live list.
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();

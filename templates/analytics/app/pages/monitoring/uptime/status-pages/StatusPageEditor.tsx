@@ -116,7 +116,6 @@ export function StatusPageEditor({
   const slugTouched = useRef(false);
   const seededRef = useRef<string | null>(null);
 
-  // Seed the draft once from the loaded page (edit) or reset for a new page.
   useEffect(() => {
     if (!isEdit) {
       if (seededRef.current !== "new") {

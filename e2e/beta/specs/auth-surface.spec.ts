@@ -11,14 +11,6 @@ import { mustRespond, parseJson } from "../lib/http";
 import { SETTINGS_NESTED_ROUTE } from "../lib/settings";
 import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
 
-/**
- * The signed-out auth surface, in the shapes users actually hit it.
- *
- * Everything here is reachable without a credential, which is what makes it
- * worth running on every promotion: the most-reported beta failures were all
- * visible before anyone finished signing in.
- */
-
 const sites = selectedSites();
 
 test.beforeEach(async ({ page }) => {
@@ -66,8 +58,6 @@ for (const site of sites) {
         `${site.host} sent an anonymous visitor from ${target} to ${gate.url} with no continuation, so signing in would drop them on the app root`,
       ).toBeTruthy();
 
-      // The continuation is opaque (base64); it must still decode to the route
-      // that was asked for, or the user lands somewhere they never requested.
       const decoded = (() => {
         const raw = decodeURIComponent(continuation![1]);
         try {
@@ -83,10 +73,6 @@ for (const site of sites) {
         `${site.host} carried continuation "${continuation![1]}", which does not resolve to ${target}`,
       ).toContain(target);
 
-      // Same visit, second fact: having settled on sign-in it must stay there.
-      // Checked here rather than in its own test because the page load is the
-      // expensive part — against these hosts from CI it dominates everything
-      // else the assertion does.
       const settled = page.url();
       await page.waitForTimeout(2_500);
       expect(
@@ -98,16 +84,11 @@ for (const site of sites) {
     test("holds still on sign-in and refuses an off-origin continuation", async ({
       page,
     }) => {
-      // Two facts, one page load each previously. The hostile-continuation
-      // visit has to be its own navigation (it carries a different URL), but
-      // the plain visit and the settle check share one.
       await page.goto(`${origin}/sign-in`, {
         waitUntil: "domcontentloaded",
       });
       await settleAuthGate(page);
       const settled = page.url();
-      // A short confirmation window rather than a long sleep: a redirect loop
-      // fires immediately, so waiting longer only adds dead time per host.
       await page.waitForTimeout(2_500);
       expect
         .soft(
@@ -116,10 +97,6 @@ for (const site of sites) {
         )
         .toBe(settled);
 
-      // The continuation the app mints is opaque, so a raw URL here is not the
-      // format it would normally consume. That is the point: whatever the app
-      // does with an unrecognised value, it must not navigate off its own
-      // origin.
       const hostile = "https://example.com/phish";
       await page.goto(`${origin}/sign-in?c=${encodeURIComponent(hostile)}`, {
         waitUntil: "domcontentloaded",
@@ -173,15 +150,10 @@ for (const site of sites) {
     });
 
     test("serves an impersonal, cacheable shell", async () => {
-      // Every SSR response is one public shell shared by all visitors. A
-      // Set-Cookie or a private cache directive here means the CDN is caching
-      // per-visitor state, or refusing to cache at all.
       const outcome = await mustRespond(`${origin}/`, { redirect: "manual" });
       const cacheControl =
         outcome.headers["cache-control"] ??
         outcome.headers["cdn-cache-control"];
-      // A missing header is its own failure, not a pass: without one the CDN
-      // falls back to its default and the shell may not be shared at all.
       expect(
         cacheControl,
         `${site.host} served its SSR shell with no cache-control or cdn-cache-control header`,

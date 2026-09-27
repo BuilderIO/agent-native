@@ -17,12 +17,6 @@ import {
   installBridge,
 } from "./helpers";
 
-// Figma spec §2 (Move) + §6 (Copy/Paste) + Part 3 resolution "Alt-drag
-// duplicate": the ORIGINAL stays put, a COPY moves with the pointer, the copy
-// keeps the IDENTICAL layer name, is inserted directly ABOVE the original in
-// DOM/z order, selection ends on the copy, and one undo removes the copy and
-// restores selection to the original.
-
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 
 async function action(
@@ -81,10 +75,6 @@ async function createDesign(
   return { designId, fileIds };
 }
 
-// A plain <div> with no id/class/aria-label falls back to a tag-derived name
-// ("Frame"). A <button> falls back to "Button". Named via an explicit
-// data-agent-native-layer-name so we know the exact string Figma parity
-// requires the copy to keep.
 const NAMED_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;min-height:900px">
 <div data-agent-native-node-id="rect" data-agent-native-layer-name="Widget"
@@ -92,10 +82,6 @@ const NAMED_HTML = `<!doctype html>
 </div>
 </body></html>`;
 
-// No explicit name and no id/class/aria-label: layerNameFor() falls back to
-// the tag ("Frame" for a plain positioned div). This is the shape that
-// exercises prepareClonedHtmlLayer's "tag-sourced name -> stamp literal
-// 'Copy'" branch.
 const UNNAMED_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;min-height:900px">
 <div data-agent-native-node-id="plain" style="position:absolute;left:100px;top:100px;width:200px;height:120px;background:#a37">
@@ -112,28 +98,63 @@ const SCREEN_WITH_TWO_ELEMENTS_HTML = `<!doctype html>
 </div>
 </body></html>`;
 
-const BOARD_AUTO_LAYOUT_HTML = `<!doctype html>
+const PLAIN_FRAME_WITH_ABSOLUTE_CHILD_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1280px;height:900px;overflow:visible">
+<main data-agent-native-node-id="exit-frame" data-agent-native-layer-name="Exit frame" data-an-primitive="frame"
+      style="position:absolute;left:100px;top:100px;width:220px;height:180px;overflow:visible;background:#334155">
+  <div data-agent-native-node-id="absolute-child" data-agent-native-layer-name="Absolute child"
+       style="position:absolute;left:20px;top:24px;width:72px;height:52px;background:#2563eb">Child</div>
+</main>
+<div data-agent-native-node-id="later-sibling" data-agent-native-layer-name="Later sibling"
+     style="position:absolute;left:500px;top:100px;width:120px;height:100px;background:#475569"></div>
+</body></html>`;
+
+function boardHtml(
+  options: {
+    rootOverflow?: "visible" | "hidden";
+    rootLayout?: "auto" | "plain";
+  } = {},
+) {
+  const rootOverflow = options.rootOverflow ?? "visible";
+  const rootLayout = options.rootLayout ?? "auto";
+  const autoLayoutStyles =
+    rootLayout === "auto"
+      ? "display:flex;flex-direction:column;gap:12px;padding:20px;"
+      : "";
+  const frame2Position =
+    rootLayout === "plain" ? "position:absolute;left:20px;top:20px;" : "";
+  const frame3Position =
+    rootLayout === "plain" ? "position:absolute;left:20px;top:210px;" : "";
+
+  return `<!doctype html>
 <html><body style="margin:0;position:relative;width:3000px;height:1200px;overflow:visible;background:transparent">
 <div data-agent-native-node-id="root-frame" data-agent-native-layer-name="Frame" data-an-primitive="frame"
-     style="position:absolute;left:600px;top:940px;width:440px;height:300px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:20px;background:#334155">
+     style="position:absolute;left:600px;top:940px;width:440px;height:300px;box-sizing:border-box;${autoLayoutStyles}overflow:${rootOverflow};background:#334155">
   <section data-agent-native-node-id="frame-2" data-agent-native-layer-name="Frame 2" data-an-primitive="frame"
-           style="box-sizing:border-box;width:260px;height:160px;display:flex;flex-direction:column;gap:8px;padding:12px;background:#475569">
+           style="${frame2Position}box-sizing:border-box;width:260px;height:160px;display:flex;flex-direction:column;gap:8px;padding:12px;background:#475569">
     <div data-agent-native-node-id="frame-2-child-a" data-agent-native-layer-name="Frame 2 child A"
          style="flex:0 0 auto;width:180px;height:48px;background:#2563eb"></div>
     <div data-agent-native-node-id="frame-2-child-b" data-agent-native-layer-name="Frame 2 child B"
          style="flex:0 0 auto;width:180px;height:48px;background:#7c3aed"></div>
   </section>
   <section data-agent-native-node-id="frame-3" data-agent-native-layer-name="Frame 3" data-an-primitive="frame"
-           style="box-sizing:border-box;width:260px;height:80px;background:#0f766e"></section>
+           style="${frame3Position}box-sizing:border-box;width:260px;height:80px;background:#0f766e"></section>
 </div>
 </body></html>`;
+}
 
-async function createDesignWithBoard(request: APIRequestContext) {
+async function createDesignWithBoard(
+  request: APIRequestContext,
+  options: {
+    rootOverflow?: "visible" | "hidden";
+    rootLayout?: "auto" | "plain";
+  } = {},
+) {
   const { designId } = await createDesign(request, NAMED_HTML);
   const board = await action(request, "create-file", {
     designId,
     filename: "__board__.html",
-    content: BOARD_AUTO_LAYOUT_HTML,
+    content: boardHtml(options),
     fileType: "html",
   });
   const boardFileId = board.id ?? board.data?.id;
@@ -239,8 +260,6 @@ async function openOverview(page: Page, designId: string, screens: number) {
   });
   const firstCard = page.locator("[data-screen-card]").first();
   await expect(firstCard).toBeVisible();
-  // Overview layout settles asynchronously after mount with no discrete
-  // event — poll the first card's box until two consecutive reads agree.
   let lastBox: { x: number; y: number } | null = null;
   await expect
     .poll(
@@ -339,8 +358,6 @@ async function zoomOutToBoardDropPoint(
   }, excludedRects);
 }
 
-// Excludes aria-level="1" rows: those are the screen/frame roots (e.g.
-// "Home"), not the elements inside them.
 async function layerNames(page: Page): Promise<string[]> {
   return page
     .getByRole("tree", { name: "Layers" })
@@ -363,6 +380,7 @@ async function dragBoardLayerCopyToEmptyCanvas(
   request: APIRequestContext,
   designId: string,
   sourceNodeId: string,
+  expectedRootFrame?: { overflow: "visible" | "hidden"; display: string },
 ) {
   await openOverview(page, designId, 1);
   await expandAllLayers(page);
@@ -374,6 +392,16 @@ async function dragBoardLayerCopyToEmptyCanvas(
   const originalRoot = boardFrame.locator(
     '[data-agent-native-node-id="root-frame"]',
   );
+  if (expectedRootFrame) {
+    await expect
+      .poll(() =>
+        originalRoot.evaluate((element) => ({
+          overflow: getComputedStyle(element).overflow,
+          display: getComputedStyle(element).display,
+        })),
+      )
+      .toEqual(expectedRootFrame);
+  }
   const source = boardFrame.locator(
     `[data-agent-native-node-id="${sourceNodeId}"]`,
   );
@@ -395,6 +423,9 @@ async function dragBoardLayerCopyToEmptyCanvas(
   await expect(selectionBox).toBeVisible();
   const dragSurface = selectionBox.locator("[data-frame-drag-surface]");
   await expect(dragSurface).toBeVisible();
+  const traceCountBeforeDrag = await page.evaluate(
+    () => (window as any).__designTrace?.entries?.().length ?? 0,
+  );
   await zoomOutToBoardDropPoint(page);
   const rootBox = await boardNodeHostBounds(
     page,
@@ -475,6 +506,10 @@ async function dragBoardLayerCopyToEmptyCanvas(
     `[data-agent-native-node-id="${copyInfo!.id}"]`,
   );
   const copyTree = await readLayerTree(copy);
+  const copyPosition = await copy.evaluate((element) => ({
+    left: (element as HTMLElement).style.left,
+    top: (element as HTMLElement).style.top,
+  }));
   expect(originalTreeAfter).toEqual(originalTreeBefore);
   expect(withoutLayerIds(copyTree)).toEqual(withoutLayerIds(sourceTreeBefore));
   expect(new Set([...originalIdsBefore, ...layerTreeIds(copyTree)]).size).toBe(
@@ -503,6 +538,7 @@ async function dragBoardLayerCopyToEmptyCanvas(
     () => (window as any).__designTrace?.entries?.() ?? [],
   );
   const selectedCopy = selectionEntries
+    .slice(traceCountBeforeDrag)
     .filter(
       (entry: { event?: string; data?: { hasSelection?: boolean } }) =>
         entry.event === "selection-changed" && entry.data?.hasSelection,
@@ -517,7 +553,11 @@ async function dragBoardLayerCopyToEmptyCanvas(
     .toContain(`data-agent-native-node-id="${copyInfo!.id}"`);
   return {
     copyId: copyInfo!.id,
+    copyBox,
+    copyPosition,
     copyTree,
+    dropPoint: emptyPoint,
+    grabOffset,
     originalTreeBefore,
     sourceTreeBefore,
   };
@@ -567,7 +607,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       await expect(rect).toBeVisible();
       const before = (await rect.boundingBox())!;
 
-      // Select first (a fresh click, not part of the drag itself).
       await page.mouse.click(
         before.x + before.width / 2,
         before.y + before.height / 2,
@@ -588,7 +627,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       const nodes = frame.locator("body > [data-agent-native-node-id]");
       await expect(nodes).toHaveCount(2, { timeout: 10_000 });
 
-      // Original stayed exactly where it was.
       const originalAfter = await frame
         .locator('[data-agent-native-node-id="rect"]')
         .boundingBox();
@@ -596,7 +634,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       expect(Math.round(originalAfter!.x)).toBe(Math.round(before.x));
       expect(Math.round(originalAfter!.y)).toBe(Math.round(before.y));
 
-      // A copy exists at a different node id and moved with the pointer.
       const allIds = await frame
         .locator("body > [data-agent-native-node-id]")
         .evaluateAll((els) =>
@@ -611,7 +648,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       expect(Math.abs(copyBox!.x - before.x)).toBeGreaterThan(10);
       expect(Math.abs(copyBox!.y - before.y)).toBeGreaterThan(10);
 
-      // Name parity: the copy must keep the IDENTICAL name, not a suffix.
       const names = await layerNames(page);
       const widgetCount = names.filter((n) => n === "Widget").length;
       if (widgetCount !== 2) {
@@ -623,12 +659,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       }
       expect(names.filter((n) => n === "Widget")).toHaveLength(2);
 
-      // Selection ends on the copy, not the original. The layers-panel row
-      // exposes an internal CodeLayerNode id ("html:...", not the raw
-      // data-agent-native-node-id), so comparing it directly to copyId can
-      // never match — verify via __designTrace's selection-changed element
-      // selector instead (the same signal the clipboard/duplicate parity
-      // spec's identical check relies on).
       const selectionTrace = await dumpTrace(page);
       const selectionMatches = [
         ...(selectionTrace ?? "").matchAll(
@@ -771,8 +801,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
           description: JSON.stringify({ bodyOrder, trace }),
         });
       }
-      // The copy must sit immediately after "rect" (same parent), i.e. above
-      // it in paint/z order, and must not have jumped past "other".
       expect(copyIndex).toBe(rectIndex + 1);
       expect(copyIndex).toBeLessThan(otherIndex);
     } finally {
@@ -797,10 +825,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       );
       await page.waitForTimeout(200);
 
-      // Layer rows are keyed by the code-layer projection's own hashed id
-      // (e.g. "html:1oii98w"), not the authored data-agent-native-node-id —
-      // capture the ORIGINAL's real id here rather than assuming a literal
-      // "rect" a Layers row can never actually carry.
       const originalLayerNodeId = await page
         .getByRole("tree", { name: "Layers" })
         .locator('[aria-selected="true"] [data-layer-row-button]')
@@ -891,7 +915,6 @@ test.describe("alt-drag duplicate (overview)", () => {
       const sourceX = sourceBox.x + sourceBox.width / 2;
       const sourceY = sourceBox.y + sourceBox.height / 2;
 
-      // Select the element first with a plain click.
       await page.mouse.dblclick(sourceX, sourceY);
       await page.waitForTimeout(500);
       await page.mouse.click(sourceX, sourceY);
@@ -960,18 +983,10 @@ test.describe("alt-drag duplicate (overview)", () => {
           }),
         });
       }
-      // Original stays inside the screen alone: the drag must not have
-      // duplicated in place inside the source screen.
       expect(insideScreenCount).toBe(1);
       expect(warningVisible).toBe(false);
-      // The copy must actually have landed on the board, not vanished.
       expect(boardCopyCount).toBeGreaterThan(0);
 
-      // A board copy is runtime-only until its pending source edit is
-      // applied, so the Layers projection may not contain it yet. Verify the
-      // real bridge -> host selection round trip instead: Escape clears the
-      // optimistic drag selection, then a real pointer click must select the
-      // clone and restore the host-level board SelectionBox for its runtime id.
       const boardIframe = page
         .locator("[data-board-surface-layer] iframe")
         .first();
@@ -1158,8 +1173,6 @@ test.describe("alt-drag duplicate (overview)", () => {
         labelBox.x < shellBox.x + shellBox.width &&
         labelBox.x + labelBox.width > shellBox.x;
 
-      // Ask the browser which element is actually hit-tested at the label's
-      // own centre point — this is what a real click would hit.
       const elementAtPoint = await page.evaluate(
         ({ x, y }) => {
           const el = document.elementFromPoint(x, y);
@@ -1175,7 +1188,6 @@ test.describe("alt-drag duplicate (overview)", () => {
         },
       );
 
-      // Try the plain click (no force) as a real user would.
       let clickThrew = false;
       try {
         await label.click({ timeout: 3000 });
@@ -1194,10 +1206,6 @@ test.describe("alt-drag duplicate (overview)", () => {
         });
       }
 
-      // This assertion documents the real user-facing question: a plain,
-      // un-forced click on the frame label must succeed. If the left shell
-      // geometrically overlaps the label at the default viewport, that is a
-      // genuine reachability bug, not a stale-selector problem.
       expect(clickThrew).toBe(false);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
@@ -1290,6 +1298,187 @@ test.describe("alt-drag board auto-layout frames to empty board", () => {
       expect(childNodeIds(reloaded.html, result.copyId)).toEqual(
         result.copyTree.children.map((child) => child.id),
       );
+    } finally {
+      await action(request, "delete-design", { id: designId }).catch(() => {});
+    }
+  });
+
+  test("copies a deeply nested flow child through a plain clipped board frame to the board root", async ({
+    page,
+    request,
+  }) => {
+    const designId = await createDesignWithBoard(request, {
+      rootOverflow: "hidden",
+      rootLayout: "plain",
+    });
+    try {
+      const result = await dragBoardLayerCopyToEmptyCanvas(
+        page,
+        request,
+        designId,
+        "frame-2-child-a",
+        { overflow: "hidden", display: "block" },
+      );
+      expect(result.sourceTreeBefore.name).toBe("Frame 2 child A");
+
+      const reloaded = await expectBoardCopyAfterReload(
+        page,
+        request,
+        designId,
+        result.copyId,
+      );
+      await expect(reloaded.copy).toBeVisible();
+      expect(
+        await reloaded.original.evaluate((element) => ({
+          overflow: getComputedStyle(element).overflow,
+          display: getComputedStyle(element).display,
+        })),
+      ).toEqual({ overflow: "hidden", display: "block" });
+      expect(
+        await reloaded.copy.evaluate((element) => element.parentElement),
+      ).toBeTruthy();
+      expect(
+        await reloaded.copy.evaluate(
+          (element) => element.parentElement === element.ownerDocument.body,
+        ),
+      ).toBe(true);
+      expect(
+        await reloaded.original
+          .locator('[data-agent-native-node-id="frame-2-child-a"]')
+          .evaluate((element) =>
+            element.parentElement?.getAttribute("data-agent-native-node-id"),
+          ),
+      ).toBe("frame-2");
+      expect(
+        await readLayerTree(
+          reloaded.original.locator(
+            '[data-agent-native-node-id="frame-2-child-a"]',
+          ),
+        ),
+      ).toEqual(result.sourceTreeBefore);
+      expect(await readLayerTree(reloaded.copy)).toEqual(result.copyTree);
+      expect(
+        await reloaded.copy.evaluate((element) => ({
+          left: (element as HTMLElement).style.left,
+          top: (element as HTMLElement).style.top,
+        })),
+      ).toEqual(result.copyPosition);
+      expect(result.copyBox.x).toBeCloseTo(
+        result.dropPoint.x - result.grabOffset.x,
+        -1,
+      );
+      expect(result.copyBox.y).toBeCloseTo(
+        result.dropPoint.y - result.grabOffset.y,
+        -1,
+      );
+    } finally {
+      await action(request, "delete-design", { id: designId }).catch(() => {});
+    }
+  });
+});
+
+test.describe("absolute child exit from a plain frame", () => {
+  test.use({ viewport: { width: 1600, height: 1000 } });
+
+  test("moves an absolute child into empty parent space directly after its exited frame", async ({
+    page,
+    request,
+  }) => {
+    const { designId } = await createDesign(
+      request,
+      PLAIN_FRAME_WITH_ABSOLUTE_CHILD_HTML,
+    );
+    try {
+      await gotoEditor(page, designId);
+      const frame = designFrame(page);
+      const child = frame.locator(
+        '[data-agent-native-node-id="absolute-child"]',
+      );
+      const exitFrame = frame.locator(
+        '[data-agent-native-node-id="exit-frame"]',
+      );
+      const laterSibling = frame.locator(
+        '[data-agent-native-node-id="later-sibling"]',
+      );
+      await expect(child).toBeVisible();
+      const [childBox, frameBox, laterBox] = await Promise.all([
+        child.boundingBox(),
+        exitFrame.boundingBox(),
+        laterSibling.boundingBox(),
+      ]);
+      if (!childBox || !frameBox || !laterBox) {
+        throw new Error("plain-frame exit fixture nodes need rendered bounds");
+      }
+      const zoom = await canvasZoom(page);
+      const grabOffset = { x: childBox.width / 2, y: childBox.height / 2 };
+      const start = {
+        x: childBox.x + grabOffset.x,
+        y: childBox.y + grabOffset.y,
+      };
+      const release = {
+        x: frameBox.x + frameBox.width + 48 * zoom,
+        y: frameBox.y + frameBox.height / 2,
+      };
+      expect(release.x).toBeLessThan(laterBox.x);
+      const expectedPosition = {
+        x: frameBox.x + frameBox.width,
+        y: release.y - grabOffset.y,
+      };
+
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x + 8, start.y + 6, { steps: 2 });
+      await page.mouse.move(release.x, release.y, { steps: 16 });
+      await page.mouse.up();
+
+      const bodyRoots = frame.locator("body > [data-agent-native-node-id]");
+      await expect(bodyRoots).toHaveCount(3, { timeout: 15_000 });
+      const order = await bodyRoots.evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+      );
+      expect(order).toEqual(["exit-frame", "absolute-child", "later-sibling"]);
+      await expect
+        .poll(() => child.evaluate((element) => element.parentElement?.tagName))
+        .toBe("BODY");
+      const movedBox = await child.boundingBox();
+      expect(movedBox).not.toBeNull();
+      expect(movedBox!.x).toBeCloseTo(expectedPosition.x, -1);
+      expect(movedBox!.y).toBeCloseTo(expectedPosition.y, -1);
+      const savedInlinePosition = await child.evaluate((element) => ({
+        left: (element as HTMLElement).style.left,
+        top: (element as HTMLElement).style.top,
+      }));
+
+      await expect
+        .poll(() => fileContent(request, designId, "index.html"))
+        .toContain('data-agent-native-node-id="absolute-child"');
+      await gotoEditor(page, designId);
+      const reloadedFrame = designFrame(page);
+      const reloadedChild = reloadedFrame.locator(
+        '[data-agent-native-node-id="absolute-child"]',
+      );
+      await expect(
+        reloadedFrame.locator("body > [data-agent-native-node-id]"),
+      ).toHaveCount(3);
+      await expect
+        .poll(() =>
+          reloadedChild.evaluate((element) => element.parentElement?.tagName),
+        )
+        .toBe("BODY");
+      expect(
+        await reloadedChild.evaluate((element) => ({
+          left: (element as HTMLElement).style.left,
+          top: (element as HTMLElement).style.top,
+        })),
+      ).toEqual(savedInlinePosition);
+      const persisted = await fileContent(request, designId, "index.html");
+      const persistedOrder = await page.evaluate((html) => {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        return Array.from(doc.body.children).map((node) =>
+          node.getAttribute("data-agent-native-node-id"),
+        );
+      }, persisted);
+      expect(persistedOrder).toEqual(order);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }

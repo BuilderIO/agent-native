@@ -7,8 +7,6 @@ import {
   BETA_REDIRECT_STORAGE_KEY,
 } from "../shared/environment-lanes.js";
 
-// `signingOut` is deliberately one-way for the life of a document, so every
-// case needs a fresh module rather than a reset hook.
 async function loadSignOut() {
   vi.resetModules();
   const [{ signOut }, { isSigningOut, useSession }] = await Promise.all([
@@ -54,9 +52,6 @@ afterEach(() => {
 describe("signOut", () => {
   it("stops trusting the session before it asks the server to revoke it", async () => {
     const { signOut, isSigningOut } = await loadSignOut();
-    // The reported bug: the app shell stayed authenticated for the whole
-    // revoke-plus-navigate window, so its queries 401ed and painted
-    // "Couldn't load data" over the app instead of landing on the auth page.
     let signingOutDuringRequest: boolean | undefined;
     vi.stubGlobal(
       "fetch",
@@ -73,8 +68,6 @@ describe("signOut", () => {
 
   it("waits for the revoke to land before navigating away", async () => {
     const { signOut } = await loadSignOut();
-    // Navigating first can abandon the request, leaving the server session
-    // live — the user gets silently signed back in on their next visit.
     let settleRevoke: (() => void) | undefined;
     const revoked = new Promise<void>((resolve) => {
       settleRevoke = resolve;

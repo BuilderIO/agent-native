@@ -242,7 +242,6 @@ function ActionItemsByPerson({
   const t = useT();
   const [adding, setAdding] = useState(false);
 
-  // Preserve original index for toggle callback while grouping.
   const grouped = useMemo(() => {
     const map = new Map<string, Array<{ item: ActionItem; index: number }>>();
     items.forEach((it, index) => {
@@ -540,7 +539,6 @@ export default function MeetingDetailRoute() {
   const richNoteSaveActiveRef = useRef(false);
   const meetingUpdatedAtRef = useRef<string | null>(null);
 
-  // Imperative scroll-to handle wired by TranscriptBubbles
   const transcriptScrollToRef = useRef<((index: number) => void) | null>(null);
 
   const meeting: Meeting | undefined = useMemo(() => {
@@ -576,8 +574,6 @@ export default function MeetingDetailRoute() {
       meeting.transcriptStatus === "in_progress")
   );
 
-  // Viewer-role shares are read-only: gate every edit affordance. Server
-  // actions also enforce an `editor` minimum, so this is purely UX.
   const canEdit =
     data?.role === "owner" || data?.role === "admin" || data?.role === "editor";
 
@@ -613,10 +609,6 @@ export default function MeetingDetailRoute() {
     meetingUpdatedAtRef.current = meeting?.updatedAt ?? null;
   }, [meeting?.id, meeting?.updatedAt]);
 
-  // Recording is a native Clips desktop-app gesture (Granola-style), not an
-  // in-browser capture. For an un-recorded, not-yet-past meeting we surface a
-  // handoff to the desktop app. While the desktop records, this web view polls
-  // and shows the live transcript it saves — no browser mic capture here.
   const meetingTimeMs = Date.parse(
     meeting?.scheduledEnd ?? meeting?.scheduledStart ?? "",
   );
@@ -639,8 +631,6 @@ export default function MeetingDetailRoute() {
     previousHasNotesRef.current = hasNotes;
   }, [hasNotes]);
 
-  // Live "time remaining" countdown (Granola parity) — ticks every 30s so it
-  // never needs to be exact to the second; hidden once scheduledEnd passes.
   const [nowForCountdown, setNowForCountdown] = useState(() => Date.now());
   useEffect(() => {
     if (!isLive || !meeting?.scheduledEnd) return;
@@ -767,9 +757,6 @@ export default function MeetingDetailRoute() {
           } catch (error) {
             console.error("[clips] rich note save failed", error);
             await refetchMeetingAfterSaveFailure();
-            // A newer blur may have arrived while the failed request was in
-            // flight. Refetch to refresh the CAS token, then put that latest
-            // draft back into the optimistic cache before retrying it.
             const nextPending = richNotePendingRef.current as {
               meetingId: string;
               patch: { summaryMd?: string; userNotesMd?: string };
@@ -922,16 +909,10 @@ export default function MeetingDetailRoute() {
 
   const handleFinalize = () => {
     if (!meeting) return;
-    // User-authored notes (userNotesMd) are separate and untouched by
-    // regeneration; only the AI summary/bullets are overwritten. Reassure
-    // the user their own notes are kept.
     if (hasNotes) {
       toast.info(t("meetingDetail.regeneratingNotes"));
     }
     autoFinalizedRef.current = true;
-    // force:true — manual regenerate must overwrite even if the server
-    // considers the current notes fresh (contract with finalize-meeting's
-    // concurrent `force` param). Auto-finalize stays without force.
     finalize.mutate({ meetingId: meeting.id, force: true });
   };
 
@@ -958,11 +939,6 @@ export default function MeetingDetailRoute() {
 
   const handleEndMeeting = () => {
     if (!meeting) return;
-    // The meeting share link is valid independently of the stop call, so copy
-    // it while the user's click still counts as activation instead of waiting
-    // on the mutation. The public meeting page resolves `visibility = public`
-    // rows only — anything else would hand the user a link that 404s for the
-    // people they send it to.
     if (meeting.visibility === "public" && typeof window !== "undefined") {
       const shareUrl = `${window.location.origin}${appPath(
         `/share/meeting/${meeting.id}`,
@@ -982,9 +958,6 @@ export default function MeetingDetailRoute() {
         });
       });
     }
-    // Optimistic: flip the live badge off immediately rather than waiting
-    // for the next 2s poll — stop-meeting-recording stamps actualEnd and
-    // flips transcriptStatus server-side.
     patchCachedMeeting({
       actualEnd: new Date().toISOString(),
       transcriptStatus:
@@ -1006,13 +979,10 @@ export default function MeetingDetailRoute() {
     );
   };
 
-  // Auto-generate notes once the transcript is ready and no notes yet.
-  // Depend on primitives only — the `meeting` object identity changes on every
-  // 2s poll, which would otherwise re-run this effect needlessly.
   const meetingIdForFinalize = meeting?.id;
   const transcriptStatusForFinalize = meeting?.transcriptStatus;
   useEffect(() => {
-    if (!canEdit) return; // viewers can't finalize — would 403
+    if (!canEdit) return;
     if (!meetingIdForFinalize) return;
     if (autoFinalizedRef.current) return;
     if (hasNotes) return;
@@ -1028,10 +998,6 @@ export default function MeetingDetailRoute() {
     finalize,
   ]);
 
-  // Failed, still pending, and loaded-but-absent are three outcomes: the query
-  // never retries, so collapsing any of them into the skeleton pins it forever.
-  // A failed live-poll on top of an already-loaded meeting is none of them —
-  // keep showing the meeting.
   if (lab.isSuccess && !lab.enabled) {
     return <Navigate replace to="/library" />;
   }
@@ -1193,10 +1159,6 @@ export default function MeetingDetailRoute() {
                     <DropdownMenuItem
                       onSelect={(event) => {
                         event.preventDefault();
-                        // Defer opening the second AlertDialog until after
-                        // the dropdown's own close animation/unmount so Radix
-                        // doesn't fight over focus/pointer state between the
-                        // two overlays.
                         setTimeout(() => setEndMeetingOpen(true), 0);
                       }}
                     >

@@ -110,8 +110,6 @@ export async function selectDefaultAgentEngine(
   }
 
   const requestedModel = input.model?.trim() || entry.defaultModel;
-  // A static registry entry cannot carry runtime endpoint state, so resolve
-  // both gateway and provider model capabilities before saving the selection.
   const acceptsCustomModels = await resolveEngineAcceptsCustomModels(entry);
   const preserveCustomModels = await resolveEnginePreservesCustomModels(entry);
   const resolvedModel = normalizeModelForEngine(entry, requestedModel, {

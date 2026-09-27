@@ -261,7 +261,6 @@ export default function ExplorerDashboardPage() {
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
     useActionMutation("hide-dashboard");
 
-  // ── Collaborative editing ──────────────────────────────────────────
   const { session } = useSession();
   const currentUser: CollabUser | undefined = session?.email
     ? {
@@ -284,7 +283,6 @@ export default function ExplorerDashboardPage() {
     user: currentUser,
   });
 
-  // Listen for remote collab changes
   useEffect(() => {
     if (!ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
@@ -306,10 +304,6 @@ export default function ExplorerDashboardPage() {
     };
   }, [ydoc, collabSynced]);
 
-  /**
-   * Push a config update through the collab layer so other tabs/users
-   * receive the change in real time.
-   */
   const pushToCollab = useCallback(
     (updated: ExplorerDashboardData) => {
       if (!collabDocId) return;
@@ -330,25 +324,8 @@ export default function ExplorerDashboardPage() {
   });
   const savedConfigs = savedConfigsQuery.data ?? [];
 
-  // Refetch the dashboard whenever the `dashboards` source bumps OR any agent
-  // action runs — the same "agent writes show up without a manual refresh"
-  // pattern the SQL dashboard page uses. We depend on both because:
-  // - `dashboards` covers same-process writes from upsertDashboard
-  // - `action` covers every successful agent action and is emitted by the
-  //   agent runner unconditionally, which makes the refresh resilient even if
-  //   the dashboards-store emit is missed (different process, etc.).
-  // Without this, an agent edit to an explorer dashboard only reached the open
-  // page through the collab Y.Text channel, which is silent on the first edit
-  // (seedFromText doesn't emit) — so the title/charts could go stale.
   const sync = useChangeVersions(["dashboards", "action"]);
   const dashboardQuery = useQuery({
-    // dashboardId is part of the key, so React Query keeps a separate cache
-    // entry per dashboard — no `placeholderData` (it would carry the previous
-    // dashboard's data across an id switch and flash the wrong dashboard).
-    // The skeleton shows until fresh data for the current id arrives, exactly
-    // like the original one-shot load. Same-key refetches (agent writes) keep
-    // the rendered `dashboard` state until the new data lands, so there's no
-    // flicker on those.
     queryKey: ["data", "explorer-dashboard", dashboardId, sync],
     enabled: !!dashboardId,
     queryFn: async () => {
@@ -481,9 +458,6 @@ export default function ExplorerDashboardPage() {
       }
       setDashboard(updated);
       pushToCollab(updated);
-      // Keep the cached dashboard query in sync with the optimistic write so a
-      // `sync` bump from our own save doesn't briefly flash stale data before
-      // the refetch lands.
       queryClient.setQueriesData<FetchedExplorerDashboard | null>(
         { queryKey: ["data", "explorer-dashboard", dashboardId] },
         (prev) => (prev ? { ...prev, data: updated } : prev),
@@ -615,7 +589,6 @@ export default function ExplorerDashboardPage() {
 
   if (!dashboard) return null;
 
-  // Config name lookup
   const configNameMap = new Map(savedConfigs.map((c) => [c.id, c.name]));
   const activeDragChart = activeDragChartId
     ? (dashboard.charts.find((chart) => chart.id === activeDragChartId) ?? null)

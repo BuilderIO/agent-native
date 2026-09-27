@@ -25,16 +25,6 @@ export function meta() {
   ];
 }
 
-/**
- * Run the redirect on both the server and the client. Doing it client-only
- * via `clientLoader` previously caused React Router to occasionally log
- * `No routes matched location "/inbox"` because the navigation fired during
- * hydration, before the route tree was fully attached. A `loader` runs as
- * part of the server response and the navigation completes before the app
- * hydrates. The server redirect stays preference-free for the public SSR
- * shell; client navigations can choose the saved preference only after a
- * successful settings read confirms there is no explicit pin list.
- */
 type MailPreferences = {
   pinnedLabels?: string[];
   combineInbox?: boolean;
@@ -87,8 +77,6 @@ export function HydrateFallback() {
   return <DefaultSpinner />;
 }
 
-// Private app entry retained at /home; / redirects to shared sign-in/signup.
 export default function IndexRoute() {
-  // Should never render — both loaders redirect to the inbox.
   return null;
 }

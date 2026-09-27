@@ -984,9 +984,6 @@ function AutomationsView({
   const selectedFromList = selectedId
     ? (automations.find((automation) => automation.id === selectedId) ?? null)
     : null;
-  // No automationId in the URL (e.g. arriving fresh from another tab, which
-  // no longer carries it): prefer the last automation opened on this factory
-  // over falling back to row 0.
   const persistedId = selectedId ? null : persistedLastAutomationId(factoryId);
   const persistedFromList = persistedId
     ? (automations.find((automation) => automation.id === persistedId) ?? null)
@@ -995,9 +992,6 @@ function AutomationsView({
     selectedFromList ??
     persistedFromList ??
     (selectedId ? null : (automations[0] ?? null));
-  // The list has loaded and does not contain the requested id: deleted, or from
-  // another factory. Distinct from the still-loading case, where `response` is
-  // undefined and the editor must keep waiting.
   const automationMissing =
     Boolean(selectedId) && !selectedFromList && response !== undefined;
   const modelOptions = useMemo(() => {
@@ -1056,8 +1050,6 @@ function AutomationsView({
     (id: string, listed: FactoryAutomation[] = automations) => {
       const nextAutomation = listed.find((automation) => automation.id === id);
       if (!nextAutomation) {
-        // Writing the id while the list still lacks the row is what the
-        // missing-automation empty state then reports as "gone".
         return false;
       }
       const nextDraft = draftForAutomation(nextAutomation);
@@ -1085,19 +1077,12 @@ function AutomationsView({
 
   useEffect(() => {
     if (!selected) {
-      // Only drop the draft once the list has spoken. While it is still loading
-      // an unresolved id is unknown, not missing.
       if (selectedId && !automationMissing) return;
       syncedConfigKeyRef.current = null;
       draftRef.current = null;
       setDraft((current) => (current === null ? current : null));
       return;
     }
-    // Covers the deep-link case too: a URL-provided automationId that
-    // resolves here never goes through selectAutomation's click handler, so
-    // without this it's never remembered -- leaving the tab and coming back
-    // (which drops automationId from the URL) falls back to a stale
-    // persisted id or row 0 instead of the one the link pointed to.
     persistLastAutomationId(factoryId, selected.id);
     if (!selectedId) {
       selectAutomation(selected.id);
@@ -1167,9 +1152,6 @@ function AutomationsView({
         inboxLimit: draft.inboxLimit,
         workLimit: draft.workLimit,
       });
-      // Save normalizes author ids, limits, and the timezone, so the refetched
-      // row is authoritative. Clearing the key makes the next sync adopt it
-      // instead of treating the draft as still-unsaved forever.
       syncedConfigKeyRef.current = null;
       await automationsQuery.refetch();
       void queryClient.invalidateQueries({
@@ -1217,8 +1199,6 @@ function AutomationsView({
   async function runAutomation() {
     if (!draft) return;
     if (draftHasUnsavedEdits(draft)) {
-      // A run reads the saved resource, so running now would execute a
-      // different config than the one on screen.
       toast.error(t("factoryRoute.automationRunNeedsSave"));
       return;
     }

@@ -15,31 +15,6 @@ import {
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 
-/**
- * The clip lane of the timeline: the sections of footage, the gaps where
- * footage was removed, and the handles that move the boundary between them.
- *
- * One rule governs every drag, and it is worth stating once:
- *
- *   **A boundary is dragged by the section that owns it, and it only ever
- *   resizes the gap on the other side of it.**
- *
- * Grab the red line left by a cut and you are holding the right-hand end of
- * the section to its *left*; pulling it left removes the footage you pull
- * past. To move the other side of the same cut you select the section to the
- * right and pull *its* left-hand end rightwards. A drag therefore can never
- * strand a second gap next to an existing one — when a gap is already there,
- * the drag moves that gap's edge instead of opening another.
- *
- * Future lanes (text overlays, redaction boxes) sit under this one and share
- * its geometry — see `timeline-geometry.ts` and the video-editing skill.
- */
-
-/**
- * What the user currently has selected. A clip is tracked by a point inside
- * it rather than by its edges, so the selection survives a resize; a gap is
- * tracked by the id of the cut behind it, which never changes.
- */
 export type TrackSelection =
   | { kind: "clip"; anchorMs: number }
   | { kind: "gap"; cutId: string }
@@ -47,71 +22,48 @@ export type TrackSelection =
   | { kind: "split"; splitId: string };
 
 export interface TimelineTrackProps {
-  /** Full (zoomed) track width in px — matches the waveform's total width. */
   width: number;
   height: number;
   durationMs: number;
-  /** Edits as currently shown, including any in-flight drag preview. */
   edits: EditsJson;
   selection: TrackSelection | null;
   onSelectionChange: (selection: TrackSelection | null) => void;
-  /** Called continuously during a drag so the rest of the editor can follow. */
   onPreview: (edits: EditsJson | null) => void;
-  /** Called once on release, with the edits to persist. */
   onCommit: (edits: EditsJson) => void;
   onSeek?: (originalMs: number) => void;
   disabled?: boolean;
   className?: string;
 }
 
-/** Nothing shorter than this is a gap — below it the cut closes again. */
 export const MIN_PIECE_MS = 80;
-/** Pointer travel before a press turns into a drag rather than a click. */
 const DRAG_THRESHOLD_PX = 3;
 const EDGE_HANDLE_PX = 13;
-/** A gap needs at least this much room before its restore button is drawn. */
 const RESTORE_BUTTON_MIN_PX = 26;
 
-/** Which end of a section a handle moves. */
 export type EdgeSide = "clip-start" | "clip-end";
 
-/**
- * A boundary between two pieces of the timeline: a red split line, or one
- * edge of a gap. Whichever it is, the sections either side of it are what can
- * be dragged, so they are carried along with it.
- */
 export interface TrackBoundary {
   atMs: number;
-  /** The section that ends here, if the boundary has footage to its left. */
   left: { startMs: number; endMs: number } | null;
-  /** The section that starts here, if the boundary has footage to its right. */
   right: { startMs: number; endMs: number } | null;
-  /** The gap this boundary is an edge of, if any. */
   cutId: string | null;
 }
 
-/** One drag in flight: an edge of one section, travelling between two bounds. */
 export interface DragTarget {
   kind: "edge";
   side: EdgeSide;
-  /** Where the boundary sat when the drag began. */
   boundaryMs: number;
-  /** The gap being resized, when the edge already borders one. */
   cutId: string | null;
-  /** How far the edge may travel — the section's far end, and the gap's. */
   minMs: number;
   maxMs: number;
-  /** Id for the gap this drag opens, if there is not one there already. */
   newCutId: string;
 }
 
 interface DragState {
   pointerId: number;
   startClientX: number;
-  /** Edits as they were when the press began — every move recomputes from these. */
   base: EditsJson;
   target: DragTarget;
-  /** The bare split line under the press, if that is what it was. */
   splitId: string | null;
   moved: boolean;
 }
@@ -120,12 +72,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-/**
- * The boundaries of the timeline, in order. Two clips meeting is a split; a
- * clip meeting a gap is one edge of that gap. A gap that runs to the very
- * start or end of the recording has no section on the outside of it, so that
- * side yields no boundary — there is nothing there to drag.
- */
 export function trackBoundaries(pieces: TimelinePiece[]): TrackBoundary[] {
   const out: TrackBoundary[] = [];
   for (let i = 0; i < pieces.length - 1; i++) {
@@ -152,14 +98,6 @@ export function trackBoundaries(pieces: TimelinePiece[]): TrackBoundary[] {
   return out;
 }
 
-/**
- * Work out what a press on a boundary will drag.
- *
- * The travel limits are fixed here, at the start of the gesture, so the rest
- * of the drag is a pure function of the pointer: an edge can eat its own
- * section and no more, and can give footage back only as far as the other
- * edge of the gap it is closing.
- */
 export function edgeDragTarget(
   edits: EditsJson,
   boundary: TrackBoundary,
@@ -195,13 +133,6 @@ export function edgeDragTarget(
   };
 }
 
-/**
- * Apply one drag to the snapshot the gesture started from.
- *
- * Moving an edge away from its own section removes the footage it passes
- * over; moving it back hands that footage over again, and closing the gap
- * below the minimum removes the cut outright rather than leaving a sliver.
- */
 export function applyDrag(
   base: EditsJson,
   durationMs: number,
@@ -212,7 +143,6 @@ export function applyDrag(
 
   if (target.cutId) {
     const cut = getCuts(base).find((c) => c.id === target.cutId);
-    // The gap went while the drag was in flight (an undo, or the agent).
     if (!cut) return base;
     return target.side === "clip-end"
       ? cut.endMs - at < MIN_PIECE_MS
@@ -229,13 +159,6 @@ export function applyDrag(
   return addCut(base, lo, hi, target.newCutId);
 }
 
-/**
- * Which end of a boundary a press picks up. A gap's edges are far enough
- * apart to be separate handles, so each one belongs to the section beside it.
- * A split line has a section on both sides at the same point: the left one
- * owns it, unless the user has selected the section to the right — which is
- * how you get at the other side of a cut.
- */
 export function boundarySide(
   boundary: TrackBoundary,
   selection: TrackSelection | null,
@@ -249,7 +172,6 @@ export function boundarySide(
   return rightSelected ? "clip-start" : "clip-end";
 }
 
-/** The point to remember a section by, kept at the end the drag is not moving. */
 function anchorFor(
   clip: { startMs: number; endMs: number },
   side: EdgeSide,
@@ -259,7 +181,6 @@ function anchorFor(
     : Math.max(clip.startMs, clip.endMs - 1);
 }
 
-/** Timeline pieces the user can click, drag and delete. Sits over the waveform. */
 export function TimelineTrack({
   width,
   height,
@@ -309,7 +230,6 @@ export function TimelineTrack({
       if (selection.kind === "gap") {
         return piece.kind === "gap" && piece.cutId === selection.cutId;
       }
-      // A selected red line highlights the line, not a piece.
       if (selection.kind === "split") return false;
       return (
         piece.kind === "clip" &&
@@ -334,12 +254,6 @@ export function TimelineTrack({
     [durationMs, onPreview, toMs],
   );
 
-  /**
-   * `commit` is false for a cancelled pointer. Cancellation is the browser
-   * taking the gesture away — a scroll starting, the pointer being captured
-   * elsewhere — not a release, so the preview is dropped and the cut is left
-   * where it was.
-   */
   const endDrag = useCallback(
     (e: React.PointerEvent, commit: boolean) => {
       const drag = dragRef.current;
@@ -349,8 +263,6 @@ export function TimelineTrack({
       onPreview(null);
       if (!commit) return;
       if (!drag.moved) {
-        // A press on a red line that never moved is a click on the line
-        // itself: selecting it is how an accidental cut gets deleted.
         if (drag.splitId) {
           onSelectionChange({ kind: "split", splitId: drag.splitId });
         }
@@ -361,11 +273,6 @@ export function TimelineTrack({
     [durationMs, onCommit, onPreview, onSelectionChange, toMs],
   );
 
-  /**
-   * Capture on the track itself, not on the handle. Opening a gap replaces
-   * the handle that was pressed — capture held there would be released
-   * mid-gesture and the rest of the drag would go missing.
-   */
   const beginDrag = (
     e: React.PointerEvent,
     target: DragTarget,
@@ -398,14 +305,10 @@ export function TimelineTrack({
           Math.min(width - left, toX(piece.endMs) - left),
         );
         const selected = isSelected(piece);
-        // Round off the two outer ends, so the track reads as a clip with a
-        // beginning and an end rather than something continuing off the page.
         const capLeft = index === 0;
         const capRight = index === pieces.length - 1;
 
         if (piece.kind === "gap") {
-          // A removed stretch is not draggable: selecting it is how you put it
-          // back, and its edges belong to the sections either side.
           return (
             <div
               key={piece.id}
@@ -424,8 +327,6 @@ export function TimelineTrack({
                   : "cursor-pointer hover:bg-rose-500/15",
                 selected && "bg-rose-500/20 ring-2 ring-inset ring-rose-400",
               )}
-              // The waveform canvas already hatches removed stretches, so the
-              // gap only adds the affordances: a hover tint and a ring.
               style={{ left, width: pieceWidth }}
               onPointerDown={(e) => {
                 if (disabled || e.button !== 0) return;
@@ -473,9 +374,6 @@ export function TimelineTrack({
                 : "border-transparent hover:border-primary/50 hover:bg-primary/5",
             )}
             style={{ left, width: pieceWidth }}
-            // Pressing a section selects it and takes the playhead there. The
-            // body never cuts: the edges do, which is what keeps a drag from
-            // meaning two different things.
             onPointerDown={(e) => {
               if (disabled || e.button !== 0) return;
               e.preventDefault();
@@ -512,8 +410,6 @@ export function TimelineTrack({
           selection?.kind === "clip" &&
           selection.anchorMs >= clip.startMs &&
           selection.anchorMs < clip.endMs;
-        // Only a bare line can be selected on its own: once there is a gap
-        // behind it, the edges belong to the sections either side.
         const splitId = boundary.cutId
           ? null
           : (splits.find((s) => s.startMs === boundary.atMs)?.id ?? null);
@@ -561,10 +457,6 @@ export function TimelineTrack({
   );
 }
 
-/**
- * The red line at a boundary, with a grip on the side of the section that
- * owns it and an arrow pointing the way a drag takes footage out.
- */
 function EdgeHandle({
   x,
   side,

@@ -37,9 +37,6 @@ describe("built-in connect-required renderer", () => {
     vi.unstubAllGlobals();
   });
 
-  // The reported dead end: the tool stopped on a missing integration and the
-  // user got prose with nothing to click. Any tool's result shape must produce
-  // the Connect control, with no chatUI renderer and no tool allow-list.
   it("renders a Connect control for any tool blocked on Builder", async () => {
     const context = {
       toolName: "start-workspace-app-creation",
@@ -104,9 +101,6 @@ describe("built-in connect-required renderer", () => {
     expect(link?.textContent).toContain("Acme");
   });
 
-  // A gated action that also advertises a table did not produce one when it
-  // stopped, so its declared renderer would paint an empty widget over the
-  // Connect control. Both resolver entry points must prefer the blocker.
   it("outranks the action's own chatUI renderer", async () => {
     const context = {
       toolName: "query-staged-dataset",
@@ -168,8 +162,6 @@ describe("built-in connect-required renderer", () => {
     expect(container.innerHTML).not.toContain("javascript:");
   });
 
-  // Builder can revoke upstream without the local status read noticing, so the
-  // card must offer a reconnect control rather than a Connected badge.
   it("offers a reconnect control even when status still reports connected", async () => {
     vi.stubGlobal(
       "fetch",

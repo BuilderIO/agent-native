@@ -494,10 +494,6 @@ function AttendeeRow({
       ? Math.floor(attendee.additionalGuests)
       : 0;
 
-  // One muted line under the name, the way Notion stacks it. The RSVP state is
-  // already on the avatar badge, so it does not get a line of its own; the
-  // attendee's local time still has to survive here because nothing else in the
-  // popover shows it.
   const subLabel = [
     attendee.organizer
       ? t("eventForm.organizer")

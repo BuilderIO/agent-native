@@ -178,8 +178,6 @@ describe("IntegrationsPanel MCP connection errors", () => {
 
     expect(container.textContent).toContain("Available integrations");
     expect(container.textContent).toContain("Context7");
-    // The featured Builder.io row is expected; the builder-cms catalog entry
-    // stays filtered out of the merged list (its description never renders).
     expect(container.textContent).not.toContain(
       "Search Builder Publish and Hybrid Space content.",
     );
@@ -199,7 +197,6 @@ describe("IntegrationsPanel MCP connection errors", () => {
       'input[aria-label="Search integrations"]',
     );
     expect(search?.value).toBe("Notion");
-    // The mock catalog has no Notion entry, so the filter empties the list.
     expect(container.textContent).not.toContain("Context7");
   });
 

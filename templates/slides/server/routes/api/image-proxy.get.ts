@@ -510,8 +510,6 @@ export default defineEventHandler(async (event) => {
     "Cache-Control",
     publicShare ? "private, no-store" : "private, max-age=3600",
   );
-  // The canvas reads these pixels back, so the response must be explicitly
-  // usable cross-origin even though it is served from our own host.
   event.node?.res?.setHeader("Access-Control-Allow-Origin", "*");
   return result.body;
 });

@@ -7,16 +7,61 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ComponentProps, ReactElement, ReactNode } from "react";
-import { MemoryRouter } from "react-router";
+import { type ComponentProps, type ReactElement, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { Link, MemoryRouter, useMatch } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type PromptPopover from "@/components/editor/PromptDialog";
 
 const systemFlag = vi.hoisted(() => ({ enabled: true, query: vi.fn() }));
+const suggestionQuery = vi.hoisted(() => ({
+  enabled: undefined as boolean | undefined,
+}));
+const inactiveHomeQueries = vi.hoisted(() => ({
+  workspaceDefaultsEnabled: true,
+  templateLibraryEnabled: true,
+}));
+const toastError = vi.hoisted(() => vi.fn());
+const homeImport = vi.hoisted(() => ({ current: null as unknown }));
+const promptUploads = vi.hoisted(() => ({
+  uploadPromptFiles: vi.fn(),
+  cleanupUploadedPromptFiles: vi.fn(),
+  formatPromptUploadFailure: vi.fn(
+    (_error: unknown, description: string) => description,
+  ),
+  isPromptUploadNetworkError: vi.fn(
+    (error: unknown) =>
+      error instanceof TypeError ||
+      (error instanceof Error &&
+        "code" in error &&
+        error.code === "reference_upload_network_failed"),
+  ),
+  isPromptUploadAuthRequiredError: vi.fn(
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "reference_storage_auth_required",
+  ),
+  isPromptUploadLimitError: vi.fn(
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "reference_storage_limit_exceeded",
+  ),
+  isPromptUploadStorageStatusError: vi.fn(
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "reference_storage_http_failed" ||
+        error.code === "reference_storage_contract_failed"),
+  ),
+}));
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => systemFlag.enabled,
 }));
+vi.mock("@/lib/prompt-file-uploads", () => promptUploads);
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
 
 const {
   useDecks,
@@ -31,6 +76,7 @@ const {
   contextOptions,
   refetchSystems,
   headerActions,
+  pageTitle,
   homeSuggestions,
 } = vi.hoisted(() => ({
   useDecks: vi.fn(),
@@ -45,6 +91,7 @@ const {
   contextOptions: vi.fn(),
   refetchSystems: vi.fn(),
   headerActions: { current: null as ReactNode | null },
+  pageTitle: { current: null as ReactNode | null },
   homeSuggestions: {
     value: [
       {
@@ -68,6 +115,11 @@ const translate = (key: string) =>
     "home.noDecksMatchSearch": "No decks match your search.",
     "home.loadFailed": "Couldn't load your content",
     "home.retry": "Retry",
+    "home.importMenu.networkFailed": "Network upload failed.",
+    "home.importMenu.notStarted": "Complete sign-in, then retry.",
+    "editorToolbar.uploadFailed": "Upload failed",
+    "editorToolbar.importFailedDescription":
+      "Something went wrong importing this file.",
     "root.searchDecks": "Search decks",
     "templatesPage.title": "Templates",
     "templatesPage.browseAll": "Browse all",
@@ -94,21 +146,25 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
+  actionErrorMessage: (error: Error) => error.message,
   useActionQuery: (
     name: string,
-    _params: Record<string, unknown>,
+    _args: unknown,
     options?: { enabled?: boolean },
-  ) =>
-    name === "generate-home-suggestions"
-      ? {
-          data:
-            options?.enabled === false
-              ? undefined
-              : { suggestions: homeSuggestions.value },
-          isLoading: false,
-          isError: false,
-        }
-      : { data: undefined, isLoading: false },
+  ) => {
+    if (name === "generate-home-suggestions") {
+      suggestionQuery.enabled = options?.enabled;
+      return {
+        data:
+          options?.enabled === false
+            ? undefined
+            : { suggestions: homeSuggestions.value },
+        isLoading: false,
+        isError: false,
+      };
+    }
+    return { data: undefined, isLoading: false };
+  },
   getBrowserTabId: () => "home-test",
   deleteClientAppState: vi.fn().mockResolvedValue(undefined),
   useSession: () => ({
@@ -124,21 +180,41 @@ vi.mock("@agent-native/core/client/onboarding", () => ({
 vi.mock("@agent-native/core/client/ui", () => ({
   buildSignInReturnHref: () => "/sign-in",
 }));
-vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
-  useHomeSearchShortcut: vi.fn(),
-  useSetHeaderActions: (actions: ReactNode) => {
-    headerActions.current = actions;
-  },
-  useSetPageTitle: vi.fn(),
-}));
+vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => {
+  const { useEffect } = await import("react");
+  return {
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app-shell")
+    >()),
+    useHomeSearchShortcut: vi.fn(),
+    useSetHeaderActions: (actions: ReactNode) => {
+      useEffect(() => {
+        headerActions.current = actions;
+        return () => {
+          headerActions.current = null;
+        };
+      }, [actions]);
+    },
+    useSetPageTitle: (title: ReactNode) => {
+      useEffect(() => {
+        pageTitle.current = title;
+        return () => {
+          pageTitle.current = null;
+        };
+      }, [title]);
+    },
+  };
+});
 vi.mock("@/context/DeckContext", () => ({
   useDecks,
   describeDeckPersistenceFailure: vi.fn(),
   deckIdFromPathname: vi.fn(),
 }));
 vi.mock("@/components/templates/DeckTemplateLibrary", () => ({
-  DeckTemplateLibrary: () => <div>Starter template library</div>,
+  DeckTemplateLibrary: ({ enabled }: { enabled?: boolean }) => {
+    inactiveHomeQueries.templateLibraryEnabled = enabled ?? true;
+    return <div>Starter template library</div>;
+  },
 }));
 vi.mock("@/hooks/use-agent-generating", () => ({
   useAgentGenerating: () => ({ generating: false, submit: agentSubmit }),
@@ -151,7 +227,10 @@ vi.mock("@/hooks/use-design-systems", () => ({
   ),
 }));
 vi.mock("@/hooks/use-workspace-defaults", () => ({
-  useWorkspaceDefaults: () => ({ refetch: vi.fn() }),
+  useWorkspaceDefaults: (enabled = true) => {
+    inactiveHomeQueries.workspaceDefaultsEnabled = enabled;
+    return { refetch: vi.fn() };
+  },
 }));
 vi.mock("@/components/editor/SlidesComposerContext", () => ({
   useSlidesComposerContext: (options: unknown) => {
@@ -170,12 +249,14 @@ vi.mock("@/components/design-system/DesignSystemSetup", () => ({
   }: {
     onClose: () => void;
     onComplete: () => void;
-  }) => (
-    <div role="dialog" aria-label="Existing system setup">
-      <button onClick={onClose}>Cancel setup</button>
-      <button onClick={onComplete}>Complete setup</button>
-    </div>
-  ),
+  }) =>
+    createPortal(
+      <div role="dialog" aria-label="Existing system setup">
+        <button onClick={onClose}>Cancel setup</button>
+        <button onClick={onComplete}>Complete setup</button>
+      </div>,
+      document.body,
+    ),
 }));
 vi.mock("@/components/deck/DeckCard", () => ({
   default: ({ deck }: { deck: { title: string } }) => (
@@ -186,20 +267,23 @@ vi.mock("@/components/editor/DeckEditorSkeleton", () => ({
   DeckEditorSkeleton: () => null,
 }));
 vi.mock("@/components/editor/ImportDeckButton", () => ({
-  ImportDeckButton: () => (
-    <div>
-      <button
-        onClick={(event) =>
-          event.currentTarget.parentElement
-            ?.querySelector<HTMLInputElement>("input")
-            ?.click()
-        }
-      >
-        home.importMenu.import
-      </button>
-      <input aria-label="editorToolbar.importFile" hidden />
-    </div>
-  ),
+  ImportDeckButton: ({ controller }: { controller: unknown }) => {
+    homeImport.current = controller;
+    return (
+      <div>
+        <button
+          onClick={(event) =>
+            event.currentTarget.parentElement
+              ?.querySelector<HTMLInputElement>("input")
+              ?.click()
+          }
+        >
+          home.importMenu.import
+        </button>
+        <input aria-label="editorToolbar.importFile" hidden />
+      </div>
+    );
+  },
 }));
 vi.mock("@/components/editor/NewDeckReferenceStep", () => ({
   NewDeckReferenceStep: (props: unknown) => {
@@ -226,6 +310,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import Index from "./Index";
 
+function ActiveIndex() {
+  return <Index active={useMatch("/home") !== null} />;
+}
+
 const ownDeck = {
   id: "own",
   title: "My presentation",
@@ -239,7 +327,11 @@ const sharedDeck = {
   updatedAt: "2026-09-24T00:00:00Z",
 };
 
-function renderHome(overrides: Record<string, unknown> = {}, state?: unknown) {
+function renderHome(
+  overrides: Record<string, unknown> = {},
+  state?: unknown,
+  pathname = "/home",
+) {
   useDecks.mockReturnValue({
     decks: [],
     loading: false,
@@ -250,9 +342,13 @@ function renderHome(overrides: Record<string, unknown> = {}, state?: unknown) {
     ...overrides,
   });
   const home = () => (
-    <MemoryRouter initialEntries={[{ pathname: "/home", state }]}>
+    <MemoryRouter initialEntries={[{ pathname, state }]}>
+      <nav>
+        <Link to="/templates">Open templates</Link>
+        <Link to="/home">Back home</Link>
+      </nav>
       <TooltipProvider>
-        <Index />
+        <ActiveIndex />
       </TooltipProvider>
     </MemoryRouter>
   );
@@ -263,6 +359,10 @@ function renderHome(overrides: Record<string, unknown> = {}, state?: unknown) {
 beforeEach(() => {
   vi.clearAllMocks();
   systemFlag.enabled = true;
+  suggestionQuery.enabled = undefined;
+  inactiveHomeQueries.workspaceDefaultsEnabled = true;
+  inactiveHomeQueries.templateLibraryEnabled = true;
+  homeImport.current = null;
   createDeck.mockReset();
   signedIn.value = true;
   agentEngine.state = "configured";
@@ -275,6 +375,9 @@ beforeEach(() => {
     },
   ];
   headerActions.current = null;
+  pageTitle.current = null;
+  promptUploads.uploadPromptFiles.mockReset();
+  promptUploads.cleanupUploadedPromptFiles.mockReset();
   for (const name of ["localStorage", "sessionStorage"]) {
     const values = new Map<string, string>();
     vi.stubGlobal(name, {
@@ -291,6 +394,27 @@ afterEach(() => {
 });
 
 describe("Slides prompt-led home", () => {
+  it("does not restore home header state while the mounted page is away from home", () => {
+    const { rerenderHome } = renderHome();
+    expect(headerActions.current).not.toBeNull();
+    expect(pageTitle.current).toBe("home.decksTitle");
+
+    fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
+    expect(headerActions.current).toBeNull();
+    expect(pageTitle.current).toBeNull();
+
+    rerenderHome();
+    expect(headerActions.current).toBeNull();
+    expect(pageTitle.current).toBeNull();
+  });
+
+  it("sets home chrome when the route has a trailing slash", () => {
+    renderHome({}, undefined, "/HOME/");
+
+    expect(headerActions.current).not.toBeNull();
+    expect(pageTitle.current).toBe("home.decksTitle");
+  });
+
   it("does not query or apply a system default or open new setup while disabled", async () => {
     systemFlag.enabled = false;
     renderHome();
@@ -330,6 +454,35 @@ describe("Slides prompt-led home", () => {
       await screen.findByRole("button", { name: "Complete setup" }),
     );
     expect(refetchSystems).toHaveBeenCalledOnce();
+    expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
+      composer,
+    );
+  });
+  it("closes Home dialogs when the route becomes inactive and keeps the composer mounted", async () => {
+    renderHome();
+    const composer = await screen.findByRole("textbox", {
+      name: "Presentation prompt",
+    });
+    await act(async () =>
+      contextOptions.mock.lastCall![0].onCreateDesignSystem(),
+    );
+    await screen.findByRole("dialog", { name: "Existing system setup" });
+
+    fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Existing system setup" }),
+      ).toBeNull(),
+    );
+    expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
+      composer,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Back home" }));
+    expect(
+      screen.queryByRole("dialog", { name: "Existing system setup" }),
+    ).toBeNull();
     expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
       composer,
     );
@@ -630,6 +783,64 @@ describe("Slides prompt-led home", () => {
     expect(createDeck).not.toHaveBeenCalled();
   });
 
+  it("pauses home suggestions while the retained Home route is inactive", async () => {
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    expect(suggestionQuery.enabled).toBe(true);
+    expect(systemFlag.query).toHaveBeenLastCalledWith(true);
+    expect(inactiveHomeQueries.workspaceDefaultsEnabled).toBe(true);
+    expect(inactiveHomeQueries.templateLibraryEnabled).toBe(true);
+    expect(promptProps.mock.lastCall![0].active).toBe(true);
+
+    fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0].disabled).toBe(true),
+    );
+    await waitFor(() => expect(suggestionQuery.enabled).toBe(false));
+    expect(systemFlag.query).toHaveBeenLastCalledWith(false);
+    expect(inactiveHomeQueries.workspaceDefaultsEnabled).toBe(false);
+    expect(inactiveHomeQueries.templateLibraryEnabled).toBe(false);
+    expect(promptProps.mock.lastCall![0].active).toBe(false);
+
+    fireEvent.click(screen.getByRole("link", { name: "Back home" }));
+    await waitFor(() => expect(suggestionQuery.enabled).toBe(true));
+    expect(systemFlag.query).toHaveBeenLastCalledWith(true);
+    expect(inactiveHomeQueries.workspaceDefaultsEnabled).toBe(true);
+    expect(inactiveHomeQueries.templateLibraryEnabled).toBe(true);
+    expect(promptProps.mock.lastCall![0].active).toBe(true);
+  });
+
+  it("preserves the pending reference step across template navigation", async () => {
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const attachments = { commit: vi.fn(), discard: vi.fn(), attachments: [] };
+    await act(async () => {
+      const props = promptProps.mock.lastCall![0] as ComponentProps<
+        typeof PromptPopover
+      >;
+      expect(
+        await props.onSubmit("My outline", [], attachments, {
+          model: "test-model",
+          engine: "builder",
+          effort: "high",
+        }),
+      ).toBe("retain");
+    });
+    expect(referenceProps.mock.lastCall![0].open).toBe(true);
+
+    fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
+    await waitFor(() =>
+      expect(referenceProps.mock.lastCall![0].open).toBe(false),
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Back home" }));
+    await waitFor(() =>
+      expect(referenceProps.mock.lastCall![0].open).toBe(true),
+    );
+    expect(attachments.discard).not.toHaveBeenCalled();
+  });
+
   it("falls back to prompts that can create a new presentation", async () => {
     homeSuggestions.value = [];
     renderHome();
@@ -687,6 +898,125 @@ describe("Slides prompt-led home", () => {
     ).toBe("My outline");
     expect(attachments.discard).toHaveBeenCalledOnce();
     expect(createDeck).not.toHaveBeenCalled();
+  });
+
+  it("uses generic copy for a storage status failure during reference import", async () => {
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const attachments = { commit: vi.fn(), discard: vi.fn(), attachments: [] };
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "My outline",
+        [],
+        attachments,
+        {
+          model: "test-model",
+          engine: "builder",
+          effort: "high",
+        },
+      );
+    });
+    promptUploads.uploadPromptFiles.mockRejectedValue(
+      Object.assign(
+        new Error("Reference file storage status could not be verified"),
+        {
+          code: "reference_storage_http_failed",
+        },
+      ),
+    );
+
+    await act(async () => {
+      await referenceProps.mock.lastCall![0].onImport([
+        new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+      ]);
+    });
+
+    expect(toastError).toHaveBeenCalledWith("Upload failed", {
+      description: "Something went wrong importing this file.",
+    });
+  });
+
+  it("cleans uploaded files when importing the reference deck fails", async () => {
+    const uploaded = {
+      path: "/uploads/reference.pptx",
+      originalName: "reference.pptx",
+      filename: "reference.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 4,
+    };
+    promptUploads.uploadPromptFiles.mockResolvedValue([uploaded]);
+    callAction.mockRejectedValueOnce(new Error("Import failed"));
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit("Outline", [], {
+        commit: vi.fn(),
+        discard: vi.fn(),
+        attachments: [],
+      });
+    });
+    await act(async () => {
+      await referenceProps.mock.lastCall![0].onImport([
+        new File(["pptx"], "reference.pptx"),
+      ]);
+    });
+
+    expect(promptUploads.cleanupUploadedPromptFiles).toHaveBeenCalledWith([
+      uploaded,
+    ]);
+  });
+
+  it("cleans a direct-import upload when the PPTX import action fails", async () => {
+    const uploaded = {
+      path: "/uploads/direct.pptx",
+      originalName: "direct.pptx",
+      filename: "direct.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 4,
+    };
+    promptUploads.uploadPromptFiles.mockResolvedValue([uploaded]);
+    callAction.mockRejectedValueOnce(new Error("Import failed"));
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await (
+        homeImport.current as {
+          importFile: (file: File, scope: "pptx") => Promise<boolean>;
+        }
+      ).importFile(new File(["pptx"], "direct.pptx"), "pptx");
+    });
+
+    expect(promptUploads.cleanupUploadedPromptFiles).toHaveBeenCalledWith([
+      uploaded,
+    ]);
+  });
+
+  it("preserves the filename when a direct-import upload needs sign-in", async () => {
+    const authError = Object.assign(new Error("Sign-in required"), {
+      code: "reference_storage_auth_required",
+      fileName: "direct.pptx",
+    });
+    promptUploads.uploadPromptFiles.mockRejectedValue(authError);
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await (
+        homeImport.current as {
+          importFile: (file: File, scope: "pptx") => Promise<boolean>;
+        }
+      ).importFile(new File(["pptx"], "direct.pptx"), "pptx");
+    });
+
+    expect(promptUploads.formatPromptUploadFailure).toHaveBeenCalledWith(
+      authError,
+      "Sign-in required",
+    );
+    expect((homeImport.current as { error: string }).error).toBe(
+      "Sign-in required",
+    );
   });
 
   it("reopens after sign-in cancellation and preserves the auth draft and model", async () => {

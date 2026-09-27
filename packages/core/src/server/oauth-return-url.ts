@@ -44,8 +44,6 @@ function isBuilderPreviewOrigin(origin: string): boolean {
 }
 
 export function getWorkspaceGatewayReturnOrigin(): string {
-  // Loopback-only, inverted from getPublicOAuthOrigin: this is the local-dev
-  // gateway a return URL may point back at.
   const origin = normalizeOrigin(getAppConfig().workspace.gatewayUrl);
   return origin && isLoopbackOrigin(origin) ? origin : "";
 }

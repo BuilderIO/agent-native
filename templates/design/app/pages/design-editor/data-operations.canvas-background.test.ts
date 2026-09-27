@@ -27,8 +27,6 @@ describe("getDesignCanvasBackground", () => {
   });
 
   it("rejects a non-colour string rather than trusting it", () => {
-    // This value is interpolated into a style attribute, so an arbitrary
-    // persisted string would be a CSS injection vector.
     expect(
       getDesignCanvasBackground({ canvasBackground: "red; position: fixed" }),
     ).toBeNull();
@@ -57,8 +55,6 @@ describe("sanitizeCanvasBackground", () => {
   });
 
   it("rejects the same injection shapes as the persisted reader", () => {
-    // The draft goes straight into a style attribute during the drag, so it
-    // needs the same gate as the stored value.
     expect(sanitizeCanvasBackground("red; position: fixed")).toBeNull();
     expect(sanitizeCanvasBackground("")).toBeNull();
     expect(sanitizeCanvasBackground(null)).toBeNull();

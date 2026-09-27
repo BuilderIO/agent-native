@@ -3,10 +3,6 @@ import { defineEventHandler, createError } from "h3";
 
 import { triggerAutomationsDebounced } from "../lib/automation-engine.js";
 
-// Automation rule CRUD lives on the action surface (`list-email-rules`,
-// `create-email-rule`, `update-email-rule`, `delete-email-rule`) backed by
-// ../lib/automations.js. Only the trigger endpoint remains a route.
-
 export const triggerAutomations = defineEventHandler(async (event) => {
   const session = await getSession(event);
   if (!session?.email) {

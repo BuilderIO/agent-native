@@ -1,11 +1,3 @@
-/**
- * Default framework-level onboarding steps.
- *
- * Registered when `createOnboardingPlugin()` mounts (auto-mount or explicit).
- * Templates can override any step by registering another step with the same
- * `id` after these have been registered.
- */
-
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import {
   PROVIDER_ENV_META,
@@ -173,7 +165,6 @@ const llmStep: OnboardingStep = {
   },
 };
 
-/** Step 2 — where application data lives. The default DB is non-blocking. */
 const databaseStep: OnboardingStep = {
   id: "database",
   order: 20,
@@ -199,11 +190,9 @@ const databaseStep: OnboardingStep = {
       },
     },
   ],
-  // The default local database means this step is always satisfied.
   isComplete: () => true,
 };
 
-/** Step 3 — how users sign in. Built-in account auth is non-blocking. */
 const authStep: OnboardingStep = {
   id: "auth",
   order: 30,
@@ -285,9 +274,6 @@ const emailStep: OnboardingStep = {
   },
   isComplete: async () => {
     if (await resolveSecret("RESEND_API_KEY")) return true;
-    // SendGrid rejects Resend's sandbox sender, so EMAIL_FROM must also be
-    // set — otherwise sendEmail() throws at runtime even though the API key
-    // is configured.
     if (await resolveSecret("SENDGRID_API_KEY")) {
       return !!(await resolveSecret("EMAIL_FROM"));
     }
@@ -347,8 +333,6 @@ const githubRepositoryStep: OnboardingStep = {
         const { resolveWorkspaceConnectionCredentialForApp } =
           await import("../workspace-connections/index.js");
         const result = await resolveWorkspaceConnectionCredentialForApp({
-          // Deliberately not `resolveOnboardingAppId()` — that normalizes, and
-          // this id is matched against a stored workspace connection grant.
           appId:
             getAppConfig().app.id ?? getAppConfig().app.packageName ?? "app",
           provider: "github",
@@ -437,14 +421,9 @@ const fileStorageStep: OnboardingStep = {
 
 let registered = false;
 
-/** Idempotent. Safe to call from every plugin-mount call. */
 export function registerDefaultOnboardingSteps(): void {
   if (registered) return;
   registered = true;
-  // The framework provides a generic S3/R2 implementation for the custom-key
-  // onboarding path. A template may hold the same provider id with a
-  // domain-specific implementation, and this plugin mounts in no fixed order
-  // relative to that registration, so claim the slot only when it is free.
   ensureS3FileUploadProvider();
   registerOnboardingStep(llmStep);
   registerOnboardingStep(fileStorageStep);

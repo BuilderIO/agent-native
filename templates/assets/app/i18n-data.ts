@@ -1126,7 +1126,6 @@ type PartialMessages = {
   };
 };
 
-// TODO(l10n): translate after QA.
 const referenceBoardL10nTodo = {
   addReference: "Add reference",
   referenceBoard: "Reference board",

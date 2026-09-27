@@ -281,8 +281,6 @@ describe("OrgSwitcher (account menu)", () => {
   });
 
   it("keeps the compact trigger to the avatar, with name and org in the tooltip", () => {
-    // A collapsed sidebar rail used to drop the switcher entirely, which left
-    // no way to reach another workspace or the "Join your team" list.
     mocks.useOrg.mockReturnValue({
       data: {
         email: "brent@builder.io",
@@ -306,8 +304,6 @@ describe("OrgSwitcher (account menu)", () => {
       "Brent Locks, Brent's workspace",
     );
     expect(button.textContent).toBe("BL");
-    // Rail neighbours use the shared tooltip; a native `title` reads as a
-    // missing tooltip next to them.
     expect(button.getAttribute("title")).toBeNull();
     // The tooltip and the menu both target this one button. Anything
     // rendered between the menu trigger and the button eats the click.

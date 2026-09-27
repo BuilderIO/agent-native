@@ -19,7 +19,6 @@ export interface AgentAskPopoverProps {
   size?: "xs" | "sm";
 }
 
-/** A low-emphasis entry point for asking the agent without losing the current surface. */
 export function AgentAskPopover({
   prompt,
   title,

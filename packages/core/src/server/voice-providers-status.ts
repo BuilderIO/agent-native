@@ -1,17 +1,3 @@
-/**
- * GET /_agent-native/voice-providers/status
- *
- * Reports which voice transcription providers are configured for the
- * current user. The desktop Settings UI uses this to show "Connect" vs
- * "Connected" status pills next to each provider option.
- *
- * Resolution mirrors `transcribe-voice.ts`: we read request-scoped encrypted
- * secrets (user, org, workspace), with env fallback only outside authenticated
- * request contexts. Each lookup is wrapped in try/catch — one provider's
- * failure must never break the whole response.
- *
- * Returns booleans only — never the actual key material.
- */
 import {
   defineEventHandler,
   getMethod,
@@ -42,21 +28,8 @@ export interface VoiceProvidersStatus {
   gemini: boolean;
   openai: boolean;
   groq: boolean;
-  /**
-   * Google Speech-to-Text realtime streaming is BYOK-only for v1. This reports
-   * whether a service-account credential is configured; the actual stream runs
-   * through the dedicated WebSocket -> StreamingRecognize path, not the batch
-   * transcribe route.
-   */
   googleRealtime: boolean;
-  /** Always true — the Web Speech API is available in WebKit-based clients. */
   browser: true;
-  /**
-   * Apple's SFSpeechRecognizer + AVAudioEngine, exposed by the Tauri
-   * desktop client. Always reported as `true` from the server — the
-   * desktop client gates this on macOS at the Tauri-command boundary, so
-   * non-macOS hosts return a clear error instead of attempting to use it.
-   */
   native: true;
   /**
    * The organization's Voice input choice (Settings › Infrastructure), tried
@@ -91,8 +64,6 @@ export function createVoiceProvidersStatusHandler() {
     async function hasKey(key: string): Promise<boolean> {
       try {
         if (key === "GOOGLE_APPLICATION_CREDENTIALS") {
-          // Same identity, passed explicitly — the context is here only so this
-          // scope sweep shares the prefetched per-request memo below.
           const resolved = await withRequestContext(() =>
             resolveGoogleRealtimeCredentials({
               userEmail: session?.email,
@@ -110,7 +81,6 @@ export function createVoiceProvidersStatusHandler() {
       }
     }
 
-    // One read per scope for every key below, instead of one per key per scope.
     await withRequestContext(() =>
       prefetchSecrets([
         ...secretKeyNames(GEMINI_API_KEY),
