@@ -360,8 +360,10 @@ function CalendarLayout() {
           }}
         >
           <div
+            data-agent-native-app-skeleton-calendar-toolbar="true"
             style={{
               display: "flex",
+              flexWrap: "wrap",
               alignItems: "center",
               gap: 12,
               paddingBottom: 18,
