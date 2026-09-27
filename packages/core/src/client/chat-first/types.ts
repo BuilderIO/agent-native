@@ -70,6 +70,7 @@ export interface ChatFirstAppRailProps {
   loading?: boolean;
   error?: string | null;
   collapsed?: boolean;
+  grayscaleInactiveIcons?: boolean;
   layout?: ChatFirstAppLayoutPreference;
   onLayoutChange?: (layout: ChatFirstAppLayoutPreference) => void;
   onLayoutError?: (reason: "unavailable" | "write-failed") => void;

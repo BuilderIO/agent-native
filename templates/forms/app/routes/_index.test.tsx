@@ -9,11 +9,19 @@ const cancelPrewarmMock = vi.hoisted(() => vi.fn());
 const sendToAgentChatMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentChatSurface: (props: Record<string, unknown>) => {
-    agentChatSurfaceMock(props);
+  AgentChatHome: (props: Record<string, unknown>) => {
+    agentChatSurfaceMock({
+      mode: "page",
+      centerComposerWhenEmpty: true,
+      composerLayoutVariant: "hero",
+      emptyStateDisplay: "hidden",
+      suggestionPlacement: "context-chips",
+      ...props,
+    });
     return (
       <div data-testid="agent-chat-surface">
         {props.composerSlot as React.ReactNode}
+        {props.homeIntroSlot as React.ReactNode}
       </div>
     );
   },

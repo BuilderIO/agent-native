@@ -373,6 +373,7 @@ const enUS = {
       monitoring: "Monitoring",
       database: "Database",
       chatAcrossApps: "Chat across your apps",
+      chatHomeTitle: "What should we do?",
       chatAcrossAppsDescription:
         "Route work, inspect status, or create something new from one place.",
       overviewPromptPlaceholder: "What would you like to make happen?",
@@ -1313,6 +1314,7 @@ export const messagesByLocale = {
           monitoring: "监控",
           database: "数据库",
           chatAcrossApps: "跨应用聊天",
+          chatHomeTitle: "我们该做什么？",
           chatAcrossAppsDescription:
             "在一个地方分派工作、检查状态或创建新内容。",
           overviewPromptPlaceholder: "想让 Dispatch 帮你做什么？",
@@ -1775,6 +1777,7 @@ export const messagesByLocale = {
           monitoring: "Monitorización",
           database: "Base de datos",
           chatAcrossApps: "Chatea con todas tus aplicaciones",
+          chatHomeTitle: "¿Qué deberíamos hacer?",
           chatAcrossAppsDescription:
             "Dirige el trabajo, revisa el estado o crea algo nuevo desde un solo lugar.",
           overviewPromptPlaceholder: "¿Qué te gustaría hacer?",
@@ -2247,6 +2250,7 @@ export const messagesByLocale = {
           monitoring: "Surveillance",
           database: "Base de données",
           chatAcrossApps: "Discutez avec toutes vos applications",
+          chatHomeTitle: "Que devrions-nous faire ?",
           chatAcrossAppsDescription:
             "Acheminez le travail, vérifiez l’état ou créez du contenu depuis un seul endroit.",
           overviewPromptPlaceholder: "Que souhaitez-vous faire ?",
@@ -2707,6 +2711,7 @@ export const messagesByLocale = {
           monitoring: "Überwachung",
           database: "Datenbank",
           chatAcrossApps: "App-übergreifend chatten",
+          chatHomeTitle: "Was sollten wir tun?",
           chatAcrossAppsDescription:
             "Leite Arbeit weiter, prüfe den Status oder erstelle Neues an einem Ort.",
           overviewPromptPlaceholder: "Was möchtest du erledigen?",
@@ -3162,6 +3167,7 @@ export const messagesByLocale = {
           monitoring: "監視",
           database: "データベース",
           chatAcrossApps: "アプリを横断してチャット",
+          chatHomeTitle: "何をしましょうか？",
           chatAcrossAppsDescription:
             "1 か所から作業を振り分け、状況を確認し、新しいものを作成できます。",
           overviewPromptPlaceholder: "何をしたいですか？",
@@ -3610,6 +3616,7 @@ export const messagesByLocale = {
           monitoring: "모니터링",
           database: "데이터베이스",
           chatAcrossApps: "앱 전체에서 채팅",
+          chatHomeTitle: "무엇을 하면 좋을까요?",
           chatAcrossAppsDescription:
             "한곳에서 작업을 전달하고 상태를 확인하거나 새로운 것을 만드세요.",
           overviewPromptPlaceholder: "무엇을 하고 싶으신가요?",
@@ -4070,6 +4077,7 @@ export const messagesByLocale = {
           monitoring: "Monitoramento",
           database: "Banco de dados",
           chatAcrossApps: "Converse entre seus apps",
+          chatHomeTitle: "O que devemos fazer?",
           chatAcrossAppsDescription:
             "Encaminhe trabalhos, verifique o status ou crie algo novo em um só lugar.",
           overviewPromptPlaceholder: "O que você gostaria de fazer?",
@@ -4516,6 +4524,7 @@ export const messagesByLocale = {
           monitoring: "निगरानी",
           database: "डेटाबेस",
           chatAcrossApps: "अपने सभी ऐप्स में चैट करें",
+          chatHomeTitle: "हमें क्या करना चाहिए?",
           chatAcrossAppsDescription:
             "एक ही स्थान से काम भेजें, स्थिति जाँचें या कुछ नया बनाएँ।",
           overviewPromptPlaceholder: "आप क्या करना चाहते हैं?",
@@ -4993,6 +5002,7 @@ export const messagesByLocale = {
           monitoring: "المراقبة",
           database: "قاعدة البيانات",
           chatAcrossApps: "تحدث عبر تطبيقاتك",
+          chatHomeTitle: "ماذا ينبغي أن نفعل؟",
           chatAcrossAppsDescription:
             "وجّه العمل وتحقق من الحالة أو أنشئ شيئًا جديدًا من مكان واحد.",
           overviewPromptPlaceholder: "ماذا تريد أن تفعل؟",

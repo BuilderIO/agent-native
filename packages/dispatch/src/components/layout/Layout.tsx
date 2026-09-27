@@ -282,9 +282,23 @@ interface SearchAgentThreadsResult {
 const DispatchExtensionsContext = createContext<
   DispatchExtensionConfig | undefined
 >(undefined);
+interface DispatchWorkspaceAppLauncher {
+  apps: readonly ChatFirstAppItem[];
+  isLoading: boolean;
+  error?: unknown;
+  openApp: (app: ChatFirstAppItem) => void;
+  retry: () => void;
+}
+
+const DispatchWorkspaceAppLauncherContext =
+  createContext<DispatchWorkspaceAppLauncher | null>(null);
 
 export function useDispatchExtensions(): DispatchExtensionConfig | undefined {
   return useContext(DispatchExtensionsContext);
+}
+
+export function useDispatchWorkspaceAppLauncher() {
+  return useContext(DispatchWorkspaceAppLauncherContext);
 }
 
 function pageOwnsToolbar(pathname: string): boolean {
@@ -1066,6 +1080,7 @@ export function NavContent({
       activeAppId={chatFirstActiveAppId}
       activeTab={chatFirstActivePrimaryTab}
       collapsed={collapsed}
+      grayscaleInactiveIcons={false}
       loading={chatFirstAppsLoading}
       error={chatFirstAppsError}
       layout={chatFirstAppLayout}
@@ -1080,12 +1095,11 @@ export function NavContent({
         onNavigate?.();
       }}
       createAppTrigger={chatFirstCreateAppTrigger}
-      renderIcon={(app, options) => (
+      renderIcon={(app) => (
         <AppIcon
           id={app.id}
           name={app.name}
           size="sm"
-          monochrome={options?.isInactive}
           className="size-7 rounded-lg"
         />
       )}
@@ -1464,6 +1478,35 @@ export function Layout({
       void navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
     },
     [chatFirstAppRegistrations, navigate],
+  );
+  const chatHomeAppLauncher = useMemo<DispatchWorkspaceAppLauncher>(
+    () => ({
+      apps: chatFirstAppItems,
+      isLoading:
+        chatFirstAppsQuery.isLoading || chatFirstGrantedAppsQuery.isLoading,
+      error: chatFirstAppsQuery.isError
+        ? chatFirstAppsQuery.error
+        : chatFirstGrantedAppsQuery.isError
+          ? chatFirstGrantedAppsQuery.error
+          : undefined,
+      openApp: openChatFirstApp,
+      retry: () => {
+        void chatFirstAppsQuery.refetch();
+        void chatFirstGrantedAppsQuery.refetch();
+      },
+    }),
+    [
+      chatFirstAppsQuery.error,
+      chatFirstAppsQuery.isError,
+      chatFirstAppsQuery.isLoading,
+      chatFirstAppsQuery.refetch,
+      chatFirstGrantedAppsQuery.error,
+      chatFirstGrantedAppsQuery.isError,
+      chatFirstGrantedAppsQuery.isLoading,
+      chatFirstGrantedAppsQuery.refetch,
+      chatFirstAppItems,
+      openChatFirstApp,
+    ],
   );
   const chatFirstCopy = useMemo(() => createDispatchChatFirstCopy(t), [t]);
   const [chatFirstPane, setChatFirstPane] =
@@ -2197,22 +2240,26 @@ export function Layout({
   if (electronEmbedded) {
     return (
       <DispatchExtensionsContext.Provider value={extensions}>
-        <HeaderActionsProvider>
-          <div
-            data-dispatch-electron-control-plane
-            className="flex h-screen w-full overflow-hidden bg-background"
-          >
-            <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-              <Header showAgentToggle={false} />
-              <InvitationBanner />
-              <main className="flex-1 overflow-y-auto">
-                <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
-                  {children}
-                </div>
-              </main>
+        <DispatchWorkspaceAppLauncherContext.Provider
+          value={chatHomeAppLauncher}
+        >
+          <HeaderActionsProvider>
+            <div
+              data-dispatch-electron-control-plane
+              className="flex h-screen w-full overflow-hidden bg-background"
+            >
+              <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+                <Header showAgentToggle={false} />
+                <InvitationBanner />
+                <main className="flex-1 overflow-y-auto">
+                  <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
+                    {children}
+                  </div>
+                </main>
+              </div>
             </div>
-          </div>
-        </HeaderActionsProvider>
+          </HeaderActionsProvider>
+        </DispatchWorkspaceAppLauncherContext.Provider>
       </DispatchExtensionsContext.Provider>
     );
   }
@@ -2452,98 +2499,102 @@ export function Layout({
 
   return (
     <DispatchExtensionsContext.Provider value={extensions}>
-      <HeaderActionsProvider>
-        <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
-          <aside
-            data-collapsed={sidebarCollapsed ? "true" : "false"}
-            className={cn(
-              "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
-              sidebarCollapsed ? "w-14" : "w-[260px]",
-            )}
-          >
-            <NavContent
-              extensions={extensions}
-              brandName={brandName}
-              brandIcon={brandIcon}
-              chatFirstMode={chatFirstMode}
-              chatFirstEmbedded={chatFirstEmbedded}
-              collapsed={sidebarCollapsed}
-              chatFirstAppLayout={chatFirstAppLayout}
-              onChatFirstAppLayoutChange={persistChatFirstAppLayout}
-              chatFirstApps={chatFirstAppItems}
-              chatFirstAppsLoading={chatFirstAppsQuery.isLoading}
-              chatFirstAppsError={
-                chatFirstAppsQuery.isError
-                  ? chatFirstCopy("appsLoadError")
-                  : null
-              }
-              chatFirstActiveAppId={chatFirstActiveAppId}
-              chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
-              onChatFirstNewChat={() => {
-                closeChatFirstSessionWatch();
-                chatFirstSurfaceTabsStore.closeAll();
-                setChatFirstSurfacePanelOpen(false);
-              }}
-              onChatFirstAppOpen={(app) => {
-                if (isDispatchWorkspaceAppId(app.id)) return;
-                setSidebarCollapsed(true);
-                openChatFirstApp(app);
-              }}
-              onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
-              collapsible
-              onCollapsedChange={setSidebarCollapsed}
-            />
-          </aside>
-
-          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetContent
-              side="left"
-              className="w-72 bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+      <DispatchWorkspaceAppLauncherContext.Provider value={chatHomeAppLauncher}>
+        <HeaderActionsProvider>
+          <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
+            <aside
+              data-collapsed={sidebarCollapsed ? "true" : "false"}
+              className={cn(
+                "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
+                sidebarCollapsed ? "w-14" : "w-[260px]",
+              )}
             >
-              <SheetTitle className="sr-only">
-                {t("dispatch.nav.navigation")}
-              </SheetTitle>
-              <SheetDescription className="sr-only">
-                {t("dispatch.nav.navigationDescription")}
-              </SheetDescription>
-              <div className="flex h-full w-full flex-col">
-                <NavContent
-                  extensions={extensions}
-                  brandName={brandName}
-                  brandIcon={brandIcon}
-                  chatFirstMode={chatFirstMode}
-                  chatFirstEmbedded={chatFirstEmbedded}
-                  collapsed={false}
-                  chatFirstAppLayout={chatFirstAppLayout}
-                  onChatFirstAppLayoutChange={persistChatFirstAppLayout}
-                  chatFirstApps={chatFirstAppItems}
-                  chatFirstAppsLoading={chatFirstAppsQuery.isLoading}
-                  chatFirstAppsError={
-                    chatFirstAppsQuery.isError
-                      ? chatFirstCopy("appsLoadError")
-                      : null
-                  }
-                  chatFirstActiveAppId={chatFirstActiveAppId}
-                  chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
-                  onChatFirstNewChat={() => {
-                    closeChatFirstSessionWatch();
-                    chatFirstSurfaceTabsStore.closeAll();
-                    setChatFirstSurfacePanelOpen(false);
-                  }}
-                  onChatFirstAppOpen={openChatFirstApp}
-                  onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
-                  onNavigate={() => setMobileOpen(false)}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
+              <NavContent
+                extensions={extensions}
+                brandName={brandName}
+                brandIcon={brandIcon}
+                chatFirstMode={chatFirstMode}
+                chatFirstEmbedded={chatFirstEmbedded}
+                collapsed={sidebarCollapsed}
+                chatFirstAppLayout={chatFirstAppLayout}
+                onChatFirstAppLayoutChange={persistChatFirstAppLayout}
+                chatFirstApps={chatFirstAppItems}
+                chatFirstAppsLoading={chatFirstAppsQuery.isLoading}
+                chatFirstAppsError={
+                  chatFirstAppsQuery.isError
+                    ? chatFirstCopy("appsLoadError")
+                    : null
+                }
+                chatFirstActiveAppId={chatFirstActiveAppId}
+                chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
+                onChatFirstNewChat={() => {
+                  closeChatFirstSessionWatch();
+                  chatFirstSurfaceTabsStore.closeAll();
+                  setChatFirstSurfacePanelOpen(false);
+                }}
+                onChatFirstAppOpen={(app) => {
+                  if (isDispatchWorkspaceAppId(app.id)) return;
+                  setSidebarCollapsed(true);
+                  openChatFirstApp(app);
+                }}
+                onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
+                collapsible
+                onCollapsedChange={setSidebarCollapsed}
+              />
+            </aside>
 
-          <div className="relative min-w-0 flex-1 overflow-hidden">
-            {content}
-            {workspaceAppContent}
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetContent
+                side="left"
+                className="w-72 bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+              >
+                <SheetTitle className="sr-only">
+                  {t("dispatch.nav.navigation")}
+                </SheetTitle>
+                <SheetDescription className="sr-only">
+                  {t("dispatch.nav.navigationDescription")}
+                </SheetDescription>
+                <div className="flex h-full w-full flex-col">
+                  <NavContent
+                    extensions={extensions}
+                    brandName={brandName}
+                    brandIcon={brandIcon}
+                    chatFirstMode={chatFirstMode}
+                    chatFirstEmbedded={chatFirstEmbedded}
+                    collapsed={false}
+                    chatFirstAppLayout={chatFirstAppLayout}
+                    onChatFirstAppLayoutChange={persistChatFirstAppLayout}
+                    chatFirstApps={chatFirstAppItems}
+                    chatFirstAppsLoading={chatFirstAppsQuery.isLoading}
+                    chatFirstAppsError={
+                      chatFirstAppsQuery.isError
+                        ? chatFirstCopy("appsLoadError")
+                        : null
+                    }
+                    chatFirstActiveAppId={chatFirstActiveAppId}
+                    chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
+                    onChatFirstNewChat={() => {
+                      closeChatFirstSessionWatch();
+                      chatFirstSurfaceTabsStore.closeAll();
+                      setChatFirstSurfacePanelOpen(false);
+                    }}
+                    onChatFirstAppOpen={openChatFirstApp}
+                    onChatFirstAppsRetry={() =>
+                      void chatFirstAppsQuery.refetch()
+                    }
+                    onNavigate={() => setMobileOpen(false)}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            <div className="relative min-w-0 flex-1 overflow-hidden">
+              {content}
+              {workspaceAppContent}
+            </div>
           </div>
-        </div>
-      </HeaderActionsProvider>
+        </HeaderActionsProvider>
+      </DispatchWorkspaceAppLauncherContext.Provider>
     </DispatchExtensionsContext.Provider>
   );
 }

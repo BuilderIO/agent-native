@@ -2543,6 +2543,13 @@ function AgentKitEmptyState({ threadId }: { threadId: string }) {
     return null;
   }
   const showDefault = surface.props.emptyStateDisplay !== "hidden";
+  if (
+    !showDefault &&
+    !surface.props.emptyStateAddon &&
+    !surface.props.emptyStateFooter
+  ) {
+    return null;
+  }
   const promptSuggestions =
     surface.props.suggestionPlacement !== "context-chips" &&
     surface.props.suggestionPlacement !== "hidden" &&
@@ -2662,29 +2669,23 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
     (message) => !threadMessageIds.has(message.id),
   );
+  const showHomeSuggestions =
+    surface.props.centerComposerWhenEmpty &&
+    thread.messages.length === 0 &&
+    surface.threadRestore.status === "ready";
   const suggestionBar =
     surface.props.suggestionPlacement === "context-chips" &&
+    !showHomeSuggestions &&
     surface.showSuggestions &&
     surface.suggestions.length > 0 ? (
-      <AgentSuggestionBar
-        ariaLabel={t("agentChat.composer.suggestedPrompts")}
-        suggestions={surface.suggestions.map((suggestion, index) => ({
-          ...(typeof suggestion === "string"
-            ? {
-                id: `host-suggestion-${index}-${suggestion}`,
-                label: suggestion,
-                prompt: suggestion,
-              }
-            : suggestion),
-          disabled: Boolean(
-            !surface.canChat ||
-            surface.props.composerDisabled ||
-            surface.isSubmissionInFlight,
-          ),
-        }))}
-        onSelect={(suggestion) =>
-          surface.submitSuggestion(agentSuggestionPrompt(suggestion))
+      <AgentKitSuggestedPrompts
+        suggestions={surface.suggestions}
+        disabled={
+          !surface.canChat ||
+          surface.props.composerDisabled ||
+          surface.isSubmissionInFlight
         }
+        onSelect={surface.submitSuggestion}
         className="agentkit-host-suggestions"
       />
     ) : null;
@@ -2961,6 +2962,9 @@ function AgentKitComposerSurface({
   isRunning,
   isRestoring,
   isSubmissionInFlight,
+  threadRestore,
+  suggestions,
+  showSuggestions,
   setupBouncePulse,
   bounceSetupCard,
   contextItems,
@@ -2972,6 +2976,7 @@ function AgentKitComposerSurface({
   onClearSelection,
   onBeforeSubmit,
   onSubmit,
+  submitSuggestion,
   onImplementPlan,
 }: {
   threadId: string;
@@ -3000,6 +3005,12 @@ function AgentKitComposerSurface({
   onClearSelection: () => void;
   onBeforeSubmit: () => Promise<boolean>;
   onSubmit: PromptComposerProps["onSubmit"];
+  threadRestore:
+    | { status: "ready" | "loading" }
+    | { status: "error"; notFound: boolean };
+  suggestions: AgentSuggestionInput[];
+  showSuggestions: boolean;
+  submitSuggestion: (prompt: string) => void;
   onImplementPlan: () => boolean;
 }) {
   const t = useT();
@@ -3031,6 +3042,21 @@ function AgentKitComposerSurface({
     variant: "composer",
     requestedByUser: true,
   });
+  const showHomeIntro =
+    props.homeIntroSlot &&
+    thread.messages.length === 0 &&
+    threadRestore.status === "ready";
+  const showHomeSuggestions =
+    props.centerComposerWhenEmpty &&
+    thread.messages.length === 0 &&
+    threadRestore.status === "ready" &&
+    props.suggestionPlacement === "context-chips" &&
+    showSuggestions &&
+    suggestions.length > 0;
+  const showAfterComposerSlot =
+    props.afterComposerSlot &&
+    thread.messages.length === 0 &&
+    threadRestore.status === "ready";
   return (
     <div
       ref={fileStorageAnchorRef}
@@ -3053,6 +3079,17 @@ function AgentKitComposerSurface({
             })}
       />
       {props.composerSlot}
+      {showHomeIntro ? (
+        <div className="agentkit-home-intro">{props.homeIntroSlot}</div>
+      ) : null}
+      {showHomeSuggestions ? (
+        <AgentKitSuggestedPrompts
+          suggestions={suggestions}
+          disabled={!canChat || props.composerDisabled || isSubmissionInFlight}
+          onSelect={submitSuggestion}
+          className="agentkit-home-suggestions"
+        />
+      ) : null}
       {showPlanCallout ? (
         <PlanModeCallout
           canImplementPlan={latestAssistantWasPlan}
@@ -3245,7 +3282,45 @@ function AgentKitComposerSurface({
         ) : null}
         <ExternalAgentNudge variant="prompt" />
       </div>
+      {showAfterComposerSlot ? (
+        <div className="agentkit-after-composer-slot">
+          {props.afterComposerSlot}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function AgentKitSuggestedPrompts({
+  suggestions,
+  disabled,
+  onSelect,
+  className,
+}: {
+  suggestions: AgentSuggestionInput[];
+  disabled: boolean;
+  onSelect: (prompt: string) => void;
+  className: string;
+}) {
+  const t = useT();
+  return (
+    <AgentSuggestionBar
+      ariaLabel={t("agentChat.composer.suggestedPrompts")}
+      suggestions={suggestions.map((suggestion, index) => ({
+        ...(typeof suggestion === "string"
+          ? {
+              id: `host-suggestion-${index}-${suggestion}`,
+              label: suggestion,
+              prompt: suggestion,
+            }
+          : suggestion),
+        disabled: Boolean(
+          disabled || (typeof suggestion !== "string" && suggestion.disabled),
+        ),
+      }))}
+      onSelect={(suggestion) => onSelect(agentSuggestionPrompt(suggestion))}
+      className={className}
+    />
   );
 }
 

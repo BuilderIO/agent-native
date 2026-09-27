@@ -25,6 +25,8 @@ const chatMocks = vi.hoisted(() => ({
   failureProps: null as any,
   failureError: { code: "test-error", message: "Run failed" } as any,
   setupCardProps: null as any,
+  suggestionBarProps: null as any,
+  dynamicSuggestionOptions: null as any,
   approvalRequest: null as any,
   approvalCardProps: null as any,
   reasoningProps: null as any,
@@ -164,7 +166,10 @@ vi.mock("@agent-native/agentkit/react/root", async () => {
 });
 
 vi.mock("@agent-native/toolkit/composer", () => ({
-  AgentSuggestionBar: () => null,
+  AgentSuggestionBar: (props: unknown) => {
+    chatMocks.suggestionBarProps = props;
+    return null;
+  },
   agentSuggestionPrompt: (suggestion: any) =>
     typeof suggestion === "string" ? suggestion : suggestion.prompt,
 }));
@@ -311,7 +316,13 @@ vi.mock("./clipboard.js", () => ({
 }));
 
 vi.mock("./dynamic-suggestions.js", () => ({
-  useAgentDynamicSuggestionsResult: () => ({ suggestions: [] }),
+  useAgentDynamicSuggestionsResult: (options: unknown) => {
+    chatMocks.dynamicSuggestionOptions = options;
+    return {
+      suggestions: (options as { staticSuggestions?: string[] })
+        .staticSuggestions,
+    };
+  },
 }));
 
 vi.mock("./external-agent-host.js", () => ({ ExternalAgentNudge: () => null }));
@@ -484,6 +495,8 @@ beforeEach(() => {
   chatMocks.failureProps = null;
   chatMocks.failureError = { code: "test-error", message: "Run failed" };
   chatMocks.setupCardProps = null;
+  chatMocks.suggestionBarProps = null;
+  chatMocks.dynamicSuggestionOptions = null;
   chatMocks.approvalRequest = null;
   chatMocks.approvalCardProps = null;
   chatMocks.reasoningProps = null;
@@ -537,6 +550,32 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("places empty home content and starter prompts above the composer", async () => {
+    await mount(
+      baseProps({
+        centerComposerWhenEmpty: true,
+        suggestionPlacement: "context-chips",
+        homeIntroSlot: <h1>What should we do?</h1>,
+        afterComposerSlot: <div data-testid="home-app-grid" />,
+        suggestions: ["Explore my apps"],
+      }),
+    );
+
+    const composer = container.querySelector(".agentkit-host-composer");
+    expect(
+      composer?.querySelector(".agentkit-home-intro h1")?.textContent,
+    ).toBe("What should we do?");
+    expect(chatMocks.dynamicSuggestionOptions.staticSuggestions).toEqual([
+      "Explore my apps",
+    ]);
+    expect(chatMocks.suggestionBarProps.className).toBe(
+      "agentkit-home-suggestions",
+    );
+    expect(
+      composer?.querySelector(".agentkit-after-composer-slot"),
+    ).not.toBeNull();
+  });
+
   it("provides the host-pinned thinking display to the direct AgentKit surface", async () => {
     await mount(baseProps({ thinkingDisplay: "hidden" }));
 

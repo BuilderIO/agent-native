@@ -47,7 +47,7 @@ describe("dispatch Tailwind styles", () => {
     );
 
     expect(stylesheet).toMatch(
-      /\.dispatch-chat-panel \[data-agent-empty-state="centered"\] \.agent-composer-area \{[\s\S]*?max-width: min\(750px, 100%\);/,
+      /\.dispatch-chat-panel[\s\S]*?\.agentkit-chat\[data-empty=\\?"true\\?"\]\[data-empty-composer-placement=\\?"center\\?"\][\s\S]*?\.agent-composer-area \{[\s\S]*?max-width: min\(750px, 100%\);/,
     );
   });
 });

@@ -236,13 +236,21 @@
 }
 
 .crm-chat-intro {
-  display: none;
+  display: grid;
+  width: 100%;
+  max-width: min(670px, 90%);
+  gap: 0.5rem;
+  margin: 0 auto 1rem;
+  text-align: center;
 }
-.crm-chat-panel [data-agent-empty-state="centered"] {
+.crm-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
   justify-content: center;
   padding-bottom: clamp(4rem, 12vh, 8rem);
 }
-.crm-chat-panel [data-agent-empty-state="centered"] .crm-chat-intro {
+.crm-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .crm-chat-intro {
   display: grid;
   width: 100%;
   max-width: min(670px, 90%);
@@ -263,17 +271,23 @@
   font-size: 0.9375rem;
   line-height: 1.5;
 }
-.crm-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
+.crm-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .agent-chat-scroll {
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
 }
-.crm-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
+.crm-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .agent-composer-area {
   width: 100%;
   max-width: min(750px, 100%);
   padding: 0;
 }
-.crm-chat-panel [data-agent-empty-state="centered"] .agent-composer-root {
+.crm-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .agent-composer-root {
   min-height: 7.5rem;
   border-color: hsl(var(--border));
   border-radius: 1rem;
@@ -281,7 +295,7 @@
   box-shadow: none;
 }
 .crm-chat-panel
-  [data-agent-empty-state="centered"]
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-composer-prosemirror {
   min-height: 4.75rem;
   font-size: 1rem;
@@ -289,12 +303,17 @@
 }
 
 @media (max-width: 767px) {
-  .crm-chat-panel [data-agent-empty-state="centered"] {
+  .crm-chat-panel
+    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
     padding: 1rem;
     padding-bottom: 5rem;
   }
-  .crm-chat-panel [data-agent-empty-state="centered"] .agent-composer-area,
-  .crm-chat-panel [data-agent-empty-state="centered"] .crm-chat-intro {
+  .crm-chat-panel
+    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+    .agent-composer-area,
+  .crm-chat-panel
+    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+    .crm-chat-intro {
     max-width: 100%;
   }
 }

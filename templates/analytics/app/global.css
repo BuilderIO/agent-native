@@ -146,7 +146,8 @@
 }
 
 .analytics-chat-intro {
-  display: none;
+  display: grid;
+  gap: 0.5rem;
 }
 
 .dark .analytics-ask-page .analytics-chat-panel {
@@ -162,7 +163,7 @@
 }
 
 .analytics-chat-panel
-  [data-agent-empty-state="centered"]
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .analytics-chat-intro {
   display: grid;
   width: 100%;
@@ -188,7 +189,9 @@
   line-height: 1.5;
 }
 
-.analytics-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
+.analytics-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .agent-chat-scroll {
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
@@ -198,16 +201,20 @@
   padding-inline: 1rem;
 }
 
-.analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-area,
 .analytics-chat-panel
-  [data-agent-empty-state="centered"]
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .agent-composer-area,
+.analytics-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-plan-mode-callout {
   width: 100%;
   max-width: min(750px, 100%);
   padding: 0;
 }
 
-.analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-root {
+.analytics-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .agent-composer-root {
   min-height: 7.875rem;
   border-color: hsl(var(--border));
   border-radius: 1rem;
@@ -355,7 +362,7 @@
 .dark
   .analytics-ask-page
   .analytics-chat-panel
-  [data-agent-empty-state="centered"]
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-composer-root {
   background: color-mix(
     in srgb,
@@ -366,7 +373,7 @@
 }
 
 .analytics-chat-panel
-  [data-agent-empty-state="centered"]
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-composer-prosemirror {
   min-height: 5.0625rem;
   font-size: 1rem;
@@ -374,13 +381,14 @@
 }
 
 @media (max-width: 767px) {
-  .analytics-chat-panel [data-agent-empty-state="centered"] {
+  .analytics-chat-panel
+    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
     padding: 1rem;
     padding-bottom: 5rem;
   }
 
   .analytics-chat-panel
-    [data-agent-empty-state="centered"]
+    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .analytics-chat-intro {
     width: 100%;
     max-width: min(640px, 95%);
@@ -398,13 +406,13 @@
   }
 
   .analytics-chat-panel
-    [data-agent-empty-state="centered"]
+    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .agent-composer-area {
     width: 100%;
   }
 
   .analytics-chat-panel
-    [data-agent-empty-state="centered"]
+    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .agent-composer-root {
     min-height: 6.75rem;
   }
