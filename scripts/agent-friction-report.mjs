@@ -68,6 +68,49 @@ const BETA_PUBLISHER_RUN_INTERFERENCE_RE = new RegExp(
   "i",
 );
 
+const BETA_OVERVERIFICATION_RE = {
+  test(text) {
+    return text
+      .split(/[.!?;:\n]|\b(?:but|however|whereas|although)\b/i)
+      .some((clause) => {
+        const betaIndex = clause.search(/\b(?:beta|staging)\b/i);
+        if (betaIndex < 0) return false;
+
+        const context = clause.slice(
+          Math.max(0, betaIndex - 100),
+          betaIndex + 120,
+        );
+        return (
+          /\b(?:test(?:ing)?|checks?|verify|verifying|smoke|e2e|end[- ]to[- ]end)\b/i.test(
+            context,
+          ) &&
+          /\b(?:every|each|all|routine|always|by default|repeatedly)\b/i.test(
+            context,
+          ) &&
+          /\b(?:too many|too much|extensive|excessive|overkill|unnecessary|needlessly|not needed|no need|(?:don['’]?t|do not)\s+(?:need|add|get|test|check|verify|run)|stop\s+(?:testing|checking|running))\b/i.test(
+            context,
+          )
+        );
+      });
+  },
+};
+
+const BETA_OVERVERIFICATION_REGEX_CASES = [
+  [true, "All threads are testing beta right now and it's extensive."],
+  [true, "No need to test beta on every PR."],
+  [true, "Don't need an E2E check on every beta change."],
+  [true, "Do not get a beta E2E check for every app."],
+  [true, "Don't add beta E2E checks for every task."],
+  [true, "Routine beta E2E for all apps is overkill."],
+  [true, "All tasks get E2E on beta, and it's too much."],
+  [true, "Don't test beta E2E on every small change."],
+  [false, "Don't skip beta E2E checks for every task."],
+  [false, "Don't run production tests but always run beta E2E for every page."],
+  [false, "Beta E2E is required for every auth callback."],
+  [false, "All beta E2E checks passed."],
+  [false, "Production tests are unnecessary; the beta check passed."],
+];
+
 const WORKTREE_PERMISSION_CORRECTION_RE =
   /\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:permission|approval)s?\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\s+before\b[^.!?\n]{0,120}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:whether|if)\b[^.!?\n]{0,40}\b(?:you|i|we)\s+(?:can|could|may)\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:only|just)\s+ask\b[^.!?\n]{0,80}\b(?:permission|approval)s?\b[^.!?\n]{0,80}\b(?:outside|not in)\s+(?:a\s+)?worktrees?\b|\bno\s+(?:permissions?|approval)\s+(?:(?:are|is)\s+)?needed\b/i;
 const WORKTREE_BRANCH_CONTEXT_RE =
@@ -1098,6 +1141,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...BETA_OVERVERIFICATION_REGEX_CASES.filter(
+      ([expected, message]) =>
+        BETA_OVERVERIFICATION_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.filter(
       ([expected, message]) =>
         BABYSIT_LEASE_BLOCKS_WORK_RE.test(message) !== expected,
@@ -1147,7 +1196,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -1309,7 +1358,7 @@ const PATTERNS = [
     key: "beta-oververification",
     label: "Had to stop routine beta behavior checks",
     fixedBy: ".agents/skills/verifying-changes + ship-and-monitor (2026-09-27)",
-    re: /(?=[^.!?]{0,240}\b(?:beta|staging)\b)(?=[^.!?]{0,240}\b(?:test|check|verify|smoke|e2e)\w*\b)(?=[^.!?]{0,240}\b(?:every|each|all|routine|always|by default|repeatedly|too many|too much|extensive|excessive|overkill|unnecessary|no need|not needed)\b)(?=[^.!?]{0,240}\b(?:too many|too much|excessive|extensive|overkill|unnecessary|needlessly|no need|not needed|a lot)\b|[^.!?]{0,240}\b(?:don['’]?t|do not|stop|no need to)\s+(?:test|check|verify|smoke|run)\w*\b)[^.!?]{0,240}/i,
+    re: BETA_OVERVERIFICATION_RE,
   },
   {
     key: "beta-publisher-run-interference",
