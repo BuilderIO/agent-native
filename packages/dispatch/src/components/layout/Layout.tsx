@@ -355,6 +355,13 @@ export function shouldAutoCollapseDispatchSidebar(pathname: string): boolean {
   return localDispatchPath(pathname).startsWith("/apps/");
 }
 
+export function shouldQueryChatFirstApps(
+  isChatRoute: boolean,
+  chatFirstMode: boolean,
+): boolean {
+  return isChatRoute || chatFirstMode;
+}
+
 /**
  * The redesigned Settings brings its own navigation, header, and agent
  * toggle, so it renders full width. While the flag loads it shows the
@@ -1435,7 +1442,7 @@ export function Layout({
   const chatFirstAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
     { includeAgentCards: false, includeArchived: true },
-    { enabled: isChatRoute },
+    { enabled: shouldQueryChatFirstApps(isChatRoute, chatFirstMode) },
   );
   const chatFirstGrantedAppsQuery = useActionQuery<ChatFirstGrantedAppsResult>(
     "list_apps",
